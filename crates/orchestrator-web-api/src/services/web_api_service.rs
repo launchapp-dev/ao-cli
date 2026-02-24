@@ -261,6 +261,7 @@ impl WebApiService {
         assignee_type: Option<String>,
         tags: Vec<String>,
         linked_requirement: Option<String>,
+        linked_architecture_entity: Option<String>,
         search: Option<String>,
     ) -> Result<Value, WebApiError> {
         let task_filter = build_task_filter(
@@ -271,6 +272,7 @@ impl WebApiService {
             assignee_type,
             tags,
             linked_requirement,
+            linked_architecture_entity,
             search,
         )?;
 
@@ -293,6 +295,7 @@ impl WebApiService {
         assignee_type: Option<String>,
         tags: Vec<String>,
         linked_requirement: Option<String>,
+        linked_architecture_entity: Option<String>,
         search: Option<String>,
     ) -> Result<Value, WebApiError> {
         let project = self.context.hub.projects().get(id).await?;
@@ -305,6 +308,7 @@ impl WebApiService {
             assignee_type,
             tags,
             linked_requirement,
+            linked_architecture_entity,
             search,
         )?;
 
@@ -350,6 +354,7 @@ impl WebApiService {
             ),
             tags: request.tags,
             linked_requirements: request.linked_requirements,
+            linked_architecture_entities: request.linked_architecture_entities,
         };
 
         let task = self.context.hub.tasks().create(input).await?;
@@ -379,6 +384,7 @@ impl WebApiService {
                     .unwrap_or_else(|| DEFAULT_UPDATED_BY.to_string()),
             ),
             deadline: request.deadline,
+            linked_architecture_entities: request.linked_architecture_entities,
         };
 
         let task = self.context.hub.tasks().update(id, input).await?;
@@ -781,6 +787,8 @@ struct TaskCreateRequest {
     tags: Vec<String>,
     #[serde(default)]
     linked_requirements: Vec<String>,
+    #[serde(default)]
+    linked_architecture_entities: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -801,6 +809,8 @@ struct TaskPatchRequest {
     updated_by: Option<String>,
     #[serde(default)]
     deadline: Option<String>,
+    #[serde(default)]
+    linked_architecture_entities: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -893,6 +903,7 @@ fn build_task_filter(
     assignee_type: Option<String>,
     tags: Vec<String>,
     linked_requirement: Option<String>,
+    linked_architecture_entity: Option<String>,
     search: Option<String>,
 ) -> Result<TaskFilter, WebApiError> {
     Ok(TaskFilter {
@@ -907,6 +918,7 @@ fn build_task_filter(
         assignee_type,
         tags: if tags.is_empty() { None } else { Some(tags) },
         linked_requirement,
+        linked_architecture_entity,
         search_text: search,
     })
 }
@@ -919,6 +931,7 @@ fn is_empty_task_filter(filter: &TaskFilter) -> bool {
         && filter.assignee_type.is_none()
         && filter.tags.is_none()
         && filter.linked_requirement.is_none()
+        && filter.linked_architecture_entity.is_none()
         && filter.search_text.is_none()
 }
 

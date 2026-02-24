@@ -857,6 +857,7 @@ mod tests {
                 created_by: Some("test".to_string()),
                 tags: Vec::new(),
                 linked_requirements: Vec::new(),
+                linked_architecture_entities: Vec::new(),
             })
             .await
             .expect("dependency task should be created");
@@ -871,6 +872,7 @@ mod tests {
                 created_by: Some("test".to_string()),
                 tags: Vec::new(),
                 linked_requirements: Vec::new(),
+                linked_architecture_entities: Vec::new(),
             })
             .await
             .expect("blocked task should be created");
@@ -947,6 +949,7 @@ mod tests {
                 created_by: Some("test".to_string()),
                 tags: Vec::new(),
                 linked_requirements: Vec::new(),
+                linked_architecture_entities: Vec::new(),
             })
             .await
             .expect("task should be created");
@@ -981,6 +984,7 @@ mod tests {
                 created_by: Some("test".to_string()),
                 tags: Vec::new(),
                 linked_requirements: Vec::new(),
+                linked_architecture_entities: Vec::new(),
             })
             .await
             .expect("task should be created");
@@ -1046,6 +1050,7 @@ mod tests {
                 created_by: Some("test".to_string()),
                 tags: Vec::new(),
                 linked_requirements: Vec::new(),
+                linked_architecture_entities: Vec::new(),
             })
             .await
             .expect("task should be created");
@@ -1106,6 +1111,7 @@ mod tests {
                 created_by: Some("test".to_string()),
                 tags: Vec::new(),
                 linked_requirements: Vec::new(),
+                linked_architecture_entities: Vec::new(),
             })
             .await
             .expect("task should be created");
@@ -1147,6 +1153,7 @@ mod tests {
                 created_by: Some("test".to_string()),
                 tags: Vec::new(),
                 linked_requirements: Vec::new(),
+                linked_architecture_entities: Vec::new(),
             })
             .await
             .expect("task should be created");

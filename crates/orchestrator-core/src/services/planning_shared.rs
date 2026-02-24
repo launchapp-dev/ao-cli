@@ -682,6 +682,7 @@ Run `ao requirements draft`/`ao requirements refine` (or upsert explicit constra
                     },
                     estimated_effort: None,
                     linked_requirements: vec![requirement.id.clone()],
+                    linked_architecture_entities: Vec::new(),
                     dependencies: Vec::new(),
                     checklist: default_task_checklist(needs_research, now),
                     tags: {

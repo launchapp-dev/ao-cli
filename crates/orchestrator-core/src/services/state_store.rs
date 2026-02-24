@@ -15,6 +15,8 @@ pub(super) struct CoreState {
     pub(super) vision: Option<VisionDocument>,
     #[serde(default)]
     pub(super) requirements: HashMap<String, RequirementItem>,
+    #[serde(default)]
+    pub(super) architecture: ArchitectureGraph,
 }
 
 impl CoreState {

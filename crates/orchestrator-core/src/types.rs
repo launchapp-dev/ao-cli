@@ -444,6 +444,67 @@ pub struct CodebaseInsight {
     pub file_count_scanned: usize,
 }
 
+fn default_architecture_schema() -> String {
+    "ao.architecture.v1".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArchitectureEntity {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub code_paths: Vec<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub metadata: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArchitectureEdge {
+    pub id: String,
+    pub from: String,
+    pub to: String,
+    pub relation: String,
+    #[serde(default)]
+    pub rationale: Option<String>,
+    #[serde(default)]
+    pub metadata: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArchitectureGraph {
+    #[serde(default = "default_architecture_schema")]
+    pub schema: String,
+    #[serde(default)]
+    pub entities: Vec<ArchitectureEntity>,
+    #[serde(default)]
+    pub edges: Vec<ArchitectureEdge>,
+    #[serde(default)]
+    pub metadata: HashMap<String, Value>,
+}
+
+impl Default for ArchitectureGraph {
+    fn default() -> Self {
+        Self {
+            schema: default_architecture_schema(),
+            entities: Vec::new(),
+            edges: Vec::new(),
+            metadata: HashMap::new(),
+        }
+    }
+}
+
+impl ArchitectureGraph {
+    pub fn has_entity(&self, entity_id: &str) -> bool {
+        self.entities.iter().any(|entity| entity.id == entity_id)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum HandoffTargetRole {
@@ -897,6 +958,8 @@ pub struct OrchestratorTask {
     #[serde(default)]
     pub linked_requirements: Vec<String>,
     #[serde(default)]
+    pub linked_architecture_entities: Vec<String>,
+    #[serde(default)]
     pub dependencies: Vec<TaskDependency>,
     #[serde(default)]
     pub checklist: Vec<ChecklistItem>,
@@ -1038,6 +1101,8 @@ pub struct TaskCreateInput {
     pub tags: Vec<String>,
     #[serde(default)]
     pub linked_requirements: Vec<String>,
+    #[serde(default)]
+    pub linked_architecture_entities: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1058,6 +1123,8 @@ pub struct TaskUpdateInput {
     pub updated_by: Option<String>,
     #[serde(default)]
     pub deadline: Option<String>,
+    #[serde(default)]
+    pub linked_architecture_entities: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1069,6 +1136,7 @@ pub struct TaskFilter {
     pub assignee_type: Option<String>,
     pub tags: Option<Vec<String>>,
     pub linked_requirement: Option<String>,
+    pub linked_architecture_entity: Option<String>,
     pub search_text: Option<String>,
 }
 

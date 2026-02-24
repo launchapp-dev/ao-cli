@@ -48,6 +48,10 @@ impl TaskServiceApi for InMemoryServiceHub {
         let mut lock = self.state.write().await;
         let id = next_task_id(&lock.tasks);
         let created_by = input.created_by.unwrap_or_else(|| "ao-cli".to_string());
+        validate_linked_architecture_entities(
+            &lock.architecture,
+            &input.linked_architecture_entities,
+        )?;
         let task = OrchestratorTask {
             id: id.clone(),
             title: input.title,
@@ -66,6 +70,7 @@ impl TaskServiceApi for InMemoryServiceHub {
             assignee: Assignee::Unassigned,
             estimated_effort: None,
             linked_requirements: input.linked_requirements,
+            linked_architecture_entities: input.linked_architecture_entities,
             dependencies: Vec::new(),
             checklist: Vec::new(),
             tags: input.tags,
@@ -93,6 +98,9 @@ impl TaskServiceApi for InMemoryServiceHub {
 
     async fn update(&self, id: &str, input: TaskUpdateInput) -> Result<OrchestratorTask> {
         let mut lock = self.state.write().await;
+        if let Some(entity_ids) = input.linked_architecture_entities.as_ref() {
+            validate_linked_architecture_entities(&lock.architecture, entity_ids)?;
+        }
         let task = lock
             .tasks
             .get_mut(id)
@@ -327,6 +335,10 @@ impl TaskServiceApi for FileServiceHub {
         let task = {
             let mut lock = self.state.write().await;
             let id = next_task_id(&lock.tasks);
+            validate_linked_architecture_entities(
+                &lock.architecture,
+                &input.linked_architecture_entities,
+            )?;
             let task = OrchestratorTask {
                 id: id.clone(),
                 title: input.title,
@@ -345,6 +357,7 @@ impl TaskServiceApi for FileServiceHub {
                 assignee: Assignee::Unassigned,
                 estimated_effort: None,
                 linked_requirements: input.linked_requirements,
+                linked_architecture_entities: input.linked_architecture_entities,
                 dependencies: Vec::new(),
                 checklist: Vec::new(),
                 tags: input.tags,
@@ -377,6 +390,9 @@ impl TaskServiceApi for FileServiceHub {
     async fn update(&self, id: &str, input: TaskUpdateInput) -> Result<OrchestratorTask> {
         let (snapshot, task) = {
             let mut lock = self.state.write().await;
+            if let Some(entity_ids) = input.linked_architecture_entities.as_ref() {
+                validate_linked_architecture_entities(&lock.architecture, entity_ids)?;
+            }
             let task = {
                 let task = lock
                     .tasks

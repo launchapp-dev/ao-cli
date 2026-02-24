@@ -1,3 +1,4 @@
+mod ops_architecture;
 mod ops_common;
 mod ops_errors;
 mod ops_git;
@@ -14,6 +15,7 @@ mod ops_task_control;
 mod ops_web;
 mod ops_workflow;
 
+pub(crate) use ops_architecture::*;
 use ops_common::*;
 pub(crate) use ops_errors::*;
 pub(crate) use ops_git::*;

@@ -62,11 +62,26 @@ pub(super) fn apply_task_update(task: &mut OrchestratorTask, input: TaskUpdateIn
             Some(deadline)
         };
     }
+    if let Some(linked_architecture_entities) = input.linked_architecture_entities {
+        task.linked_architecture_entities = linked_architecture_entities;
+    }
     task.metadata.updated_at = Utc::now();
     task.metadata.version = task.metadata.version.saturating_add(1);
     if let Some(updated_by) = input.updated_by {
         task.metadata.updated_by = updated_by;
     }
+}
+
+pub(super) fn validate_linked_architecture_entities(
+    architecture: &ArchitectureGraph,
+    entity_ids: &[String],
+) -> Result<()> {
+    for entity_id in entity_ids {
+        if !architecture.has_entity(entity_id) {
+            return Err(anyhow!("linked architecture entity not found: {entity_id}"));
+        }
+    }
+    Ok(())
 }
 
 fn priority_rank(priority: Priority) -> usize {
@@ -125,6 +140,12 @@ pub(super) fn task_matches_filter(task: &OrchestratorTask, filter: &TaskFilter) 
 
     if let Some(ref requirement) = filter.linked_requirement {
         if !task.linked_requirements.contains(requirement) {
+            return false;
+        }
+    }
+
+    if let Some(ref entity_id) = filter.linked_architecture_entity {
+        if !task.linked_architecture_entities.contains(entity_id) {
             return false;
         }
     }

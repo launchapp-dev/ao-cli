@@ -32,6 +32,7 @@ pub(crate) async fn handle_task(
                     Some(args.tag)
                 },
                 linked_requirement: args.linked_requirement,
+                linked_architecture_entity: args.linked_architecture_entity,
                 search_text: args.search,
             };
 
@@ -42,6 +43,7 @@ pub(crate) async fn handle_task(
                 && filter.assignee_type.is_none()
                 && filter.tags.is_none()
                 && filter.linked_requirement.is_none()
+                && filter.linked_architecture_entity.is_none()
                 && filter.search_text.is_none()
             {
                 print_value(tasks.list().await?, json)
@@ -63,6 +65,7 @@ pub(crate) async fn handle_task(
                     created_by: Some("ao-cli".to_string()),
                     tags: Vec::new(),
                     linked_requirements: Vec::new(),
+                    linked_architecture_entities: args.linked_architecture_entity,
                 })
             })?;
             print_value(tasks.create(input).await?, json)
@@ -81,6 +84,13 @@ pub(crate) async fn handle_task(
                     tags: None,
                     updated_by: Some("ao-cli".to_string()),
                     deadline: None,
+                    linked_architecture_entities: if args.replace_linked_architecture_entities
+                        || !args.linked_architecture_entity.is_empty()
+                    {
+                        Some(args.linked_architecture_entity)
+                    } else {
+                        None
+                    },
                 })
             })?;
             print_value(tasks.update(&args.id, input).await?, json)

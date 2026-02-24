@@ -1,5 +1,5 @@
 use super::*;
-use crate::types::{RequirementPriority, WorkflowStatus};
+use crate::types::{ArchitectureEntity, RequirementPriority, WorkflowStatus};
 use sha2::{Digest, Sha256};
 
 fn sanitize_identifier(value: &str) -> String {
@@ -214,6 +214,30 @@ async fn file_hub_bootstraps_workflow_config_v2_with_phase_catalog() {
 }
 
 #[tokio::test]
+async fn file_hub_bootstraps_architecture_docs_file() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let _hub = FileServiceHub::new(temp.path()).expect("create hub");
+
+    let architecture_path = temp
+        .path()
+        .join(".ao")
+        .join("docs")
+        .join("architecture.json");
+    assert!(architecture_path.exists());
+
+    let architecture_json: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(architecture_path).expect("architecture doc should be readable"),
+    )
+    .expect("architecture doc should be json");
+    assert_eq!(
+        architecture_json
+            .get("schema")
+            .and_then(serde_json::Value::as_str),
+        Some("ao.architecture.v1")
+    );
+}
+
+#[tokio::test]
 async fn file_hub_load_persists_active_project_selection() {
     let temp = tempfile::tempdir().expect("tempdir");
     let hub = FileServiceHub::new(temp.path()).expect("create hub");
@@ -273,6 +297,7 @@ async fn file_hub_persists_tasks() {
             created_by: None,
             tags: Vec::new(),
             linked_requirements: Vec::new(),
+            linked_architecture_entities: Vec::new(),
         },
     )
     .await
@@ -578,6 +603,7 @@ async fn task_service_supports_priority_checklists_and_dependencies() {
             created_by: Some("tester".to_string()),
             tags: vec![],
             linked_requirements: vec![],
+            linked_architecture_entities: vec![],
         },
     )
     .await
@@ -592,6 +618,7 @@ async fn task_service_supports_priority_checklists_and_dependencies() {
             created_by: Some("tester".to_string()),
             tags: vec!["backend".to_string()],
             linked_requirements: vec![],
+            linked_architecture_entities: vec![],
         },
     )
     .await
@@ -643,6 +670,90 @@ async fn task_service_supports_priority_checklists_and_dependencies() {
         .await
         .expect("task statistics");
     assert_eq!(stats.total, 2);
+}
+
+#[tokio::test]
+async fn task_service_rejects_unknown_architecture_entities() {
+    let hub = InMemoryServiceHub::new();
+    let error = TaskServiceApi::create(
+        &hub,
+        TaskCreateInput {
+            title: "Unknown architecture link".to_string(),
+            description: String::new(),
+            task_type: Some(TaskType::Feature),
+            priority: Some(Priority::Medium),
+            created_by: Some("tester".to_string()),
+            tags: vec![],
+            linked_requirements: vec![],
+            linked_architecture_entities: vec!["arch-does-not-exist".to_string()],
+        },
+    )
+    .await
+    .expect_err("task create should reject unknown architecture entity");
+    assert!(error
+        .to_string()
+        .contains("linked architecture entity not found"));
+}
+
+#[tokio::test]
+async fn task_filter_supports_linked_architecture_entity() {
+    let hub = InMemoryServiceHub::new();
+    {
+        let mut state = hub.state.write().await;
+        state.architecture.entities.push(ArchitectureEntity {
+            id: "arch-api".to_string(),
+            name: "API Layer".to_string(),
+            kind: "module".to_string(),
+            description: None,
+            code_paths: vec!["crates/orchestrator-cli/src/services".to_string()],
+            tags: vec!["backend".to_string()],
+            metadata: std::collections::HashMap::new(),
+        });
+    }
+
+    let linked = TaskServiceApi::create(
+        &hub,
+        TaskCreateInput {
+            title: "Linked task".to_string(),
+            description: String::new(),
+            task_type: Some(TaskType::Feature),
+            priority: Some(Priority::Medium),
+            created_by: Some("tester".to_string()),
+            tags: vec![],
+            linked_requirements: vec![],
+            linked_architecture_entities: vec!["arch-api".to_string()],
+        },
+    )
+    .await
+    .expect("linked task should be created");
+
+    TaskServiceApi::create(
+        &hub,
+        TaskCreateInput {
+            title: "Unlinked task".to_string(),
+            description: String::new(),
+            task_type: Some(TaskType::Feature),
+            priority: Some(Priority::Low),
+            created_by: Some("tester".to_string()),
+            tags: vec![],
+            linked_requirements: vec![],
+            linked_architecture_entities: vec![],
+        },
+    )
+    .await
+    .expect("unlinked task should be created");
+
+    let filtered = TaskServiceApi::list_filtered(
+        &hub,
+        TaskFilter {
+            linked_architecture_entity: Some("arch-api".to_string()),
+            ..TaskFilter::default()
+        },
+    )
+    .await
+    .expect("filter should succeed");
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].id, linked.id);
 }
 
 #[tokio::test]

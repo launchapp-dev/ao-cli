@@ -45,6 +45,7 @@ Repo-local AO state (authoritative for this project):
 - `.ao/config.json`
 - `.ao/resume-config.json`
 - `.ao/docs/{vision.json,requirements.json,tasks.json}`
+- `.ao/docs/{vision.json,requirements.json,tasks.json,architecture.json}`
 - `.ao/requirements/index.json` and `.ao/requirements/generated/*.json`
 - `.ao/tasks/index.json` and `.ao/tasks/TASK-*.json`
 - `.ao/state/workflow-config.v2.json`
@@ -130,6 +131,7 @@ Exit code mapping:
 
 - `daemon`, `agent`, `project`, `task`
 - `workflow`, `vision`, `requirements`, `execute`, `planning`
+- `architecture`
 - `review`, `qa`, `history`, `errors`, `task-control`
 - `git`, `model`, `runner`, `output`, `mcp`, `web`, `doctor`
 

@@ -79,6 +79,43 @@ cargo run -p orchestrator-cli -- requirements update \
   --linked-task-id TASK-XYZ
 ```
 
+### Model architecture and link tasks
+
+```bash
+# Inspect the architecture graph
+cargo run -p orchestrator-cli -- architecture get
+
+# Add architecture entities + edges
+cargo run -p orchestrator-cli -- architecture entity create \
+  --id arch-cli-core \
+  --name "CLI Core" \
+  --kind crate \
+  --code-path crates/orchestrator-cli/src
+
+cargo run -p orchestrator-cli -- architecture entity create \
+  --id arch-core-state \
+  --name "Core State" \
+  --kind crate \
+  --code-path crates/orchestrator-core/src/services
+
+cargo run -p orchestrator-cli -- architecture edge create \
+  --from arch-cli-core \
+  --to arch-core-state \
+  --relation reads-writes
+
+# Link a task to architecture entities and query by that linkage
+cargo run -p orchestrator-cli -- task update \
+  --id TASK-XYZ \
+  --replace-linked-architecture-entities \
+  --linked-architecture-entity arch-cli-core
+
+cargo run -p orchestrator-cli -- task list \
+  --linked-architecture-entity arch-cli-core
+
+# Resolve recommended code paths for a task from linked architecture entities
+cargo run -p orchestrator-cli -- architecture suggest --task-id TASK-XYZ
+```
+
 ### Typical execution loop
 
 Required baseline:

@@ -7,23 +7,23 @@ use std::time::Duration;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use chrono::Utc;
-use sha2::{Digest, Sha256};
 use protocol::{RunnerStatusRequest, RunnerStatusResponse};
+use sha2::{Digest, Sha256};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 use uuid::Uuid;
 
 use crate::types::{
-    AgentHandoffRequestInput, AgentHandoffResult, Assignee, ChecklistItem, CheckpointReason,
-    CodebaseInsight, Complexity, ComplexityAssessment, ComplexityTier, DaemonHealth, DaemonStatus,
-    DependencyType, LogEntry, LogLevel, OrchestratorProject, OrchestratorTask,
-    OrchestratorWorkflow, Priority, ProjectConfig, ProjectCreateInput, ProjectType,
-    RequirementItem, RequirementStatus, RequirementsDraftInput, RequirementsDraftResult,
-    RequirementsExecutionInput, RequirementsExecutionResult, RequirementsRefineInput, RiskLevel,
-    Scope, TaskCreateInput, TaskDensity, TaskDependency, TaskFilter, TaskMetadata, TaskStatistics,
-    TaskStatus, TaskType, TaskUpdateInput, VisionDocument, VisionDraftInput, WorkflowMetadata,
-    WorkflowRunInput,
+    AgentHandoffRequestInput, AgentHandoffResult, ArchitectureGraph, Assignee, ChecklistItem,
+    CheckpointReason, CodebaseInsight, Complexity, ComplexityAssessment, ComplexityTier,
+    DaemonHealth, DaemonStatus, DependencyType, LogEntry, LogLevel, OrchestratorProject,
+    OrchestratorTask, OrchestratorWorkflow, Priority, ProjectConfig, ProjectCreateInput,
+    ProjectType, RequirementItem, RequirementStatus, RequirementsDraftInput,
+    RequirementsDraftResult, RequirementsExecutionInput, RequirementsExecutionResult,
+    RequirementsRefineInput, RiskLevel, Scope, TaskCreateInput, TaskDensity, TaskDependency,
+    TaskFilter, TaskMetadata, TaskStatistics, TaskStatus, TaskType, TaskUpdateInput,
+    VisionDocument, VisionDraftInput, WorkflowMetadata, WorkflowRunInput,
 };
 use crate::workflow::{
     phase_plan_for_pipeline_id, ResumeConfig, WorkflowLifecycleExecutor, WorkflowStateManager,
@@ -339,7 +339,11 @@ impl FileServiceHub {
     fn index_root_for_state_file(path: &Path) -> Option<PathBuf> {
         let project_root = path.parent()?.parent()?;
         let home = dirs::home_dir()?;
-        Some(home.join(".ao").join("index").join(Self::repository_scope_for_path(project_root)))
+        Some(
+            home.join(".ao")
+                .join("index")
+                .join(Self::repository_scope_for_path(project_root)),
+        )
     }
 
     fn legacy_requirement_status(status: RequirementStatus) -> &'static str {
@@ -506,6 +510,7 @@ impl FileServiceHub {
                 "assignee": task.assignee,
                 "estimated_effort": task.estimated_effort,
                 "linked_requirements": task.linked_requirements,
+                "linked_architecture_entities": task.linked_architecture_entities,
                 "dependencies": task.dependencies,
                 "checklist": task.checklist,
                 "tags": task.tags,
@@ -528,6 +533,7 @@ impl FileServiceHub {
                 "title": task.title,
                 "status": task.status,
                 "priority": task.priority,
+                "linked_architecture_entities_count": task.linked_architecture_entities.len(),
                 "updated_at": task.metadata.updated_at,
             }));
         }
@@ -561,6 +567,12 @@ impl FileServiceHub {
         } else if vision_json_path.exists() {
             std::fs::remove_file(&vision_json_path)?;
         }
+
+        let architecture_json_path = docs_dir.join("architecture.json");
+        std::fs::write(
+            &architecture_json_path,
+            serde_json::to_string_pretty(&snapshot.architecture)?,
+        )?;
 
         Self::write_requirement_files(path, snapshot)?;
         Self::write_task_files(path, snapshot)?;

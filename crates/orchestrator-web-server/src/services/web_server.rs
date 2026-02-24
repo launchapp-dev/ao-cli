@@ -276,6 +276,7 @@ async fn project_tasks_handler(
             query.assignee_type,
             query.tag,
             query.linked_requirement,
+            query.linked_architecture_entity,
             query.search,
         )
         .await
@@ -401,6 +402,7 @@ async fn tasks_list_handler(
             query.assignee_type,
             query.tag,
             query.linked_requirement,
+            query.linked_architecture_entity,
             query.search,
         )
         .await
@@ -858,6 +860,7 @@ struct TasksListQuery {
     #[serde(default)]
     tag: Vec<String>,
     linked_requirement: Option<String>,
+    linked_architecture_entity: Option<String>,
     search: Option<String>,
 }
 

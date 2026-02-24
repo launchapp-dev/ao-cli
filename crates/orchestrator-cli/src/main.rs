@@ -58,6 +58,9 @@ async fn run(cli: Cli) -> Result<()> {
             services::operations::handle_requirements(command, hub.clone(), &project_root, cli.json)
                 .await
         }
+        Command::Architecture { command } => {
+            services::operations::handle_architecture(command, &project_root, cli.json).await
+        }
         Command::Execute { command } => {
             services::operations::handle_execute(command, hub.clone(), &project_root, cli.json)
                 .await

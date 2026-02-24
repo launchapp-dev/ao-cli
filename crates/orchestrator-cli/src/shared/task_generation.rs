@@ -172,6 +172,7 @@ pub(crate) async fn ensure_ai_generated_tasks_for_requirements(
                     created_by: Some("requirement-review-loop-ai".to_string()),
                     tags: task_tags_from_requirement(&requirement),
                     linked_requirements: vec![requirement.id.clone()],
+                    linked_architecture_entities: Vec::new(),
                 })
                 .await
                 .with_context(|| {

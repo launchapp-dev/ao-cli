@@ -12,20 +12,20 @@
   "complexity": "medium",
   "deadline": null,
   "dependencies": [],
-  "description": "Validate binary path resolution, build invocation, and endpoint checks between llm-cli-wrapper and llm-mcp-server.",
+  "description": "Task linked to architecture entity",
   "estimated_effort": null,
-  "id": "TASK-004",
+  "id": "TASK-021",
   "impact_area": [],
-  "linked_architecture_entities": [],
-  "linked_requirements": [
-    "REQ-004"
+  "linked_architecture_entities": [
+    "arch-cli-core"
   ],
+  "linked_requirements": [],
   "metadata": {
     "completed_at": null,
-    "created_at": "2026-02-24T17:25:45.015654Z",
+    "created_at": "2026-02-24T20:17:30.482524Z",
     "created_by": "ao-cli",
     "started_at": null,
-    "updated_at": "2026-02-24T17:25:45.015654Z",
+    "updated_at": "2026-02-24T20:17:30.482524Z",
     "updated_by": "ao-cli",
     "version": 1
   },
@@ -39,11 +39,8 @@
   "risk": "medium",
   "scope": "medium",
   "status": "backlog",
-  "tags": [
-    "mcp",
-    "wrapper"
-  ],
-  "title": "Strengthen llm wrapper to MCP server contract",
+  "tags": [],
+  "title": "Use architecture-linked task",
   "type": "feature",
   "workflow_metadata": {
     "requires_architecture": false,

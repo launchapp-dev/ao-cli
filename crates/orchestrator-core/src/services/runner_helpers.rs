@@ -1,7 +1,7 @@
 use super::*;
+use sha2::{Digest, Sha256};
 #[cfg(unix)]
 use std::hash::{Hash, Hasher};
-use sha2::{Digest, Sha256};
 
 #[cfg(unix)]
 const MAX_UNIX_SOCKET_PATH_LEN: usize = 100;
@@ -95,9 +95,7 @@ fn sanitize_identifier(value: &str) -> String {
 }
 
 fn repository_scope_for_path(path: &Path) -> String {
-    let canonical = path
-        .canonicalize()
-        .unwrap_or_else(|_| path.to_path_buf());
+    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let canonical_display = canonical.to_string_lossy();
     let repo_name = canonical
         .file_name()
@@ -117,7 +115,10 @@ fn repository_scope_for_path(path: &Path) -> String {
 
 fn project_runtime_root(project_root: &Path) -> Option<PathBuf> {
     let home = dirs::home_dir()?;
-    Some(home.join(".ao").join(repository_scope_for_path(project_root)))
+    Some(
+        home.join(".ao")
+            .join(repository_scope_for_path(project_root)),
+    )
 }
 
 fn normalize_runner_config_dir(config_dir: PathBuf) -> PathBuf {
@@ -404,9 +405,13 @@ pub(super) fn find_agent_runner_binary() -> Result<PathBuf> {
         for build_dir in ["debug", "release"] {
             let candidates = [
                 cwd.join(format!("target/{build_dir}/{binary_name}")),
-                cwd.join(format!("crates/agent-runner/target/{build_dir}/{binary_name}")),
+                cwd.join(format!(
+                    "crates/agent-runner/target/{build_dir}/{binary_name}"
+                )),
                 cwd.join(format!("agent-runner/target/{build_dir}/{binary_name}")),
-                cwd.join(format!("../crates/agent-runner/target/{build_dir}/{binary_name}")),
+                cwd.join(format!(
+                    "../crates/agent-runner/target/{build_dir}/{binary_name}"
+                )),
                 cwd.join(format!("../agent-runner/target/{build_dir}/{binary_name}")),
                 cwd.join(format!("../target/{build_dir}/{binary_name}")),
             ];

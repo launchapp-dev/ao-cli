@@ -9,9 +9,7 @@ use tracing_subscriber;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_max_level(Level::INFO)
-        .init();
+    tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 
     info!("Starting MCP Server");
 
@@ -54,13 +52,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     registry.register_agent("em".to_string(), em_server).await;
 
     // Agent 3: Code Review Agent
-    let review_config = McpConfig::new("review-agent".to_string(), root_path.clone()).with_port(3003);
+    let review_config =
+        McpConfig::new("review-agent".to_string(), root_path.clone()).with_port(3003);
     let review_server = Arc::new(McpServer::new(
         review_config.name.clone(),
         review_config.version.clone(),
         review_config.root_path.clone(),
     ));
-    registry.register_agent("review".to_string(), review_server).await;
+    registry
+        .register_agent("review".to_string(), review_server)
+        .await;
 
     info!("Registered agents: pm, em, review");
     info!("Endpoints:");

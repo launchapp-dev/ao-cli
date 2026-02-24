@@ -22,8 +22,7 @@ impl McpServerManager {
     /// * `root_path` - Root path for the project to serve
     /// * `port` - Port to run the server on (default: 3000)
     pub fn new(root_path: PathBuf, port: u16) -> Self {
-        let server_binary =
-            PathBuf::from("crates/llm-mcp-server/target/release/llm-mcp-server");
+        let server_binary = PathBuf::from("crates/llm-mcp-server/target/release/llm-mcp-server");
 
         Self {
             process: None,

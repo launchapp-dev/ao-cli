@@ -200,7 +200,12 @@ mod tests {
         let router = build_test_router(registry);
 
         let response = router
-            .oneshot(Request::builder().uri("/agents").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/agents")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .expect("request");
 

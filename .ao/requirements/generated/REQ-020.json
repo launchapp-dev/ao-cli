@@ -1,0 +1,23 @@
+{
+  "acceptance_criteria": [],
+  "category": null,
+  "comments": [],
+  "created_at": "2026-02-24T20:08:53.349171Z",
+  "description": "Add architecture entities/edges JSON graph and task linkage so tasks can indicate where changes should live",
+  "id": "REQ-020",
+  "legacy_id": null,
+  "links": {
+    "flows": [],
+    "mockups": [],
+    "related_requirements": [],
+    "tasks": [],
+    "tests": [],
+    "workflows": []
+  },
+  "priority": "should",
+  "status": "em-review",
+  "tags": [],
+  "title": "Architecture knowledge graph support",
+  "type": null,
+  "updated_at": "2026-02-24T20:09:02.444379Z"
+}

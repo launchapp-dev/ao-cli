@@ -12,20 +12,18 @@
   "complexity": "medium",
   "deadline": null,
   "dependencies": [],
-  "description": "Validate binary path resolution, build invocation, and endpoint checks between llm-cli-wrapper and llm-mcp-server.",
+  "description": "Add frontend test matrix, smoke E2E, release checklist, and rollback validation workflow.",
   "estimated_effort": null,
-  "id": "TASK-004",
+  "id": "TASK-018",
   "impact_area": [],
   "linked_architecture_entities": [],
-  "linked_requirements": [
-    "REQ-004"
-  ],
+  "linked_requirements": [],
   "metadata": {
     "completed_at": null,
-    "created_at": "2026-02-24T17:25:45.015654Z",
+    "created_at": "2026-02-24T20:06:43.284244Z",
     "created_by": "ao-cli",
     "started_at": null,
-    "updated_at": "2026-02-24T17:25:45.015654Z",
+    "updated_at": "2026-02-24T20:06:43.284244Z",
     "updated_by": "ao-cli",
     "version": 1
   },
@@ -39,12 +37,9 @@
   "risk": "medium",
   "scope": "medium",
   "status": "backlog",
-  "tags": [
-    "mcp",
-    "wrapper"
-  ],
-  "title": "Strengthen llm wrapper to MCP server contract",
-  "type": "feature",
+  "tags": [],
+  "title": "Set up web GUI CI, E2E smoke, and release gates",
+  "type": "test",
   "workflow_metadata": {
     "requires_architecture": false,
     "requires_design": false,

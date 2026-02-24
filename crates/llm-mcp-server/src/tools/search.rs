@@ -96,11 +96,14 @@ impl SearchTool {
     }
 
     pub async fn execute(&self, params: &CallToolParams) -> Result<CallToolResult> {
-        let args: SearchArgs = serde_json::from_value(
-            params.arguments.clone().unwrap_or(Value::Null)
-        ).context("Failed to parse search arguments")?;
+        let args: SearchArgs =
+            serde_json::from_value(params.arguments.clone().unwrap_or(Value::Null))
+                .context("Failed to parse search arguments")?;
 
-        debug!("Executing search: query={}, path={:?}", args.query, args.path);
+        debug!(
+            "Executing search: query={}, path={:?}",
+            args.query, args.path
+        );
 
         let search_path = if let Some(ref path) = args.path {
             self.root_path.join(path)
@@ -122,7 +125,11 @@ impl SearchTool {
         let text = if results.is_empty() {
             "No results found.".to_string()
         } else {
-            format!("Found {} result(s):\n\n{}", results.len(), results.join("\n\n"))
+            format!(
+                "Found {} result(s):\n\n{}",
+                results.len(),
+                results.join("\n\n")
+            )
         };
 
         Ok(CallToolResult {
@@ -187,14 +194,10 @@ impl SearchTool {
             if let Ok(content) = tokio::fs::read_to_string(file_path).await {
                 let matches = self.find_matches(&content, &pattern);
                 if !matches.is_empty() {
-                    let relative_path = file_path.strip_prefix(&self.root_path)
-                        .unwrap_or(file_path);
+                    let relative_path =
+                        file_path.strip_prefix(&self.root_path).unwrap_or(file_path);
 
-                    let result = format!(
-                        "📄 {}\n{}",
-                        relative_path.display(),
-                        matches.join("\n")
-                    );
+                    let result = format!("📄 {}\n{}", relative_path.display(), matches.join("\n"));
                     results.push(result);
                 }
             }

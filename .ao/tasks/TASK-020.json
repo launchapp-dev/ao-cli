@@ -12,22 +12,22 @@
   "complexity": "medium",
   "deadline": null,
   "dependencies": [],
-  "description": "Validate binary path resolution, build invocation, and endpoint checks between llm-cli-wrapper and llm-mcp-server.",
+  "description": "Add architecture entities/edges graph and connect tasks to architecture IDs",
   "estimated_effort": null,
-  "id": "TASK-004",
+  "id": "TASK-020",
   "impact_area": [],
   "linked_architecture_entities": [],
   "linked_requirements": [
-    "REQ-004"
+    "REQ-020"
   ],
   "metadata": {
-    "completed_at": null,
-    "created_at": "2026-02-24T17:25:45.015654Z",
-    "created_by": "ao-cli",
-    "started_at": null,
-    "updated_at": "2026-02-24T17:25:45.015654Z",
-    "updated_by": "ao-cli",
-    "version": 1
+    "completed_at": "2026-02-24T20:19:58.529314Z",
+    "created_at": "2026-02-24T20:08:57.567221Z",
+    "created_by": "codex",
+    "started_at": "2026-02-24T20:09:02.417037Z",
+    "updated_at": "2026-02-24T20:19:58.529316Z",
+    "updated_by": "codex",
+    "version": 3
   },
   "paused": false,
   "priority": "medium",
@@ -38,12 +38,12 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "backlog",
+  "status": "done",
   "tags": [
-    "mcp",
-    "wrapper"
+    "architecture",
+    "task-routing"
   ],
-  "title": "Strengthen llm wrapper to MCP server contract",
+  "title": "Implement architecture graph and task linkage",
   "type": "feature",
   "workflow_metadata": {
     "requires_architecture": false,

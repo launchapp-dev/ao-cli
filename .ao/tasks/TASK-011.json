@@ -6,31 +6,29 @@
   "blocked_by": null,
   "blocked_phase": null,
   "blocked_reason": null,
-  "branch_name": null,
+  "branch_name": "ao/task-011",
   "cancelled": false,
   "checklist": [],
   "complexity": "medium",
   "deadline": null,
   "dependencies": [],
-  "description": "Validate binary path resolution, build invocation, and endpoint checks between llm-cli-wrapper and llm-mcp-server.",
+  "description": "Scaffold web app shell, route tree, project context frame, and core navigation around orchestrator-web-server endpoints.",
   "estimated_effort": null,
-  "id": "TASK-004",
+  "id": "TASK-011",
   "impact_area": [],
   "linked_architecture_entities": [],
-  "linked_requirements": [
-    "REQ-004"
-  ],
+  "linked_requirements": [],
   "metadata": {
     "completed_at": null,
-    "created_at": "2026-02-24T17:25:45.015654Z",
+    "created_at": "2026-02-24T20:06:42.993480Z",
     "created_by": "ao-cli",
-    "started_at": null,
-    "updated_at": "2026-02-24T17:25:45.015654Z",
+    "started_at": "2026-02-24T20:13:37.289431Z",
+    "updated_at": "2026-02-24T21:25:14.107788Z",
     "updated_by": "ao-cli",
-    "version": 1
+    "version": 14
   },
   "paused": false,
-  "priority": "medium",
+  "priority": "high",
   "resource_requirements": {
     "max_cpu_percent": null,
     "max_memory_mb": null,
@@ -38,12 +36,9 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "backlog",
-  "tags": [
-    "mcp",
-    "wrapper"
-  ],
-  "title": "Strengthen llm wrapper to MCP server contract",
+  "status": "in-progress",
+  "tags": [],
+  "title": "Create React shell and route architecture over web server",
   "type": "feature",
   "workflow_metadata": {
     "requires_architecture": false,
@@ -53,5 +48,5 @@
     "requires_staging_deploy": false,
     "workflow_id": null
   },
-  "worktree_path": null
+  "worktree_path": "/Users/samishukri/.ao/ao-cli-1222ef9c4f94/worktrees/task-task-011"
 }

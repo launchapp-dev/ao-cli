@@ -22,9 +22,7 @@ impl ToolRegistry {
 
     /// Get list of all available tools
     pub fn list_tools(&self) -> Vec<Tool> {
-        vec![
-            SearchTool::definition(),
-        ]
+        vec![SearchTool::definition()]
     }
 
     /// Execute a tool by name

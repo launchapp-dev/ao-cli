@@ -70,9 +70,7 @@ fn sanitize_identifier(value: &str) -> String {
 }
 
 fn repository_scope_for_path(path: &Path) -> String {
-    let canonical = path
-        .canonicalize()
-        .unwrap_or_else(|_| path.to_path_buf());
+    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let canonical_display = canonical.to_string_lossy();
     let repo_name = canonical
         .file_name()

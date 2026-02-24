@@ -16,6 +16,7 @@
   "estimated_effort": null,
   "id": "TASK-005",
   "impact_area": [],
+  "linked_architecture_entities": [],
   "linked_requirements": [
     "REQ-005"
   ],

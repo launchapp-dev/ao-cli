@@ -53,10 +53,7 @@ impl McpServer {
             "initialized" => self.handle_initialized(&request).await,
             "tools/list" => self.handle_list_tools(&request).await,
             "tools/call" => self.handle_call_tool(&request).await,
-            "ping" => JsonRpcResponse::success(
-                request.id,
-                serde_json::json!({ "status": "ok" }),
-            ),
+            "ping" => JsonRpcResponse::success(request.id, serde_json::json!({ "status": "ok" })),
             _ => {
                 warn!("Unknown method: {}", request.method);
                 JsonRpcResponse::error(
@@ -98,11 +95,9 @@ impl McpServer {
                     ),
                 }
             }
-            None => JsonRpcResponse::error(
-                request.id.clone(),
-                -32602,
-                "Missing parameters".to_string(),
-            ),
+            None => {
+                JsonRpcResponse::error(request.id.clone(), -32602, "Missing parameters".to_string())
+            }
         }
     }
 
@@ -125,10 +120,7 @@ impl McpServer {
         let tools = self.tools.list_tools();
         let result = ListToolsResult { tools };
 
-        JsonRpcResponse::success(
-            request.id.clone(),
-            serde_json::to_value(result).unwrap(),
-        )
+        JsonRpcResponse::success(request.id.clone(), serde_json::to_value(result).unwrap())
     }
 
     async fn handle_call_tool(&self, request: &JsonRpcRequest) -> JsonRpcResponse {
@@ -168,11 +160,9 @@ impl McpServer {
                     ),
                 }
             }
-            None => JsonRpcResponse::error(
-                request.id.clone(),
-                -32602,
-                "Missing parameters".to_string(),
-            ),
+            None => {
+                JsonRpcResponse::error(request.id.clone(), -32602, "Missing parameters".to_string())
+            }
         }
     }
 

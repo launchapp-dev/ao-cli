@@ -3,59 +3,59 @@
 ## Build
 
 ```bash
-cd cli-wrapper
+cd llm-cli-wrapper
 cargo build --release
 ```
 
-Binary location: `target/release/cli-wrapper`
+Binary location: `target/release/llm-cli-wrapper`
 
 ## Quick Test
 
 1. **Discover CLIs**:
    ```bash
-   ./target/release/cli-wrapper discover
+   ./target/release/llm-cli-wrapper discover
    ```
 
 2. **List installed CLIs**:
    ```bash
-   ./target/release/cli-wrapper list
+   ./target/release/llm-cli-wrapper list
    ```
 
 3. **Run health check**:
    ```bash
-   ./target/release/cli-wrapper health
+   ./target/release/llm-cli-wrapper health
    ```
 
 4. **Test a CLI** (e.g., Claude):
    ```bash
-   ./target/release/cli-wrapper test claude
+   ./target/release/llm-cli-wrapper test claude
    ```
 
 5. **Show CLI info**:
    ```bash
-   ./target/release/cli-wrapper info claude
+   ./target/release/llm-cli-wrapper info claude
    ```
 
 ## Common Commands
 
 ### Test all CLIs with basic suite
 ```bash
-./target/release/cli-wrapper test
+./target/release/llm-cli-wrapper test
 ```
 
 ### Test specific CLI with verbose logging
 ```bash
-./target/release/cli-wrapper --verbose test codex
+./target/release/llm-cli-wrapper --verbose test codex
 ```
 
 ### Run file operations test suite
 ```bash
-./target/release/cli-wrapper test --suite file-ops
+./target/release/llm-cli-wrapper test --suite file-ops
 ```
 
 ### Health check for all CLIs
 ```bash
-./target/release/cli-wrapper health
+./target/release/llm-cli-wrapper health
 ```
 
 ## Setup
@@ -80,7 +80,7 @@ export GOOGLE_APPLICATION_CREDENTIALS="/path/to/credentials.json"
 ## Example Output
 
 ```bash
-$ ./target/release/cli-wrapper list
+$ ./target/release/llm-cli-wrapper list
 
 Installed CLIs:
 ────────────────────────────────────────────────────────────
@@ -91,7 +91,7 @@ Aider           ✓ Available
 ```
 
 ```bash
-$ ./target/release/cli-wrapper test claude
+$ ./target/release/llm-cli-wrapper test claude
 
 Running test suite: Basic CLI Verification
 ────────────────────────────────────────────────────────────
@@ -110,7 +110,7 @@ You can integrate this as a library in your Tauri app:
 ```toml
 # In your Cargo.toml
 [dependencies]
-cli-wrapper = { path = "../cli-wrapper" }
+llm-cli-wrapper = { path = "../llm-cli-wrapper" }
 ```
 
 ```rust
@@ -157,4 +157,4 @@ cargo build --release
 
 - See [README.md](README.md) for full documentation
 - Check [config.example.toml](config.example.toml) for configuration options
-- Run `./target/release/cli-wrapper --help` for all commands
+- Run `./target/release/llm-cli-wrapper --help` for all commands

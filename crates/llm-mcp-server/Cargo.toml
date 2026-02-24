@@ -1,13 +1,10 @@
 [package]
-name = "mcp-server"
+name = "llm-mcp-server"
 version = "0.1.0"
 edition = "2021"
 
-[workspace]
-# Standalone workspace
-
 [[bin]]
-name = "mcp-server"
+name = "llm-mcp-server"
 path = "src/main.rs"
 
 [lib]

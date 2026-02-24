@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-protocol = { path = "../crates/protocol" }
-cli-wrapper = { path = "../cli-wrapper" }
+protocol = { path = "../protocol" }
+cli-wrapper = { path = "../llm-cli-wrapper", package = "llm-cli-wrapper" }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

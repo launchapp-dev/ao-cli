@@ -355,7 +355,9 @@ pub(super) fn find_agent_runner_binary() -> Result<PathBuf> {
         for build_dir in ["debug", "release"] {
             let candidates = [
                 cwd.join(format!("target/{build_dir}/{binary_name}")),
+                cwd.join(format!("crates/agent-runner/target/{build_dir}/{binary_name}")),
                 cwd.join(format!("agent-runner/target/{build_dir}/{binary_name}")),
+                cwd.join(format!("../crates/agent-runner/target/{build_dir}/{binary_name}")),
                 cwd.join(format!("../agent-runner/target/{build_dir}/{binary_name}")),
                 cwd.join(format!("../target/{build_dir}/{binary_name}")),
             ];

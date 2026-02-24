@@ -13,24 +13,24 @@ A standalone Rust tool for testing and managing different AI coding CLIs (Claude
 ## Installation
 
 ```bash
-cd cli-wrapper
+cd llm-cli-wrapper
 cargo build --release
 ```
 
-The binary will be at `target/release/cli-wrapper`.
+The binary will be at `target/release/llm-cli-wrapper`.
 
 ## Usage
 
 ### Discover Installed CLIs
 
 ```bash
-cli-wrapper discover
+llm-cli-wrapper discover
 ```
 
 ### List All CLIs
 
 ```bash
-cli-wrapper list
+llm-cli-wrapper list
 ```
 
 Output:
@@ -46,30 +46,30 @@ Google Gemini   ✗ Not Installed
 
 Check all CLIs:
 ```bash
-cli-wrapper health
+llm-cli-wrapper health
 ```
 
 Check specific CLI:
 ```bash
-cli-wrapper health claude
+llm-cli-wrapper health claude
 ```
 
 ### Run Tests
 
 Test all CLIs with basic suite:
 ```bash
-cli-wrapper test
+llm-cli-wrapper test
 ```
 
 Test specific CLI:
 ```bash
-cli-wrapper test claude
+llm-cli-wrapper test claude
 ```
 
 Test with different suite:
 ```bash
-cli-wrapper test --suite file-ops
-cli-wrapper test --suite code-gen
+llm-cli-wrapper test --suite file-ops
+llm-cli-wrapper test --suite code-gen
 ```
 
 Available test suites:
@@ -80,7 +80,7 @@ Available test suites:
 ### Show CLI Info
 
 ```bash
-cli-wrapper info claude
+llm-cli-wrapper info claude
 ```
 
 Output:
@@ -104,7 +104,7 @@ Create a `config.toml` file:
 
 ```toml
 # Directory for test workspaces
-test_workspace_dir = "/tmp/cli-wrapper-tests"
+test_workspace_dir = "/tmp/llm-cli-wrapper-tests"
 
 # Default timeout for CLI operations (seconds)
 default_timeout_secs = 300
@@ -121,7 +121,7 @@ auth_command = "custom-cli login"
 
 Use with:
 ```bash
-cli-wrapper --config config.toml test
+llm-cli-wrapper --config config.toml test
 ```
 
 ## Supported CLIs
@@ -138,7 +138,7 @@ cli-wrapper --config config.toml test
 ## Architecture
 
 ```
-cli-wrapper/
+llm-cli-wrapper/
 ├── src/
 │   ├── cli/           # CLI implementations
 │   │   ├── claude.rs  # Claude Code
@@ -187,7 +187,7 @@ cargo test
 
 Run with verbose logging:
 ```bash
-cli-wrapper --verbose test
+llm-cli-wrapper --verbose test
 ```
 
 Build documentation:
@@ -200,31 +200,31 @@ cargo doc --open
 ### Quick Health Check
 ```bash
 # Check if Claude is working
-cli-wrapper health claude
+llm-cli-wrapper health claude
 
 # Check all CLIs
-cli-wrapper health
+llm-cli-wrapper health
 ```
 
 ### Run Full Test Suite
 ```bash
 # Test basic functionality
-cli-wrapper test --suite basic
+llm-cli-wrapper test --suite basic
 
 # Test file operations
-cli-wrapper test --suite file-ops
+llm-cli-wrapper test --suite file-ops
 
 # Test code generation
-cli-wrapper test --suite code-gen
+llm-cli-wrapper test --suite code-gen
 ```
 
 ### Get CLI Information
 ```bash
 # Show Claude capabilities
-cli-wrapper info claude
+llm-cli-wrapper info claude
 
 # Show Codex capabilities
-cli-wrapper info codex
+llm-cli-wrapper info codex
 ```
 
 ## Troubleshooting
@@ -254,7 +254,7 @@ gemini login
 ### Test failures
 Run with verbose logging to see details:
 ```bash
-cli-wrapper --verbose test
+llm-cli-wrapper --verbose test
 ```
 
 ## License

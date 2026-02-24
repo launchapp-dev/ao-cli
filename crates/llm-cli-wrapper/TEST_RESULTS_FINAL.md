@@ -64,7 +64,7 @@
 
 ### 3. ✅ Working Directory Not Found
 **Problem**: Test execution failing with "No such file or directory" error
-**Root Cause**: Temp directory `/var/folders/.../cli-wrapper-tests` didn't exist
+**Root Cause**: Temp directory `/var/folders/.../llm-cli-wrapper-tests` didn't exist
 **Solution**: Create test workspace directory before running tests
 **File**: `src/main.rs:126-129`
 
@@ -98,26 +98,26 @@
 
 ### Discovery
 ```bash
-./target/release/cli-wrapper discover
+./target/release/llm-cli-wrapper discover
 ```
 ✅ Successfully discovers all installed CLIs
 
 ### List
 ```bash
-./target/release/cli-wrapper list
+./target/release/llm-cli-wrapper list
 ```
 ✅ Shows all CLIs with authentication status
 
 ### Health Checks
 ```bash
-./target/release/cli-wrapper health
+./target/release/llm-cli-wrapper health
 ```
 ✅ All CLIs report healthy status
 
 ### Individual CLI Tests
 ```bash
-./target/release/cli-wrapper test claude --suite basic
-./target/release/cli-wrapper test gemini --suite basic
+./target/release/llm-cli-wrapper test claude --suite basic
+./target/release/llm-cli-wrapper test gemini --suite basic
 ```
 ✅ Both pass all test cases
 

@@ -13,13 +13,13 @@
 **Status**: ✅ PASS
 
 ```bash
-cd cli-wrapper/mcp-server
+cd crates/llm-mcp-server
 cargo build --release
 ```
 
 **Result**:
 - Build completed successfully
-- Binary created at: `cli-wrapper/mcp-server/target/release/mcp-server`
+- Binary created at: `crates/llm-mcp-server/target/release/llm-mcp-server`
 - 4 minor warnings (unused imports) - non-critical
 - Build time: 25.21s
 
@@ -30,7 +30,7 @@ cargo build --release
 **Status**: ✅ PASS
 
 ```bash
-./cli-wrapper/mcp-server/target/release/mcp-server . &
+./crates/llm-mcp-server/target/release/llm-mcp-server . &
 ```
 
 **Result**:
@@ -263,7 +263,7 @@ INFO mcp_server::server: MCP server initialized successfully
     "content": [
       {
         "type": "text",
-        "text": "Found 5 result(s):\n\n📄 cli-wrapper/src/lib.rs\n  Line 42: pub use cli::{CliInterface, ...}\n\n📄 cli-wrapper/src/cli/gemini.rs\n  Line 7: use super::interface::{CliInterface, ...}\n  Line 21: impl CliInterface for GeminiCli {\n\n📄 cli-wrapper/src/cli/opencode.rs\n  Line 7: use super::interface::{CliInterface, ...}\n  Line 21: impl CliInterface for OpenCodeCli {\n\n..."
+        "text": "Found 5 result(s):\n\n📄 llm-cli-wrapper/src/lib.rs\n  Line 42: pub use cli::{CliInterface, ...}\n\n📄 llm-cli-wrapper/src/cli/gemini.rs\n  Line 7: use super::interface::{CliInterface, ...}\n  Line 21: impl CliInterface for GeminiCli {\n\n📄 llm-cli-wrapper/src/cli/opencode.rs\n  Line 7: use super::interface::{CliInterface, ...}\n  Line 21: impl CliInterface for OpenCodeCli {\n\n..."
       }
     ]
   }
@@ -314,18 +314,18 @@ impl McpServerManager {
 **Status**: ✅ PASS
 
 **Files Successfully Modified**:
-1. ✅ `cli-wrapper/src/cli/types.rs` - Added MCP capability fields
-2. ✅ `cli-wrapper/src/main.rs` - Added MCP info display
-3. ✅ `cli-wrapper/src/lib.rs` - Exported McpServerManager
-4. ✅ `cli-wrapper/Cargo.toml` - Added reqwest dependency
-5. ✅ `cli-wrapper/src/tester/test_suite.rs` - Added MCP test suite
+1. ✅ `llm-cli-wrapper/src/cli/types.rs` - Added MCP capability fields
+2. ✅ `llm-cli-wrapper/src/main.rs` - Added MCP info display
+3. ✅ `llm-cli-wrapper/src/lib.rs` - Exported McpServerManager
+4. ✅ `llm-cli-wrapper/Cargo.toml` - Added reqwest dependency
+5. ✅ `llm-cli-wrapper/src/tester/test_suite.rs` - Added MCP test suite
 
 **Files Successfully Created**:
-1. ✅ `cli-wrapper/src/mcp_manager.rs` - Full implementation
-2. ✅ `cli-wrapper/examples/mcp_integration.rs` - Working example
-3. ✅ `cli-wrapper/MCP_INTEGRATION.md` - Complete documentation
-4. ✅ `cli-wrapper/MCP_IMPLEMENTATION_SUMMARY.md` - Summary
-5. ✅ `cli-wrapper/MCP_TEST_RESULTS.md` - This file
+1. ✅ `llm-cli-wrapper/src/mcp_manager.rs` - Full implementation
+2. ✅ `llm-cli-wrapper/examples/mcp_integration.rs` - Working example
+3. ✅ `llm-cli-wrapper/MCP_INTEGRATION.md` - Complete documentation
+4. ✅ `llm-cli-wrapper/MCP_IMPLEMENTATION_SUMMARY.md` - Summary
+5. ✅ `llm-cli-wrapper/MCP_TEST_RESULTS.md` - This file
 
 ---
 
@@ -396,7 +396,7 @@ impl McpServerManager {
 - Can be fixed with `cargo fix --lib -p mcp-server`
 
 **Build Limitations**:
-- Workspace configuration prevents direct `cargo build -p cli-wrapper`
+- Workspace configuration prevents direct `cargo build -p llm-cli-wrapper`
 - Workaround: Build components individually
 - Does not affect runtime functionality
 
@@ -446,5 +446,5 @@ kill 42268
 
 Or use:
 ```bash
-pkill -f "mcp-server/target/release/mcp-server"
+pkill -f "mcp-server/target/release/llm-mcp-server"
 ```

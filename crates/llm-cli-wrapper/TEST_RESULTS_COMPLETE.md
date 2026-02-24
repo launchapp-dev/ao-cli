@@ -195,40 +195,40 @@ The CLI wrapper can now:
 
 ### Discovery
 ```bash
-./target/release/cli-wrapper discover
+./target/release/llm-cli-wrapper discover
 # Output: ✓ Found 4 CLI(s)
 ```
 
 ### List All CLIs
 ```bash
-./target/release/cli-wrapper list
+./target/release/llm-cli-wrapper list
 # Shows all CLIs with authentication status
 ```
 
 ### Health Checks
 ```bash
 # All CLIs
-./target/release/cli-wrapper health
+./target/release/llm-cli-wrapper health
 
 # Specific CLI
-./target/release/cli-wrapper health opencode
+./target/release/llm-cli-wrapper health opencode
 ```
 
 ### Run Tests
 ```bash
 # Test specific CLI
-./target/release/cli-wrapper test claude --suite basic
-./target/release/cli-wrapper test codex --suite basic
-./target/release/cli-wrapper test gemini --suite basic
-./target/release/cli-wrapper test opencode --suite basic
+./target/release/llm-cli-wrapper test claude --suite basic
+./target/release/llm-cli-wrapper test codex --suite basic
+./target/release/llm-cli-wrapper test gemini --suite basic
+./target/release/llm-cli-wrapper test opencode --suite basic
 
 # All CLIs
-./target/release/cli-wrapper test --suite basic
+./target/release/llm-cli-wrapper test --suite basic
 ```
 
 ### CLI Information
 ```bash
-./target/release/cli-wrapper info opencode
+./target/release/llm-cli-wrapper info opencode
 # Shows version, capabilities, and status
 ```
 

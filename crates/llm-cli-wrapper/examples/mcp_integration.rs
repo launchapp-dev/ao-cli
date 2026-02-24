@@ -40,7 +40,7 @@ async fn main() -> anyhow::Result<()> {
         Err(e) => {
             println!("⚠ Failed to start MCP server: {}", e);
             println!("  Note: MCP server binary may need to be built first:");
-            println!("  cd cli-wrapper/mcp-server && cargo build --release");
+            println!("  cargo build --release --manifest-path crates/llm-mcp-server/Cargo.toml");
             return Ok(());
         }
     }

@@ -3,7 +3,7 @@
 ## ✅ Test Run: Success!
 
 ### Discovery Test
-**Command**: `./target/release/cli-wrapper discover`
+**Command**: `./target/release/llm-cli-wrapper discover`
 
 **Result**: ✅ PASS
 ```
@@ -19,7 +19,7 @@
 ---
 
 ### List Test
-**Command**: `./target/release/cli-wrapper list`
+**Command**: `./target/release/llm-cli-wrapper list`
 
 **Result**: ✅ PASS
 ```
@@ -35,7 +35,7 @@ Google Gemini CLI ⚠ Not Authenticated
 ---
 
 ### Health Check Test
-**Command**: `./target/release/cli-wrapper health`
+**Command**: `./target/release/llm-cli-wrapper health`
 
 **Result**: ✅ PASS (Detection works, auth needs setup)
 ```
@@ -95,7 +95,7 @@ export GOOGLE_APPLICATION_CREDENTIALS="/path/to/credentials.json"
 2. ✅ Listing works - Can show all CLIs with status
 3. ✅ Health checks work - Can verify CLI state
 4. ⚠️  Auth needed - Set up API keys to test full functionality
-5. 🚧 Run full test suite - `./target/release/cli-wrapper test`
+5. 🚧 Run full test suite - `./target/release/llm-cli-wrapper test`
 
 ## Conclusion
 

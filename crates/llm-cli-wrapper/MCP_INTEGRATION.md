@@ -33,7 +33,7 @@ The CLI wrapper now supports testing AI coding CLIs with **Model Context Protoco
 ### 1. Build the MCP Server
 
 ```bash
-cd cli-wrapper/mcp-server
+cd crates/llm-mcp-server
 cargo build --release
 ```
 
@@ -41,7 +41,7 @@ cargo build --release
 
 ```bash
 # From repository root
-./cli-wrapper/mcp-server/target/release/mcp-server /path/to/project
+./crates/llm-mcp-server/target/release/llm-mcp-server /path/to/project
 
 # Server starts on port 3000 with these endpoints:
 # - http://127.0.0.1:3000/mcp/pm
@@ -53,7 +53,7 @@ cargo build --release
 ### 3. Test CLIs with MCP
 
 ```bash
-cd cli-wrapper
+cd llm-cli-wrapper
 
 # Test all CLIs with MCP test suite
 cargo run -- test --suite mcp
@@ -169,11 +169,11 @@ Search for files and code content with powerful options:
 ```
 Found 5 result(s):
 
-📄 cli-wrapper/src/cli/interface.rs
+📄 llm-cli-wrapper/src/cli/interface.rs
   Line 73: pub trait CliInterface: Send + Sync {
   Line 104: async fn run_process(
 
-📄 cli-wrapper/src/cli/claude.rs
+📄 llm-cli-wrapper/src/cli/claude.rs
   Line 21: impl CliInterface for ClaudeCli {
 ```
 
@@ -227,7 +227,7 @@ curl -X POST http://127.0.0.1:3000/mcp/pm \
 
 ## Integration Test Example
 
-See `cli-wrapper/examples/mcp_integration.rs` for a complete example:
+See `llm-cli-wrapper/examples/mcp_integration.rs` for a complete example:
 
 ```bash
 cargo run --example mcp_integration
@@ -270,7 +270,7 @@ RUST_LOG=debug mcp-server /path/to/project
 
 To add a new tool to the MCP server:
 
-1. **Create tool module** in `cli-wrapper/mcp-server/src/tools/`:
+1. **Create tool module** in `crates/llm-mcp-server/src/tools/`:
 
 ```rust
 // my_tool.rs
@@ -342,7 +342,7 @@ async fn test_my_tool() {
 
 ```bash
 # Ensure binary is built
-cd cli-wrapper/mcp-server
+cd crates/llm-mcp-server
 cargo build --release
 
 # Check if port is in use

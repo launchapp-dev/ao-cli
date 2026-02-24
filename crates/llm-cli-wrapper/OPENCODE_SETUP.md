@@ -43,7 +43,7 @@ I'll create a simple hello world function in Python.
 Resolving dependencies
 Resolved, downloaded and extracted [6]
 Saved lockfile
-| Write    cli-wrapper/hello.py
+| Write    llm-cli-wrapper/hello.py
 Created `hello.py` with a simple hello world function.
 ```
 
@@ -308,9 +308,9 @@ opencode auth          # Check authentication
 
 1. **Test Integration**
    ```bash
-   cd cli-wrapper
+   cd llm-cli-wrapper
    cargo build --release
-   ./target/release/cli-wrapper test opencode --suite basic
+   ./target/release/llm-cli-wrapper test opencode --suite basic
    ```
 
 2. **Configure Default Model**

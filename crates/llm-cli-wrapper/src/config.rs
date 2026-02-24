@@ -30,7 +30,7 @@ pub struct CustomCliConfig {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            test_workspace_dir: std::env::temp_dir().join("cli-wrapper-tests"),
+            test_workspace_dir: std::env::temp_dir().join("llm-cli-wrapper-tests"),
             default_timeout_secs: 300,
             verbose: false,
             custom_clis: Vec::new(),

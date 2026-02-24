@@ -2,7 +2,7 @@
 # Copy this file to config.toml and customize
 
 # Directory where test workspaces will be created
-test_workspace_dir = "/tmp/cli-wrapper-tests"
+test_workspace_dir = "/tmp/llm-cli-wrapper-tests"
 
 # Default timeout for CLI operations (in seconds)
 default_timeout_secs = 300

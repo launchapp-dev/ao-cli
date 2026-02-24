@@ -1,25 +1,13 @@
-# Dependencies
-node_modules/
-pnpm-lock.yaml
-package-lock.json
-yarn.lock
+# Rust
+/target/
+**/*.rs.bk
 
-# Build outputs
-dist/
-build/
-target/
-
-# Tauri
-src-tauri/target/
-src-tauri/binaries/
-gen/
-
-# Environment variables
+# Environment
 .env
 .env.local
 .env.*.local
 
-# IDE
+# IDE / OS
 .vscode/*
 !.vscode/settings.json
 !.vscode/extensions.json
@@ -29,34 +17,19 @@ gen/
 *.swo
 *~
 .DS_Store
+Thumbs.db
 
-# Logs
+# Logs / temp
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-logs/
-
-# Testing
-coverage/
-.nyc_output/
-
-# Temporary files
 tmp/
 temp/
 *.tmp
 
-# OS
-.DS_Store
-Thumbs.db
-
 # Runtime
 *.pid
 *.lock
-cli-tracker.json
-.claude/settings.local.json
 
-# .ao runtime artifacts (keep .ao/tasks and .ao/requirements versioned)
+# AO runtime artifacts (keep .ao/tasks and .ao/requirements versioned)
 .ao/state/
 .ao/logs/
 .ao/history.db
@@ -72,9 +45,5 @@ cli-tracker.json
 .ao/tasks-archive-*.tar.gz
 .ao/requirements/contracts/
 
-# Tauri dev artifacts
-src-tauri/.ao/
-src-tauri/build_rs_cov.profraw
-
-# But keep .gitkeep files
+# Keep placeholders
 !.gitkeep

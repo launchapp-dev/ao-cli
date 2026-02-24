@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use tracing::error;
 
 #[derive(Parser)]
-#[command(name = "cli-wrapper")]
+#[command(name = "llm-cli-wrapper")]
 #[command(about = "Test and manage different AI coding CLIs", long_about = None)]
 struct Cli {
     #[command(subcommand)]

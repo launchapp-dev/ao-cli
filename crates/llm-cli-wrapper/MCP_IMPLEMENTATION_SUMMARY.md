@@ -9,8 +9,8 @@ Successfully implemented complete MCP (Model Context Protocol) support for the C
 ### ✅ Phase 1: MCP Capability Detection
 
 **Files Modified:**
-- `cli-wrapper/src/cli/types.rs`
-- `cli-wrapper/src/main.rs`
+- `llm-cli-wrapper/src/cli/types.rs`
+- `llm-cli-wrapper/src/main.rs`
 
 **Changes:**
 1. Added MCP support fields to `CliCapability`:
@@ -25,7 +25,7 @@ Successfully implemented complete MCP (Model Context Protocol) support for the C
    - **Aider**: MCP support ❌
    - **Others**: MCP support ❌
 
-3. Enhanced `cli-wrapper info` command to display MCP support:
+3. Enhanced `llm-cli-wrapper info` command to display MCP support:
    ```
    Claude Code
    ────────────────────────────────────────────────────────────
@@ -44,11 +44,11 @@ Successfully implemented complete MCP (Model Context Protocol) support for the C
 ### ✅ Phase 2: MCP Server Manager Integration
 
 **Files Created:**
-- `cli-wrapper/src/mcp_manager.rs` (246 lines)
+- `llm-cli-wrapper/src/mcp_manager.rs` (246 lines)
 
 **Files Modified:**
-- `cli-wrapper/src/lib.rs` - Export McpServerManager
-- `cli-wrapper/Cargo.toml` - Add reqwest dependency
+- `llm-cli-wrapper/src/lib.rs` - Export McpServerManager
+- `llm-cli-wrapper/Cargo.toml` - Add reqwest dependency
 
 **Features Implemented:**
 
@@ -86,12 +86,12 @@ Successfully implemented complete MCP (Model Context Protocol) support for the C
 ### ✅ Phase 3: MCP Test Suite
 
 **Files Modified:**
-- `cli-wrapper/src/tester/test_suite.rs`
+- `llm-cli-wrapper/src/tester/test_suite.rs`
 
 **Files Created:**
-- `cli-wrapper/examples/mcp_integration.rs` (180 lines)
-- `cli-wrapper/MCP_INTEGRATION.md` (Complete documentation)
-- `cli-wrapper/MCP_IMPLEMENTATION_SUMMARY.md` (This file)
+- `llm-cli-wrapper/examples/mcp_integration.rs` (180 lines)
+- `llm-cli-wrapper/MCP_INTEGRATION.md` (Complete documentation)
+- `llm-cli-wrapper/MCP_IMPLEMENTATION_SUMMARY.md` (This file)
 
 **Test Suite Added:**
 
@@ -109,16 +109,16 @@ Includes 4 comprehensive tests:
 **Usage:**
 ```bash
 # Test all MCP-capable CLIs
-cli-wrapper test --suite mcp
+llm-cli-wrapper test --suite mcp
 
 # Test specific CLI
-cli-wrapper test claude --suite mcp
-cli-wrapper test opencode --suite mcp
+llm-cli-wrapper test claude --suite mcp
+llm-cli-wrapper test opencode --suite mcp
 ```
 
 ## Example Integration
 
-Complete working example in `cli-wrapper/examples/mcp_integration.rs`:
+Complete working example in `llm-cli-wrapper/examples/mcp_integration.rs`:
 
 ```rust
 use cli_wrapper::{McpServerManager, CliRegistry, CliTester, TestSuite};
@@ -151,7 +151,7 @@ cargo run --example mcp_integration
 
 ## Existing MCP Infrastructure Leveraged
 
-The implementation integrates with the **existing MCP server** in `cli-wrapper/mcp-server/`:
+The implementation integrates with the **existing MCP server** in `crates/llm-mcp-server/`:
 
 **Already Available:**
 - ✅ Full JSON-RPC 2.0 protocol implementation
@@ -201,30 +201,30 @@ http://127.0.0.1:3000/
 
 ### 1. Build MCP Server
 ```bash
-cd cli-wrapper/mcp-server
+cd crates/llm-mcp-server
 cargo build --release
 ```
 
 ### 2. Run Example
 ```bash
-cd cli-wrapper
+cd llm-cli-wrapper
 cargo run --example mcp_integration
 ```
 
 ### 3. Test CLIs
 ```bash
 # Check MCP support
-cli-wrapper info claude
-cli-wrapper info opencode
+llm-cli-wrapper info claude
+llm-cli-wrapper info opencode
 
 # Run MCP test suite
-cli-wrapper test claude --suite mcp
+llm-cli-wrapper test claude --suite mcp
 ```
 
 ### 4. Manual MCP Testing
 ```bash
 # Start server
-./cli-wrapper/mcp-server/target/release/mcp-server .
+./crates/llm-mcp-server/target/release/llm-mcp-server .
 
 # Test with curl
 curl -X POST http://127.0.0.1:3000/mcp/pm \
@@ -244,26 +244,26 @@ curl -X POST http://127.0.0.1:3000/mcp/pm \
 ## Files Summary
 
 ### New Files Created (5):
-1. `cli-wrapper/src/mcp_manager.rs` - Server lifecycle manager
-2. `cli-wrapper/examples/mcp_integration.rs` - Integration example
-3. `cli-wrapper/MCP_INTEGRATION.md` - Complete documentation
-4. `cli-wrapper/MCP_IMPLEMENTATION_SUMMARY.md` - This summary
+1. `llm-cli-wrapper/src/mcp_manager.rs` - Server lifecycle manager
+2. `llm-cli-wrapper/examples/mcp_integration.rs` - Integration example
+3. `llm-cli-wrapper/MCP_INTEGRATION.md` - Complete documentation
+4. `llm-cli-wrapper/MCP_IMPLEMENTATION_SUMMARY.md` - This summary
 5. (Generated during runtime) Test outputs
 
 ### Files Modified (4):
-1. `cli-wrapper/src/cli/types.rs` - Added MCP capability fields
-2. `cli-wrapper/src/main.rs` - Added MCP info display
-3. `cli-wrapper/src/lib.rs` - Exported McpServerManager
-4. `cli-wrapper/Cargo.toml` - Added reqwest dependency
+1. `llm-cli-wrapper/src/cli/types.rs` - Added MCP capability fields
+2. `llm-cli-wrapper/src/main.rs` - Added MCP info display
+3. `llm-cli-wrapper/src/lib.rs` - Exported McpServerManager
+4. `llm-cli-wrapper/Cargo.toml` - Added reqwest dependency
 
 ### Existing Files Leveraged (7):
-1. `cli-wrapper/mcp-server/src/server.rs`
-2. `cli-wrapper/mcp-server/src/protocol.rs`
-3. `cli-wrapper/mcp-server/src/http.rs`
-4. `cli-wrapper/mcp-server/src/tools/search.rs`
-5. `cli-wrapper/mcp-server/src/tools/mod.rs`
-6. `cli-wrapper/mcp-server/src/main.rs`
-7. `cli-wrapper/mcp-server/Cargo.toml`
+1. `crates/llm-mcp-server/src/server.rs`
+2. `crates/llm-mcp-server/src/protocol.rs`
+3. `crates/llm-mcp-server/src/http.rs`
+4. `crates/llm-mcp-server/src/tools/search.rs`
+5. `crates/llm-mcp-server/src/tools/mod.rs`
+6. `crates/llm-mcp-server/src/main.rs`
+7. `crates/llm-mcp-server/Cargo.toml`
 
 ## Architecture Diagram
 

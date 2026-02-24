@@ -7,7 +7,7 @@ A standalone Rust tool for testing different AI coding CLIs.
 ## Project Structure
 
 ```
-cli-wrapper/
+llm-cli-wrapper/
 ├── Cargo.toml                    # Dependencies and config
 ├── README.md                     # Full documentation
 ├── QUICKSTART.md                # Getting started guide
@@ -61,38 +61,38 @@ cli-wrapper/
 
 ### 1. Discover CLIs
 ```bash
-./target/release/cli-wrapper discover
+./target/release/llm-cli-wrapper discover
 ```
 
 ### 2. List All CLIs
 ```bash
-./target/release/cli-wrapper list
+./target/release/llm-cli-wrapper list
 ```
 
 ### 3. Run Tests
 ```bash
 # Test all CLIs
-./target/release/cli-wrapper test
+./target/release/llm-cli-wrapper test
 
 # Test specific CLI
-./target/release/cli-wrapper test claude
+./target/release/llm-cli-wrapper test claude
 
 # Test with specific suite
-./target/release/cli-wrapper test --suite code-gen
+./target/release/llm-cli-wrapper test --suite code-gen
 ```
 
 ### 4. Health Checks
 ```bash
 # Check all CLIs
-./target/release/cli-wrapper health
+./target/release/llm-cli-wrapper health
 
 # Check specific CLI
-./target/release/cli-wrapper health codex
+./target/release/llm-cli-wrapper health codex
 ```
 
 ### 5. CLI Information
 ```bash
-./target/release/cli-wrapper info claude
+./target/release/llm-cli-wrapper info claude
 ```
 
 ## Test Suites Available
@@ -122,8 +122,8 @@ cli-wrapper/
 
 1. **Test the tool**:
    ```bash
-   ./target/release/cli-wrapper discover
-   ./target/release/cli-wrapper health
+   ./target/release/llm-cli-wrapper discover
+   ./target/release/llm-cli-wrapper health
    ```
 
 2. **Integrate with Tauri app**:

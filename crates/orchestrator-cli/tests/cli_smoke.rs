@@ -51,3 +51,28 @@ fn planning_vision_get_returns_cli_json_envelope() -> Result<(), Box<dyn std::er
     );
     Ok(())
 }
+
+#[test]
+fn version_subcommand_supports_json_output() -> Result<(), Box<dyn std::error::Error>> {
+    let binary = assert_cmd::cargo::cargo_bin!("ao");
+    let output = Command::new(binary).args(["--json", "version"]).output()?;
+    assert!(output.status.success(), "version command should succeed");
+
+    let payload: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(
+        payload.get("schema").and_then(|value| value.as_str()),
+        Some("ao.cli.v1")
+    );
+    assert_eq!(
+        payload.pointer("/data/binary").and_then(|value| value.as_str()),
+        Some("ao")
+    );
+    assert!(
+        payload
+            .pointer("/data/version")
+            .and_then(|value| value.as_str())
+            .is_some(),
+        "version payload should include data.version"
+    );
+    Ok(())
+}

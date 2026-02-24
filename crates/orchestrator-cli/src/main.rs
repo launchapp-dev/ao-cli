@@ -4,6 +4,7 @@ use anyhow::Result;
 use clap::Parser;
 use orchestrator_core::config::resolve_project_root;
 use orchestrator_core::{FileServiceHub, RuntimeConfig};
+use serde::Serialize;
 
 mod cli_types;
 mod services;
@@ -27,6 +28,15 @@ async fn main() {
 }
 
 async fn run(cli: Cli) -> Result<()> {
+    if matches!(cli.command, Command::Version) {
+        let data = VersionInfo {
+            name: env!("CARGO_PKG_NAME"),
+            binary: env!("CARGO_BIN_NAME"),
+            version: env!("CARGO_PKG_VERSION"),
+        };
+        return print_value(data, cli.json);
+    }
+
     let runtime_config = RuntimeConfig {
         project_root: cli.project_root.clone(),
         ..RuntimeConfig::default()
@@ -102,5 +112,13 @@ async fn run(cli: Cli) -> Result<()> {
             services::operations::handle_web(command, hub.clone(), &project_root, cli.json).await
         }
         Command::Doctor => services::operations::handle_doctor(hub.clone(), cli.json).await,
+        Command::Version => unreachable!("version command handled before runtime initialization"),
     }
+}
+
+#[derive(Debug, Serialize)]
+struct VersionInfo {
+    name: &'static str,
+    binary: &'static str,
+    version: &'static str,
 }

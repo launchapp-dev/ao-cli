@@ -115,3 +115,27 @@ Initial requirements/tasks were created to bootstrap self-hosted development:
 - Daemon-managed git worktrees are created under:
   - `~/.ao/<repo-scope>/worktrees/`
   - each repo scope includes a `.project-root` marker and `project-root` symlink (unix).
+
+## GitHub-Only Release Flow
+
+Release CI/CD is configured via `.github/workflows/release.yml`.
+
+- Triggers:
+  - tag push matching `v*` (for example `v0.1.0`)
+  - branch push matching `version/**` (for preview build artifacts)
+- Behavior:
+  - always builds release archives for `ao`, `agent-runner`, `llm-cli-wrapper`, `llm-mcp-server`
+  - publishes a GitHub Release only for `v*` tags
+  - uploads workflow artifacts for both tags and `version/**` branches
+
+Examples:
+
+```bash
+# Preview build artifacts only (no GitHub Release)
+git checkout -b version/0.2.0
+git push origin version/0.2.0
+
+# Full GitHub Release publish
+git tag v0.2.0
+git push origin v0.2.0
+```

@@ -4,23 +4,30 @@
 - Name: ao-cli
 
 ## Problem
-Manual orchestration of AI agents and CLI workflows is fragmented and hard to operate safely.
+Manual orchestration of AI agents and CLI workflows is fragmented and unsafe, inconsistent, and hard to observe.
 
 ## Target Users
 - developers and automation operators using AO
 
 ## Goals
-- Ship a reliable Rust AO CLI to manage projects, planning, execution, review/QA, and audit trails from one control plane.
+- Provide a deterministic, local-first Rust AO CLI that unifies project planning, execution, review/QA, and audit trails under one control plane
+- Increase operator confidence through explicit safety gates, reproducible run artifacts, and auditable state transitions
+- Make AO fully machine-operable via structured JSON outputs for automation and policy enforcement
+- Define machine-actionable operational success criteria and keep evidence discoverable through AO history/run/artifact commands
 
 ## Constraints
-- No explicit constraints captured yet.
+- Keep the project Rust-only with no desktop-wrapper (Tauri) dependency
+- Do not replace existing AO state files with non-machine-readable outputs
+- Deliver command safety through confirmations for destructive operations and controlled destructive flows
+- Ensure all runtime artifacts and history are traceable through `.ao/` state, run events, and task outputs
+- Make all high-risk actions auditable and reversible where practical, with explicit approval paths for state-changing operations
 
 ## Value Proposition
-Provide a deterministic, inspectable, machine-friendly CLI for agent orchestration across local and daemon workflows.
+AO provides a deterministic, inspectable, machine-friendly CLI control plane for orchestrating agent work from vision and requirements through execution and QA with auditable outcomes.
 
 ## Complexity
-- Tier: simple
-- Confidence: 0.75
-- Recommended requirement range: 4-8
-- Task density: low
-- Rationale: Complexity inferred from vision scope, constraints, and delivery expectations. (AI complexity unavailable; fallback applied)
+- Tier: medium
+- Confidence: 0.60
+- Recommended requirement range: 8-14
+- Task density: medium
+- Rationale: Complexity inferred from vision scope, constraints, and delivery expectations.

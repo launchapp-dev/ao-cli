@@ -92,7 +92,10 @@ fn canonicalize_cwd_in_project(path: &str, project_root: &str) -> Result<String>
     let candidate_canonical = resolved_candidate
         .canonicalize()
         .with_context(|| format!("failed to resolve cwd '{}'", resolved_candidate.display()))?;
-    if !candidate_canonical.starts_with(&root_canonical) {
+    let inside_project_root = candidate_canonical.starts_with(&root_canonical);
+    let inside_managed_worktree =
+        is_managed_worktree_for_project(&candidate_canonical, &root_canonical);
+    if !inside_project_root && !inside_managed_worktree {
         return Err(anyhow!(
             "Security violation: cwd '{}' is not within project root '{}'",
             path,
@@ -166,9 +169,7 @@ fn sanitize_identifier(value: &str) -> String {
 }
 
 fn repository_scope_for_path(path: &Path) -> String {
-    let canonical = path
-        .canonicalize()
-        .unwrap_or_else(|_| path.to_path_buf());
+    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let canonical_display = canonical.to_string_lossy();
     let repo_name = canonical
         .file_name()
@@ -188,7 +189,35 @@ fn repository_scope_for_path(path: &Path) -> String {
 
 fn scoped_ao_root(project_root: &Path) -> Option<PathBuf> {
     let home = dirs::home_dir()?;
-    Some(home.join(".ao").join(repository_scope_for_path(project_root)))
+    Some(
+        home.join(".ao")
+            .join(repository_scope_for_path(project_root)),
+    )
+}
+
+fn is_managed_worktree_for_project(candidate_cwd: &Path, project_root: &Path) -> bool {
+    let mut cursor = candidate_cwd.parent();
+    while let Some(path) = cursor {
+        if path.file_name().and_then(|value| value.to_str()) == Some("worktrees") {
+            let Some(repo_ao_root) = path.parent() else {
+                return false;
+            };
+            let marker_path = repo_ao_root.join(".project-root");
+            let Ok(marker_content) = std::fs::read_to_string(marker_path) else {
+                return false;
+            };
+            let recorded_root = marker_content.trim();
+            if recorded_root.is_empty() {
+                return false;
+            }
+            let Ok(recorded_canonical) = Path::new(recorded_root).canonicalize() else {
+                return false;
+            };
+            return recorded_canonical == project_root;
+        }
+        cursor = path.parent();
+    }
+    false
 }
 
 fn normalize_runner_config_dir(config_dir: PathBuf) -> PathBuf {
@@ -536,13 +565,11 @@ pub(crate) fn event_matches_run(event: &AgentRunEvent, run_id: &RunId) -> bool {
 }
 
 pub(crate) fn run_dir(project_root: &str, run_id: &RunId, base_override: Option<&str>) -> PathBuf {
-    let base = base_override
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            scoped_ao_root(Path::new(project_root))
-                .unwrap_or_else(|| Path::new(project_root).join(".ao"))
-                .join("runs")
-        });
+    let base = base_override.map(PathBuf::from).unwrap_or_else(|| {
+        scoped_ao_root(Path::new(project_root))
+            .unwrap_or_else(|| Path::new(project_root).join(".ao"))
+            .join("runs")
+    });
     base.join(&run_id.0)
 }
 

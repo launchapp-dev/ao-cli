@@ -240,4 +240,62 @@ mod tests {
             Some(expected.as_str())
         );
     }
+
+    #[test]
+    fn build_agent_context_accepts_managed_worktree_cwd() {
+        let _lock = env_lock().lock().expect("env lock should be available");
+        let temp = tempfile::tempdir().expect("tempdir should be created");
+        let _home = EnvVarGuard::set(
+            "HOME",
+            Some(temp.path().to_string_lossy().as_ref()),
+        );
+
+        let project = temp.path().join("project");
+        std::fs::create_dir_all(&project).expect("project dir should be created");
+        let project_canonical = project
+            .canonicalize()
+            .expect("project path should canonicalize");
+
+        let repo_scope = {
+            use sha2::Digest;
+            let canonical_display = project_canonical.to_string_lossy();
+            let repo_name = project_canonical
+                .file_name()
+                .and_then(|value| value.to_str())
+                .map(|value| value.to_ascii_lowercase())
+                .unwrap_or_else(|| "repo".to_string());
+            let mut hasher = sha2::Sha256::new();
+            hasher.update(canonical_display.as_bytes());
+            let digest = hasher.finalize();
+            let suffix = format!(
+                "{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+                digest[0], digest[1], digest[2], digest[3], digest[4], digest[5]
+            );
+            format!("{repo_name}-{suffix}")
+        };
+
+        let repo_ao_root = temp.path().join(".ao").join(repo_scope);
+        let worktree = repo_ao_root.join("worktrees").join("task-task-011");
+        std::fs::create_dir_all(&worktree).expect("managed worktree should be created");
+        std::fs::write(
+            repo_ao_root.join(".project-root"),
+            format!("{}\n", project_canonical.to_string_lossy()),
+        )
+        .expect("project marker should be written");
+
+        let mut args = make_agent_run_args();
+        args.cwd = Some(worktree.to_string_lossy().to_string());
+
+        let context = build_agent_context(&args, project.to_string_lossy().as_ref())
+            .expect("managed worktree cwd should be accepted");
+        let expected = worktree
+            .canonicalize()
+            .expect("worktree path should canonicalize")
+            .to_string_lossy()
+            .to_string();
+        assert_eq!(
+            context.get("cwd").and_then(serde_json::Value::as_str),
+            Some(expected.as_str())
+        );
+    }
 }

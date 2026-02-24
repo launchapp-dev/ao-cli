@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Result};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub fn validate_workspace(cwd: &str, project_root: &str) -> Result<()> {
     let cwd_path = PathBuf::from(cwd)
@@ -10,7 +10,9 @@ pub fn validate_workspace(cwd: &str, project_root: &str) -> Result<()> {
         .canonicalize()
         .context("Invalid project_root path")?;
 
-    if !cwd_path.starts_with(&root_path) {
+    let inside_project_root = cwd_path.starts_with(&root_path);
+    let inside_managed_worktree = is_managed_worktree_for_project(&cwd_path, &root_path);
+    if !inside_project_root && !inside_managed_worktree {
         bail!(
             "Security violation: cwd '{}' is not within project_root '{}'",
             cwd_path.display(),
@@ -19,6 +21,31 @@ pub fn validate_workspace(cwd: &str, project_root: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn is_managed_worktree_for_project(candidate_cwd: &Path, project_root: &Path) -> bool {
+    let mut cursor = candidate_cwd.parent();
+    while let Some(path) = cursor {
+        if path.file_name().and_then(|value| value.to_str()) == Some("worktrees") {
+            let Some(repo_ao_root) = path.parent() else {
+                return false;
+            };
+            let marker_path = repo_ao_root.join(".project-root");
+            let Ok(marker_content) = std::fs::read_to_string(marker_path) else {
+                return false;
+            };
+            let recorded_root = marker_content.trim();
+            if recorded_root.is_empty() {
+                return false;
+            }
+            let Ok(recorded_canonical) = Path::new(recorded_root).canonicalize() else {
+                return false;
+            };
+            return recorded_canonical == project_root;
+        }
+        cursor = path.parent();
+    }
+    false
 }
 
 #[cfg(test)]
@@ -36,5 +63,46 @@ mod tests {
     fn test_validate_workspace_invalid() {
         let result = validate_workspace("/tmp", "/home");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_workspace_accepts_managed_worktree() {
+        let root = std::env::temp_dir().join(format!(
+            "ao-workspace-guard-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|value| value.as_nanos())
+                .unwrap_or_default()
+        ));
+        std::fs::create_dir_all(&root).expect("temp root should be created");
+
+        let project = root.join("project");
+        std::fs::create_dir_all(&project).expect("project dir should be created");
+        let project_canonical = project
+            .canonicalize()
+            .expect("project path should canonicalize");
+
+        let worktree = root
+            .join(".ao")
+            .join("scope-abc123")
+            .join("worktrees")
+            .join("task-task-011");
+        std::fs::create_dir_all(&worktree).expect("managed worktree should be created");
+        std::fs::write(
+            root.join(".ao")
+                .join("scope-abc123")
+                .join(".project-root"),
+            format!("{}\n", project_canonical.to_string_lossy()),
+        )
+        .expect("project marker should be written");
+
+        let result = validate_workspace(
+            worktree.to_string_lossy().as_ref(),
+            project.to_string_lossy().as_ref(),
+        );
+        assert!(result.is_ok());
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

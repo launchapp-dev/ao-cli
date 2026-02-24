@@ -531,11 +531,20 @@ async fn execute_running_workflow_phases_for_project(
         return Ok((0, 0, Vec::new()));
     }
 
+    struct ScheduledPhaseRun {
+        workflow: orchestrator_core::OrchestratorWorkflow,
+        task: orchestrator_core::OrchestratorTask,
+        phase_id: String,
+        phase_attempt: u32,
+        execution_cwd: String,
+    }
+
     let workflows = hub.workflows().list().await.unwrap_or_default();
     let mut executed = 0usize;
     let mut failed = 0usize;
     let mut processed = 0usize;
     let mut phase_events = Vec::new();
+    let mut scheduled_runs: Vec<ScheduledPhaseRun> = Vec::new();
 
     for workflow in workflows {
         if processed >= max_phases_per_tick {
@@ -561,62 +570,109 @@ async fn execute_running_workflow_phases_for_project(
             .map(|phase| phase.attempt.max(1))
             .unwrap_or(1);
 
-        let task = hub.tasks().get(&workflow.task_id).await;
-        let run_result = match task {
-            Ok(task) => {
-                if phase_id != "research"
-                    && task_requires_research(&task)
-                    && !workflow_has_completed_research(&workflow)
-                    && !workflow_has_active_research(&workflow)
-                {
-                    let reason =
-                        "requirements validation requested research evidence before execution"
-                            .to_string();
-                    let updated = hub
-                        .workflows()
-                        .request_research(&workflow.id, reason)
-                        .await?;
-                    sync_task_status_for_workflow_result(
-                        hub.clone(),
-                        project_root,
-                        &updated.task_id,
-                        updated.status,
-                    )
-                    .await;
+        let task = match hub.tasks().get(&workflow.task_id).await {
+            Ok(task) => task,
+            Err(error) => {
+                let error_message = format!(
+                    "workflow {} cannot load task {}: {}",
+                    workflow.id, workflow.task_id, error
+                );
+                if PhaseFailureClassifier::is_transient_runner_error_message(&error_message) {
                     processed = processed.saturating_add(1);
                     continue;
                 }
-
-                let execution_cwd = ensure_task_execution_cwd(hub.clone(), project_root, &task)
-                    .await
-                    .unwrap_or_else(|_| project_root.to_string());
-                run_workflow_phase_with_agent(
+                let updated = hub
+                    .workflows()
+                    .fail_current_phase(&workflow.id, error_message)
+                    .await?;
+                sync_task_status_for_workflow_result(
+                    hub.clone(),
                     project_root,
-                    &execution_cwd,
-                    &workflow.id,
-                    &workflow.task_id,
-                    &task.title,
-                    &task.description,
-                    Some(task.complexity),
-                    &phase_id,
-                    phase_attempt,
+                    &updated.task_id,
+                    updated.status,
                 )
-                .await
-                .and_then(|result| {
-                    append_phase_execution_metadata_artifact(project_root, &workflow.id, &result)?;
-                    Ok((result, task))
-                })
+                .await;
+                failed = failed.saturating_add(1);
+                processed = processed.saturating_add(1);
+                continue;
             }
-            Err(error) => Err(anyhow!(
-                "workflow {} cannot load task {}: {}",
-                workflow.id,
-                workflow.task_id,
-                error
-            )),
+        };
+
+        if phase_id != "research"
+            && task_requires_research(&task)
+            && !workflow_has_completed_research(&workflow)
+            && !workflow_has_active_research(&workflow)
+        {
+            let reason = "requirements validation requested research evidence before execution"
+                .to_string();
+            let updated = hub
+                .workflows()
+                .request_research(&workflow.id, reason)
+                .await?;
+            sync_task_status_for_workflow_result(
+                hub.clone(),
+                project_root,
+                &updated.task_id,
+                updated.status,
+            )
+            .await;
+            processed = processed.saturating_add(1);
+            continue;
+        }
+
+        let execution_cwd = ensure_task_execution_cwd(hub.clone(), project_root, &task)
+            .await
+            .unwrap_or_else(|_| project_root.to_string());
+        scheduled_runs.push(ScheduledPhaseRun {
+            workflow,
+            task,
+            phase_id,
+            phase_attempt,
+            execution_cwd,
+        });
+        processed = processed.saturating_add(1);
+    }
+
+    let mut join_set = tokio::task::JoinSet::new();
+    for scheduled in scheduled_runs {
+        let project_root = project_root.to_string();
+        join_set.spawn(async move {
+            let run_result = run_workflow_phase_with_agent(
+                &project_root,
+                &scheduled.execution_cwd,
+                &scheduled.workflow.id,
+                &scheduled.workflow.task_id,
+                &scheduled.task.title,
+                &scheduled.task.description,
+                Some(scheduled.task.complexity),
+                &scheduled.phase_id,
+                scheduled.phase_attempt,
+            )
+            .await
+            .and_then(|result| {
+                append_phase_execution_metadata_artifact(
+                    &project_root,
+                    &scheduled.workflow.id,
+                    &result,
+                )?;
+                Ok(result)
+            });
+
+            (scheduled.workflow, scheduled.task, scheduled.phase_id, run_result)
+        });
+    }
+
+    while let Some(joined) = join_set.join_next().await {
+        let (workflow, task, phase_id, run_result) = match joined {
+            Ok(value) => value,
+            Err(_) => {
+                failed = failed.saturating_add(1);
+                continue;
+            }
         };
 
         match run_result {
-            Ok((result, task)) => {
+            Ok(result) => {
                 phase_events.extend(phase_execution_events_from_signals(
                     project_root,
                     &workflow,
@@ -726,7 +782,6 @@ async fn execute_running_workflow_phases_for_project(
                     });
                 }
                 if PhaseFailureClassifier::is_transient_runner_error_message(&error_message) {
-                    processed = processed.saturating_add(1);
                     continue;
                 }
                 let updated = hub
@@ -743,7 +798,6 @@ async fn execute_running_workflow_phases_for_project(
                 failed = failed.saturating_add(1);
             }
         }
-        processed = processed.saturating_add(1);
     }
 
     Ok((executed, failed, phase_events))

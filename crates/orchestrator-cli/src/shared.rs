@@ -113,7 +113,14 @@ mod tests {
         let project_root = Path::new("project-root");
 
         let resolved = runner_config_dir(project_root);
-        assert_eq!(resolved, project_root.join(".ao").join("runner"));
+        assert!(resolved.ends_with("runner"));
+        assert!(
+            resolved
+                .components()
+                .any(|component| component.as_os_str() == ".ao"),
+            "project scoped runner dir should be under ~/.ao/<repo-scope>/runner"
+        );
+        assert_ne!(resolved, project_root.join(".ao").join("runner"));
     }
 
     #[cfg(unix)]

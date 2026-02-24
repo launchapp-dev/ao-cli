@@ -38,6 +38,8 @@ temp/
 .ao/history.db-wal
 .ao/daemon.lock
 .ao/artifacts/
+.ao/runner/
+.ao/runs/
 .ao/worktrees/
 .ao/workflow-state/
 .ao/reset-backups/

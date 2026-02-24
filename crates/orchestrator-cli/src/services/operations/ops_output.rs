@@ -1,6 +1,8 @@
 use crate::cli_types::OutputCommand;
 use crate::print_value;
+use crate::run_dir;
 use anyhow::{anyhow, Context, Result};
+use protocol::RunId;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fs;
@@ -26,6 +28,7 @@ struct RunJsonlEntryCli {
 
 fn run_dir_candidates(project_root: &str, run_id: &str) -> Vec<PathBuf> {
     vec![
+        run_dir(project_root, &RunId(run_id.to_string()), None),
         Path::new(project_root)
             .join(".ao")
             .join("runs")

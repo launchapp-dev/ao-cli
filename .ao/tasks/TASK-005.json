@@ -1,0 +1,56 @@
+{
+  "assignee": {
+    "type": "unassigned"
+  },
+  "blocked_at": null,
+  "blocked_by": null,
+  "blocked_phase": null,
+  "blocked_reason": null,
+  "branch_name": null,
+  "cancelled": false,
+  "checklist": [],
+  "complexity": "medium",
+  "deadline": null,
+  "dependencies": [],
+  "description": "Run package-level cargo checks and smoke help commands for ao and llm-cli-wrapper in CI.",
+  "estimated_effort": null,
+  "id": "TASK-005",
+  "impact_area": [],
+  "linked_requirements": [
+    "REQ-005"
+  ],
+  "metadata": {
+    "completed_at": null,
+    "created_at": "2026-02-24T17:25:45.713215Z",
+    "created_by": "ao-cli",
+    "started_at": null,
+    "updated_at": "2026-02-24T17:25:45.713215Z",
+    "updated_by": "ao-cli",
+    "version": 1
+  },
+  "paused": false,
+  "priority": "high",
+  "resource_requirements": {
+    "max_cpu_percent": null,
+    "max_memory_mb": null,
+    "requires_network": true
+  },
+  "risk": "medium",
+  "scope": "medium",
+  "status": "backlog",
+  "tags": [
+    "ci",
+    "quality"
+  ],
+  "title": "Add CI workflow for Rust-only workspace",
+  "type": "chore",
+  "workflow_metadata": {
+    "requires_architecture": false,
+    "requires_design": false,
+    "requires_production_deploy": false,
+    "requires_qa": true,
+    "requires_staging_deploy": false,
+    "workflow_id": null
+  },
+  "worktree_path": null
+}

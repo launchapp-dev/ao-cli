@@ -1,0 +1,28 @@
+{
+  "acceptance_criteria": [
+    "Core command groups (project, requirements, task, workflow, execute) have concise and consistent help output.",
+    "Common user input errors return actionable messages with suggested fixes."
+  ],
+  "category": null,
+  "comments": [],
+  "created_at": "2026-02-24T17:24:42.443485Z",
+  "description": "Improve command discoverability, help text quality, and error messaging for the orchestrator-cli command groups used daily.",
+  "id": "REQ-002",
+  "legacy_id": null,
+  "links": {
+    "flows": [],
+    "mockups": [],
+    "related_requirements": [],
+    "tasks": [
+      "TASK-002"
+    ],
+    "tests": [],
+    "workflows": []
+  },
+  "priority": "must",
+  "status": "draft",
+  "tags": [],
+  "title": "Stabilize core CLI package ergonomics",
+  "type": null,
+  "updated_at": "2026-02-24T17:26:06.585246Z"
+}

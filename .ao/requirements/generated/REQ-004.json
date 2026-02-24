@@ -1,0 +1,28 @@
+{
+  "acceptance_criteria": [
+    "Wrapper can build and start llm-mcp-server using documented commands.",
+    "Integration example validates health and agent endpoint responses."
+  ],
+  "category": null,
+  "comments": [],
+  "created_at": "2026-02-24T17:24:43.920053Z",
+  "description": "Standardize wrapper <-> MCP server behavior for build, startup, endpoint resolution, and smoke validation.",
+  "id": "REQ-004",
+  "legacy_id": null,
+  "links": {
+    "flows": [],
+    "mockups": [],
+    "related_requirements": [],
+    "tasks": [
+      "TASK-004"
+    ],
+    "tests": [],
+    "workflows": []
+  },
+  "priority": "should",
+  "status": "draft",
+  "tags": [],
+  "title": "Mature llm-cli-wrapper and llm-mcp-server integration",
+  "type": null,
+  "updated_at": "2026-02-24T17:26:08.772338Z"
+}

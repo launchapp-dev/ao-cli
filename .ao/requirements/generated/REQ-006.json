@@ -1,0 +1,28 @@
+{
+  "acceptance_criteria": [
+    "Release process documents artifact naming, target platforms, and verification steps.",
+    "At least one automated build path produces all required binaries."
+  ],
+  "category": null,
+  "comments": [],
+  "created_at": "2026-02-24T17:24:45.301691Z",
+  "description": "Define and implement reproducible build artifacts for ao, agent-runner, llm-cli-wrapper, and llm-mcp-server.",
+  "id": "REQ-006",
+  "legacy_id": null,
+  "links": {
+    "flows": [],
+    "mockups": [],
+    "related_requirements": [],
+    "tasks": [
+      "TASK-006"
+    ],
+    "tests": [],
+    "workflows": []
+  },
+  "priority": "should",
+  "status": "draft",
+  "tags": [],
+  "title": "Add release packaging strategy for multi-binary workspace",
+  "type": null,
+  "updated_at": "2026-02-24T17:26:10.223331Z"
+}

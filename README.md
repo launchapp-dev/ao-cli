@@ -1,18 +1,10 @@
 # AO CLI Workspace (Non-Tauri)
 
-This repository contains the Rust-only AO orchestration CLI workspace.
+Rust-only workspace for the AO orchestrator stack.
 
 - Main CLI crate: `crates/orchestrator-cli`
 - Main CLI binary: `ao`
-- Supporting crates:
-  - `crates/agent-runner`
-  - `crates/llm-cli-wrapper`
-  - `crates/llm-mcp-server`
-  - `crates/orchestrator-core`
-  - `crates/orchestrator-web-api`
-  - `crates/orchestrator-web-server`
-  - `crates/orchestrator-web-contracts`
-  - `crates/protocol`
+- Supporting runtime crates: `agent-runner`, `llm-cli-wrapper`, `llm-mcp-server`
 
 ## Workspace Layout
 
@@ -22,52 +14,99 @@ This repository contains the Rust-only AO orchestration CLI workspace.
 ├── Cargo.lock
 ├── .cargo/
 └── crates/
-    ├── agent-runner/
-    ├── llm-cli-wrapper/
-    ├── llm-mcp-server/
     ├── orchestrator-cli/
     ├── orchestrator-core/
     ├── orchestrator-web-api/
-    ├── orchestrator-web-contracts/
     ├── orchestrator-web-server/
-    └── protocol/
+    ├── orchestrator-web-contracts/
+    ├── protocol/
+    ├── agent-runner/
+    ├── llm-cli-wrapper/
+    └── llm-mcp-server/
 ```
 
-## Build and Run
+## Quick Start
 
 ```bash
-# Build the main CLI
-cargo build -p orchestrator-cli
+# Build all workspace crates
+cargo check
 
-# Show CLI help
+# Main CLI
 cargo run -p orchestrator-cli -- --help
 
-# Wrapper CLI help
+# Wrapper CLI
 cargo run -p llm-cli-wrapper -- --help
-```
 
-## Agent Runner
-
-```bash
+# Runner + MCP server binaries
 cargo build -p agent-runner
-```
-
-The runner binary is discovered by orchestrator components from the workspace
-`target/` and `crates/agent-runner/target/` locations.
-
-## MCP Server
-
-```bash
 cargo build -p llm-mcp-server --release
 ```
 
-`llm-cli-wrapper` can build and launch this crate via:
+## Self-Hosting Workflow (Using `ao` to Build `ao`)
 
-- manifest path: `crates/llm-mcp-server/Cargo.toml`
-- binary path: `crates/llm-mcp-server/target/release/llm-mcp-server`
+This repo is configured to use `ao` itself for requirements and task tracking.
+
+### Inspect project and backlog
+
+```bash
+cargo run -p orchestrator-cli -- project active
+cargo run -p orchestrator-cli -- requirements list
+cargo run -p orchestrator-cli -- task prioritized
+cargo run -p orchestrator-cli -- task next
+```
+
+### Create new requirement and linked task
+
+```bash
+cargo run -p orchestrator-cli -- requirements create \
+  --title "<requirement title>" \
+  --description "<problem and expected outcome>" \
+  --priority should
+
+cargo run -p orchestrator-cli -- task create \
+  --title "<task title>" \
+  --input-json '{
+    "title":"<task title>",
+    "description":"<implementation scope>",
+    "task_type":"feature",
+    "priority":"medium",
+    "linked_requirements":["REQ-XYZ"]
+  }'
+
+cargo run -p orchestrator-cli -- requirements update \
+  --id REQ-XYZ \
+  --status planned \
+  --linked-task-id TASK-XYZ
+```
+
+### Typical execution loop
+
+```bash
+# Start work
+cargo run -p orchestrator-cli -- task status --id TASK-XYZ --status in-progress
+cargo run -p orchestrator-cli -- requirements update --id REQ-XYZ --status in-progress
+
+# Finish work
+cargo run -p orchestrator-cli -- task status --id TASK-XYZ --status done
+cargo run -p orchestrator-cli -- requirements update --id REQ-XYZ --status done
+```
+
+## Seeded Backlog
+
+Initial requirements/tasks were created to bootstrap self-hosted development:
+
+- `REQ-001` <-> `TASK-001`: documentation and operating conventions
+- `REQ-002` <-> `TASK-002`: CLI UX/help/error quality
+- `REQ-003` <-> `TASK-003`: runner lifecycle reliability
+- `REQ-004` <-> `TASK-004`: wrapper/MCP integration hardening
+- `REQ-005` <-> `TASK-005`: non-Tauri CI coverage
+- `REQ-006` <-> `TASK-006`: multi-binary release packaging
 
 ## Notes
 
-- This workspace intentionally excludes Tauri crates and frontend app code.
-- Runtime/project state for AO commands is stored under `.ao/` within target
-  project roots.
+- Tauri/frontend code is intentionally excluded from this workspace.
+- Runtime tracking files live under `.ao/`.
+- Do not hand-edit `.ao/state/*`; use `ao` commands for changes.
+- Daemon-managed git worktrees are created under:
+  - `~/.ao/<repo-scope>/worktrees/`
+  - each repo scope includes a `.project-root` marker and `project-root` symlink (unix).

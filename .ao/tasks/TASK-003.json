@@ -1,0 +1,56 @@
+{
+  "assignee": {
+    "type": "unassigned"
+  },
+  "blocked_at": null,
+  "blocked_by": null,
+  "blocked_phase": null,
+  "blocked_reason": null,
+  "branch_name": null,
+  "cancelled": false,
+  "checklist": [],
+  "complexity": "medium",
+  "deadline": null,
+  "dependencies": [],
+  "description": "Cover startup, health-check fallback, stale lock cleanup, and shutdown for agent-runner workflows.",
+  "estimated_effort": null,
+  "id": "TASK-003",
+  "impact_area": [],
+  "linked_requirements": [
+    "REQ-003"
+  ],
+  "metadata": {
+    "completed_at": null,
+    "created_at": "2026-02-24T17:25:44.332649Z",
+    "created_by": "ao-cli",
+    "started_at": null,
+    "updated_at": "2026-02-24T17:25:44.332649Z",
+    "updated_by": "ao-cli",
+    "version": 1
+  },
+  "paused": false,
+  "priority": "high",
+  "resource_requirements": {
+    "max_cpu_percent": null,
+    "max_memory_mb": null,
+    "requires_network": true
+  },
+  "risk": "medium",
+  "scope": "medium",
+  "status": "backlog",
+  "tags": [
+    "runner",
+    "reliability"
+  ],
+  "title": "Add runner lifecycle regression tests",
+  "type": "test",
+  "workflow_metadata": {
+    "requires_architecture": false,
+    "requires_design": false,
+    "requires_production_deploy": false,
+    "requires_qa": true,
+    "requires_staging_deploy": false,
+    "workflow_id": null
+  },
+  "worktree_path": null
+}

@@ -1,0 +1,129 @@
+{
+  "schema": "ao.workflow-config.v2",
+  "version": 2,
+  "default_pipeline_id": "standard",
+  "phase_catalog": {
+    "code-review": {
+      "label": "Code Review",
+      "description": "Review quality, risks, and maintainability before completion.",
+      "category": "review",
+      "icon": null,
+      "docs_url": null,
+      "tags": [
+        "review",
+        "quality"
+      ],
+      "visible": true
+    },
+    "implementation": {
+      "label": "Implementation",
+      "description": "Deliver production-quality implementation changes.",
+      "category": "build",
+      "icon": null,
+      "docs_url": null,
+      "tags": [
+        "build",
+        "code"
+      ],
+      "visible": true
+    },
+    "mockup-review": {
+      "label": "Mockup Review",
+      "description": "Validate mockups against requirements and UX constraints.",
+      "category": "review",
+      "icon": null,
+      "docs_url": null,
+      "tags": [
+        "design",
+        "review"
+      ],
+      "visible": true
+    },
+    "requirements": {
+      "label": "Requirements",
+      "description": "Clarify scope, constraints, and acceptance criteria.",
+      "category": "planning",
+      "icon": null,
+      "docs_url": null,
+      "tags": [
+        "planning",
+        "scope"
+      ],
+      "visible": true
+    },
+    "research": {
+      "label": "Research",
+      "description": "Gather implementation evidence and references for execution.",
+      "category": "planning",
+      "icon": null,
+      "docs_url": null,
+      "tags": [
+        "research"
+      ],
+      "visible": true
+    },
+    "testing": {
+      "label": "Testing",
+      "description": "Run and update test coverage for the delivered changes.",
+      "category": "qa",
+      "icon": null,
+      "docs_url": null,
+      "tags": [
+        "qa",
+        "testing"
+      ],
+      "visible": true
+    },
+    "ux-research": {
+      "label": "UX Research",
+      "description": "Document interaction patterns, user journeys, and accessibility constraints.",
+      "category": "design",
+      "icon": null,
+      "docs_url": null,
+      "tags": [
+        "design",
+        "ux"
+      ],
+      "visible": true
+    },
+    "wireframe": {
+      "label": "Wireframe",
+      "description": "Produce concrete wireframes and interaction states.",
+      "category": "design",
+      "icon": null,
+      "docs_url": null,
+      "tags": [
+        "design",
+        "wireframe"
+      ],
+      "visible": true
+    }
+  },
+  "pipelines": [
+    {
+      "id": "standard",
+      "name": "Standard",
+      "description": "Default execution flow across requirements, implementation, review, and testing.",
+      "phases": [
+        "requirements",
+        "implementation",
+        "code-review",
+        "testing"
+      ]
+    },
+    {
+      "id": "ui-ux-standard",
+      "name": "UI UX Standard",
+      "description": "Frontend-oriented flow with UX research, wireframes, and mockup review gates.",
+      "phases": [
+        "requirements",
+        "ux-research",
+        "wireframe",
+        "mockup-review",
+        "implementation",
+        "code-review",
+        "testing"
+      ]
+    }
+  ]
+}

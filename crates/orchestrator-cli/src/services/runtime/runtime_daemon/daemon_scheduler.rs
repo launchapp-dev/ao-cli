@@ -1115,7 +1115,8 @@ mod tests {
                 .await
                 .expect("execution cwd should be provisioned");
 
-        assert!(execution_cwd.contains("/.ao/worktrees/"));
+        assert!(execution_cwd.contains("/.ao/"));
+        assert!(execution_cwd.contains("/worktrees/"));
         assert!(Path::new(&execution_cwd).exists());
 
         let updated = hub.tasks().get(&task.id).await.expect("task should load");

@@ -1,0 +1,28 @@
+{
+  "acceptance_criteria": [
+    "CI runs cargo check for orchestrator-cli, orchestrator-core, agent-runner, llm-cli-wrapper, llm-mcp-server, and web server crates.",
+    "CI validates help/smoke commands for ao and llm-cli-wrapper."
+  ],
+  "category": null,
+  "comments": [],
+  "created_at": "2026-02-24T17:24:44.632605Z",
+  "description": "Create CI coverage focused on the Rust-only workspace packages and smoke command execution.",
+  "id": "REQ-005",
+  "legacy_id": null,
+  "links": {
+    "flows": [],
+    "mockups": [],
+    "related_requirements": [],
+    "tasks": [
+      "TASK-005"
+    ],
+    "tests": [],
+    "workflows": []
+  },
+  "priority": "must",
+  "status": "draft",
+  "tags": [],
+  "title": "Establish CI checks for non-Tauri workspace",
+  "type": null,
+  "updated_at": "2026-02-24T17:26:09.515590Z"
+}

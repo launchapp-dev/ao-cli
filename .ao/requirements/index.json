@@ -1,0 +1,150 @@
+{
+  "requirements": [
+    {
+      "acceptance_criteria_count": 2,
+      "category": null,
+      "created_at": "2026-02-24T17:24:41.776781Z",
+      "id": "REQ-001",
+      "linked_flows": [],
+      "linked_mockups": [],
+      "linked_related_requirements": [],
+      "linked_tasks": [
+        "TASK-001"
+      ],
+      "linked_tests": [],
+      "linked_workflows": [],
+      "priority": "must",
+      "relative_path": "generated/REQ-001.json",
+      "status": "em-review",
+      "tags": [],
+      "title": "Document self-hosting workflow for ao-cli",
+      "type": null,
+      "updated_at": "2026-02-24T17:26:05.835069Z"
+    },
+    {
+      "acceptance_criteria_count": 2,
+      "category": null,
+      "created_at": "2026-02-24T17:24:42.443485Z",
+      "id": "REQ-002",
+      "linked_flows": [],
+      "linked_mockups": [],
+      "linked_related_requirements": [],
+      "linked_tasks": [
+        "TASK-002"
+      ],
+      "linked_tests": [],
+      "linked_workflows": [],
+      "priority": "must",
+      "relative_path": "generated/REQ-002.json",
+      "status": "draft",
+      "tags": [],
+      "title": "Stabilize core CLI package ergonomics",
+      "type": null,
+      "updated_at": "2026-02-24T17:26:06.585246Z"
+    },
+    {
+      "acceptance_criteria_count": 2,
+      "category": null,
+      "created_at": "2026-02-24T17:24:43.242788Z",
+      "id": "REQ-003",
+      "linked_flows": [],
+      "linked_mockups": [],
+      "linked_related_requirements": [],
+      "linked_tasks": [
+        "TASK-003"
+      ],
+      "linked_tests": [],
+      "linked_workflows": [],
+      "priority": "must",
+      "relative_path": "generated/REQ-003.json",
+      "status": "draft",
+      "tags": [],
+      "title": "Harden agent-runner lifecycle and observability",
+      "type": null,
+      "updated_at": "2026-02-24T17:26:07.318188Z"
+    },
+    {
+      "acceptance_criteria_count": 2,
+      "category": null,
+      "created_at": "2026-02-24T17:24:43.920053Z",
+      "id": "REQ-004",
+      "linked_flows": [],
+      "linked_mockups": [],
+      "linked_related_requirements": [],
+      "linked_tasks": [
+        "TASK-004"
+      ],
+      "linked_tests": [],
+      "linked_workflows": [],
+      "priority": "should",
+      "relative_path": "generated/REQ-004.json",
+      "status": "draft",
+      "tags": [],
+      "title": "Mature llm-cli-wrapper and llm-mcp-server integration",
+      "type": null,
+      "updated_at": "2026-02-24T17:26:08.772338Z"
+    },
+    {
+      "acceptance_criteria_count": 2,
+      "category": null,
+      "created_at": "2026-02-24T17:24:44.632605Z",
+      "id": "REQ-005",
+      "linked_flows": [],
+      "linked_mockups": [],
+      "linked_related_requirements": [],
+      "linked_tasks": [
+        "TASK-005"
+      ],
+      "linked_tests": [],
+      "linked_workflows": [],
+      "priority": "must",
+      "relative_path": "generated/REQ-005.json",
+      "status": "draft",
+      "tags": [],
+      "title": "Establish CI checks for non-Tauri workspace",
+      "type": null,
+      "updated_at": "2026-02-24T17:26:09.515590Z"
+    },
+    {
+      "acceptance_criteria_count": 2,
+      "category": null,
+      "created_at": "2026-02-24T17:24:45.301691Z",
+      "id": "REQ-006",
+      "linked_flows": [],
+      "linked_mockups": [],
+      "linked_related_requirements": [],
+      "linked_tasks": [
+        "TASK-006"
+      ],
+      "linked_tests": [],
+      "linked_workflows": [],
+      "priority": "should",
+      "relative_path": "generated/REQ-006.json",
+      "status": "draft",
+      "tags": [],
+      "title": "Add release packaging strategy for multi-binary workspace",
+      "type": null,
+      "updated_at": "2026-02-24T17:26:10.223331Z"
+    }
+  ],
+  "traceability": {
+    "REQ-001": [
+      "TASK-001"
+    ],
+    "REQ-002": [
+      "TASK-002"
+    ],
+    "REQ-003": [
+      "TASK-003"
+    ],
+    "REQ-004": [
+      "TASK-004"
+    ],
+    "REQ-005": [
+      "TASK-005"
+    ],
+    "REQ-006": [
+      "TASK-006"
+    ]
+  }
+}

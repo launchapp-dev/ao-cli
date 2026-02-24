@@ -1,4 +1,5 @@
 use super::*;
+use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone)]
 struct PostSuccessGitConfig {
@@ -223,13 +224,11 @@ pub(super) async fn post_success_merge_push_and_cleanup(
         "push source branch",
     )?;
 
-    let merge_worktree_path = Path::new(project_root)
-        .join(".ao")
-        .join("worktrees")
-        .join(format!(
-            "__merge-{}",
-            sanitize_identifier_for_git(cfg.auto_merge_target_branch.as_str())
-        ));
+    let merge_worktree_root = ensure_repo_worktree_root(project_root)?;
+    let merge_worktree_path = merge_worktree_root.join(format!(
+        "__merge-{}",
+        sanitize_identifier_for_git(cfg.auto_merge_target_branch.as_str())
+    ));
     let merge_worktree_path_str = merge_worktree_path.to_string_lossy().to_string();
 
     if merge_worktree_path.exists() {
@@ -435,11 +434,74 @@ fn default_task_branch_name(task_id: &str) -> String {
     format!("ao/{}", sanitize_identifier_for_git(task_id))
 }
 
-fn default_task_worktree_path(project_root: &str, task_id: &str) -> PathBuf {
-    Path::new(project_root)
-        .join(".ao")
-        .join("worktrees")
-        .join(default_task_worktree_name(task_id))
+fn ao_root_dir() -> Result<PathBuf> {
+    let home =
+        dirs::home_dir().ok_or_else(|| anyhow!("failed to resolve home directory for ~/.ao"))?;
+    Ok(home.join(".ao"))
+}
+
+fn repo_worktree_scope(project_root: &str) -> String {
+    let canonical = Path::new(project_root)
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(project_root));
+    let canonical_display = canonical.to_string_lossy();
+    let repo_name = canonical
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(sanitize_identifier_for_git)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "repo".to_string());
+
+    let mut hasher = Sha256::new();
+    hasher.update(canonical_display.as_bytes());
+    let digest = hasher.finalize();
+    let suffix = format!(
+        "{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        digest[0], digest[1], digest[2], digest[3], digest[4], digest[5]
+    );
+
+    format!("{repo_name}-{suffix}")
+}
+
+fn repo_ao_root(project_root: &str) -> Result<PathBuf> {
+    Ok(ao_root_dir()?.join(repo_worktree_scope(project_root)))
+}
+
+fn repo_worktrees_root(project_root: &str) -> Result<PathBuf> {
+    Ok(repo_ao_root(project_root)?.join("worktrees"))
+}
+
+fn ensure_repo_worktree_root(project_root: &str) -> Result<PathBuf> {
+    let repo_root = repo_ao_root(project_root)?;
+    let root = repo_worktrees_root(project_root)?;
+    fs::create_dir_all(&repo_root)?;
+    fs::create_dir_all(&root)?;
+
+    let canonical = Path::new(project_root)
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(project_root));
+    let marker_path = repo_root.join(".project-root");
+    let marker_content = format!("{}\n", canonical.to_string_lossy());
+    let should_write_marker = fs::read_to_string(&marker_path)
+        .map(|existing| existing != marker_content)
+        .unwrap_or(true);
+    if should_write_marker {
+        fs::write(&marker_path, marker_content)?;
+    }
+
+    #[cfg(unix)]
+    {
+        let link_path = repo_root.join("project-root");
+        if !link_path.exists() {
+            let _ = std::os::unix::fs::symlink(&canonical, &link_path);
+        }
+    }
+
+    Ok(root)
+}
+
+fn default_task_worktree_path(project_root: &str, task_id: &str) -> Result<PathBuf> {
+    Ok(repo_worktrees_root(project_root)?.join(default_task_worktree_name(task_id)))
 }
 
 fn path_is_within_root(path: &Path, root: &Path) -> bool {
@@ -476,7 +538,7 @@ pub(super) async fn ensure_task_execution_cwd(
         return Ok(project_root.to_string());
     }
 
-    let project_root_path = Path::new(project_root);
+    let worktree_root = ensure_repo_worktree_root(project_root)?;
     let branch_name = task
         .branch_name
         .as_deref()
@@ -493,12 +555,12 @@ pub(super) async fn ensure_task_execution_cwd(
     {
         let existing_path = PathBuf::from(existing_path_raw);
         if existing_path.exists() {
-            if !path_is_within_root(&existing_path, project_root_path) {
+            if !path_is_within_root(&existing_path, &worktree_root) {
                 anyhow::bail!(
-                    "task {} worktree path '{}' escapes project root '{}'",
+                    "task {} worktree path '{}' is outside managed worktree root '{}'",
                     task.id,
                     existing_path.display(),
-                    project_root
+                    worktree_root.display()
                 );
             }
             if task.branch_name.as_deref() != Some(branch_name.as_str()) {
@@ -510,14 +572,14 @@ pub(super) async fn ensure_task_execution_cwd(
         }
     }
 
-    let worktree_path = default_task_worktree_path(project_root, &task.id);
+    let worktree_path = default_task_worktree_path(project_root, &task.id)?;
     if worktree_path.exists() {
-        if !path_is_within_root(&worktree_path, project_root_path) {
+        if !path_is_within_root(&worktree_path, &worktree_root) {
             anyhow::bail!(
-                "task {} worktree path '{}' escapes project root '{}'",
+                "task {} worktree path '{}' is outside managed worktree root '{}'",
                 task.id,
                 worktree_path.display(),
-                project_root
+                worktree_root.display()
             );
         }
         let mut updated = task.clone();

@@ -1,0 +1,48 @@
+{
+  "last_sequence": 6,
+  "last_updated": "2026-02-24T17:27:17.439960Z",
+  "tasks": [
+    {
+      "id": "TASK-001",
+      "priority": "high",
+      "status": "done",
+      "title": "Write self-hosting docs and conventions",
+      "updated_at": "2026-02-24T17:27:16.724507Z"
+    },
+    {
+      "id": "TASK-002",
+      "priority": "high",
+      "status": "backlog",
+      "title": "Audit and polish CLI help and error messages",
+      "updated_at": "2026-02-24T17:25:43.577231Z"
+    },
+    {
+      "id": "TASK-003",
+      "priority": "high",
+      "status": "backlog",
+      "title": "Add runner lifecycle regression tests",
+      "updated_at": "2026-02-24T17:25:44.332649Z"
+    },
+    {
+      "id": "TASK-004",
+      "priority": "medium",
+      "status": "backlog",
+      "title": "Strengthen llm wrapper to MCP server contract",
+      "updated_at": "2026-02-24T17:25:45.015654Z"
+    },
+    {
+      "id": "TASK-005",
+      "priority": "high",
+      "status": "backlog",
+      "title": "Add CI workflow for Rust-only workspace",
+      "updated_at": "2026-02-24T17:25:45.713215Z"
+    },
+    {
+      "id": "TASK-006",
+      "priority": "medium",
+      "status": "backlog",
+      "title": "Draft multi-binary release pipeline",
+      "updated_at": "2026-02-24T17:25:46.402288Z"
+    }
+  ]
+}

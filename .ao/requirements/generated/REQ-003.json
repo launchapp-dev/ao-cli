@@ -1,0 +1,28 @@
+{
+  "acceptance_criteria": [
+    "Runner startup and shutdown behavior is covered by repeatable tests.",
+    "Runner health failure paths emit structured diagnostics."
+  ],
+  "category": null,
+  "comments": [],
+  "created_at": "2026-02-24T17:24:43.242788Z",
+  "description": "Ensure runner startup, health checks, and shutdown paths are robust across local development workflows.",
+  "id": "REQ-003",
+  "legacy_id": null,
+  "links": {
+    "flows": [],
+    "mockups": [],
+    "related_requirements": [],
+    "tasks": [
+      "TASK-003"
+    ],
+    "tests": [],
+    "workflows": []
+  },
+  "priority": "must",
+  "status": "draft",
+  "tags": [],
+  "title": "Harden agent-runner lifecycle and observability",
+  "type": null,
+  "updated_at": "2026-02-24T17:26:07.318188Z"
+}

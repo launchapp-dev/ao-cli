@@ -46,7 +46,7 @@ pub fn resolve_project_root(config: &RuntimeConfig) -> (String, ProjectRootSourc
     (cwd, ProjectRootSource::CurrentDir)
 }
 
-// Mirrors existing precedence without importing Tauri internals.
+// Mirrors existing precedence without importing external platform-specific runtimes.
 fn resolve_project_root_from_registry() -> Option<String> {
     let home = dirs::home_dir()?;
     let candidate = home

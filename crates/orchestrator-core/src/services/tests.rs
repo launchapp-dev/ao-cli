@@ -12,7 +12,7 @@ async fn file_hub_persists_projects_with_rich_payload() {
             path: temp.path().join("standalone-core").display().to_string(),
             project_type: Some(ProjectType::WebApp),
             description: Some("Core project".to_string()),
-            tech_stack: vec!["rust".to_string(), "tauri".to_string()],
+            tech_stack: vec!["rust".to_string(), "desktop-gui".to_string()],
             metadata: Some(crate::types::ProjectMetadata {
                 problem_statement: Some("Unify desktop and CLI".to_string()),
                 target_users: vec!["engineers".to_string()],
@@ -31,7 +31,7 @@ async fn file_hub_persists_projects_with_rich_payload() {
         .expect("load by path");
     assert_eq!(loaded.id, created.id);
     assert_eq!(loaded.config.project_type, ProjectType::WebApp);
-    assert_eq!(loaded.config.tech_stack, vec!["rust", "tauri"]);
+    assert_eq!(loaded.config.tech_stack, vec!["rust", "desktop-gui"]);
     assert_eq!(loaded.metadata.goals, vec!["single runtime"]);
     assert_eq!(
         loaded.metadata.description,
@@ -1057,7 +1057,7 @@ async fn execute_requirements_runs_requirement_state_machine_before_task_materia
 }
 
 #[tokio::test]
-async fn file_hub_writes_tauri_style_requirement_and_task_files() {
+async fn file_hub_writes_legacy_style_requirement_and_task_files() {
     let temp = tempfile::tempdir().expect("tempdir");
     let hub = FileServiceHub::new(temp.path()).expect("create hub");
 
@@ -1065,7 +1065,7 @@ async fn file_hub_writes_tauri_style_requirement_and_task_files() {
         &hub,
         VisionDraftInput {
             project_name: Some("Parity Files".to_string()),
-            problem_statement: "Need tauri-compatible artifacts".to_string(),
+            problem_statement: "Need CLI-compatible artifacts".to_string(),
             target_users: vec!["PM".to_string(), "Engineer".to_string()],
             goals: vec!["Generate detailed requirement and task artifacts".to_string()],
             constraints: vec!["Use Next.js and PostgreSQL".to_string()],
@@ -1168,13 +1168,13 @@ async fn file_hub_writes_tauri_style_requirement_and_task_files() {
 }
 
 #[tokio::test]
-async fn execute_requirements_generates_tauri_style_task_titles() {
+async fn execute_requirements_generates_stable_task_titles() {
     let hub = InMemoryServiceHub::new();
     PlanningServiceApi::draft_vision(
         &hub,
         VisionDraftInput {
             project_name: Some("Task Title Parity".to_string()),
-            problem_statement: "Need tauri-style task generation".to_string(),
+            problem_statement: "Need structured task generation".to_string(),
             target_users: vec!["Engineering".to_string()],
             goals: vec![
                 "Deliver end-to-end workflow".to_string(),

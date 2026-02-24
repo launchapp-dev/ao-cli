@@ -1,4 +1,4 @@
-//! Shared wire protocol between the Tauri backend and the standalone agent runner.
+//! Shared wire protocol between the AO service layer and the standalone agent runner.
 //!
 //! Compatibility assumptions:
 //! - Serde field names and enum tags are part of the wire contract and should remain stable.

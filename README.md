@@ -1,4 +1,4 @@
-# AO CLI Workspace (Non-Tauri)
+# AO CLI Workspace (CLI-only)
 
 Rust-only workspace for the AO orchestrator stack.
 
@@ -81,6 +81,11 @@ cargo run -p orchestrator-cli -- requirements update \
 
 ### Typical execution loop
 
+Required baseline:
+
+- Every task must be linked to at least one requirement before implementation starts.
+- If no requirement exists, create it first and link `TASK-XYZ` in `requirements update --linked-task-id`.
+
 ```bash
 # Start work
 cargo run -p orchestrator-cli -- task status --id TASK-XYZ --status in-progress
@@ -99,12 +104,12 @@ Initial requirements/tasks were created to bootstrap self-hosted development:
 - `REQ-002` <-> `TASK-002`: CLI UX/help/error quality
 - `REQ-003` <-> `TASK-003`: runner lifecycle reliability
 - `REQ-004` <-> `TASK-004`: wrapper/MCP integration hardening
-- `REQ-005` <-> `TASK-005`: non-Tauri CI coverage
+- `REQ-005` <-> `TASK-005`: CLI-focused CI coverage
 - `REQ-006` <-> `TASK-006`: multi-binary release packaging
 
 ## Notes
 
-- Tauri/frontend code is intentionally excluded from this workspace.
+- GUI/frontend code is intentionally excluded from this workspace.
 - Runtime tracking files live under `.ao/`.
 - Do not hand-edit `.ao/state/*`; use `ao` commands for changes.
 - Daemon-managed git worktrees are created under:

@@ -151,9 +151,9 @@ llm-cli-wrapper/
 │   └── main.rs        # CLI binary
 ```
 
-## Integration with Tauri App
+## Integration with Host Application
 
-This CLI wrapper can be used standalone or integrated with your Tauri agent orchestrator:
+This CLI wrapper can be used standalone or integrated with your Rust-hosted service:
 
 ```rust
 use cli_wrapper::{CliRegistry, CliTester, TestSuite};

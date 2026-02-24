@@ -159,9 +159,6 @@ pub(super) fn collect_codebase_insight(project_root: &Path) -> CodebaseInsight {
             if deps.contains_key("vite") {
                 insight.detected_stacks.push("vite".to_string());
             }
-            if deps.contains_key("@tauri-apps/api") || deps.contains_key("@tauri-apps/cli") {
-                insight.detected_stacks.push("tauri".to_string());
-            }
             if deps.contains_key("typescript") {
                 insight.detected_stacks.push("typescript".to_string());
             }
@@ -172,9 +169,6 @@ pub(super) fn collect_codebase_insight(project_root: &Path) -> CodebaseInsight {
     if cargo_toml_path.exists() {
         insight.detected_stacks.push("rust".to_string());
         if let Ok(content) = std::fs::read_to_string(cargo_toml_path) {
-            if content.to_ascii_lowercase().contains("tauri") {
-                insight.detected_stacks.push("tauri".to_string());
-            }
         }
     }
 

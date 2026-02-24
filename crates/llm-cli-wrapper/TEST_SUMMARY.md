@@ -43,7 +43,7 @@ llm-cli-wrapper/
 ✅ Health Checks - Quick status verification
 ✅ Output Validation - Parse and validate CLI outputs
 ✅ Multi-CLI Support - Claude, Codex, Gemini, Aider
-✅ Standalone Binary - Works without Tauri app
+✅ Standalone Binary - Works without host app
 ✅ Library Mode - Can be integrated into other Rust projects
 
 ## Supported CLIs
@@ -126,7 +126,7 @@ llm-cli-wrapper/
    ./target/release/llm-cli-wrapper health
    ```
 
-2. **Integrate with Tauri app**:
+2. **Integrate with host app**:
    - Can be used as a library
    - Import shared types if needed
    - Run CLI tests from daemon

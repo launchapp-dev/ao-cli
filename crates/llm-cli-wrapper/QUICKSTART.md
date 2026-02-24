@@ -103,9 +103,9 @@ Running test suite: Basic CLI Verification
 Summary: 3/3 tests passed
 ```
 
-## Integration with Tauri App
+## Integration with Host Application
 
-You can integrate this as a library in your Tauri app:
+You can integrate this as a library in your host app:
 
 ```toml
 # In your Cargo.toml

@@ -289,7 +289,7 @@ impl FileServiceHub {
         safe
     }
 
-    fn tauri_requirement_status(status: RequirementStatus) -> &'static str {
+    fn legacy_requirement_status(status: RequirementStatus) -> &'static str {
         match status {
             RequirementStatus::Draft | RequirementStatus::Refined | RequirementStatus::Planned => {
                 "draft"
@@ -304,7 +304,7 @@ impl FileServiceHub {
         }
     }
 
-    fn tauri_compatible_requirement_payload(requirement: &RequirementItem) -> serde_json::Value {
+    fn legacy_requirement_payload(requirement: &RequirementItem) -> serde_json::Value {
         let mut tasks = requirement.links.tasks.clone();
         tasks.extend(requirement.linked_task_ids.clone());
         tasks.sort();
@@ -318,7 +318,7 @@ impl FileServiceHub {
             "category": requirement.category,
             "type": requirement.requirement_type,
             "priority": requirement.priority,
-            "status": Self::tauri_requirement_status(requirement.status),
+            "status": Self::legacy_requirement_status(requirement.status),
             "acceptance_criteria": requirement.acceptance_criteria,
             "tags": requirement.tags,
             "links": {
@@ -359,7 +359,7 @@ impl FileServiceHub {
                 std::fs::create_dir_all(parent)?;
             }
 
-            let payload = Self::tauri_compatible_requirement_payload(&requirement);
+            let payload = Self::legacy_requirement_payload(&requirement);
             std::fs::write(&full_path, serde_json::to_string_pretty(&payload)?)?;
 
             let mut linked_tasks = requirement.links.tasks.clone();
@@ -374,7 +374,7 @@ impl FileServiceHub {
                 "category": requirement.category,
                 "type": requirement.requirement_type,
                 "priority": requirement.priority,
-                "status": Self::tauri_requirement_status(requirement.status),
+                "status": Self::legacy_requirement_status(requirement.status),
                 "relative_path": relative_str,
                 "tags": requirement.tags,
                 "acceptance_criteria_count": requirement.acceptance_criteria.len(),

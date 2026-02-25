@@ -418,7 +418,12 @@ fn apply_gemini_native_mcp_lockdown(
         McpServerTransport::Stdio { command, args } => serde_json::json!({
             "type": "stdio",
             "command": command,
-            "args": args
+            "args": args,
+            // Gemini MCP currently fails on draft 2020-12 tool schemas.
+            // Force AO MCP tool schemas to draft-07 for this adapter only.
+            "env": {
+                "AO_MCP_SCHEMA_DRAFT": "draft07"
+            }
         }),
     };
     let settings = serde_json::json!({
@@ -1078,8 +1083,16 @@ mod tests {
         };
         let enforcement = McpToolEnforcement {
             enabled: true,
-            endpoint: Some("http://127.0.0.1:3101/mcp/ao".to_string()),
-            stdio: None,
+            endpoint: None,
+            stdio: Some(McpStdioConfig {
+                command: "/Users/samishukri/ao-cli/target/debug/ao".to_string(),
+                args: vec![
+                    "--project-root".to_string(),
+                    "/Users/samishukri/ao-cli".to_string(),
+                    "mcp".to_string(),
+                    "serve".to_string(),
+                ],
+            }),
             agent_id: "ao".to_string(),
             allowed_prefixes: vec!["ao.".to_string()],
         };
@@ -1264,7 +1277,7 @@ mod tests {
     }
 
     #[test]
-    fn native_mcp_policy_sets_gemini_system_settings_path() {
+    fn native_mcp_policy_sets_gemini_system_settings_path_for_stdio_transport() {
         let mut invocation = super::super::process_builder::CliInvocation {
             command: "gemini".to_string(),
             args: vec!["--output-format".to_string(), "json".to_string()],
@@ -1272,8 +1285,16 @@ mod tests {
         };
         let enforcement = McpToolEnforcement {
             enabled: true,
-            endpoint: Some("http://127.0.0.1:3101/mcp/ao".to_string()),
-            stdio: None,
+            endpoint: None,
+            stdio: Some(McpStdioConfig {
+                command: "/Users/samishukri/ao-cli/target/debug/ao".to_string(),
+                args: vec![
+                    "--project-root".to_string(),
+                    "/Users/samishukri/ao-cli".to_string(),
+                    "mcp".to_string(),
+                    "serve".to_string(),
+                ],
+            }),
             agent_id: "ao".to_string(),
             allowed_prefixes: vec!["ao.".to_string()],
         };
@@ -1290,11 +1311,69 @@ mod tests {
         )
         .expect("gemini policy should apply");
 
-        assert!(env.contains_key("GEMINI_CLI_SYSTEM_SETTINGS_PATH"));
+        let settings_path = env
+            .get("GEMINI_CLI_SYSTEM_SETTINGS_PATH")
+            .expect("gemini settings path should be set")
+            .to_string();
         assert!(invocation
             .args
             .windows(2)
             .any(|pair| pair[0] == "--allowed-mcp-server-names" && pair[1] == "ao"));
+        let settings = std::fs::read_to_string(&settings_path).expect("read gemini settings");
+        assert!(
+            settings.contains("\"AO_MCP_SCHEMA_DRAFT\":\"draft07\""),
+            "expected draft07 env in gemini settings, got: {settings}"
+        );
+        assert!(
+            settings.contains("\"type\":\"stdio\""),
+            "expected stdio transport in gemini settings, got: {settings}"
+        );
+    }
+
+    #[test]
+    fn native_mcp_policy_sets_gemini_http_settings_without_schema_override() {
+        let mut invocation = super::super::process_builder::CliInvocation {
+            command: "gemini".to_string(),
+            args: vec!["--output-format".to_string(), "json".to_string()],
+            prompt_via_stdin: false,
+        };
+        let enforcement = McpToolEnforcement {
+            enabled: true,
+            endpoint: Some("http://127.0.0.1:3101/mcp/ao".to_string()),
+            stdio: None,
+            agent_id: "ao".to_string(),
+            allowed_prefixes: vec!["ao.".to_string()],
+        };
+        let mut env = HashMap::new();
+        let mut cleanup = TempPathCleanup::default();
+        let run_id = RunId("run-3-http".to_string());
+
+        apply_native_mcp_policy(
+            &mut invocation,
+            &enforcement,
+            &mut env,
+            &run_id,
+            &mut cleanup,
+        )
+        .expect("gemini policy should apply");
+
+        let settings_path = env
+            .get("GEMINI_CLI_SYSTEM_SETTINGS_PATH")
+            .expect("gemini settings path should be set")
+            .to_string();
+        let settings = std::fs::read_to_string(&settings_path).expect("read gemini settings");
+        assert!(
+            settings.contains("\"type\":\"http\""),
+            "expected http transport in gemini settings, got: {settings}"
+        );
+        assert!(
+            settings.contains("\"url\":\"http://127.0.0.1:3101/mcp/ao\""),
+            "expected ao endpoint in gemini settings, got: {settings}"
+        );
+        assert!(
+            !settings.contains("\"AO_MCP_SCHEMA_DRAFT\""),
+            "did not expect schema override env for gemini http transport, got: {settings}"
+        );
     }
 
     #[test]

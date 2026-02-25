@@ -104,6 +104,14 @@ pub struct RunnerStatusRequest {}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunnerStatusResponse {
     pub active_agents: usize,
+    #[serde(default = "default_protocol_version")]
+    pub protocol_version: String,
+    #[serde(default)]
+    pub build_id: Option<String>,
+}
+
+fn default_protocol_version() -> String {
+    crate::PROTOCOL_VERSION.to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

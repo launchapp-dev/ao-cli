@@ -10,6 +10,7 @@ use event_persistence::RunEventPersistence;
 use protocol::{
     AgentRunEvent, AgentRunRequest, AgentStatus, AgentStatusRequest, AgentStatusResponse,
     ModelStatusRequest, ModelStatusResponse, RunId, RunnerStatusResponse, Timestamp,
+    PROTOCOL_VERSION,
 };
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
@@ -143,6 +144,8 @@ impl Runner {
     pub fn handle_runner_status(&self) -> RunnerStatusResponse {
         RunnerStatusResponse {
             active_agents: self.running_agents.len(),
+            protocol_version: PROTOCOL_VERSION.to_string(),
+            build_id: runner_build_id(),
         }
     }
 
@@ -215,4 +218,11 @@ impl Runner {
             false
         }
     }
+}
+
+fn runner_build_id() -> Option<String> {
+    std::env::var("AO_RUNNER_BUILD_ID")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }

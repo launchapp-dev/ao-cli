@@ -337,6 +337,38 @@ pub(super) async fn query_runner_status(_config_dir: &Path) -> Option<RunnerStat
     serde_json::from_str::<RunnerStatusResponse>(line.trim()).ok()
 }
 
+fn runner_binary_build_id(binary: &Path) -> Option<String> {
+    let fallback = format!("path:{}", binary.display());
+    let Ok(metadata) = std::fs::metadata(binary) else {
+        return Some(fallback);
+    };
+    let Ok(modified) = metadata.modified() else {
+        return Some(format!("{}-{}", metadata.len(), fallback));
+    };
+    let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) else {
+        return Some(format!("{}-{}", metadata.len(), fallback));
+    };
+    Some(format!(
+        "{}.{}-{}",
+        duration.as_secs(),
+        duration.subsec_nanos(),
+        metadata.len()
+    ))
+}
+
+fn runner_status_is_compatible(
+    status: &RunnerStatusResponse,
+    expected_build_id: Option<&str>,
+) -> bool {
+    if status.protocol_version != protocol::PROTOCOL_VERSION {
+        return false;
+    }
+    match expected_build_id {
+        Some(expected) => status.build_id.as_deref() == Some(expected),
+        None => true,
+    }
+}
+
 pub(super) fn lookup_binary_in_path(binary_name: &str) -> Option<PathBuf> {
     #[cfg(unix)]
     {
@@ -438,20 +470,31 @@ pub(super) async fn ensure_agent_runner_running(project_root: &Path) -> Result<O
     }
 
     let config_dir = runner_config_dir(project_root);
+    let binary = find_agent_runner_binary()?;
+    let expected_build_id = runner_binary_build_id(&binary);
     std::fs::create_dir_all(&config_dir).ok();
     clear_stale_runner_artifacts(&config_dir);
 
     if is_agent_runner_ready(&config_dir).await {
-        return Ok(read_runner_pid_from_lock(&config_dir));
+        if let Some(status) = query_runner_status(&config_dir).await {
+            if runner_status_is_compatible(&status, expected_build_id.as_deref()) {
+                return Ok(read_runner_pid_from_lock(&config_dir));
+            }
+            let _ = stop_agent_runner_process(project_root).await;
+        } else {
+            return Ok(read_runner_pid_from_lock(&config_dir));
+        }
     }
 
-    let binary = find_agent_runner_binary()?;
     let mut command = Command::new(&binary);
     command
         .env("AO_CONFIG_DIR", &config_dir)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .stdin(Stdio::null());
+    if let Some(build_id) = expected_build_id.as_deref() {
+        command.env("AO_RUNNER_BUILD_ID", build_id);
+    }
 
     #[cfg(unix)]
     {
@@ -568,4 +611,39 @@ pub(super) async fn stop_agent_runner_process(project_root: &Path) -> Result<boo
     #[cfg(unix)]
     let _ = std::fs::remove_file(runner_socket_path(&config_dir));
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runner_status_compatibility_requires_matching_protocol() {
+        let status = RunnerStatusResponse {
+            active_agents: 0,
+            protocol_version: "0.9.0".to_string(),
+            build_id: Some("123.456-789".to_string()),
+        };
+        assert!(!runner_status_is_compatible(&status, Some("123.456-789")));
+    }
+
+    #[test]
+    fn runner_status_compatibility_requires_matching_build_id_when_expected() {
+        let status = RunnerStatusResponse {
+            active_agents: 1,
+            protocol_version: protocol::PROTOCOL_VERSION.to_string(),
+            build_id: Some("old-build".to_string()),
+        };
+        assert!(!runner_status_is_compatible(&status, Some("new-build")));
+    }
+
+    #[test]
+    fn runner_status_compatibility_accepts_matching_protocol_and_build_id() {
+        let status = RunnerStatusResponse {
+            active_agents: 2,
+            protocol_version: protocol::PROTOCOL_VERSION.to_string(),
+            build_id: Some("build-1".to_string()),
+        };
+        assert!(runner_status_is_compatible(&status, Some("build-1")));
+    }
 }

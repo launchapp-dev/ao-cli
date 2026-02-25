@@ -101,3 +101,30 @@ fn test_runner_status_request_rejects_unexpected_fields() {
         "runner status request must reject control-shaped payloads"
     );
 }
+
+#[test]
+fn test_runner_status_response_roundtrip_includes_protocol_metadata() {
+    let response = RunnerStatusResponse {
+        active_agents: 2,
+        protocol_version: PROTOCOL_VERSION.to_string(),
+        build_id: Some("1700000000.123-987654".to_string()),
+    };
+
+    let json = serde_json::to_string(&response).expect("serialize runner status");
+    let parsed: RunnerStatusResponse =
+        serde_json::from_str(&json).expect("deserialize runner status");
+
+    assert_eq!(parsed.active_agents, 2);
+    assert_eq!(parsed.protocol_version, PROTOCOL_VERSION);
+    assert_eq!(parsed.build_id.as_deref(), Some("1700000000.123-987654"));
+}
+
+#[test]
+fn test_runner_status_response_deserializes_legacy_shape() {
+    let parsed: RunnerStatusResponse =
+        serde_json::from_str(r#"{"active_agents":3}"#).expect("deserialize legacy status");
+
+    assert_eq!(parsed.active_agents, 3);
+    assert_eq!(parsed.protocol_version, PROTOCOL_VERSION);
+    assert!(parsed.build_id.is_none());
+}

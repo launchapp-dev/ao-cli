@@ -10,6 +10,12 @@ members = [
   "crates/orchestrator-web-api",
   "crates/orchestrator-web-server",
 ]
+default-members = [
+  "crates/orchestrator-cli",
+  "crates/agent-runner",
+  "crates/llm-cli-wrapper",
+  "crates/llm-mcp-server",
+]
 resolver = "2"
 
 [workspace.dependencies]

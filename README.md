@@ -28,8 +28,9 @@ Rust-only workspace for the AO orchestrator stack.
 ## Quick Start
 
 ```bash
-# Build all workspace crates
-cargo check
+# Build/check the AO runtime binary set used in local runs and release artifacts
+cargo ao-bin-check
+cargo ao-bin-build
 
 # Main CLI
 cargo run -p orchestrator-cli -- --help
@@ -37,9 +38,8 @@ cargo run -p orchestrator-cli -- --help
 # Wrapper CLI
 cargo run -p llm-cli-wrapper -- --help
 
-# Runner + MCP server binaries
-cargo build -p agent-runner
-cargo build -p llm-mcp-server --release
+# Release build for all runtime binaries
+cargo ao-bin-build-release
 ```
 
 ## Self-Hosting Workflow (Using `ao` to Build `ao`)

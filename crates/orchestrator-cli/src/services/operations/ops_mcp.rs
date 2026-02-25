@@ -2,11 +2,12 @@ use crate::McpCommand;
 use anyhow::{Context, Result};
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
-    model::{CallToolResult, ServerCapabilities, ServerInfo},
+    model::{CallToolResult, JsonObject, ServerCapabilities, ServerInfo},
     tool, tool_handler, tool_router,
     transport::stdio,
     ErrorData as McpError, ServerHandler, ServiceExt,
 };
+use schemars::generate::SchemaSettings;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -202,7 +203,11 @@ impl AoMcpServer {
 
 #[tool_router(router = tool_router)]
 impl AoMcpServer {
-    #[tool(name = "ao.project.list", description = "List known projects.")]
+    #[tool(
+        name = "ao.project.list",
+        description = "List known projects.",
+        input_schema = ao_schema_for_type::<ProjectRootInput>()
+    )]
     async fn ao_project_list(
         &self,
         params: Parameters<ProjectRootInput>,
@@ -217,7 +222,8 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.task.list",
-        description = "List tasks with optional filters."
+        description = "List tasks with optional filters.",
+        input_schema = ao_schema_for_type::<TaskListInput>()
     )]
     async fn ao_task_list(
         &self,
@@ -239,7 +245,11 @@ impl AoMcpServer {
             .await
     }
 
-    #[tool(name = "ao.task.create", description = "Create a task.")]
+    #[tool(
+        name = "ao.task.create",
+        description = "Create a task.",
+        input_schema = ao_schema_for_type::<TaskCreateInput>()
+    )]
     async fn ao_task_create(
         &self,
         params: Parameters<TaskCreateInput>,
@@ -259,7 +269,11 @@ impl AoMcpServer {
             .await
     }
 
-    #[tool(name = "ao.task.status", description = "Update task status.")]
+    #[tool(
+        name = "ao.task.status",
+        description = "Update task status.",
+        input_schema = ao_schema_for_type::<TaskStatusInput>()
+    )]
     async fn ao_task_status(
         &self,
         params: Parameters<TaskStatusInput>,
@@ -277,7 +291,11 @@ impl AoMcpServer {
             .await
     }
 
-    #[tool(name = "ao.task.get", description = "Fetch a task by id.")]
+    #[tool(
+        name = "ao.task.get",
+        description = "Fetch a task by id.",
+        input_schema = ao_schema_for_type::<TaskGetInput>()
+    )]
     async fn ao_task_get(
         &self,
         params: Parameters<TaskGetInput>,
@@ -287,7 +305,11 @@ impl AoMcpServer {
         self.run_tool("ao.task.get", args, input.project_root).await
     }
 
-    #[tool(name = "ao.task.delete", description = "Delete a task.")]
+    #[tool(
+        name = "ao.task.delete",
+        description = "Delete a task.",
+        input_schema = ao_schema_for_type::<TaskDeleteInput>()
+    )]
     async fn ao_task_delete(
         &self,
         params: Parameters<TaskDeleteInput>,
@@ -298,7 +320,11 @@ impl AoMcpServer {
             .await
     }
 
-    #[tool(name = "ao.task.pause", description = "Pause a task.")]
+    #[tool(
+        name = "ao.task.pause",
+        description = "Pause a task.",
+        input_schema = ao_schema_for_type::<TaskControlInput>()
+    )]
     async fn ao_task_pause(
         &self,
         params: Parameters<TaskControlInput>,
@@ -309,7 +335,11 @@ impl AoMcpServer {
             .await
     }
 
-    #[tool(name = "ao.task.resume", description = "Resume a paused task.")]
+    #[tool(
+        name = "ao.task.resume",
+        description = "Resume a paused task.",
+        input_schema = ao_schema_for_type::<TaskControlInput>()
+    )]
     async fn ao_task_resume(
         &self,
         params: Parameters<TaskControlInput>,
@@ -320,7 +350,11 @@ impl AoMcpServer {
             .await
     }
 
-    #[tool(name = "ao.requirements.list", description = "List requirements.")]
+    #[tool(
+        name = "ao.requirements.list",
+        description = "List requirements.",
+        input_schema = ao_schema_for_type::<ProjectRootInput>()
+    )]
     async fn ao_requirements_list(
         &self,
         params: Parameters<ProjectRootInput>,
@@ -333,7 +367,11 @@ impl AoMcpServer {
         .await
     }
 
-    #[tool(name = "ao.requirements.get", description = "Get a requirement by id.")]
+    #[tool(
+        name = "ao.requirements.get",
+        description = "Get a requirement by id.",
+        input_schema = ao_schema_for_type::<RequirementGetInput>()
+    )]
     async fn ao_requirements_get(
         &self,
         params: Parameters<RequirementGetInput>,
@@ -344,7 +382,11 @@ impl AoMcpServer {
             .await
     }
 
-    #[tool(name = "ao.workflow.list", description = "List workflows.")]
+    #[tool(
+        name = "ao.workflow.list",
+        description = "List workflows.",
+        input_schema = ao_schema_for_type::<ProjectRootInput>()
+    )]
     async fn ao_workflow_list(
         &self,
         params: Parameters<ProjectRootInput>,
@@ -359,7 +401,8 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.workflow.run",
-        description = "Run a workflow for a task and optional pipeline."
+        description = "Run a workflow for a task and optional pipeline.",
+        input_schema = ao_schema_for_type::<WorkflowRunInput>()
     )]
     async fn ao_workflow_run(
         &self,
@@ -400,6 +443,37 @@ pub(crate) async fn handle_mcp(command: McpCommand, project_root: &str) -> Resul
             Ok(())
         }
     }
+}
+
+fn use_draft07_tool_schema() -> bool {
+    std::env::var("AO_MCP_SCHEMA_DRAFT")
+        .ok()
+        .map(|raw| {
+            matches!(
+                raw.trim().to_ascii_lowercase().as_str(),
+                "07" | "draft07" | "draft-07" | "draft_07"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn ao_schema_for_type<T: JsonSchema + std::any::Any>() -> std::sync::Arc<JsonObject> {
+    if !use_draft07_tool_schema() {
+        return rmcp::handler::server::common::schema_for_type::<T>();
+    }
+
+    let mut settings = SchemaSettings::draft07();
+    settings.transforms = vec![Box::new(schemars::transform::AddNullable::default())];
+    let generator = settings.into_generator();
+    let schema = generator.into_root_schema_for::<T>();
+    let value = serde_json::to_value(schema).expect("failed to serialize draft07 schema");
+    let object = match value {
+        Value::Object(object) => object,
+        other => panic!(
+            "Schema serialization produced non-object value: expected JSON object but got {other:?}"
+        ),
+    };
+    std::sync::Arc::new(object)
 }
 
 fn push_opt(args: &mut Vec<String>, flag: &str, value: Option<String>) {

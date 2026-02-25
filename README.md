@@ -147,7 +147,7 @@ Initial requirements/tasks were created to bootstrap self-hosted development:
 ## Notes
 
 - Desktop-wrapper GUI code is intentionally excluded from this workspace.
-- Web UI planning and implementation notes for the web server live in `crates/orchestrator-web-server/docs/` (current artifact: `task-011-react-shell-requirements.md`).
+- Web UI planning and implementation notes for the web server live in `crates/orchestrator-web-server/docs/` (current artifacts: `task-011-react-shell-requirements.md`, `task-013-planning-workspace-requirements.md`, `task-013-planning-workspace-implementation-notes.md`).
 - CLI destructive safety planning artifacts for TASK-009 live in `crates/orchestrator-cli/docs/`:
   - `task-009-destructive-command-requirements.md`
   - `task-009-destructive-command-implementation-notes.md`

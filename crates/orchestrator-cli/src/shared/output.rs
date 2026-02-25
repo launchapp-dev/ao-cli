@@ -60,6 +60,11 @@ pub(crate) fn classify_error(err: &anyhow::Error) -> (&'static str, i32) {
     if message.contains("invalid")
         || message.contains("parse")
         || message.contains("missing required")
+        || message.contains("required arguments were not provided")
+        || message.contains("unexpected argument")
+        || message.contains("unknown argument")
+        || message.contains("unrecognized option")
+        || message.contains("confirmation_required")
         || message.contains("must be")
     {
         return ("invalid_input", 2);
@@ -105,5 +110,8 @@ pub(crate) fn emit_cli_error(err: &anyhow::Error, json: bool) {
         );
     } else {
         eprintln!("error: {}", err);
+        if code == "invalid_input" && !err.to_string().contains("--help") {
+            eprintln!("hint: run with --help to view accepted arguments and values");
+        }
     }
 }

@@ -22,6 +22,70 @@ fn help_includes_top_level_usage() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn help_surfaces_command_descriptions_for_core_groups() -> Result<(), Box<dyn std::error::Error>> {
+    let binary = assert_cmd::cargo::cargo_bin!("ao");
+
+    let top_level_help = Command::new(&binary).arg("--help").output()?;
+    assert!(
+        top_level_help.status.success(),
+        "top-level help should succeed"
+    );
+    let top_level_stdout = String::from_utf8(top_level_help.stdout)?;
+    assert!(
+        top_level_stdout.contains("Draft and refine project vision artifacts"),
+        "top-level help should describe vision command"
+    );
+    assert!(
+        top_level_stdout.contains("Generate or execute task plans from requirements"),
+        "top-level help should describe execute command"
+    );
+    assert!(
+        top_level_stdout.contains("Record and inspect review decisions and handoffs"),
+        "top-level help should describe review command"
+    );
+
+    let workflow_help = Command::new(&binary)
+        .args(["workflow", "--help"])
+        .output()?;
+    assert!(
+        workflow_help.status.success(),
+        "workflow help should succeed"
+    );
+    let workflow_stdout = String::from_utf8(workflow_help.stdout)?;
+    assert!(
+        workflow_stdout.contains("List and inspect workflow checkpoints"),
+        "workflow help should describe checkpoints command"
+    );
+    assert!(
+        workflow_stdout.contains("Manage workflow phase definitions"),
+        "workflow help should describe phases command"
+    );
+    assert!(
+        workflow_stdout.contains("Read and update workflow state machine configuration"),
+        "workflow help should describe state-machine command"
+    );
+
+    let web_serve_help = Command::new(&binary)
+        .args(["web", "serve", "--help"])
+        .output()?;
+    assert!(
+        web_serve_help.status.success(),
+        "web serve help should succeed"
+    );
+    let web_serve_stdout = String::from_utf8(web_serve_help.stdout)?;
+    assert!(
+        web_serve_stdout.contains("Host interface to bind the web server"),
+        "web serve help should explain --host"
+    );
+    assert!(
+        web_serve_stdout.contains("Serve API endpoints only without static assets"),
+        "web serve help should explain --api-only"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn planning_vision_get_returns_cli_json_envelope() -> Result<(), Box<dyn std::error::Error>> {
     let temp = tempfile::tempdir()?;
     let binary = assert_cmd::cargo::cargo_bin!("ao");

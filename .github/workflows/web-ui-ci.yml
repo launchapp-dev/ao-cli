@@ -6,11 +6,15 @@ on:
       - "crates/orchestrator-web-server/**"
       - ".github/workflows/web-ui-ci.yml"
       - ".github/workflows/release.yml"
+      - ".github/workflows/release-rollback-validation.yml"
+      - ".github/release-checklists/web-gui-release.md"
   push:
     paths:
       - "crates/orchestrator-web-server/**"
       - ".github/workflows/web-ui-ci.yml"
       - ".github/workflows/release.yml"
+      - ".github/workflows/release-rollback-validation.yml"
+      - ".github/release-checklists/web-gui-release.md"
 
 permissions:
   contents: read

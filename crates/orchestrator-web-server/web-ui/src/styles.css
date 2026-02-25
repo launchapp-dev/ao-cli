@@ -183,6 +183,27 @@ code {
   margin-top: 0.75rem;
 }
 
+.danger-action {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+  color: #7a1e1e;
+}
+
+.safeguard-panel {
+  margin-top: 1rem;
+  border: 1px solid var(--danger-line);
+  border-radius: 12px;
+  background: #fff6f6;
+  padding: 0.85rem;
+}
+
+.inline-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+}
+
 .diagnostics-panel {
   margin-top: 1rem;
 }

@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TASK-016 High-Risk Action Safeguards Wireframes</title>
+    <link rel="stylesheet" href="./wireframes.css" />
+  </head>
+  <body>
+    <header class="doc-header">
+      <h1>TASK-016: High-Risk Action Safeguards in Web UI</h1>
+      <p>
+        Concrete `/daemon` wireframes for risk-proportional confirmations, deterministic
+        pre-submit previews, and auditable action feedback linked by correlation ID.
+      </p>
+    </header>
+
+    <main class="board-grid">
+      <section class="board" aria-labelledby="board-default-title">
+        <h2 class="board-title" id="board-default-title">
+          Daemon Route (Desktop, Ready + Feedback + Diagnostics)
+        </h2>
+        <div class="route-shell">
+          <header class="route-header">
+            <p class="breadcrumbs">Daemon / Controls / Safeguarded Actions</p>
+            <div class="state-strip" aria-label="Guard state sequence">
+              <span class="state-chip">idle</span>
+              <span class="state-chip active">confirming</span>
+              <span class="state-chip pending">submitting</span>
+              <span class="state-chip success">success</span>
+              <span class="state-chip error">failure</span>
+            </div>
+          </header>
+
+          <div class="layout-columns">
+            <article class="panel controls-panel" aria-labelledby="daemon-controls-heading">
+              <div class="panel-head">
+                <h3 id="daemon-controls-heading">Daemon Lifecycle Controls</h3>
+                <p class="scope-note">High risk actions require typed confirmation.</p>
+              </div>
+
+              <div class="action-row">
+                <button type="button">Start</button>
+                <button type="button">Pause</button>
+                <button type="button">Resume</button>
+                <button type="button" class="danger">Stop daemon</button>
+                <button type="button" class="danger">Clear daemon logs</button>
+              </div>
+
+              <div class="policy-grid">
+                <div class="policy-card">
+                  <h4>Guard Policy</h4>
+                  <ul>
+                    <li>`daemon.stop` -> phrase `STOP DAEMON`</li>
+                    <li>`daemon.clear_logs` -> phrase `CLEAR DAEMON LOGS`</li>
+                    <li>Only one guarded mutation can be pending.</li>
+                  </ul>
+                </div>
+                <div class="policy-card">
+                  <h4>Preconditions and Revalidation</h4>
+                  <ul>
+                    <li>UI preflight requires daemon health `ok` before submit.</li>
+                    <li>Server response is revalidated before success copy is rendered.</li>
+                    <li>Guardrail failures fail closed and block mutation dispatch.</li>
+                  </ul>
+                </div>
+                <div class="policy-card">
+                  <h4>Daemon Snapshot</h4>
+                  <dl>
+                    <div>
+                      <dt>Status</dt>
+                      <dd>running</dd>
+                    </div>
+                    <div>
+                      <dt>Health</dt>
+                      <dd>ok (last heartbeat 2s ago)</dd>
+                    </div>
+                    <div>
+                      <dt>Open workers</dt>
+                      <dd>3</dd>
+                    </div>
+                  </dl>
+                </div>
+              </div>
+
+              <div class="submitting-state" role="status">
+                Pending action: <strong>daemon.clear_logs</strong> using correlation
+                <code>ao-corr-task016-0008</code>. Duplicate submits are disabled.
+              </div>
+            </article>
+
+            <aside class="panel feedback-panel" role="region" aria-labelledby="feedback-heading">
+              <div class="panel-head">
+                <h3 id="feedback-heading">Guarded Action Feedback</h3>
+                <span class="capacity">Retention cap: 50 newest entries</span>
+              </div>
+
+              <p class="assistive-note" aria-live="polite">
+                Feedback updated: daemon.clear_logs failed (correlation ao-corr-task016-0008).
+              </p>
+
+              <ol class="feedback-list">
+                <li class="feedback-item failure">
+                  <p class="feedback-title">
+                    <span class="badge badge-fail">failure</span>
+                    <code>daemon.clear_logs</code>
+                    <span class="timestamp">2026-02-25 18:24:12 UTC</span>
+                  </p>
+                  <p class="feedback-meta">
+                    <code>DELETE /api/v1/daemon/logs</code>
+                  </p>
+                  <p class="feedback-meta">
+                    actor: <code>sam.ishukri</code>
+                  </p>
+                  <p class="feedback-message">
+                    conflict: log truncation already in progress (<code>code: conflict</code>)
+                  </p>
+                  <p class="feedback-meta">
+                    correlation: <code>ao-corr-task016-0008</code>
+                  </p>
+                </li>
+
+                <li class="feedback-item success">
+                  <p class="feedback-title">
+                    <span class="badge badge-ok">success</span>
+                    <code>daemon.resume</code>
+                    <span class="timestamp">2026-02-25 18:22:07 UTC</span>
+                  </p>
+                  <p class="feedback-meta">
+                    <code>POST /api/v1/daemon/resume</code>
+                  </p>
+                  <p class="feedback-meta">
+                    actor: <code>sam.ishukri</code>
+                  </p>
+                  <p class="feedback-message">
+                    daemon resumed and workers unlocked (<code>code: ok</code>)
+                  </p>
+                  <p class="feedback-meta">
+                    correlation: <code>ao-corr-task016-0007</code>
+                  </p>
+                </li>
+              </ol>
+
+              <div class="diagnostics-link-card">
+                <h4>Diagnostics Continuity</h4>
+                <p>
+                  The failure above is available in diagnostics with matching
+                  <code>ao-corr-task016-0008</code> for detailed request/response inspection.
+                </p>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <section class="board" aria-labelledby="board-dialog-title">
+        <h2 class="board-title" id="board-dialog-title">
+          High-Risk Confirmation Dialog (Desktop, Invalid -> Valid Intent)
+        </h2>
+        <div class="route-shell dialog-board">
+          <div class="dialog-backdrop" aria-hidden="true"></div>
+          <article
+            class="confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="confirm-dialog-heading"
+            aria-describedby="confirm-dialog-description"
+          >
+            <header class="dialog-header">
+              <h3 id="confirm-dialog-heading">Stop daemon</h3>
+              <p class="risk-chip">High risk action</p>
+            </header>
+
+            <p id="confirm-dialog-description" class="impact-warning">
+              Stopping the daemon interrupts active workflow execution and can leave queued work
+              waiting for manual resume.
+            </p>
+
+            <div class="preview-grid">
+              <section class="preview-card">
+                <h4>Planned request</h4>
+                <dl>
+                  <div>
+                    <dt>Action key</dt>
+                    <dd><code>daemon.stop</code></dd>
+                  </div>
+                  <div>
+                    <dt>Method + path</dt>
+                    <dd><code>POST /api/v1/daemon/stop</code></dd>
+                  </div>
+                </dl>
+              </section>
+
+              <section class="preview-card">
+                <h4>Planned effects</h4>
+                <ul>
+                  <li>Transition daemon lifecycle from `running` to `stopping`.</li>
+                  <li>Pause execution dispatch for active runs.</li>
+                  <li>Keep event history and diagnostics available for triage.</li>
+                </ul>
+              </section>
+
+              <section class="preview-card">
+                <h4>Preconditions</h4>
+                <ul>
+                  <li>Current health must be `ok` before submit is allowed.</li>
+                  <li>In-flight guard must be empty (`pendingAction = none`).</li>
+                  <li>Success copy appears only after response revalidation checks pass.</li>
+                </ul>
+              </section>
+
+              <section class="preview-card warning">
+                <h4>Irreversible consequences</h4>
+                <ul>
+                  <li>In-flight tasks may require manual restart.</li>
+                  <li>Automation latency increases until daemon restart.</li>
+                </ul>
+                <p class="rollback-note">
+                  Rollback guidance: run `daemon.start` and validate `/api/v1/daemon/health`.
+                </p>
+              </section>
+            </div>
+
+            <div class="typed-intent">
+              <label for="typed-intent-input">
+                Type <code>STOP DAEMON</code> to enable confirmation
+              </label>
+              <input
+                id="typed-intent-input"
+                type="text"
+                value="stop daemon"
+                aria-invalid="true"
+                aria-describedby="typed-intent-help"
+              />
+              <p id="typed-intent-help" class="validation-error">
+                Phrase must match exactly, including letter case.
+              </p>
+            </div>
+
+            <div class="dialog-actions">
+              <button type="button" class="secondary">Cancel</button>
+              <button type="button" class="primary" disabled>
+                Confirm stop
+              </button>
+            </div>
+
+            <div class="dialog-actions valid-preview">
+              <p>
+                Valid input example: <code>STOP DAEMON</code> -> confirm becomes enabled and
+                dispatch locks to a single pending request.
+              </p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="board" aria-labelledby="board-mobile-title">
+        <h2 class="board-title" id="board-mobile-title">
+          Mobile Guardrail Flow (`320px`, Stacked Dialog + Fail-Closed Guard)
+        </h2>
+        <div class="route-shell mobile-shell">
+          <div class="mobile-frame">
+            <header class="mobile-header">
+              <p class="breadcrumbs">Daemon / Safeguards / Mobile</p>
+              <h3>Clear daemon logs</h3>
+            </header>
+
+            <p class="impact-warning compact">
+              This removes currently visible daemon log lines from local history views.
+            </p>
+
+            <div class="preview-grid single">
+              <section class="preview-card">
+                <h4>Request preview</h4>
+                <p><code>DELETE /api/v1/daemon/logs</code></p>
+                <p>Known status: daemon running, logs buffered: 142 entries.</p>
+              </section>
+
+              <section class="preview-card warning">
+                <h4>Irreversible effects</h4>
+                <ul>
+                  <li>Cleared logs cannot be recovered from this page.</li>
+                  <li>Diagnostics metadata remains, log body lines are removed.</li>
+                </ul>
+              </section>
+            </div>
+
+            <label for="mobile-intent">
+              Type <code>CLEAR DAEMON LOGS</code>
+            </label>
+            <input id="mobile-intent" type="text" value="CLEAR DAEMON LOGS" />
+
+            <div class="action-row stacked">
+              <button type="button" class="secondary">Cancel</button>
+              <button type="button" class="primary">Confirm clear logs</button>
+            </div>
+
+            <div class="fail-closed" role="alert">
+              Guardrail fail-closed example: action metadata unavailable -> mutation blocked,
+              operator prompted to refresh diagnostics before retry.
+            </div>
+            <div class="fail-closed" role="note">
+              Deterministic extension note: if a future bulk action partially fails, this pattern
+              surfaces the failed subset and explicit compensation guidance before follow-up
+              mutation is offered.
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

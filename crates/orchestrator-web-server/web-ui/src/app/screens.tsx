@@ -8,6 +8,64 @@ import { ApiError } from "../lib/api/envelope";
 import { ResourceState, useApiResource } from "../lib/api/use-api-resource";
 import { useDaemonEvents } from "../lib/events/use-daemon-events";
 
+type DaemonAction = "start" | "pause" | "resume" | "stop" | "clear";
+
+type DaemonActionConfig = {
+  label: string;
+  method: "POST" | "DELETE";
+  path: string;
+  impact: string;
+  confirmationPhrase?: string;
+};
+
+type ActionRecord = {
+  id: string;
+  action: DaemonAction;
+  mode: "execute" | "dry-run";
+  outcome: "ok" | "error" | "preview";
+  timestamp: string;
+  detail: string;
+};
+
+const DAEMON_ACTION_CONFIG: Record<DaemonAction, DaemonActionConfig> = {
+  start: {
+    label: "Start",
+    method: "POST",
+    path: "/api/v1/daemon/start",
+    impact: "Starts daemon processing.",
+  },
+  pause: {
+    label: "Pause",
+    method: "POST",
+    path: "/api/v1/daemon/pause",
+    impact: "Pauses new daemon scheduling work.",
+  },
+  resume: {
+    label: "Resume",
+    method: "POST",
+    path: "/api/v1/daemon/resume",
+    impact: "Resumes daemon scheduling work.",
+  },
+  stop: {
+    label: "Stop",
+    method: "POST",
+    path: "/api/v1/daemon/stop",
+    impact: "Stops the daemon and can interrupt active scheduling.",
+    confirmationPhrase: "STOP",
+  },
+  clear: {
+    label: "Clear Logs",
+    method: "DELETE",
+    path: "/api/v1/daemon/logs",
+    impact: "Permanently clears daemon log history shown in the UI.",
+    confirmationPhrase: "CLEAR LOGS",
+  },
+};
+
+export function matchesConfirmationPhrase(input: string, expected: string): boolean {
+  return input.trim().replace(/\s+/g, " ").toUpperCase() === expected.toUpperCase();
+}
+
 export function DashboardPage() {
   const state = useApiResource(
     async () => {
@@ -56,6 +114,10 @@ export function DashboardPage() {
 
 export function DaemonPage() {
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [pendingAction, setPendingAction] = useState<DaemonAction | null>(null);
+  const [confirmationInput, setConfirmationInput] = useState("");
+  const [dryRunMode, setDryRunMode] = useState(true);
+  const [actionRecords, setActionRecords] = useState<ActionRecord[]>([]);
   const [actionState, setActionState] = useState<
     { kind: "idle" } | { kind: "ok"; message: string } | { kind: "error"; message: string }
   >({ kind: "idle" });
@@ -73,7 +135,27 @@ export function DaemonPage() {
     },
   );
 
-  const runAction = (action: "start" | "pause" | "resume" | "stop" | "clear") => {
+  const runAction = (action: DaemonAction, runAsDryRun = false) => {
+    const config = DAEMON_ACTION_CONFIG[action];
+    if (runAsDryRun) {
+      const previewMessage = `Dry-run preview completed for ${config.label}.`;
+      setActionState({ kind: "ok", message: previewMessage });
+      setActionRecords((current) => [
+        {
+          id: `${Date.now()}-${action}-preview`,
+          action,
+          mode: "dry-run",
+          outcome: "preview",
+          timestamp: new Date().toISOString(),
+          detail: `${config.method} ${config.path} (${config.impact})`,
+        },
+        ...current,
+      ]);
+      setPendingAction(null);
+      setConfirmationInput("");
+      return;
+    }
+
     const request =
       action === "start"
         ? api.daemonStart()
@@ -88,35 +170,127 @@ export function DaemonPage() {
     void request.then((result) => {
       if (result.kind === "error") {
         setActionState({ kind: "error", message: `${result.code}: ${result.message}` });
+        setActionRecords((current) => [
+          {
+            id: `${Date.now()}-${action}-error`,
+            action,
+            mode: "execute",
+            outcome: "error",
+            timestamp: new Date().toISOString(),
+            detail: `${result.code}: ${result.message}`,
+          },
+          ...current,
+        ]);
         return;
       }
 
-      setActionState({ kind: "ok", message: `Daemon action ${action} completed.` });
+      setActionState({ kind: "ok", message: `${config.label} completed.` });
+      setActionRecords((current) => [
+        {
+          id: `${Date.now()}-${action}-ok`,
+          action,
+          mode: "execute",
+          outcome: "ok",
+          timestamp: new Date().toISOString(),
+          detail: `${config.method} ${config.path}`,
+        },
+        ...current,
+      ]);
       setRefreshNonce((current) => current + 1);
+      setPendingAction(null);
+      setConfirmationInput("");
     });
   };
+
+  const requestAction = (action: DaemonAction) => {
+    const config = DAEMON_ACTION_CONFIG[action];
+    if (!config.confirmationPhrase) {
+      runAction(action, false);
+      return;
+    }
+
+    setPendingAction(action);
+    setConfirmationInput("");
+    setDryRunMode(true);
+  };
+
+  const pendingConfig = pendingAction ? DAEMON_ACTION_CONFIG[pendingAction] : null;
+  const canConfirm = pendingConfig?.confirmationPhrase
+    ? matchesConfirmationPhrase(confirmationInput, pendingConfig.confirmationPhrase)
+    : false;
 
   return (
     <RouteSection title="Daemon" description="Control daemon state, health, and log stream.">
       <div className="panel-actions">
-        <button type="button" onClick={() => runAction("start")}>
+        <button type="button" onClick={() => requestAction("start")}>
           Start
         </button>
-        <button type="button" onClick={() => runAction("pause")}>
+        <button type="button" onClick={() => requestAction("pause")}>
           Pause
         </button>
-        <button type="button" onClick={() => runAction("resume")}>
+        <button type="button" onClick={() => requestAction("resume")}>
           Resume
         </button>
-        <button type="button" onClick={() => runAction("stop")}>
+        <button type="button" className="danger-action" onClick={() => requestAction("stop")}>
           Stop
         </button>
-        <button type="button" onClick={() => runAction("clear")}>
+        <button type="button" className="danger-action" onClick={() => requestAction("clear")}>
           Clear Logs
         </button>
       </div>
 
-      {actionState.kind === "ok" ? <p>{actionState.message}</p> : null}
+      {pendingConfig ? (
+        <section className="safeguard-panel" aria-label="Action safeguards">
+          <h2>Review High-Risk Action</h2>
+          <p>
+            <strong>Action:</strong> {pendingConfig.label}
+          </p>
+          <p>
+            <strong>Preview:</strong> <code>{pendingConfig.method}</code> <code>{pendingConfig.path}</code>
+          </p>
+          <p>{pendingConfig.impact}</p>
+          <label>
+            Confirmation phrase
+            <input
+              value={confirmationInput}
+              onChange={(event) => setConfirmationInput(event.target.value)}
+              placeholder={pendingConfig.confirmationPhrase}
+              aria-describedby="confirmation-help"
+            />
+          </label>
+          <p id="confirmation-help">
+            Type <code>{pendingConfig.confirmationPhrase}</code> to enable confirmation.
+          </p>
+          <label className="inline-checkbox">
+            <input
+              type="checkbox"
+              checked={dryRunMode}
+              onChange={(event) => setDryRunMode(event.target.checked)}
+            />
+            Preview only (dry-run, no API call)
+          </label>
+          <div className="panel-actions">
+            <button type="button" disabled={!canConfirm} onClick={() => runAction(pendingAction!, dryRunMode)}>
+              {dryRunMode ? "Run Dry-Run Preview" : "Confirm and Execute"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPendingAction(null);
+                setConfirmationInput("");
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {actionState.kind === "ok" ? (
+        <p role="status" aria-live="polite">
+          {actionState.message}
+        </p>
+      ) : null}
       {actionState.kind === "error" ? (
         <ErrorState
           error={{
@@ -131,6 +305,15 @@ export function DaemonPage() {
       <DiagnosticsPanel title="Daemon Diagnostics" actionPrefixes={["daemon."]} />
 
       <div className="grid two">
+        <div className="panel">
+          <h2>Action Audit Trail</h2>
+          {actionRecords.length === 0 ? (
+            <EmptyState message="No daemon actions recorded in this session." />
+          ) : (
+            <pre>{JSON.stringify(actionRecords.slice(0, 20), null, 2)}</pre>
+          )}
+        </div>
+
         <ResourceStateView
           state={healthState}
           emptyMessage="No daemon health response available."

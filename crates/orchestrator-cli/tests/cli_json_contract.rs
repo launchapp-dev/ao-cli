@@ -60,6 +60,30 @@ fn json_success_envelope_contract_is_stable() -> Result<()> {
 }
 
 #[test]
+fn json_success_envelope_wraps_print_ok_messages() -> Result<()> {
+    let harness = CliHarness::new()?;
+
+    harness.run_json_ok(&[
+        "architecture",
+        "entity",
+        "create",
+        "--id",
+        "api",
+        "--name",
+        "API",
+    ])?;
+
+    let deleted = harness.run_json_ok(&["architecture", "entity", "delete", "--id", "api"])?;
+    assert_success_envelope(&deleted);
+    assert_eq!(
+        deleted.pointer("/data/message").and_then(Value::as_str),
+        Some("architecture entity deleted")
+    );
+
+    Ok(())
+}
+
+#[test]
 fn json_error_envelope_maps_invalid_input_and_not_found() -> Result<()> {
     let harness = CliHarness::new()?;
 

@@ -147,10 +147,14 @@ mod tests {
         let invalid = anyhow!("invalid status");
         let unavailable = anyhow!("failed to connect to runner");
         let not_found = anyhow!("task not found");
+        let conflict = anyhow!("architecture entity already exists");
+        let internal = anyhow!("runner returned status payload while waiting for control response");
 
         assert_eq!(classify_exit_code(&invalid), 2);
         assert_eq!(classify_exit_code(&not_found), 3);
+        assert_eq!(classify_exit_code(&conflict), 4);
         assert_eq!(classify_exit_code(&unavailable), 5);
+        assert_eq!(classify_exit_code(&internal), 1);
     }
 
     #[test]

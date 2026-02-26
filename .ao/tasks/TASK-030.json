@@ -6,7 +6,7 @@
   "blocked_by": null,
   "blocked_phase": null,
   "blocked_reason": null,
-  "branch_name": null,
+  "branch_name": "ao/task-030",
   "cancelled": false,
   "checklist": [],
   "complexity": "medium",
@@ -25,9 +25,9 @@
     "created_at": "2026-02-26T14:53:42.697331Z",
     "created_by": "ao-cli",
     "started_at": "2026-02-26T15:06:11.071054Z",
-    "updated_at": "2026-02-26T15:06:24.444143Z",
+    "updated_at": "2026-02-26T15:11:07.087830Z",
     "updated_by": "ao-cli",
-    "version": 4
+    "version": 7
   },
   "paused": false,
   "priority": "high",
@@ -50,5 +50,5 @@
     "requires_staging_deploy": false,
     "workflow_id": null
   },
-  "worktree_path": null
+  "worktree_path": "/Users/samishukri/.ao/ao-cli-1222ef9c4f94/worktrees/task-task-030"
 }

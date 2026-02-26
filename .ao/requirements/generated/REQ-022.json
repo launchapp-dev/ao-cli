@@ -10,7 +10,10 @@
     "flows": [],
     "mockups": [],
     "related_requirements": [],
-    "tasks": [],
+    "tasks": [
+      "TASK-033",
+      "TASK-035"
+    ],
     "tests": [],
     "workflows": []
   },
@@ -19,5 +22,5 @@
   "tags": [],
   "title": "Add concurrency-safe state persistence",
   "type": null,
-  "updated_at": "2026-02-26T14:46:59.513786Z"
+  "updated_at": "2026-02-26T15:10:28.642067Z"
 }

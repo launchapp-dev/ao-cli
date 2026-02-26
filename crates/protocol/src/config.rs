@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
@@ -87,6 +88,19 @@ impl Config {
         let json = serde_json::to_string_pretty(&default_config)?;
         fs::write(config_path, json)?;
         Ok(default_config)
+    }
+
+    pub fn ensure_token_exists(config_dir: &Path) -> Result<()> {
+        let config_path = config_dir.join("config.json");
+        let mut config = Self::load_from_dir(config_dir)?;
+        if config.agent_runner_token.as_deref().map_or(true, |t| t.trim().is_empty()) {
+            config.agent_runner_token = Some(Uuid::new_v4().to_string());
+            let json = serde_json::to_string_pretty(&config)?;
+            fs::write(&config_path, json).with_context(|| {
+                format!("Failed to write token to {}", config_path.display())
+            })?;
+        }
+        Ok(())
     }
 
     pub fn get_token(&self) -> Result<String> {

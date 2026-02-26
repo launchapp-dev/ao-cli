@@ -528,6 +528,8 @@ pub(super) async fn ensure_agent_runner_running(project_root: &Path) -> Result<O
     let binary = find_agent_runner_binary()?;
     let expected_build_id = runner_binary_build_id(&binary);
     std::fs::create_dir_all(&config_dir).ok();
+    protocol::Config::ensure_token_exists(&config_dir)
+        .context("failed to provision IPC auth token")?;
     clear_stale_runner_artifacts(&config_dir);
 
     if is_agent_runner_ready(&config_dir).await {

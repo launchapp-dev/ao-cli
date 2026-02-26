@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TASK-015 Run Telemetry Stream and Artifact Inspector Wireframes</title>
+    <link rel="stylesheet" href="./wireframes.css" />
+  </head>
+  <body>
+    <header class="doc-header">
+      <h1>TASK-015: Run Telemetry Stream and Artifact Inspector</h1>
+      <p>
+        Concrete <code>/output</code> wireframes for stream-first telemetry,
+        deterministic JSONL filtering, and artifact download flow with explicit
+        fallback and error handling.
+      </p>
+    </header>
+
+    <main class="board-grid">
+      <section class="board" aria-labelledby="live-desktop-title">
+        <h2 class="board-title" id="live-desktop-title">
+          Output Inspector (Desktop, Live Stream + Filtered JSONL + Artifact Downloads)
+        </h2>
+
+        <div class="route-shell desktop">
+          <header class="route-header">
+            <p class="breadcrumbs">Output / Run Inspector / Active Incident</p>
+            <div class="state-strip" aria-label="Connection mode states">
+              <span class="state-chip">connecting</span>
+              <span class="state-chip live">live</span>
+              <span class="state-chip">polling</span>
+              <span class="state-chip">reconnecting</span>
+              <span class="state-chip">disconnected</span>
+            </div>
+          </header>
+
+          <form class="context-form" aria-labelledby="context-title">
+            <h3 id="context-title">Run Context</h3>
+
+            <label for="run-id-live">Run ID</label>
+            <input
+              id="run-id-live"
+              name="run_id"
+              value="run_20260225_164103_9f3ca1"
+              aria-describedby="run-id-help-live"
+            />
+            <p class="field-help" id="run-id-help-live">
+              Safe IDs only: letters, numbers, <code>_</code>, <code>-</code>.
+            </p>
+
+            <label for="execution-id-live">Execution ID</label>
+            <input
+              id="execution-id-live"
+              name="execution_id"
+              value="exec_20260225_164100_d6b21f"
+              aria-describedby="execution-id-help-live"
+            />
+            <p class="field-help" id="execution-id-help-live">
+              Used for artifact list + download actions.
+            </p>
+
+            <div class="action-row">
+              <button type="submit">Start Inspection</button>
+              <button type="button">Refresh Snapshot</button>
+              <button type="button">Reconnect Stream</button>
+              <button type="button" class="ghost-btn">Load Artifacts</button>
+            </div>
+          </form>
+
+          <div class="status-grid" aria-label="Output status summary">
+            <article class="status-card">
+              <h4>Connection</h4>
+              <p><strong>live</strong> via SSE</p>
+              <p class="status-meta">Last sync: 2026-02-25 16:42:19 UTC</p>
+            </article>
+            <article class="status-card">
+              <h4>Event Cursor</h4>
+              <p>Last sequence: <strong>4821</strong></p>
+              <p class="status-meta">Dedup cache: newest 500 sequence ids</p>
+            </article>
+            <article class="status-card">
+              <h4>Data Bounds</h4>
+              <p>Telemetry rows: <strong>100</strong> max</p>
+              <p class="status-meta">JSONL query limit: <strong>50</strong></p>
+            </article>
+          </div>
+
+          <div class="sr-update" aria-live="polite">
+            Connection mode changed to live. Appended event seq 4821.
+          </div>
+
+          <div class="inspector-grid">
+            <article class="panel telemetry-panel span-all" aria-labelledby="telemetry-live-title">
+              <div class="panel-header">
+                <h3 id="telemetry-live-title">Run Telemetry Stream</h3>
+                <p class="panel-summary">State: ready. Ordered by sequence (newest first).</p>
+              </div>
+
+              <ol class="event-list" aria-label="Run telemetry events">
+                <li class="event-item expanded">
+                  <button
+                    type="button"
+                    class="event-summary"
+                    aria-expanded="true"
+                    aria-controls="event-live-4821"
+                  >
+                    <span class="event-kind">agent.run.completed</span>
+                    <span class="event-meta">seq 4821</span>
+                    <span class="event-meta">task TASK-015 / phase wireframe</span>
+                    <span class="event-time">2026-02-25 16:42:19 UTC</span>
+                  </button>
+
+                  <div id="event-live-4821" class="event-detail">
+                    <p class="detail-note">Summary: Wireframe artifacts persisted for handoff.</p>
+                    <pre>{
+  "seq": 4821,
+  "kind": "agent.run.completed",
+  "run_id": "run_20260225_164103_9f3ca1",
+  "task_id": "TASK-015",
+  "phase_id": "wireframe",
+  "message": "Created mockups/task-015-run-telemetry-artifact-inspector"
+}</pre>
+                  </div>
+                </li>
+
+                <li class="event-item">
+                  <button
+                    type="button"
+                    class="event-summary"
+                    aria-expanded="false"
+                    aria-controls="event-live-4820"
+                  >
+                    <span class="event-kind">agent.phase.progress</span>
+                    <span class="event-meta">seq 4820</span>
+                    <span class="event-meta">wireframe assets staged</span>
+                    <span class="event-time">2026-02-25 16:41:58 UTC</span>
+                  </button>
+                </li>
+
+                <li class="event-item">
+                  <button
+                    type="button"
+                    class="event-summary"
+                    aria-expanded="false"
+                    aria-controls="event-live-4819"
+                  >
+                    <span class="event-kind">agent.phase.started</span>
+                    <span class="event-meta">seq 4819</span>
+                    <span class="event-meta">task TASK-015 / wireframe</span>
+                    <span class="event-time">2026-02-25 16:41:22 UTC</span>
+                  </button>
+                </li>
+              </ol>
+            </article>
+
+            <article class="panel jsonl-panel" aria-labelledby="jsonl-live-title">
+              <div class="panel-header">
+                <h3 id="jsonl-live-title">JSONL Explorer</h3>
+                <p class="panel-summary">State: results. Deterministic filter set.</p>
+              </div>
+
+              <form class="filter-form">
+                <label for="query-live">Query</label>
+                <input id="query-live" value="fallback polling" />
+
+                <label for="source-live">Source File</label>
+                <select id="source-live">
+                  <option>events.jsonl</option>
+                  <option>json-output.jsonl</option>
+                  <option>stderr.jsonl</option>
+                </select>
+
+                <label for="task-live">Task ID</label>
+                <input id="task-live" value="TASK-015" />
+
+                <label for="phase-live">Phase ID</label>
+                <input id="phase-live" value="wireframe" />
+
+                <label for="limit-live">Limit</label>
+                <select id="limit-live">
+                  <option>50</option>
+                  <option>25</option>
+                  <option>10</option>
+                </select>
+
+                <div class="action-row">
+                  <button type="submit">Apply Filters</button>
+                  <button type="button" class="ghost-btn">Reset Filters</button>
+                </div>
+              </form>
+
+              <p class="active-filters">
+                Active: <code>query=fallback polling</code> <code>source_file=events.jsonl</code>
+                <code>task_id=TASK-015</code> <code>phase_id=wireframe</code> <code>limit=50</code>
+              </p>
+
+              <ol class="jsonl-list" aria-label="Filtered JSONL rows">
+                <li class="jsonl-item expanded">
+                  <button
+                    type="button"
+                    class="jsonl-summary"
+                    aria-expanded="true"
+                    aria-controls="jsonl-row-1041"
+                  >
+                    <span class="jsonl-source">events.jsonl</span>
+                    <span class="jsonl-meta">2026-02-25 16:41:46 UTC</span>
+                    <span class="jsonl-meta">task TASK-015 / phase wireframe</span>
+                  </button>
+
+                  <div id="jsonl-row-1041" class="jsonl-detail">
+                    <p class="detail-note">Preview: stream connection failed, switching to poll fallback.</p>
+                    <pre>{"timestamp_hint":"2026-02-25T16:41:46Z","message":"sse disconnected","mode":"reconnecting","fallback":"polling"}</pre>
+                    <button type="button" aria-label="Copy JSONL line from events.jsonl at 16:41:46 UTC">
+                      Copy line
+                    </button>
+                  </div>
+                </li>
+
+                <li class="jsonl-item">
+                  <button
+                    type="button"
+                    class="jsonl-summary"
+                    aria-expanded="false"
+                    aria-controls="jsonl-row-1034"
+                  >
+                    <span class="jsonl-source">events.jsonl</span>
+                    <span class="jsonl-meta">2026-02-25 16:40:13 UTC</span>
+                    <span class="jsonl-meta">task TASK-015 / phase wireframe</span>
+                  </button>
+                </li>
+              </ol>
+            </article>
+
+            <aside class="panel artifacts-panel" aria-labelledby="artifact-live-title">
+              <div class="panel-header">
+                <h3 id="artifact-live-title">Artifact Inspector</h3>
+                <p class="panel-summary">State: list-ready. One row pending and one failed retry.</p>
+              </div>
+
+              <form class="file-id-form" aria-labelledby="artifact-file-id-title">
+                <h4 id="artifact-file-id-title">Artifact File ID Selector</h4>
+                <label for="artifact-file-id-live">File ID</label>
+                <select id="artifact-file-id-live">
+                  <option>artifact_321</option>
+                  <option>artifact_322</option>
+                  <option>artifact_323</option>
+                </select>
+                <p class="field-help">
+                  Source: <code>/api/v1/output/executions/:execution_id/files</code> for deterministic artifact
+                  row targeting.
+                </p>
+              </form>
+
+              <table class="artifact-table" aria-label="Execution artifacts">
+                <caption>
+                  Execution artifacts for <code>exec_20260225_164100_d6b21f</code> with per-row download actions.
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Artifact ID</th>
+                    <th scope="col">Type</th>
+                    <th scope="col">Size</th>
+                    <th scope="col">File</th>
+                    <th scope="col">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code>artifact_321</code></td>
+                    <td>jsonl-bundle</td>
+                    <td>192 KB</td>
+                    <td>
+                      run-20260225-events.zip
+                      <p class="file-hint">.ao/artifacts/exec_20260225_164100_d6b21f/run-20260225-events.zip</p>
+                    </td>
+                    <td>
+                      <button type="button" aria-label="Download artifact artifact_321 run-20260225-events.zip">
+                        Download
+                      </button>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><code>artifact_322</code></td>
+                    <td>log</td>
+                    <td>41 KB</td>
+                    <td>
+                      wireframe-phase.log
+                      <p class="file-hint">.ao/artifacts/exec_20260225_164100_d6b21f/wireframe-phase.log</p>
+                    </td>
+                    <td>
+                      <button type="button" aria-label="Download artifact artifact_322 wireframe-phase.log" disabled>
+                        Downloading...
+                      </button>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><code>artifact_323</code></td>
+                    <td>png</td>
+                    <td>1.8 MB</td>
+                    <td>
+                      mockup-preview.png
+                      <p class="file-hint">.ao/artifacts/exec_20260225_164100_d6b21f/mockup-preview.png</p>
+                    </td>
+                    <td>
+                      <button type="button" aria-label="Retry download for artifact artifact_323 mockup-preview.png">
+                        Retry Download
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <p class="download-hint">
+                Successful downloads return stable headers:
+                <code>Content-Disposition: attachment; filename="run-20260225-events.zip"</code>.
+              </p>
+
+              <div class="sr-update" aria-live="polite">
+                Download ready for artifact_321 with deterministic filename and binary-safe response handling.
+              </div>
+
+              <div class="inline-error" role="alert">
+                <strong>download_failed</strong>
+                <p>
+                  Unable to download <code>artifact_323</code>: not_found.
+                  Confirm execution ID and retry.
+                </p>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <section class="board" aria-labelledby="fallback-title">
+        <h2 class="board-title" id="fallback-title">
+          Output Inspector (Desktop, Stream Failure to Poll Fallback + Input Errors)
+        </h2>
+
+        <div class="route-shell desktop">
+          <header class="route-header">
+            <p class="breadcrumbs">Output / Run Inspector / Recovery Path</p>
+            <div class="state-strip" aria-label="Fallback state progression">
+              <span class="state-chip reconnecting">reconnecting</span>
+              <span class="state-chip polling">polling</span>
+              <span class="state-chip stream-error">stream-error</span>
+            </div>
+          </header>
+
+          <form class="context-form" aria-labelledby="context-error-title">
+            <h3 id="context-error-title">Run Context With Validation Feedback</h3>
+
+            <label for="run-id-invalid">Run ID</label>
+            <input
+              id="run-id-invalid"
+              value="../escape"
+              aria-invalid="true"
+              aria-describedby="run-id-error"
+            />
+            <p id="run-id-error" class="field-error" role="alert">
+              invalid_input: run_id must not contain path traversal segments.
+            </p>
+
+            <label for="execution-id-missing">Execution ID</label>
+            <input
+              id="execution-id-missing"
+              value="exec_missing_404"
+              aria-invalid="true"
+              aria-describedby="execution-id-error"
+            />
+            <p id="execution-id-error" class="field-error" role="alert">
+              not_found: no artifacts exist for execution <code>exec_missing_404</code>.
+            </p>
+
+            <div class="action-row">
+              <button type="button">Correct IDs</button>
+              <button type="button" class="ghost-btn">Retry Poll Snapshot</button>
+            </div>
+          </form>
+
+          <div class="sr-update" aria-live="polite">
+            Stream disconnected. Polling every 5 seconds from sequence 4821.
+          </div>
+
+          <div class="inspector-grid">
+            <article class="panel telemetry-panel" aria-labelledby="telemetry-fallback-title">
+              <div class="panel-header">
+                <h3 id="telemetry-fallback-title">Telemetry in Polling Mode</h3>
+                <p class="panel-summary">State: polling. Last stream error kept for visibility.</p>
+              </div>
+
+              <p class="inline-warning">
+                Stream endpoint unavailable; using incremental poll requests with
+                <code>after_seq=4821</code> to avoid duplicates.
+              </p>
+
+              <ul class="mini-list" aria-label="Poll diagnostics">
+                <li>Latest poll: 2026-02-25 16:44:10 UTC</li>
+                <li>Rows added from poll: 1</li>
+                <li>Rows skipped by dedup cache: 2</li>
+              </ul>
+            </article>
+
+            <article class="panel jsonl-panel" aria-labelledby="jsonl-empty-title">
+              <div class="panel-header">
+                <h3 id="jsonl-empty-title">JSONL Empty Results + Filter Error</h3>
+                <p class="panel-summary">State: empty-results after invalid filter correction.</p>
+              </div>
+
+              <p class="inline-error" role="alert">
+                <strong>filter_error</strong>: <code>limit=5000</code> exceeds max 200.
+                Value was reset to 50.
+              </p>
+
+              <p class="empty-state">
+                No lines match <code>task_id=TASK-999</code> and
+                <code>phase_id=wireframe</code>. Reset filters to see baseline output.
+              </p>
+
+              <div class="action-row">
+                <button type="button">Reset Filters</button>
+              </div>
+            </article>
+
+            <aside class="panel artifacts-panel" aria-labelledby="artifact-empty-title">
+              <div class="panel-header">
+                <h3 id="artifact-empty-title">Artifact Empty State</h3>
+                <p class="panel-summary">State: empty.</p>
+              </div>
+
+              <p class="field-error" role="alert">
+                invalid_input: unsafe artifact id <code>../artifact_101</code> was blocked before request dispatch.
+              </p>
+
+              <p class="empty-state">
+                No artifacts returned for this execution ID yet. Verify the run has
+                produced artifacts or try a different execution context.
+              </p>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <section class="board" aria-labelledby="mobile-title">
+        <h2 class="board-title" id="mobile-title">
+          Output Inspector (Mobile 320px, Stacked Controls and Panels)
+        </h2>
+
+        <div class="route-shell mobile">
+          <header class="route-header">
+            <p class="breadcrumbs">Output / Mobile 320px</p>
+            <div class="state-strip" aria-label="Current connection mode">
+              <span class="state-chip live">live</span>
+            </div>
+          </header>
+
+          <div class="sr-update" aria-live="polite">
+            Connection live on mobile. Latest event sequence 4821 appended.
+          </div>
+
+          <form class="context-form mobile-form" aria-labelledby="mobile-context-title">
+            <h3 id="mobile-context-title">Run Context</h3>
+
+            <label for="run-id-mobile">Run ID</label>
+            <input id="run-id-mobile" value="run_20260225_164103_9f3ca1" />
+
+            <label for="execution-id-mobile">Execution ID</label>
+            <input id="execution-id-mobile" value="exec_20260225_164100_d6b21f" />
+
+            <div class="action-row column">
+              <button type="submit">Inspect</button>
+              <button type="button" class="ghost-btn">Refresh</button>
+            </div>
+          </form>
+
+          <article class="panel telemetry-panel" aria-labelledby="telemetry-mobile-title">
+            <div class="panel-header">
+              <h3 id="telemetry-mobile-title">Telemetry</h3>
+              <p class="panel-summary">2 newest events</p>
+            </div>
+
+            <ol class="event-list compact" aria-label="Mobile telemetry events">
+              <li class="event-item">
+                <button type="button" class="event-summary" aria-expanded="false" aria-controls="event-mobile-4821">
+                  <span class="event-kind">agent.run.completed</span>
+                  <span class="event-meta">seq 4821</span>
+                  <span class="event-time">16:42:19 UTC</span>
+                </button>
+              </li>
+              <li class="event-item">
+                <button type="button" class="event-summary" aria-expanded="false" aria-controls="event-mobile-4820">
+                  <span class="event-kind">agent.phase.progress</span>
+                  <span class="event-meta">seq 4820</span>
+                  <span class="event-time">16:41:58 UTC</span>
+                </button>
+              </li>
+            </ol>
+          </article>
+
+          <article class="panel jsonl-panel" aria-labelledby="jsonl-mobile-title">
+            <div class="panel-header">
+              <h3 id="jsonl-mobile-title">JSONL Explorer</h3>
+              <p class="panel-summary">State: empty-results</p>
+            </div>
+
+            <p class="empty-state">
+              No lines match current mobile filters. Use reset to restore default view.
+            </p>
+            <button type="button" class="full-width">Reset Filters</button>
+          </article>
+
+          <aside class="panel artifacts-panel" aria-labelledby="artifact-mobile-title">
+            <div class="panel-header">
+              <h3 id="artifact-mobile-title">Artifacts</h3>
+              <p class="panel-summary">State: list-ready</p>
+            </div>
+
+            <ul class="artifact-list" aria-label="Mobile artifacts list">
+              <li>
+                <p><code>artifact_321</code> · jsonl-bundle · 192 KB</p>
+                <p class="file-hint">file: run-20260225-events.zip</p>
+                <button type="button" class="full-width" aria-label="Download artifact artifact_321 run-20260225-events.zip">
+                  Download run-20260225-events.zip
+                </button>
+              </li>
+              <li>
+                <p><code>artifact_322</code> · log · 41 KB</p>
+                <p class="file-hint">file: wireframe-phase.log</p>
+                <button type="button" class="full-width" aria-label="Download artifact artifact_322 wireframe-phase.log">
+                  Download wireframe-phase.log
+                </button>
+              </li>
+            </ul>
+          </aside>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

@@ -26,11 +26,15 @@ describe("PRIMARY_NAV_ITEMS", () => {
     ]);
   });
 
+  it("includes Output navigation item for run telemetry", () => {
+    const outputItem = PRIMARY_NAV_ITEMS.find((item) => item.to === "/output");
+    expect(outputItem).toBeDefined();
+    expect(outputItem?.label).toBe("Output");
+  });
+
   it("points to registered routes only", () => {
     const routePathSet = new Set(APP_ROUTE_PATHS);
-    const unknownNavTargets = PRIMARY_NAV_ITEMS
-      .map((item) => item.to)
-      .filter((path) => !routePathSet.has(path));
+    const unknownNavTargets = PRIMARY_NAV_ITEMS.map((item) => item.to).filter((path) => !routePathSet.has(path));
 
     expect(unknownNavTargets).toEqual([]);
   });

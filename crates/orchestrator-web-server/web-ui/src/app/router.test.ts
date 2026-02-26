@@ -32,6 +32,7 @@ describe("APP_ROUTE_PATHS", () => {
       "/workflows/:workflowId/checkpoints/:checkpoint",
       "/queue",
       "/events",
+      "/output",
       "/reviews/handoff",
       "/errors",
       "/settings/mcp",

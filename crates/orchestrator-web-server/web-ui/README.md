@@ -31,6 +31,11 @@ React shell and route architecture for `TASK-011`.
   `../docs/task-014-task-workflow-control-center-requirements.md`,
   `../docs/task-014-task-workflow-control-center-ux-brief.md`,
   `../docs/task-014-task-workflow-control-center-implementation-notes.md`
+- `TASK-015` requirements, UX, and implementation notes:
+  `../docs/task-015-run-telemetry-stream-artifact-inspector-requirements.md`,
+  `../docs/task-015-run-telemetry-stream-artifact-inspector-ux-brief.md`,
+  `../docs/task-015-run-telemetry-stream-artifact-inspector-mockup-review.md`,
+  `../docs/task-015-run-telemetry-stream-artifact-inspector-implementation-notes.md`
 - Web GUI release checklist:
   `../../../.github/release-checklists/web-gui-release.md`
 

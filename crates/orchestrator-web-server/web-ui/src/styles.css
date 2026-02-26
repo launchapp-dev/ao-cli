@@ -133,6 +133,10 @@ code {
   display: none;
 }
 
+.mobile-overlay {
+  display: none;
+}
+
 .topbar-row {
   display: flex;
   align-items: center;
@@ -424,10 +428,14 @@ pre {
     transition: transform 180ms ease-out;
     z-index: 30;
     overflow: auto;
+    visibility: hidden;
+    pointer-events: none;
   }
 
   .sidebar[data-open="true"] {
     transform: translateX(0);
+    visibility: visible;
+    pointer-events: auto;
   }
 
   .mobile-actions {
@@ -438,6 +446,7 @@ pre {
   }
 
   .mobile-overlay {
+    display: block;
     position: fixed;
     inset: 0;
     background: rgb(17 31 54 / 28%);

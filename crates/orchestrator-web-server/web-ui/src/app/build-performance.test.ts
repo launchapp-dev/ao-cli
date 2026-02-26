@@ -32,8 +32,10 @@ describe("build performance baselines", () => {
       "node scripts/check-performance-budgets.mjs",
     );
     expect(budgetScriptContents).toContain("embedded/index.html");
+    expect(budgetScriptContents).toContain("before budget checks");
     expect(budgetScriptContents).toContain("JS_GZIP_BUDGET_BYTES = 110 * 1024");
     expect(budgetScriptContents).toContain("CSS_GZIP_BUDGET_BYTES = 8 * 1024");
     expect(budgetScriptContents).toContain("gzipSync");
+    expect(budgetScriptContents).toContain("split(/[?#]/, 1)");
   });
 });

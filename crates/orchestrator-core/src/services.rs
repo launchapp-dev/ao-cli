@@ -46,7 +46,7 @@ mod workflow_impl;
 
 use planning_utils::*;
 use runner_helpers::*;
-use state_store::{load_core_state, CoreState};
+use state_store::{load_core_state, load_core_state_for_mutation, CoreState};
 use task_shared::*;
 
 #[async_trait]
@@ -263,7 +263,12 @@ impl FileServiceHub {
     fn lock_state_file(path: &Path) -> Result<std::fs::File> {
         let lock_path = Self::state_lock_file_for_state_file(path);
         if let Some(parent) = lock_path.parent() {
-            std::fs::create_dir_all(parent)?;
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!(
+                    "failed to create parent directory for core state lock at {}",
+                    lock_path.display()
+                )
+            })?;
         }
 
         let lock_file = std::fs::OpenOptions::new()
@@ -293,7 +298,7 @@ impl FileServiceHub {
         let _file_lock = Self::lock_state_file(&self.state_file)?;
 
         let mut state = self.state.write().await;
-        *state = load_core_state(&self.state_file);
+        *state = load_core_state_for_mutation(&self.state_file)?;
         let output = mutator(&mut state)?;
         Self::persist_snapshot(&self.state_file, &state)?;
         Ok((output, state.clone()))

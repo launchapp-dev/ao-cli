@@ -33,12 +33,14 @@ describe("ReviewHandoffPage accessibility semantics", () => {
     if (!form) {
       throw new Error("Expected review handoff form to exist");
     }
+    expect(form.hasAttribute("novalidate")).toBe(true);
     fireEvent.submit(form);
 
     await waitFor(() => {
       expect(screen.getByText("Run ID is required.")).toBeTruthy();
       expect(screen.getByText("Question is required.")).toBeTruthy();
       expect(screen.getByText("Context JSON must be valid JSON.")).toBeTruthy();
+      expect(document.activeElement).toBe(runIdInput);
     });
 
     expect(runIdInput.getAttribute("aria-invalid")).toBe("true");
@@ -91,5 +93,27 @@ describe("ReviewHandoffPage accessibility semantics", () => {
     const statusMessage = await screen.findByText("Review handoff submitted successfully.");
     expect(statusMessage.getAttribute("role")).toBe("status");
     expect(screen.getByText("Response")).toBeTruthy();
+  });
+
+  it("focuses the first invalid field after partial form completion", async () => {
+    render(<ReviewHandoffPage />);
+
+    const runIdInput = screen.getByRole("textbox", { name: /run id/i });
+    const questionInput = screen.getByRole("textbox", { name: /question/i });
+    const contextInput = screen.getByRole("textbox", { name: /context json/i });
+
+    fireEvent.change(runIdInput, { target: { value: "run-123" } });
+    fireEvent.change(contextInput, { target: { value: "{}" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Submit Handoff" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Question is required.")).toBeTruthy();
+      expect(document.activeElement).toBe(questionInput);
+    });
+
+    expect(runIdInput.getAttribute("aria-invalid")).toBeNull();
+    expect(questionInput.getAttribute("aria-invalid")).toBe("true");
+    expect(contextInput.getAttribute("aria-invalid")).toBeNull();
   });
 });

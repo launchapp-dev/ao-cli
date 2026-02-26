@@ -83,6 +83,25 @@ describe("AppShellLayout keyboard and responsive behavior", () => {
     expect(document.activeElement).toBe(lastNavLink);
   });
 
+  it("moves focus into compact navigation when tabbing from outside the nav", async () => {
+    installMatchMedia(true);
+    renderShell();
+
+    const menuButton = screen.getByRole("button", { name: "Open primary navigation" });
+    fireEvent.click(menuButton);
+
+    const firstNavLink = screen.getByRole("link", { name: "Dashboard", hidden: true });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(firstNavLink);
+    });
+
+    menuButton.focus();
+    expect(document.activeElement).toBe(menuButton);
+
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(document.activeElement).toBe(firstNavLink);
+  });
+
   it("closes the mobile menu when viewport changes from compact to wide", async () => {
     const mediaQuery = installMatchMedia(true);
     renderShell();
@@ -106,6 +125,22 @@ describe("AppShellLayout keyboard and responsive behavior", () => {
       expect(firstNavLink.getAttribute("tabindex")).toBeNull();
     });
     expect(screen.queryByRole("button", { name: "Close navigation menu" })).toBeNull();
+  });
+
+  it("locks body scroll while compact navigation is open and restores it on close", async () => {
+    installMatchMedia(true);
+    document.body.style.overflow = "auto";
+    renderShell();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open primary navigation" }));
+    await waitFor(() => {
+      expect(document.body.style.overflow).toBe("hidden");
+    });
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => {
+      expect(document.body.style.overflow).toBe("auto");
+    });
   });
 });
 

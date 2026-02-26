@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { useProjectContext } from "./project-context";
@@ -85,15 +85,22 @@ export function DaemonPage() {
               ? api.daemonStop()
               : api.daemonClearLogs();
 
-    void request.then((result) => {
-      if (result.kind === "error") {
-        setActionState({ kind: "error", message: `${result.code}: ${result.message}` });
-        return;
-      }
+    void request
+      .then((result) => {
+        if (result.kind === "error") {
+          setActionState({ kind: "error", message: `${result.code}: ${result.message}` });
+          return;
+        }
 
-      setActionState({ kind: "ok", message: `Daemon action ${action} completed.` });
-      setRefreshNonce((current) => current + 1);
-    });
+        setActionState({ kind: "ok", message: `Daemon action ${action} completed.` });
+        setRefreshNonce((current) => current + 1);
+      })
+      .catch((error: unknown) => {
+        setActionState({
+          kind: "error",
+          message: formatUnexpectedError("Daemon action failed unexpectedly", error),
+        });
+      });
   };
 
   return (
@@ -460,6 +467,29 @@ export function ReviewHandoffPage() {
   const questionErrorId = "review-handoff-question-error";
   const contextHintId = "review-handoff-context-hint";
   const contextErrorId = "review-handoff-context-error";
+  const runIdInputRef = useRef<HTMLInputElement | null>(null);
+  const questionInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const contextInputRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const focusFirstInvalidField = (errors: {
+    runId?: string;
+    question?: string;
+    contextJson?: string;
+  }) => {
+    if (errors.runId) {
+      runIdInputRef.current?.focus();
+      return;
+    }
+
+    if (errors.question) {
+      questionInputRef.current?.focus();
+      return;
+    }
+
+    if (errors.contextJson) {
+      contextInputRef.current?.focus();
+    }
+  };
 
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -470,11 +500,13 @@ export function ReviewHandoffPage() {
       contextJson?: string;
     } = {};
 
-    if (runId.trim().length === 0) {
+    const normalizedRunId = runId.trim();
+    if (normalizedRunId.length === 0) {
       nextValidationErrors.runId = "Run ID is required.";
     }
 
-    if (question.trim().length === 0) {
+    const normalizedQuestion = question.trim();
+    if (normalizedQuestion.length === 0) {
       nextValidationErrors.question = "Question is required.";
     }
 
@@ -493,6 +525,7 @@ export function ReviewHandoffPage() {
     if (hasValidationErrors(nextValidationErrors)) {
       setValidationErrors(nextValidationErrors);
       setSubmitState({ kind: "idle" });
+      focusFirstInvalidField(nextValidationErrors);
       return;
     }
 
@@ -500,9 +533,9 @@ export function ReviewHandoffPage() {
 
     void api
       .reviewHandoff({
-        run_id: runId,
+        run_id: normalizedRunId,
         target_role: targetRole,
-        question,
+        question: normalizedQuestion,
         context: contextPayload,
       })
       .then((result) => {
@@ -512,12 +545,23 @@ export function ReviewHandoffPage() {
         }
 
         setSubmitState({ kind: "ok", data: result.data });
+      })
+      .catch((error: unknown) => {
+        setSubmitState({
+          kind: "error",
+          error: {
+            kind: "error",
+            code: "review_handoff_unexpected_error",
+            message: formatUnexpectedError("Review handoff failed unexpectedly", error),
+            exitCode: 1,
+          },
+        });
       });
   };
 
   return (
     <RouteSection title="Review Handoff" description="Submit review handoff payloads to AO.">
-      <form className="panel grid" onSubmit={onSubmit}>
+      <form className="panel grid" noValidate onSubmit={onSubmit}>
         <label>
           Run ID
           <span className="field-hint" id={runIdHintId}>
@@ -533,6 +577,7 @@ export function ReviewHandoffPage() {
               runIdHintId,
               validationErrors.runId ? runIdErrorId : undefined,
             )}
+            ref={runIdInputRef}
             onChange={(event) => {
               setRunId(event.target.value);
               setValidationErrors((current) => ({
@@ -577,6 +622,7 @@ export function ReviewHandoffPage() {
               questionHintId,
               validationErrors.question ? questionErrorId : undefined,
             )}
+            ref={questionInputRef}
             value={question}
             onChange={(event) => {
               setQuestion(event.target.value);
@@ -607,6 +653,7 @@ export function ReviewHandoffPage() {
               contextHintId,
               validationErrors.contextJson ? contextErrorId : undefined,
             )}
+            ref={contextInputRef}
             value={contextJson}
             onChange={(event) => {
               setContextJson(event.target.value);
@@ -769,4 +816,9 @@ function hasValidationErrors(errors: {
 function buildDescribedBy(...ids: Array<string | undefined>) {
   const resolvedIds = ids.filter((id): id is string => typeof id === "string" && id.length > 0);
   return resolvedIds.length > 0 ? resolvedIds.join(" ") : undefined;
+}
+
+function formatUnexpectedError(prefix: string, error: unknown): string {
+  const suffix = error instanceof Error ? error.message : "Unknown error.";
+  return `${prefix}: ${suffix}`;
 }

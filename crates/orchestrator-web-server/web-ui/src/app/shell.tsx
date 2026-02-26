@@ -70,6 +70,23 @@ function AppShellFrame() {
   }, [isCompactLayout, isMobileMenuOpen]);
 
   useEffect(() => {
+    if (typeof document === "undefined" || !isCompactLayout) {
+      return;
+    }
+
+    const bodyStyle = document.body.style;
+    const previousOverflow = bodyStyle.overflow;
+
+    if (isMobileMenuOpen) {
+      bodyStyle.overflow = "hidden";
+    }
+
+    return () => {
+      bodyStyle.overflow = previousOverflow;
+    };
+  }, [isCompactLayout, isMobileMenuOpen]);
+
+  useEffect(() => {
     const section = location.pathname.split("/")[1] ?? "";
 
     if (section !== previousSection.current) {
@@ -82,9 +99,7 @@ function AppShellFrame() {
 
   useEffect(() => {
     if (isCompactLayout && isMobileMenuOpen) {
-      const firstNavControl = primaryNavRef.current?.querySelector<HTMLElement>(
-        "a[href],button:not([disabled]),[tabindex]:not([tabindex='-1'])",
-      );
+      const firstNavControl = getFocusableControls(primaryNavRef.current)[0];
       firstNavControl?.focus();
       return;
     }

@@ -1772,6 +1772,25 @@ mod tests {
     }
 
     #[test]
+    fn execution_policy_parser_defaults_when_policy_block_missing() {
+        let contract = json!({
+            "policy": {
+                "other": {}
+            }
+        });
+
+        let policy = resolve_execution_policy_enforcement(Some(&contract));
+        assert_eq!(policy.sandbox_mode, SandboxMode::WorkspaceWrite);
+        assert!(!policy.allow_elevated);
+        assert!(policy.tool_policy.allow_prefixes.is_empty());
+        assert!(policy.tool_policy.allow_exact.is_empty());
+        assert!(policy.tool_policy.deny_prefixes.is_empty());
+        assert!(policy.tool_policy.deny_exact.is_empty());
+        assert!(policy.approval.is_none());
+        assert_eq!(policy.policy_hash, execution_policy_hash(&policy));
+    }
+
+    #[test]
     fn execution_policy_deny_rules_override_allow_rules() {
         let mcp = McpToolEnforcement {
             enabled: false,

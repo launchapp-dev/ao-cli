@@ -2,7 +2,7 @@
 
 ## Phase
 - Workflow phase: `requirements`
-- Workflow ID: `0bf4ff68-1b69-4090-ba23-a327b193a0de`
+- Workflow ID: `f0bef022-4711-40ec-9c68-ee57b339ea9e`
 - Requirement: `REQ-025`
 - Task: `TASK-025`
 - Updated: `2026-02-26`
@@ -35,6 +35,16 @@ Remaining gaps to close in TASK-025:
   documented as the supported path.
 - Regression coverage is incomplete across task validation, direct-run policy
   parsing, and daemon event metadata.
+
+## Requirements-Phase Decisions (Frozen)
+- Keep one authoritative precedence resolver in `orchestrator-core`; consumers
+  may read resolved output but must not re-implement precedence.
+- Keep task override input surface limited to `task update --input-json` in this
+  task; do not add additional task-update flags for policy fields.
+- Preserve current defaults when policy payload is absent; harden explicit
+  payload support for both documented runtime-contract locations.
+- Treat elevation auditing and doctor grading as required acceptance surfaces
+  with deterministic outputs.
 
 ## Non-Negotiable Constraints
 - Keep all implementation in Rust crates under `crates/`.
@@ -183,3 +193,11 @@ Remaining gaps to close in TASK-025:
 - Risk: doctor noise from optional paths.
   - Mitigation: classify optional-path issues as degraded warnings, not hard
     failures.
+
+## Requirements Phase Handoff Checklist
+1. Implementation file targets and order are locked (task service -> tests ->
+   direct-run parsing -> daemon metadata assertions -> doctor assertions ->
+   docs/help examples).
+2. Acceptance criteria mapping is complete and references concrete test classes.
+3. Backward-compatibility constraints are explicit for no-policy legacy flows.
+4. No scope expansion beyond REQ-025 surfaces is introduced in this phase.

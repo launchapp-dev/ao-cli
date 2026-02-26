@@ -2,7 +2,7 @@
 
 ## Phase
 - Workflow phase: `requirements`
-- Workflow ID: `0bf4ff68-1b69-4090-ba23-a327b193a0de`
+- Workflow ID: `f0bef022-4711-40ec-9c68-ee57b339ea9e`
 - Requirement: `REQ-025`
 - Task: `TASK-025`
 - Updated: `2026-02-26`
@@ -16,6 +16,24 @@ Define a deterministic, repository-safe policy contract that adds:
 
 The contract must work for direct `ao agent run` execution and daemon-managed
 workflow phase runs.
+
+## Requirements-Phase Clarifications (Locked)
+- Policy resolution and source tracing are implemented once in
+  `orchestrator-core` and reused by daemon scheduling paths; no duplicate
+  precedence logic is allowed in CLI/runner layers.
+- Task-level policy mutation is intentionally constrained to
+  `task update --input-json` for this task; schema validation and normalization
+  are mandatory before persistence.
+- Direct `ao agent run` behavior is explicitly two-mode:
+  - no policy payload -> default policy (backward compatible)
+  - explicit payload in either supported runtime-contract path -> policy enforced
+- Enforcement order is fixed and testable:
+  - sandbox gate (when applicable)
+  - deny rules
+  - allow rules/default compatibility behavior
+- Elevation and doctor are first-class requirement outputs, not optional polish:
+  - elevation path must remain auditable and single-use
+  - doctor checks must report deterministic policy health grading
 
 ## Existing Baseline Audit (as implemented)
 
@@ -204,3 +222,10 @@ Result grading:
 - Direct-run policy contract hardening and regression tests.
 - End-to-end tests for policy resolution, enforcement, elevation, doctor, and
   backward compatibility.
+
+## Requirements Phase Exit Criteria
+- Scope and non-scope boundaries are explicit and implementation-safe.
+- Constraints preserve backward compatibility and repository/workspace safety.
+- Acceptance criteria are testable and mapped to the verification matrix.
+- Implementation notes identify concrete file-level change surfaces for build
+  phase execution.

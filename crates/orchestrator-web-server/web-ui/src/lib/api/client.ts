@@ -140,11 +140,14 @@ export async function requestAo<TData>(
 
   try {
     const response = await fetch(path, requestInit);
+    const responseHeadersObject = normalizeResponseHeaders(
+      (response as { headers?: HeadersInit }).headers,
+    );
     const canonicalCorrelationId =
-      resolveCorrelationId(response.headers.get(AO_CORRELATION_HEADER), requestCorrelationId) ??
+      resolveCorrelationId(responseHeadersObject.get(AO_CORRELATION_HEADER), requestCorrelationId) ??
       requestCorrelationId;
     const httpStatus = normalizeHttpStatus(response.status);
-    const responseHeaders = sanitizeHeadersForTelemetry(response.headers);
+    const responseHeaders = sanitizeHeadersForTelemetry(responseHeadersObject);
 
     let payload: unknown;
     try {
@@ -421,6 +424,64 @@ export const api = {
       `/api/v1/workflows/${workflowId}/checkpoints/${checkpoint}`,
       decodeWorkflowCheckpointDetail,
     ),
+  outputRunTelemetry: (
+    runId: string,
+    options: {
+      after?: number;
+      limit?: number;
+      taskId?: string;
+      phaseId?: string;
+    } = {},
+  ) =>
+    requestAo<unknown>(
+      `/api/v1/output/runs/${encodeURIComponent(runId)}/telemetry${buildQueryString({
+        after: options.after,
+        limit: options.limit,
+        task_id: options.taskId,
+        phase_id: options.phaseId,
+      })}`,
+      {},
+      undefined,
+      { actionName: "output.run.telemetry" },
+    ),
+  outputRunJsonl: (
+    runId: string,
+    options: {
+      sourceFile?: string;
+      contains?: string;
+      taskId?: string;
+      phaseId?: string;
+      limit?: number;
+    } = {},
+  ) =>
+    requestAo<unknown>(
+      `/api/v1/output/runs/${encodeURIComponent(runId)}/jsonl${buildQueryString({
+        source_file: options.sourceFile,
+        contains: options.contains,
+        task_id: options.taskId,
+        phase_id: options.phaseId,
+        limit: options.limit,
+      })}`,
+      {},
+      undefined,
+      { actionName: "output.run.jsonl" },
+    ),
+  outputArtifacts: (executionId: string) =>
+    requestAo<unknown>(
+      `/api/v1/output/executions/${encodeURIComponent(executionId)}/artifacts`,
+      {},
+      undefined,
+      { actionName: "output.execution.artifacts" },
+    ),
+  outputArtifactDownload: (executionId: string, artifactId: string) =>
+    requestAo<unknown>(
+      `/api/v1/output/executions/${encodeURIComponent(executionId)}/download${buildQueryString({
+        artifact_id: artifactId,
+      })}`,
+      {},
+      undefined,
+      { actionName: "output.execution.download" },
+    ),
   reviewHandoff: (payload: RequestJsonValue) =>
     requestAo<ReviewHandoffResponse>(
       "/api/v1/reviews/handoff",
@@ -464,6 +525,22 @@ function createRequestHeaders(headers?: HeadersInit): Headers {
   }
 
   return merged;
+}
+
+function normalizeResponseHeaders(headers?: HeadersInit): Headers {
+  if (headers instanceof Headers) {
+    return headers;
+  }
+
+  if (!headers) {
+    return new Headers();
+  }
+
+  try {
+    return new Headers(headers);
+  } catch {
+    return new Headers();
+  }
 }
 
 function createApiError(params: {
@@ -550,6 +627,21 @@ function normalizeHttpStatus(status: number | undefined): number | undefined {
   }
 
   return Math.floor(status);
+}
+
+function buildQueryString(
+  params: Record<string, string | number | boolean | undefined>,
+): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined) {
+      continue;
+    }
+    search.set(key, String(value));
+  }
+
+  const query = search.toString();
+  return query.length > 0 ? `?${query}` : "";
 }
 
 async function postAo<TData>(

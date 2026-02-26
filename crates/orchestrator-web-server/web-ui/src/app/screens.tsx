@@ -7,6 +7,7 @@ import { api, firstApiError, RequestJsonValue } from "../lib/api/client";
 import { ApiError } from "../lib/api/envelope";
 import { ResourceState, useApiResource } from "../lib/api/use-api-resource";
 import { useDaemonEvents } from "../lib/events/use-daemon-events";
+import { RunTelemetryEntry, useRunTelemetry } from "../lib/output/use-run-telemetry";
 
 type DaemonAction = "start" | "pause" | "resume" | "stop" | "clear";
 
@@ -25,6 +26,38 @@ type ActionRecord = {
   outcome: "ok" | "error" | "preview";
   timestamp: string;
   detail: string;
+};
+
+type OutputJsonlState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "ok"; data: OutputRunJsonlPayload }
+  | { kind: "error"; error: ApiError };
+
+type OutputArtifactsState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "ok"; data: OutputArtifactInfo[] }
+  | { kind: "error"; error: ApiError };
+
+type DownloadArtifactState =
+  | { kind: "idle" }
+  | { kind: "downloading"; artifactId: string }
+  | { kind: "ok"; message: string }
+  | { kind: "error"; error: ApiError };
+
+type OutputRunJsonlPayload = {
+  run_id: string;
+  total_matches: number;
+  truncated: boolean;
+  entries: RunTelemetryEntry[];
+};
+
+type OutputArtifactInfo = {
+  artifact_id: string;
+  artifact_type: string;
+  file_path?: string;
+  size_bytes?: number;
 };
 
 const DAEMON_ACTION_CONFIG: Record<DaemonAction, DaemonActionConfig> = {
@@ -629,6 +662,323 @@ export function EventsPage() {
   );
 }
 
+export function OutputPage() {
+  const [runId, setRunId] = useState("");
+  const [taskIdFilter, setTaskIdFilter] = useState("");
+  const [phaseIdFilter, setPhaseIdFilter] = useState("");
+  const [containsFilter, setContainsFilter] = useState("");
+  const [sourceFileFilter, setSourceFileFilter] = useState("");
+  const [jsonlState, setJsonlState] = useState<OutputJsonlState>({ kind: "idle" });
+  const [executionId, setExecutionId] = useState("");
+  const [artifactsState, setArtifactsState] = useState<OutputArtifactsState>({ kind: "idle" });
+  const [downloadState, setDownloadState] = useState<DownloadArtifactState>({ kind: "idle" });
+
+  const telemetry = useRunTelemetry({
+    runId,
+    taskId: taskIdFilter,
+    phaseId: phaseIdFilter,
+    enabled: runId.trim().length > 0,
+  });
+
+  const recentTelemetryEntries = useMemo(() => {
+    return telemetry.entries.slice(Math.max(telemetry.entries.length - 50, 0));
+  }, [telemetry.entries]);
+
+  const searchJsonl = () => {
+    const normalizedRunId = runId.trim();
+    if (!normalizedRunId) {
+      setJsonlState({
+        kind: "error",
+        error: {
+          kind: "error",
+          code: "invalid_input",
+          message: "Run ID is required to search JSONL output.",
+          exitCode: 2,
+        },
+      });
+      return;
+    }
+
+    setJsonlState({ kind: "loading" });
+    void api
+      .outputRunJsonl(normalizedRunId, {
+        contains: normalizeOptionalText(containsFilter),
+        sourceFile: normalizeOptionalText(sourceFileFilter),
+        taskId: normalizeOptionalText(taskIdFilter),
+        phaseId: normalizeOptionalText(phaseIdFilter),
+        limit: 500,
+      })
+      .then((result) => {
+        if (result.kind === "error") {
+          setJsonlState({ kind: "error", error: result });
+          return;
+        }
+
+        const decoded = decodeOutputRunJsonlPayload(result.data);
+        if (!decoded) {
+          setJsonlState({
+            kind: "error",
+            error: {
+              kind: "error",
+              code: "invalid_payload",
+              message: "JSONL response payload did not match expected shape.",
+              exitCode: 1,
+            },
+          });
+          return;
+        }
+
+        setJsonlState({ kind: "ok", data: decoded });
+      });
+  };
+
+  const loadArtifacts = () => {
+    const normalizedExecutionId = executionId.trim();
+    if (!normalizedExecutionId) {
+      setArtifactsState({
+        kind: "error",
+        error: {
+          kind: "error",
+          code: "invalid_input",
+          message: "Execution ID is required to inspect artifacts.",
+          exitCode: 2,
+        },
+      });
+      return;
+    }
+
+    setArtifactsState({ kind: "loading" });
+    void api.outputArtifacts(normalizedExecutionId).then((result) => {
+      if (result.kind === "error") {
+        setArtifactsState({ kind: "error", error: result });
+        return;
+      }
+
+      const decoded = decodeOutputArtifactList(result.data);
+      if (!decoded) {
+        setArtifactsState({
+          kind: "error",
+          error: {
+            kind: "error",
+            code: "invalid_payload",
+            message: "Artifact list payload did not match expected shape.",
+            exitCode: 1,
+          },
+        });
+        return;
+      }
+
+      setArtifactsState({ kind: "ok", data: decoded });
+      setDownloadState({ kind: "idle" });
+    });
+  };
+
+  const downloadArtifact = (artifactId: string) => {
+    const normalizedExecutionId = executionId.trim();
+    if (!normalizedExecutionId) {
+      setDownloadState({
+        kind: "error",
+        error: {
+          kind: "error",
+          code: "invalid_input",
+          message: "Execution ID is required to download artifacts.",
+          exitCode: 2,
+        },
+      });
+      return;
+    }
+
+    setDownloadState({ kind: "downloading", artifactId });
+    void api.outputArtifactDownload(normalizedExecutionId, artifactId).then((result) => {
+      if (result.kind === "error") {
+        setDownloadState({ kind: "error", error: result });
+        return;
+      }
+
+      const decoded = decodeArtifactDownloadPayload(result.data);
+      if (!decoded) {
+        setDownloadState({
+          kind: "error",
+          error: {
+            kind: "error",
+            code: "invalid_payload",
+            message: "Artifact download payload did not include byte content.",
+            exitCode: 1,
+          },
+        });
+        return;
+      }
+
+      triggerBrowserDownload(decoded.bytes, artifactId);
+      setDownloadState({
+        kind: "ok",
+        message: `Downloaded ${artifactId} (${decoded.size_bytes} bytes).`,
+      });
+    });
+  };
+
+  return (
+    <RouteSection
+      title="Output"
+      description="Run telemetry stream with poll fallback, JSONL search/filter, and artifact browsing."
+    >
+      <div className="grid">
+        <section className="panel">
+          <h2>Run Telemetry</h2>
+          <div className="grid two">
+            <label>
+              Run ID
+              <input
+                placeholder="run-123"
+                value={runId}
+                onChange={(event) => setRunId(event.target.value)}
+              />
+            </label>
+            <label>
+              Task ID Filter
+              <input
+                placeholder="TASK-015"
+                value={taskIdFilter}
+                onChange={(event) => setTaskIdFilter(event.target.value)}
+              />
+            </label>
+            <label>
+              Phase ID Filter
+              <input
+                placeholder="implementation"
+                value={phaseIdFilter}
+                onChange={(event) => setPhaseIdFilter(event.target.value)}
+              />
+            </label>
+          </div>
+          <p>
+            Connection state: <code>{telemetry.connectionState}</code>
+          </p>
+          <p>
+            Events shown: <code>{recentTelemetryEntries.length}</code>
+          </p>
+          {telemetry.errorMessage ? (
+            <p role="status" aria-live="polite">
+              {telemetry.errorMessage}
+            </p>
+          ) : null}
+          {recentTelemetryEntries.length === 0 ? (
+            <EmptyState message="No run telemetry received yet. Enter a run ID to begin streaming." />
+          ) : (
+            <pre>{JSON.stringify(recentTelemetryEntries, null, 2)}</pre>
+          )}
+        </section>
+
+        <section className="panel">
+          <h2>JSONL Search and Filter</h2>
+          <div className="grid two">
+            <label>
+              Source File
+              <input
+                placeholder="events.jsonl"
+                value={sourceFileFilter}
+                onChange={(event) => setSourceFileFilter(event.target.value)}
+              />
+            </label>
+            <label>
+              Contains Text
+              <input
+                placeholder="workflow-run"
+                value={containsFilter}
+                onChange={(event) => setContainsFilter(event.target.value)}
+              />
+            </label>
+          </div>
+          <div className="panel-actions">
+            <button type="button" onClick={searchJsonl} disabled={jsonlState.kind === "loading"}>
+              {jsonlState.kind === "loading" ? "Searching..." : "Search JSONL"}
+            </button>
+          </div>
+
+          {jsonlState.kind === "error" ? <ErrorState error={jsonlState.error} /> : null}
+          {jsonlState.kind === "ok" ? (
+            <>
+              <p>
+                Matches: <code>{jsonlState.data.total_matches}</code>
+                {jsonlState.data.truncated ? " (truncated to 500 entries)" : ""}
+              </p>
+              {jsonlState.data.entries.length === 0 ? (
+                <EmptyState message="No JSONL entries matched the current filters." />
+              ) : (
+                <pre>{JSON.stringify(jsonlState.data.entries, null, 2)}</pre>
+              )}
+            </>
+          ) : null}
+        </section>
+
+        <section className="panel">
+          <h2>Artifact Inspector</h2>
+          <div className="grid two">
+            <label>
+              Execution ID
+              <input
+                placeholder="exec-123"
+                value={executionId}
+                onChange={(event) => setExecutionId(event.target.value)}
+              />
+            </label>
+          </div>
+          <div className="panel-actions">
+            <button type="button" onClick={loadArtifacts} disabled={artifactsState.kind === "loading"}>
+              {artifactsState.kind === "loading" ? "Loading..." : "Load Artifacts"}
+            </button>
+          </div>
+
+          {artifactsState.kind === "error" ? <ErrorState error={artifactsState.error} /> : null}
+          {downloadState.kind === "error" ? <ErrorState error={downloadState.error} /> : null}
+          {downloadState.kind === "ok" ? (
+            <p role="status" aria-live="polite">
+              {downloadState.message}
+            </p>
+          ) : null}
+
+          {artifactsState.kind === "ok" ? (
+            artifactsState.data.length === 0 ? (
+              <EmptyState message="No artifacts found for this execution ID." />
+            ) : (
+              <ul className="output-artifact-list">
+                {artifactsState.data.map((artifact) => (
+                  <li key={artifact.artifact_id} className="output-artifact-row">
+                    <div>
+                      <p>
+                        <strong>{artifact.artifact_id}</strong>
+                      </p>
+                      <p className="output-meta">
+                        type <code>{artifact.artifact_type}</code>
+                        {typeof artifact.size_bytes === "number"
+                          ? `, size ${artifact.size_bytes} bytes`
+                          : ""}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => downloadArtifact(artifact.artifact_id)}
+                      disabled={
+                        downloadState.kind === "downloading" &&
+                        downloadState.artifactId === artifact.artifact_id
+                      }
+                    >
+                      {downloadState.kind === "downloading" &&
+                      downloadState.artifactId === artifact.artifact_id
+                        ? "Downloading..."
+                        : "Download"}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )
+          ) : null}
+        </section>
+      </div>
+    </RouteSection>
+  );
+}
+
 export function ReviewHandoffPage() {
   const [runId, setRunId] = useState("");
   const [targetRole, setTargetRole] = useState("em");
@@ -815,6 +1165,137 @@ function JsonPanel(props: { title: string; data: unknown }) {
       <pre>{JSON.stringify(props.data, null, 2)}</pre>
     </div>
   );
+}
+
+function normalizeOptionalText(value: string): string | undefined {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function decodeOutputRunJsonlPayload(value: unknown): OutputRunJsonlPayload | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const runId = value["run_id"];
+  const totalMatches = value["total_matches"];
+  const truncated = value["truncated"];
+  const entriesValue = value["entries"];
+  if (typeof runId !== "string") {
+    return null;
+  }
+  if (typeof totalMatches !== "number" || !Number.isFinite(totalMatches)) {
+    return null;
+  }
+  if (typeof truncated !== "boolean") {
+    return null;
+  }
+  if (!Array.isArray(entriesValue)) {
+    return null;
+  }
+
+  const entries = entriesValue.filter(isRunTelemetryEntry);
+  return {
+    run_id: runId,
+    total_matches: totalMatches,
+    truncated,
+    entries,
+  };
+}
+
+function isRunTelemetryEntry(value: unknown): value is RunTelemetryEntry {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const cursor = value["cursor"];
+  const sourceFile = value["source_file"];
+  const line = value["line"];
+  return (
+    typeof cursor === "number" &&
+    Number.isFinite(cursor) &&
+    cursor > 0 &&
+    typeof sourceFile === "string" &&
+    typeof line === "string"
+  );
+}
+
+function decodeOutputArtifactList(value: unknown): OutputArtifactInfo[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const artifacts: OutputArtifactInfo[] = [];
+  for (const item of value) {
+    if (!isRecord(item)) {
+      continue;
+    }
+
+    const artifactId = item["artifact_id"];
+    const artifactType = item["artifact_type"];
+    const filePath = item["file_path"];
+    const sizeBytes = item["size_bytes"];
+    if (typeof artifactId !== "string" || typeof artifactType !== "string") {
+      continue;
+    }
+
+    artifacts.push({
+      artifact_id: artifactId,
+      artifact_type: artifactType,
+      ...(typeof filePath === "string" ? { file_path: filePath } : {}),
+      ...(typeof sizeBytes === "number" && Number.isFinite(sizeBytes)
+        ? { size_bytes: sizeBytes }
+        : {}),
+    });
+  }
+
+  return artifacts;
+}
+
+function decodeArtifactDownloadPayload(value: unknown): {
+  size_bytes: number;
+  bytes: Uint8Array;
+} | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const sizeBytes = value["size_bytes"];
+  const rawBytes = value["bytes"];
+  if (typeof sizeBytes !== "number" || !Number.isFinite(sizeBytes) || !Array.isArray(rawBytes)) {
+    return null;
+  }
+
+  const bytes = new Uint8Array(rawBytes.length);
+  for (let index = 0; index < rawBytes.length; index += 1) {
+    const value = rawBytes[index];
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 255) {
+      return null;
+    }
+    bytes[index] = value;
+  }
+
+  return {
+    size_bytes: sizeBytes,
+    bytes,
+  };
+}
+
+function triggerBrowserDownload(bytes: Uint8Array, artifactId: string) {
+  const blob = new Blob([bytes]);
+  const objectUrl = window.URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = artifactId.split("/").pop() ?? artifactId;
+  anchor.rel = "noopener";
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.URL.revokeObjectURL(objectUrl);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isJsonValue(value: unknown): value is RequestJsonValue {

@@ -22,6 +22,7 @@ describe("APP_ROUTE_PATHS", () => {
       "/workflows/:workflowId",
       "/workflows/:workflowId/checkpoints/:checkpoint",
       "/events",
+      "/output",
       "/reviews/handoff",
       "*",
     ];

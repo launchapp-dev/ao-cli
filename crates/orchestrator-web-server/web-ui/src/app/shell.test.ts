@@ -13,6 +13,7 @@ describe("PRIMARY_NAV_ITEMS", () => {
       { to: "/tasks", label: "Tasks" },
       { to: "/workflows", label: "Workflows" },
       { to: "/events", label: "Events" },
+      { to: "/output", label: "Output" },
       { to: "/reviews/handoff", label: "Review Handoff" },
     ]);
   });

@@ -17,6 +17,7 @@ export const PRIMARY_NAV_ITEMS = [
   { to: "/tasks", label: "Tasks" },
   { to: "/workflows", label: "Workflows" },
   { to: "/events", label: "Events" },
+  { to: "/output", label: "Output" },
   { to: "/reviews/handoff", label: "Review Handoff" },
 ] as const;
 export const MAIN_CONTENT_ID = "main-content";

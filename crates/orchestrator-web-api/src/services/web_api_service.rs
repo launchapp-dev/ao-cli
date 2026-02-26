@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -14,7 +15,7 @@ use orchestrator_core::{
 };
 use orchestrator_web_contracts::DaemonEventRecord;
 use serde::de::DeserializeOwned;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::broadcast;
 use uuid::Uuid;
@@ -930,6 +931,103 @@ impl WebApiService {
         Ok(json!(result))
     }
 
+    pub async fn output_run_telemetry(
+        &self,
+        run_id: &str,
+        after: Option<u64>,
+        limit: Option<usize>,
+        task_id: Option<String>,
+        phase_id: Option<String>,
+    ) -> Result<Value, WebApiError> {
+        let entries = get_run_jsonl_entries(&self.context.project_root, run_id)?;
+        let batch = build_run_telemetry_batch(
+            entries,
+            after.unwrap_or(0),
+            limit,
+            task_id.as_deref(),
+            phase_id.as_deref(),
+        );
+
+        Ok(json!({
+            "run_id": run_id,
+            "cursor": batch.cursor,
+            "total_entries": batch.total_entries,
+            "has_more": batch.has_more,
+            "entries": batch.entries,
+        }))
+    }
+
+    pub async fn output_run_jsonl(
+        &self,
+        run_id: &str,
+        source_file: Option<String>,
+        contains: Option<String>,
+        task_id: Option<String>,
+        phase_id: Option<String>,
+        limit: Option<usize>,
+    ) -> Result<Value, WebApiError> {
+        let entries = get_run_jsonl_entries(&self.context.project_root, run_id)?;
+        let source_file = normalize_optional_string(source_file);
+        let contains = normalize_optional_string(contains).map(|value| value.to_ascii_lowercase());
+        let task_id = normalize_optional_string(task_id);
+        let phase_id = normalize_optional_string(phase_id);
+        let limit = normalize_limit(limit, 200);
+
+        let mut filtered = Vec::new();
+        for entry in entries {
+            if let Some(source_file) = source_file.as_deref() {
+                if entry.source_file != source_file {
+                    continue;
+                }
+            }
+
+            if let Some(contains) = contains.as_deref() {
+                if !entry.line.to_ascii_lowercase().contains(contains) {
+                    continue;
+                }
+            }
+
+            if !entry_matches_task_phase(&entry, task_id.as_deref(), phase_id.as_deref()) {
+                continue;
+            }
+
+            filtered.push(entry);
+        }
+
+        let total_matches = filtered.len();
+        let truncated = total_matches > limit;
+        filtered.truncate(limit);
+
+        Ok(json!({
+            "run_id": run_id,
+            "total_matches": total_matches,
+            "truncated": truncated,
+            "entries": filtered,
+        }))
+    }
+
+    pub async fn output_artifacts(&self, execution_id: &str) -> Result<Value, WebApiError> {
+        Ok(json!(list_artifact_infos(
+            &self.context.project_root,
+            execution_id
+        )?))
+    }
+
+    pub async fn output_artifact_download(
+        &self,
+        execution_id: &str,
+        artifact_id: &str,
+    ) -> Result<Value, WebApiError> {
+        let (artifact_id, bytes) =
+            read_artifact_bytes(&self.context.project_root, execution_id, artifact_id)?;
+        Ok(json!({
+            "artifact_id": artifact_id,
+            "execution_id": execution_id,
+            "size_bytes": bytes.len(),
+            "bytes": bytes,
+        }))
+    }
+
     async fn project_requirements_snapshot(
         &self,
         project: &orchestrator_core::OrchestratorProject,
@@ -1231,6 +1329,45 @@ struct ReviewHandoffRequest {
     question: String,
     #[serde(default)]
     context: Value,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct RunJsonlEntry {
+    source_file: String,
+    line: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timestamp_hint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    payload: Option<Value>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct RunTelemetryEntry {
+    cursor: u64,
+    source_file: String,
+    line: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timestamp_hint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    payload: Option<Value>,
+}
+
+#[derive(Debug, Clone)]
+struct RunTelemetryBatch {
+    cursor: u64,
+    total_entries: u64,
+    has_more: bool,
+    entries: Vec<RunTelemetryEntry>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ArtifactInfoWeb {
+    artifact_id: String,
+    artifact_type: String,
+    #[serde(default)]
+    file_path: Option<String>,
+    #[serde(default)]
+    size_bytes: Option<u64>,
 }
 
 fn parse_json_body<T: DeserializeOwned>(body: Value) -> Result<T, WebApiError> {
@@ -1682,6 +1819,332 @@ fn requirement_status_key(status: RequirementStatus) -> String {
         RequirementStatus::Deprecated => "deprecated",
     }
     .to_string()
+}
+
+fn validate_identifier_segment(value: &str, field_name: &str) -> Result<(), WebApiError> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(WebApiError::new(
+            "invalid_input",
+            format!("{field_name} is required"),
+            2,
+        ));
+    }
+
+    if trimmed.contains('/') || trimmed.contains('\\') || trimmed.contains("..") {
+        return Err(WebApiError::new(
+            "invalid_input",
+            format!("invalid {field_name}: path separators are not allowed"),
+            2,
+        ));
+    }
+
+    Ok(())
+}
+
+fn run_dir_candidates(project_root: &str, run_id: &str) -> Vec<PathBuf> {
+    let mut candidates = vec![
+        Path::new(project_root)
+            .join(".ao")
+            .join("runs")
+            .join(run_id),
+        Path::new(project_root)
+            .join(".ao")
+            .join("state")
+            .join("runs")
+            .join(run_id),
+    ];
+
+    if let Some(scoped_root) = discover_scoped_ao_root(project_root) {
+        candidates.push(scoped_root.join("runs").join(run_id));
+    }
+
+    candidates
+}
+
+fn discover_scoped_ao_root(project_root: &str) -> Option<PathBuf> {
+    let home = std::env::var_os("HOME").map(PathBuf::from)?;
+    let ao_root = home.join(".ao");
+    if !ao_root.exists() {
+        return None;
+    }
+
+    let project_canonical = Path::new(project_root)
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(project_root));
+
+    let entries = fs::read_dir(&ao_root).ok()?;
+    for entry in entries.flatten() {
+        let repo_scope_root = entry.path();
+        if !repo_scope_root.is_dir() {
+            continue;
+        }
+
+        let marker = repo_scope_root.join(".project-root");
+        let Ok(content) = fs::read_to_string(marker) else {
+            continue;
+        };
+        let marker_root = content.trim();
+        if marker_root.is_empty() {
+            continue;
+        }
+
+        let marker_canonical = Path::new(marker_root)
+            .canonicalize()
+            .unwrap_or_else(|_| PathBuf::from(marker_root));
+        if marker_canonical == project_canonical {
+            return Some(repo_scope_root);
+        }
+    }
+
+    None
+}
+
+fn extract_timestamp_hint(line: &str) -> Option<String> {
+    let parsed = serde_json::from_str::<Value>(line).ok()?;
+    let timestamp = parsed
+        .get("timestamp")
+        .and_then(Value::as_str)
+        .or_else(|| parsed.get("created_at").and_then(Value::as_str))
+        .or_else(|| parsed.get("time").and_then(Value::as_str));
+    if let Some(value) = timestamp {
+        return Some(value.to_string());
+    }
+
+    parsed
+        .get("timestamp_ms")
+        .and_then(Value::as_i64)
+        .map(|ms| ms.to_string())
+}
+
+fn get_run_jsonl_entries(
+    project_root: &str,
+    run_id: &str,
+) -> Result<Vec<RunJsonlEntry>, WebApiError> {
+    validate_identifier_segment(run_id, "run_id")?;
+
+    let mut rows = Vec::new();
+    for run_dir in run_dir_candidates(project_root, run_id) {
+        if !run_dir.exists() {
+            continue;
+        }
+        for file_name in [
+            "json-output.jsonl",
+            "stdout.jsonl",
+            "stderr.jsonl",
+            "system.jsonl",
+            "signals.jsonl",
+            "events.jsonl",
+        ] {
+            let path = run_dir.join(file_name);
+            if !path.exists() {
+                continue;
+            }
+            let content = fs::read_to_string(&path)
+                .with_context(|| format!("failed to read run output file {}", path.display()))?;
+            for line in content.lines() {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                rows.push(RunJsonlEntry {
+                    source_file: file_name.to_string(),
+                    line: line.to_string(),
+                    timestamp_hint: extract_timestamp_hint(line),
+                    payload: serde_json::from_str::<Value>(line).ok(),
+                });
+            }
+        }
+    }
+
+    rows.sort_by(|a, b| a.timestamp_hint.cmp(&b.timestamp_hint));
+    Ok(rows)
+}
+
+fn build_run_telemetry_batch(
+    entries: Vec<RunJsonlEntry>,
+    after: u64,
+    limit: Option<usize>,
+    task_id: Option<&str>,
+    phase_id: Option<&str>,
+) -> RunTelemetryBatch {
+    let total_entries = entries.len() as u64;
+    let max_entries = normalize_limit(limit, 200);
+    let mut cursor = after;
+    let mut rows = Vec::new();
+
+    for (index, entry) in entries.into_iter().enumerate() {
+        let next_cursor = (index as u64).saturating_add(1);
+        if next_cursor <= after {
+            continue;
+        }
+
+        cursor = next_cursor;
+        if !entry_matches_task_phase(&entry, task_id, phase_id) {
+            continue;
+        }
+
+        rows.push(RunTelemetryEntry {
+            cursor: next_cursor,
+            source_file: entry.source_file,
+            line: entry.line,
+            timestamp_hint: entry.timestamp_hint,
+            payload: entry.payload,
+        });
+
+        if rows.len() >= max_entries {
+            break;
+        }
+    }
+
+    RunTelemetryBatch {
+        cursor,
+        total_entries,
+        has_more: cursor < total_entries,
+        entries: rows,
+    }
+}
+
+fn normalize_limit(limit: Option<usize>, default_limit: usize) -> usize {
+    let Some(limit) = limit else {
+        return default_limit;
+    };
+
+    limit.clamp(1, 1_000)
+}
+
+fn entry_matches_task_phase(
+    entry: &RunJsonlEntry,
+    task_id: Option<&str>,
+    phase_id: Option<&str>,
+) -> bool {
+    let Some(payload) = entry.payload.as_ref() else {
+        return task_id.is_none() && phase_id.is_none();
+    };
+
+    if let Some(task_id) = task_id {
+        if payload.get("task_id").and_then(Value::as_str) != Some(task_id) {
+            return false;
+        }
+    }
+
+    if let Some(phase_id) = phase_id {
+        if payload.get("phase_id").and_then(Value::as_str) != Some(phase_id) {
+            return false;
+        }
+    }
+
+    true
+}
+
+fn artifact_dir(project_root: &str, execution_id: &str) -> PathBuf {
+    Path::new(project_root)
+        .join(".ao")
+        .join("artifacts")
+        .join(execution_id)
+}
+
+fn list_artifact_infos(
+    project_root: &str,
+    execution_id: &str,
+) -> Result<Vec<ArtifactInfoWeb>, WebApiError> {
+    validate_identifier_segment(execution_id, "execution_id")?;
+    let artifacts_dir = artifact_dir(project_root, execution_id);
+    if !artifacts_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut artifacts = Vec::new();
+    let mut pending = vec![artifacts_dir.clone()];
+    while let Some(current_dir) = pending.pop() {
+        for entry in fs::read_dir(&current_dir).with_context(|| {
+            format!(
+                "failed to read artifact directory {}",
+                current_dir.display()
+            )
+        })? {
+            let entry = entry.with_context(|| {
+                format!(
+                    "failed to read artifact directory entry {}",
+                    current_dir.display()
+                )
+            })?;
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+                continue;
+            }
+            if !path.is_file() {
+                continue;
+            }
+
+            let relative = path
+                .strip_prefix(&artifacts_dir)
+                .unwrap_or(path.as_path())
+                .to_string_lossy()
+                .replace('\\', "/");
+            let artifact_type = path
+                .extension()
+                .and_then(|value| value.to_str())
+                .unwrap_or("file")
+                .to_string();
+            let size_bytes = fs::metadata(&path).ok().map(|metadata| metadata.len());
+            artifacts.push(ArtifactInfoWeb {
+                artifact_id: relative,
+                artifact_type,
+                file_path: Some(path.display().to_string()),
+                size_bytes,
+            });
+        }
+    }
+
+    artifacts.sort_by(|left, right| left.artifact_id.cmp(&right.artifact_id));
+    Ok(artifacts)
+}
+
+fn read_artifact_bytes(
+    project_root: &str,
+    execution_id: &str,
+    artifact_id: &str,
+) -> Result<(String, Vec<u8>), WebApiError> {
+    validate_identifier_segment(execution_id, "execution_id")?;
+    let safe_relative = sanitize_relative_path(artifact_id).ok_or_else(|| {
+        WebApiError::new(
+            "invalid_input",
+            "artifact_id must be a safe relative path",
+            2,
+        )
+    })?;
+    if safe_relative.as_os_str().is_empty() {
+        return Err(WebApiError::new(
+            "invalid_input",
+            "artifact_id is required",
+            2,
+        ));
+    }
+
+    let artifacts_dir = artifact_dir(project_root, execution_id);
+    let path = artifacts_dir.join(&safe_relative);
+    let symlink_metadata = fs::symlink_metadata(&path).map_err(|_| {
+        WebApiError::new(
+            "not_found",
+            format!("artifact not found: {}", artifact_id.trim()),
+            3,
+        )
+    })?;
+
+    if symlink_metadata.file_type().is_symlink() || !symlink_metadata.file_type().is_file() {
+        return Err(WebApiError::new(
+            "not_found",
+            format!("artifact not found: {}", artifact_id.trim()),
+            3,
+        ));
+    }
+
+    let bytes = fs::read(&path)
+        .with_context(|| format!("failed to read artifact at {}", path.display()))?;
+    let normalized_artifact_id = safe_relative.to_string_lossy().replace('\\', "/");
+    Ok((normalized_artifact_id, bytes))
 }
 
 fn daemon_events_log_path() -> PathBuf {

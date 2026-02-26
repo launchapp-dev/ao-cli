@@ -147,6 +147,23 @@ fn build_router(state: AppState) -> Router {
         .route("/workflows/:id/resume", post(workflows_resume_handler))
         .route("/workflows/:id/pause", post(workflows_pause_handler))
         .route("/workflows/:id/cancel", post(workflows_cancel_handler))
+        .route(
+            "/output/runs/:run_id/telemetry",
+            get(output_run_telemetry_handler),
+        )
+        .route(
+            "/output/runs/:run_id/telemetry/stream",
+            get(output_run_telemetry_stream_handler),
+        )
+        .route("/output/runs/:run_id/jsonl", get(output_run_jsonl_handler))
+        .route(
+            "/output/executions/:execution_id/artifacts",
+            get(output_artifacts_handler),
+        )
+        .route(
+            "/output/executions/:execution_id/download",
+            get(output_artifact_download_handler),
+        )
         .route("/reviews/handoff", post(reviews_handoff_handler));
 
     Router::new()
@@ -716,6 +733,150 @@ async fn workflows_cancel_handler(
     }
 }
 
+async fn output_run_telemetry_handler(
+    State(state): State<AppState>,
+    AxumPath(run_id): AxumPath<String>,
+    Query(query): Query<OutputRunTelemetryQuery>,
+) -> Response {
+    match state
+        .api
+        .output_run_telemetry(
+            &run_id,
+            query.after,
+            query.limit,
+            query.task_id,
+            query.phase_id,
+        )
+        .await
+    {
+        Ok(data) => success_response(data),
+        Err(error) => error_response(error),
+    }
+}
+
+async fn output_run_jsonl_handler(
+    State(state): State<AppState>,
+    AxumPath(run_id): AxumPath<String>,
+    Query(query): Query<OutputRunJsonlQuery>,
+) -> Response {
+    match state
+        .api
+        .output_run_jsonl(
+            &run_id,
+            query.source_file,
+            query.contains,
+            query.task_id,
+            query.phase_id,
+            query.limit,
+        )
+        .await
+    {
+        Ok(data) => success_response(data),
+        Err(error) => error_response(error),
+    }
+}
+
+async fn output_artifacts_handler(
+    State(state): State<AppState>,
+    AxumPath(execution_id): AxumPath<String>,
+) -> Response {
+    match state.api.output_artifacts(&execution_id).await {
+        Ok(data) => success_response(data),
+        Err(error) => error_response(error),
+    }
+}
+
+async fn output_artifact_download_handler(
+    State(state): State<AppState>,
+    AxumPath(execution_id): AxumPath<String>,
+    Query(query): Query<OutputArtifactDownloadQuery>,
+) -> Response {
+    match state
+        .api
+        .output_artifact_download(&execution_id, &query.artifact_id)
+        .await
+    {
+        Ok(data) => success_response(data),
+        Err(error) => error_response(error),
+    }
+}
+
+async fn output_run_telemetry_stream_handler(
+    State(state): State<AppState>,
+    AxumPath(run_id): AxumPath<String>,
+    Query(query): Query<OutputRunTelemetryQuery>,
+    headers: HeaderMap,
+) -> Response {
+    let initial_cursor = query.after.or_else(|| parse_last_event_id(&headers));
+    let replay = match state
+        .api
+        .output_run_telemetry(
+            &run_id,
+            initial_cursor,
+            query.limit,
+            query.task_id.clone(),
+            query.phase_id.clone(),
+        )
+        .await
+    {
+        Ok(batch) => batch,
+        Err(error) => return error_response(error),
+    };
+
+    let (replay_cursor, replay_entries) =
+        parse_run_telemetry_batch(&replay, initial_cursor.unwrap_or(0));
+    let mut receiver_cursor = replay_cursor.max(initial_cursor.unwrap_or(0));
+    let task_id = query.task_id.clone();
+    let phase_id = query.phase_id.clone();
+    let limit = query.limit;
+    let stream = stream! {
+        for entry in replay_entries {
+            if let Some(cursor) = entry.get("cursor").and_then(Value::as_u64) {
+                receiver_cursor = receiver_cursor.max(cursor);
+            }
+            yield Ok::<Event, Infallible>(to_run_telemetry_sse_event(entry, receiver_cursor));
+        }
+
+        let mut interval = tokio::time::interval(Duration::from_millis(1200));
+        loop {
+            interval.tick().await;
+
+            let batch = match state
+                .api
+                .output_run_telemetry(
+                    &run_id,
+                    Some(receiver_cursor),
+                    limit,
+                    task_id.clone(),
+                    phase_id.clone(),
+                )
+                .await
+            {
+                Ok(batch) => batch,
+                Err(_) => continue,
+            };
+
+            let (next_cursor, entries) = parse_run_telemetry_batch(&batch, receiver_cursor);
+            receiver_cursor = receiver_cursor.max(next_cursor);
+
+            for entry in entries {
+                if let Some(cursor) = entry.get("cursor").and_then(Value::as_u64) {
+                    receiver_cursor = receiver_cursor.max(cursor);
+                }
+                yield Ok::<Event, Infallible>(to_run_telemetry_sse_event(entry, receiver_cursor));
+            }
+        }
+    };
+
+    Sse::new(stream)
+        .keep_alive(
+            KeepAlive::new()
+                .interval(Duration::from_secs(15))
+                .text("ping"),
+        )
+        .into_response()
+}
+
 async fn reviews_handoff_handler(
     State(state): State<AppState>,
     Json(body): Json<Value>,
@@ -835,6 +996,31 @@ fn to_sse_event(record: DaemonEventRecord) -> Event {
         .data(payload)
 }
 
+fn to_run_telemetry_sse_event(entry: Value, fallback_cursor: u64) -> Event {
+    let cursor = entry
+        .get("cursor")
+        .and_then(Value::as_u64)
+        .unwrap_or(fallback_cursor);
+    let payload = serde_json::to_string(&entry).unwrap_or_else(|_| "{}".to_string());
+    Event::default()
+        .event("run-telemetry")
+        .id(cursor.to_string())
+        .data(payload)
+}
+
+fn parse_run_telemetry_batch(batch: &Value, fallback_cursor: u64) -> (u64, Vec<Value>) {
+    let cursor = batch
+        .get("cursor")
+        .and_then(Value::as_u64)
+        .unwrap_or(fallback_cursor);
+    let entries = batch
+        .get("entries")
+        .and_then(Value::as_array)
+        .map(|rows| rows.to_vec())
+        .unwrap_or_default();
+    (cursor, entries)
+}
+
 fn parse_last_event_id(headers: &HeaderMap) -> Option<u64> {
     headers
         .get("last-event-id")
@@ -942,6 +1128,28 @@ struct TasksListQuery {
     linked_requirement: Option<String>,
     linked_architecture_entity: Option<String>,
     search: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OutputRunTelemetryQuery {
+    after: Option<u64>,
+    limit: Option<usize>,
+    task_id: Option<String>,
+    phase_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OutputRunJsonlQuery {
+    source_file: Option<String>,
+    contains: Option<String>,
+    task_id: Option<String>,
+    phase_id: Option<String>,
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OutputArtifactDownloadQuery {
+    artifact_id: String,
 }
 
 #[cfg(test)]
@@ -1125,6 +1333,74 @@ mod tests {
                 .and_then(Value::as_str),
             Some("failed")
         );
+    }
+
+    #[tokio::test]
+    async fn output_endpoints_return_enveloped_payloads() {
+        let hub: Arc<dyn ServiceHub> = Arc::new(InMemoryServiceHub::new());
+        let context = Arc::new(WebApiContext {
+            hub,
+            project_root: "/tmp/project".to_string(),
+            app_version: "test-version".to_string(),
+        });
+        let api = orchestrator_web_api::WebApiService::new(context);
+        let app = build_router(AppState {
+            api,
+            assets_dir: None,
+            api_only: true,
+        });
+
+        let telemetry_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/api/v1/output/runs/run-123/telemetry")
+                    .body(Body::empty())
+                    .expect("request should be built"),
+            )
+            .await
+            .expect("request should succeed");
+        assert_eq!(telemetry_response.status(), axum::http::StatusCode::OK);
+
+        let telemetry_body = to_bytes(telemetry_response.into_body(), usize::MAX)
+            .await
+            .expect("telemetry body should load");
+        let telemetry_payload: Value =
+            serde_json::from_slice(&telemetry_body).expect("telemetry response should be json");
+        assert_eq!(telemetry_payload.get("ok"), Some(&Value::Bool(true)));
+        assert_eq!(
+            telemetry_payload
+                .get("data")
+                .and_then(|data| data.get("run_id"))
+                .and_then(Value::as_str),
+            Some("run-123")
+        );
+
+        let jsonl_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/api/v1/output/runs/run-123/jsonl")
+                    .body(Body::empty())
+                    .expect("request should be built"),
+            )
+            .await
+            .expect("request should succeed");
+        assert_eq!(jsonl_response.status(), axum::http::StatusCode::OK);
+
+        let artifacts_response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/api/v1/output/executions/exec-123/artifacts")
+                    .body(Body::empty())
+                    .expect("request should be built"),
+            )
+            .await
+            .expect("request should succeed");
+        assert_eq!(artifacts_response.status(), axum::http::StatusCode::OK);
     }
 
     #[tokio::test]
@@ -1402,6 +1678,7 @@ mod tests {
             "/workflows/wf-1",
             "/workflows/wf-1/checkpoints/2",
             "/events",
+            "/output",
             "/reviews/handoff",
         ];
 

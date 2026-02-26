@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiMocks = vi.hoisted(() => ({
@@ -76,76 +76,146 @@ describe("DaemonPage high-risk safeguards", () => {
     apiMocks.daemonClearLogs.mockReturnValue(okResult({ message: "clear ok" }));
   });
 
-  it("gates high-risk stop action with typed confirmation and does not execute immediately", async () => {
+  it("opens modal safeguards and enforces exact typed phrase before execution", async () => {
     await renderDaemonPage();
 
-    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop Daemon" }));
 
-    expect(screen.getByRole("heading", { name: "Review High-Risk Action" })).toBeTruthy();
-    expect(screen.getByText(/Type/i)).toBeTruthy();
-    expect(screen.getByText("STOP")).toBeTruthy();
+    const dialog = screen.getByRole("dialog", { name: "Review High-Risk Action" });
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    expect(screen.getByText("STOP DAEMON")).toBeTruthy();
     expect(apiMocks.daemonStop).not.toHaveBeenCalled();
 
-    const confirmButton = screen.getByRole("button", { name: "Run Dry-Run Preview" }) as HTMLButtonElement;
+    const confirmButton = screen.getByRole("button", { name: "Confirm and Execute" }) as HTMLButtonElement;
     expect(confirmButton.disabled).toBe(true);
 
     fireEvent.change(screen.getByLabelText("Confirmation phrase"), {
-      target: { value: "  stop  " },
+      target: { value: "stop daemon" },
     });
+    expect(confirmButton.disabled).toBe(true);
 
+    fireEvent.change(screen.getByLabelText("Confirmation phrase"), {
+      target: { value: "  STOP DAEMON  " },
+    });
     expect(confirmButton.disabled).toBe(false);
   });
 
   it("records dry-run preview for high-risk actions without mutating API calls", async () => {
     await renderDaemonPage();
 
-    fireEvent.click(screen.getByRole("button", { name: "Clear Logs" }));
-    fireEvent.change(screen.getByLabelText("Confirmation phrase"), {
-      target: { value: "CLEAR LOGS" },
-    });
+    fireEvent.click(screen.getByRole("button", { name: "Clear Daemon Logs" }));
     fireEvent.click(screen.getByRole("button", { name: "Run Dry-Run Preview" }));
 
     expect(apiMocks.daemonClearLogs).not.toHaveBeenCalled();
-    expect(screen.getByRole("status").textContent).toContain("Dry-run preview completed for Clear Logs.");
-    expect(screen.queryByRole("heading", { name: "Review High-Risk Action" })).toBeNull();
-    expect(screen.getByText(/"outcome": "preview"/)).toBeTruthy();
-    expect(screen.getByText(/"action": "clear"/)).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toContain(
+      "Dry-run preview ready for Clear daemon logs.",
+    );
+    expect(screen.getByRole("dialog", { name: "Review High-Risk Action" })).toBeTruthy();
   });
 
-  it("executes confirmed high-risk actions and records successful audit entries", async () => {
+  it("executes confirmed high-risk actions and records successful auditable feedback", async () => {
     await renderDaemonPage();
 
-    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop Daemon" }));
     fireEvent.change(screen.getByLabelText("Confirmation phrase"), {
-      target: { value: "STOP" },
+      target: { value: "STOP DAEMON" },
     });
-    fireEvent.click(screen.getByRole("checkbox", { name: "Preview only (dry-run, no API call)" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm and Execute" }));
 
     await waitFor(() => {
       expect(apiMocks.daemonStop).toHaveBeenCalledTimes(1);
     });
 
-    expect(screen.getByRole("status").textContent).toContain("Stop completed.");
-    expect(screen.getByText(/"mode": "execute"/)).toBeTruthy();
-    expect(screen.getByText(/"outcome": "ok"/)).toBeTruthy();
-    expect(screen.getByText(/"action": "stop"/)).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "Review High-Risk Action" })).toBeNull();
+    expect(screen.getByRole("status").textContent).toContain("stop ok");
+    const feedbackPanel = screen.getByRole("heading", { name: "Action Feedback" }).closest("div");
+    expect(feedbackPanel).toBeTruthy();
+    expect(within(feedbackPanel!).getByText(/^daemon\.stop$/)).toBeTruthy();
+    expect(within(feedbackPanel!).getByText(/^ok$/)).toBeTruthy();
+    expect(within(feedbackPanel!).getByText(/stop ok/)).toBeTruthy();
+    expect(within(feedbackPanel!).getByText(/Correlation ID:/)).toBeTruthy();
+    expect(within(feedbackPanel!).getByText(/ao-web-/)).toBeTruthy();
+  });
+
+  it("supports escape dismissal and restores focus to the triggering control", async () => {
+    await renderDaemonPage();
+
+    const stopButton = screen.getByRole("button", { name: "Stop Daemon" });
+    fireEvent.click(stopButton);
+
+    const dialog = screen.getByRole("dialog", { name: "Review High-Risk Action" });
+    fireEvent.keyDown(dialog, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Review High-Risk Action" })).toBeNull();
+      expect(document.activeElement).toBe(stopButton);
+    });
+
+    expect(apiMocks.daemonStop).not.toHaveBeenCalled();
   });
 
   it("executes medium-risk actions directly and renders auditable failures", async () => {
     apiMocks.daemonPause.mockReturnValue(errorResult("conflict", "daemon already paused", 4));
     await renderDaemonPage();
 
-    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pause Daemon" }));
 
     await waitFor(() => {
       expect(apiMocks.daemonPause).toHaveBeenCalledTimes(1);
     });
 
-    expect(screen.queryByRole("heading", { name: "Review High-Risk Action" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Review High-Risk Action" })).toBeNull();
     expect(screen.getByRole("alert").textContent).toContain("Error: daemon_action_failed");
     expect(screen.getByRole("alert").textContent).toContain("conflict: daemon already paused");
-    expect(screen.getByText(/"outcome": "error"/)).toBeTruthy();
-    expect(screen.getByText(/"action": "pause"/)).toBeTruthy();
+    expect(screen.getByText(/^daemon\.pause$/)).toBeTruthy();
+    expect(screen.getByText(/conflict: daemon already paused/)).toBeTruthy();
+  });
+
+  it("prevents duplicate submissions while an action request is pending", async () => {
+    let resolvePause: ((value: unknown) => void) | null = null;
+    apiMocks.daemonPause.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvePause = resolve;
+        }),
+    );
+
+    await renderDaemonPage();
+
+    const pauseButton = screen.getByRole("button", { name: "Pause Daemon" }) as HTMLButtonElement;
+    fireEvent.click(pauseButton);
+
+    await waitFor(() => {
+      expect(pauseButton.disabled).toBe(true);
+      expect(apiMocks.daemonPause).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.click(pauseButton);
+    expect(apiMocks.daemonPause).toHaveBeenCalledTimes(1);
+
+    resolvePause?.({
+      kind: "ok",
+      data: {
+        message: "pause delayed ok",
+      },
+    });
+
+    await waitFor(() => {
+      expect(pauseButton.disabled).toBe(false);
+    });
+  });
+
+  it("keeps daemon feedback bounded to 50 records with most-recent-first ordering", async () => {
+    await renderDaemonPage();
+
+    const startButton = screen.getByRole("button", { name: "Start Daemon" });
+    for (let index = 0; index < 55; index += 1) {
+      fireEvent.click(startButton);
+      await waitFor(() => {
+        expect(apiMocks.daemonStart).toHaveBeenCalledTimes(index + 1);
+      });
+    }
+
+    expect(screen.getAllByText(/^daemon\.start$/).length).toBe(50);
   });
 });

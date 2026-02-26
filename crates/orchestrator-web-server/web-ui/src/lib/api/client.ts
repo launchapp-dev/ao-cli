@@ -305,16 +305,23 @@ export const api = {
   daemonHealth: () => getAo<DaemonHealth>("/api/v1/daemon/health", decodeDaemonHealth),
   daemonLogs: (limit = 100) =>
     getAo<DaemonLogEntry[]>(`/api/v1/daemon/logs?limit=${limit}`, decodeDaemonLogs),
-  daemonStart: () => postEmpty("/api/v1/daemon/start", "daemon.start"),
-  daemonPause: () => postEmpty("/api/v1/daemon/pause", "daemon.pause"),
-  daemonResume: () => postEmpty("/api/v1/daemon/resume", "daemon.resume"),
-  daemonStop: () => postEmpty("/api/v1/daemon/stop", "daemon.stop"),
-  daemonClearLogs: () =>
+  daemonStart: (options?: RequestAoOptions) =>
+    postEmpty("/api/v1/daemon/start", "daemon.start", options),
+  daemonPause: (options?: RequestAoOptions) =>
+    postEmpty("/api/v1/daemon/pause", "daemon.pause", options),
+  daemonResume: (options?: RequestAoOptions) =>
+    postEmpty("/api/v1/daemon/resume", "daemon.resume", options),
+  daemonStop: (options?: RequestAoOptions) =>
+    postEmpty("/api/v1/daemon/stop", "daemon.stop", options),
+  daemonClearLogs: (options?: RequestAoOptions) =>
     requestAo<MessagePayload>(
       "/api/v1/daemon/logs",
       { method: "DELETE" },
       decodeMessagePayload,
-      { actionName: "daemon.clear_logs" },
+      {
+        actionName: "daemon.clear_logs",
+        correlationId: options?.correlationId,
+      },
     ),
   projectsList: () => getAo<ProjectSummary[]>("/api/v1/projects", decodeProjectsList),
   projectsActive: () =>
@@ -379,6 +386,7 @@ export const api = {
 async function postEmpty(
   path: string,
   actionName: string,
+  options?: RequestAoOptions,
 ): Promise<ApiResult<MessagePayload>> {
   return requestAo(
     path,
@@ -387,7 +395,10 @@ async function postEmpty(
       body: JSON.stringify({}),
     },
     decodeMessagePayload,
-    { actionName },
+    {
+      actionName,
+      correlationId: options?.correlationId,
+    },
   );
 }
 

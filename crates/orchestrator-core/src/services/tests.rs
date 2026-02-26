@@ -1,5 +1,5 @@
 use super::*;
-use crate::types::{ArchitectureEntity, RequirementPriority, WorkflowStatus};
+use crate::types::{ArchitectureEntity, RequirementPriority, RequirementStatus, WorkflowStatus};
 use sha2::{Digest, Sha256};
 
 fn sanitize_identifier(value: &str) -> String {
@@ -54,6 +54,12 @@ fn global_requirements_index_dir(project_root: &std::path::Path) -> std::path::P
         .join("index")
         .join(repository_scope_for_path(project_root))
         .join("requirements")
+}
+
+fn assert_core_state_json_is_valid(project_root: &std::path::Path) {
+    let state_path = project_root.join(".ao").join("core-state.json");
+    let raw = std::fs::read_to_string(&state_path).expect("core-state should be readable");
+    serde_json::from_str::<serde_json::Value>(&raw).expect("core-state should be valid json");
 }
 
 #[tokio::test]
@@ -335,6 +341,268 @@ async fn file_hub_persists_tasks() {
         .await
         .expect("load task");
     assert_eq!(loaded.title, "Persist me");
+}
+
+#[test]
+fn file_hub_concurrent_requirement_upserts_keep_unique_ids() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let hub_a = FileServiceHub::new(temp.path()).expect("create first hub");
+    let hub_b = FileServiceHub::new(temp.path()).expect("create second hub");
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
+
+    let barrier_a = barrier.clone();
+    let thread_a = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime should build");
+        barrier_a.wait();
+        runtime.block_on(async {
+            let now = chrono::Utc::now();
+            PlanningServiceApi::upsert_requirement(
+                &hub_a,
+                RequirementItem {
+                    id: String::new(),
+                    title: "Concurrent requirement A".to_string(),
+                    description: "First concurrent requirement".to_string(),
+                    body: None,
+                    legacy_id: None,
+                    category: None,
+                    requirement_type: None,
+                    acceptance_criteria: vec!["AC-A".to_string()],
+                    priority: RequirementPriority::Should,
+                    status: RequirementStatus::Draft,
+                    source: "manual".to_string(),
+                    tags: vec![],
+                    links: crate::types::RequirementLinks::default(),
+                    comments: vec![],
+                    relative_path: None,
+                    linked_task_ids: vec![],
+                    created_at: now,
+                    updated_at: now,
+                },
+            )
+            .await
+            .expect("upsert requirement A")
+            .id
+        })
+    });
+
+    let barrier_b = barrier.clone();
+    let thread_b = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime should build");
+        barrier_b.wait();
+        runtime.block_on(async {
+            let now = chrono::Utc::now();
+            PlanningServiceApi::upsert_requirement(
+                &hub_b,
+                RequirementItem {
+                    id: String::new(),
+                    title: "Concurrent requirement B".to_string(),
+                    description: "Second concurrent requirement".to_string(),
+                    body: None,
+                    legacy_id: None,
+                    category: None,
+                    requirement_type: None,
+                    acceptance_criteria: vec!["AC-B".to_string()],
+                    priority: RequirementPriority::Should,
+                    status: RequirementStatus::Draft,
+                    source: "manual".to_string(),
+                    tags: vec![],
+                    links: crate::types::RequirementLinks::default(),
+                    comments: vec![],
+                    relative_path: None,
+                    linked_task_ids: vec![],
+                    created_at: now,
+                    updated_at: now,
+                },
+            )
+            .await
+            .expect("upsert requirement B")
+            .id
+        })
+    });
+
+    barrier.wait();
+    let first_id = thread_a.join().expect("thread A should finish");
+    let second_id = thread_b.join().expect("thread B should finish");
+    assert_ne!(first_id, second_id, "requirement IDs must be unique");
+
+    let reloaded = FileServiceHub::new(temp.path()).expect("reload hub");
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime should build");
+    let requirements = runtime.block_on(async {
+        PlanningServiceApi::list_requirements(&reloaded)
+            .await
+            .expect("list requirements")
+    });
+
+    let ids: std::collections::HashSet<String> = requirements
+        .into_iter()
+        .map(|requirement| requirement.id)
+        .collect();
+    assert_eq!(ids.len(), 2, "both concurrent requirements must persist");
+    assert!(ids.contains(&first_id));
+    assert!(ids.contains(&second_id));
+    assert_core_state_json_is_valid(temp.path());
+}
+
+#[test]
+fn file_hub_concurrent_task_creates_keep_unique_ids() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let hub_a = FileServiceHub::new(temp.path()).expect("create first hub");
+    let hub_b = FileServiceHub::new(temp.path()).expect("create second hub");
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
+
+    let barrier_a = barrier.clone();
+    let thread_a = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime should build");
+        barrier_a.wait();
+        runtime.block_on(async {
+            TaskServiceApi::create(
+                &hub_a,
+                TaskCreateInput {
+                    title: "Concurrent task A".to_string(),
+                    description: String::new(),
+                    task_type: None,
+                    priority: None,
+                    created_by: Some("test-a".to_string()),
+                    tags: vec![],
+                    linked_requirements: vec![],
+                    linked_architecture_entities: vec![],
+                },
+            )
+            .await
+            .expect("create task A")
+            .id
+        })
+    });
+
+    let barrier_b = barrier.clone();
+    let thread_b = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime should build");
+        barrier_b.wait();
+        runtime.block_on(async {
+            TaskServiceApi::create(
+                &hub_b,
+                TaskCreateInput {
+                    title: "Concurrent task B".to_string(),
+                    description: String::new(),
+                    task_type: None,
+                    priority: None,
+                    created_by: Some("test-b".to_string()),
+                    tags: vec![],
+                    linked_requirements: vec![],
+                    linked_architecture_entities: vec![],
+                },
+            )
+            .await
+            .expect("create task B")
+            .id
+        })
+    });
+
+    barrier.wait();
+    let first_id = thread_a.join().expect("thread A should finish");
+    let second_id = thread_b.join().expect("thread B should finish");
+    assert_ne!(first_id, second_id, "task IDs must be unique");
+
+    let reloaded = FileServiceHub::new(temp.path()).expect("reload hub");
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime should build");
+    let tasks =
+        runtime.block_on(async { TaskServiceApi::list(&reloaded).await.expect("list tasks") });
+
+    let ids: std::collections::HashSet<String> = tasks.into_iter().map(|task| task.id).collect();
+    assert_eq!(ids.len(), 2, "both concurrent tasks must persist");
+    assert!(ids.contains(&first_id));
+    assert!(ids.contains(&second_id));
+    assert_core_state_json_is_valid(temp.path());
+}
+
+#[test]
+fn file_hub_daemon_mutation_interleaves_with_task_create_without_lost_updates() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let hub_a = FileServiceHub::new(temp.path()).expect("create first hub");
+    let hub_b = FileServiceHub::new(temp.path()).expect("create second hub");
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
+
+    let barrier_a = barrier.clone();
+    let daemon_thread = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime should build");
+        barrier_a.wait();
+        runtime.block_on(async {
+            DaemonServiceApi::pause(&hub_a)
+                .await
+                .expect("daemon pause should succeed");
+        });
+    });
+
+    let barrier_b = barrier.clone();
+    let task_thread = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime should build");
+        barrier_b.wait();
+        runtime.block_on(async {
+            TaskServiceApi::create(
+                &hub_b,
+                TaskCreateInput {
+                    title: "Daemon interleave task".to_string(),
+                    description: String::new(),
+                    task_type: None,
+                    priority: None,
+                    created_by: Some("interleave".to_string()),
+                    tags: vec![],
+                    linked_requirements: vec![],
+                    linked_architecture_entities: vec![],
+                },
+            )
+            .await
+            .expect("create interleave task")
+            .id
+        })
+    });
+
+    barrier.wait();
+    daemon_thread.join().expect("daemon thread should finish");
+    let task_id = task_thread.join().expect("task thread should finish");
+
+    let reloaded = FileServiceHub::new(temp.path()).expect("reload hub");
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime should build");
+    let status = runtime.block_on(async {
+        DaemonServiceApi::status(&reloaded)
+            .await
+            .expect("daemon status should load")
+    });
+    assert_eq!(status, DaemonStatus::Paused);
+    let task = runtime.block_on(async {
+        TaskServiceApi::get(&reloaded, &task_id)
+            .await
+            .expect("interleaved task should exist")
+    });
+    assert_eq!(task.id, task_id);
+    assert_core_state_json_is_valid(temp.path());
 }
 
 #[tokio::test]

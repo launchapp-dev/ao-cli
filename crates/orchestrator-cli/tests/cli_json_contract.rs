@@ -11,7 +11,10 @@ fn assert_success_envelope(payload: &Value) {
         Some("ao.cli.v1")
     );
     assert_eq!(payload.get("ok").and_then(Value::as_bool), Some(true));
-    assert!(payload.get("data").is_some(), "success envelope should include data");
+    assert!(
+        payload.get("data").is_some(),
+        "success envelope should include data"
+    );
 }
 
 fn assert_error_envelope(payload: &Value, expected_code: &str, expected_exit_code: i32) {
@@ -135,7 +138,10 @@ fn json_error_envelope_maps_unavailable() -> Result<()> {
     let harness = CliHarness::new()?;
 
     let (payload, status) = harness.run_json_err_with_exit(&["agent", "runner-status"])?;
-    assert_eq!(status, 5, "runner connection failure should exit with code 5");
+    assert_eq!(
+        status, 5,
+        "runner connection failure should exit with code 5"
+    );
     assert_error_envelope(&payload, "unavailable", 5);
     let message = payload
         .pointer("/error/message")

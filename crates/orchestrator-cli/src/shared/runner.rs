@@ -511,22 +511,19 @@ fn cli_tool_extra_args_env_keys(tool: &str) -> Option<(&'static str, &'static st
         "codex" => Some(("AO_CODEX_EXTRA_ARGS_JSON", "AO_CODEX_EXTRA_ARGS")),
         "claude" => Some(("AO_CLAUDE_EXTRA_ARGS_JSON", "AO_CLAUDE_EXTRA_ARGS")),
         "gemini" => Some(("AO_GEMINI_EXTRA_ARGS_JSON", "AO_GEMINI_EXTRA_ARGS")),
-        "opencode" | "open-code" => {
-            Some(("AO_OPENCODE_EXTRA_ARGS_JSON", "AO_OPENCODE_EXTRA_ARGS"))
-        }
+        "opencode" | "open-code" => Some(("AO_OPENCODE_EXTRA_ARGS_JSON", "AO_OPENCODE_EXTRA_ARGS")),
         _ => None,
     }
 }
 
 fn resolved_extra_args(tool: &str) -> Vec<String> {
-    let mut args =
-        parse_env_string_list_json("AO_AI_CLI_EXTRA_ARGS_JSON", Some("AO_AI_CLI_EXTRA_ARGS"), false);
+    let mut args = parse_env_string_list_json(
+        "AO_AI_CLI_EXTRA_ARGS_JSON",
+        Some("AO_AI_CLI_EXTRA_ARGS"),
+        false,
+    );
     if let Some((json_key, plain_key)) = cli_tool_extra_args_env_keys(tool) {
-        args.extend(parse_env_string_list_json(
-            json_key,
-            Some(plain_key),
-            false,
-        ));
+        args.extend(parse_env_string_list_json(json_key, Some(plain_key), false));
     }
     args
 }

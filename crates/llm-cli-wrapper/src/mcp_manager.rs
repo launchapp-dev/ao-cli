@@ -94,7 +94,7 @@ impl McpServerManager {
     /// 2. Wait for it to be ready
     /// 3. Return when server is accepting connections
     pub async fn start(&mut self) -> Result<()> {
-        if self.process.is_some() {
+        if self.has_running_process()? {
             warn!("MCP server already running");
             return Ok(());
         }
@@ -154,8 +154,9 @@ impl McpServerManager {
             .arg(&self.root_path)
             .env("PORT", self.port.to_string())
             .env("RUST_LOG", "info")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            // Avoid blocking on process output by discarding logs when running as a managed child.
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .spawn()
             .map_err(|error| {
                 contract_error(
@@ -226,6 +227,31 @@ impl McpServerManager {
     /// Get the agents list endpoint
     pub fn get_agents_endpoint(&self) -> String {
         format!("http://127.0.0.1:{}/agents", self.port)
+    }
+
+    fn has_running_process(&mut self) -> Result<bool> {
+        let Some(process) = self.process.as_mut() else {
+            return Ok(false);
+        };
+
+        let process_status = process.try_wait().map_err(|error| {
+            contract_error(
+                ERROR_SPAWN_FAILED,
+                format!("failed to inspect existing MCP server process before startup: {error}"),
+                MCP_BINARY_REMEDIATION,
+            )
+        })?;
+
+        match process_status {
+            None => Ok(true),
+            Some(status) => {
+                info!(
+                    "Clearing stale MCP server process handle before restart (exit status: {status})"
+                );
+                self.process.take();
+                Ok(false)
+            }
+        }
     }
 
     fn resolve_server_binary(&self) -> BinaryResolution {
@@ -572,12 +598,26 @@ fn contract_error(code: &str, reason: String, remediation: &str) -> anyhow::Erro
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::path::Path;
     use std::sync::{Mutex, OnceLock};
     use tempfile::TempDir;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+
+    const FAKE_CARGO_LOG_ENV_VAR: &str = "MCP_FAKE_CARGO_LOG";
 
     fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn lock_env() -> std::sync::MutexGuard<'static, ()> {
+        env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     struct EnvVarGuard {
@@ -608,6 +648,34 @@ mod tests {
                 std::env::remove_var(&self.key);
             }
         }
+    }
+
+    fn write_manifest(workspace_root: &Path) {
+        let manifest_path = workspace_root.join(MCP_SERVER_MANIFEST_PATH);
+        let manifest_parent = manifest_path
+            .parent()
+            .expect("manifest path should have a parent directory");
+        fs::create_dir_all(manifest_parent).expect("create manifest parent directory");
+        fs::write(
+            manifest_path,
+            "[package]\nname = \"llm-mcp-server\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+        )
+        .expect("write temporary manifest file");
+    }
+
+    #[cfg(unix)]
+    fn write_cargo_shim(bin_dir: &Path, script_contents: &str) -> PathBuf {
+        fs::create_dir_all(bin_dir).expect("create fake cargo bin directory");
+        let cargo_path = bin_dir.join("cargo");
+        fs::write(&cargo_path, script_contents).expect("write fake cargo shim");
+
+        let mut permissions = fs::metadata(&cargo_path)
+            .expect("read fake cargo shim metadata")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&cargo_path, permissions).expect("set executable bit on cargo shim");
+
+        cargo_path
     }
 
     #[test]
@@ -646,7 +714,7 @@ mod tests {
 
     #[test]
     fn test_binary_resolution_prefers_explicit_override_over_env() {
-        let _lock = env_lock().lock().unwrap();
+        let _lock = lock_env();
         let _env_guard = EnvVarGuard::set_optional(MCP_BINARY_ENV_VAR, Some("/env/path/server"));
 
         let temp = TempDir::new().unwrap();
@@ -663,7 +731,7 @@ mod tests {
 
     #[test]
     fn test_binary_resolution_uses_environment_override() {
-        let _lock = env_lock().lock().unwrap();
+        let _lock = lock_env();
         let _env_guard = EnvVarGuard::set_optional(MCP_BINARY_ENV_VAR, Some("custom/server"));
 
         let temp = TempDir::new().unwrap();
@@ -679,7 +747,7 @@ mod tests {
 
     #[test]
     fn test_binary_resolution_defaults_to_workspace_binary() {
-        let _lock = env_lock().lock().unwrap();
+        let _lock = lock_env();
         let _env_guard = EnvVarGuard::set_optional(MCP_BINARY_ENV_VAR, None);
 
         let temp = TempDir::new().unwrap();
@@ -690,9 +758,155 @@ mod tests {
         assert_eq!(resolution.source, BinarySource::WorkspaceDefault);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn test_build_server_invokes_documented_command_from_workspace_root() {
+        let _lock = lock_env();
+
+        let temp = TempDir::new().unwrap();
+        let workspace = TempDir::new().unwrap();
+        write_manifest(workspace.path());
+
+        let fake_log_path = workspace.path().join("fake-cargo.log");
+        let fake_bin_dir = workspace.path().join("bin");
+        write_cargo_shim(
+            &fake_bin_dir,
+            &format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$PWD\" > \"${{{FAKE_CARGO_LOG_ENV_VAR}}}\"\nprintf '%s\\n' \"$*\" >> \"${{{FAKE_CARGO_LOG_ENV_VAR}}}\"\n",
+            ),
+        );
+
+        let existing_path = std::env::var("PATH").unwrap_or_default();
+        let path_value = format!("{}:{}", fake_bin_dir.display(), existing_path);
+        let fake_log_value = fake_log_path.to_string_lossy().into_owned();
+        let _path_guard = EnvVarGuard::set_optional("PATH", Some(path_value.as_str()));
+        let _log_guard =
+            EnvVarGuard::set_optional(FAKE_CARGO_LOG_ENV_VAR, Some(fake_log_value.as_str()));
+
+        let manager = McpServerManager::new(temp.path().to_path_buf(), 3900)
+            .with_workspace_root(workspace.path().to_path_buf());
+        manager
+            .build_server()
+            .expect("build_server should invoke fake cargo shim");
+
+        let log_contents = fs::read_to_string(&fake_log_path).expect("read fake cargo log");
+        let mut lines = log_contents.lines();
+        let recorded_working_dir = lines.next().expect("recorded working directory");
+        let recorded_args = lines.next().expect("recorded cargo arguments");
+
+        let expected_working_dir =
+            fs::canonicalize(workspace.path()).expect("canonicalize expected working directory");
+        let observed_working_dir = fs::canonicalize(recorded_working_dir)
+            .expect("canonicalize recorded working directory");
+        assert_eq!(observed_working_dir, expected_working_dir);
+        assert_eq!(
+            recorded_args,
+            "build --release --manifest-path crates/llm-mcp-server/Cargo.toml"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_build_server_failure_contains_contract_code_and_remediation() {
+        let _lock = lock_env();
+
+        let temp = TempDir::new().unwrap();
+        let workspace = TempDir::new().unwrap();
+        write_manifest(workspace.path());
+
+        let fake_bin_dir = workspace.path().join("bin");
+        write_cargo_shim(
+            &fake_bin_dir,
+            "#!/bin/sh\necho 'simulated compile failure' >&2\nexit 23\n",
+        );
+
+        let existing_path = std::env::var("PATH").unwrap_or_default();
+        let path_value = format!("{}:{}", fake_bin_dir.display(), existing_path);
+        let _path_guard = EnvVarGuard::set_optional("PATH", Some(path_value.as_str()));
+
+        let manager = McpServerManager::new(temp.path().to_path_buf(), 3901)
+            .with_workspace_root(workspace.path().to_path_buf());
+        let error = manager
+            .build_server()
+            .expect_err("build_server should return a structured error on failure");
+        let message = error.to_string();
+
+        assert!(message.contains(ERROR_BUILD_FAILED), "{message}");
+        assert!(message.contains(MCP_BUILD_COMMAND), "{message}");
+        assert!(message.contains("simulated compile failure"), "{message}");
+        assert!(message.contains(MCP_BUILD_REMEDIATION), "{message}");
+    }
+
+    #[tokio::test]
+    async fn test_verify_endpoint_contract_returns_structured_error_when_expected_agents_missing() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind loopback listener for endpoint contract test");
+        let port = listener
+            .local_addr()
+            .expect("read local endpoint contract test address")
+            .port();
+
+        let server_task = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    break;
+                };
+
+                let mut request_buffer = [0_u8; 2048];
+                let Ok(bytes_read) = stream.read(&mut request_buffer).await else {
+                    continue;
+                };
+                if bytes_read == 0 {
+                    continue;
+                }
+
+                let request = String::from_utf8_lossy(&request_buffer[..bytes_read]);
+                let path = request
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .unwrap_or("/");
+
+                let (status, body) = match path {
+                    "/health" => ("200 OK", r#"{"status":"ok"}"#),
+                    "/agents" => ("200 OK", r#"{"agents":["unknown"],"count":1}"#),
+                    _ => ("404 Not Found", r#"{"error":"not found"}"#),
+                };
+
+                let response = format!(
+                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes()).await;
+            }
+        });
+
+        let temp = TempDir::new().unwrap();
+        let manager = McpServerManager::new(temp.path().to_path_buf(), port);
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_millis(500))
+            .build()
+            .expect("create reqwest client for contract validation test");
+
+        let error = manager
+            .verify_endpoint_contract(&client)
+            .await
+            .expect_err("endpoint contract validation should fail for unexpected agent set");
+        let message = error.to_string();
+        assert!(message.contains(ERROR_ENDPOINT_CHECK_FAILED), "{message}");
+        assert!(
+            message.contains("did not expose any expected agent ids"),
+            "{message}"
+        );
+        assert!(message.contains(MCP_ENDPOINT_REMEDIATION), "{message}");
+
+        server_task.abort();
+    }
+
     #[tokio::test]
     async fn test_start_returns_structured_error_when_workspace_manifest_is_missing() {
-        let _lock = env_lock().lock().unwrap();
+        let _lock = lock_env();
         let _env_guard = EnvVarGuard::set_optional(MCP_BINARY_ENV_VAR, None);
 
         let temp = TempDir::new().unwrap();
@@ -709,5 +923,40 @@ mod tests {
 
         assert!(message.contains(ERROR_BUILD_FAILED), "{message}");
         assert!(message.contains(MCP_BUILD_COMMAND), "{message}");
+    }
+
+    #[tokio::test]
+    async fn test_start_clears_stale_process_handle_before_restarting() {
+        let _lock = lock_env();
+        let _env_guard = EnvVarGuard::set_optional(MCP_BINARY_ENV_VAR, None);
+
+        let temp = TempDir::new().unwrap();
+        let fake_workspace = TempDir::new().unwrap();
+        let mut manager = McpServerManager::new(temp.path().to_path_buf(), 3000)
+            .with_workspace_root(fake_workspace.path().to_path_buf())
+            .with_binary(fake_workspace.path().join("missing-mcp-binary"));
+
+        let mut exited_process = Command::new("cargo")
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn cargo --version for stale process handle test");
+        exited_process
+            .wait()
+            .expect("wait for cargo --version to exit");
+        manager.process = Some(exited_process);
+
+        let error = manager
+            .start()
+            .await
+            .expect_err("startup should fail after stale process cleanup");
+        let message = error.to_string();
+
+        assert!(message.contains(ERROR_BUILD_FAILED), "{message}");
+        assert!(
+            manager.process.is_none(),
+            "stale process handle should be cleared"
+        );
     }
 }

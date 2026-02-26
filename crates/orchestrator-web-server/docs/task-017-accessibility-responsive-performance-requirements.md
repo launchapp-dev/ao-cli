@@ -2,13 +2,22 @@
 
 ## Phase
 - Workflow phase: `requirements`
-- Workflow ID: `76f47953-faa8-4c3d-9d51-4c18241217c3`
+- Workflow ID: `c72031ac-7514-4ce3-aa08-72d1b70dbd71`
 - Task: `TASK-017`
+- Project root: `/Users/samishukri/ao-cli`
 
 ## Objective
 Define production-ready baseline requirements for the AO web UI so that primary
 workflows remain keyboard operable, semantically accessible, responsive across
 common viewport classes, and performant under realistic project data sizes.
+
+## Phase Clarification (Current Run)
+- This `requirements` phase is documentation-first and does not change runtime
+  behavior directly.
+- Deliverables in this phase are deterministic requirement/implementation notes
+  that unblock the build phase with concrete file targets and validation gates.
+- `.ao` state remains unchanged by manual edits; this phase updates repository
+  docs only.
 
 ## Existing Baseline
 - Current shell, route tree, and page screens are implemented under
@@ -19,9 +28,11 @@ common viewport classes, and performant under realistic project data sizes.
 - A diagnostics panel with sanitized failure details exists from `TASK-019`
   (`src/app/diagnostics-panel.tsx`).
 - Styling and responsive behavior is currently driven by `src/styles.css` with
-  a single main breakpoint (`<= 960px`).
-- Accessibility and responsive checks are present only as light baseline tests;
-  there is no explicit route performance budget enforcement.
+  coarse breakpoints (`<= 960px`, `<= 680px`) that need explicit acceptance
+  coverage for mobile/tablet/desktop viewport classes.
+- Repository-local performance budget enforcement exists via
+  `scripts/check-performance-budgets.mjs`, wired into `npm run build`; this
+  phase fixes thresholds and validation behavior as a stable contract.
 
 ## Scope
 In scope for implementation following this requirements phase:
@@ -48,8 +59,11 @@ Out of scope for this task:
 - Keep behavior deterministic and repository-local (no dependence on external
   runtime services for measurements).
 - Preserve diagnostics telemetry contracts introduced in `TASK-019`.
+- Preserve `web-ui` build wiring for `check:performance-budgets`.
 - Keep `.ao` state mutation out of manual file edits.
 - Maintain usability at `320px` width without horizontal page scrolling.
+- Keep implementation aligned with current route-loading strategy (`lazy` route
+  exports + suspense fallback in `router.tsx`).
 
 ## Functional Requirements
 
@@ -100,8 +114,8 @@ Out of scope for this task:
   - stateful content panels.
 
 ### FR-06: Core Route Performance Budgets
-- Define and enforce repository-local performance budgets for active web bundle
-  artifacts referenced by `embedded/index.html`.
+- Preserve and enforce repository-local performance budgets for active web
+  bundle artifacts referenced by `embedded/index.html`.
 - Budget thresholds:
   - referenced JS entry asset (gzip): `<= 110 KiB`
   - referenced CSS entry asset (gzip): `<= 8 KiB`
@@ -158,6 +172,8 @@ Out of scope for this task:
 - `AC-11`: Event and diagnostics lists remain bounded to configured capacities.
 - `AC-12`: Existing route/API behavior remains compatible with current
   `TASK-011` and `TASK-019` contracts.
+- `AC-13`: Implementation phase includes deterministic repository-local
+  validation commands for accessibility/responsive/performance checks.
 
 ## Testable Acceptance Checklist
 - `T-01`: Component test verifies skip-link presence and target focus behavior.
@@ -180,6 +196,19 @@ Out of scope for this task:
 - `T-10`: Existing API/envelope/telemetry tests continue to pass without
   behavior regressions.
 
+## Implementation Validation Gates (Build Phase)
+- `V-01`: `npm run test -- src/app/accessibility-responsive-baselines.test.ts`
+  passes (shell landmarks, focus hooks, responsive breakpoint guards).
+- `V-02`: `npm run test -- src/app/build-performance.test.ts` passes (chunking
+  and warning-threshold guardrails).
+- `V-03`: `npm run build` succeeds for `web-ui`.
+- `V-04`: existing performance budget script succeeds against
+  `crates/orchestrator-web-server/embedded/index.html` with:
+  - JS gzip `<= 110 KiB`
+  - CSS gzip `<= 8 KiB`
+- `V-05`: full `npm run test` remains green to protect route/API/telemetry
+  compatibility.
+
 ## Acceptance Verification Matrix
 | Requirement | Verification method |
 | --- | --- |
@@ -198,10 +227,14 @@ Out of scope for this task:
   - event bounds: `src/lib/events/use-daemon-events.ts`
   - diagnostics bounds: `src/lib/telemetry/store.ts`,
     `src/app/diagnostics-panel.tsx`
-- Add deterministic performance budget validation as a repository script tied to
-  `web-ui` build output.
+- Preserve deterministic performance budget validation tied to `web-ui` build
+  output, and only extend logic if thresholds or asset-resolution behavior
+  require adjustment.
 - Keep deliverables compatible with existing embedded static serving flow in
   `crates/orchestrator-web-server/embedded/`.
+- Prefer extending existing baseline tests before creating new test files:
+  `src/app/accessibility-responsive-baselines.test.ts`,
+  `src/app/build-performance.test.ts`, and relevant screen-level tests.
 
 ## Deterministic Deliverables for Implementation Phase
 - Accessibility hardening updates in shell/screens/styles and related tests.

@@ -133,6 +133,10 @@ code {
   display: none;
 }
 
+.mobile-overlay {
+  display: none;
+}
+
 .topbar-row {
   display: flex;
   align-items: center;
@@ -750,6 +754,26 @@ label {
   font-weight: 600;
 }
 
+.field-error {
+  color: #8f2020;
+  font-size: 0.86rem;
+}
+
+.field-hint {
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 500;
+}
+
+.status-box {
+  margin: 0.75rem 0 0;
+  border: 1px solid #bdd3f1;
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  background: var(--primary-soft);
+  color: #173f6b;
+}
+
 pre {
   overflow: auto;
   max-width: 100%;
@@ -788,10 +812,14 @@ pre {
     transition: transform 180ms ease-out;
     z-index: 30;
     overflow: auto;
+    visibility: hidden;
+    pointer-events: none;
   }
 
   .sidebar[data-open="true"] {
     transform: translateX(0);
+    visibility: visible;
+    pointer-events: auto;
   }
 
   .mobile-actions {
@@ -802,6 +830,7 @@ pre {
   }
 
   .mobile-overlay {
+    display: block;
     position: fixed;
     inset: 0;
     background: rgb(17 31 54 / 28%);

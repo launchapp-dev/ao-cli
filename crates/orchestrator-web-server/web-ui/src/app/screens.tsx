@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { ActionGateConfig, ActionGateDialog, matchesConfirmationPhrase } from "./action-gate-dialog";
@@ -214,39 +214,46 @@ export function DaemonPage() {
               ? api.daemonStop()
               : api.daemonClearLogs();
 
-    void request.then((result) => {
-      if (result.kind === "error") {
-        setActionState({ kind: "error", message: `${result.code}: ${result.message}` });
+    void request
+      .then((result) => {
+        if (result.kind === "error") {
+          setActionState({ kind: "error", message: `${result.code}: ${result.message}` });
+          setActionRecords((current) => [
+            {
+              id: `${Date.now()}-${action}-error`,
+              action,
+              mode: "execute",
+              outcome: "error",
+              timestamp: new Date().toISOString(),
+              detail: `${result.code}: ${result.message}`,
+            },
+            ...current,
+          ]);
+          return;
+        }
+
+        setActionState({ kind: "ok", message: `${config.label} completed.` });
         setActionRecords((current) => [
           {
-            id: `${Date.now()}-${action}-error`,
+            id: `${Date.now()}-${action}-ok`,
             action,
             mode: "execute",
-            outcome: "error",
+            outcome: "ok",
             timestamp: new Date().toISOString(),
-            detail: `${result.code}: ${result.message}`,
+            detail: `${config.method} ${config.path}`,
           },
           ...current,
         ]);
-        return;
-      }
-
-      setActionState({ kind: "ok", message: `${config.label} completed.` });
-      setActionRecords((current) => [
-        {
-          id: `${Date.now()}-${action}-ok`,
-          action,
-          mode: "execute",
-          outcome: "ok",
-          timestamp: new Date().toISOString(),
-          detail: `${config.method} ${config.path}`,
-        },
-        ...current,
-      ]);
-      setRefreshNonce((current) => current + 1);
-      setPendingAction(null);
-      setConfirmationInput("");
-    });
+        setRefreshNonce((current) => current + 1);
+        setPendingAction(null);
+        setConfirmationInput("");
+      })
+      .catch((error: unknown) => {
+        setActionState({
+          kind: "error",
+          message: formatUnexpectedError("Daemon action failed unexpectedly", error),
+        });
+      });
   };
 
   const requestAction = (action: DaemonAction) => {
@@ -334,7 +341,7 @@ export function DaemonPage() {
       ) : null}
 
       {actionState.kind === "ok" ? (
-        <p role="status" aria-live="polite">
+        <p className="status-box" role="status" aria-live="polite" aria-atomic="true">
           {actionState.message}
         </p>
       ) : null}
@@ -1939,47 +1946,89 @@ export function ReviewHandoffPage() {
   const [targetRole, setTargetRole] = useState("em");
   const [question, setQuestion] = useState("");
   const [contextJson, setContextJson] = useState("{}");
+  const [validationErrors, setValidationErrors] = useState<{
+    runId?: string;
+    question?: string;
+    contextJson?: string;
+  }>({});
   const [submitState, setSubmitState] = useState<
     { kind: "idle" } | { kind: "ok"; data: unknown } | { kind: "error"; error: ApiError }
   >({ kind: "idle" });
+  const runIdHintId = "review-handoff-run-id-hint";
+  const runIdErrorId = "review-handoff-run-id-error";
+  const questionHintId = "review-handoff-question-hint";
+  const questionErrorId = "review-handoff-question-error";
+  const contextHintId = "review-handoff-context-hint";
+  const contextErrorId = "review-handoff-context-error";
+  const runIdInputRef = useRef<HTMLInputElement | null>(null);
+  const questionInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const contextInputRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const focusFirstInvalidField = (errors: {
+    runId?: string;
+    question?: string;
+    contextJson?: string;
+  }) => {
+    if (errors.runId) {
+      runIdInputRef.current?.focus();
+      return;
+    }
+
+    if (errors.question) {
+      questionInputRef.current?.focus();
+      return;
+    }
+
+    if (errors.contextJson) {
+      contextInputRef.current?.focus();
+    }
+  };
 
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    const nextValidationErrors: {
+      runId?: string;
+      question?: string;
+      contextJson?: string;
+    } = {};
+
+    const normalizedRunId = runId.trim();
+    if (normalizedRunId.length === 0) {
+      nextValidationErrors.runId = "Run ID is required.";
+    }
+
+    const normalizedQuestion = question.trim();
+    if (normalizedQuestion.length === 0) {
+      nextValidationErrors.question = "Question is required.";
+    }
 
     let contextPayload: unknown;
     try {
       contextPayload = JSON.parse(contextJson || "{}");
     } catch {
-      setSubmitState({
-        kind: "error",
-        error: {
-          kind: "error",
-          code: "invalid_context",
-          message: "Context must be valid JSON.",
-          exitCode: 2,
-        },
-      });
+      nextValidationErrors.contextJson = "Context JSON must be valid JSON.";
+      contextPayload = undefined;
+    }
+
+    if (contextPayload !== undefined && !isJsonValue(contextPayload)) {
+      nextValidationErrors.contextJson = "Context JSON must resolve to a valid JSON value.";
+    }
+
+    if (hasValidationErrors(nextValidationErrors)) {
+      setValidationErrors(nextValidationErrors);
+      setSubmitState({ kind: "idle" });
+      focusFirstInvalidField(nextValidationErrors);
       return;
     }
 
-    if (!isJsonValue(contextPayload)) {
-      setSubmitState({
-        kind: "error",
-        error: {
-          kind: "error",
-          code: "invalid_context",
-          message: "Context must be a valid JSON value.",
-          exitCode: 2,
-        },
-      });
-      return;
-    }
+    setValidationErrors({});
 
     void api
       .reviewHandoff({
-        run_id: runId,
+        run_id: normalizedRunId,
         target_role: targetRole,
-        question,
+        question: normalizedQuestion,
         context: contextPayload,
       })
       .then((result) => {
@@ -1989,20 +2038,62 @@ export function ReviewHandoffPage() {
         }
 
         setSubmitState({ kind: "ok", data: result.data });
+      })
+      .catch((error: unknown) => {
+        setSubmitState({
+          kind: "error",
+          error: {
+            kind: "error",
+            code: "review_handoff_unexpected_error",
+            message: formatUnexpectedError("Review handoff failed unexpectedly", error),
+            exitCode: 1,
+          },
+        });
       });
   };
 
   return (
     <RouteSection title="Review Handoff" description="Submit review handoff payloads to AO.">
-      <form className="panel grid" onSubmit={onSubmit}>
+      <form className="panel grid" noValidate onSubmit={onSubmit}>
         <label>
           Run ID
-          <input value={runId} onChange={(event) => setRunId(event.target.value)} />
+          <span className="field-hint" id={runIdHintId}>
+            Use the AO run identifier for the handoff target.
+          </span>
+          <input
+            id="review-handoff-run-id"
+            name="runId"
+            value={runId}
+            required
+            aria-invalid={validationErrors.runId ? true : undefined}
+            aria-describedby={buildDescribedBy(
+              runIdHintId,
+              validationErrors.runId ? runIdErrorId : undefined,
+            )}
+            ref={runIdInputRef}
+            onChange={(event) => {
+              setRunId(event.target.value);
+              setValidationErrors((current) => ({
+                ...current,
+                runId: undefined,
+              }));
+            }}
+          />
+          {validationErrors.runId ? (
+            <span className="field-error" id={runIdErrorId}>
+              {validationErrors.runId}
+            </span>
+          ) : null}
         </label>
 
         <label>
           Target Role
-          <select value={targetRole} onChange={(event) => setTargetRole(event.target.value)}>
+          <select
+            id="review-handoff-target-role"
+            name="targetRole"
+            value={targetRole}
+            onChange={(event) => setTargetRole(event.target.value)}
+          >
             <option value="em">em</option>
             <option value="reviewer">reviewer</option>
             <option value="qa">qa</option>
@@ -2011,21 +2102,65 @@ export function ReviewHandoffPage() {
 
         <label>
           Question
+          <span className="field-hint" id={questionHintId}>
+            Explain what decision or feedback you need from the reviewer.
+          </span>
           <textarea
+            id="review-handoff-question"
+            name="question"
             rows={3}
             required
+            aria-invalid={validationErrors.question ? true : undefined}
+            aria-describedby={buildDescribedBy(
+              questionHintId,
+              validationErrors.question ? questionErrorId : undefined,
+            )}
+            ref={questionInputRef}
             value={question}
-            onChange={(event) => setQuestion(event.target.value)}
+            onChange={(event) => {
+              setQuestion(event.target.value);
+              setValidationErrors((current) => ({
+                ...current,
+                question: undefined,
+              }));
+            }}
           />
+          {validationErrors.question ? (
+            <span className="field-error" id={questionErrorId}>
+              {validationErrors.question}
+            </span>
+          ) : null}
         </label>
 
         <label>
           Context JSON
+          <span className="field-hint" id={contextHintId}>
+            Optional metadata in valid JSON format. Defaults to an empty object.
+          </span>
           <textarea
+            id="review-handoff-context-json"
+            name="contextJson"
             rows={4}
+            aria-invalid={validationErrors.contextJson ? true : undefined}
+            aria-describedby={buildDescribedBy(
+              contextHintId,
+              validationErrors.contextJson ? contextErrorId : undefined,
+            )}
+            ref={contextInputRef}
             value={contextJson}
-            onChange={(event) => setContextJson(event.target.value)}
+            onChange={(event) => {
+              setContextJson(event.target.value);
+              setValidationErrors((current) => ({
+                ...current,
+                contextJson: undefined,
+              }));
+            }}
           />
+          {validationErrors.contextJson ? (
+            <span className="field-error" id={contextErrorId}>
+              {validationErrors.contextJson}
+            </span>
+          ) : null}
         </label>
 
         <div className="panel-actions">
@@ -2034,7 +2169,14 @@ export function ReviewHandoffPage() {
       </form>
 
       {submitState.kind === "error" ? <ErrorState error={submitState.error} /> : null}
-      {submitState.kind === "ok" ? <JsonPanel title="Response" data={submitState.data} /> : null}
+      {submitState.kind === "ok" ? (
+        <>
+          <p className="status-box" role="status" aria-live="polite" aria-atomic="true">
+            Review handoff submitted successfully.
+          </p>
+          <JsonPanel title="Response" data={submitState.data} />
+        </>
+      ) : null}
       <DiagnosticsPanel
         title="Review Handoff Diagnostics"
         actionPrefixes={["reviews.handoff"]}
@@ -2066,10 +2208,15 @@ function RouteSection(props: {
   description: string;
   children: ReactNode;
 }) {
+  const sectionIdPrefix =
+    props.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "route-section";
+  const headingId = `${sectionIdPrefix}-heading`;
+  const descriptionId = `${sectionIdPrefix}-description`;
+
   return (
-    <section className="panel" aria-label={props.title}>
-      <h1>{props.title}</h1>
-      <p>{props.description}</p>
+    <section className="panel" aria-labelledby={headingId} aria-describedby={descriptionId}>
+      <h1 id={headingId}>{props.title}</h1>
+      <p id={descriptionId}>{props.description}</p>
       {props.children}
     </section>
   );
@@ -2096,11 +2243,19 @@ function ResourceStateView<TData>(props: {
 }
 
 function LoadingState(props: { message: string }) {
-  return <div className="loading-box">{props.message}</div>;
+  return (
+    <div className="loading-box" role="status" aria-live="polite" aria-atomic="true">
+      {props.message}
+    </div>
+  );
 }
 
 function EmptyState(props: { message: string }) {
-  return <div className="empty-box">{props.message}</div>;
+  return (
+    <div className="empty-box" role="status" aria-live="polite" aria-atomic="true">
+      {props.message}
+    </div>
+  );
 }
 
 function ErrorState(props: { error: ApiError }) {
@@ -2141,4 +2296,22 @@ function isJsonValue(value: unknown): value is RequestJsonValue {
   }
 
   return false;
+}
+
+function hasValidationErrors(errors: {
+  runId?: string;
+  question?: string;
+  contextJson?: string;
+}) {
+  return Boolean(errors.runId || errors.question || errors.contextJson);
+}
+
+function buildDescribedBy(...ids: Array<string | undefined>) {
+  const resolvedIds = ids.filter((id): id is string => typeof id === "string" && id.length > 0);
+  return resolvedIds.length > 0 ? resolvedIds.join(" ") : undefined;
+}
+
+function formatUnexpectedError(prefix: string, error: unknown): string {
+  const suffix = error instanceof Error ? error.message : "Unknown error.";
+  return `${prefix}: ${suffix}`;
 }

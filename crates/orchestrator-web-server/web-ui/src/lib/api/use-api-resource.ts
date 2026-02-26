@@ -42,35 +42,53 @@ export function useApiResource<TData>(
 
     setState({ status: "loading", data: null, error: null });
 
-    void request().then((result) => {
-      if (isCancelled) {
-        return;
-      }
+    void request()
+      .then((result) => {
+        if (isCancelled) {
+          return;
+        }
 
-      if (result.kind === "error") {
-        setState({
-          status: "error",
-          data: null,
-          error: result,
-        });
-        return;
-      }
+        if (result.kind === "error") {
+          setState({
+            status: "error",
+            data: null,
+            error: result,
+          });
+          return;
+        }
 
-      if (options.isEmpty?.(result.data)) {
+        if (options.isEmpty?.(result.data)) {
+          setState({
+            status: "empty",
+            data: result.data,
+            error: null,
+          });
+          return;
+        }
+
         setState({
-          status: "empty",
+          status: "ready",
           data: result.data,
           error: null,
         });
-        return;
-      }
+      })
+      .catch((error: unknown) => {
+        if (isCancelled) {
+          return;
+        }
 
-      setState({
-        status: "ready",
-        data: result.data,
-        error: null,
+        setState({
+          status: "error",
+          data: null,
+          error: {
+            kind: "error",
+            code: "resource_request_failed",
+            message:
+              error instanceof Error ? error.message : "Resource request threw unexpectedly.",
+            exitCode: 1,
+          },
+        });
       });
-    });
 
     return () => {
       isCancelled = true;

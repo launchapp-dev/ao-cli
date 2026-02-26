@@ -157,6 +157,38 @@ fn append_line(path: &Path, line: &str) -> Result<()> {
 mod tests {
     use super::*;
     use protocol::Timestamp;
+    use std::sync::{Mutex, OnceLock};
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: Option<&str>) -> Self {
+            let previous = std::env::var(key).ok();
+            match value {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(previous) = &self.previous {
+                std::env::set_var(self.key, previous);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     fn test_root() -> PathBuf {
         let base = std::env::temp_dir().join(format!(
@@ -173,6 +205,10 @@ mod tests {
 
     #[test]
     fn persist_writes_events_and_json_output() {
+        let _lock = env_lock().lock().expect("env lock should be available");
+        let home = test_root();
+        let _home = EnvVarGuard::set("HOME", Some(home.to_string_lossy().as_ref()));
+
         let project_root = test_root();
         let run_id = RunId("run-test-123".to_string());
         let context = serde_json::json!({
@@ -211,6 +247,23 @@ mod tests {
         let json_lines: Vec<&str> = json_output_raw.lines().collect();
         assert_eq!(json_lines.len(), 1);
         assert!(json_lines[0].contains("\"turn.completed\""));
+    }
+
+    #[test]
+    fn build_run_dir_uses_scoped_global_runtime_root() {
+        let _lock = env_lock().lock().expect("env lock should be available");
+        let home = test_root();
+        let _home = EnvVarGuard::set("HOME", Some(home.to_string_lossy().as_ref()));
+
+        let project_root = test_root();
+        let run_dir = build_run_dir(project_root.to_string_lossy().as_ref(), "run-test-123")
+            .expect("run dir should resolve for safe run id");
+        let expected = home
+            .join(".ao")
+            .join(repository_scope_for_path(&project_root))
+            .join("runs")
+            .join("run-test-123");
+        assert_eq!(run_dir, expected);
     }
 
     #[test]

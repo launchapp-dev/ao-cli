@@ -242,3 +242,199 @@ pub(crate) async fn handle_output(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: Option<&str>) -> Self {
+            let previous = std::env::var(key).ok();
+            match value {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(previous) = &self.previous {
+                std::env::set_var(self.key, previous);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
+
+    #[test]
+    fn run_dir_candidates_prioritize_scoped_canonical_path() {
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
+        let temp = tempfile::tempdir().expect("tempdir should be created");
+        let _home = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
+        let project_root = temp.path().join("project");
+        std::fs::create_dir_all(&project_root).expect("project dir should be created");
+        let run_id = "trace-output-run";
+
+        let candidates = run_dir_candidates(project_root.to_string_lossy().as_ref(), run_id);
+        assert_eq!(candidates.len(), 3);
+        assert_eq!(
+            candidates[0],
+            run_dir(
+                project_root.to_string_lossy().as_ref(),
+                &RunId(run_id.to_string()),
+                None
+            )
+        );
+        assert_eq!(
+            candidates[1],
+            project_root.join(".ao").join("runs").join(run_id)
+        );
+        assert_eq!(
+            candidates[2],
+            project_root
+                .join(".ao")
+                .join("state")
+                .join("runs")
+                .join(run_id)
+        );
+
+        for candidate in &candidates {
+            std::fs::create_dir_all(candidate).expect("candidate run dir should be created");
+        }
+        let selected = run_dir_candidates(project_root.to_string_lossy().as_ref(), run_id)
+            .into_iter()
+            .find(|path| path.exists())
+            .expect("a run dir should be selected");
+        assert_eq!(selected, candidates[0]);
+    }
+
+    #[test]
+    fn run_dir_candidates_fall_back_to_legacy_paths() {
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
+        let temp = tempfile::tempdir().expect("tempdir should be created");
+        let _home = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
+        let project_root = temp.path().join("project");
+        std::fs::create_dir_all(&project_root).expect("project dir should be created");
+        let run_id = "trace-output-legacy";
+        let candidates = run_dir_candidates(project_root.to_string_lossy().as_ref(), run_id);
+
+        std::fs::create_dir_all(&candidates[1]).expect("legacy .ao/runs dir should be created");
+        let selected_legacy = run_dir_candidates(project_root.to_string_lossy().as_ref(), run_id)
+            .into_iter()
+            .find(|path| path.exists())
+            .expect("legacy run dir should be selected");
+        assert_eq!(selected_legacy, candidates[1]);
+
+        std::fs::remove_dir_all(&candidates[1]).expect("legacy .ao/runs dir should be removed");
+        std::fs::create_dir_all(&candidates[2]).expect("legacy .ao/state/runs dir should exist");
+        let selected_state = run_dir_candidates(project_root.to_string_lossy().as_ref(), run_id)
+            .into_iter()
+            .find(|path| path.exists())
+            .expect("legacy state run dir should be selected");
+        assert_eq!(selected_state, candidates[2]);
+    }
+
+    #[test]
+    fn get_run_jsonl_entries_merges_deterministically_with_source_metadata() {
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
+        let temp = tempfile::tempdir().expect("tempdir should be created");
+        let _home = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
+        let project_root = temp.path().join("project");
+        std::fs::create_dir_all(&project_root).expect("project dir should be created");
+        let run_id = "trace-jsonl-order";
+        let run_dir = run_dir(
+            project_root.to_string_lossy().as_ref(),
+            &RunId(run_id.to_string()),
+            None,
+        );
+        std::fs::create_dir_all(&run_dir).expect("canonical run dir should be created");
+        std::fs::write(
+            run_dir.join("json-output.jsonl"),
+            "{\"created_at\":\"2024-01-01T00:00:00Z\",\"kind\":\"json\"}\n",
+        )
+        .expect("json output should be written");
+        std::fs::write(
+            run_dir.join("events.jsonl"),
+            "{\"timestamp\":\"2024-01-02T00:00:00Z\",\"kind\":\"event\"}\n",
+        )
+        .expect("events output should be written");
+
+        let entries = get_run_jsonl_entries(project_root.to_string_lossy().as_ref(), run_id)
+            .expect("jsonl entries should load");
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].source_file, "json-output.jsonl");
+        assert_eq!(
+            entries[0].timestamp_hint.as_deref(),
+            Some("2024-01-01T00:00:00Z")
+        );
+        assert_eq!(entries[1].source_file, "events.jsonl");
+        assert_eq!(
+            entries[1].timestamp_hint.as_deref(),
+            Some("2024-01-02T00:00:00Z")
+        );
+    }
+
+    #[test]
+    fn get_run_jsonl_entries_supports_legacy_lookup_paths() {
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
+        let temp = tempfile::tempdir().expect("tempdir should be created");
+        let _home = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
+        let project_root = temp.path().join("project");
+        std::fs::create_dir_all(&project_root).expect("project dir should be created");
+        let run_id = "trace-jsonl-legacy";
+        let legacy_run_dir = project_root.join(".ao").join("runs").join(run_id);
+        std::fs::create_dir_all(&legacy_run_dir).expect("legacy run dir should be created");
+        std::fs::write(
+            legacy_run_dir.join("events.jsonl"),
+            "{\"timestamp\":\"2024-01-03T00:00:00Z\",\"kind\":\"legacy\"}\n",
+        )
+        .expect("legacy events should be written");
+        let legacy_state_run_dir = project_root
+            .join(".ao")
+            .join("state")
+            .join("runs")
+            .join(run_id);
+        std::fs::create_dir_all(&legacy_state_run_dir).expect("legacy state run dir should exist");
+        std::fs::write(
+            legacy_state_run_dir.join("events.jsonl"),
+            "{\"timestamp\":\"2024-01-04T00:00:00Z\",\"kind\":\"legacy-state\"}\n",
+        )
+        .expect("legacy state events should be written");
+
+        let entries = get_run_jsonl_entries(project_root.to_string_lossy().as_ref(), run_id)
+            .expect("jsonl entries should load from legacy paths");
+        assert_eq!(entries.len(), 2);
+        assert!(entries
+            .iter()
+            .all(|entry| entry.source_file == "events.jsonl"));
+        assert_eq!(
+            entries
+                .iter()
+                .filter_map(|entry| entry.timestamp_hint.as_deref())
+                .collect::<Vec<_>>(),
+            vec!["2024-01-03T00:00:00Z", "2024-01-04T00:00:00Z"]
+        );
+    }
+
+    #[test]
+    fn get_run_jsonl_entries_rejects_unsafe_run_ids() {
+        let err = get_run_jsonl_entries("/tmp/project", "../escape")
+            .expect_err("unsafe run id should be rejected");
+        assert!(err.to_string().contains("invalid run_id"));
+    }
+}

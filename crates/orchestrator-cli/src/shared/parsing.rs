@@ -251,6 +251,33 @@ pub(crate) fn parse_project_type_opt(value: Option<&str>) -> Result<Option<Proje
 #[cfg(test)]
 mod tests {
     use super::*;
+    use protocol::{AgentRunEvent, RunId, Timestamp};
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: Option<&str>) -> Self {
+            let previous = std::env::var(key).ok();
+            match value {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(previous) = &self.previous {
+                std::env::set_var(self.key, previous);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
 
     #[test]
     fn parse_project_type_accepts_saas_alias() {
@@ -336,5 +363,62 @@ mod tests {
         assert!(message.contains("CONFIRMATION_REQUIRED"));
         assert!(message.contains("--confirm TASK-123"));
         assert!(message.contains("--dry-run"));
+    }
+
+    #[test]
+    fn read_agent_status_reads_scoped_events_and_reports_path() {
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
+        let temp = tempfile::tempdir().expect("tempdir should be created");
+        let _home = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
+        let project_root = temp.path().join("project");
+        std::fs::create_dir_all(&project_root).expect("project dir should be created");
+
+        let run_id = "trace-run-status-010";
+        let run_id_value = RunId(run_id.to_string());
+        let events_path = run_dir(project_root.to_string_lossy().as_ref(), &run_id_value, None)
+            .join("events.jsonl");
+
+        let started = serde_json::to_string(&AgentRunEvent::Started {
+            run_id: run_id_value.clone(),
+            timestamp: Timestamp::now(),
+        })
+        .expect("started event should serialize");
+        let other_started = serde_json::to_string(&AgentRunEvent::Started {
+            run_id: RunId("other-run".to_string()),
+            timestamp: Timestamp::now(),
+        })
+        .expect("started event should serialize");
+        let finished = serde_json::to_string(&AgentRunEvent::Finished {
+            run_id: run_id_value.clone(),
+            exit_code: Some(0),
+            duration_ms: 42,
+        })
+        .expect("finished event should serialize");
+        std::fs::create_dir_all(
+            events_path
+                .parent()
+                .expect("events path should include parent directory"),
+        )
+        .expect("events directory should be created");
+        std::fs::write(
+            &events_path,
+            format!("{started}\n{other_started}\n{finished}\n"),
+        )
+        .expect("events file should be written");
+
+        let status = read_agent_status(project_root.to_string_lossy().as_ref(), run_id, None)
+            .expect("status should be read from fallback event log");
+        assert_eq!(
+            status.get("status").and_then(Value::as_str),
+            Some("completed")
+        );
+        assert_eq!(status.get("event_count").and_then(Value::as_u64), Some(2));
+        assert_eq!(status.get("duration_ms").and_then(Value::as_u64), Some(42));
+        assert_eq!(
+            status.get("events_path").and_then(Value::as_str),
+            Some(events_path.to_string_lossy().as_ref())
+        );
     }
 }

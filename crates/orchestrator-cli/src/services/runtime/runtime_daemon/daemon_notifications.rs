@@ -122,6 +122,8 @@ struct NotificationOutboxEntry {
     event_id: String,
     event_type: String,
     event_project_root: Option<String>,
+    event_workflow_id: Option<String>,
+    event_task_id: Option<String>,
     connector_id: String,
     subscription_id: String,
     attempts: u32,
@@ -137,6 +139,8 @@ struct NotificationDeadLetterEntry {
     event_id: String,
     event_type: String,
     event_project_root: Option<String>,
+    event_workflow_id: Option<String>,
+    event_task_id: Option<String>,
     connector_id: String,
     subscription_id: String,
     attempts: u32,
@@ -310,6 +314,10 @@ impl DaemonNotificationRuntime {
             .collect();
 
         let context = event_context(event);
+        let event_project_root = event
+            .project_root
+            .clone()
+            .or_else(|| Some(self.project_root.clone()));
         let now = Utc::now().timestamp();
         let mut lifecycle_events = Vec::new();
 
@@ -335,7 +343,9 @@ impl DaemonNotificationRuntime {
                 delivery_key: delivery_key.clone(),
                 event_id: event.id.clone(),
                 event_type: event.event_type.clone(),
-                event_project_root: event.project_root.clone(),
+                event_project_root: event_project_root.clone(),
+                event_workflow_id: context.workflow_id.map(ToOwned::to_owned),
+                event_task_id: context.task_id.map(ToOwned::to_owned),
                 connector_id: subscription.connector_id.clone(),
                 subscription_id: subscription.id.clone(),
                 attempts: 0,
@@ -352,12 +362,14 @@ impl DaemonNotificationRuntime {
             known_keys.insert(delivery_key);
             lifecycle_events.push(NotificationLifecycleEvent {
                 event_type: "notification-delivery-enqueued".to_string(),
-                project_root: event.project_root.clone(),
+                project_root: outbox_entry.event_project_root.clone(),
                 data: json!({
                     "delivery_id": outbox_entry.delivery_id,
                     "event_id": outbox_entry.event_id,
                     "connector_id": outbox_entry.connector_id,
                     "subscription_id": outbox_entry.subscription_id,
+                    "workflow_id": outbox_entry.event_workflow_id.clone(),
+                    "task_id": outbox_entry.event_task_id.clone(),
                 }),
             });
             outbox_entries.push(outbox_entry);
@@ -397,8 +409,22 @@ impl DaemonNotificationRuntime {
             }
             processed = processed.saturating_add(1);
 
-            let connector = connector_lookup.get(entry.connector_id.as_str());
-            let result = self.send_delivery(connector.copied(), &entry).await;
+            let connector = connector_lookup.get(entry.connector_id.as_str()).copied();
+            if entry.attempts >= max_attempts {
+                let terminal_error = entry.last_error.clone().unwrap_or_else(|| {
+                    format!("delivery reached retry attempt limit ({max_attempts})")
+                });
+                let redacted_error = redact_error_message(terminal_error.as_str(), connector);
+                push_dead_letter(
+                    &mut dead_letter_entries,
+                    &mut lifecycle_events,
+                    &entry,
+                    redacted_error,
+                );
+                continue;
+            }
+
+            let result = self.send_delivery(connector, &entry).await;
             match result {
                 Ok(()) => {
                     lifecycle_events.push(NotificationLifecycleEvent {
@@ -410,12 +436,14 @@ impl DaemonNotificationRuntime {
                             "connector_id": entry.connector_id,
                             "subscription_id": entry.subscription_id,
                             "attempts": entry.attempts.saturating_add(1),
+                            "workflow_id": entry.event_workflow_id.clone(),
+                            "task_id": entry.event_task_id.clone(),
                         }),
                     });
                 }
                 Err(error) => {
                     entry.attempts = entry.attempts.saturating_add(1);
-                    let redacted_error = redact_error_message(&error.message);
+                    let redacted_error = redact_error_message(&error.message, connector);
                     let should_retry = error.class == DeliveryFailureClass::Transient
                         && entry.attempts < max_attempts;
 
@@ -430,6 +458,8 @@ impl DaemonNotificationRuntime {
                             "attempts": entry.attempts,
                             "retriable": should_retry,
                             "last_error": redacted_error,
+                            "workflow_id": entry.event_workflow_id.clone(),
+                            "task_id": entry.event_task_id.clone(),
                         }),
                     });
 
@@ -441,31 +471,12 @@ impl DaemonNotificationRuntime {
                         ));
                         remaining_entries.push(entry);
                     } else {
-                        dead_letter_entries.push(NotificationDeadLetterEntry {
-                            delivery_id: entry.delivery_id.clone(),
-                            delivery_key: entry.delivery_key.clone(),
-                            event_id: entry.event_id.clone(),
-                            event_type: entry.event_type.clone(),
-                            event_project_root: entry.event_project_root.clone(),
-                            connector_id: entry.connector_id.clone(),
-                            subscription_id: entry.subscription_id.clone(),
-                            attempts: entry.attempts,
-                            failed_at: Utc::now().to_rfc3339(),
-                            last_error: redacted_error.clone(),
-                            payload: entry.payload.clone(),
-                        });
-                        lifecycle_events.push(NotificationLifecycleEvent {
-                            event_type: "notification-delivery-dead-lettered".to_string(),
-                            project_root: entry.event_project_root.clone(),
-                            data: json!({
-                                "delivery_id": entry.delivery_id,
-                                "event_id": entry.event_id,
-                                "connector_id": entry.connector_id,
-                                "subscription_id": entry.subscription_id,
-                                "attempts": entry.attempts,
-                                "last_error": redacted_error,
-                            }),
-                        });
+                        push_dead_letter(
+                            &mut dead_letter_entries,
+                            &mut lifecycle_events,
+                            &entry,
+                            redacted_error,
+                        );
                     }
                 }
             }
@@ -977,12 +988,81 @@ fn retry_delay_secs(attempts: u32, policy: &NotificationRetryPolicy) -> i64 {
     base.saturating_mul(growth).clamp(base, max)
 }
 
-fn redact_error_message(message: &str) -> String {
-    message
-        .replace('\n', " ")
-        .replace('\r', " ")
-        .trim()
-        .to_string()
+fn connector_credential_env_refs(connector: &NotificationConnectorConfig) -> Vec<&str> {
+    match connector {
+        NotificationConnectorConfig::Webhook(config) => {
+            let mut refs = Vec::with_capacity(1 + config.headers_env.len());
+            refs.push(config.url_env.as_str());
+            refs.extend(config.headers_env.values().map(String::as_str));
+            refs
+        }
+        NotificationConnectorConfig::SlackWebhook(config) => {
+            let mut refs = Vec::with_capacity(1 + config.headers_env.len());
+            refs.push(config.webhook_url_env.as_str());
+            refs.extend(config.headers_env.values().map(String::as_str));
+            refs
+        }
+    }
+}
+
+fn redact_error_message(message: &str, connector: Option<&NotificationConnectorConfig>) -> String {
+    let mut redacted = message.replace('\n', " ").replace('\r', " ");
+
+    if let Some(connector) = connector {
+        let mut seen_refs = HashSet::new();
+        for env_ref in connector_credential_env_refs(connector) {
+            if !seen_refs.insert(env_ref) {
+                continue;
+            }
+            let Ok(secret) = std::env::var(env_ref) else {
+                continue;
+            };
+            let secret = secret.trim();
+            if secret.is_empty() {
+                continue;
+            }
+            redacted = redacted.replace(secret, "<redacted>");
+        }
+    }
+
+    redacted.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn push_dead_letter(
+    dead_letter_entries: &mut Vec<NotificationDeadLetterEntry>,
+    lifecycle_events: &mut Vec<NotificationLifecycleEvent>,
+    entry: &NotificationOutboxEntry,
+    last_error: String,
+) {
+    dead_letter_entries.push(NotificationDeadLetterEntry {
+        delivery_id: entry.delivery_id.clone(),
+        delivery_key: entry.delivery_key.clone(),
+        event_id: entry.event_id.clone(),
+        event_type: entry.event_type.clone(),
+        event_project_root: entry.event_project_root.clone(),
+        event_workflow_id: entry.event_workflow_id.clone(),
+        event_task_id: entry.event_task_id.clone(),
+        connector_id: entry.connector_id.clone(),
+        subscription_id: entry.subscription_id.clone(),
+        attempts: entry.attempts,
+        failed_at: Utc::now().to_rfc3339(),
+        last_error: last_error.clone(),
+        payload: entry.payload.clone(),
+    });
+    lifecycle_events.push(NotificationLifecycleEvent {
+        event_type: "notification-delivery-dead-lettered".to_string(),
+        project_root: entry.event_project_root.clone(),
+        data: json!({
+            "delivery_id": entry.delivery_id,
+            "event_id": entry.event_id,
+            "connector_id": entry.connector_id,
+            "subscription_id": entry.subscription_id,
+            "attempts": entry.attempts,
+            "last_error": last_error,
+            "workflow_id": entry.event_workflow_id.clone(),
+            "task_id": entry.event_task_id.clone(),
+        }),
+    });
 }
 
 fn load_notification_config(project_root: &str) -> Result<NotificationConfig> {
@@ -1361,6 +1441,40 @@ mod tests {
     }
 
     #[test]
+    fn delivery_events_do_not_reenqueue_same_connector() {
+        let subscription = NotificationSubscription {
+            id: "sub-1".to_string(),
+            enabled: true,
+            connector_id: "ops-webhook".to_string(),
+            event_types: vec!["notification-delivery-*".to_string()],
+            project_root: None,
+            workflow_id: None,
+            task_id: None,
+        };
+
+        let event = DaemonEventRecord {
+            schema: "ao.daemon.event.v1".to_string(),
+            id: "evt-1".to_string(),
+            seq: 1,
+            timestamp: Utc::now().to_rfc3339(),
+            event_type: "notification-delivery-failed".to_string(),
+            project_root: None,
+            data: json!({
+                "connector_id": "ops-webhook"
+            }),
+        };
+        assert!(!subscription.matches(&event, &event_context(&event)));
+
+        let forwarded_event = DaemonEventRecord {
+            data: json!({
+                "connector_id": "audit-webhook"
+            }),
+            ..event
+        };
+        assert!(subscription.matches(&forwarded_event, &event_context(&forwarded_event)));
+    }
+
+    #[test]
     fn retry_classification_and_backoff_are_deterministic() {
         assert_eq!(classify_http_status(500), DeliveryFailureClass::Transient);
         assert_eq!(classify_http_status(429), DeliveryFailureClass::Transient);
@@ -1376,6 +1490,69 @@ mod tests {
         assert_eq!(retry_delay_secs(3, &policy), 8);
         assert_eq!(retry_delay_secs(4, &policy), 16);
         assert_eq!(retry_delay_secs(8, &policy), 16);
+    }
+
+    #[tokio::test]
+    async fn flush_budget_limits_processing_per_tick() {
+        let _guard = env_lock().lock().expect("env lock should be available");
+        let temp_home = TempDir::new().expect("temp home dir");
+        let temp_project = TempDir::new().expect("temp project dir");
+        let project_root = temp_project.path().to_string_lossy().to_string();
+        let server = TestHttpServer::start(vec![200, 200]);
+
+        let _home_guard =
+            EnvVarGuard::set("HOME", Some(temp_home.path().to_string_lossy().as_ref()));
+        let _url_guard = EnvVarGuard::set("AO_NOTIFY_WEBHOOK_URL", Some(server.url.as_str()));
+        let _token_guard = EnvVarGuard::set("AO_NOTIFY_BEARER_TOKEN", Some("super-secret-token"));
+
+        let mut config = sample_config("AO_NOTIFY_WEBHOOK_URL");
+        config["notification_config"]["max_deliveries_per_tick"] = json!(1);
+        write_pm_config(project_root.as_str(), config);
+
+        let mut runtime = DaemonNotificationRuntime::new(project_root.as_str())
+            .expect("runtime should initialize");
+        runtime
+            .enqueue_for_event(&sample_event(
+                project_root.as_str(),
+                "workflow-phase-started",
+            ))
+            .expect("first enqueue should succeed");
+        runtime
+            .enqueue_for_event(&sample_event(
+                project_root.as_str(),
+                "workflow-phase-completed",
+            ))
+            .expect("second enqueue should succeed");
+
+        let first_flush = runtime
+            .flush_due_deliveries()
+            .await
+            .expect("first flush should succeed");
+        assert_eq!(
+            first_flush
+                .iter()
+                .filter(|event| event.event_type == "notification-delivery-sent")
+                .count(),
+            1
+        );
+        let outbox_after_first =
+            load_notification_outbox(project_root.as_str()).expect("outbox should load");
+        assert_eq!(outbox_after_first.len(), 1);
+
+        let second_flush = runtime
+            .flush_due_deliveries()
+            .await
+            .expect("second flush should succeed");
+        assert_eq!(
+            second_flush
+                .iter()
+                .filter(|event| event.event_type == "notification-delivery-sent")
+                .count(),
+            1
+        );
+        let outbox_after_second =
+            load_notification_outbox(project_root.as_str()).expect("outbox should load");
+        assert!(outbox_after_second.is_empty());
     }
 
     #[tokio::test]
@@ -1514,5 +1691,138 @@ mod tests {
             .last_error
             .contains("missing credential env var 'AO_NOTIFY_WEBHOOK_URL'"));
         assert!(!dead_letters[0].last_error.contains("top-secret-value"));
+    }
+
+    #[test]
+    fn enqueue_global_event_uses_runtime_project_root_and_context() {
+        let _guard = env_lock().lock().expect("env lock should be available");
+        let temp_home = TempDir::new().expect("temp home dir");
+        let temp_project = TempDir::new().expect("temp project dir");
+        let project_root = temp_project.path().to_string_lossy().to_string();
+
+        let _home_guard =
+            EnvVarGuard::set("HOME", Some(temp_home.path().to_string_lossy().as_ref()));
+        write_pm_config(
+            project_root.as_str(),
+            sample_config("AO_NOTIFY_WEBHOOK_URL"),
+        );
+
+        let mut runtime = DaemonNotificationRuntime::new(project_root.as_str())
+            .expect("runtime should initialize");
+        let mut event = sample_event(project_root.as_str(), "workflow-phase-started");
+        event.project_root = None;
+        let canonical_project_root = canonicalize_lossy(project_root.as_str());
+
+        let enqueued = runtime
+            .enqueue_for_event(&event)
+            .expect("enqueue should succeed");
+        assert_eq!(enqueued.len(), 1);
+        assert_eq!(
+            enqueued[0].project_root.as_deref(),
+            Some(canonical_project_root.as_str())
+        );
+        assert_eq!(
+            enqueued[0].data.get("workflow_id").and_then(Value::as_str),
+            Some("WF-001")
+        );
+        assert_eq!(
+            enqueued[0].data.get("task_id").and_then(Value::as_str),
+            Some("TASK-001")
+        );
+
+        let outbox = load_notification_outbox(project_root.as_str()).expect("outbox should load");
+        assert_eq!(outbox.len(), 1);
+        assert_eq!(
+            outbox[0].event_project_root.as_deref(),
+            Some(canonical_project_root.as_str())
+        );
+        assert_eq!(outbox[0].event_workflow_id.as_deref(), Some("WF-001"));
+        assert_eq!(outbox[0].event_task_id.as_deref(), Some("TASK-001"));
+    }
+
+    #[tokio::test]
+    async fn pre_exhausted_entries_are_dead_lettered_without_another_attempt() {
+        let _guard = env_lock().lock().expect("env lock should be available");
+        let temp_home = TempDir::new().expect("temp home dir");
+        let temp_project = TempDir::new().expect("temp project dir");
+        let project_root = temp_project.path().to_string_lossy().to_string();
+
+        let _home_guard =
+            EnvVarGuard::set("HOME", Some(temp_home.path().to_string_lossy().as_ref()));
+        write_pm_config(
+            project_root.as_str(),
+            sample_config("AO_NOTIFY_WEBHOOK_URL"),
+        );
+
+        let mut runtime = DaemonNotificationRuntime::new(project_root.as_str())
+            .expect("runtime should initialize");
+        runtime
+            .enqueue_for_event(&sample_event(
+                project_root.as_str(),
+                "workflow-phase-started",
+            ))
+            .expect("enqueue should succeed");
+
+        let mut outbox =
+            load_notification_outbox(project_root.as_str()).expect("outbox should load");
+        assert_eq!(outbox.len(), 1);
+        outbox[0].attempts = 3;
+        outbox[0].last_error = Some("notification endpoint returned HTTP 503".to_string());
+        outbox[0].next_attempt_unix_secs = Utc::now().timestamp() - 1;
+        save_notification_outbox(project_root.as_str(), &outbox)
+            .expect("outbox should be rewritten");
+
+        let lifecycle_events = runtime
+            .flush_due_deliveries()
+            .await
+            .expect("flush should handle exhausted delivery");
+        assert!(lifecycle_events
+            .iter()
+            .any(|event| event.event_type == "notification-delivery-dead-lettered"));
+        assert!(!lifecycle_events
+            .iter()
+            .any(|event| event.event_type == "notification-delivery-failed"));
+
+        let outbox_after = load_notification_outbox(project_root.as_str())
+            .expect("outbox should load after flush");
+        assert!(outbox_after.is_empty());
+
+        let dead_letters =
+            load_dead_letter_entries(project_root.as_str()).expect("dead-letter should load");
+        assert_eq!(dead_letters.len(), 1);
+        assert_eq!(dead_letters[0].attempts, 3);
+        assert!(dead_letters[0].last_error.contains("HTTP 503"));
+    }
+
+    #[test]
+    fn redact_error_message_masks_configured_secret_values() {
+        let _guard = env_lock().lock().expect("env lock should be available");
+        let _url_guard = EnvVarGuard::set(
+            "AO_NOTIFY_TEST_WEBHOOK_URL",
+            Some("https://hooks.example.invalid/secret-hook-token"),
+        );
+        let _token_guard = EnvVarGuard::set(
+            "AO_NOTIFY_TEST_AUTH",
+            Some("Bearer super-secret-auth-token"),
+        );
+
+        let mut headers_env = BTreeMap::new();
+        headers_env.insert(
+            "Authorization".to_string(),
+            "AO_NOTIFY_TEST_AUTH".to_string(),
+        );
+        let connector = NotificationConnectorConfig::Webhook(WebhookConnectorConfig {
+            id: "ops-webhook".to_string(),
+            enabled: true,
+            url_env: "AO_NOTIFY_TEST_WEBHOOK_URL".to_string(),
+            headers_env,
+            timeout_secs: Some(2),
+        });
+
+        let message = "request to https://hooks.example.invalid/secret-hook-token failed: invalid token Bearer super-secret-auth-token";
+        let redacted = redact_error_message(message, Some(&connector));
+        assert!(!redacted.contains("secret-hook-token"));
+        assert!(!redacted.contains("super-secret-auth-token"));
+        assert!(redacted.contains("<redacted>"));
     }
 }

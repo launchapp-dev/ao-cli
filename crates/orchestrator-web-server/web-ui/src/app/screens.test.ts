@@ -14,4 +14,8 @@ describe("matchesConfirmationPhrase", () => {
   it("does not normalize internal whitespace", () => {
     expect(matchesConfirmationPhrase("CLEAR  DAEMON LOGS", "CLEAR DAEMON LOGS")).toBe(false);
   });
+
+  it("tolerates accidental whitespace in configured phrase values", () => {
+    expect(matchesConfirmationPhrase("STOP DAEMON", "  STOP DAEMON  ")).toBe(true);
+  });
 });

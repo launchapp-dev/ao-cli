@@ -111,6 +111,11 @@ describe("DaemonPage high-risk safeguards", () => {
       "Dry-run preview ready for Clear daemon logs.",
     );
     expect(screen.getByRole("dialog", { name: "Review High-Risk Action" })).toBeTruthy();
+    const feedbackPanel = screen.getByRole("heading", { name: "Action Feedback" }).closest("div");
+    expect(feedbackPanel).toBeTruthy();
+    expect(within(feedbackPanel!).getByText(/^daemon\.clear_logs$/)).toBeTruthy();
+    expect(within(feedbackPanel!).getByText(/^dry_run$/)).toBeTruthy();
+    expect(within(feedbackPanel!).getByText(/^Preview$/)).toBeTruthy();
   });
 
   it("executes confirmed high-risk actions and records successful auditable feedback", async () => {
@@ -206,6 +211,12 @@ describe("DaemonPage high-risk safeguards", () => {
   });
 
   it("keeps daemon feedback bounded to 50 records with most-recent-first ordering", async () => {
+    let startSequence = 0;
+    apiMocks.daemonStart.mockImplementation(() => {
+      startSequence += 1;
+      return okResult({ message: `start ok ${startSequence}` });
+    });
+
     await renderDaemonPage();
 
     const startButton = screen.getByRole("button", { name: "Start Daemon" });
@@ -216,6 +227,13 @@ describe("DaemonPage high-risk safeguards", () => {
       });
     }
 
-    expect(screen.getAllByText(/^daemon\.start$/).length).toBe(50);
+    const feedbackPanel = screen.getByRole("heading", { name: "Action Feedback" }).closest("div");
+    expect(feedbackPanel).toBeTruthy();
+    expect(within(feedbackPanel!).getAllByText(/^daemon\.start$/).length).toBe(50);
+
+    const feedbackItems = feedbackPanel!.querySelectorAll(".daemon-feedback-item");
+    expect(feedbackItems.length).toBe(50);
+    expect(feedbackItems[0]?.textContent).toContain("start ok 55");
+    expect(feedbackItems[49]?.textContent).toContain("start ok 6");
   });
 });

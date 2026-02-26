@@ -177,6 +177,9 @@ Initial requirements/tasks were created to bootstrap self-hosted development:
 - CLI JSON envelope contract planning artifacts for TASK-008 live in `crates/orchestrator-cli/docs/`:
   - `task-008-json-envelope-contract-requirements.md`
   - `task-008-json-envelope-contract-implementation-notes.md`
+- Guided onboarding/config wizard planning artifacts for TASK-022 live in `crates/orchestrator-cli/docs/`:
+  - `task-022-guided-onboarding-config-wizard-requirements.md`
+  - `task-022-guided-onboarding-config-wizard-implementation-notes.md`
 - Runtime tracking files live under `.ao/`.
 - Do not hand-edit `.ao/state/*`; use `ao` commands for changes.
 - Daemon-managed git worktrees are created under:

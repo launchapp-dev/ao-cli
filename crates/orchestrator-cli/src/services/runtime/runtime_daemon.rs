@@ -1,11 +1,13 @@
-use std::fs;
-use std::path::PathBuf;
+use std::path::Path;
 use std::process::{Command as ProcessCommand, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
-use orchestrator_core::services::ServiceHub;
+use orchestrator_core::{
+    daemon_project_config_path, services::ServiceHub, update_daemon_project_config,
+    DaemonProjectConfigPatch,
+};
 
 use crate::{
     print_ok, print_value, DaemonCommand, DaemonConfigArgs, DaemonEventsArgs, DaemonStartArgs,
@@ -123,75 +125,21 @@ fn runner_scope_value(scope: &RunnerScopeArg) -> &'static str {
     }
 }
 
-fn pm_config_path(project_root: &str) -> PathBuf {
-    PathBuf::from(canonicalize_lossy(project_root))
-        .join(".ao")
-        .join("pm-config.json")
-}
-
-fn load_pm_config(project_root: &str) -> Result<serde_json::Value> {
-    let path = pm_config_path(project_root);
-    if !path.exists() {
-        return Ok(serde_json::json!({}));
-    }
-
-    let content = fs::read_to_string(&path)
-        .with_context(|| format!("failed to read daemon config at {}", path.display()))?;
-    if content.trim().is_empty() {
-        return Ok(serde_json::json!({}));
-    }
-
-    serde_json::from_str(&content)
-        .with_context(|| format!("invalid daemon config JSON at {}", path.display()))
-}
-
-fn save_pm_config(project_root: &str, value: &serde_json::Value) -> Result<()> {
-    let path = pm_config_path(project_root);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create config directory {}", parent.display()))?;
-    }
-    let content =
-        serde_json::to_string_pretty(value).context("failed to serialize daemon config JSON")?;
-    fs::write(&path, format!("{content}\n"))
-        .with_context(|| format!("failed to write daemon config at {}", path.display()))?;
-    Ok(())
-}
-
-fn daemon_config_bool(config: &serde_json::Value, key: &str) -> Option<bool> {
-    config.get(key).and_then(serde_json::Value::as_bool)
-}
-
 fn handle_daemon_config(args: DaemonConfigArgs, project_root: &str, json: bool) -> Result<()> {
-    let mut config = load_pm_config(project_root)?;
-    if !config.is_object() {
-        config = serde_json::json!({});
-    }
-
-    let mut updated = false;
-    if let Some(enabled) = args.auto_merge {
-        config["auto_merge_enabled"] = serde_json::Value::Bool(enabled);
-        updated = true;
-    }
-    if let Some(enabled) = args.auto_pr {
-        config["auto_pr_enabled"] = serde_json::Value::Bool(enabled);
-        updated = true;
-    }
-    if let Some(enabled) = args.auto_commit_before_merge {
-        config["auto_commit_before_merge"] = serde_json::Value::Bool(enabled);
-        updated = true;
-    }
-
-    if updated {
-        save_pm_config(project_root, &config)?;
-    }
+    let patch = DaemonProjectConfigPatch {
+        auto_merge_enabled: args.auto_merge,
+        auto_pr_enabled: args.auto_pr,
+        auto_commit_before_merge: args.auto_commit_before_merge,
+    };
+    let root = Path::new(project_root);
+    let (config, updated) = update_daemon_project_config(root, &patch)?;
 
     print_value(
         serde_json::json!({
-            "config_path": pm_config_path(project_root).display().to_string(),
-            "auto_merge_enabled": daemon_config_bool(&config, "auto_merge_enabled").unwrap_or(false),
-            "auto_pr_enabled": daemon_config_bool(&config, "auto_pr_enabled").unwrap_or(false),
-            "auto_commit_before_merge": daemon_config_bool(&config, "auto_commit_before_merge").unwrap_or(false),
+            "config_path": daemon_project_config_path(root).display().to_string(),
+            "auto_merge_enabled": config.auto_merge_enabled,
+            "auto_pr_enabled": config.auto_pr_enabled,
+            "auto_commit_before_merge": config.auto_commit_before_merge,
             "updated": updated
         }),
         json,

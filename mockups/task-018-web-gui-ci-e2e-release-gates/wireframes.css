@@ -416,6 +416,12 @@ code {
   background: var(--info-bg);
 }
 
+.callout.success {
+  border-color: #97caab;
+  color: #1d5e3d;
+  background: #e6f6ec;
+}
+
 .next-action {
   margin: var(--space-3) 0 0;
   color: #1e3f4d;
@@ -525,6 +531,30 @@ code {
 .pipeline-lane.blocked {
   border-color: #c2b2d2;
   background: #f9f6fd;
+}
+
+.decision-grid {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: minmax(320px, 1.2fr) minmax(280px, 1fr);
+}
+
+.decision-card {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.decision-actions {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.decision-actions button:first-child {
+  border-color: #8db9a1;
+  background: #deefdf;
+  color: #204a2f;
 }
 
 fieldset {
@@ -739,6 +769,10 @@ a:focus-visible {
   }
 
   .board-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .decision-grid {
     grid-template-columns: 1fr;
   }
 }

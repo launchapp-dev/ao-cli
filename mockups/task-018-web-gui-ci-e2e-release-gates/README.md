@@ -5,7 +5,7 @@ These boards focus on deterministic gate visibility, failure evidence lookup,
 release go/no-go decisions, rollback confidence validation, and command-center run triage.
 
 ## Files
-- `wireframes.html`: visual boards for command center, checks, release gates, checklist, and rollback flow.
+- `wireframes.html`: visual boards for command center, checks, release gates, checklist, rollback flow, and ready-to-release sign-off.
 - `wireframes.css`: shared style system with responsive and accessibility constraints.
 - `release-gates-wireframe.tsx`: React-oriented component/state scaffold for handoff.
 
@@ -18,12 +18,13 @@ release go/no-go decisions, rollback confidence validation, and command-center r
 | Release workflow gates (`release.yml`) | `wireframes.html` (`Release Workflow Gate Topology`) + `release-gates-wireframe.tsx` (`ReleaseGateTopologyScreen`) |
 | Release checklist (`web-gui-release.md`) | `wireframes.html` (`Release Checklist`) + `release-gates-wireframe.tsx` (`ReleaseChecklistScreen`) |
 | Rollback validation dispatch and summary | `wireframes.html` (`Rollback Validation`) + `release-gates-wireframe.tsx` (`RollbackValidationScreen`) |
+| Release go confirmation (`all gates passed`) | `wireframes.html` (`Release Decision - Go Ready`) + `release-gates-wireframe.tsx` (`ReleaseGoDecisionScreen`) |
 | Mobile checks triage (`320px`) | `wireframes.html` (`Mobile Smoke Failure Triage`) + responsive notes in `wireframes.css` |
 
 ## State Coverage
 - Gate/job state: `queued`, `running`, `passed`, `failed`, `blocked`, `cancelled`
 - Checklist state: `draft`, `ready-for-go`, `blocked`, `signed-off`
-- Rollback validation state: `idle`, `submitted`, `candidate-failed`, `rollback-failed`, `both-passed`
+- Rollback validation state: `idle`, `validation-error`, `submitted`, `candidate-failed`, `rollback-failed`, `both-passed`
 - Evidence state: `missing`, `linked`, `downloaded`
 - Decision drawer state: `missing-evidence`, `ready-for-go`, `blocked`
 
@@ -36,6 +37,11 @@ release go/no-go decisions, rollback confidence validation, and command-center r
   - `.github/workflows/release-rollback-validation.yml`
   - `.github/release-checklists/web-gui-release.md`
 - Matrix rows for Node `20.x` and `22.x` with explicit runtime and textual status.
+- Required check labels are modeled exactly as branch-protection contract:
+  - `web-ui-matrix (node 20.x)`
+  - `web-ui-matrix (node 22.x)`
+  - `web-ui-smoke-e2e`
+  - `Web UI Gates`
 - Smoke assertion labels tied to route/API checks (`/`, `/dashboard`, `/projects`, `/reviews/handoff`, `/api/v1/system/info`, `api_only=true` rejection).
 - Stable artifact naming for smoke failures:
   - `web-ui-smoke-e2e-server-log`
@@ -44,7 +50,9 @@ release go/no-go decisions, rollback confidence validation, and command-center r
 - Release gate dependency chain: `web-ui-gates -> build matrix -> publish`.
 - Command-center run history with deterministic run IDs and blocker text.
 - Checklist defaults remain fail-closed (`No-Go`) while smoke or rollback evidence is incomplete.
+- Explicit Go-ready run (`#1103`) models success path after smoke fix and rollback validation completion.
 - Rollback summary with side-by-side outcomes for `candidate_ref` and `rollback_ref`.
+- Scope-lock guardrail note is included so implementation edits stay in the approved TASK-018 file set.
 
 ## Accessibility and Responsive Intent
 - Every status includes explicit text (`passed`, `failed`, `blocked`), not color only.
@@ -53,6 +61,7 @@ release go/no-go decisions, rollback confidence validation, and command-center r
 - Live status regions are modeled with `aria-live="polite"` for run updates.
 - Primary controls maintain `44px` minimum target height.
 - Command-center navigation rail collapses into a button strip for tablet widths.
+- Release decision board includes keyboard-first sign-off flow with focused confirmation action.
 - Mobile board is constrained to `320px` and avoids horizontal page scrolling.
 
 ## Acceptance Criteria Traceability
@@ -67,7 +76,9 @@ release go/no-go decisions, rollback confidence validation, and command-center r
 | `AC-06` | Release topology + command-center board with `web-ui-gates` blocker details |
 | `AC-07` | Blocked build/publish lane when `web-ui-gates` fails |
 | `AC-08` | Preserve packaging behavior note when gates pass |
-| `AC-09` | Checklist and command-center decision drawer map to release sign-off evidence fields |
+| `AC-09` | Checklist + command-center decision surfaces model both no-go blockers and go-ready sign-off evidence |
 | `AC-10` | Rollback dispatch form includes `candidate_ref` and `rollback_ref` |
 | `AC-11` | Rollback summary panel emits auditable per-ref outcomes |
 | `AC-12` | Smoke failure board includes deterministic artifact upload evidence |
+| `AC-13` | Required check names are explicitly modeled with exact labels for branch protection and release gates |
+| `AC-14` | Scope-lock guardrail callout constrains implementation edits to the approved TASK-018 file set |

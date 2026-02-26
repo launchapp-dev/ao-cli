@@ -2,7 +2,7 @@
 
 ## Phase Context
 - Workflow phase: `requirements`
-- Workflow ID: `7106cb2f-5f67-42eb-8897-06ad9dac43d4`
+- Workflow ID: `1b83370a-3c2c-42f2-aea0-43c84bf0002d`
 - Task: `TASK-018`
 
 ## Purpose
@@ -34,6 +34,20 @@ or release artifact formats.
 - Web UI lockfile:
   `crates/orchestrator-web-server/web-ui/package-lock.json`
 
+## Scope-Locked Edit Surface
+Allowed implementation file edits:
+- `.github/workflows/web-ui-ci.yml`
+- `.github/workflows/release.yml` (web UI gate section only)
+- `.github/workflows/release-rollback-validation.yml`
+- `.github/release-checklists/web-gui-release.md`
+- `crates/orchestrator-web-server/web-ui/package.json`
+- `crates/orchestrator-web-server/web-ui/scripts/smoke-e2e.mjs`
+
+Protected surfaces (must not change in TASK-018 implementation):
+- Release packaging matrix targets/archives in `release.yml`.
+- Publish-on-tag behavior and release artifact naming.
+- `/api/v1` envelope and API contracts beyond smoke validation assertions.
+
 ## Deterministic Workflow Topology
 
 ### 1) `web-ui-ci.yml`
@@ -47,6 +61,10 @@ or release artifact formats.
 - Workflow-level defaults:
   - `contents: read`,
   - deterministic concurrency group (`web-ui-ci-${{ github.ref }}`).
+- Required check names remain stable:
+  - `web-ui-matrix (node 20.x)`,
+  - `web-ui-matrix (node 22.x)`,
+  - `web-ui-smoke-e2e`.
 
 ### 2) `release.yml` gating behavior
 - `web-ui-gates` runs first and performs:
@@ -55,6 +73,7 @@ or release artifact formats.
 - `publish` remains tag-gated and downstream of `build`.
 - Existing packaging matrix targets, archive formats, and artifact naming remain
   unchanged.
+- Required gate check remains `Web UI Gates`.
 
 ### 3) `release-rollback-validation.yml`
 - `workflow_dispatch` inputs:
@@ -97,7 +116,8 @@ or release artifact formats.
 3. Validate `web-ui-ci.yml` matrix and smoke topology.
 4. Validate `release.yml` dependency graph remains fail-closed.
 5. Validate rollback workflow inputs, summary evidence, and pass criteria.
-6. Run local smoke test and targeted workflow lint/checks.
+6. Verify required check-name stability against branch protection contract.
+7. Run local smoke test and targeted workflow lint/checks.
 
 ## Testing Targets
 - Local web UI checks:
@@ -108,6 +128,8 @@ or release artifact formats.
   - `npm run test:e2e:smoke`
 - Workflow structure checks:
   - verify `web-ui-gates -> build -> publish` dependencies,
+  - verify required check names are unchanged (`web-ui-matrix (node 20.x)`,
+    `web-ui-matrix (node 22.x)`, `web-ui-smoke-e2e`, `Web UI Gates`),
   - verify rollback summary enforcement,
   - verify smoke-failure artifact upload paths and retention.
 

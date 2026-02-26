@@ -2,7 +2,7 @@
 
 ## Phase
 - Workflow phase: `requirements`
-- Workflow ID: `7106cb2f-5f67-42eb-8897-06ad9dac43d4`
+- Workflow ID: `1b83370a-3c2c-42f2-aea0-43c84bf0002d`
 - Task: `TASK-018`
 - Project root: `/Users/samishukri/ao-cli`
 
@@ -49,6 +49,20 @@ Out of scope for this task:
 - Signed provenance/SBOM generation.
 - API contract/schema changes for `/api/v1`.
 
+## Implementation Scope Lock (Requirements Handoff)
+Implementation phase may change only:
+- `.github/workflows/web-ui-ci.yml`
+- `.github/workflows/release.yml` (web UI gating scope only)
+- `.github/workflows/release-rollback-validation.yml`
+- `.github/release-checklists/web-gui-release.md`
+- `crates/orchestrator-web-server/web-ui/package.json`
+- `crates/orchestrator-web-server/web-ui/scripts/smoke-e2e.mjs`
+
+Implementation phase must not change:
+- Release packaging matrix targets and archive formats in `release.yml`.
+- Publish-on-tag semantics and release artifact naming conventions.
+- `/api/v1` response envelope contracts or server API behavior unrelated to smoke assertions.
+
 ## Constraints
 - Preserve release triggers in `.github/workflows/release.yml`:
   - tag push `v*`,
@@ -60,6 +74,11 @@ Out of scope for this task:
 - Use lockfile-faithful dependency installs (`npm ci`) in CI.
 - Keep workflow permissions least-privilege by default (`contents: read`).
 - Keep rollback workflow read-only with no publish/tag mutation behavior.
+- Keep required check names stable for branch protection compatibility:
+  - `web-ui-matrix (node 20.x)`,
+  - `web-ui-matrix (node 22.x)`,
+  - `web-ui-smoke-e2e`,
+  - `Web UI Gates`.
 - Do not manually edit `.ao` JSON state files.
 
 ## Deterministic Gate Topology
@@ -151,6 +170,15 @@ Out of scope for this task:
   - server stdout/stderr logs,
   - smoke assertion report output.
 
+### FR-07: Required Check Name Stability
+- Job/check names for required CI and release gates must remain stable:
+  - `web-ui-matrix (node 20.x)`,
+  - `web-ui-matrix (node 22.x)`,
+  - `web-ui-smoke-e2e`,
+  - `Web UI Gates`.
+- If new supplementary jobs are added, they must not replace or rename the
+  required gate job/check names above.
+
 ## Non-Functional Requirements
 
 ### NFR-01: Determinism
@@ -190,6 +218,13 @@ Out of scope for this task:
   when either ref smoke validation fails.
 - `AC-12`: Smoke failure diagnostics upload uses deterministic naming and finite
   retention.
+- `AC-13`: Required check names remain stable for branch protection:
+  - `web-ui-matrix (node 20.x)`,
+  - `web-ui-matrix (node 22.x)`,
+  - `web-ui-smoke-e2e`,
+  - `Web UI Gates`.
+- `AC-14`: Implementation stays within the scope-locked file set and does not
+  alter release packaging matrix or publish semantics.
 
 ## Testable Acceptance Checklist
 - `T-01`: Validate `web-ui-ci.yml` trigger/path-filter behavior with workflow
@@ -206,6 +241,10 @@ Out of scope for this task:
 - `T-08`: Run rollback workflow with candidate/rollback refs and confirm summary
   evidence for both.
 - `T-09`: Force smoke failure and verify diagnostics artifact upload behavior.
+- `T-10`: Validate required check names in workflow definitions match branch
+  protection configuration contract.
+- `T-11`: Diff-audit implementation changes to confirm release packaging/publish
+  semantics were not modified outside allowed gate scope.
 
 ## Acceptance Verification Matrix
 | Requirement | Verification method |
@@ -216,6 +255,7 @@ Out of scope for this task:
 | Release checklist availability | Checked-in checklist + run URLs captured during release |
 | Rollback validation workflow | Manual `workflow_dispatch` run for candidate + rollback refs |
 | Failure diagnostics | Uploaded smoke artifact payload on forced failure |
+| Required check name stability | Workflow YAML job names match branch-protection check contract |
 
 ## Implementation Notes (Next Phase Input)
 Primary files for implementation/verification:

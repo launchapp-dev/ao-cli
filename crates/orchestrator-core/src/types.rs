@@ -758,6 +758,7 @@ pub enum WorkflowMachineState {
     ApplyTransition,
     Paused,
     Completed,
+    MergeConflict,
     Failed,
     Cancelled,
 }
@@ -777,6 +778,8 @@ pub enum WorkflowMachineEvent {
     ResumeRequested,
     CancelRequested,
     ReworkBudgetExceeded,
+    MergeConflictDetected,
+    MergeConflictResolved,
     NoMorePhases,
 }
 

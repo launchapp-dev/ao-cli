@@ -147,6 +147,7 @@ pub trait WorkflowServiceApi: Send + Sync {
     async fn request_research(&self, id: &str, reason: String) -> Result<OrchestratorWorkflow>;
     async fn complete_current_phase(&self, id: &str) -> Result<OrchestratorWorkflow>;
     async fn fail_current_phase(&self, id: &str, error: String) -> Result<OrchestratorWorkflow>;
+    async fn mark_merge_conflict(&self, id: &str, error: String) -> Result<OrchestratorWorkflow>;
 }
 
 #[async_trait]

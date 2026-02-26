@@ -6,7 +6,7 @@
   "blocked_by": null,
   "blocked_phase": null,
   "blocked_reason": null,
-  "branch_name": null,
+  "branch_name": "ao/task-018",
   "cancelled": false,
   "checklist": [],
   "complexity": "medium",
@@ -19,13 +19,13 @@
   "linked_architecture_entities": [],
   "linked_requirements": [],
   "metadata": {
-    "completed_at": null,
+    "completed_at": "2026-02-26T14:59:19.910165Z",
     "created_at": "2026-02-24T20:06:43.284244Z",
     "created_by": "ao-cli",
     "started_at": "2026-02-26T01:39:01.689550Z",
-    "updated_at": "2026-02-26T01:43:54.709749Z",
+    "updated_at": "2026-02-26T14:59:37.635904Z",
     "updated_by": "ao-cli",
-    "version": 3
+    "version": 45
   },
   "paused": false,
   "priority": "medium",
@@ -36,7 +36,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "in-progress",
+  "status": "done",
   "tags": [],
   "title": "Set up web GUI CI, E2E smoke, and release gates",
   "type": "test",
@@ -48,5 +48,5 @@
     "requires_staging_deploy": false,
     "workflow_id": null
   },
-  "worktree_path": null
+  "worktree_path": "/Users/samishukri/.ao/ao-cli-1222ef9c4f94/worktrees/task-task-018"
 }

@@ -6,26 +6,28 @@
   "blocked_by": null,
   "blocked_phase": null,
   "blocked_reason": null,
-  "branch_name": "ao/task-022",
+  "branch_name": "ao/task-033",
   "cancelled": false,
   "checklist": [],
   "complexity": "medium",
   "deadline": null,
   "dependencies": [],
-  "description": "Deliver AO onboarding flow with guided and non-interactive setup, doctor-based remediation, and API-only config writes per REQ-022.",
+  "description": "persist_snapshot writes core-state.json without file locking. If daemon and CLI write simultaneously, state corruption is possible (demonstrated by REQ-022/023 ID collision during review). Add fs2 file locking or equivalent coordination to prevent concurrent read-modify-write races. The fs2 crate is already a dependency of orchestrator-cli.",
   "estimated_effort": null,
-  "id": "TASK-022",
+  "id": "TASK-033",
   "impact_area": [],
   "linked_architecture_entities": [],
-  "linked_requirements": [],
+  "linked_requirements": [
+    "REQ-022"
+  ],
   "metadata": {
-    "completed_at": "2026-02-26T14:59:20.873895Z",
-    "created_at": "2026-02-26T00:01:27.768763Z",
+    "completed_at": null,
+    "created_at": "2026-02-26T14:55:17.797351Z",
     "created_by": "ao-cli",
-    "started_at": "2026-02-26T00:01:44.227789Z",
-    "updated_at": "2026-02-26T14:59:37.767199Z",
+    "started_at": "2026-02-26T15:06:11.390655Z",
+    "updated_at": "2026-02-26T15:06:27.314507Z",
     "updated_by": "ao-cli",
-    "version": 22
+    "version": 4
   },
   "paused": false,
   "priority": "high",
@@ -36,10 +38,10 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "done",
+  "status": "in-progress",
   "tags": [],
-  "title": "Implement guided onboarding and configuration wizard",
-  "type": "feature",
+  "title": "Add file locking to core-state.json persistence",
+  "type": "bugfix",
   "workflow_metadata": {
     "requires_architecture": false,
     "requires_design": false,
@@ -48,5 +50,5 @@
     "requires_staging_deploy": false,
     "workflow_id": null
   },
-  "worktree_path": "/Users/samishukri/.ao/ao-cli-1222ef9c4f94/worktrees/task-task-022"
+  "worktree_path": "/Users/samishukri/.ao/ao-cli-1222ef9c4f94/worktrees/task-task-033"
 }

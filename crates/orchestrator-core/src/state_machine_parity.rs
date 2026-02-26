@@ -11,6 +11,7 @@ fn workflow_transition_matrix_matches_legacy_behavior() {
         WorkflowMachineState::ApplyTransition,
         WorkflowMachineState::Paused,
         WorkflowMachineState::Completed,
+        WorkflowMachineState::MergeConflict,
         WorkflowMachineState::Failed,
         WorkflowMachineState::Cancelled,
     ];
@@ -27,6 +28,8 @@ fn workflow_transition_matrix_matches_legacy_behavior() {
         WorkflowMachineEvent::ResumeRequested,
         WorkflowMachineEvent::CancelRequested,
         WorkflowMachineEvent::ReworkBudgetExceeded,
+        WorkflowMachineEvent::MergeConflictDetected,
+        WorkflowMachineEvent::MergeConflictResolved,
         WorkflowMachineEvent::NoMorePhases,
     ];
 
@@ -101,7 +104,15 @@ fn legacy_transition(
             WorkflowMachineEvent::CancelRequested => WorkflowMachineState::Cancelled,
             _ => WorkflowMachineState::Paused,
         },
-        WorkflowMachineState::Completed => WorkflowMachineState::Completed,
+        WorkflowMachineState::Completed => match event {
+            WorkflowMachineEvent::MergeConflictDetected => WorkflowMachineState::MergeConflict,
+            _ => WorkflowMachineState::Completed,
+        },
+        WorkflowMachineState::MergeConflict => match event {
+            WorkflowMachineEvent::CancelRequested => WorkflowMachineState::Cancelled,
+            WorkflowMachineEvent::MergeConflictResolved => WorkflowMachineState::Completed,
+            _ => WorkflowMachineState::MergeConflict,
+        },
         WorkflowMachineState::Failed => match event {
             WorkflowMachineEvent::ResumeRequested => WorkflowMachineState::EvaluateTransition,
             WorkflowMachineEvent::CancelRequested => WorkflowMachineState::Cancelled,

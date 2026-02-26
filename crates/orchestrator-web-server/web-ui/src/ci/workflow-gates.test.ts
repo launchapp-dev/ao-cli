@@ -79,6 +79,11 @@ describe("web gui release workflow gates", () => {
     expect(workflow).toContain("dry_run_note");
     expect(workflow).toContain("event_name");
     expect(workflow).toContain("files = $BinaryFiles");
+    expect(workflow).toContain("Validate staged artifact contract (unix)");
+    expect(workflow).toContain("Validate staged artifact contract (windows)");
+    expect(workflow).toContain("missing required staged file");
+    expect(workflow).toContain("release metadata mismatch for schema");
+    expect(workflow).toContain('foreach ($Key in @("git_ref", "git_sha", "event_name", "dry_run_note"))');
     expect(countMatches(workflow, /- name:\s*Upload artifact\n/g)).toBe(1);
     expect(workflow).toContain("path: ao-${{ steps.version.outputs.value }}-${{ matrix.target }}.${{ matrix.archive_ext }}");
     expect(workflow).toContain("no release archives found after download-artifact step");

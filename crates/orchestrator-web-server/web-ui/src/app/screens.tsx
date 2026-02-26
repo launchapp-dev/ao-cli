@@ -929,9 +929,6 @@ export function WorkflowsPage() {
   const state = useApiResource(
     async () => api.workflowsList(),
     [refreshNonce],
-    {
-      isEmpty: (data) => Array.isArray(data) && data.length === 0,
-    },
   );
 
   const appendWorkflowFeedback = (entry: Omit<ControlFeedbackEntry, "id">) => {
@@ -1094,68 +1091,72 @@ export function WorkflowsPage() {
 
           <section className="panel" aria-label="Workflow list">
             <h2>Workflow Queue</h2>
-            <ul className="workflow-list">
-              {workflows.map((workflow) => {
-                const availability = workflowAvailability(workflow.status);
-                return (
-                  <li key={workflow.id} className="workflow-card">
-                    <div className="workflow-card-header">
-                      <div>
-                        <p className="task-detail-title">{workflow.id}</p>
-                        <p className="muted-text">
-                          Task: <code>{workflow.task_id ?? "unknown"}</code>
-                        </p>
+            {workflows.length === 0 ? (
+              <EmptyState message="No workflow records returned." />
+            ) : (
+              <ul className="workflow-list">
+                {workflows.map((workflow) => {
+                  const availability = workflowAvailability(workflow.status);
+                  return (
+                    <li key={workflow.id} className="workflow-card">
+                      <div className="workflow-card-header">
+                        <div>
+                          <p className="task-detail-title">{workflow.id}</p>
+                          <p className="muted-text">
+                            Task: <code>{workflow.task_id ?? "unknown"}</code>
+                          </p>
+                        </div>
+                        <span className={`status-chip status-${toWorkflowStatus(workflow.status)}`}>
+                          {formatStatusToken(toWorkflowStatus(workflow.status))}
+                        </span>
                       </div>
-                      <span className={`status-chip status-${toWorkflowStatus(workflow.status)}`}>
-                        {formatStatusToken(toWorkflowStatus(workflow.status))}
-                      </span>
-                    </div>
-                    <p className="muted-text">
-                      Phase: <code>{workflow.current_phase ?? "none"}</code>
-                    </p>
-                    <div className="panel-actions">
-                      <button
-                        type="button"
-                        disabled={pendingAction !== null || !availability.pause}
-                        onClick={() => runWorkflowAction(workflow.id, "pause")}
-                        aria-label={`Pause workflow ${workflow.id}`}
-                      >
-                        Pause
-                      </button>
-                      <button
-                        type="button"
-                        disabled={pendingAction !== null || !availability.resume}
-                        onClick={() => runWorkflowAction(workflow.id, "resume")}
-                        aria-label={`Resume workflow ${workflow.id}`}
-                      >
-                        Resume
-                      </button>
-                      <button
-                        type="button"
-                        className="danger-button"
-                        disabled={pendingAction !== null || !availability.cancel}
-                        onClick={() => {
-                          setQueuedCancelWorkflowId(workflow.id);
-                          setWorkflowGate({
-                            actionKey: "workflows.cancel",
-                            targetId: workflow.id,
-                            confirmationPhrase: `CANCEL ${workflow.id}`,
-                            impactSummary: `Cancelling ${workflow.id} can interrupt active phase execution and stops further progression.`,
-                            submitLabel: "Confirm Workflow Cancellation",
-                          });
-                        }}
-                        aria-label={`Cancel workflow ${workflow.id}`}
-                      >
-                        Cancel
-                      </button>
-                      <Link className="action-link" to={`/workflows/${encodeURIComponent(workflow.id)}`}>
-                        Open
-                      </Link>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
+                      <p className="muted-text">
+                        Phase: <code>{workflow.current_phase ?? "none"}</code>
+                      </p>
+                      <div className="panel-actions">
+                        <button
+                          type="button"
+                          disabled={pendingAction !== null || !availability.pause}
+                          onClick={() => runWorkflowAction(workflow.id, "pause")}
+                          aria-label={`Pause workflow ${workflow.id}`}
+                        >
+                          Pause
+                        </button>
+                        <button
+                          type="button"
+                          disabled={pendingAction !== null || !availability.resume}
+                          onClick={() => runWorkflowAction(workflow.id, "resume")}
+                          aria-label={`Resume workflow ${workflow.id}`}
+                        >
+                          Resume
+                        </button>
+                        <button
+                          type="button"
+                          className="danger-button"
+                          disabled={pendingAction !== null || !availability.cancel}
+                          onClick={() => {
+                            setQueuedCancelWorkflowId(workflow.id);
+                            setWorkflowGate({
+                              actionKey: "workflows.cancel",
+                              targetId: workflow.id,
+                              confirmationPhrase: `CANCEL ${workflow.id}`,
+                              impactSummary: `Cancelling ${workflow.id} can interrupt active phase execution and stops further progression.`,
+                              submitLabel: "Confirm Workflow Cancellation",
+                            });
+                          }}
+                          aria-label={`Cancel workflow ${workflow.id}`}
+                        >
+                          Cancel
+                        </button>
+                        <Link className="action-link" to={`/workflows/${encodeURIComponent(workflow.id)}`}>
+                          Open
+                        </Link>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </section>
         </div>
 

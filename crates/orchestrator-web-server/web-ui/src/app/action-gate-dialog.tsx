@@ -23,28 +23,31 @@ export function matchesConfirmationPhrase(input: string, expected: string): bool
 export function ActionGateDialog(props: ActionGateDialogProps) {
   const [confirmationInput, setConfirmationInput] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (!props.gate) {
       setConfirmationInput("");
+      const restoreTarget = restoreFocusRef.current;
+      restoreFocusRef.current = null;
+      if (restoreTarget && typeof document !== "undefined" && document.contains(restoreTarget)) {
+        restoreTarget.focus();
+      }
       return;
     }
 
     setConfirmationInput("");
+    const activeElement =
+      typeof document !== "undefined" && document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    restoreFocusRef.current = activeElement;
+
     const handle = window.setTimeout(() => {
       inputRef.current?.focus();
     }, 0);
 
     return () => window.clearTimeout(handle);
-  }, [props.gate]);
-
-  useEffect(() => {
-    if (props.gate) {
-      return;
-    }
-
-    closeButtonRef.current?.focus();
   }, [props.gate]);
 
   if (!props.gate) {
@@ -109,7 +112,7 @@ export function ActionGateDialog(props: ActionGateDialogProps) {
           <button type="button" className="danger-button" disabled={confirmDisabled} onClick={props.onConfirm}>
             {props.pending ? "Submitting..." : props.gate.submitLabel}
           </button>
-          <button type="button" ref={closeButtonRef} onClick={props.onClose} disabled={props.pending}>
+          <button type="button" onClick={props.onClose} disabled={props.pending}>
             Cancel
           </button>
         </div>

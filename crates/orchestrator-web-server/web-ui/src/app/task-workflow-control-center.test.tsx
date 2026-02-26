@@ -241,6 +241,35 @@ describe("task and workflow control center", () => {
     });
   });
 
+  it("keeps workflow run controls available when no workflow records exist", async () => {
+    apiMocks.workflowsList.mockReturnValue(okResult([]));
+    apiMocks.workflowRun.mockReturnValue(
+      okResult({
+        id: "wf-new",
+        task_id: "TASK-101",
+        status: "pending",
+      }),
+    );
+
+    renderInRouter(<WorkflowsPage />);
+
+    await waitFor(() => {
+      expect(apiMocks.workflowsList).toHaveBeenCalledTimes(1);
+    });
+
+    expect(screen.getByRole("heading", { name: "Run Workflow" })).toBeTruthy();
+    expect(screen.getByText("No workflow records returned.")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Task ID"), {
+      target: { value: "TASK-101" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Run Workflow" }));
+
+    await waitFor(() => {
+      expect(apiMocks.workflowRun).toHaveBeenCalledWith({ task_id: "TASK-101" });
+    });
+  });
+
   it("renders workflow timeline in deterministic checkpoint/order/timestamp sequence", async () => {
     apiMocks.workflowsById.mockReturnValue(
       okResult({

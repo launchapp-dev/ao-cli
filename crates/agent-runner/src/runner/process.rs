@@ -1743,6 +1743,35 @@ mod tests {
     }
 
     #[test]
+    fn execution_policy_parser_reads_execution_policy_alias_block() {
+        let contract = json!({
+            "execution_policy": {
+                "sandbox_mode": "read_only",
+                "allow_elevated": true,
+                "allow_prefixes": ["AO."],
+                "allow_exact": ["phase_transition"],
+                "deny_prefixes": ["BASH"],
+                "deny_exact": ["ao.git.push"]
+            }
+        });
+
+        let policy = resolve_execution_policy_enforcement(Some(&contract));
+        assert_eq!(policy.sandbox_mode, SandboxMode::ReadOnly);
+        assert!(policy.allow_elevated);
+        assert_eq!(policy.tool_policy.allow_prefixes, vec!["ao.".to_string()]);
+        assert_eq!(
+            policy.tool_policy.allow_exact,
+            vec!["phase_transition".to_string()]
+        );
+        assert_eq!(policy.tool_policy.deny_prefixes, vec!["bash".to_string()]);
+        assert_eq!(
+            policy.tool_policy.deny_exact,
+            vec!["ao.git.push".to_string()]
+        );
+        assert_eq!(policy.policy_hash, execution_policy_hash(&policy));
+    }
+
+    #[test]
     fn execution_policy_deny_rules_override_allow_rules() {
         let mcp = McpToolEnforcement {
             enabled: false,

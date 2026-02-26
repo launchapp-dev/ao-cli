@@ -1,8 +1,40 @@
 # TASK-025 Implementation Notes: Sandbox and Tool Policy Enforcement
 
+## Phase
+- Workflow phase: `requirements`
+- Workflow ID: `0bf4ff68-1b69-4090-ba23-a327b193a0de`
+- Requirement: `REQ-025`
+- Task: `TASK-025`
+- Updated: `2026-02-26`
+
 ## Purpose
-Translate `TASK-025` requirements into implementation slices that add policy
-controls without broad behavioral drift outside runner/daemon execution safety.
+Translate `TASK-025` requirements into implementation slices from the current
+code baseline, without broad behavioral drift outside runner/daemon execution
+safety.
+
+## Baseline Status Snapshot
+Implemented baseline in this repo:
+- Core execution policy model, precedence resolution, and stable hashing:
+  - `crates/orchestrator-core/src/execution_policy.rs`
+- Agent/phase/task policy fields wired in config/types:
+  - `crates/orchestrator-core/src/agent_runtime_config.rs`
+  - `crates/orchestrator-core/src/types.rs`
+- Daemon phase resolution and policy metadata propagation:
+  - `crates/orchestrator-cli/src/services/runtime/runtime_daemon/daemon_scheduler_phase_exec.rs`
+  - `crates/orchestrator-cli/src/services/runtime/runtime_daemon/daemon_scheduler_project_tick.rs`
+- Runner enforcement for tool allow/deny, sandbox gating, and elevation audit:
+  - `crates/agent-runner/src/runner/process.rs`
+- Doctor policy health checks and grading:
+  - `crates/orchestrator-core/src/doctor.rs`
+
+Remaining gaps to close in TASK-025:
+- Task execution policy override writes are not validated before persistence.
+- Operator-facing task policy update path is effectively `--input-json` only
+  and needs explicit contract clarity.
+- Direct `ao agent run` policy behavior is contract-driven but not explicitly
+  documented as the supported path.
+- Regression coverage is incomplete across task validation, direct-run policy
+  parsing, and daemon event metadata.
 
 ## Non-Negotiable Constraints
 - Keep all implementation in Rust crates under `crates/`.
@@ -10,72 +42,49 @@ controls without broad behavioral drift outside runner/daemon execution safety.
 - Keep `.ao` state mutations command-driven; do not rely on manual JSON edits.
 - Preserve workspace-bound execution checks in runner sandbox guard.
 - Preserve current behavior for projects with no explicit policy overrides.
+- Do not break runtime contracts that omit execution policy payloads.
 
-## Proposed Change Surface
+## Remaining Change Surface
 
-### Policy model and configuration
-- `crates/orchestrator-core/src/agent_runtime_config.rs`
-  - add typed policy fields for sandbox mode and tool allow/deny lists on
-    agent/phase runtime definitions.
-  - add validation for policy field shape and normalization.
-- `crates/orchestrator-core/config/agent-runtime-config.v2.json`
-  - add default policy block values (safe baseline).
-
-### Task-level override channel
-- `crates/orchestrator-core/src/types.rs`
-  - add optional task execution policy override shape.
+### Task policy validation
 - `crates/orchestrator-core/src/services/task_impl.rs`
-  - persist task policy override updates.
+- `crates/orchestrator-core/src/services/task_shared.rs`
+  - validate `TaskUpdateInput.execution_policy` with
+    `validate_execution_policy_overrides(...)` before persistence.
+  - fail closed on invalid/empty policy entries.
+
+### Task CLI contract clarity
 - `crates/orchestrator-cli/src/services/runtime/runtime_project_task/task.rs`
-  - pass task policy override through `--input-json` update path and surface in
-    read/get output.
+  - keep `--input-json` update path as canonical for task policy override in
+    this task.
+  - ensure help text and docs clearly show supported `execution_policy` shape.
 
-### Runtime contract and context propagation
-- `crates/orchestrator-core/src/runtime_contract.rs`
-  - include resolved policy payload fields in runtime contract.
+### Direct-run policy contract hardening
 - `crates/orchestrator-cli/src/shared/runner.rs`
-  - include resolved policy for direct `agent run`.
-- `crates/orchestrator-cli/src/services/runtime/runtime_daemon/daemon_scheduler_phase_exec.rs`
-  - resolve effective policy per phase/task and inject into run context.
+  - keep default behavior unchanged when policy is absent.
+  - explicitly support both runtime payload paths for explicit policy:
+    - `runtime_contract.policy.execution`
+    - `runtime_contract.execution_policy`
 
-### Runner enforcement and elevation
+### Runner/daemon integration hardening
 - `crates/agent-runner/src/runner/process.rs`
-  - enforce sandbox mode at launch boundary.
-  - enforce tool allow/deny policy for emitted tool calls.
-  - emit deterministic policy/elevation errors and events.
-- `crates/agent-runner/src/runner/supervisor.rs`
-  - validate policy presence/shape in context before process spawn.
-
-### Audit persistence and eventing
+  - retain deterministic deny-over-allow and single-use elevation semantics.
+  - ensure audit file writes stay atomic.
 - `crates/orchestrator-cli/src/services/runtime/runtime_daemon/daemon_scheduler_project_tick.rs`
-  - include policy decision/elevation signals in phase execution events.
-- `crates/orchestrator-cli/src/services/runtime/runtime_daemon/daemon_run.rs`
-  - expose policy audit payload in daemon event stream.
-- `crates/orchestrator-core/src/domain_state.rs` or dedicated store module
-  - persist elevated execution request/approval/outcome records.
+  - preserve policy metadata in phase events and elevation-required signaling.
 
 ### Doctor diagnostics
 - `crates/orchestrator-core/src/doctor.rs`
-  - add policy health checks and result grading logic.
-- `crates/orchestrator-cli/src/services/operations/ops_planning/mod.rs`
-  - include expanded doctor payload unchanged behind existing command surface.
-
-### CLI command surface for elevation audit
-- `crates/orchestrator-cli/src/cli_types.rs`
-  - add explicit elevation request/approve/outcome/read commands (or extend an
-    existing operations group) for auditable operator workflows.
-- `crates/orchestrator-cli/src/services/operations/`
-  - implement handlers and persistent store wiring for elevation actions.
+  - preserve policy check names and hard-fail classification.
 
 ## Execution Sequence
-1. Introduce policy structs/enums and config validation.
-2. Add task-level policy override model and persistence.
-3. Implement policy resolution utility (task -> phase -> agent -> default).
-4. Thread resolved policy into runtime contract/context for daemon + direct runs.
-5. Enforce policy in agent-runner with deterministic deny/elevation behavior.
-6. Add elevation persistence records and event payload emission.
-7. Extend doctor checks for policy health.
-8. Add tests and run targeted validation.
+1. Add task update validation for execution policy overrides.
+2. Add/adjust unit tests for task policy validation behavior.
+3. Add direct-run tests for explicit policy payload path compatibility.
+4. Add daemon integration assertions for policy metadata/elevation-required
+   phase events.
+5. Add doctor regression assertions for policy checks and grading.
+6. Update docs/help examples for task override and direct-run policy usage.
 
 ## Enforcement Guidance
 - Normalize identifiers before matching.
@@ -95,7 +104,21 @@ controls without broad behavioral drift outside runner/daemon execution safety.
 
 ## Suggested Data Contracts
 
-### Resolved policy payload (runtime context)
+### Task update payload (`task update --input-json`)
+```json
+{
+  "execution_policy": {
+    "sandbox_mode": "read_only",
+    "allow_prefixes": ["ao."],
+    "allow_exact": ["phase_transition"],
+    "deny_prefixes": ["bash"],
+    "deny_exact": ["ao.git.push"],
+    "allow_elevated": true
+  }
+}
+```
+
+### Resolved policy payload (runtime contract)
 - `sandbox_mode`
 - `tool_policy.allow_prefixes`
 - `tool_policy.allow_exact`
@@ -124,9 +147,8 @@ controls without broad behavioral drift outside runner/daemon execution safety.
 ## Testing Plan
 
 ### Core/config tests
-- agent runtime config accepts valid policy fields.
-- invalid sandbox values fail validation.
-- policy hash and precedence resolution remain deterministic.
+- execution policy hash and precedence resolution remain deterministic.
+- invalid override entries fail validation.
 
 ### Runner tests
 - deny-over-allow semantics are enforced.
@@ -139,6 +161,7 @@ controls without broad behavioral drift outside runner/daemon execution safety.
 - daemon phase events include policy metadata/signals.
 - phase execution metadata artifacts include resolved policy hash.
 - elevation records persist request/approval/outcome fields.
+- direct-run policy parsing supports both payload paths.
 - doctor output includes new policy checks and correct health grading.
 
 ### Regression tests
@@ -152,6 +175,8 @@ controls without broad behavioral drift outside runner/daemon execution safety.
 - Risk: inconsistent enforcement between direct run and daemon phases.
   - Mitigation: share one policy resolution utility and one runner enforcement
     path.
+- Risk: hidden task policy write failures due invalid payload shape.
+  - Mitigation: validate overrides before persistence and test error paths.
 - Risk: elevation token replay/mismatch.
   - Mitigation: operation-bound, hash-bound, single-use approvals with strict
     verification.

@@ -673,6 +673,121 @@ async fn task_service_supports_priority_checklists_and_dependencies() {
 }
 
 #[tokio::test]
+async fn task_service_update_rejects_invalid_execution_policy_overrides() {
+    let hub = InMemoryServiceHub::new();
+    let task = TaskServiceApi::create(
+        &hub,
+        TaskCreateInput {
+            title: "Policy validation".to_string(),
+            description: String::new(),
+            task_type: Some(TaskType::Feature),
+            priority: Some(Priority::Medium),
+            created_by: Some("tester".to_string()),
+            tags: vec![],
+            linked_requirements: vec![],
+            linked_architecture_entities: vec![],
+        },
+    )
+    .await
+    .expect("task should be created");
+
+    let error = TaskServiceApi::update(
+        &hub,
+        &task.id,
+        TaskUpdateInput {
+            title: None,
+            description: None,
+            priority: None,
+            status: None,
+            assignee: None,
+            tags: None,
+            updated_by: Some("tester".to_string()),
+            deadline: None,
+            linked_architecture_entities: None,
+            execution_policy: Some(crate::ExecutionPolicyOverrides {
+                allow_prefixes: Some(vec!["".to_string()]),
+                ..crate::ExecutionPolicyOverrides::default()
+            }),
+        },
+    )
+    .await
+    .expect_err("invalid execution policy should fail");
+
+    assert!(error
+        .to_string()
+        .contains("task.execution_policy.allow_prefixes"));
+}
+
+#[tokio::test]
+async fn task_service_update_normalizes_execution_policy_overrides() {
+    let hub = InMemoryServiceHub::new();
+    let task = TaskServiceApi::create(
+        &hub,
+        TaskCreateInput {
+            title: "Policy normalization".to_string(),
+            description: String::new(),
+            task_type: Some(TaskType::Feature),
+            priority: Some(Priority::Medium),
+            created_by: Some("tester".to_string()),
+            tags: vec![],
+            linked_requirements: vec![],
+            linked_architecture_entities: vec![],
+        },
+    )
+    .await
+    .expect("task should be created");
+
+    let updated = TaskServiceApi::update(
+        &hub,
+        &task.id,
+        TaskUpdateInput {
+            title: None,
+            description: None,
+            priority: None,
+            status: None,
+            assignee: None,
+            tags: None,
+            updated_by: Some("tester".to_string()),
+            deadline: None,
+            linked_architecture_entities: None,
+            execution_policy: Some(crate::ExecutionPolicyOverrides {
+                sandbox_mode: Some(crate::SandboxMode::ReadOnly),
+                allow_prefixes: Some(vec![" AO.".to_string(), "ao.".to_string()]),
+                allow_exact: Some(vec![
+                    " AO.task.list ".to_string(),
+                    "ao.task.list".to_string(),
+                ]),
+                deny_prefixes: Some(vec![" Bash".to_string(), "bash".to_string()]),
+                deny_exact: Some(vec![
+                    " AO.GIT.PUSH ".to_string(),
+                    "ao.task.update".to_string(),
+                    "ao.git.push".to_string(),
+                ]),
+                allow_elevated: Some(true),
+            }),
+        },
+    )
+    .await
+    .expect("task update should succeed");
+
+    let policy = updated
+        .execution_policy
+        .expect("execution policy should be stored");
+    assert_eq!(policy.sandbox_mode, Some(crate::SandboxMode::ReadOnly));
+    assert_eq!(policy.allow_elevated, Some(true));
+    assert_eq!(policy.allow_prefixes, Some(vec!["ao.".to_string()]));
+    assert_eq!(policy.allow_exact, Some(vec!["ao.task.list".to_string()]));
+    assert_eq!(policy.deny_prefixes, Some(vec!["bash".to_string()]));
+    assert_eq!(
+        policy.deny_exact,
+        Some(vec![
+            "ao.git.push".to_string(),
+            "ao.task.update".to_string()
+        ])
+    );
+}
+
+#[tokio::test]
 async fn task_service_rejects_unknown_architecture_entities() {
     let hub = InMemoryServiceHub::new();
     let error = TaskServiceApi::create(

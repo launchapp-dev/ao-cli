@@ -98,6 +98,7 @@ impl TaskServiceApi for InMemoryServiceHub {
     }
 
     async fn update(&self, id: &str, input: TaskUpdateInput) -> Result<OrchestratorTask> {
+        validate_task_update_input(&input)?;
         let mut lock = self.state.write().await;
         if let Some(entity_ids) = input.linked_architecture_entities.as_ref() {
             validate_linked_architecture_entities(&lock.architecture, entity_ids)?;
@@ -390,6 +391,7 @@ impl TaskServiceApi for FileServiceHub {
     }
 
     async fn update(&self, id: &str, input: TaskUpdateInput) -> Result<OrchestratorTask> {
+        validate_task_update_input(&input)?;
         let (snapshot, task) = {
             let mut lock = self.state.write().await;
             if let Some(entity_ids) = input.linked_architecture_entities.as_ref() {

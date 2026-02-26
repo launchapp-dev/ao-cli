@@ -2,9 +2,10 @@
 
 ## Phase
 - Workflow phase: `requirements`
-- Workflow ID: `61012efe-24d8-408c-a2f0-59d063241ab4`
+- Workflow ID: `0bf4ff68-1b69-4090-ba23-a327b193a0de`
 - Requirement: `REQ-025`
 - Task: `TASK-025`
+- Updated: `2026-02-26`
 
 ## Objective
 Define a deterministic, repository-safe policy contract that adds:
@@ -16,29 +17,27 @@ Define a deterministic, repository-safe policy contract that adds:
 The contract must work for direct `ao agent run` execution and daemon-managed
 workflow phase runs.
 
-## Existing Baseline Audit
+## Existing Baseline Audit (as implemented)
 
-| Surface | Current implementation | Baseline behavior | Gap vs REQ-025 |
+| Surface | Current implementation | Confirmed behavior | Remaining gap vs REQ-025 |
 | --- | --- | --- | --- |
-| Agent runtime config | `crates/orchestrator-core/src/agent_runtime_config.rs`, `crates/orchestrator-core/config/agent-runtime-config.v2.json` | Supports agent/phase tool-model runtime selection and command-phase `tools_allowlist` | No sandbox mode model and no task-specific execution policy fields |
-| Runtime contract generation | `crates/orchestrator-core/src/runtime_contract.rs`, `crates/orchestrator-cli/src/shared/runner.rs` | Emits CLI launch shape and MCP-only `allowed_tool_prefixes` | No sandbox or deny policy payload, no task policy override channel |
-| Runner tool enforcement | `crates/agent-runner/src/runner/process.rs` | Enforces MCP-only allow-prefix checks and locked server semantics | No denylist semantics, no per-task policy, no explicit elevated execution lifecycle |
-| Workspace/env protection | `crates/agent-runner/src/sandbox/workspace_guard.rs`, `crates/agent-runner/src/sandbox/env_sanitizer.rs` | Enforces cwd inside project/worktree and fixed env allowlist | Not policy-driven per agent/task and no policy observability |
-| Daemon phase metadata | `crates/orchestrator-cli/src/services/runtime/runtime_daemon/daemon_scheduler_phase_exec.rs`, `daemon_scheduler_project_tick.rs`, `daemon_run.rs` | Persists phase metadata (agent/tool/model hashes) and run artifacts | No policy snapshot hash/details and no elevation audit records in phase event stream |
-| Doctor diagnostics | `crates/orchestrator-core/src/doctor.rs`, `crates/orchestrator-cli/src/services/operations/ops_planning/mod.rs` | Only checks `cwd_resolvable` and optional `PROJECT_ROOT` env | No policy configuration or enforcement health checks |
+| Execution policy model | `crates/orchestrator-core/src/execution_policy.rs`, `crates/orchestrator-core/src/agent_runtime_config.rs`, `crates/orchestrator-core/src/types.rs` | Typed sandbox/tool policy exists with precedence resolution, source tracing, and stable hash | Task policy override writes are not validated in task service update path |
+| Daemon policy propagation | `crates/orchestrator-cli/src/services/runtime/runtime_daemon/daemon_scheduler_phase_exec.rs`, `daemon_scheduler_project_tick.rs` | Daemon resolves policy per phase/task and emits `policy_hash`, `sandbox_mode`, `allow_elevated`, `tool_policy`, `policy_sources` | Requires full integration coverage for regression safety |
+| Direct `ao agent run` behavior | `crates/orchestrator-cli/src/shared/runner.rs`, `crates/orchestrator-core/src/runtime_contract.rs` | Direct runs support policy enforcement only when policy is present in provided runtime contract; otherwise defaults apply | No automatic policy resolution from task/phase/agent context for direct runs |
+| Runner enforcement and elevation | `crates/agent-runner/src/runner/process.rs` | Deny-over-allow enforced, sandbox-mode launch gating enforced, elevation request/outcome audit persisted, approvals are single-use | No first-class CLI UX for approval/query flow; currently contract-driven |
+| Workspace/env guardrails | `crates/agent-runner/src/sandbox/workspace_guard.rs`, `crates/agent-runner/src/sandbox/env_sanitizer.rs` | Repository/worktree boundary checks and env sanitization remain active and fail closed | Keep unchanged while extending policy controls |
+| Doctor diagnostics | `crates/orchestrator-core/src/doctor.rs`, `crates/orchestrator-cli/src/services/operations/ops_planning/mod.rs` | Policy checks are present with `healthy/degraded/unhealthy` grading | Requires deterministic output assertions in regression tests |
 
 ## Scope
 In scope for implementation after this phase:
-- Introduce a typed sandbox/tool policy model that can be resolved per run from
-  agent defaults plus task overrides.
-- Enforce resolved tool allow/deny policy in the runner for emitted tool calls.
-- Enforce resolved sandbox mode at run launch boundaries.
-- Add deterministic elevated execution requests for policy violations that may
-  be explicitly approved.
-- Persist elevation request/approval/outcome artifacts for auditability.
-- Extend doctor output with policy-specific checks and failure details.
-- Add tests for policy resolution, enforcement, elevation gating, and doctor
-  diagnostics.
+- Validate task-level execution policy override payloads before persistence.
+- Expose/clarify task policy update input contract for operators.
+- Define and lock direct `ao agent run` policy semantics (default + explicit
+  policy injection paths).
+- Keep runner enforcement and elevation behavior deterministic and auditable.
+- Ensure daemon phase metadata and events preserve policy context fields.
+- Add/expand tests for policy parsing, precedence, enforcement, elevation, and
+  doctor grading.
 
 Out of scope for this task:
 - OS kernel sandboxing or container/jail orchestration.
@@ -49,12 +48,15 @@ Out of scope for this task:
 ## Constraints
 - Preserve existing command names and existing safe defaults for users without
   explicit policy configuration.
+- Preserve backward compatibility for runtime contracts that do not include
+  execution policy payloads.
 - Keep `ao.cli.v1` envelope behavior unchanged in JSON mode.
 - Keep `workspace_guard` repository-bound checks intact and fail closed.
 - Keep policy evaluation deterministic (same input context -> same decision).
 - Keep enforcement semantics explicit and auditable in run/phase artifacts.
 - Deny rules must take precedence over allow rules.
 - Elevated approvals must be operation-bound and single-use to prevent replay.
+- Keep all file/state writes for elevation audit deterministic and atomic.
 
 ## Policy Model Contract
 
@@ -77,7 +79,7 @@ Resolved tool policy must support:
 Decision rules:
 1. Normalize tool identifiers to lowercase before evaluation.
 2. `deny_exact`/`deny_prefixes` always block even when also allowlisted.
-3. If allow rules are empty, use existing MCP defaults for MCP-only mode and
+3. If allow rules are empty, preserve current MCP-only prefix enforcement and
    preserve current behavior for non-MCP mode.
 4. Unknown/empty tool names fail closed.
 
@@ -93,6 +95,17 @@ Resolution output must include:
 - resolved allow/deny tool sets
 - policy source trace (which level supplied each field)
 - stable policy hash for audit correlation
+
+### Direct `ao agent run` Contract
+- If no execution policy payload is present in runtime contract, defaults apply:
+  - `sandbox_mode=workspace_write`
+  - `allow_elevated=false`
+  - empty allow/deny lists
+- Runtime policy payload may be supplied via either path:
+  - `runtime_contract.policy.execution`
+  - `runtime_contract.execution_policy`
+- Both paths must be parsed deterministically and produce equivalent policy
+  decisions.
 
 ## Elevated Execution Contract
 When policy would block an operation that is explicitly elevatable:
@@ -113,6 +126,11 @@ Approval safety rules:
   hash + requested action)
 - approval is single-use
 - approval mismatch fails closed with deterministic error
+
+Audit file contract:
+- elevation records persist at:
+  - `<project_root>/.ao/state/elevation-audit.v1.json`
+- writes must use atomic replace semantics to avoid partial-file corruption.
 
 ## Observability and Audit Requirements
 Phase/run artifacts must include policy context:
@@ -140,42 +158,49 @@ Result grading:
 ## Acceptance Criteria
 - `AC-01`: Policy model supports sandbox mode + tool allow/deny fields at
   agent and task levels.
-- `AC-02`: Policy resolution precedence is deterministic and serialized in
+- `AC-02`: Task policy override writes reject empty tool entries and keep
+  persisted values normalized/valid.
+- `AC-03`: Policy resolution precedence is deterministic and serialized in
   run/phase metadata.
-- `AC-03`: Runner blocks disallowed tool calls with deterministic
+- `AC-04`: Runner blocks disallowed tool calls with deterministic
   `POLICY_VIOLATION` errors.
-- `AC-04`: Deny rules always override allow rules.
-- `AC-05`: Resolved sandbox mode is enforced before launching side-effecting
+- `AC-05`: Deny rules always override allow rules.
+- `AC-06`: Resolved sandbox mode is enforced before launching side-effecting
   execution.
-- `AC-06`: Elevatable policy violations return `ELEVATION_REQUIRED` and create
+- `AC-07`: Elevatable policy violations return `ELEVATION_REQUIRED` and create
   auditable request records.
-- `AC-07`: Approved elevation can be consumed once and only for its bound
+- `AC-08`: Approved elevation can be consumed once and only for its bound
   action scope.
-- `AC-08`: Elevation request/approval/outcome artifacts are persisted and
+- `AC-09`: Elevation request/approval/outcome artifacts are persisted and
   queryable for audit.
-- `AC-09`: `ao doctor` reports policy checks and grading (`healthy`,
+- `AC-10`: `ao doctor` reports policy checks and grading (`healthy`,
   `degraded`, `unhealthy`) deterministically.
-- `AC-10`: Existing workflows with no explicit policy config remain functional
+- `AC-11`: Existing workflows with no explicit policy config remain functional
   with current safe defaults.
-- `AC-11`: Existing command-phase `tools_allowlist` behavior remains intact for
+- `AC-12`: Existing command-phase `tools_allowlist` behavior remains intact for
   command mode phases.
-- `AC-12`: Workspace boundary enforcement remains unchanged and continues to
+- `AC-13`: Workspace boundary enforcement remains unchanged and continues to
   fail closed.
+- `AC-14`: Direct `ao agent run` defaults remain backward-compatible when no
+  policy payload is supplied, and explicit payloads are honored via documented
+  runtime contract paths.
 
 ## Verification Matrix
 
 | Requirement | Verification method |
 | --- | --- |
-| `AC-01`, `AC-02` | Unit tests for config parsing + policy resolution precedence and hash stability |
-| `AC-03`, `AC-04` | Runner tests for allow/deny combinations and deny-over-allow behavior |
-| `AC-05` | Runner launch tests validating sandbox-mode gating decisions |
-| `AC-06`, `AC-07`, `AC-08` | Integration tests for elevation request, approval binding, single-use consumption, and persisted outcomes |
-| `AC-09` | Doctor tests asserting policy check entries and result grading logic |
-| `AC-10`, `AC-11`, `AC-12` | Regression tests for existing daemon/task execution and workspace guard behavior |
+| `AC-01`, `AC-03` | Unit tests for config parsing + policy resolution precedence and hash stability |
+| `AC-02` | Task service tests asserting policy override validation failures/success paths |
+| `AC-04`, `AC-05` | Runner tests for allow/deny combinations and deny-over-allow behavior |
+| `AC-06` | Runner launch tests validating sandbox-mode gating decisions |
+| `AC-07`, `AC-08`, `AC-09` | Integration tests for elevation request, approval binding, single-use consumption, and persisted outcomes |
+| `AC-10` | Doctor tests asserting policy check entries and result grading logic |
+| `AC-11`, `AC-12`, `AC-13` | Regression tests for existing daemon/task execution and workspace guard behavior |
+| `AC-14` | Direct `agent run` tests for default-policy fallback and explicit payload parsing (`policy.execution` and `execution_policy`) |
 
 ## Deterministic Deliverables for Next Phase
-- Typed policy structs + validation in core config/runtime layers.
-- Runner enforcement for sandbox mode and tool allow/deny semantics.
-- Elevated execution request/approval/outcome persistence and enforcement path.
-- Doctor checks covering policy config and audit store health.
-- End-to-end tests for policy resolution, enforcement, elevation, and regressions.
+- Task execution policy validation in task service update path.
+- CLI/task input contract documentation for policy overrides.
+- Direct-run policy contract hardening and regression tests.
+- End-to-end tests for policy resolution, enforcement, elevation, doctor, and
+  backward compatibility.

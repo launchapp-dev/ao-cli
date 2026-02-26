@@ -1,5 +1,38 @@
 use super::*;
 
+fn normalize_policy_entries(values: Option<Vec<String>>) -> Option<Vec<String>> {
+    values.map(|entries| {
+        let mut normalized = entries
+            .into_iter()
+            .map(|value| value.trim().to_ascii_lowercase())
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>();
+        normalized.sort();
+        normalized.dedup();
+        normalized
+    })
+}
+
+fn normalize_execution_policy_overrides(
+    overrides: &crate::ExecutionPolicyOverrides,
+) -> crate::ExecutionPolicyOverrides {
+    crate::ExecutionPolicyOverrides {
+        sandbox_mode: overrides.sandbox_mode,
+        allow_prefixes: normalize_policy_entries(overrides.allow_prefixes.clone()),
+        allow_exact: normalize_policy_entries(overrides.allow_exact.clone()),
+        deny_prefixes: normalize_policy_entries(overrides.deny_prefixes.clone()),
+        deny_exact: normalize_policy_entries(overrides.deny_exact.clone()),
+        allow_elevated: overrides.allow_elevated,
+    }
+}
+
+pub(super) fn validate_task_update_input(input: &TaskUpdateInput) -> Result<()> {
+    if let Some(execution_policy) = input.execution_policy.as_ref() {
+        crate::validate_execution_policy_overrides("task.execution_policy", execution_policy)?;
+    }
+    Ok(())
+}
+
 pub(super) fn next_task_id(tasks: &HashMap<String, OrchestratorTask>) -> String {
     let next_seq = tasks
         .keys()
@@ -66,7 +99,7 @@ pub(super) fn apply_task_update(task: &mut OrchestratorTask, input: TaskUpdateIn
         task.linked_architecture_entities = linked_architecture_entities;
     }
     if let Some(execution_policy) = input.execution_policy {
-        task.execution_policy = Some(execution_policy);
+        task.execution_policy = Some(normalize_execution_policy_overrides(&execution_policy));
     }
     task.metadata.updated_at = Utc::now();
     task.metadata.version = task.metadata.version.saturating_add(1);

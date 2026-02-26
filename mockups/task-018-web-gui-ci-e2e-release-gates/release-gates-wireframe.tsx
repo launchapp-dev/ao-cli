@@ -88,6 +88,18 @@ type RollbackValidationModel = {
   rollbackDetails: string;
 };
 
+type CommandSurface = "release-topology" | "checks" | "checklist" | "rollback";
+type DecisionDrawerState = "missing-evidence" | "ready-for-go" | "blocked";
+type CommandTrigger = "tag_push" | "workflow_dispatch";
+
+type CommandCenterRun = {
+  id: string;
+  trigger: CommandTrigger;
+  startedAtUtc: string;
+  status: GateStatus;
+  blocker: string | null;
+};
+
 const webUiCiJobs: GateJob[] = [
   {
     id: "matrix-20",
@@ -116,6 +128,13 @@ const webUiCiJobs: GateJob[] = [
 ];
 
 const workflowTriggerEvents: TriggerEvent[] = ["pull_request", "push"];
+const workflowTriggerPaths = [
+  "crates/orchestrator-web-server/**",
+  ".github/workflows/web-ui-ci.yml",
+  ".github/workflows/release.yml",
+  ".github/workflows/release-rollback-validation.yml",
+  ".github/release-checklists/web-gui-release.md",
+];
 const gateLifecycleStates: GateStatus[] = [
   "queued",
   "running",
@@ -155,7 +174,7 @@ const smokeAssertions: SmokeAssertion[] = [
     id: "t06-api-only",
     label: "T-06 api_only=true rejects /dashboard",
     status: "failed",
-    details: "received code=invalid_input, expected code=not_found",
+    details: "received code=invalid_input, exit_code=2; expected code=not_found, exit_code=3",
   },
 ];
 
@@ -218,8 +237,8 @@ const initialChecklist: ChecklistModel = {
   embeddedAssetsVerified: true,
   rollbackPreconditionsVerified: false,
   postReleaseVerified: false,
-  decision: "go",
-  notes: "Go contingent on rollback validation run #1101 success.",
+  decision: "no-go",
+  notes: "No-Go while smoke assertion T-06 is unresolved.",
   signedOff: false,
 };
 
@@ -232,6 +251,37 @@ const rollbackSample: RollbackValidationModel = {
   rollbackDetails: "all smoke assertions passed",
 };
 
+const commandSurfaces: Array<{ id: CommandSurface; label: string }> = [
+  { id: "release-topology", label: "Release gate topology" },
+  { id: "checks", label: "PR checks + smoke triage" },
+  { id: "checklist", label: "Release checklist" },
+  { id: "rollback", label: "Rollback validation" },
+];
+
+const commandCenterRuns: CommandCenterRun[] = [
+  {
+    id: "#1097",
+    trigger: "tag_push",
+    startedAtUtc: "2026-02-25 18:03 UTC",
+    status: "failed",
+    blocker: "T-06 deep-link rejection mismatch",
+  },
+  {
+    id: "#1096",
+    trigger: "tag_push",
+    startedAtUtc: "2026-02-25 17:12 UTC",
+    status: "blocked",
+    blocker: "awaiting smoke rerun artifacts",
+  },
+  {
+    id: "#1095",
+    trigger: "tag_push",
+    startedAtUtc: "2026-02-25 15:41 UTC",
+    status: "passed",
+    blocker: null,
+  },
+];
+
 export const acceptanceTraceability: Record<TraceabilityId, string[]> = {
   "AC-01": [
     "Web UI CI workflow screen models pull_request/push trigger context, path filters, and stable job names.",
@@ -240,11 +290,13 @@ export const acceptanceTraceability: Record<TraceabilityId, string[]> = {
   "AC-03": ["Smoke job represented as required gate in CI and release contexts."],
   "AC-04": ["Smoke assertions include route HTML and /api/v1/system/info envelope checks."],
   "AC-05": ["api_only deep-link rejection assertion included as explicit row."],
-  "AC-06": ["Release gate screen models blocking web-ui-gates prerequisite."],
+  "AC-06": [
+    "Release gate topology and command-center screens model blocking web-ui-gates prerequisite.",
+  ],
   "AC-07": ["Build and publish statuses derive to blocked when gate fails."],
   "AC-08": ["Passing path note keeps artifact naming/publish behavior unchanged."],
   "AC-09": [
-    "Checklist component follows Metadata -> Preflight -> CI Gate Evidence -> Decision -> Rollback Readiness -> Post-release Verification order.",
+    "Checklist and command-center decision drawer follow deterministic evidence-first progression before sign-off.",
   ],
   "AC-10": ["Rollback dispatch requires candidate_ref and rollback_ref values."],
   "AC-11": ["Rollback summary exposes per-ref pass/fail state for audit."],
@@ -259,8 +311,43 @@ function evidenceStateText(state: EvidenceState): string {
   return state;
 }
 
+function triggerText(trigger: CommandTrigger): string {
+  if (trigger === "workflow_dispatch") {
+    return "workflow dispatch";
+  }
+
+  return "tag push";
+}
+
 function isGateBlocking(status: GateStatus): boolean {
   return status === "failed" || status === "blocked" || status === "cancelled";
+}
+
+function toDecisionDrawerState(
+  runStatus: GateStatus,
+  evidenceStates: EvidenceState[],
+): DecisionDrawerState {
+  if (isGateBlocking(runStatus)) {
+    return "blocked";
+  }
+
+  if (evidenceStates.some((state) => state === "missing")) {
+    return "missing-evidence";
+  }
+
+  return "ready-for-go";
+}
+
+function decisionDrawerGateStatus(state: DecisionDrawerState): GateStatus {
+  if (state === "ready-for-go") {
+    return "passed";
+  }
+
+  if (state === "blocked") {
+    return "failed";
+  }
+
+  return "running";
 }
 
 function toChecklistStatus(model: ChecklistModel): ChecklistStatus {
@@ -307,6 +394,123 @@ function StatusBadge(props: { status: GateStatus }): ReactNode {
   return <span aria-label={`status ${statusText(props.status)}`}>{statusText(props.status)}</span>;
 }
 
+export function ReleaseGateCommandCenterScreen(): ReactNode {
+  const [activeSurface, setActiveSurface] = useState<CommandSurface>("release-topology");
+  const [selectedRunId, setSelectedRunId] = useState<string>(commandCenterRuns[0]?.id ?? "");
+  const selectedRun = useMemo(
+    () => commandCenterRuns.find((run) => run.id === selectedRunId) ?? commandCenterRuns[0],
+    [selectedRunId],
+  );
+
+  if (!selectedRun) {
+    return (
+      <section aria-label="Release gate command center wireframe">
+        <h1>Release Gate Command Center</h1>
+        <p role="alert">No release runs are available for selection.</p>
+      </section>
+    );
+  }
+
+  const matrixEvidenceState: EvidenceState = "linked";
+  const smokeEvidenceState: EvidenceState = selectedRun.status === "failed" ? "downloaded" : "linked";
+  const rollbackEvidenceState: EvidenceState = selectedRun.status === "passed" ? "linked" : "missing";
+  const decisionState = toDecisionDrawerState(selectedRun.status, [
+    matrixEvidenceState,
+    smokeEvidenceState,
+    rollbackEvidenceState,
+  ]);
+  const completedGates = selectedRun.status === "passed" ? 3 : 1;
+
+  return (
+    <section aria-label="Release gate command center wireframe">
+      <h1>Release Gate Command Center</h1>
+      <p>Selected release run: {selectedRun.id}</p>
+      <p>
+        Surface: <strong>{commandSurfaces.find((surface) => surface.id === activeSurface)?.label}</strong>
+      </p>
+
+      <nav aria-label="Command center surfaces">
+        <ul>
+          {commandSurfaces.map((surface) => (
+            <li key={surface.id}>
+              <button
+                type="button"
+                aria-pressed={activeSurface === surface.id}
+                onClick={() => setActiveSurface(surface.id)}
+              >
+                {surface.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </nav>
+
+      <h2>Gate metrics</h2>
+      <ul>
+        <li>
+          required gates complete: {completedGates}/3 [{statusText(selectedRun.status)}]
+        </li>
+        <li>
+          smoke blocker: {selectedRun.blocker ?? "none"}
+        </li>
+        <li>
+          rollback readiness evidence: {evidenceStateText(rollbackEvidenceState)}
+        </li>
+      </ul>
+
+      <h2>Recent release runs</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>run</th>
+            <th>trigger</th>
+            <th>started</th>
+            <th>status</th>
+            <th>blocker</th>
+            <th>select</th>
+          </tr>
+        </thead>
+        <tbody>
+          {commandCenterRuns.map((run) => (
+            <tr key={run.id}>
+              <td>{run.id}</td>
+              <td>{triggerText(run.trigger)}</td>
+              <td>{run.startedAtUtc}</td>
+              <td>
+                <StatusBadge status={run.status} />
+              </td>
+              <td>{run.blocker ?? "none"}</td>
+              <td>
+                <button type="button" onClick={() => setSelectedRunId(run.id)}>
+                  {selectedRun.id === run.id ? "selected" : "select"}
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <h2>Decision drawer</h2>
+      <p>
+        decision state: <StatusBadge status={decisionDrawerGateStatus(decisionState)} /> ({decisionState})
+      </p>
+      <ul>
+        <li>matrix evidence: {evidenceStateText(matrixEvidenceState)}</li>
+        <li>smoke evidence: {evidenceStateText(smokeEvidenceState)}</li>
+        <li>rollback evidence: {evidenceStateText(rollbackEvidenceState)}</li>
+      </ul>
+
+      {decisionState === "ready-for-go" ? (
+        <p role="status">All evidence is attached. Run can move to go decision.</p>
+      ) : (
+        <p role="alert">
+          Decision remains no-go until smoke and rollback evidence are complete.
+        </p>
+      )}
+    </section>
+  );
+}
+
 export function WebUiCiRunScreen(): ReactNode {
   const failedAssertions = smokeAssertions.filter((assertion) => assertion.status === "failed");
 
@@ -317,6 +521,14 @@ export function WebUiCiRunScreen(): ReactNode {
         Required checks for deterministic web GUI quality gates before merge and release.
       </p>
       <p>trigger events: {workflowTriggerEvents.join(", ")}</p>
+      <p>trigger paths:</p>
+      <ul>
+        {workflowTriggerPaths.map((path) => (
+          <li key={path}>
+            <code>{path}</code>
+          </li>
+        ))}
+      </ul>
       <p>workflow lifecycle states: {gateLifecycleStates.map(statusText).join(", ")}</p>
 
       <table>

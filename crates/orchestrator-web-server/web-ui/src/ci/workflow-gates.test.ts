@@ -26,7 +26,11 @@ describe("web gui release workflow gates", () => {
 
     expect(workflow).toContain('.github/workflows/release-rollback-validation.yml');
     expect(workflow).toContain('.github/release-checklists/web-gui-release.md');
+    expect(workflow).toMatch(/web-ui-matrix:\s*\n[\s\S]*timeout-minutes:\s*20/);
     expect(workflow).toMatch(/matrix:\s*[\s\S]*node:\s*[\s\S]*["']20\.x["'][\s\S]*["']22\.x["']/);
+    expect(workflow).toMatch(/web-ui-smoke-e2e:\s*\n[\s\S]*needs:\s*web-ui-matrix/);
+    expect(workflow).toMatch(/web-ui-smoke-e2e:\s*\n[\s\S]*timeout-minutes:\s*20/);
+    expect(workflow).not.toMatch(/web-ui-smoke-e2e:\s*\n[\s\S]*\n\s*if:\s*always\(\)/);
     expect(workflow).toContain("run: npm run test");
     expect(workflow).toContain("run: npm run build");
     expect(workflow).toContain("run: npm run test:e2e:smoke");
@@ -37,6 +41,7 @@ describe("web gui release workflow gates", () => {
     const workflow = readWorkflow("release.yml");
 
     expect(workflow).toMatch(/web-ui-gates:\s*\n\s*name:\s*Web UI Gates/);
+    expect(workflow).toMatch(/web-ui-gates:\s*\n[\s\S]*timeout-minutes:\s*25/);
     expect(workflow).toMatch(/build:\s*\n[\s\S]*needs:\s*web-ui-gates/);
     expect(workflow).toContain("run: npm run test");
     expect(workflow).toContain("run: npm run build");
@@ -49,6 +54,11 @@ describe("web gui release workflow gates", () => {
 
     expect(workflow).toMatch(/candidate_ref:\s*[\s\S]*required:\s*true/);
     expect(workflow).toMatch(/rollback_ref:\s*[\s\S]*required:\s*true/);
+    expect(workflow).toMatch(/candidate_smoke:\s*\n[\s\S]*timeout-minutes:\s*25/);
+    expect(workflow).toMatch(/rollback_smoke:\s*\n[\s\S]*timeout-minutes:\s*25/);
+    expect(workflow).toMatch(/summary:\s*\n[\s\S]*timeout-minutes:\s*10/);
+    expect(workflow).toContain('echo "- candidate_smoke: \\`${{ needs.candidate_smoke.result }}\\`"');
+    expect(workflow).toContain('echo "- rollback_smoke: \\`${{ needs.rollback_smoke.result }}\\`"');
     expect(workflow).toContain("run: npm run test:e2e:smoke");
     expect(workflow).toContain("candidate_ref and rollback_ref smoke validations must both pass.");
     expect(workflow).toContain('echo "- mutation: \\`none\\`"');

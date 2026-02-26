@@ -8,7 +8,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const HOST = "127.0.0.1";
-const READY_TIMEOUT_MS = 60_000;
+const READY_TIMEOUT_MS = parsePositiveInt(process.env.SMOKE_READY_TIMEOUT_MS, 5 * 60_000);
 const POLL_INTERVAL_MS = 500;
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
@@ -22,6 +22,18 @@ const ARTIFACT_DIR = process.env.SMOKE_ARTIFACT_DIR
 const REPORT_PATH = path.join(ARTIFACT_DIR, "smoke-assertions.txt");
 const reportLines = [];
 const activeServers = new Set();
+
+function parsePositiveInt(value, fallback) {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return parsed;
+}
 
 function record(status, label, detail = "") {
   const line = detail ? `[${status}] ${label}: ${detail}` : `[${status}] ${label}`;
@@ -74,6 +86,7 @@ function createServer({ name, port, apiOnly }) {
 
   const args = [
     "run",
+    "--locked",
     "-p",
     "orchestrator-cli",
     "--",

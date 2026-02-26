@@ -271,33 +271,44 @@ pub(super) fn clear_stale_runner_artifacts(config_dir: &Path) {
 #[cfg(unix)]
 pub(super) async fn is_agent_runner_ready(config_dir: &Path) -> bool {
     let socket_path = runner_socket_path(config_dir);
-    matches!(
-        tokio::time::timeout(
-            Duration::from_millis(750),
-            tokio::net::UnixStream::connect(&socket_path)
-        )
-        .await,
-        Ok(Ok(_))
+    let Ok(Ok(mut stream)) = tokio::time::timeout(
+        Duration::from_millis(750),
+        tokio::net::UnixStream::connect(&socket_path),
     )
+    .await
+    else {
+        return false;
+    };
+
+    authenticate_runner_stream(&mut stream, config_dir)
+        .await
+        .is_some()
 }
 
 #[cfg(not(unix))]
-pub(super) async fn is_agent_runner_ready(_config_dir: &Path) -> bool {
-    matches!(
-        tokio::time::timeout(
-            Duration::from_millis(750),
-            tokio::net::TcpStream::connect("127.0.0.1:9001")
-        )
-        .await,
-        Ok(Ok(_))
+pub(super) async fn is_agent_runner_ready(config_dir: &Path) -> bool {
+    let Ok(Ok(mut stream)) = tokio::time::timeout(
+        Duration::from_millis(750),
+        tokio::net::TcpStream::connect("127.0.0.1:9001"),
     )
+    .await
+    else {
+        return false;
+    };
+
+    authenticate_runner_stream(&mut stream, config_dir)
+        .await
+        .is_some()
 }
 
-async fn authenticate_runner_stream<S>(stream: &mut S) -> Option<()>
+async fn authenticate_runner_stream<S>(stream: &mut S, config_dir: &Path) -> Option<()>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    let token = protocol::Config::load_global().ok()?.get_token().ok()?;
+    let token = protocol::Config::load_from_dir(config_dir)
+        .ok()?
+        .get_token()
+        .ok()?;
     let request = serde_json::to_string(&IpcAuthRequest::new(token)).ok()?;
     stream.write_all(request.as_bytes()).await.ok()?;
     stream.write_all(b"\n").await.ok()?;
@@ -331,7 +342,7 @@ pub(super) async fn query_runner_status(config_dir: &Path) -> Option<RunnerStatu
     .ok()?
     .ok()?;
 
-    authenticate_runner_stream(&mut stream).await?;
+    authenticate_runner_stream(&mut stream, config_dir).await?;
 
     let request = serde_json::to_string(&RunnerStatusRequest::default()).ok()?;
     stream.write_all(request.as_bytes()).await.ok()?;
@@ -352,7 +363,7 @@ pub(super) async fn query_runner_status(config_dir: &Path) -> Option<RunnerStatu
 }
 
 #[cfg(not(unix))]
-pub(super) async fn query_runner_status(_config_dir: &Path) -> Option<RunnerStatusResponse> {
+pub(super) async fn query_runner_status(config_dir: &Path) -> Option<RunnerStatusResponse> {
     let mut stream = tokio::time::timeout(
         Duration::from_millis(750),
         tokio::net::TcpStream::connect("127.0.0.1:9001"),
@@ -361,7 +372,7 @@ pub(super) async fn query_runner_status(_config_dir: &Path) -> Option<RunnerStat
     .ok()?
     .ok()?;
 
-    authenticate_runner_stream(&mut stream).await?;
+    authenticate_runner_stream(&mut stream, config_dir).await?;
 
     let request = serde_json::to_string(&RunnerStatusRequest::default()).ok()?;
     stream.write_all(request.as_bytes()).await.ok()?;
@@ -526,7 +537,9 @@ pub(super) async fn ensure_agent_runner_running(project_root: &Path) -> Result<O
             }
             let _ = stop_agent_runner_process(project_root).await;
         } else {
-            return Ok(read_runner_pid_from_lock(&config_dir));
+            return Err(anyhow!(
+                "agent-runner authentication succeeded but status probe returned no response"
+            ));
         }
     }
 

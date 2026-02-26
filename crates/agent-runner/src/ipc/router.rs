@@ -4,12 +4,18 @@ use protocol::{
     RunnerStatusRequest,
 };
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 use super::{auth, handlers};
 use crate::runner::Runner;
+
+#[cfg(test)]
+const AUTH_PAYLOAD_TIMEOUT: Duration = Duration::from_millis(200);
+#[cfg(not(test))]
+const AUTH_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub(super) fn truncate_for_log(text: &str, max_chars: usize) -> String {
     if text.chars().count() <= max_chars {
@@ -60,6 +66,43 @@ where
     debug!(connection_id, "Connection event channel initialized");
 
     loop {
+        if !authenticated {
+            let line = match tokio::time::timeout(AUTH_PAYLOAD_TIMEOUT, reader.next_line()).await {
+                Ok(line) => line.context("Failed to read IPC auth payload")?,
+                Err(_) => {
+                    warn!(
+                        connection_id,
+                        timeout_ms = AUTH_PAYLOAD_TIMEOUT.as_millis(),
+                        "Closing IPC connection after auth timeout"
+                    );
+                    break;
+                }
+            };
+            let Some(text) = line else {
+                info!(connection_id, "Client closed IPC stream");
+                break;
+            };
+            let text = text.trim();
+            if text.is_empty() {
+                continue;
+            }
+
+            match auth::authenticate_first_payload(text, &mut write_half, connection_id).await? {
+                auth::AuthResult::Accepted => {
+                    authenticated = true;
+                    info!(connection_id, "IPC connection authenticated");
+                }
+                auth::AuthResult::Rejected => {
+                    info!(
+                        connection_id,
+                        "Closing unauthenticated IPC connection after auth failure"
+                    );
+                    break;
+                }
+            }
+            continue;
+        }
+
         tokio::select! {
             line = reader.next_line() => {
                 let Some(text) = line.context("Failed to read IPC message")? else {
@@ -68,24 +111,6 @@ where
                 };
                 let text = text.trim();
                 if text.is_empty() {
-                    continue;
-                }
-                if !authenticated {
-                    match auth::authenticate_first_payload(text, &mut write_half, connection_id)
-                        .await?
-                    {
-                        auth::AuthResult::Accepted => {
-                            authenticated = true;
-                            info!(connection_id, "IPC connection authenticated");
-                        }
-                        auth::AuthResult::Rejected => {
-                            info!(
-                                connection_id,
-                                "Closing unauthenticated IPC connection after auth failure"
-                            );
-                            break;
-                        }
-                    }
                     continue;
                 }
                 debug!(
@@ -156,4 +181,78 @@ where
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use protocol::{IpcAuthFailureCode, IpcAuthResult};
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+
+    fn runner_for_test() -> Arc<Mutex<Runner>> {
+        let (cleanup_tx, _cleanup_rx) = tokio::sync::mpsc::channel(1);
+        Arc::new(Mutex::new(Runner::new(cleanup_tx)))
+    }
+
+    #[tokio::test]
+    async fn rejects_non_auth_payload_as_first_message() {
+        let (mut client, server) = tokio::io::duplex(1024);
+        let server_task = tokio::spawn(handle_connection(server, runner_for_test(), 1001));
+
+        write_json_line(&mut client, &RunnerStatusRequest::default())
+            .await
+            .expect("write runner status request");
+
+        let mut reader = BufReader::new(client);
+        let mut line = String::new();
+        let read_len = tokio::time::timeout(Duration::from_secs(1), reader.read_line(&mut line))
+            .await
+            .expect("auth response timeout")
+            .expect("read auth response");
+        assert!(read_len > 0, "expected auth rejection response");
+
+        let response: IpcAuthResult =
+            serde_json::from_str(line.trim()).expect("parse auth rejection payload");
+        assert!(!response.ok, "non-auth first payload must be rejected");
+        assert_eq!(
+            response.code,
+            Some(IpcAuthFailureCode::MalformedAuthPayload)
+        );
+
+        line.clear();
+        let eof_len = tokio::time::timeout(Duration::from_secs(1), reader.read_line(&mut line))
+            .await
+            .expect("socket close timeout")
+            .expect("read socket close");
+        assert_eq!(eof_len, 0, "server should close connection after rejection");
+
+        server_task
+            .await
+            .expect("join server task")
+            .expect("handle connection");
+    }
+
+    #[tokio::test]
+    async fn closes_connection_when_auth_payload_times_out() {
+        let (mut client, server) = tokio::io::duplex(1024);
+        let server_task = tokio::spawn(handle_connection(server, runner_for_test(), 1002));
+
+        let mut buf = [0_u8; 1];
+        let read_len = tokio::time::timeout(
+            AUTH_PAYLOAD_TIMEOUT + Duration::from_secs(1),
+            client.read(&mut buf),
+        )
+        .await
+        .expect("auth-timeout close window exceeded")
+        .expect("read after timeout close");
+        assert_eq!(
+            read_len, 0,
+            "server should close idle unauthenticated connection"
+        );
+
+        server_task
+            .await
+            .expect("join server task")
+            .expect("handle connection");
+    }
 }

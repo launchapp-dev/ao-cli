@@ -1,5 +1,6 @@
 use protocol::*;
 use std::sync::{Mutex, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 fn env_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -30,6 +31,19 @@ impl Drop for EnvVarGuard {
             std::env::remove_var(self.key);
         }
     }
+}
+
+fn temp_config_dir(label: &str) -> std::path::PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time should be after unix epoch")
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!(
+        "protocol-config-{label}-{}-{nanos}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).expect("create temp config dir");
+    dir
 }
 
 #[test]
@@ -259,4 +273,38 @@ fn test_config_get_token_rejects_missing_token() {
         error.to_string().contains("agent_runner_token"),
         "error should mention missing config token"
     );
+}
+
+#[test]
+fn test_config_load_from_dir_creates_default_config_file() {
+    let config_dir = temp_config_dir("load-default");
+    let config_path = config_dir.join("config.json");
+    let _ = std::fs::remove_file(&config_path);
+
+    let loaded = Config::load_from_dir(&config_dir).expect("load scoped config");
+    assert!(loaded.agent_runner_token.is_none());
+    assert!(
+        config_path.exists(),
+        "loading from a fresh directory should create config.json"
+    );
+
+    let _ = std::fs::remove_dir_all(config_dir);
+}
+
+#[test]
+fn test_config_load_from_dir_reads_existing_token() {
+    let config_dir = temp_config_dir("load-existing");
+    let config_path = config_dir.join("config.json");
+    std::fs::write(
+        &config_path,
+        r#"{
+  "agent_runner_token": "scoped-token"
+}"#,
+    )
+    .expect("write scoped config file");
+
+    let loaded = Config::load_from_dir(&config_dir).expect("load scoped config");
+    assert_eq!(loaded.agent_runner_token.as_deref(), Some("scoped-token"));
+
+    let _ = std::fs::remove_dir_all(config_dir);
 }

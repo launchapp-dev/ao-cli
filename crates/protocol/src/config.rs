@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
@@ -37,36 +37,19 @@ impl Config {
     }
 
     pub fn load_global() -> Result<Self> {
-        let config_dir = Self::global_config_dir();
-        fs::create_dir_all(&config_dir).ok();
-        let config_path = config_dir.join("config.json");
+        Self::load_from_dir(&Self::global_config_dir())
+    }
 
-        if config_path.exists() {
-            let content = fs::read_to_string(&config_path)?;
-            serde_json::from_str(&content).context("Failed to parse config file")
-        } else {
-            let default_config = Config {
-                agent_runner_token: None,
-            };
-            let json = serde_json::to_string_pretty(&default_config)?;
-            fs::write(&config_path, json)?;
-            Ok(default_config)
-        }
+    pub fn load_from_dir(config_dir: &Path) -> Result<Self> {
+        fs::create_dir_all(config_dir).with_context(|| {
+            format!("Failed to create config directory {}", config_dir.display())
+        })?;
+        Self::load_or_initialize(&config_dir.join("config.json"))
     }
 
     pub fn load_or_default(project_root: &str) -> Result<Self> {
         let config_path = Self::config_path(project_root)?;
-
-        if config_path.exists() {
-            let content = fs::read_to_string(&config_path)?;
-            serde_json::from_str(&content).context("Failed to parse config file")
-        } else {
-            let default_config = Config {
-                agent_runner_token: None,
-            };
-            default_config.save(project_root)?;
-            Ok(default_config)
-        }
+        Self::load_or_initialize(&config_path)
     }
 
     pub fn save(&self, project_root: &str) -> Result<()> {
@@ -86,6 +69,24 @@ impl Config {
             .canonicalize()
             .context("Invalid project root")?;
         Ok(project_path.join(".ao").join("config.json"))
+    }
+
+    fn load_or_initialize(config_path: &Path) -> Result<Self> {
+        if config_path.exists() {
+            let content = fs::read_to_string(config_path)?;
+            return serde_json::from_str(&content).context("Failed to parse config file");
+        }
+
+        if let Some(parent) = config_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        let default_config = Self {
+            agent_runner_token: None,
+        };
+        let json = serde_json::to_string_pretty(&default_config)?;
+        fs::write(config_path, json)?;
+        Ok(default_config)
     }
 
     pub fn get_token(&self) -> Result<String> {

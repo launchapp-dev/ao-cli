@@ -268,12 +268,14 @@ pub(crate) async fn connect_runner(config_dir: &Path) -> Result<tokio::net::Unix
     let connect_future = tokio::net::UnixStream::connect(&socket_path);
     match tokio::time::timeout(Duration::from_secs(connect_timeout_secs), connect_future).await {
         Ok(Ok(mut stream)) => {
-            authenticate_runner_stream(&mut stream).await.with_context(|| {
-                format!(
-                    "failed to authenticate runner connection at {}",
-                    socket_path.display()
-                )
-            })?;
+            authenticate_runner_stream(&mut stream, config_dir)
+                .await
+                .with_context(|| {
+                    format!(
+                        "failed to authenticate runner connection at {}",
+                        socket_path.display()
+                    )
+                })?;
             Ok(stream)
         }
         Ok(Err(error)) => {
@@ -300,22 +302,27 @@ pub(crate) async fn connect_runner(config_dir: &Path) -> Result<tokio::net::Unix
 }
 
 #[cfg(not(unix))]
-pub(crate) async fn connect_runner(_config_dir: &Path) -> Result<tokio::net::TcpStream> {
+pub(crate) async fn connect_runner(config_dir: &Path) -> Result<tokio::net::TcpStream> {
     let mut stream = tokio::net::TcpStream::connect("127.0.0.1:9001")
         .await
         .context("failed to connect to runner at 127.0.0.1:9001")?;
-    authenticate_runner_stream(&mut stream)
+    authenticate_runner_stream(&mut stream, config_dir)
         .await
         .context("failed to authenticate runner connection at 127.0.0.1:9001")?;
     Ok(stream)
 }
 
-async fn authenticate_runner_stream<S>(stream: &mut S) -> Result<()>
+async fn authenticate_runner_stream<S>(stream: &mut S, config_dir: &Path) -> Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    let token = protocol::Config::load_global()
-        .context("failed to load global config for runner authentication")?
+    let token = protocol::Config::load_from_dir(config_dir)
+        .with_context(|| {
+            format!(
+                "failed to load runner config for authentication from {}",
+                config_dir.display()
+            )
+        })?
         .get_token()
         .context("agent runner token unavailable; set AGENT_RUNNER_TOKEN or configure agent_runner_token")?;
 
@@ -953,4 +960,116 @@ pub(crate) fn append_line(path: &Path, line: &str) -> Result<()> {
         .open(path)?;
     writeln!(file, "{line}")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Mutex, OnceLock};
+    use tempfile::TempDir;
+    use tokio::io::{AsyncBufReadExt, BufReader};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: Option<&str>) -> Self {
+            let previous = std::env::var(key).ok();
+            match value {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(previous) = &self.previous {
+                std::env::set_var(self.key, previous);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
+
+    fn write_config(dir: &Path, token: Option<&str>) {
+        let payload = serde_json::json!({ "agent_runner_token": token });
+        std::fs::write(
+            dir.join("config.json"),
+            serde_json::to_string_pretty(&payload).expect("serialize config payload"),
+        )
+        .expect("write config file");
+    }
+
+    #[test]
+    fn authenticate_runner_stream_uses_scoped_config_dir_token() {
+        let _lock = env_lock().lock().expect("env lock");
+        let global_dir = TempDir::new().expect("global temp dir");
+        let scoped_dir = TempDir::new().expect("scoped temp dir");
+        write_config(global_dir.path(), Some("global-token"));
+        write_config(scoped_dir.path(), Some("scoped-token"));
+
+        let global_override = global_dir.path().to_string_lossy().to_string();
+        let _ao_config = EnvVarGuard::set("AO_CONFIG_DIR", Some(&global_override));
+        let _legacy_config =
+            EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", Some(&global_override));
+        let _token_override = EnvVarGuard::set("AGENT_RUNNER_TOKEN", None);
+
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        runtime.block_on(async {
+            let (mut client, server) = tokio::io::duplex(1024);
+            let server_task = tokio::spawn(async move {
+                let mut reader = BufReader::new(server);
+                let mut line = String::new();
+                let read_len = reader
+                    .read_line(&mut line)
+                    .await
+                    .expect("read auth request");
+                assert!(read_len > 0, "expected auth request line");
+
+                let request: IpcAuthRequest =
+                    serde_json::from_str(line.trim()).expect("parse auth request");
+                assert_eq!(request.token, "scoped-token");
+
+                let mut server = reader.into_inner();
+                write_json_line(&mut server, &IpcAuthResult::ok())
+                    .await
+                    .expect("write auth response");
+            });
+
+            authenticate_runner_stream(&mut client, scoped_dir.path())
+                .await
+                .expect("authenticate runner stream");
+
+            server_task.await.expect("join server task");
+        });
+    }
+
+    #[test]
+    fn authenticate_runner_stream_fails_when_scoped_token_missing() {
+        let _lock = env_lock().lock().expect("env lock");
+        let scoped_dir = TempDir::new().expect("scoped temp dir");
+        write_config(scoped_dir.path(), None);
+        let _token_override = EnvVarGuard::set("AGENT_RUNNER_TOKEN", None);
+
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        runtime.block_on(async {
+            let (mut client, _server) = tokio::io::duplex(256);
+            let error = authenticate_runner_stream(&mut client, scoped_dir.path())
+                .await
+                .expect_err("authentication should fail without runner token");
+            assert!(
+                error.to_string().contains("agent runner token unavailable"),
+                "error should mention missing runner token: {error}"
+            );
+        });
+    }
 }

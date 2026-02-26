@@ -6,6 +6,12 @@ on:
       - "v*"
     branches:
       - "version/**"
+  workflow_dispatch:
+    inputs:
+      dry_run_note:
+        description: Optional context for manual non-publishing release validation.
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -90,11 +96,7 @@ jobs:
       - name: Build release binaries
         shell: bash
         run: |
-          cargo build --release --target ${{ matrix.target }} \
-            -p orchestrator-cli \
-            -p agent-runner \
-            -p llm-cli-wrapper \
-            -p llm-mcp-server
+          cargo ao-bin-build-release --target ${{ matrix.target }}
 
       - name: Compute release version
         id: version
@@ -119,10 +121,21 @@ jobs:
           STAGE_DIR="ao-${VERSION}-${TARGET}"
           mkdir -p "${STAGE_DIR}"
 
-          cp "target/${TARGET}/release/ao" "${STAGE_DIR}/"
-          cp "target/${TARGET}/release/agent-runner" "${STAGE_DIR}/"
-          cp "target/${TARGET}/release/llm-cli-wrapper" "${STAGE_DIR}/"
-          cp "target/${TARGET}/release/llm-mcp-server" "${STAGE_DIR}/"
+          BINARIES=(ao agent-runner llm-cli-wrapper llm-mcp-server)
+          for binary in "${BINARIES[@]}"; do
+            cp "target/${TARGET}/release/${binary}" "${STAGE_DIR}/"
+          done
+
+          {
+            echo "{"
+            echo "  \"schema\": \"ao.release.v1\","
+            echo "  \"version\": \"${VERSION}\","
+            echo "  \"target\": \"${TARGET}\","
+            echo "  \"git_ref\": \"${GITHUB_REF}\","
+            echo "  \"git_sha\": \"${GITHUB_SHA}\","
+            echo "  \"binaries\": [\"ao\", \"agent-runner\", \"llm-cli-wrapper\", \"llm-mcp-server\"]"
+            echo "}"
+          } > "${STAGE_DIR}/release-metadata.json"
 
           tar -czf "${STAGE_DIR}.tar.gz" "${STAGE_DIR}"
 
@@ -133,13 +146,23 @@ jobs:
           $Version = "${{ steps.version.outputs.value }}"
           $Target = "${{ matrix.target }}"
           $StageDir = "ao-$Version-$Target"
+          $Binaries = @("ao.exe", "agent-runner.exe", "llm-cli-wrapper.exe", "llm-mcp-server.exe")
 
           New-Item -ItemType Directory -Path $StageDir -Force | Out-Null
 
-          Copy-Item "target/$Target/release/ao.exe" "$StageDir/"
-          Copy-Item "target/$Target/release/agent-runner.exe" "$StageDir/"
-          Copy-Item "target/$Target/release/llm-cli-wrapper.exe" "$StageDir/"
-          Copy-Item "target/$Target/release/llm-mcp-server.exe" "$StageDir/"
+          foreach ($Binary in $Binaries) {
+            Copy-Item "target/$Target/release/$Binary" "$StageDir/"
+          }
+
+          $Metadata = @{
+            schema = "ao.release.v1"
+            version = $Version
+            target = $Target
+            git_ref = $env:GITHUB_REF
+            git_sha = $env:GITHUB_SHA
+            binaries = $Binaries
+          }
+          $Metadata | ConvertTo-Json -Depth 4 | Set-Content -Path "$StageDir/release-metadata.json" -Encoding utf8NoBOM
 
           Compress-Archive -Path $StageDir -DestinationPath "$StageDir.zip" -Force
 
@@ -161,7 +184,7 @@ jobs:
     name: Publish GitHub release (tags only)
     runs-on: ubuntu-latest
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
 

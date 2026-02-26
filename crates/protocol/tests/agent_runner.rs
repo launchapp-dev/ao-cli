@@ -1,4 +1,36 @@
 use protocol::*;
+use std::sync::{Mutex, OnceLock};
+
+fn env_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+struct EnvVarGuard {
+    key: &'static str,
+    previous: Option<String>,
+}
+
+impl EnvVarGuard {
+    fn set(key: &'static str, value: Option<&str>) -> Self {
+        let previous = std::env::var(key).ok();
+        match value {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
+        }
+        Self { key, previous }
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        if let Some(previous) = &self.previous {
+            std::env::set_var(self.key, previous);
+        } else {
+            std::env::remove_var(self.key);
+        }
+    }
+}
 
 #[test]
 fn test_agent_run_request_roundtrip() {
@@ -127,4 +159,104 @@ fn test_runner_status_response_deserializes_legacy_shape() {
     assert_eq!(parsed.active_agents, 3);
     assert_eq!(parsed.protocol_version, PROTOCOL_VERSION);
     assert!(parsed.build_id.is_none());
+}
+
+#[test]
+fn test_ipc_auth_request_roundtrip() {
+    let request = IpcAuthRequest::new("secret-token");
+    let json = serde_json::to_string(&request).expect("serialize auth request");
+    assert_eq!(json, r#"{"kind":"ipc_auth","token":"secret-token"}"#);
+
+    let parsed: IpcAuthRequest = serde_json::from_str(&json).expect("deserialize auth request");
+    assert_eq!(parsed.kind, IpcAuthRequestKind::IpcAuth);
+    assert_eq!(parsed.token, "secret-token");
+}
+
+#[test]
+fn test_ipc_auth_request_rejects_unknown_fields() {
+    let parsed = serde_json::from_str::<IpcAuthRequest>(
+        r#"{"kind":"ipc_auth","token":"secret","extra":"value"}"#,
+    );
+    assert!(
+        parsed.is_err(),
+        "auth request must reject unknown fields to keep handshake strict"
+    );
+}
+
+#[test]
+fn test_ipc_auth_result_failure_roundtrip() {
+    let result = IpcAuthResult::rejected(IpcAuthFailureCode::InvalidToken, "unauthorized");
+    let json = serde_json::to_string(&result).expect("serialize auth failure");
+    assert_eq!(
+        json,
+        r#"{"kind":"ipc_auth_result","ok":false,"code":"invalid_token","message":"unauthorized"}"#
+    );
+
+    let parsed: IpcAuthResult = serde_json::from_str(&json).expect("deserialize auth failure");
+    assert!(!parsed.ok);
+    assert_eq!(parsed.code, Some(IpcAuthFailureCode::InvalidToken));
+    assert_eq!(parsed.message.as_deref(), Some("unauthorized"));
+}
+
+#[test]
+fn test_config_get_token_uses_env_over_config() {
+    let _lock = env_lock().lock().expect("env lock");
+    let _env = EnvVarGuard::set("AGENT_RUNNER_TOKEN", Some("env-token"));
+    let config = Config {
+        agent_runner_token: Some("config-token".to_string()),
+    };
+
+    let token = config.get_token().expect("env token should resolve");
+    assert_eq!(token, "env-token");
+}
+
+#[test]
+fn test_config_get_token_rejects_blank_env_value() {
+    let _lock = env_lock().lock().expect("env lock");
+    let _env = EnvVarGuard::set("AGENT_RUNNER_TOKEN", Some("   "));
+    let config = Config {
+        agent_runner_token: Some("config-token".to_string()),
+    };
+
+    let error = config
+        .get_token()
+        .expect_err("blank env token should fail closed");
+    assert!(
+        error.to_string().contains("AGENT_RUNNER_TOKEN"),
+        "error should mention env token source"
+    );
+}
+
+#[test]
+fn test_config_get_token_rejects_blank_config_value() {
+    let _lock = env_lock().lock().expect("env lock");
+    let _env = EnvVarGuard::set("AGENT_RUNNER_TOKEN", None);
+    let config = Config {
+        agent_runner_token: Some("   ".to_string()),
+    };
+
+    let error = config
+        .get_token()
+        .expect_err("blank config token should fail closed");
+    assert!(
+        error.to_string().contains("agent_runner_token"),
+        "error should mention config token source"
+    );
+}
+
+#[test]
+fn test_config_get_token_rejects_missing_token() {
+    let _lock = env_lock().lock().expect("env lock");
+    let _env = EnvVarGuard::set("AGENT_RUNNER_TOKEN", None);
+    let config = Config {
+        agent_runner_token: None,
+    };
+
+    let error = config
+        .get_token()
+        .expect_err("missing token should fail closed");
+    assert!(
+        error.to_string().contains("agent_runner_token"),
+        "error should mention missing config token"
+    );
 }

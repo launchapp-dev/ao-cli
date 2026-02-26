@@ -1,3 +1,4 @@
+mod auth;
 mod handlers;
 mod router;
 mod server;

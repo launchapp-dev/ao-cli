@@ -114,6 +114,83 @@ fn default_protocol_version() -> String {
     crate::PROTOCOL_VERSION.to_string()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IpcAuthRequestKind {
+    IpcAuth,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct IpcAuthRequest {
+    pub kind: IpcAuthRequestKind,
+    pub token: String,
+}
+
+impl IpcAuthRequest {
+    pub fn new(token: impl Into<String>) -> Self {
+        Self {
+            kind: IpcAuthRequestKind::IpcAuth,
+            token: token.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IpcAuthResultKind {
+    IpcAuthResult,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IpcAuthFailureCode {
+    MalformedAuthPayload,
+    InvalidToken,
+    ServerTokenUnavailable,
+}
+
+impl IpcAuthFailureCode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::MalformedAuthPayload => "malformed_auth_payload",
+            Self::InvalidToken => "invalid_token",
+            Self::ServerTokenUnavailable => "server_token_unavailable",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct IpcAuthResult {
+    pub kind: IpcAuthResultKind,
+    pub ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<IpcAuthFailureCode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+impl IpcAuthResult {
+    pub fn ok() -> Self {
+        Self {
+            kind: IpcAuthResultKind::IpcAuthResult,
+            ok: true,
+            code: None,
+            message: None,
+        }
+    }
+
+    pub fn rejected(code: IpcAuthFailureCode, message: impl Into<String>) -> Self {
+        Self {
+            kind: IpcAuthResultKind::IpcAuthResult,
+            ok: false,
+            code: Some(code),
+            message: Some(message.into()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelStatusResponse {
     pub statuses: Vec<ModelStatus>,

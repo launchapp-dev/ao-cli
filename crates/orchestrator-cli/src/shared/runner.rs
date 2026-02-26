@@ -3,12 +3,15 @@ use std::hash::{Hash, Hasher};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use orchestrator_core::runtime_contract;
-use protocol::{AgentControlAction, AgentRunEvent, ModelStatus, OutputStreamType, RunId};
+use protocol::{
+    AgentControlAction, AgentRunEvent, IpcAuthRequest, IpcAuthResult, ModelStatus,
+    OutputStreamType, RunId,
+};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use tokio::io::{AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::time::Duration;
 
 use crate::{AgentControlActionArg, AgentRunArgs, RunnerScopeArg};
@@ -264,7 +267,15 @@ pub(crate) async fn connect_runner(config_dir: &Path) -> Result<tokio::net::Unix
         .unwrap_or(5);
     let connect_future = tokio::net::UnixStream::connect(&socket_path);
     match tokio::time::timeout(Duration::from_secs(connect_timeout_secs), connect_future).await {
-        Ok(Ok(stream)) => Ok(stream),
+        Ok(Ok(mut stream)) => {
+            authenticate_runner_stream(&mut stream).await.with_context(|| {
+                format!(
+                    "failed to authenticate runner connection at {}",
+                    socket_path.display()
+                )
+            })?;
+            Ok(stream)
+        }
         Ok(Err(error)) => {
             let stale_hint = if socket_path.exists() {
                 " socket file exists and may be stale"
@@ -290,9 +301,52 @@ pub(crate) async fn connect_runner(config_dir: &Path) -> Result<tokio::net::Unix
 
 #[cfg(not(unix))]
 pub(crate) async fn connect_runner(_config_dir: &Path) -> Result<tokio::net::TcpStream> {
-    tokio::net::TcpStream::connect("127.0.0.1:9001")
+    let mut stream = tokio::net::TcpStream::connect("127.0.0.1:9001")
         .await
-        .context("failed to connect to runner at 127.0.0.1:9001")
+        .context("failed to connect to runner at 127.0.0.1:9001")?;
+    authenticate_runner_stream(&mut stream)
+        .await
+        .context("failed to authenticate runner connection at 127.0.0.1:9001")?;
+    Ok(stream)
+}
+
+async fn authenticate_runner_stream<S>(stream: &mut S) -> Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let token = protocol::Config::load_global()
+        .context("failed to load global config for runner authentication")?
+        .get_token()
+        .context("agent runner token unavailable; set AGENT_RUNNER_TOKEN or configure agent_runner_token")?;
+
+    write_json_line(stream, &IpcAuthRequest::new(token))
+        .await
+        .context("failed to send runner auth payload")?;
+
+    let mut line = String::new();
+    let read_len = tokio::time::timeout(Duration::from_secs(2), async {
+        let mut reader = BufReader::new(stream);
+        reader.read_line(&mut line).await
+    })
+    .await
+    .context("timed out waiting for runner auth response")?
+    .context("failed to read runner auth response")?;
+
+    if read_len == 0 {
+        bail!("runner closed connection before auth completed");
+    }
+
+    let response: IpcAuthResult =
+        serde_json::from_str(line.trim()).context("received malformed runner auth response")?;
+    if response.ok {
+        return Ok(());
+    }
+
+    let failure_code = response.code.map(|code| code.as_str()).unwrap_or("unknown");
+    let message = response
+        .message
+        .unwrap_or_else(|| "unauthorized".to_string());
+    bail!("runner authentication failed ({failure_code}): {message}");
 }
 
 pub(crate) async fn write_json_line<W: AsyncWrite + Unpin, T: serde::Serialize>(

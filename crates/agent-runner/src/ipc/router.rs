@@ -8,7 +8,7 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
-use super::handlers;
+use super::{auth, handlers};
 use crate::runner::Runner;
 
 pub(super) fn truncate_for_log(text: &str, max_chars: usize) -> String {
@@ -54,6 +54,7 @@ where
 {
     let (read_half, mut write_half) = tokio::io::split(stream);
     let mut reader = BufReader::new(read_half).lines();
+    let mut authenticated = false;
 
     let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<AgentRunEvent>(100);
     debug!(connection_id, "Connection event channel initialized");
@@ -67,6 +68,24 @@ where
                 };
                 let text = text.trim();
                 if text.is_empty() {
+                    continue;
+                }
+                if !authenticated {
+                    match auth::authenticate_first_payload(text, &mut write_half, connection_id)
+                        .await?
+                    {
+                        auth::AuthResult::Accepted => {
+                            authenticated = true;
+                            info!(connection_id, "IPC connection authenticated");
+                        }
+                        auth::AuthResult::Rejected => {
+                            info!(
+                                connection_id,
+                                "Closing unauthenticated IPC connection after auth failure"
+                            );
+                            break;
+                        }
+                    }
                     continue;
                 }
                 debug!(

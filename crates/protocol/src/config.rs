@@ -88,16 +88,24 @@ impl Config {
         Ok(project_path.join(".ao").join("config.json"))
     }
 
-    pub fn get_token(&self) -> String {
-        std::env::var("AGENT_RUNNER_TOKEN")
-            .or_else(|_| {
-                self.agent_runner_token
-                    .as_ref()
-                    .ok_or(anyhow::anyhow!("No token"))
-                    .cloned()
-            })
-            .unwrap_or_else(|_| "dev-token".to_string())
+    pub fn get_token(&self) -> Result<String> {
+        if let Ok(token) = std::env::var("AGENT_RUNNER_TOKEN") {
+            return normalize_token("AGENT_RUNNER_TOKEN", token);
+        }
+
+        normalize_token(
+            "agent_runner_token",
+            self.agent_runner_token.clone().unwrap_or_default(),
+        )
     }
+}
+
+fn normalize_token(source: &str, raw: String) -> Result<String> {
+    let token = raw.trim().to_string();
+    if token.is_empty() {
+        anyhow::bail!("{source} is missing or empty");
+    }
+    Ok(token)
 }
 
 fn config_dir_override() -> Option<PathBuf> {

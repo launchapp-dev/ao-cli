@@ -1,4 +1,5 @@
 use super::*;
+use protocol::{IpcAuthRequest, IpcAuthResult};
 use sha2::{Digest, Sha256};
 #[cfg(unix)]
 use std::hash::{Hash, Hasher};
@@ -292,6 +293,33 @@ pub(super) async fn is_agent_runner_ready(_config_dir: &Path) -> bool {
     )
 }
 
+async fn authenticate_runner_stream<S>(stream: &mut S) -> Option<()>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    let token = protocol::Config::load_global().ok()?.get_token().ok()?;
+    let request = serde_json::to_string(&IpcAuthRequest::new(token)).ok()?;
+    stream.write_all(request.as_bytes()).await.ok()?;
+    stream.write_all(b"\n").await.ok()?;
+    stream.flush().await.ok()?;
+
+    let mut line = String::new();
+    let read_len = tokio::time::timeout(Duration::from_millis(900), async {
+        let mut reader = BufReader::new(stream);
+        reader.read_line(&mut line).await
+    })
+    .await
+    .ok()?
+    .ok()?;
+
+    if read_len == 0 {
+        return None;
+    }
+
+    let response = serde_json::from_str::<IpcAuthResult>(line.trim()).ok()?;
+    response.ok.then_some(())
+}
+
 #[cfg(unix)]
 pub(super) async fn query_runner_status(config_dir: &Path) -> Option<RunnerStatusResponse> {
     let socket_path = runner_socket_path(config_dir);
@@ -302,6 +330,8 @@ pub(super) async fn query_runner_status(config_dir: &Path) -> Option<RunnerStatu
     .await
     .ok()?
     .ok()?;
+
+    authenticate_runner_stream(&mut stream).await?;
 
     let request = serde_json::to_string(&RunnerStatusRequest::default()).ok()?;
     stream.write_all(request.as_bytes()).await.ok()?;
@@ -330,6 +360,8 @@ pub(super) async fn query_runner_status(_config_dir: &Path) -> Option<RunnerStat
     .await
     .ok()?
     .ok()?;
+
+    authenticate_runner_stream(&mut stream).await?;
 
     let request = serde_json::to_string(&RunnerStatusRequest::default()).ok()?;
     stream.write_all(request.as_bytes()).await.ok()?;

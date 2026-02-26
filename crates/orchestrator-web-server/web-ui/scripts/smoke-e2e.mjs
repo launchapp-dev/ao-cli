@@ -227,27 +227,60 @@ async function fetchAndParse(url) {
   return { response, contentType, text, json };
 }
 
+function getServerExitDetail(server) {
+  if (server.child.exitCode === null && server.child.signalCode === null) {
+    return null;
+  }
+
+  const reasonParts = [];
+  if (server.child.exitCode !== null) {
+    reasonParts.push(`code ${server.child.exitCode}`);
+  }
+  if (server.child.signalCode !== null) {
+    reasonParts.push(`signal ${server.child.signalCode}`);
+  }
+
+  const logParts = [];
+  const stdoutTail = tail(server.stdout);
+  const stderrTail = tail(server.stderr);
+  if (stdoutTail) {
+    logParts.push(`stdout tail:\n${stdoutTail}`);
+  }
+  if (stderrTail) {
+    logParts.push(`stderr tail:\n${stderrTail}`);
+  }
+
+  const reason = reasonParts.join(", ");
+  const logs = logParts.length > 0 ? ` ${logParts.join("\n")}` : "";
+  return `${reason}.${logs}`;
+}
+
 async function waitForReady(server) {
   const endpoint = `http://${HOST}:${server.port}/api/v1/system/info`;
   const deadline = Date.now() + READY_TIMEOUT_MS;
   let lastReadinessError = null;
+  let lastReadinessObservation = null;
 
   while (Date.now() < deadline) {
     if (server.spawnError) {
       throw new Error(`${server.name} spawn failed: ${server.spawnError}`);
     }
 
-    if (server.child.exitCode !== null) {
-      throw new Error(
-        `${server.name} exited before readiness check (code ${server.child.exitCode}). stderr tail:\n${tail(server.stderr)}`,
-      );
+    const exitDetail = getServerExitDetail(server);
+    if (exitDetail) {
+      throw new Error(`${server.name} exited before readiness check (${exitDetail})`);
     }
 
     try {
-      const { response, json } = await fetchAndParse(endpoint);
+      const { response, contentType, text, json } = await fetchAndParse(endpoint);
       if (response.status === 200 && json?.schema === "ao.cli.v1" && json?.ok === true) {
         record("PASS", `${server.name} readiness`, endpoint);
         return;
+      }
+      if (contentType.includes("application/json")) {
+        lastReadinessObservation = `status ${response.status}, schema ${json?.schema ?? "<missing>"}, ok ${json?.ok ?? "<missing>"}`;
+      } else {
+        lastReadinessObservation = `status ${response.status}, content-type ${contentType || "<missing>"}, body tail ${tail(text, 200)}`;
       }
     } catch (error) {
       lastReadinessError = toErrorMessage(error);
@@ -257,7 +290,14 @@ async function waitForReady(server) {
     await sleep(POLL_INTERVAL_MS);
   }
 
-  const detail = lastReadinessError ? ` last readiness error: ${tail(lastReadinessError, 400)}` : "";
+  const details = [];
+  if (lastReadinessObservation) {
+    details.push(`last readiness observation: ${tail(lastReadinessObservation, 400)}`);
+  }
+  if (lastReadinessError) {
+    details.push(`last readiness error: ${tail(lastReadinessError, 400)}`);
+  }
+  const detail = details.length > 0 ? ` ${details.join("; ")}` : "";
   throw new Error(`${server.name} did not become ready within ${READY_TIMEOUT_MS}ms.${detail}`);
 }
 

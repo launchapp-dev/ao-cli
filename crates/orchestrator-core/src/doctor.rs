@@ -72,15 +72,21 @@ impl DoctorReport {
         ));
 
         let project_root_exists = project_root.exists();
+        let project_root_is_dir = project_root.is_dir();
         checks.push(build_check(
             "project_root_exists",
-            if project_root_exists {
+            if project_root_is_dir {
                 DoctorCheckStatus::Ok
             } else {
                 DoctorCheckStatus::Fail
             },
-            if project_root_exists {
+            if project_root_is_dir {
                 format!("project root exists at {}", project_root.display())
+            } else if project_root_exists {
+                format!(
+                    "project root is not a directory at {}",
+                    project_root.display()
+                )
             } else {
                 format!("project root does not exist at {}", project_root.display())
             },
@@ -91,72 +97,78 @@ impl DoctorReport {
         ));
 
         let ao_dir = project_root.join(".ao");
-        let ao_dir_exists = ao_dir.exists();
+        let ao_dir_state = directory_state(&ao_dir);
         checks.push(build_check(
             "ao_directory_present",
-            if ao_dir_exists {
-                DoctorCheckStatus::Ok
-            } else {
-                DoctorCheckStatus::Warn
+            match ao_dir_state {
+                DirectoryState::Directory => DoctorCheckStatus::Ok,
+                DirectoryState::Missing => DoctorCheckStatus::Warn,
+                DirectoryState::NotDirectory => DoctorCheckStatus::Fail,
             },
-            if ao_dir_exists {
-                format!("AO state directory exists at {}", ao_dir.display())
-            } else {
-                format!("AO state directory missing at {}", ao_dir.display())
+            match ao_dir_state {
+                DirectoryState::Directory => {
+                    format!("AO state directory exists at {}", ao_dir.display())
+                }
+                DirectoryState::Missing => {
+                    format!("AO state directory missing at {}", ao_dir.display())
+                }
+                DirectoryState::NotDirectory => {
+                    format!("AO state path is not a directory at {}", ao_dir.display())
+                }
             },
-            "bootstrap_project_state",
-            true,
-            "create baseline AO state/config files",
-            Some("ao doctor --fix"),
+            match ao_dir_state {
+                DirectoryState::NotDirectory => "manual_ao_directory_repair",
+                _ => "bootstrap_project_state",
+            },
+            !matches!(ao_dir_state, DirectoryState::NotDirectory),
+            match ao_dir_state {
+                DirectoryState::NotDirectory => {
+                    "replace non-directory .ao path with an AO state directory"
+                }
+                _ => "create baseline AO state/config files",
+            },
+            match ao_dir_state {
+                DirectoryState::NotDirectory => None,
+                _ => Some("ao doctor --fix"),
+            },
         ));
 
         let core_state_path = ao_dir.join("core-state.json");
-        checks.push(build_check(
+        checks.push(build_ao_file_check(
             "core_state_present",
-            if core_state_path.exists() {
-                DoctorCheckStatus::Ok
-            } else {
-                DoctorCheckStatus::Warn
-            },
-            format!("expected {}", core_state_path.display()),
-            "bootstrap_project_state",
-            true,
-            "create baseline AO state/config files",
-            Some("ao doctor --fix"),
+            &core_state_path,
+            ao_dir_state,
         ));
 
         let config_path = ao_dir.join("config.json");
-        checks.push(build_check(
+        checks.push(build_ao_file_check(
             "config_json_present",
-            if config_path.exists() {
-                DoctorCheckStatus::Ok
-            } else {
-                DoctorCheckStatus::Warn
-            },
-            format!("expected {}", config_path.display()),
-            "bootstrap_project_state",
-            true,
-            "create baseline AO state/config files",
-            Some("ao doctor --fix"),
+            &config_path,
+            ao_dir_state,
         ));
 
         let resume_config_path = ao_dir.join("resume-config.json");
-        checks.push(build_check(
+        checks.push(build_ao_file_check(
             "resume_config_present",
-            if resume_config_path.exists() {
-                DoctorCheckStatus::Ok
-            } else {
-                DoctorCheckStatus::Warn
-            },
-            format!("expected {}", resume_config_path.display()),
-            "bootstrap_project_state",
-            true,
-            "create baseline AO state/config files",
-            Some("ao doctor --fix"),
+            &resume_config_path,
+            ao_dir_state,
         ));
 
         let daemon_config_path = daemon_project_config_path(project_root);
-        let daemon_check = if !daemon_config_path.exists() {
+        let daemon_check = if ao_dir_state == DirectoryState::NotDirectory {
+            build_check(
+                "daemon_config_valid_json",
+                DoctorCheckStatus::Fail,
+                format!(
+                    "AO state path is not a directory at {}; cannot read daemon config",
+                    ao_dir.display()
+                ),
+                "manual_ao_directory_repair",
+                false,
+                "replace non-directory .ao path with an AO state directory",
+                None,
+            )
+        } else if !daemon_config_path.exists() {
             build_check(
                 "daemon_config_valid_json",
                 DoctorCheckStatus::Warn,
@@ -322,6 +334,59 @@ fn derive_result(checks: &[DoctorCheck]) -> DoctorCheckResult {
     DoctorCheckResult::Healthy
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DirectoryState {
+    Missing,
+    Directory,
+    NotDirectory,
+}
+
+fn directory_state(path: &Path) -> DirectoryState {
+    if !path.exists() {
+        return DirectoryState::Missing;
+    }
+    if path.is_dir() {
+        return DirectoryState::Directory;
+    }
+    DirectoryState::NotDirectory
+}
+
+fn build_ao_file_check(
+    check_id: &str,
+    expected_path: &Path,
+    ao_dir_state: DirectoryState,
+) -> DoctorCheck {
+    if ao_dir_state == DirectoryState::NotDirectory {
+        return build_check(
+            check_id,
+            DoctorCheckStatus::Fail,
+            format!(
+                "AO state path is not a directory at {}; expected {}",
+                expected_path.parent().unwrap_or(expected_path).display(),
+                expected_path.display()
+            ),
+            "manual_ao_directory_repair",
+            false,
+            "replace non-directory .ao path with an AO state directory",
+            None,
+        );
+    }
+
+    build_check(
+        check_id,
+        if expected_path.exists() {
+            DoctorCheckStatus::Ok
+        } else {
+            DoctorCheckStatus::Warn
+        },
+        format!("expected {}", expected_path.display()),
+        "bootstrap_project_state",
+        true,
+        "create baseline AO state/config files",
+        Some("ao doctor --fix"),
+    )
+}
+
 fn detect_llm_clis() -> Vec<String> {
     ["codex", "claude", "gemini", "opencode"]
         .iter()
@@ -420,6 +485,52 @@ mod tests {
             .find(|check| check.id == "daemon_config_valid_json")
             .expect("daemon config check should exist");
         assert_eq!(daemon_check.status, DoctorCheckStatus::Fail);
+        assert_eq!(report.result, DoctorCheckResult::Unhealthy);
+    }
+
+    #[test]
+    fn run_for_project_marks_project_root_file_as_fail() {
+        let temp = tempfile::tempdir().expect("tempdir should be created");
+        let root_file = temp.path().join("project-root-file");
+        std::fs::write(&root_file, "not a directory").expect("root file should be written");
+
+        let report = DoctorReport::run_for_project(&root_file);
+        let project_root_check = report
+            .checks
+            .iter()
+            .find(|check| check.id == "project_root_exists")
+            .expect("project root check should exist");
+        assert_eq!(project_root_check.status, DoctorCheckStatus::Fail);
+        assert!(
+            project_root_check.details.contains("not a directory"),
+            "project root details should mention invalid directory type"
+        );
+    }
+
+    #[test]
+    fn run_for_project_marks_non_directory_ao_path_as_fail() {
+        let temp = tempfile::tempdir().expect("tempdir should be created");
+        let ao_path = temp.path().join(".ao");
+        std::fs::write(&ao_path, "not a directory").expect("ao file should be written");
+
+        let report = DoctorReport::run_for_project(temp.path());
+
+        for id in [
+            "ao_directory_present",
+            "core_state_present",
+            "config_json_present",
+            "resume_config_present",
+            "daemon_config_valid_json",
+        ] {
+            let check = report
+                .checks
+                .iter()
+                .find(|check| check.id == id)
+                .expect("check should exist");
+            assert_eq!(check.status, DoctorCheckStatus::Fail, "{id} should fail");
+            assert_eq!(check.remediation.id, "manual_ao_directory_repair");
+            assert!(!check.remediation.available);
+        }
         assert_eq!(report.result, DoctorCheckResult::Unhealthy);
     }
 

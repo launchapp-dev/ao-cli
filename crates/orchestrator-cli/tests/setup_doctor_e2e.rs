@@ -229,3 +229,65 @@ fn doctor_reports_stable_checks_and_fix_actions() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn doctor_fix_skips_manual_ao_directory_repair() -> Result<()> {
+    let harness = CliHarness::new()?;
+    std::fs::write(harness.project_root().join(".ao"), "not a directory")?;
+
+    let doctor = harness.run_json_ok(&["doctor"])?;
+    let checks = doctor
+        .pointer("/data/doctor/checks")
+        .and_then(Value::as_array)
+        .expect("doctor checks array should exist");
+
+    for id in ["ao_directory_present", "daemon_config_valid_json"] {
+        let check = checks
+            .iter()
+            .find(|check| check.get("id").and_then(Value::as_str) == Some(id))
+            .expect("check should exist");
+        assert_eq!(check.get("status").and_then(Value::as_str), Some("fail"));
+        assert_eq!(
+            check.pointer("/remediation/id").and_then(Value::as_str),
+            Some("manual_ao_directory_repair")
+        );
+        assert_eq!(
+            check
+                .pointer("/remediation/available")
+                .and_then(Value::as_bool),
+            Some(false)
+        );
+        assert_eq!(
+            check
+                .pointer("/remediation/command")
+                .and_then(Value::as_str),
+            None
+        );
+    }
+
+    let fixed = harness.run_json_ok(&["doctor", "--fix"])?;
+    assert_eq!(
+        fixed.pointer("/data/fix/applied").and_then(Value::as_bool),
+        Some(false)
+    );
+    let actions = fixed
+        .pointer("/data/fix/actions")
+        .and_then(Value::as_array)
+        .expect("fix actions should be an array");
+    assert_eq!(actions.len(), 2);
+    assert!(actions.iter().all(|action| {
+        matches!(
+            (
+                action.get("id").and_then(Value::as_str),
+                action.get("status").and_then(Value::as_str)
+            ),
+            (
+                Some("bootstrap_project_state" | "create_default_daemon_config"),
+                Some("skipped")
+            )
+        )
+    }));
+    assert!(harness.project_root().join(".ao").is_file());
+
+    Ok(())
+}

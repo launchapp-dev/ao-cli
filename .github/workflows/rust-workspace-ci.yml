@@ -15,15 +15,22 @@ jobs:
   cargo-check:
     name: cargo-check (${{ matrix.package }})
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         package:
+          - protocol
           - orchestrator-cli
           - orchestrator-core
           - agent-runner
           - llm-cli-wrapper
           - llm-mcp-server
+          - orchestrator-web-contracts
+          - orchestrator-web-api
+          - orchestrator-web-server
+    env:
+      CARGO_TERM_COLOR: always
 
     steps:
       - name: Checkout
@@ -33,12 +40,15 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Check package
-        run: cargo check --locked -p ${{ matrix.package }}
+        run: cargo check --locked --all-targets -p ${{ matrix.package }}
 
   smoke-help:
     name: smoke-help
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: cargo-check
+    env:
+      CARGO_TERM_COLOR: always
 
     steps:
       - name: Checkout
@@ -48,7 +58,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Smoke test ao help
-        run: cargo run --locked -p orchestrator-cli -- --help
+        run: cargo run --locked -p orchestrator-cli --bin ao -- --help
 
       - name: Smoke test llm-cli-wrapper help
-        run: cargo run --locked -p llm-cli-wrapper -- --help
+        run: cargo run --locked -p llm-cli-wrapper --bin llm-cli-wrapper -- --help

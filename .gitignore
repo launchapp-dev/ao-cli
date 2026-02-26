@@ -31,6 +31,7 @@ crates/orchestrator-web-server/web-ui/.smoke-artifacts/
 *.lock
 
 # AO runtime artifacts
+.ao/core-state.json
 .ao/state/
 .ao/logs/
 .ao/history.db

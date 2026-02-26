@@ -19,13 +19,13 @@
   "linked_architecture_entities": [],
   "linked_requirements": [],
   "metadata": {
-    "completed_at": null,
+    "completed_at": "2026-02-26T01:30:20.108453Z",
     "created_at": "2026-02-26T00:01:32.235201Z",
     "created_by": "ao-cli",
     "started_at": "2026-02-26T00:08:24.887472Z",
-    "updated_at": "2026-02-26T00:08:28.470542Z",
-    "updated_by": "ao-cli",
-    "version": 3
+    "updated_at": "2026-02-26T01:30:20.108453Z",
+    "updated_by": "ao-daemon",
+    "version": 17
   },
   "paused": false,
   "priority": "low",
@@ -36,7 +36,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "in-progress",
+  "status": "done",
   "tags": [],
   "title": "Add event notification connector framework",
   "type": "feature",
@@ -48,5 +48,5 @@
     "requires_staging_deploy": false,
     "workflow_id": null
   },
-  "worktree_path": "/Users/samishukri/.ao/ao-cli-1222ef9c4f94/worktrees/task-task-026"
+  "worktree_path": null
 }

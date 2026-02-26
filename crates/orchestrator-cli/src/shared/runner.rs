@@ -404,6 +404,10 @@ fn codex_network_access_enabled() -> bool {
     parse_env_flag_enabled("AO_CODEX_NETWORK_ACCESS", true)
 }
 
+fn claude_bypass_permissions_enabled() -> bool {
+    parse_env_flag_enabled("AO_CLAUDE_BYPASS_PERMISSIONS", true)
+}
+
 fn env_codex_reasoning_effort_override() -> Option<String> {
     std::env::var("AO_CODEX_REASONING_EFFORT")
         .ok()
@@ -462,6 +466,19 @@ fn codex_exec_insert_index(args: &[Value]) -> usize {
     args.iter()
         .position(|item| item.as_str().is_some_and(|value| value == "exec"))
         .unwrap_or(0)
+}
+
+fn ensure_flag_value_if_missing(args: &mut Vec<Value>, flag: &str, value: &str, insert_at: usize) {
+    if args
+        .iter()
+        .any(|item| item.as_str().is_some_and(|existing| existing == flag))
+    {
+        return;
+    }
+
+    let insert_at = insert_at.min(args.len());
+    args.insert(insert_at, Value::String(flag.to_string()));
+    args.insert((insert_at + 1).min(args.len()), Value::String(value.to_string()));
 }
 
 fn ensure_codex_config_override(args: &mut Vec<Value>, key: &str, value_expr: &str) {
@@ -625,6 +642,18 @@ fn inject_codex_extra_config_overrides(runtime_contract: &mut Value, tool: &str)
     }
 }
 
+fn inject_claude_permission_mode_override(runtime_contract: &mut Value, tool: &str) {
+    if !tool.eq_ignore_ascii_case("claude") || !claude_bypass_permissions_enabled() {
+        return;
+    }
+    if let Some(args) = runtime_contract
+        .pointer_mut("/cli/launch/args")
+        .and_then(Value::as_array_mut)
+    {
+        ensure_flag_value_if_missing(args, "--permission-mode", "bypassPermissions", 0);
+    }
+}
+
 fn inject_cli_extra_args_from_env(runtime_contract: &mut Value, tool: &str) {
     let extra_args = resolved_extra_args(tool);
     if extra_args.is_empty() {
@@ -646,6 +675,7 @@ fn inject_cli_launch_overrides_from_env(runtime_contract: &mut Value, tool: &str
     inject_codex_search_launch_flag(runtime_contract, tool);
     inject_codex_reasoning_effort_override(runtime_contract, tool);
     inject_codex_network_access_override(runtime_contract, tool);
+    inject_claude_permission_mode_override(runtime_contract, tool);
     inject_codex_extra_config_overrides(runtime_contract, tool);
     inject_cli_extra_args_from_env(runtime_contract, tool);
 }

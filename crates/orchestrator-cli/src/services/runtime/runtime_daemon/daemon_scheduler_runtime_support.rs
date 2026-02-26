@@ -170,6 +170,14 @@ fn codex_web_search_enabled(web_search_override: Option<bool>) -> bool {
     })
 }
 
+fn claude_bypass_permissions_enabled() -> bool {
+    std::env::var("AO_CLAUDE_BYPASS_PERMISSIONS")
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .map(|value| !matches!(value.as_str(), "0" | "false" | "no" | "off"))
+        .unwrap_or(true)
+}
+
 fn env_codex_reasoning_effort_override() -> Option<String> {
     std::env::var("AO_CODEX_REASONING_EFFORT")
         .ok()
@@ -193,6 +201,19 @@ fn codex_exec_insert_index(args: &[Value]) -> usize {
 
 fn launch_prompt_insert_index(args: &[Value]) -> usize {
     args.len().saturating_sub(1)
+}
+
+fn ensure_flag_value_if_missing(args: &mut Vec<Value>, flag: &str, value: &str, insert_at: usize) {
+    if args
+        .iter()
+        .any(|item| item.as_str().is_some_and(|existing| existing == flag))
+    {
+        return;
+    }
+
+    let insert_at = insert_at.min(args.len());
+    args.insert(insert_at, Value::String(flag.to_string()));
+    args.insert((insert_at + 1).min(args.len()), Value::String(value.to_string()));
 }
 
 fn ensure_codex_config_override(args: &mut Vec<Value>, key: &str, value_expr: &str) {
@@ -495,6 +516,19 @@ pub(super) fn inject_codex_network_access(
     }
 }
 
+pub(super) fn inject_claude_permission_mode(runtime_contract: &mut Value, tool_id: &str) {
+    if !tool_id.eq_ignore_ascii_case("claude") || !claude_bypass_permissions_enabled() {
+        return;
+    }
+
+    if let Some(args) = runtime_contract
+        .pointer_mut("/cli/launch/args")
+        .and_then(Value::as_array_mut)
+    {
+        ensure_flag_value_if_missing(args, "--permission-mode", "bypassPermissions", 0);
+    }
+}
+
 pub(super) fn inject_cli_launch_overrides(
     runtime_contract: &mut Value,
     tool_id: &str,
@@ -515,6 +549,7 @@ pub(super) fn inject_cli_launch_overrides(
         tool_id,
         phase_runtime_settings.and_then(|settings| settings.network_access),
     );
+    inject_claude_permission_mode(runtime_contract, tool_id);
     inject_codex_extra_config_overrides(runtime_contract, tool_id, phase_runtime_settings);
     inject_cli_extra_args(runtime_contract, tool_id, phase_runtime_settings);
 }

@@ -2,10 +2,10 @@
   "assignee": {
     "type": "unassigned"
   },
-  "blocked_at": null,
+  "blocked_at": "2026-02-26T01:30:55.941479Z",
   "blocked_by": null,
   "blocked_phase": null,
-  "blocked_reason": null,
+  "blocked_reason": "merge gate: auto-merge failed: failed to merge 'ao/task-025' into 'main'",
   "branch_name": "ao/task-025",
   "cancelled": false,
   "checklist": [],
@@ -23,11 +23,11 @@
     "created_at": "2026-02-26T00:01:31.241465Z",
     "created_by": "ao-cli",
     "started_at": "2026-02-26T00:08:24.992472Z",
-    "updated_at": "2026-02-26T00:08:28.494718Z",
-    "updated_by": "ao-cli",
-    "version": 3
+    "updated_at": "2026-02-26T01:30:55.941492Z",
+    "updated_by": "ao-daemon",
+    "version": 17
   },
-  "paused": false,
+  "paused": true,
   "priority": "high",
   "resource_requirements": {
     "max_cpu_percent": null,
@@ -36,7 +36,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "in-progress",
+  "status": "blocked",
   "tags": [],
   "title": "Enforce sandbox and tool policy controls",
   "type": "feature",

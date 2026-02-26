@@ -2,10 +2,10 @@
   "assignee": {
     "type": "unassigned"
   },
-  "blocked_at": null,
+  "blocked_at": "2026-02-26T00:47:05.508126Z",
   "blocked_by": null,
   "blocked_phase": null,
-  "blocked_reason": null,
+  "blocked_reason": "merge gate: auto-merge failed: failed to merge 'ao/task-023' into 'main'",
   "branch_name": "ao/task-023",
   "cancelled": false,
   "checklist": [],
@@ -23,11 +23,11 @@
     "created_at": "2026-02-26T00:01:29.013118Z",
     "created_by": "ao-cli",
     "started_at": "2026-02-26T00:01:44.285387Z",
-    "updated_at": "2026-02-26T00:08:25.161277Z",
-    "updated_by": "ao-cli",
-    "version": 5
+    "updated_at": "2026-02-26T00:47:05.508160Z",
+    "updated_by": "ao-daemon",
+    "version": 11
   },
-  "paused": false,
+  "paused": true,
   "priority": "high",
   "resource_requirements": {
     "max_cpu_percent": null,
@@ -36,7 +36,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "in-progress",
+  "status": "blocked",
   "tags": [],
   "title": "Build auth profile rotation and model failover runtime",
   "type": "feature",

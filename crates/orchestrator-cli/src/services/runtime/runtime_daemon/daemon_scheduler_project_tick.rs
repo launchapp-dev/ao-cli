@@ -364,6 +364,7 @@ async fn sync_task_status_for_workflow_result(
     project_root: &str,
     task_id: &str,
     workflow_status: WorkflowStatus,
+    workflow_id: Option<&str>,
 ) {
     match workflow_status {
         WorkflowStatus::Completed => {
@@ -380,6 +381,12 @@ async fn sync_task_status_for_workflow_result(
                 }
                 Ok(false) => {}
                 Err(error) => {
+                    if let Some(workflow_id) = workflow_id {
+                        let _ = hub
+                            .workflows()
+                            .mark_merge_conflict(workflow_id, error.to_string())
+                            .await;
+                    }
                     let _ = set_task_blocked_with_reason(
                         hub.clone(),
                         &task,
@@ -487,6 +494,7 @@ pub(super) async fn reconcile_stale_in_progress_tasks_for_project(
                 project_root,
                 &task.id,
                 WorkflowStatus::Completed,
+                None,
             )
             .await;
             reconciled = reconciled.saturating_add(1);
@@ -531,8 +539,14 @@ async fn resume_interrupted_workflows_for_project(
     for (workflow, _) in resumable {
         let updated = hub.workflows().resume(&workflow.id).await?;
         resumed = resumed.saturating_add(1);
-        sync_task_status_for_workflow_result(hub.clone(), root, &updated.task_id, updated.status)
-            .await;
+        sync_task_status_for_workflow_result(
+            hub.clone(),
+            root,
+            &updated.task_id,
+            updated.status,
+            Some(updated.id.as_str()),
+        )
+        .await;
     }
 
     Ok((cleaned, resumed))
@@ -598,8 +612,14 @@ pub(super) async fn run_ready_task_workflows_for_project(
                 pipeline_id: Some(pipeline_for_task(&task)),
             })
             .await?;
-        sync_task_status_for_workflow_result(hub.clone(), project_root, &task.id, workflow.status)
-            .await;
+        sync_task_status_for_workflow_result(
+            hub.clone(),
+            project_root,
+            &task.id,
+            workflow.status,
+            Some(workflow.id.as_str()),
+        )
+        .await;
         active_task_ids.insert(task.id.clone());
         started = started.saturating_add(1);
     }
@@ -675,6 +695,7 @@ async fn execute_running_workflow_phases_for_project(
                     project_root,
                     &updated.task_id,
                     updated.status,
+                    Some(updated.id.as_str()),
                 )
                 .await;
                 failed = failed.saturating_add(1);
@@ -699,6 +720,7 @@ async fn execute_running_workflow_phases_for_project(
                 project_root,
                 &updated.task_id,
                 updated.status,
+                Some(updated.id.as_str()),
             )
             .await;
             processed = processed.saturating_add(1);
@@ -779,6 +801,7 @@ async fn execute_running_workflow_phases_for_project(
                             project_root,
                             &updated.task_id,
                             updated.status,
+                            Some(updated.id.as_str()),
                         )
                         .await;
                         executed = executed.saturating_add(1);
@@ -799,6 +822,7 @@ async fn execute_running_workflow_phases_for_project(
                                 project_root,
                                 &updated.task_id,
                                 updated.status,
+                                Some(updated.id.as_str()),
                             )
                             .await;
                             failed = failed.saturating_add(1);
@@ -823,6 +847,7 @@ async fn execute_running_workflow_phases_for_project(
                                 project_root,
                                 &updated.task_id,
                                 updated.status,
+                                Some(updated.id.as_str()),
                             )
                             .await;
                             if prior_research_rework {
@@ -883,6 +908,7 @@ async fn execute_running_workflow_phases_for_project(
                     project_root,
                     &updated.task_id,
                     updated.status,
+                    Some(updated.id.as_str()),
                 )
                 .await;
                 failed = failed.saturating_add(1);

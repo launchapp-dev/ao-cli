@@ -19,13 +19,13 @@
   "linked_architecture_entities": [],
   "linked_requirements": [],
   "metadata": {
-    "completed_at": null,
+    "completed_at": "2026-02-26T13:54:42.615572Z",
     "created_at": "2026-02-24T20:06:43.203941Z",
     "created_by": "ao-cli",
     "started_at": "2026-02-26T01:39:01.314199Z",
-    "updated_at": "2026-02-26T01:45:43.786302Z",
-    "updated_by": "ao-cli",
-    "version": 6
+    "updated_at": "2026-02-26T13:54:42.615572Z",
+    "updated_by": "ao-daemon",
+    "version": 22
   },
   "paused": false,
   "priority": "high",
@@ -36,7 +36,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "in-progress",
+  "status": "done",
   "tags": [],
   "title": "Add high-risk action safeguards in web UI",
   "type": "feature",

@@ -453,6 +453,7 @@ fn parse_env_flag_enabled(key: &str, default_value: bool) -> bool {
     std::env::var(key)
         .ok()
         .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty())
         .map(|value| !matches!(value.as_str(), "0" | "false" | "no" | "off"))
         .unwrap_or(default_value)
 }
@@ -466,7 +467,7 @@ fn codex_network_access_enabled() -> bool {
 }
 
 fn claude_bypass_permissions_enabled() -> bool {
-    parse_env_flag_enabled("AO_CLAUDE_BYPASS_PERMISSIONS", true)
+    parse_env_flag_enabled("AO_CLAUDE_BYPASS_PERMISSIONS", false)
 }
 
 fn env_codex_reasoning_effort_override() -> Option<String> {
@@ -965,6 +966,7 @@ pub(crate) fn append_line(path: &Path, line: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
     use std::sync::{Mutex, OnceLock};
     use tempfile::TempDir;
     use tokio::io::{AsyncBufReadExt, BufReader};
@@ -1071,5 +1073,113 @@ mod tests {
                 "error should mention missing runner token: {error}"
             );
         });
+    }
+
+    #[test]
+    fn claude_bypass_permissions_is_disabled_by_default() {
+        let _lock = env_lock().lock().expect("env lock should be available");
+        let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", None);
+        assert!(!claude_bypass_permissions_enabled());
+    }
+
+    #[test]
+    fn claude_bypass_permissions_respects_enable_toggle() {
+        let _lock = env_lock().lock().expect("env lock should be available");
+        let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", Some("true"));
+        assert!(claude_bypass_permissions_enabled());
+    }
+
+    #[test]
+    fn claude_bypass_permissions_respects_disable_toggle() {
+        let _lock = env_lock().lock().expect("env lock should be available");
+        let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", Some("false"));
+        assert!(!claude_bypass_permissions_enabled());
+    }
+
+    #[test]
+    fn claude_bypass_permissions_treats_empty_value_as_disabled() {
+        let _lock = env_lock().lock().expect("env lock should be available");
+        let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", Some(""));
+        assert!(!claude_bypass_permissions_enabled());
+    }
+
+    #[test]
+    fn inject_claude_permission_mode_override_is_disabled_by_default() {
+        let _lock = env_lock().lock().expect("env lock should be available");
+        let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", None);
+        let mut contract = build_runtime_contract("claude", "claude-opus-4-1", "hello")
+            .expect("runtime contract should build");
+
+        inject_claude_permission_mode_override(&mut contract, "claude");
+
+        let args = contract
+            .pointer("/cli/launch/args")
+            .and_then(Value::as_array)
+            .expect("launch args should be present")
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>();
+        assert!(!args.contains(&"--permission-mode"));
+        assert!(!args.contains(&"bypassPermissions"));
+    }
+
+    #[test]
+    fn inject_claude_permission_mode_override_respects_enable_toggle() {
+        let _lock = env_lock().lock().expect("env lock should be available");
+        let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", Some("true"));
+        let mut contract = build_runtime_contract("claude", "claude-opus-4-1", "hello")
+            .expect("runtime contract should build");
+
+        inject_claude_permission_mode_override(&mut contract, "claude");
+
+        let args = contract
+            .pointer("/cli/launch/args")
+            .and_then(Value::as_array)
+            .expect("launch args should be present")
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>();
+        assert!(args.contains(&"--permission-mode"));
+        assert!(args.contains(&"bypassPermissions"));
+    }
+
+    #[test]
+    fn inject_claude_permission_mode_override_respects_disable_toggle() {
+        let _lock = env_lock().lock().expect("env lock should be available");
+        let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", Some("false"));
+        let mut contract = build_runtime_contract("claude", "claude-opus-4-1", "hello")
+            .expect("runtime contract should build");
+
+        inject_claude_permission_mode_override(&mut contract, "claude");
+
+        let args = contract
+            .pointer("/cli/launch/args")
+            .and_then(Value::as_array)
+            .expect("launch args should be present")
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>();
+        assert!(!args.contains(&"--permission-mode"));
+        assert!(!args.contains(&"bypassPermissions"));
+    }
+
+    #[test]
+    fn inject_claude_permission_mode_override_treats_empty_toggle_as_disabled() {
+        let _lock = env_lock().lock().expect("env lock should be available");
+        let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", Some(""));
+        let mut contract = build_runtime_contract("claude", "claude-opus-4-1", "hello")
+            .expect("runtime contract should build");
+
+        inject_claude_permission_mode_override(&mut contract, "claude");
+
+        let args = contract
+            .pointer("/cli/launch/args")
+            .and_then(Value::as_array)
+            .expect("launch args should be present")
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>();
+        assert!(!args.contains(&"--permission-mode"));
+        assert!(!args.contains(&"bypassPermissions"));
     }
 }

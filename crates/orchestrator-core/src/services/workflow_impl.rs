@@ -191,6 +191,16 @@ impl WorkflowServiceApi for InMemoryServiceHub {
         WorkflowLifecycleExecutor::default().mark_current_phase_failed(workflow, error);
         Ok(workflow.clone())
     }
+
+    async fn mark_merge_conflict(&self, id: &str, error: String) -> Result<OrchestratorWorkflow> {
+        let mut lock = self.state.write().await;
+        let workflow = lock
+            .workflows
+            .get_mut(id)
+            .ok_or_else(|| anyhow!("workflow not found: {id}"))?;
+        WorkflowLifecycleExecutor::default().mark_merge_conflict(workflow, error);
+        Ok(workflow.clone())
+    }
 }
 
 #[async_trait]
@@ -198,16 +208,15 @@ impl WorkflowServiceApi for FileServiceHub {
     async fn list(&self) -> Result<Vec<OrchestratorWorkflow>> {
         let workflows = self.workflow_manager().list()?;
 
-        let snapshot = {
-            let mut lock = self.state.write().await;
-            lock.workflows = workflows
+        self.mutate_persistent_state(|state| {
+            state.workflows = workflows
                 .iter()
                 .cloned()
                 .map(|workflow| (workflow.id.clone(), workflow))
                 .collect();
-            lock.clone()
-        };
-        Self::persist_snapshot(&self.state_file, &snapshot)?;
+            Ok(())
+        })
+        .await?;
 
         Ok(workflows)
     }
@@ -264,13 +273,11 @@ impl WorkflowServiceApi for FileServiceHub {
         manager.save(&workflow)?;
         let workflow = manager.save_checkpoint(&workflow, CheckpointReason::Start)?;
 
-        let snapshot = {
-            let mut lock = self.state.write().await;
-            lock.workflows.insert(id, workflow.clone());
-            lock.clone()
-        };
-
-        Self::persist_snapshot(&self.state_file, &snapshot)?;
+        self.mutate_persistent_state(|state| {
+            state.workflows.insert(id, workflow.clone());
+            Ok(())
+        })
+        .await?;
         Ok(workflow)
     }
 
@@ -289,13 +296,11 @@ impl WorkflowServiceApi for FileServiceHub {
         manager.save(&workflow)?;
         let workflow = manager.save_checkpoint(&workflow, CheckpointReason::Resume)?;
 
-        let snapshot = {
-            let mut lock = self.state.write().await;
-            lock.workflows.insert(id.to_string(), workflow.clone());
-            lock.clone()
-        };
-
-        Self::persist_snapshot(&self.state_file, &snapshot)?;
+        self.mutate_persistent_state(|state| {
+            state.workflows.insert(id.to_string(), workflow.clone());
+            Ok(())
+        })
+        .await?;
         Ok(workflow)
     }
 
@@ -314,13 +319,11 @@ impl WorkflowServiceApi for FileServiceHub {
         manager.save(&workflow)?;
         let workflow = manager.save_checkpoint(&workflow, CheckpointReason::Pause)?;
 
-        let snapshot = {
-            let mut lock = self.state.write().await;
-            lock.workflows.insert(id.to_string(), workflow.clone());
-            lock.clone()
-        };
-
-        Self::persist_snapshot(&self.state_file, &snapshot)?;
+        self.mutate_persistent_state(|state| {
+            state.workflows.insert(id.to_string(), workflow.clone());
+            Ok(())
+        })
+        .await?;
         Ok(workflow)
     }
 
@@ -339,13 +342,11 @@ impl WorkflowServiceApi for FileServiceHub {
         manager.save(&workflow)?;
         let workflow = manager.save_checkpoint(&workflow, CheckpointReason::Cancel)?;
 
-        let snapshot = {
-            let mut lock = self.state.write().await;
-            lock.workflows.insert(id.to_string(), workflow.clone());
-            lock.clone()
-        };
-
-        Self::persist_snapshot(&self.state_file, &snapshot)?;
+        self.mutate_persistent_state(|state| {
+            state.workflows.insert(id.to_string(), workflow.clone());
+            Ok(())
+        })
+        .await?;
         Ok(workflow)
     }
 
@@ -364,13 +365,11 @@ impl WorkflowServiceApi for FileServiceHub {
         manager.save(&workflow)?;
         let workflow = manager.save_checkpoint(&workflow, CheckpointReason::Recovery)?;
 
-        let snapshot = {
-            let mut lock = self.state.write().await;
-            lock.workflows.insert(id.to_string(), workflow.clone());
-            lock.clone()
-        };
-
-        Self::persist_snapshot(&self.state_file, &snapshot)?;
+        self.mutate_persistent_state(|state| {
+            state.workflows.insert(id.to_string(), workflow.clone());
+            Ok(())
+        })
+        .await?;
         Ok(workflow)
     }
 
@@ -389,13 +388,11 @@ impl WorkflowServiceApi for FileServiceHub {
         manager.save(&workflow)?;
         let workflow = manager.save_checkpoint(&workflow, CheckpointReason::StatusChange)?;
 
-        let snapshot = {
-            let mut lock = self.state.write().await;
-            lock.workflows.insert(id.to_string(), workflow.clone());
-            lock.clone()
-        };
-
-        Self::persist_snapshot(&self.state_file, &snapshot)?;
+        self.mutate_persistent_state(|state| {
+            state.workflows.insert(id.to_string(), workflow.clone());
+            Ok(())
+        })
+        .await?;
         Ok(workflow)
     }
 
@@ -411,6 +408,29 @@ impl WorkflowServiceApi for FileServiceHub {
             state_machines,
         )
         .mark_current_phase_failed(&mut workflow, error);
+        manager.save(&workflow)?;
+        let workflow = manager.save_checkpoint(&workflow, CheckpointReason::StatusChange)?;
+
+        self.mutate_persistent_state(|state| {
+            state.workflows.insert(id.to_string(), workflow.clone());
+            Ok(())
+        })
+        .await?;
+        Ok(workflow)
+    }
+
+    async fn mark_merge_conflict(&self, id: &str, error: String) -> Result<OrchestratorWorkflow> {
+        let manager = self.workflow_manager();
+        let mut workflow = manager.load(id)?;
+        let state_machines = load_compiled_state_machines(self.project_root.as_path())?;
+        WorkflowLifecycleExecutor::with_state_machines(
+            resolve_phase_plan(
+                Some(self.project_root.as_path()),
+                workflow.pipeline_id.as_deref().unwrap_or_default(),
+            )?,
+            state_machines,
+        )
+        .mark_merge_conflict(&mut workflow, error);
         manager.save(&workflow)?;
         let workflow = manager.save_checkpoint(&workflow, CheckpointReason::StatusChange)?;
 

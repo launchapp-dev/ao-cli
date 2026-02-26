@@ -281,6 +281,37 @@ impl WorkflowLifecycleExecutor {
         ));
     }
 
+    pub fn mark_merge_conflict(&self, workflow: &mut OrchestratorWorkflow, error: String) {
+        if workflow.status != WorkflowStatus::Completed {
+            return;
+        }
+
+        let mut machine = self.state_machine(workflow.machine_state);
+        machine.apply(WorkflowMachineEvent::MergeConflictDetected);
+        workflow.machine_state = machine.state();
+        if workflow.machine_state != WorkflowMachineState::MergeConflict {
+            workflow.machine_state = WorkflowMachineState::MergeConflict;
+        }
+        workflow.failure_reason = Some(error);
+        workflow.completed_at = Some(Utc::now());
+    }
+
+    pub fn resolve_merge_conflict(&self, workflow: &mut OrchestratorWorkflow) {
+        if workflow.machine_state != WorkflowMachineState::MergeConflict {
+            return;
+        }
+
+        let mut machine = self.state_machine(workflow.machine_state);
+        machine.apply(WorkflowMachineEvent::MergeConflictResolved);
+        workflow.machine_state = machine.state();
+        if workflow.machine_state != WorkflowMachineState::Completed {
+            workflow.machine_state = WorkflowMachineState::Completed;
+        }
+        workflow.status = WorkflowStatus::Completed;
+        workflow.failure_reason = None;
+        workflow.completed_at = Some(Utc::now());
+    }
+
     pub fn request_research_phase(
         &self,
         workflow: &mut OrchestratorWorkflow,

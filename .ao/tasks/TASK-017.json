@@ -6,7 +6,7 @@
   "blocked_by": null,
   "blocked_phase": null,
   "blocked_reason": null,
-  "branch_name": null,
+  "branch_name": "ao/task-017",
   "cancelled": false,
   "checklist": [],
   "complexity": "medium",
@@ -19,13 +19,13 @@
   "linked_architecture_entities": [],
   "linked_requirements": [],
   "metadata": {
-    "completed_at": null,
+    "completed_at": "2026-02-26T14:59:23.495802Z",
     "created_at": "2026-02-24T20:06:43.244521Z",
     "created_by": "ao-cli",
     "started_at": "2026-02-26T01:39:01.947194Z",
-    "updated_at": "2026-02-26T01:43:54.922011Z",
+    "updated_at": "2026-02-26T14:59:37.514169Z",
     "updated_by": "ao-cli",
-    "version": 3
+    "version": 37
   },
   "paused": false,
   "priority": "medium",
@@ -36,7 +36,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "in-progress",
+  "status": "done",
   "tags": [],
   "title": "Implement accessibility, responsive, and performance baselines",
   "type": "chore",
@@ -48,5 +48,5 @@
     "requires_staging_deploy": false,
     "workflow_id": null
   },
-  "worktree_path": null
+  "worktree_path": "/Users/samishukri/.ao/ao-cli-1222ef9c4f94/worktrees/task-task-017"
 }

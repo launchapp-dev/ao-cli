@@ -61,6 +61,20 @@ fn state_machine_allows_resume_from_failed() {
 }
 
 #[test]
+fn state_machine_enters_merge_conflict_from_completed() {
+    let mut machine = WorkflowStateMachine::new(WorkflowMachineState::Completed);
+    machine.apply(WorkflowMachineEvent::MergeConflictDetected);
+    assert_eq!(machine.state(), WorkflowMachineState::MergeConflict);
+}
+
+#[test]
+fn state_machine_resolves_merge_conflict_to_completed() {
+    let mut machine = WorkflowStateMachine::new(WorkflowMachineState::MergeConflict);
+    machine.apply(WorkflowMachineEvent::MergeConflictResolved);
+    assert_eq!(machine.state(), WorkflowMachineState::Completed);
+}
+
+#[test]
 fn lifecycle_does_not_pause_completed_workflow() {
     let mut workflow = make_workflow(WorkflowStatus::Completed);
     workflow.machine_state = WorkflowMachineState::Completed;
@@ -166,4 +180,54 @@ fn request_research_inserts_phase_before_current() {
         .decision_history
         .iter()
         .any(|record| record.target_phase.as_deref() == Some("research")));
+}
+
+#[test]
+fn lifecycle_marks_completed_workflow_as_merge_conflict() {
+    let executor = WorkflowLifecycleExecutor::new(vec!["implementation".to_string()]);
+    let mut workflow = executor.bootstrap(
+        "WF-merge-conflict".to_string(),
+        WorkflowRunInput {
+            task_id: "TASK-merge".to_string(),
+            pipeline_id: Some("standard".to_string()),
+        },
+    );
+    executor.mark_current_phase_success(&mut workflow);
+    assert_eq!(workflow.status, WorkflowStatus::Completed);
+    assert_eq!(workflow.machine_state, WorkflowMachineState::Completed);
+
+    executor.mark_merge_conflict(
+        &mut workflow,
+        "failed to merge source branch into target branch".to_string(),
+    );
+    assert_eq!(workflow.status, WorkflowStatus::Completed);
+    assert_eq!(workflow.machine_state, WorkflowMachineState::MergeConflict);
+    assert_eq!(
+        workflow.failure_reason.as_deref(),
+        Some("failed to merge source branch into target branch")
+    );
+}
+
+#[test]
+fn lifecycle_resolves_merge_conflict_and_clears_failure_reason() {
+    let executor = WorkflowLifecycleExecutor::new(vec!["implementation".to_string()]);
+    let mut workflow = executor.bootstrap(
+        "WF-merge-conflict-resolve".to_string(),
+        WorkflowRunInput {
+            task_id: "TASK-merge-resolve".to_string(),
+            pipeline_id: Some("standard".to_string()),
+        },
+    );
+    executor.mark_current_phase_success(&mut workflow);
+    executor.mark_merge_conflict(
+        &mut workflow,
+        "failed to merge source branch into target branch".to_string(),
+    );
+    assert_eq!(workflow.machine_state, WorkflowMachineState::MergeConflict);
+    assert!(workflow.failure_reason.is_some());
+
+    executor.resolve_merge_conflict(&mut workflow);
+    assert_eq!(workflow.status, WorkflowStatus::Completed);
+    assert_eq!(workflow.machine_state, WorkflowMachineState::Completed);
+    assert!(workflow.failure_reason.is_none());
 }

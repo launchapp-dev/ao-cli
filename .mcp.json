@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "ao": {
+      "command": "cargo",
+      "args": [
+        "run",
+        "-p",
+        "orchestrator-cli",
+        "--",
+        "--project-root",
+        ".",
+        "mcp",
+        "serve"
+      ]
+    }
+  }
+}

@@ -215,7 +215,7 @@ Artifact naming and traceability contract:
 - archive base name: `ao-<version>-<target>`
 - tag builds: `<version> = <tag name>` (for example `v0.2.0`)
 - preview builds: `<version> = <sanitized-branch>-<sha7>`
-- release publish job emits `dist/SHA256SUMS.txt` for all archives
+- release publish job emits `dist/release-assets/SHA256SUMS.txt` for all archives
 
 Checksum verification example after downloading release assets:
 

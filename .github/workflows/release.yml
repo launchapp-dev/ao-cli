@@ -96,7 +96,7 @@ jobs:
       - name: Build release binaries
         shell: bash
         run: |
-          cargo ao-bin-build-release --target ${{ matrix.target }}
+          cargo ao-bin-build-release --locked --target ${{ matrix.target }}
 
       - name: Compute release version
         id: version
@@ -208,6 +208,14 @@ jobs:
                   raise SystemExit(f"release metadata missing key: {key}")
           PY
 
+          ARCHIVE_LIST="$(tar -tzf "${ARCHIVE_PATH}")"
+          for file in "${REQUIRED_FILES[@]}"; do
+            if ! printf '%s\n' "${ARCHIVE_LIST}" | grep -Fqx "${STAGE_DIR}/${file}"; then
+              echo "archive missing required entry: ${STAGE_DIR}/${file}" >&2
+              exit 1
+            fi
+          done
+
       - name: Package artifact (windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -284,11 +292,27 @@ jobs:
             }
           }
 
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $Zip = [System.IO.Compression.ZipFile]::OpenRead($ArchivePath)
+          try {
+            $ZipEntries = $Zip.Entries | ForEach-Object { $_.FullName.TrimEnd("/") }
+          }
+          finally {
+            $Zip.Dispose()
+          }
+          foreach ($File in $RequiredFiles) {
+            $EntryPath = "$StageDir/$File"
+            if ($ZipEntries -notcontains $EntryPath) {
+              throw "Archive missing required entry: $EntryPath"
+            }
+          }
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ao-${{ steps.version.outputs.value }}-${{ matrix.target }}
           path: ao-${{ steps.version.outputs.value }}-${{ matrix.target }}.${{ matrix.archive_ext }}
+          if-no-files-found: error
 
   publish:
     name: Publish GitHub release (tags only)
@@ -308,18 +332,38 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -d '' ARCHIVES < <(find dist -type f \( -name '*.tar.gz' -o -name '*.zip' \) -print0 | LC_ALL=C sort -z)
+          RELEASE_ASSETS_DIR="dist/release-assets"
+          rm -rf "${RELEASE_ASSETS_DIR}"
+
+          mapfile -d '' ARCHIVES < <(find dist -type f \( -name '*.tar.gz' -o -name '*.zip' \) ! -path "${RELEASE_ASSETS_DIR}/*" -print0 | LC_ALL=C sort -z)
           if [[ "${#ARCHIVES[@]}" -eq 0 ]]; then
             echo "no release archives found after download-artifact step" >&2
             exit 1
           fi
-          printf '%s\0' "${ARCHIVES[@]}" | xargs -0 sha256sum > dist/SHA256SUMS.txt
+
+          mkdir -p "${RELEASE_ASSETS_DIR}"
+          BASENAMES=()
+          for archive in "${ARCHIVES[@]}"; do
+            base_name="$(basename "${archive}")"
+            if [[ -e "${RELEASE_ASSETS_DIR}/${base_name}" ]]; then
+              echo "duplicate archive basename detected: ${base_name}" >&2
+              exit 1
+            fi
+            cp "${archive}" "${RELEASE_ASSETS_DIR}/${base_name}"
+            BASENAMES+=("${base_name}")
+          done
+
+          (
+            cd "${RELEASE_ASSETS_DIR}"
+            mapfile -t BASENAMES_SORTED < <(printf '%s\n' "${BASENAMES[@]}" | LC_ALL=C sort)
+            sha256sum "${BASENAMES_SORTED[@]}" > SHA256SUMS.txt
+          )
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/**/*.tar.gz
-            dist/**/*.zip
-            dist/SHA256SUMS.txt
+            dist/release-assets/*.tar.gz
+            dist/release-assets/*.zip
+            dist/release-assets/SHA256SUMS.txt
           generate_release_notes: true

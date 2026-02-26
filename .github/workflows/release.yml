@@ -6,6 +6,12 @@ on:
       - "v*"
     branches:
       - "version/**"
+  workflow_dispatch:
+    inputs:
+      dry_run_note:
+        description: Optional context for manual non-publishing release validation.
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -90,11 +96,7 @@ jobs:
       - name: Build release binaries
         shell: bash
         run: |
-          cargo build --release --target ${{ matrix.target }} \
-            -p orchestrator-cli \
-            -p agent-runner \
-            -p llm-cli-wrapper \
-            -p llm-mcp-server
+          cargo ao-bin-build-release --locked --target ${{ matrix.target }}
 
       - name: Compute release version
         id: version
@@ -103,7 +105,10 @@ jobs:
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             VERSION="${GITHUB_REF_NAME}"
           else
-            BRANCH_SANITIZED="${GITHUB_REF_NAME//\//-}"
+            BRANCH_SANITIZED="$(echo "${GITHUB_REF_NAME}" | sed -E 's/[^A-Za-z0-9._-]+/-/g; s/^-+//; s/-+$//')"
+            if [[ -z "${BRANCH_SANITIZED}" ]]; then
+              BRANCH_SANITIZED="ref"
+            fi
             VERSION="${BRANCH_SANITIZED}-${GITHUB_SHA::7}"
           fi
           echo "value=${VERSION}" >> "${GITHUB_OUTPUT}"
@@ -111,6 +116,8 @@ jobs:
       - name: Package artifact (unix)
         if: runner.os != 'Windows'
         shell: bash
+        env:
+          DRY_RUN_NOTE: ${{ github.event.inputs.dry_run_note || '' }}
         run: |
           set -euo pipefail
 
@@ -119,49 +126,199 @@ jobs:
           STAGE_DIR="ao-${VERSION}-${TARGET}"
           mkdir -p "${STAGE_DIR}"
 
-          cp "target/${TARGET}/release/ao" "${STAGE_DIR}/"
-          cp "target/${TARGET}/release/agent-runner" "${STAGE_DIR}/"
-          cp "target/${TARGET}/release/llm-cli-wrapper" "${STAGE_DIR}/"
-          cp "target/${TARGET}/release/llm-mcp-server" "${STAGE_DIR}/"
+          BINARIES=(ao agent-runner llm-cli-wrapper llm-mcp-server)
+          for binary in "${BINARIES[@]}"; do
+            cp "target/${TARGET}/release/${binary}" "${STAGE_DIR}/"
+          done
+
+          export VERSION TARGET STAGE_DIR
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          binaries = ["ao", "agent-runner", "llm-cli-wrapper", "llm-mcp-server"]
+          metadata = {
+              "schema": "ao.release.v1",
+              "version": os.environ["VERSION"],
+              "target": os.environ["TARGET"],
+              "git_ref": os.environ["GITHUB_REF"],
+              "git_sha": os.environ["GITHUB_SHA"],
+              "event_name": os.environ["GITHUB_EVENT_NAME"],
+              "dry_run_note": os.environ.get("DRY_RUN_NOTE", ""),
+              "binaries": binaries,
+              "files": binaries,
+          }
+          output = Path(os.environ["STAGE_DIR"]) / "release-metadata.json"
+          output.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY
 
           tar -czf "${STAGE_DIR}.tar.gz" "${STAGE_DIR}"
 
+      - name: Validate staged artifact contract (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ steps.version.outputs.value }}"
+          TARGET="${{ matrix.target }}"
+          STAGE_DIR="ao-${VERSION}-${TARGET}"
+          ARCHIVE_PATH="${STAGE_DIR}.tar.gz"
+
+          REQUIRED_FILES=(ao agent-runner llm-cli-wrapper llm-mcp-server release-metadata.json)
+          for file in "${REQUIRED_FILES[@]}"; do
+            if [[ ! -f "${STAGE_DIR}/${file}" ]]; then
+              echo "missing required staged file: ${STAGE_DIR}/${file}" >&2
+              exit 1
+            fi
+          done
+          if [[ ! -f "${ARCHIVE_PATH}" ]]; then
+            echo "missing expected archive: ${ARCHIVE_PATH}" >&2
+            exit 1
+          fi
+
+          export VERSION TARGET STAGE_DIR
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          stage_dir = Path(os.environ["STAGE_DIR"])
+          metadata_path = stage_dir / "release-metadata.json"
+          metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+          expected_binaries = ["ao", "agent-runner", "llm-cli-wrapper", "llm-mcp-server"]
+
+          required_pairs = {
+              "schema": "ao.release.v1",
+              "version": os.environ["VERSION"],
+              "target": os.environ["TARGET"],
+              "binaries": expected_binaries,
+              "files": expected_binaries,
+          }
+
+          for key, expected in required_pairs.items():
+              if metadata.get(key) != expected:
+                  raise SystemExit(
+                      f"release metadata mismatch for {key}: expected {expected!r}, got {metadata.get(key)!r}"
+                  )
+
+          for key in ("git_ref", "git_sha", "event_name", "dry_run_note"):
+              if key not in metadata:
+                  raise SystemExit(f"release metadata missing key: {key}")
+          PY
+
+          ARCHIVE_LIST="$(tar -tzf "${ARCHIVE_PATH}")"
+          for file in "${REQUIRED_FILES[@]}"; do
+            if ! printf '%s\n' "${ARCHIVE_LIST}" | grep -Fqx "${STAGE_DIR}/${file}"; then
+              echo "archive missing required entry: ${STAGE_DIR}/${file}" >&2
+              exit 1
+            fi
+          done
+
       - name: Package artifact (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          DRY_RUN_NOTE: ${{ github.event.inputs.dry_run_note || '' }}
+        run: |
+          $Version = "${{ steps.version.outputs.value }}"
+          $Target = "${{ matrix.target }}"
+          $StageDir = "ao-$Version-$Target"
+          $Binaries = @("ao", "agent-runner", "llm-cli-wrapper", "llm-mcp-server")
+          $BinaryFiles = $Binaries | ForEach-Object { "$_.exe" }
+
+          New-Item -ItemType Directory -Path $StageDir -Force | Out-Null
+
+          foreach ($Binary in $BinaryFiles) {
+            Copy-Item "target/$Target/release/$Binary" "$StageDir/"
+          }
+
+          $Metadata = @{
+            schema = "ao.release.v1"
+            version = $Version
+            target = $Target
+            git_ref = $env:GITHUB_REF
+            git_sha = $env:GITHUB_SHA
+            event_name = $env:GITHUB_EVENT_NAME
+            dry_run_note = $env:DRY_RUN_NOTE
+            binaries = $Binaries
+            files = $BinaryFiles
+          }
+          $Metadata | ConvertTo-Json -Depth 4 | Set-Content -Path "$StageDir/release-metadata.json" -Encoding utf8NoBOM
+
+          Compress-Archive -Path $StageDir -DestinationPath "$StageDir.zip" -Force
+
+      - name: Validate staged artifact contract (windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $Version = "${{ steps.version.outputs.value }}"
           $Target = "${{ matrix.target }}"
           $StageDir = "ao-$Version-$Target"
+          $ArchivePath = "$StageDir.zip"
 
-          New-Item -ItemType Directory -Path $StageDir -Force | Out-Null
+          $Binaries = @("ao", "agent-runner", "llm-cli-wrapper", "llm-mcp-server")
+          $BinaryFiles = $Binaries | ForEach-Object { "$_.exe" }
+          $RequiredFiles = $BinaryFiles + "release-metadata.json"
+          foreach ($File in $RequiredFiles) {
+            if (-not (Test-Path "$StageDir/$File")) {
+              throw "Missing required staged file: $StageDir/$File"
+            }
+          }
+          if (-not (Test-Path $ArchivePath)) {
+            throw "Missing expected archive: $ArchivePath"
+          }
 
-          Copy-Item "target/$Target/release/ao.exe" "$StageDir/"
-          Copy-Item "target/$Target/release/agent-runner.exe" "$StageDir/"
-          Copy-Item "target/$Target/release/llm-cli-wrapper.exe" "$StageDir/"
-          Copy-Item "target/$Target/release/llm-mcp-server.exe" "$StageDir/"
+          $Metadata = Get-Content "$StageDir/release-metadata.json" -Raw | ConvertFrom-Json
+          if ($Metadata.schema -ne "ao.release.v1") {
+            throw "release metadata mismatch for schema"
+          }
+          if ($Metadata.version -ne $Version) {
+            throw "release metadata mismatch for version"
+          }
+          if ($Metadata.target -ne $Target) {
+            throw "release metadata mismatch for target"
+          }
+          if ((@($Metadata.binaries) -join ",") -ne ($Binaries -join ",")) {
+            throw "release metadata mismatch for binaries"
+          }
+          if ((@($Metadata.files) -join ",") -ne ($BinaryFiles -join ",")) {
+            throw "release metadata mismatch for files"
+          }
+          foreach ($Key in @("git_ref", "git_sha", "event_name", "dry_run_note")) {
+            if ($null -eq $Metadata.$Key) {
+              throw "release metadata missing key: $Key"
+            }
+          }
 
-          Compress-Archive -Path $StageDir -DestinationPath "$StageDir.zip" -Force
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $Zip = [System.IO.Compression.ZipFile]::OpenRead($ArchivePath)
+          try {
+            $ZipEntries = $Zip.Entries | ForEach-Object { $_.FullName.TrimEnd("/") }
+          }
+          finally {
+            $Zip.Dispose()
+          }
+          foreach ($File in $RequiredFiles) {
+            $EntryPath = "$StageDir/$File"
+            if ($ZipEntries -notcontains $EntryPath) {
+              throw "Archive missing required entry: $EntryPath"
+            }
+          }
 
-      - name: Upload artifact (unix)
-        if: runner.os != 'Windows'
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ao-${{ steps.version.outputs.value }}-${{ matrix.target }}
-          path: ao-${{ steps.version.outputs.value }}-${{ matrix.target }}.tar.gz
-
-      - name: Upload artifact (windows)
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ao-${{ steps.version.outputs.value }}-${{ matrix.target }}
-          path: ao-${{ steps.version.outputs.value }}-${{ matrix.target }}.zip
+          path: ao-${{ steps.version.outputs.value }}-${{ matrix.target }}.${{ matrix.archive_ext }}
+          if-no-files-found: error
 
   publish:
     name: Publish GitHub release (tags only)
     runs-on: ubuntu-latest
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
 
@@ -175,13 +332,38 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          find dist -type f \( -name '*.tar.gz' -o -name '*.zip' \) -print0 | sort -z | xargs -0 sha256sum > dist/SHA256SUMS.txt
+          RELEASE_ASSETS_DIR="dist/release-assets"
+          rm -rf "${RELEASE_ASSETS_DIR}"
+
+          mapfile -d '' ARCHIVES < <(find dist -type f \( -name '*.tar.gz' -o -name '*.zip' \) ! -path "${RELEASE_ASSETS_DIR}/*" -print0 | LC_ALL=C sort -z)
+          if [[ "${#ARCHIVES[@]}" -eq 0 ]]; then
+            echo "no release archives found after download-artifact step" >&2
+            exit 1
+          fi
+
+          mkdir -p "${RELEASE_ASSETS_DIR}"
+          BASENAMES=()
+          for archive in "${ARCHIVES[@]}"; do
+            base_name="$(basename "${archive}")"
+            if [[ -e "${RELEASE_ASSETS_DIR}/${base_name}" ]]; then
+              echo "duplicate archive basename detected: ${base_name}" >&2
+              exit 1
+            fi
+            cp "${archive}" "${RELEASE_ASSETS_DIR}/${base_name}"
+            BASENAMES+=("${base_name}")
+          done
+
+          (
+            cd "${RELEASE_ASSETS_DIR}"
+            mapfile -t BASENAMES_SORTED < <(printf '%s\n' "${BASENAMES[@]}" | LC_ALL=C sort)
+            sha256sum "${BASENAMES_SORTED[@]}" > SHA256SUMS.txt
+          )
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/**/*.tar.gz
-            dist/**/*.zip
-            dist/SHA256SUMS.txt
+            dist/release-assets/*.tar.gz
+            dist/release-assets/*.zip
+            dist/release-assets/SHA256SUMS.txt
           generate_release_notes: true

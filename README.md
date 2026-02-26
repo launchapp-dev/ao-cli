@@ -171,6 +171,9 @@ Initial requirements/tasks were created to bootstrap self-hosted development:
 - Rust workspace CI coverage planning artifacts for TASK-005 live in `crates/orchestrator-cli/docs/`:
   - `task-005-rust-workspace-ci-requirements.md`
   - `task-005-rust-workspace-ci-implementation-notes.md`
+- Multi-binary release pipeline artifacts for TASK-006 live in `crates/orchestrator-cli/docs/`:
+  - `task-006-multi-binary-release-pipeline-requirements.md`
+  - `task-006-multi-binary-release-pipeline-implementation-notes.md`
 - Rust-only dependency guardrail artifacts for TASK-007 live in `crates/orchestrator-cli/docs/`:
   - `task-007-rust-only-dependency-policy-requirements.md`
   - `task-007-rust-only-dependency-policy-implementation-notes.md`
@@ -204,6 +207,27 @@ Release CI/CD is configured via `.github/workflows/release.yml`.
   - always builds release archives for `ao`, `agent-runner`, `llm-cli-wrapper`, `llm-mcp-server`
   - publishes a GitHub Release only for `v*` tags
   - uploads workflow artifacts for both tags and `version/**` branches
+
+Artifact matrix:
+
+| Runner | Target | Archive |
+| --- | --- | --- |
+| `ubuntu-latest` | `x86_64-unknown-linux-gnu` | `.tar.gz` |
+| `macos-15-intel` | `x86_64-apple-darwin` | `.tar.gz` |
+| `macos-14` | `aarch64-apple-darwin` | `.tar.gz` |
+| `windows-latest` | `x86_64-pc-windows-msvc` | `.zip` |
+
+Artifact naming and traceability contract:
+- archive base name: `ao-<version>-<target>`
+- tag builds: `<version> = <tag name>` (for example `v0.2.0`)
+- preview builds: `<version> = <sanitized-branch>-<sha7>`
+- release publish job emits `dist/release-assets/SHA256SUMS.txt` for all archives
+
+Checksum verification example after downloading release assets:
+
+```bash
+sha256sum -c SHA256SUMS.txt
+```
 
 Examples:
 

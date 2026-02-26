@@ -8,6 +8,8 @@ import { describe, expect, it } from "vitest";
 const CURRENT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(CURRENT_DIR, "../../../../../");
 const WORKFLOWS_DIR = path.join(REPO_ROOT, ".github", "workflows");
+const CARGO_CONFIG_PATH = path.join(REPO_ROOT, ".cargo", "config.toml");
+const README_PATH = path.join(REPO_ROOT, "README.md");
 const RELEASE_CHECKLIST_PATH = path.join(
   REPO_ROOT,
   ".github",
@@ -18,6 +20,10 @@ const RELEASE_CHECKLIST_PATH = path.join(
 function readWorkflow(fileName: string): string {
   const workflowPath = path.join(WORKFLOWS_DIR, fileName);
   return readFileSync(workflowPath, "utf8");
+}
+
+function countMatches(content: string, pattern: RegExp): number {
+  return content.match(pattern)?.length ?? 0;
 }
 
 describe("web gui release workflow gates", () => {
@@ -44,6 +50,66 @@ describe("web gui release workflow gates", () => {
     expect(workflow).toMatch(/Upload smoke diagnostics[\s\S]*if:\s*failure\(\)/);
   });
 
+  it("keeps deterministic release matrix and artifact packaging contract", () => {
+    const workflow = readWorkflow("release.yml");
+    const cargoConfig = readFileSync(CARGO_CONFIG_PATH, "utf8");
+
+    expect(workflow).toMatch(/os:\s*ubuntu-latest[\s\S]*target:\s*x86_64-unknown-linux-gnu[\s\S]*archive_ext:\s*tar\.gz/);
+    expect(workflow).toMatch(/os:\s*macos-15-intel[\s\S]*target:\s*x86_64-apple-darwin[\s\S]*archive_ext:\s*tar\.gz/);
+    expect(workflow).toMatch(/os:\s*macos-14[\s\S]*target:\s*aarch64-apple-darwin[\s\S]*archive_ext:\s*tar\.gz/);
+    expect(workflow).toMatch(/os:\s*windows-latest[\s\S]*target:\s*x86_64-pc-windows-msvc[\s\S]*archive_ext:\s*zip/);
+
+    expect(workflow).toContain("cargo ao-bin-build-release --locked --target ${{ matrix.target }}");
+    expect(cargoConfig).toContain(
+      'ao-bin-build-release = "build --release -p orchestrator-cli -p agent-runner -p llm-cli-wrapper -p llm-mcp-server"',
+    );
+    expect(countMatches(workflow, /\n\s*-\sos:\s/g)).toBe(4);
+    expect(
+      countMatches(
+        workflow,
+        /target:\s*(x86_64-unknown-linux-gnu|x86_64-apple-darwin|aarch64-apple-darwin|x86_64-pc-windows-msvc)/g,
+      ),
+    ).toBe(4);
+    expect(countMatches(workflow, /archive_ext:\s*(tar\.gz|zip)/g)).toBe(4);
+
+    expect(workflow).toContain("BINARIES=(ao agent-runner llm-cli-wrapper llm-mcp-server)");
+    expect(workflow).toContain('"files": binaries');
+    expect(workflow).toContain('json.dumps(metadata, indent=2, sort_keys=True) + "\\n"');
+    expect(workflow).toContain('$BinaryFiles = $Binaries | ForEach-Object { "$_.exe" }');
+    expect(workflow).toContain('$Binaries = @("ao", "agent-runner", "llm-cli-wrapper", "llm-mcp-server")');
+    expect(workflow).toContain("dry_run_note");
+    expect(workflow).toContain("event_name");
+    expect(workflow).toContain("files = $BinaryFiles");
+    expect(workflow).toContain("Validate staged artifact contract (unix)");
+    expect(workflow).toContain("Validate staged artifact contract (windows)");
+    expect(workflow).toContain("missing required staged file");
+    expect(workflow).toContain("archive missing required entry");
+    expect(workflow).toContain("release metadata mismatch for schema");
+    expect(workflow).toContain("Archive missing required entry:");
+    expect(workflow).toContain('foreach ($Key in @("git_ref", "git_sha", "event_name", "dry_run_note"))');
+    expect(countMatches(workflow, /- name:\s*Upload artifact\n/g)).toBe(1);
+    expect(workflow).toContain("path: ao-${{ steps.version.outputs.value }}-${{ matrix.target }}.${{ matrix.archive_ext }}");
+    expect(workflow).toContain("if-no-files-found: error");
+    expect(workflow).toContain("no release archives found after download-artifact step");
+    expect(workflow).toContain("duplicate archive basename detected");
+    expect(workflow).toContain("RELEASE_ASSETS_DIR=\"dist/release-assets\"");
+    expect(workflow).toContain("sha256sum \"${BASENAMES_SORTED[@]}\" > SHA256SUMS.txt");
+    expect(workflow).toContain("cd \"${RELEASE_ASSETS_DIR}\"");
+    expect(workflow).toContain("dist/release-assets/SHA256SUMS.txt");
+    expect(workflow).toContain("dist/release-assets/*.tar.gz");
+    expect(workflow).toContain("dist/release-assets/*.zip");
+    expect(workflow).not.toContain("dist/**/*.tar.gz");
+    expect(workflow).not.toContain("dist/**/*.zip");
+  });
+
+  it("sanitizes preview version names for artifact-safe output", () => {
+    const workflow = readWorkflow("release.yml");
+
+    expect(workflow).toContain("sed -E 's/[^A-Za-z0-9._-]+/-/g; s/^-+//; s/-+$//')");
+    expect(workflow).toContain("BRANCH_SANITIZED=\"ref\"");
+    expect(workflow).toContain("VERSION=\"${BRANCH_SANITIZED}-${GITHUB_SHA::7}\"");
+  });
+
   it("keeps rollback validation as smoke only and non-publishing", () => {
     const workflow = readWorkflow("release-rollback-validation.yml");
 
@@ -65,5 +131,20 @@ describe("web gui release workflow gates", () => {
     expect(checklist).toContain("Release workflow `web-ui-gates` job completed successfully.");
     expect(checklist).toContain("`release-rollback-validation.yml` run executed for:");
     expect(checklist).toContain("Operator go/no-go sign-off recorded.");
+  });
+
+  it("documents multi-binary release artifact contract in README", () => {
+    const readme = readFileSync(README_PATH, "utf8");
+
+    expect(readme).toContain(
+      "always builds release archives for `ao`, `agent-runner`, `llm-cli-wrapper`, `llm-mcp-server`",
+    );
+    expect(readme).toContain("| `ubuntu-latest` | `x86_64-unknown-linux-gnu` | `.tar.gz` |");
+    expect(readme).toContain("| `macos-15-intel` | `x86_64-apple-darwin` | `.tar.gz` |");
+    expect(readme).toContain("| `macos-14` | `aarch64-apple-darwin` | `.tar.gz` |");
+    expect(readme).toContain("| `windows-latest` | `x86_64-pc-windows-msvc` | `.zip` |");
+    expect(readme).toContain(
+      "- release publish job emits `dist/release-assets/SHA256SUMS.txt` for all archives",
+    );
   });
 });

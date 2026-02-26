@@ -195,6 +195,87 @@ fn help_surfaces_accepted_values_and_confirmation_guidance(
 }
 
 #[test]
+fn help_uses_explicit_value_names_and_repeatable_flag_guidance(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let binary = assert_cmd::cargo::cargo_bin!("ao");
+
+    let task_update_help = Command::new(&binary)
+        .args(["task", "update", "--help"])
+        .output()?;
+    assert!(
+        task_update_help.status.success(),
+        "task update help should succeed"
+    );
+    let task_update_stdout = String::from_utf8(task_update_help.stdout)?;
+    assert!(
+        task_update_stdout.contains("--id <TASK_ID>"),
+        "task update help should use explicit TASK_ID value names"
+    );
+    assert!(
+        task_update_stdout.contains("--linked-architecture-entity <ENTITY_ID>"),
+        "task update help should expose ENTITY_ID value names"
+    );
+    assert!(
+        task_update_stdout.contains(
+            "Replace all linked architecture entities with the provided --linked-architecture-entity values."
+        ),
+        "task update help should explain replace behavior"
+    );
+
+    let requirements_create_help = Command::new(&binary)
+        .args(["requirements", "create", "--help"])
+        .output()?;
+    assert!(
+        requirements_create_help.status.success(),
+        "requirements create help should succeed"
+    );
+    let requirements_create_stdout = String::from_utf8(requirements_create_help.stdout)?;
+    assert!(
+        requirements_create_stdout.contains("--acceptance-criterion <TEXT>"),
+        "requirements create help should expose repeatable criterion value names"
+    );
+    assert!(
+        requirements_create_stdout
+            .contains("Optional source describing where this requirement originated."),
+        "requirements create help should explain source"
+    );
+
+    let workflow_run_help = Command::new(&binary)
+        .args(["workflow", "run", "--help"])
+        .output()?;
+    assert!(
+        workflow_run_help.status.success(),
+        "workflow run help should succeed"
+    );
+    let workflow_run_stdout = String::from_utf8(workflow_run_help.stdout)?;
+    assert!(
+        workflow_run_stdout.contains("--pipeline-id <PIPELINE_ID>"),
+        "workflow run help should expose pipeline id value names"
+    );
+
+    let task_list_help = Command::new(&binary)
+        .args(["task", "list", "--help"])
+        .output()?;
+    assert!(
+        task_list_help.status.success(),
+        "task list help should succeed"
+    );
+    let task_list_stdout = String::from_utf8(task_list_help.stdout)?;
+    assert!(
+        task_list_stdout.contains("--assignee-type <ASSIGNEE_TYPE>"),
+        "task list help should expose assignee type value names"
+    );
+    assert!(
+        task_list_stdout.contains(
+            "Match tasks that include all provided tags. Repeat to require multiple tags."
+        ),
+        "task list help should explain repeatable tags"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn version_subcommand_supports_json_output() -> Result<(), Box<dyn std::error::Error>> {
     let binary = assert_cmd::cargo::cargo_bin!("ao");
     let output = Command::new(binary).args(["--json", "version"]).output()?;

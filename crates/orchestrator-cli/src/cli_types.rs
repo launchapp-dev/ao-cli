@@ -2,6 +2,21 @@ use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
 
 const INPUT_JSON_PRECEDENCE_HELP: &str =
     "JSON payload for this command. When provided, values in this payload override individual CLI flags.";
+const TASK_TYPE_HELP: &str =
+    "Task type: feature|bugfix|hotfix|refactor|docs|test|chore|experiment.";
+const TASK_TYPE_FILTER_HELP: &str =
+    "Task type filter: feature|bugfix|hotfix|refactor|docs|test|chore|experiment.";
+const TASK_STATUS_HELP: &str =
+    "Task status: backlog|todo|ready|in-progress|in_progress|blocked|on-hold|on_hold|done|cancelled.";
+const TASK_STATUS_FILTER_HELP: &str =
+    "Status filter: backlog|todo|ready|in-progress|in_progress|blocked|on-hold|on_hold|done|cancelled.";
+const TASK_PRIORITY_HELP: &str = "Task priority: critical|high|medium|low.";
+const TASK_PRIORITY_FILTER_HELP: &str = "Priority filter: critical|high|medium|low.";
+const REQUIREMENT_PRIORITY_HELP: &str = "Requirement priority: must|should|could|wont|won't.";
+const REQUIREMENT_STATUS_HELP: &str =
+    "Requirement status: draft|refined|planned|in-progress|in_progress|done.";
+const DEPENDENCY_TYPE_HELP: &str =
+    "Dependency type: blocks-by|blocks_by|blocked-by|blocked_by|related-to|related_to.";
 
 #[derive(Debug, Parser)]
 #[command(name = "ao", about = "Agent Orchestrator CLI", version)]
@@ -503,15 +518,15 @@ pub(crate) struct ProjectCreateArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct IdArgs {
-    #[arg(long)]
+    #[arg(long, value_name = "ID", help = "Entity identifier.")]
     pub(crate) id: String,
 }
 
 #[derive(Debug, Args)]
 pub(crate) struct ProjectRenameArgs {
-    #[arg(long)]
+    #[arg(long, value_name = "ID", help = "Project identifier.")]
     pub(crate) id: String,
-    #[arg(long)]
+    #[arg(long, value_name = "NAME", help = "Updated project name.")]
     pub(crate) name: String,
 }
 
@@ -553,33 +568,41 @@ pub(crate) enum TaskCommand {
 
 #[derive(Debug, Args)]
 pub(crate) struct TaskListArgs {
-    #[arg(
-        long,
-        value_name = "TYPE",
-        help = "Task type filter: feature|bugfix|hotfix|refactor|docs|test|chore|experiment."
-    )]
+    #[arg(long, value_name = "TYPE", help = TASK_TYPE_FILTER_HELP)]
     pub(crate) task_type: Option<String>,
-    #[arg(
-        long,
-        value_name = "STATUS",
-        help = "Status filter: backlog|todo|ready|in-progress|in_progress|blocked|on-hold|on_hold|done|cancelled."
-    )]
+    #[arg(long, value_name = "STATUS", help = TASK_STATUS_FILTER_HELP)]
     pub(crate) status: Option<String>,
+    #[arg(long, value_name = "PRIORITY", help = TASK_PRIORITY_FILTER_HELP)]
+    pub(crate) priority: Option<String>,
     #[arg(
         long,
-        value_name = "PRIORITY",
-        help = "Priority filter: critical|high|medium|low."
+        value_name = "ASSIGNEE_TYPE",
+        help = "Assignee type filter: agent|human|unassigned."
     )]
-    pub(crate) priority: Option<String>,
-    #[arg(long)]
     pub(crate) assignee_type: Option<String>,
-    #[arg(long)]
+    #[arg(
+        long,
+        value_name = "TAG",
+        help = "Match tasks that include all provided tags. Repeat to require multiple tags."
+    )]
     pub(crate) tag: Vec<String>,
-    #[arg(long)]
+    #[arg(
+        long,
+        value_name = "REQ_ID",
+        help = "Filter tasks linked to a requirement id."
+    )]
     pub(crate) linked_requirement: Option<String>,
-    #[arg(long)]
+    #[arg(
+        long,
+        value_name = "ENTITY_ID",
+        help = "Filter tasks linked to an architecture entity id."
+    )]
     pub(crate) linked_architecture_entity: Option<String>,
-    #[arg(long)]
+    #[arg(
+        long,
+        value_name = "TEXT",
+        help = "Case-insensitive text search over task title and description."
+    )]
     pub(crate) search: Option<String>,
 }
 
@@ -594,19 +617,15 @@ pub(crate) struct TaskCreateArgs {
         help = "Task description."
     )]
     pub(crate) description: String,
-    #[arg(
-        long,
-        value_name = "TYPE",
-        help = "Task type: feature|bugfix|hotfix|refactor|docs|test|chore|experiment."
-    )]
+    #[arg(long, value_name = "TYPE", help = TASK_TYPE_HELP)]
     pub(crate) task_type: Option<String>,
-    #[arg(
-        long,
-        value_name = "PRIORITY",
-        help = "Task priority: critical|high|medium|low."
-    )]
+    #[arg(long, value_name = "PRIORITY", help = TASK_PRIORITY_HELP)]
     pub(crate) priority: Option<String>,
-    #[arg(long = "linked-architecture-entity")]
+    #[arg(
+        long = "linked-architecture-entity",
+        value_name = "ENTITY_ID",
+        help = "Link architecture entity ids to the new task. Repeat to add multiple ids."
+    )]
     pub(crate) linked_architecture_entity: Vec<String>,
     #[arg(long, value_name = "JSON", help = INPUT_JSON_PRECEDENCE_HELP)]
     pub(crate) input_json: Option<String>,
@@ -614,29 +633,33 @@ pub(crate) struct TaskCreateArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct TaskUpdateArgs {
-    #[arg(long)]
+    #[arg(long, value_name = "TASK_ID", help = "Task identifier.")]
     pub(crate) id: String,
-    #[arg(long)]
+    #[arg(long, value_name = "TITLE", help = "Updated task title.")]
     pub(crate) title: Option<String>,
-    #[arg(long)]
+    #[arg(long, value_name = "TEXT", help = "Updated task description.")]
     pub(crate) description: Option<String>,
-    #[arg(
-        long,
-        value_name = "PRIORITY",
-        help = "Task priority: critical|high|medium|low."
-    )]
+    #[arg(long, value_name = "PRIORITY", help = TASK_PRIORITY_HELP)]
     pub(crate) priority: Option<String>,
+    #[arg(long, value_name = "STATUS", help = TASK_STATUS_HELP)]
+    pub(crate) status: Option<String>,
     #[arg(
         long,
-        value_name = "STATUS",
-        help = "Task status: backlog|todo|ready|in-progress|in_progress|blocked|on-hold|on_hold|done|cancelled."
+        value_name = "ASSIGNEE",
+        help = "Updated assignee value for the task."
     )]
-    pub(crate) status: Option<String>,
-    #[arg(long)]
     pub(crate) assignee: Option<String>,
-    #[arg(long = "linked-architecture-entity")]
+    #[arg(
+        long = "linked-architecture-entity",
+        value_name = "ENTITY_ID",
+        help = "Architecture entity ids to link. Repeat to add multiple ids."
+    )]
     pub(crate) linked_architecture_entity: Vec<String>,
-    #[arg(long, default_value_t = false)]
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Replace all linked architecture entities with the provided --linked-architecture-entity values."
+    )]
     pub(crate) replace_linked_architecture_entities: bool,
     #[arg(long, value_name = "JSON", help = INPUT_JSON_PRECEDENCE_HELP)]
     pub(crate) input_json: Option<String>,
@@ -644,7 +667,7 @@ pub(crate) struct TaskUpdateArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct TaskDeleteArgs {
-    #[arg(long)]
+    #[arg(long, value_name = "TASK_ID", help = "Task identifier.")]
     pub(crate) id: String,
     #[arg(
         long,
@@ -662,91 +685,121 @@ pub(crate) struct TaskDeleteArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct TaskAssignArgs {
-    #[arg(long)]
+    #[arg(long, value_name = "TASK_ID", help = "Task identifier.")]
     pub(crate) id: String,
-    #[arg(long)]
+    #[arg(long, value_name = "ASSIGNEE", help = "Assignee value.")]
     pub(crate) assignee: String,
 }
 
 #[derive(Debug, Args)]
 pub(crate) struct TaskAssignAgentArgs {
-    #[arg(long)]
+    #[arg(long, value_name = "TASK_ID", help = "Task identifier.")]
     pub(crate) id: String,
-    #[arg(long)]
+    #[arg(long, value_name = "ROLE", help = "Agent role identifier.")]
     pub(crate) role: String,
-    #[arg(long)]
+    #[arg(long, value_name = "MODEL", help = "Optional model override.")]
     pub(crate) model: Option<String>,
-    #[arg(long, default_value = "ao-cli")]
+    #[arg(
+        long,
+        value_name = "USER",
+        default_value = "ao-cli",
+        help = "Audit user id recorded in task metadata."
+    )]
     pub(crate) updated_by: String,
 }
 
 #[derive(Debug, Args)]
 pub(crate) struct TaskAssignHumanArgs {
-    #[arg(long)]
+    #[arg(long, value_name = "TASK_ID", help = "Task identifier.")]
     pub(crate) id: String,
-    #[arg(long)]
+    #[arg(long, value_name = "USER_ID", help = "Human user id.")]
     pub(crate) user_id: String,
-    #[arg(long, default_value = "ao-cli")]
+    #[arg(
+        long,
+        value_name = "USER",
+        default_value = "ao-cli",
+        help = "Audit user id recorded in task metadata."
+    )]
     pub(crate) updated_by: String,
 }
 
 #[derive(Debug, Args)]
 pub(crate) struct TaskChecklistAddArgs {
-    #[arg(long)]
+    #[arg(long, value_name = "TASK_ID", help = "Task identifier.")]
     pub(crate) id: String,
-    #[arg(long)]
+    #[arg(long, value_name = "TEXT", help = "Checklist item text.")]
     pub(crate) description: String,
-    #[arg(long, default_value = "ao-cli")]
+    #[arg(
+        long,
+        value_name = "USER",
+        default_value = "ao-cli",
+        help = "Audit user id recorded in task metadata."
+    )]
     pub(crate) updated_by: String,
 }
 
 #[derive(Debug, Args)]
 pub(crate) struct TaskChecklistUpdateArgs {
-    #[arg(long)]
+    #[arg(long, value_name = "TASK_ID", help = "Task identifier.")]
     pub(crate) id: String,
-    #[arg(long)]
+    #[arg(long, value_name = "ITEM_ID", help = "Checklist item identifier.")]
     pub(crate) item_id: String,
-    #[arg(long)]
+    #[arg(long, help = "Set to true to mark complete, false to mark incomplete.")]
     pub(crate) completed: bool,
-    #[arg(long, default_value = "ao-cli")]
+    #[arg(
+        long,
+        value_name = "USER",
+        default_value = "ao-cli",
+        help = "Audit user id recorded in task metadata."
+    )]
     pub(crate) updated_by: String,
 }
 
 #[derive(Debug, Args)]
 pub(crate) struct TaskDependencyAddArgs {
-    #[arg(long)]
+    #[arg(long, value_name = "TASK_ID", help = "Task identifier.")]
     pub(crate) id: String,
-    #[arg(long)]
-    pub(crate) dependency_id: String,
     #[arg(
         long,
-        value_name = "TYPE",
-        help = "Dependency type: blocks-by|blocks_by|blocked-by|blocked_by|related-to|related_to."
+        value_name = "DEPENDENCY_ID",
+        help = "Dependency task identifier."
     )]
+    pub(crate) dependency_id: String,
+    #[arg(long, value_name = "TYPE", help = DEPENDENCY_TYPE_HELP)]
     pub(crate) dependency_type: String,
-    #[arg(long, default_value = "ao-cli")]
+    #[arg(
+        long,
+        value_name = "USER",
+        default_value = "ao-cli",
+        help = "Audit user id recorded in task metadata."
+    )]
     pub(crate) updated_by: String,
 }
 
 #[derive(Debug, Args)]
 pub(crate) struct TaskDependencyRemoveArgs {
-    #[arg(long)]
+    #[arg(long, value_name = "TASK_ID", help = "Task identifier.")]
     pub(crate) id: String,
-    #[arg(long)]
+    #[arg(
+        long,
+        value_name = "DEPENDENCY_ID",
+        help = "Dependency task identifier."
+    )]
     pub(crate) dependency_id: String,
-    #[arg(long, default_value = "ao-cli")]
+    #[arg(
+        long,
+        value_name = "USER",
+        default_value = "ao-cli",
+        help = "Audit user id recorded in task metadata."
+    )]
     pub(crate) updated_by: String,
 }
 
 #[derive(Debug, Args)]
 pub(crate) struct TaskStatusArgs {
-    #[arg(long)]
+    #[arg(long, value_name = "TASK_ID", help = "Task identifier.")]
     pub(crate) id: String,
-    #[arg(
-        long,
-        value_name = "STATUS",
-        help = "Task status: backlog|todo|ready|in-progress|in_progress|blocked|on-hold|on_hold|done|cancelled."
-    )]
+    #[arg(long, value_name = "STATUS", help = TASK_STATUS_HELP)]
     pub(crate) status: String,
 }
 
@@ -1124,17 +1177,26 @@ pub(crate) struct RequirementsRefineArgs {
 pub(crate) struct RequirementCreateArgs {
     #[arg(long, value_name = "TITLE", help = "Requirement title.")]
     pub(crate) title: String,
-    #[arg(long, default_value = "")]
-    pub(crate) description: String,
     #[arg(
         long,
-        value_name = "PRIORITY",
-        help = "Requirement priority: must|should|could|wont|won't."
+        value_name = "TEXT",
+        default_value = "",
+        help = "Requirement description."
     )]
+    pub(crate) description: String,
+    #[arg(long, value_name = "PRIORITY", help = REQUIREMENT_PRIORITY_HELP)]
     pub(crate) priority: Option<String>,
-    #[arg(long)]
+    #[arg(
+        long,
+        value_name = "SOURCE",
+        help = "Optional source describing where this requirement originated."
+    )]
     pub(crate) source: Option<String>,
-    #[arg(long = "acceptance-criterion")]
+    #[arg(
+        long = "acceptance-criterion",
+        value_name = "TEXT",
+        help = "Acceptance criteria text. Repeat to provide multiple criteria."
+    )]
     pub(crate) acceptance_criterion: Vec<String>,
     #[arg(long, value_name = "JSON", help = INPUT_JSON_PRECEDENCE_HELP)]
     pub(crate) input_json: Option<String>,
@@ -1142,31 +1204,39 @@ pub(crate) struct RequirementCreateArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct RequirementUpdateArgs {
-    #[arg(long)]
+    #[arg(long, value_name = "REQ_ID", help = "Requirement identifier.")]
     pub(crate) id: String,
-    #[arg(long)]
+    #[arg(long, value_name = "TITLE", help = "Updated requirement title.")]
     pub(crate) title: Option<String>,
-    #[arg(long)]
+    #[arg(long, value_name = "TEXT", help = "Updated requirement description.")]
     pub(crate) description: Option<String>,
-    #[arg(
-        long,
-        value_name = "PRIORITY",
-        help = "Requirement priority: must|should|could|wont|won't."
-    )]
+    #[arg(long, value_name = "PRIORITY", help = REQUIREMENT_PRIORITY_HELP)]
     pub(crate) priority: Option<String>,
+    #[arg(long, value_name = "STATUS", help = REQUIREMENT_STATUS_HELP)]
+    pub(crate) status: Option<String>,
     #[arg(
         long,
-        value_name = "STATUS",
-        help = "Requirement status: draft|refined|planned|in-progress|in_progress|done."
+        value_name = "SOURCE",
+        help = "Updated source describing where this requirement originated."
     )]
-    pub(crate) status: Option<String>,
-    #[arg(long)]
     pub(crate) source: Option<String>,
-    #[arg(long = "linked-task-id")]
+    #[arg(
+        long = "linked-task-id",
+        value_name = "TASK_ID",
+        help = "Task ids linked to this requirement. Repeat to add multiple ids."
+    )]
     pub(crate) linked_task_id: Vec<String>,
-    #[arg(long = "acceptance-criterion")]
+    #[arg(
+        long = "acceptance-criterion",
+        value_name = "TEXT",
+        help = "Acceptance criteria text. Repeat to provide multiple criteria."
+    )]
     pub(crate) acceptance_criterion: Vec<String>,
-    #[arg(long, default_value_t = false)]
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Replace all acceptance criteria with the provided --acceptance-criterion values."
+    )]
     pub(crate) replace_acceptance_criteria: bool,
     #[arg(long, value_name = "JSON", help = INPUT_JSON_PRECEDENCE_HELP)]
     pub(crate) input_json: Option<String>,
@@ -2138,9 +2208,9 @@ pub(crate) enum WorkflowCheckpointCommand {
 
 #[derive(Debug, Args)]
 pub(crate) struct WorkflowCheckpointGetArgs {
-    #[arg(long)]
+    #[arg(long, value_name = "WORKFLOW_ID", help = "Workflow identifier.")]
     pub(crate) id: String,
-    #[arg(long)]
+    #[arg(long, value_name = "INDEX", help = "Checkpoint index (zero-based).")]
     pub(crate) checkpoint: usize,
 }
 
@@ -2152,7 +2222,11 @@ pub(crate) struct WorkflowRunArgs {
         help = "Task id to run the workflow for."
     )]
     pub(crate) task_id: String,
-    #[arg(long)]
+    #[arg(
+        long,
+        value_name = "PIPELINE_ID",
+        help = "Optional pipeline id override."
+    )]
     pub(crate) pipeline_id: Option<String>,
     #[arg(long, value_name = "JSON", help = INPUT_JSON_PRECEDENCE_HELP)]
     pub(crate) input_json: Option<String>,
@@ -2160,7 +2234,7 @@ pub(crate) struct WorkflowRunArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct WorkflowPauseArgs {
-    #[arg(long)]
+    #[arg(long, value_name = "WORKFLOW_ID", help = "Workflow identifier.")]
     pub(crate) id: String,
     #[arg(
         long,
@@ -2178,7 +2252,7 @@ pub(crate) struct WorkflowPauseArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct WorkflowCancelArgs {
-    #[arg(long)]
+    #[arg(long, value_name = "WORKFLOW_ID", help = "Workflow identifier.")]
     pub(crate) id: String,
     #[arg(
         long,
@@ -2196,23 +2270,23 @@ pub(crate) struct WorkflowCancelArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct WorkflowPhaseApproveArgs {
-    #[arg(long)]
+    #[arg(long, value_name = "WORKFLOW_ID", help = "Workflow identifier.")]
     pub(crate) id: String,
-    #[arg(long)]
+    #[arg(long, value_name = "PHASE_ID", help = "Phase identifier.")]
     pub(crate) phase: String,
-    #[arg(long)]
+    #[arg(long, value_name = "TEXT", help = "Approval note for the phase gate.")]
     pub(crate) note: String,
 }
 
 #[derive(Debug, Args)]
 pub(crate) struct WorkflowPhaseGetArgs {
-    #[arg(long)]
+    #[arg(long, value_name = "PHASE_ID", help = "Phase identifier.")]
     pub(crate) phase: String,
 }
 
 #[derive(Debug, Args)]
 pub(crate) struct WorkflowPhaseUpsertArgs {
-    #[arg(long)]
+    #[arg(long, value_name = "PHASE_ID", help = "Phase identifier.")]
     pub(crate) phase: String,
     #[arg(
         long,
@@ -2224,7 +2298,7 @@ pub(crate) struct WorkflowPhaseUpsertArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct WorkflowPhaseRemoveArgs {
-    #[arg(long)]
+    #[arg(long, value_name = "PHASE_ID", help = "Phase identifier.")]
     pub(crate) phase: String,
     #[arg(
         long,
@@ -2252,13 +2326,17 @@ pub(crate) struct WorkflowPipelineUpsertArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct WorkflowPipelineUpdateArgs {
-    #[arg(long)]
+    #[arg(long, value_name = "PIPELINE_ID", help = "Pipeline identifier.")]
     pub(crate) id: String,
-    #[arg(long)]
+    #[arg(long, value_name = "NAME", help = "Pipeline display name.")]
     pub(crate) name: String,
-    #[arg(long)]
+    #[arg(long, value_name = "TEXT", help = "Optional pipeline description.")]
     pub(crate) description: Option<String>,
-    #[arg(long = "phase")]
+    #[arg(
+        long = "phase",
+        value_name = "PHASE_ID",
+        help = "Ordered phase ids for the pipeline. Repeat to add multiple phases."
+    )]
     pub(crate) phases: Vec<String>,
     #[arg(long, value_name = "JSON", help = INPUT_JSON_PRECEDENCE_HELP)]
     pub(crate) input_json: Option<String>,

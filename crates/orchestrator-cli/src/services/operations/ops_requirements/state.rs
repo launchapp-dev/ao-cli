@@ -187,8 +187,8 @@ fn next_requirement_id_local(requirements: &HashMap<String, RequirementItem>) ->
     format!("REQ-{next_seq:03}")
 }
 
-const REQUIREMENT_PRIORITY_EXPECTED: &str = "must, should, could, wont|won't";
-const REQUIREMENT_STATUS_EXPECTED: &str = "draft, refined, planned, in-progress|in_progress, done";
+const REQUIREMENT_PRIORITY_EXPECTED: &str = "must|should|could|wont|won't";
+const REQUIREMENT_STATUS_EXPECTED: &str = "draft|refined|planned|in-progress|in_progress|done";
 
 fn invalid_requirement_value_error(domain: &str, value: &str, expected: &str) -> anyhow::Error {
     let value = value.trim();
@@ -383,8 +383,8 @@ mod tests {
         let error = parse_requirement_priority("urgent").expect_err("invalid priority should fail");
         let message = error.to_string();
         assert!(message.contains("invalid requirement priority"));
-        assert!(message.contains("must, should, could, wont|won't"));
-        assert!(message.contains("run '<command> --help'"));
+        assert!(message.contains(REQUIREMENT_PRIORITY_EXPECTED));
+        assert!(message.contains(COMMAND_HELP_HINT));
     }
 
     #[test]
@@ -392,7 +392,7 @@ mod tests {
         let error = parse_requirement_status("queued").expect_err("invalid status should fail");
         let message = error.to_string();
         assert!(message.contains("invalid requirement status"));
-        assert!(message.contains("draft, refined, planned, in-progress|in_progress, done"));
-        assert!(message.contains("run '<command> --help'"));
+        assert!(message.contains(REQUIREMENT_STATUS_EXPECTED));
+        assert!(message.contains(COMMAND_HELP_HINT));
     }
 }

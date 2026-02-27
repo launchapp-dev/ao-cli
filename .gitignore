@@ -29,6 +29,7 @@ crates/orchestrator-web-server/web-ui/.smoke-artifacts/
 # Runtime
 *.pid
 *.lock
+!Cargo.lock
 
 # AO runtime artifacts
 .ao/core-state.json

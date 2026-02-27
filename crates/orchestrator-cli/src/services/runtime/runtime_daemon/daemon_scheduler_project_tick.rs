@@ -114,6 +114,71 @@ fn is_terminally_completed_workflow(workflow: &orchestrator_core::OrchestratorWo
         && workflow.completed_at.is_some()
 }
 
+fn workflow_current_phase_id(workflow: &orchestrator_core::OrchestratorWorkflow) -> Option<String> {
+    workflow
+        .current_phase
+        .as_deref()
+        .map(str::to_string)
+        .or_else(|| {
+            workflow
+                .phases
+                .get(workflow.current_phase_index)
+                .map(|phase| phase.phase_id.clone())
+        })
+        .and_then(|phase_id| normalize_optional_id(Some(phase_id.as_str())))
+}
+
+fn routing_complexity_for_task(
+    task: &orchestrator_core::OrchestratorTask,
+) -> Option<protocol::ModelRoutingComplexity> {
+    match task.complexity {
+        orchestrator_core::Complexity::Low => Some(protocol::ModelRoutingComplexity::Low),
+        orchestrator_core::Complexity::Medium => Some(protocol::ModelRoutingComplexity::Medium),
+        orchestrator_core::Complexity::High => Some(protocol::ModelRoutingComplexity::High),
+    }
+}
+
+fn daemon_agent_assignee_for_workflow_start(
+    project_root: &str,
+    workflow: &orchestrator_core::OrchestratorWorkflow,
+    task: &orchestrator_core::OrchestratorTask,
+) -> Option<(String, Option<String>)> {
+    let phase_id = workflow_current_phase_id(workflow)?;
+    let runtime_config =
+        orchestrator_core::load_agent_runtime_config_or_default(Path::new(project_root));
+    let role = runtime_config
+        .phase_agent_id(&phase_id)
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| phase_id.clone());
+
+    let fallback_models = runtime_config.phase_fallback_models(&phase_id);
+    let execution_targets = PhaseTargetPlanner::build_phase_execution_targets(
+        &phase_id,
+        runtime_config.phase_model_override(&phase_id),
+        runtime_config.phase_tool_override(&phase_id),
+        fallback_models.as_slice(),
+        routing_complexity_for_task(task),
+    );
+    let model = execution_targets.first().map(|(_, model)| model.clone());
+    Some((role, model))
+}
+
+async fn auto_assign_task_to_daemon_agent(
+    hub: Arc<dyn ServiceHub>,
+    project_root: &str,
+    task: &orchestrator_core::OrchestratorTask,
+    workflow: &orchestrator_core::OrchestratorWorkflow,
+) {
+    if let Some((role, model)) =
+        daemon_agent_assignee_for_workflow_start(project_root, workflow, task)
+    {
+        let _ = hub
+            .tasks()
+            .assign_agent(&task.id, role, model, "ao-daemon".to_string())
+            .await;
+    }
+}
+
 fn collect_task_state_transitions(
     before: &[orchestrator_core::OrchestratorTask],
     after: &[orchestrator_core::OrchestratorTask],
@@ -680,6 +745,7 @@ pub(super) async fn run_ready_task_workflows_for_project(
                 pipeline_id: Some(pipeline_for_task(&task)),
             })
             .await?;
+        auto_assign_task_to_daemon_agent(hub.clone(), project_root, &task, &workflow).await;
         sync_task_status_for_workflow_result(
             hub.clone(),
             project_root,

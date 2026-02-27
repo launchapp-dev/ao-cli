@@ -1201,6 +1201,77 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn run_ready_assigns_started_task_to_daemon_agent() {
+        let hub = Arc::new(InMemoryServiceHub::new());
+        let task = hub
+            .tasks()
+            .create(TaskCreateInput {
+                title: "ready-assignee".to_string(),
+                description: "should auto-assign to daemon-selected agent".to_string(),
+                task_type: Some(TaskType::Feature),
+                priority: Some(Priority::Medium),
+                created_by: Some("test".to_string()),
+                tags: Vec::new(),
+                linked_requirements: Vec::new(),
+                linked_architecture_entities: Vec::new(),
+            })
+            .await
+            .expect("task should be created");
+        hub.tasks()
+            .set_status(&task.id, TaskStatus::Ready)
+            .await
+            .expect("task should be ready");
+
+        let project_root = "/tmp/ao-test-ready-assignee";
+        let started = run_ready_task_workflows_for_project(
+            hub.clone() as Arc<dyn ServiceHub>,
+            project_root,
+            5,
+        )
+        .await
+        .expect("ready runner should succeed");
+        assert_eq!(started, 1);
+
+        let started_workflow = hub
+            .workflows()
+            .list()
+            .await
+            .expect("workflow list should load")
+            .into_iter()
+            .find(|workflow| workflow.task_id == task.id)
+            .expect("workflow should exist for task");
+        let phase_id = started_workflow
+            .current_phase
+            .clone()
+            .or_else(|| {
+                started_workflow
+                    .phases
+                    .get(started_workflow.current_phase_index)
+                    .map(|phase| phase.phase_id.clone())
+            })
+            .unwrap_or_else(|| "unknown".to_string());
+        let runtime_config =
+            orchestrator_core::load_agent_runtime_config_or_default(Path::new(project_root));
+        let expected_role = runtime_config
+            .phase_agent_id(&phase_id)
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| phase_id.clone());
+
+        let task_state = hub.tasks().get(&task.id).await.expect("task should load");
+        assert_eq!(task_state.status, TaskStatus::InProgress);
+        match task_state.assignee {
+            orchestrator_core::Assignee::Agent { role, model } => {
+                assert_eq!(role, expected_role);
+                assert!(model
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty()));
+            }
+            other => panic!("expected agent assignee, found {other:?}"),
+        }
+        assert_eq!(task_state.metadata.updated_by, "ao-daemon");
+    }
+
+    #[tokio::test]
     async fn run_ready_skips_tasks_with_completed_workflow() {
         let hub = Arc::new(InMemoryServiceHub::new());
         let task = hub

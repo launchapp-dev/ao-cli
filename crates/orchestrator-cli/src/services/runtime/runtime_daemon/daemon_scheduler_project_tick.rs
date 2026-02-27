@@ -1940,6 +1940,12 @@ pub(super) async fn project_tick(root: &str, args: &DaemonRunArgs) -> Result<Pro
     } else {
         0
     };
+    let _ = refresh_runtime_binaries_if_main_advanced(
+        hub.clone(),
+        &root,
+        git_ops::RuntimeBinaryRefreshTrigger::Tick,
+    )
+    .await;
     let (executed_workflow_phases, failed_workflow_phases, phase_execution_events) =
         execute_running_workflow_phases_for_project(hub.clone(), &root, args.max_tasks_per_tick)
             .await?;

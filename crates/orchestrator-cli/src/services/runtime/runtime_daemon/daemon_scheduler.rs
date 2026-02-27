@@ -1963,6 +1963,14 @@ fn flush_git_integration_outbox(project_root: &str) -> Result<()> {
     git_ops::flush_git_integration_outbox(project_root)
 }
 
+async fn refresh_runtime_binaries_if_main_advanced(
+    hub: Arc<dyn ServiceHub>,
+    project_root: &str,
+    trigger: git_ops::RuntimeBinaryRefreshTrigger,
+) -> git_ops::RuntimeBinaryRefreshOutcome {
+    git_ops::refresh_runtime_binaries_if_main_advanced(hub, project_root, trigger).await
+}
+
 fn task_status_label(status: TaskStatus) -> &'static str {
     git_ops::task_status_label(status)
 }

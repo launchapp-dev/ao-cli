@@ -5,7 +5,7 @@ use chrono::Utc;
 use orchestrator_core::{RequirementItem, RequirementPriority, RequirementStatus, RequirementType};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -320,6 +320,26 @@ fn write_generated_requirement_docs(
     let generated_dir = generated_requirements_dir(project_root);
     fs::create_dir_all(&generated_dir)?;
 
+    let expected_files: HashSet<String> =
+        requirements.keys().map(|id| format!("{id}.json")).collect();
+    let entries: Vec<PathBuf> = fs::read_dir(&generated_dir)?
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    for path in entries {
+        let is_requirement_json = path.extension().is_some_and(|ext| ext == "json");
+        if !is_requirement_json {
+            continue;
+        }
+
+        let is_expected = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .is_some_and(|file_name| expected_files.contains(file_name));
+        if !is_expected {
+            fs::remove_file(path)?;
+        }
+    }
+
     let mut items: Vec<_> = requirements.values().cloned().collect();
     items.sort_by(|a, b| a.id.cmp(&b.id));
     for requirement in items {
@@ -600,6 +620,30 @@ mod tests {
     use super::*;
     use crate::{classify_cli_error_kind, CliErrorKind};
 
+    fn test_requirement_item(id: &str) -> RequirementItem {
+        let now = Utc::now();
+        RequirementItem {
+            id: id.to_string(),
+            title: format!("Requirement {id}"),
+            description: "requirement description".to_string(),
+            body: None,
+            legacy_id: None,
+            category: Some("quality".to_string()),
+            requirement_type: Some(RequirementType::Technical),
+            acceptance_criteria: vec!["criterion".to_string()],
+            priority: RequirementPriority::Must,
+            status: RequirementStatus::Done,
+            source: "test".to_string(),
+            tags: Vec::new(),
+            links: Default::default(),
+            comments: Vec::new(),
+            relative_path: Some(format!("generated/{id}.json")),
+            linked_task_ids: vec!["TASK-001".to_string()],
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
     #[test]
     fn parse_requirement_priority_reports_canonical_help_hint() {
         let error = parse_requirement_priority("urgent").expect_err("invalid priority should fail");
@@ -696,5 +740,32 @@ mod tests {
     fn requirement_parse_errors_are_typed_as_invalid_input() {
         let error = parse_requirement_priority("urgent").expect_err("invalid priority should fail");
         assert_eq!(classify_cli_error_kind(&error), CliErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn write_generated_requirement_docs_prunes_stale_requirement_files() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let project_root = temp.path().to_str().expect("project root");
+        let generated_dir = generated_requirements_dir(project_root);
+        fs::create_dir_all(&generated_dir).expect("create generated requirements dir");
+
+        fs::write(
+            generated_dir.join("REQ-999.json"),
+            serde_json::json!({
+                "id": "REQ-999",
+                "title": "stale requirement"
+            })
+            .to_string(),
+        )
+        .expect("seed stale generated requirement");
+
+        let mut requirements = HashMap::new();
+        requirements.insert("REQ-001".to_string(), test_requirement_item("REQ-001"));
+
+        write_generated_requirement_docs(project_root, &requirements)
+            .expect("write generated requirement docs");
+
+        assert!(generated_dir.join("REQ-001.json").exists());
+        assert!(!generated_dir.join("REQ-999.json").exists());
     }
 }

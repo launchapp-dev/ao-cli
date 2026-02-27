@@ -150,6 +150,17 @@ fn help_surfaces_accepted_values_and_confirmation_guidance(
         requirements_update_stdout.contains("draft|refined|planned|in-progress|in_progress|done"),
         "requirements update help should enumerate status values"
     );
+    assert!(
+        requirements_update_stdout
+            .contains("documentation|usability|runtime|integration|quality|release|security"),
+        "requirements update help should enumerate category values"
+    );
+    assert!(
+        requirements_update_stdout.contains(
+            "product|functional|non-functional|nonfunctional|non_functional|technical|other"
+        ),
+        "requirements update help should enumerate type values"
+    );
 
     let workflow_cancel_help = Command::new(&binary)
         .args(["workflow", "cancel", "--help"])

@@ -457,6 +457,231 @@ fn e2e_requirements_create_update_and_list() -> Result<()> {
 }
 
 #[test]
+fn e2e_requirements_generated_docs_persist_metadata_and_prune_on_delete() -> Result<()> {
+    let harness = CliHarness::new()?;
+
+    let created = harness.run_json_ok(&[
+        "requirements",
+        "create",
+        "--title",
+        "Generated Docs Metadata",
+        "--description",
+        "Verify category/type serialization",
+        "--category",
+        "usability",
+        "--type",
+        "product",
+    ])?;
+    let requirement_id = created
+        .pointer("/data/id")
+        .and_then(Value::as_str)
+        .context("requirements create should return data.id")?
+        .to_string();
+    assert_eq!(
+        created.pointer("/data/category").and_then(Value::as_str),
+        Some("usability")
+    );
+    assert_eq!(
+        created.pointer("/data/type").and_then(Value::as_str),
+        Some("product")
+    );
+
+    harness.run_json_ok(&[
+        "requirements",
+        "update",
+        "--id",
+        &requirement_id,
+        "--category",
+        "runtime",
+        "--type",
+        "technical",
+        "--status",
+        "done",
+    ])?;
+
+    let generated_path = harness
+        .project_root()
+        .join(".ao")
+        .join("requirements")
+        .join("generated")
+        .join(format!("{requirement_id}.json"));
+    assert!(
+        generated_path.exists(),
+        "requirements update should emit generated requirement docs"
+    );
+
+    let generated_payload: Value = serde_json::from_str(
+        &std::fs::read_to_string(&generated_path)
+            .context("generated requirement docs should be readable")?,
+    )
+    .context("generated requirement docs should contain valid JSON")?;
+    assert_eq!(
+        generated_payload.get("category").and_then(Value::as_str),
+        Some("runtime")
+    );
+    assert_eq!(
+        generated_payload.get("type").and_then(Value::as_str),
+        Some("technical")
+    );
+    assert_eq!(
+        generated_payload.get("status").and_then(Value::as_str),
+        Some("implemented")
+    );
+
+    harness.run_json_ok(&["requirements", "delete", "--id", &requirement_id])?;
+    assert!(
+        !generated_path.exists(),
+        "requirements delete should prune generated requirement docs"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn e2e_requirements_backfill_category_and_type_for_req_007_through_req_024() -> Result<()> {
+    let harness = CliHarness::new()?;
+    let categorized_seed_for_first_six: [(&str, &str); 6] = [
+        ("documentation", "product"),
+        ("usability", "functional"),
+        ("runtime", "non-functional"),
+        ("integration", "technical"),
+        ("quality", "technical"),
+        ("release", "technical"),
+    ];
+    let backfill_plan: [(&str, &str, &str); 18] = [
+        ("REQ-007", "quality", "technical"),
+        ("REQ-008", "integration", "technical"),
+        ("REQ-009", "security", "functional"),
+        ("REQ-010", "runtime", "non-functional"),
+        ("REQ-011", "usability", "product"),
+        ("REQ-012", "integration", "technical"),
+        ("REQ-013", "usability", "functional"),
+        ("REQ-014", "usability", "functional"),
+        ("REQ-015", "runtime", "functional"),
+        ("REQ-016", "security", "functional"),
+        ("REQ-017", "usability", "non-functional"),
+        ("REQ-018", "release", "technical"),
+        ("REQ-019", "quality", "non-functional"),
+        ("REQ-020", "documentation", "technical"),
+        ("REQ-021", "usability", "functional"),
+        ("REQ-022", "runtime", "technical"),
+        ("REQ-023", "quality", "technical"),
+        ("REQ-024", "security", "technical"),
+    ];
+
+    for index in 1..=24 {
+        let mut args = vec![
+            "requirements".to_string(),
+            "create".to_string(),
+            "--title".to_string(),
+            format!("Requirement {index:03}"),
+            "--description".to_string(),
+            format!("Seed requirement {index:03}"),
+        ];
+        if let Some((category, requirement_type)) = categorized_seed_for_first_six.get(index - 1) {
+            args.push("--category".to_string());
+            args.push((*category).to_string());
+            args.push("--type".to_string());
+            args.push((*requirement_type).to_string());
+        }
+
+        let args_ref: Vec<&str> = args.iter().map(String::as_str).collect();
+        let created = harness.run_json_ok(&args_ref)?;
+        let expected_id = format!("REQ-{index:03}");
+        assert_eq!(
+            created.pointer("/data/id").and_then(Value::as_str),
+            Some(expected_id.as_str()),
+            "requirements should be seeded with deterministic ids"
+        );
+    }
+
+    let listed_before = harness.run_json_ok(&["requirements", "list"])?;
+    let requirements_before = listed_before
+        .pointer("/data")
+        .and_then(Value::as_array)
+        .context("requirements list should return data as array before backfill")?;
+    for (id, _, _) in &backfill_plan {
+        let requirement = requirements_before
+            .iter()
+            .find(|item| item.get("id").and_then(Value::as_str) == Some(*id))
+            .with_context(|| format!("{id} should exist before backfill"))?;
+        assert!(
+            requirement.get("category").is_none()
+                || requirement.get("category").is_some_and(Value::is_null),
+            "{id} should start with category unset"
+        );
+        assert!(
+            requirement.get("type").is_none() || requirement.get("type").is_some_and(Value::is_null),
+            "{id} should start with type unset"
+        );
+    }
+
+    for (id, category, requirement_type) in &backfill_plan {
+        harness.run_json_ok(&[
+            "requirements",
+            "update",
+            "--id",
+            id,
+            "--category",
+            category,
+            "--type",
+            requirement_type,
+        ])?;
+    }
+
+    let listed_after = harness.run_json_ok(&["requirements", "list"])?;
+    let requirements_after = listed_after
+        .pointer("/data")
+        .and_then(Value::as_array)
+        .context("requirements list should return data as array after backfill")?;
+    for (id, category, requirement_type) in &backfill_plan {
+        let requirement = requirements_after
+            .iter()
+            .find(|item| item.get("id").and_then(Value::as_str) == Some(*id))
+            .with_context(|| format!("{id} should exist after backfill"))?;
+        assert_eq!(
+            requirement.get("category").and_then(Value::as_str),
+            Some(*category),
+            "{id} should persist backfilled category"
+        );
+        assert_eq!(
+            requirement.get("type").and_then(Value::as_str),
+            Some(*requirement_type),
+            "{id} should persist backfilled type"
+        );
+
+        let generated_path = harness
+            .project_root()
+            .join(".ao")
+            .join("requirements")
+            .join("generated")
+            .join(format!("{id}.json"));
+        assert!(
+            generated_path.exists(),
+            "{id} generated requirement docs should exist"
+        );
+
+        let generated_payload: Value = serde_json::from_str(
+            &std::fs::read_to_string(&generated_path)
+                .with_context(|| format!("{id} generated requirement docs should be readable"))?,
+        )
+        .with_context(|| format!("{id} generated requirement docs should contain valid JSON"))?;
+        assert_eq!(
+            generated_payload.get("category").and_then(Value::as_str),
+            Some(*category),
+            "{id} generated docs should persist category"
+        );
+        assert_eq!(
+            generated_payload.get("type").and_then(Value::as_str),
+            Some(*requirement_type),
+            "{id} generated docs should persist type"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
 fn e2e_daemon_autonomous_start_idempotent_then_stop() -> Result<()> {
     let harness = CliHarness::new()?;
 

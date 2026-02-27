@@ -383,6 +383,17 @@ pub enum RequirementPriority {
     Wont,
 }
 
+impl RequirementPriority {
+    #[must_use]
+    pub const fn to_task_priority(self) -> Priority {
+        match self {
+            Self::Must => Priority::High,
+            Self::Should => Priority::Medium,
+            Self::Could | Self::Wont => Priority::Low,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum RequirementStatus {
@@ -1161,4 +1172,20 @@ pub struct WorkflowRunInput {
     pub task_id: String,
     #[serde(default)]
     pub pipeline_id: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Priority, RequirementPriority};
+
+    #[test]
+    fn requirement_priority_to_task_priority_mapping_is_stable() {
+        assert_eq!(RequirementPriority::Must.to_task_priority(), Priority::High);
+        assert_eq!(
+            RequirementPriority::Should.to_task_priority(),
+            Priority::Medium
+        );
+        assert_eq!(RequirementPriority::Could.to_task_priority(), Priority::Low);
+        assert_eq!(RequirementPriority::Wont.to_task_priority(), Priority::Low);
+    }
 }

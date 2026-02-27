@@ -42,6 +42,7 @@ pub enum RequirementPriority {
 }
 
 /// Backward-compatible alias for legacy imports.
+#[doc(hidden)]
 #[deprecated(note = "Use RequirementPriority for requirement-level MoSCoW priority.")]
 pub type Priority = RequirementPriority;
 

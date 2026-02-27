@@ -102,6 +102,35 @@ fn file_hub_new_does_not_rewrite_existing_core_state_on_boot() {
     assert_eq!(before, after, "hub startup should not rewrite core-state");
 }
 
+#[test]
+fn file_hub_new_bootstraps_ao_without_initializing_git_repository() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let _hub = file_hub(temp.path()).expect("create hub");
+
+    assert!(temp.path().join(".ao").join("core-state.json").exists());
+    assert!(!temp.path().join(".git").exists());
+
+    let git_repo_status = std::process::Command::new("git")
+        .arg("-C")
+        .arg(temp.path())
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .expect("git should be available");
+    assert!(!git_repo_status.success());
+
+    let head_status = std::process::Command::new("git")
+        .arg("-C")
+        .arg(temp.path())
+        .args(["rev-parse", "--verify", "HEAD"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .expect("git should be available");
+    assert!(!head_status.success());
+}
+
 #[tokio::test]
 async fn file_hub_project_create_bootstraps_base_configs_for_project_path() {
     let temp = tempfile::tempdir().expect("tempdir");
@@ -141,11 +170,24 @@ async fn file_hub_project_create_bootstraps_base_configs_for_project_path() {
         .join("state")
         .join("agent-runtime-config.v2.json")
         .exists());
+    assert!(!project_path.join(".git").exists());
+}
+
+#[test]
+fn file_hub_explicit_git_bootstrap_initializes_repository_and_head() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project_path = temp.path().join("explicit-git-bootstrap");
+
+    FileServiceHub::bootstrap_project_git_repository(&project_path)
+        .expect("bootstrap git repository");
+    assert!(project_path.join(".git").exists());
 
     let git_repo_status = std::process::Command::new("git")
         .arg("-C")
         .arg(&project_path)
         .args(["rev-parse", "--is-inside-work-tree"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .status()
         .expect("git should be available");
     assert!(git_repo_status.success());
@@ -154,6 +196,8 @@ async fn file_hub_project_create_bootstraps_base_configs_for_project_path() {
         .arg("-C")
         .arg(&project_path)
         .args(["rev-parse", "--verify", "HEAD"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .status()
         .expect("git should resolve HEAD");
     assert!(head_status.success());
@@ -1762,4 +1806,89 @@ async fn execute_requirements_can_include_wont_with_opt_in() {
     .await
     .expect("wont requirement should run when include_wont=true");
     assert_eq!(result.requirements_considered, 1);
+}
+
+#[tokio::test]
+async fn execute_requirements_maps_requirement_priority_to_task_priority() {
+    let hub = InMemoryServiceHub::new();
+    PlanningServiceApi::draft_vision(
+        &hub,
+        VisionDraftInput {
+            project_name: Some("Priority Mapping".to_string()),
+            problem_statement: "Validate requirement-to-task priority mapping".to_string(),
+            target_users: vec!["Engineering".to_string()],
+            goals: vec!["Maintain stable priority behavior".to_string()],
+            constraints: vec![],
+            value_proposition: None,
+            complexity_assessment: None,
+        },
+    )
+    .await
+    .expect("draft vision");
+
+    let cases = [
+        (RequirementPriority::Must, Priority::High, "must"),
+        (RequirementPriority::Should, Priority::Medium, "should"),
+        (RequirementPriority::Could, Priority::Low, "could"),
+        (RequirementPriority::Wont, Priority::Low, "wont"),
+    ];
+
+    for (index, (requirement_priority, expected_task_priority, label)) in
+        cases.into_iter().enumerate()
+    {
+        let now = chrono::Utc::now();
+        let requirement = PlanningServiceApi::upsert_requirement(
+            &hub,
+            RequirementItem {
+                id: String::new(),
+                title: format!("Priority mapping {label}"),
+                description: format!("Ensure `{label}` maps to expected task priority"),
+                body: None,
+                legacy_id: None,
+                category: None,
+                requirement_type: None,
+                acceptance_criteria: vec![format!(
+                    "Task priority generated for `{label}` is deterministic"
+                )],
+                priority: requirement_priority,
+                status: RequirementStatus::Draft,
+                source: "manual".to_string(),
+                tags: vec!["priority".to_string()],
+                links: crate::types::RequirementLinks::default(),
+                comments: vec![],
+                relative_path: None,
+                linked_task_ids: vec![],
+                created_at: now,
+                updated_at: now,
+            },
+        )
+        .await
+        .expect("upsert requirement");
+
+        let execution = PlanningServiceApi::execute_requirements(
+            &hub,
+            RequirementsExecutionInput {
+                requirement_ids: vec![requirement.id.clone()],
+                start_workflows: false,
+                pipeline_id: None,
+                include_wont: true,
+            },
+        )
+        .await
+        .expect("execute requirements");
+        assert!(
+            !execution.task_ids_created.is_empty(),
+            "expected tasks for case {index} ({label})"
+        );
+
+        for task_id in execution.task_ids_created {
+            let task = TaskServiceApi::get(&hub, &task_id)
+                .await
+                .expect("task should exist");
+            assert_eq!(
+                task.priority, expected_task_priority,
+                "unexpected task priority for case {index} ({label})"
+            );
+        }
+    }
 }

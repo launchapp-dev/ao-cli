@@ -1,6 +1,6 @@
 use crate::cli_types::RecommendationCommand;
-use crate::print_value;
-use anyhow::{anyhow, Result};
+use crate::{invalid_input_error, not_found_error, print_value};
+use anyhow::Result;
 use chrono::Utc;
 use orchestrator_core::{RequirementItem, RequirementStatus, ServiceHub};
 use serde::{Deserialize, Serialize};
@@ -100,7 +100,11 @@ fn parse_recommendation_mode(value: &str) -> Result<RecommendationMode> {
         "report_only" | "report-only" => RecommendationMode::ReportOnly,
         "safe_apply" | "safe-apply" => RecommendationMode::SafeApply,
         "full_apply" | "full-apply" => RecommendationMode::FullApply,
-        _ => anyhow::bail!("invalid recommendation mode: {value}"),
+        _ => {
+            return Err(invalid_input_error(format!(
+                "invalid recommendation mode: {value}"
+            )))
+        }
     };
     Ok(mode)
 }
@@ -187,7 +191,12 @@ pub(super) async fn handle_requirement_recommendations(
                 .reports
                 .iter_mut()
                 .find(|report| report.id == args.report_id)
-                .ok_or_else(|| anyhow!("recommendation report not found: {}", args.report_id))?;
+                .ok_or_else(|| {
+                    not_found_error(format!(
+                        "recommendation report not found: {}",
+                        args.report_id
+                    ))
+                })?;
 
             let mut requirements = load_requirements_map_from_core_state(project_root)?;
             let mut applied_actions = Vec::new();

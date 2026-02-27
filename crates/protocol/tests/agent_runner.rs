@@ -355,3 +355,63 @@ fn test_config_load_from_dir_reads_existing_token() {
 
     let _ = std::fs::remove_dir_all(config_dir);
 }
+
+#[test]
+fn test_ensure_token_exists_generates_token_when_missing() {
+    let config_dir = temp_config_dir("ensure-missing");
+    let config_path = config_dir.join("config.json");
+    let _ = std::fs::remove_file(&config_path);
+
+    Config::ensure_token_exists(&config_dir).expect("ensure_token_exists should succeed");
+
+    let loaded = Config::load_from_dir(&config_dir).expect("reload config");
+    let token = loaded.agent_runner_token.expect("token should be set");
+    assert!(!token.is_empty(), "token should not be empty");
+    assert!(
+        uuid::Uuid::parse_str(&token).is_ok(),
+        "token should be a valid UUID"
+    );
+
+    let _ = std::fs::remove_dir_all(config_dir);
+}
+
+#[test]
+fn test_ensure_token_exists_preserves_existing_token() {
+    let config_dir = temp_config_dir("ensure-existing");
+    let config_path = config_dir.join("config.json");
+    std::fs::write(
+        &config_path,
+        r#"{ "agent_runner_token": "keep-me" }"#,
+    )
+    .expect("write config");
+
+    Config::ensure_token_exists(&config_dir).expect("ensure_token_exists should succeed");
+
+    let loaded = Config::load_from_dir(&config_dir).expect("reload config");
+    assert_eq!(
+        loaded.agent_runner_token.as_deref(),
+        Some("keep-me"),
+        "existing token should be preserved"
+    );
+
+    let _ = std::fs::remove_dir_all(config_dir);
+}
+
+#[test]
+fn test_ensure_token_exists_replaces_null_token() {
+    let config_dir = temp_config_dir("ensure-null");
+    let config_path = config_dir.join("config.json");
+    std::fs::write(
+        &config_path,
+        r#"{ "agent_runner_token": null }"#,
+    )
+    .expect("write config");
+
+    Config::ensure_token_exists(&config_dir).expect("ensure_token_exists should succeed");
+
+    let loaded = Config::load_from_dir(&config_dir).expect("reload config");
+    let token = loaded.agent_runner_token.expect("token should be set");
+    assert!(!token.is_empty(), "null token should be replaced");
+
+    let _ = std::fs::remove_dir_all(config_dir);
+}

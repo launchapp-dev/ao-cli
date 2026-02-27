@@ -1,5 +1,5 @@
 use crate::cli_types::{RequirementCreateArgs, RequirementUpdateArgs};
-use crate::{parse_input_json_or, COMMAND_HELP_HINT};
+use crate::{invalid_input_error, not_found_error, parse_input_json_or, COMMAND_HELP_HINT};
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use orchestrator_core::{RequirementItem, RequirementPriority, RequirementStatus};
@@ -193,9 +193,9 @@ const REQUIREMENT_STATUS_EXPECTED: &str = "draft|refined|planned|in-progress|in_
 fn invalid_requirement_value_error(domain: &str, value: &str, expected: &str) -> anyhow::Error {
     let value = value.trim();
     let normalized_value = if value.is_empty() { "<empty>" } else { value };
-    anyhow!(
+    invalid_input_error(format!(
         "invalid requirement {domain} '{normalized_value}'; expected one of: {expected}; {COMMAND_HELP_HINT}"
-    )
+    ))
 }
 
 fn parse_requirement_priority(value: &str) -> Result<RequirementPriority> {
@@ -264,7 +264,7 @@ pub(super) fn create_requirement_cli(
     })?;
 
     if input.title.trim().is_empty() {
-        anyhow::bail!("requirement title is required");
+        return Err(invalid_input_error("requirement title is required"));
     }
 
     let mut requirements = load_requirements_map_from_core_state(project_root)?;
@@ -323,7 +323,7 @@ pub(super) fn update_requirement_cli(
     let mut requirements = load_requirements_map_from_core_state(project_root)?;
     let requirement = requirements
         .get_mut(&args.id)
-        .ok_or_else(|| anyhow!("requirement not found: {}", args.id))?;
+        .ok_or_else(|| not_found_error(format!("requirement not found: {}", args.id)))?;
 
     if let Some(title) = input.title {
         requirement.title = title;
@@ -369,7 +369,7 @@ pub(super) fn update_requirement_cli(
 pub(super) fn delete_requirement_cli(project_root: &str, id: &str) -> Result<()> {
     let mut requirements = load_requirements_map_from_core_state(project_root)?;
     if requirements.remove(id).is_none() {
-        anyhow::bail!("requirement not found: {id}");
+        return Err(not_found_error(format!("requirement not found: {id}")));
     }
     save_requirements_map_to_core_state(project_root, &requirements)
 }
@@ -377,6 +377,7 @@ pub(super) fn delete_requirement_cli(project_root: &str, id: &str) -> Result<()>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{classify_cli_error_kind, CliErrorKind};
 
     #[test]
     fn parse_requirement_priority_reports_canonical_help_hint() {
@@ -394,5 +395,11 @@ mod tests {
         assert!(message.contains("invalid requirement status"));
         assert!(message.contains(REQUIREMENT_STATUS_EXPECTED));
         assert!(message.contains(COMMAND_HELP_HINT));
+    }
+
+    #[test]
+    fn requirement_parse_errors_are_typed_as_invalid_input() {
+        let error = parse_requirement_priority("urgent").expect_err("invalid priority should fail");
+        assert_eq!(classify_cli_error_kind(&error), CliErrorKind::InvalidInput);
     }
 }

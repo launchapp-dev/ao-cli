@@ -1,6 +1,8 @@
 use anyhow::Result;
 use serde::Serialize;
 
+use super::{classify_cli_error_kind, CliErrorKind};
+
 const CLI_SCHEMA: &str = "ao.cli.v1";
 
 #[derive(Debug, Serialize)]
@@ -58,7 +60,8 @@ pub(crate) fn print_value<T: serde::Serialize>(value: T, json: bool) -> Result<(
 }
 
 pub(crate) fn classify_error(err: &anyhow::Error) -> (&'static str, i32) {
-    protocol::classify_error_message(&err.to_string())
+    let kind = classify_cli_error_kind(err);
+    (kind.code(), kind.exit_code())
 }
 
 pub(crate) fn classify_exit_code(err: &anyhow::Error) -> i32 {
@@ -66,7 +69,9 @@ pub(crate) fn classify_exit_code(err: &anyhow::Error) -> i32 {
 }
 
 pub(crate) fn emit_cli_error(err: &anyhow::Error, json: bool) {
-    let (code, exit_code) = classify_error(err);
+    let kind = classify_cli_error_kind(err);
+    let code = kind.code();
+    let exit_code = kind.exit_code();
     if json {
         let envelope = CliErrorEnvelope {
             schema: CLI_SCHEMA,
@@ -85,7 +90,7 @@ pub(crate) fn emit_cli_error(err: &anyhow::Error, json: bool) {
         );
     } else {
         eprintln!("error: {}", err);
-        if code == "invalid_input" && should_emit_help_hint(&err.to_string()) {
+        if kind == CliErrorKind::InvalidInput && should_emit_help_hint(&err.to_string()) {
             eprintln!("hint: run with --help to view accepted arguments and values");
         }
     }
@@ -98,77 +103,78 @@ fn should_emit_help_hint(message: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{conflict_error, invalid_input_error, not_found_error, unavailable_error};
     use anyhow::anyhow;
 
     #[test]
-    fn classify_error_marks_validation_failures_as_invalid_input() {
-        let (code, exit_code) =
-            classify_error(&anyhow!("missing required arguments were not provided"));
+    fn classify_error_marks_typed_invalid_input_failures() {
+        let (code, exit_code) = classify_error(&invalid_input_error("invalid flag value"));
         assert_eq!(code, "invalid_input");
         assert_eq!(exit_code, 2);
     }
 
     #[test]
-    fn classify_error_marks_not_found_failures() {
-        let (code, exit_code) = classify_error(&anyhow!("task not found: TASK-123"));
+    fn classify_error_uses_typed_kind_when_message_contains_not_found_text() {
+        let (code, exit_code) = classify_error(&invalid_input_error(
+            "task not found: TASK-123; expected --id TASK-123",
+        ));
+        assert_eq!(code, "invalid_input");
+        assert_eq!(exit_code, 2);
+    }
+
+    #[test]
+    fn classify_error_marks_typed_not_found_failures() {
+        let (code, exit_code) = classify_error(&not_found_error("task not found: TASK-123"));
         assert_eq!(code, "not_found");
         assert_eq!(exit_code, 3);
     }
 
     #[test]
-    fn classify_error_marks_os_error_not_found_failures() {
-        let (code, exit_code) = classify_error(&anyhow!("No such file or directory (os error 2)"));
+    fn classify_error_marks_io_not_found_failures_without_message_matching() {
+        let io_error = std::io::Error::new(std::io::ErrorKind::NotFound, "missing file");
+        let (code, exit_code) = classify_error(&anyhow::Error::from(io_error));
         assert_eq!(code, "not_found");
         assert_eq!(exit_code, 3);
     }
 
     #[test]
-    fn classify_error_marks_conflicts() {
-        let (code, exit_code) = classify_error(&anyhow!("resource already exists"));
+    fn classify_error_marks_typed_conflicts() {
+        let (code, exit_code) = classify_error(&conflict_error("resource already exists"));
         assert_eq!(code, "conflict");
         assert_eq!(exit_code, 4);
     }
 
     #[test]
-    fn classify_error_marks_unavailable_connectivity_paths() {
-        let (code, exit_code) = classify_error(&anyhow!("failed to connect to daemon"));
+    fn classify_error_marks_typed_unavailable_connectivity_paths() {
+        let (code, exit_code) = classify_error(&unavailable_error("failed to connect to daemon"));
         assert_eq!(code, "unavailable");
         assert_eq!(exit_code, 5);
     }
 
     #[test]
-    fn classify_error_marks_timeout_paths_as_unavailable() {
-        let (code, exit_code) = classify_error(&anyhow!("timeout while waiting for daemon"));
-        assert_eq!(code, "unavailable");
-        assert_eq!(exit_code, 5);
-    }
-
-    #[test]
-    fn classify_error_defaults_to_internal() {
+    fn classify_error_defaults_to_internal_for_untyped_errors() {
         let (code, exit_code) = classify_error(&anyhow!("unexpected panic in scheduler loop"));
         assert_eq!(code, "internal");
         assert_eq!(exit_code, 1);
     }
 
     #[test]
-    fn classify_error_matches_protocol_classifier() {
-        let messages = [
-            "unknown argument '--bogus' found",
-            "unrecognized option '--bogus'",
-            "CONFIRMATION_REQUIRED: rerun command with --confirm TASK-1",
-            "priority must be one of critical|high|medium|low",
-            "resource already exists",
-            "failed to connect to daemon",
-            "task not found in unavailable registry",
-        ];
+    fn classify_error_does_not_treat_untyped_keyword_messages_as_conflicts() {
+        let (code, exit_code) = classify_error(&anyhow!(
+            "resource already exists but no typed conflict was attached"
+        ));
+        assert_eq!(code, "internal");
+        assert_eq!(exit_code, 1);
+    }
 
-        for message in messages {
-            assert_eq!(
-                classify_error(&anyhow!("{message}")),
-                protocol::classify_error_message(message),
-                "{message}"
-            );
-        }
+    #[test]
+    fn classify_error_keeps_exit_code_stable_when_typed_message_changes() {
+        let short = invalid_input_error("invalid value");
+        let long = invalid_input_error(
+            "invalid priority '<empty>'; expected one of: critical|high|medium|low",
+        );
+        assert_eq!(classify_exit_code(&short), 2);
+        assert_eq!(classify_exit_code(&long), 2);
     }
 
     #[test]

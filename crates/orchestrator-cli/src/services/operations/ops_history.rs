@@ -1,6 +1,6 @@
 use crate::cli_types::HistoryCommand;
-use crate::print_value;
-use anyhow::{anyhow, Result};
+use crate::{not_found_error, print_value};
+use anyhow::Result;
 use chrono::Utc;
 use orchestrator_core::{
     load_history_store, save_history_store, HistoryExecutionRecord, ServiceHub,
@@ -80,7 +80,7 @@ pub(crate) async fn handle_history(
             let record = records
                 .into_iter()
                 .find(|record| record.execution_id == args.id)
-                .ok_or_else(|| anyhow!("execution not found: {}", args.id))?;
+                .ok_or_else(|| not_found_error(format!("execution not found: {}", args.id)))?;
             print_value(record, json)
         }
         HistoryCommand::Recent(args) => {

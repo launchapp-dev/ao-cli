@@ -1,6 +1,6 @@
 use crate::cli_types::OutputCommand;
-use crate::{ensure_safe_run_id, print_value, run_dir};
-use anyhow::{anyhow, Context, Result};
+use crate::{ensure_safe_run_id, not_found_error, print_value, run_dir};
+use anyhow::{Context, Result};
 use protocol::RunId;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -158,8 +158,10 @@ pub(crate) async fn handle_output(
 ) -> Result<()> {
     match command {
         OutputCommand::Run(args) => {
-            let run_dir = resolve_run_dir_for_lookup(project_root, &args.run_id)?
-                .ok_or_else(|| anyhow!("run directory not found for {}", args.run_id))?;
+            let run_dir =
+                resolve_run_dir_for_lookup(project_root, &args.run_id)?.ok_or_else(|| {
+                    not_found_error(format!("run directory not found for {}", args.run_id))
+                })?;
             let events_path = run_dir.join("events.jsonl");
             if !events_path.exists() {
                 return print_value(Vec::<Value>::new(), json);

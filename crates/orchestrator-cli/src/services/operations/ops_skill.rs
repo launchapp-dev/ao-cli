@@ -1,8 +1,8 @@
 use crate::cli_types::{
     SkillCommand, SkillInstallArgs, SkillPublishArgs, SkillSearchArgs, SkillUpdateArgs,
 };
-use crate::print_value;
-use anyhow::{anyhow, Result};
+use crate::{conflict_error, invalid_input_error, not_found_error, print_value, unavailable_error};
+use anyhow::Result;
 use semver::Version;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -45,7 +45,7 @@ fn compare_semver_desc(left: &str, right: &str) -> std::cmp::Ordering {
 fn sanitize_required(value: &str, field_name: &str) -> Result<String> {
     let normalized = value.trim();
     if normalized.is_empty() {
-        anyhow::bail!("invalid {field_name}");
+        return Err(invalid_input_error(format!("invalid {field_name}")));
     }
     Ok(normalized.to_string())
 }
@@ -56,11 +56,14 @@ fn ensure_registry_available(state: &SkillRegistryStateV1, registry: Option<&str
     };
     let registry = registry.trim();
     if registry.is_empty() {
-        anyhow::bail!("invalid registry");
+        return Err(invalid_input_error("invalid registry"));
     }
     if let Some(config) = state.registries.iter().find(|entry| entry.id == registry) {
         if !config.available {
-            anyhow::bail!("registry backend unavailable: {}", registry);
+            return Err(unavailable_error(format!(
+                "registry backend unavailable: {}",
+                registry
+            )));
         }
     }
     Ok(())
@@ -364,7 +367,10 @@ fn handle_update(args: SkillUpdateArgs, project_root: &str, json: bool) -> Resul
     let targets = resolve_update_targets(&registry_state, target_name, target_source);
 
     if target_name.is_some() && targets.is_empty() {
-        anyhow::bail!("skill not found: {}", target_name.unwrap_or_default());
+        return Err(not_found_error(format!(
+            "skill not found: {}",
+            target_name.unwrap_or_default()
+        )));
     }
 
     let mut updated_entries = Vec::new();
@@ -440,8 +446,9 @@ fn handle_publish(args: SkillPublishArgs, project_root: &str, json: bool) -> Res
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| format!("{name}-{version}.tgz"));
-    Version::parse(&version)
-        .map_err(|error| anyhow!("invalid version '{}': {}", version, error))?;
+    Version::parse(&version).map_err(|error| {
+        invalid_input_error(format!("invalid version '{}': {}", version, error))
+    })?;
 
     let mut state = load_skill_registry_state(project_root)?;
     ensure_registry_available(&state, Some(&registry))?;
@@ -450,12 +457,10 @@ fn handle_publish(args: SkillPublishArgs, project_root: &str, json: bool) -> Res
         .iter()
         .any(|entry| entry.name == name && entry.version == version && entry.source == source)
     {
-        anyhow::bail!(
+        return Err(conflict_error(format!(
             "skill version already exists for source '{}': {}@{}",
-            source,
-            name,
-            version
-        );
+            source, name, version
+        )));
     }
 
     ensure_registry_registered(&mut state, &registry);

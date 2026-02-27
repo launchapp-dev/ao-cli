@@ -75,14 +75,21 @@ fn read_nonempty_lines_since(path: &Path, offset: &mut u64) -> Result<Vec<String
         .collect())
 }
 
-fn matches_project_root_filter(record: &DaemonEventRecord, filter: Option<&str>) -> bool {
-    let Some(filter) = filter.map(str::trim).filter(|value| !value.is_empty()) else {
+fn normalize_project_root_filter(filter: Option<&str>) -> Option<String> {
+    filter
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(canonicalize_lossy)
+}
+
+fn matches_project_root_filter(record: &DaemonEventRecord, canonical_filter: Option<&str>) -> bool {
+    let Some(filter) = canonical_filter else {
         return true;
     };
     let Some(record_project_root) = record.project_root.as_deref() else {
         return false;
     };
-    canonicalize_lossy(record_project_root) == canonicalize_lossy(filter)
+    canonicalize_lossy(record_project_root) == filter
 }
 
 fn apply_event_limit(
@@ -105,10 +112,13 @@ pub(crate) fn read_daemon_event_records(
     project_root_filter: Option<&str>,
 ) -> Result<Vec<DaemonEventRecord>> {
     let path = daemon_events_log_path();
+    let canonical_project_root_filter = normalize_project_root_filter(project_root_filter);
     let events = read_all_nonempty_lines(&path)?
         .into_iter()
         .filter_map(|line| serde_json::from_str::<DaemonEventRecord>(&line).ok())
-        .filter(|record| matches_project_root_filter(record, project_root_filter))
+        .filter(|record| {
+            matches_project_root_filter(record, canonical_project_root_filter.as_deref())
+        })
         .collect();
     Ok(apply_event_limit(events, limit))
 }
@@ -301,6 +311,14 @@ mod tests {
             .all(|event| event.project_root.as_deref() == Some(root_a_path.as_str())));
         assert_eq!(events[0].seq, 1);
         assert_eq!(events[1].seq, 3);
+
+        let padded_filter = format!("  {root_a_path}  ");
+        let padded = read_daemon_event_records(Some(10), Some(padded_filter.as_str()))
+            .expect("records should be readable");
+        assert_eq!(padded.len(), 2);
+        assert!(padded
+            .iter()
+            .all(|event| event.project_root.as_deref() == Some(root_a_path.as_str())));
 
         let empty = read_daemon_event_records(Some(10), Some("/does/not/exist"))
             .expect("records should be readable");

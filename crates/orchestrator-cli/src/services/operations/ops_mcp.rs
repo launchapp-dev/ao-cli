@@ -1565,13 +1565,24 @@ fn daemon_events_poll_limit(limit: Option<usize>) -> usize {
     normalized.min(MAX_DAEMON_EVENTS_LIMIT)
 }
 
+fn resolve_daemon_events_project_root(
+    default_project_root: &str,
+    project_root_override: Option<String>,
+) -> String {
+    let candidate = project_root_override
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| default_project_root.to_string());
+    crate::services::runtime::canonicalize_lossy(candidate.as_str())
+}
+
 fn build_daemon_events_poll_result(
     default_project_root: &str,
     input: DaemonEventsInput,
 ) -> Result<Value> {
-    let project_root = input
-        .project_root
-        .unwrap_or_else(|| default_project_root.to_string());
+    let project_root = resolve_daemon_events_project_root(default_project_root, input.project_root);
     let limit = daemon_events_poll_limit(input.limit);
     let response =
         crate::services::runtime::poll_daemon_events(Some(limit), Some(project_root.as_str()))?;
@@ -1860,6 +1871,18 @@ mod tests {
     }
 
     #[test]
+    fn resolve_daemon_events_project_root_uses_default_when_override_blank() {
+        let default_root = TempDir::new().expect("default project root");
+        let expected = crate::services::runtime::canonicalize_lossy(
+            default_root.path().to_string_lossy().as_ref(),
+        );
+        assert_eq!(
+            resolve_daemon_events_project_root(expected.as_str(), Some("   ".to_string())),
+            expected
+        );
+    }
+
+    #[test]
     fn build_daemon_events_poll_result_returns_non_null_structured_events() {
         let _lock = env_lock().lock().expect("env lock should be available");
         let config_root = TempDir::new().expect("config temp dir");
@@ -1940,5 +1963,51 @@ mod tests {
         }));
         assert_eq!(events[0].get("seq").and_then(Value::as_u64), Some(1));
         assert_eq!(events[1].get("seq").and_then(Value::as_u64), Some(3));
+    }
+
+    #[test]
+    fn build_daemon_events_poll_result_blank_project_root_falls_back_to_default() {
+        let _lock = env_lock().lock().expect("env lock should be available");
+        let config_root = TempDir::new().expect("config temp dir");
+        let _config_guard = EnvVarGuard::set(
+            "AO_CONFIG_DIR",
+            Some(config_root.path().to_string_lossy().as_ref()),
+        );
+        let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
+
+        let project_a = TempDir::new().expect("project A");
+        let project_b = TempDir::new().expect("project B");
+        let root_a = crate::services::runtime::canonicalize_lossy(
+            project_a.path().to_string_lossy().as_ref(),
+        );
+        let root_b = crate::services::runtime::canonicalize_lossy(
+            project_b.path().to_string_lossy().as_ref(),
+        );
+        write_events(&[
+            serde_json::to_string(&sample_event(1, "queue", root_a.as_str())).expect("event json"),
+            serde_json::to_string(&sample_event(2, "queue", root_b.as_str())).expect("event json"),
+            serde_json::to_string(&sample_event(3, "log", root_a.as_str())).expect("event json"),
+        ]);
+
+        let result = build_daemon_events_poll_result(
+            root_a.as_str(),
+            DaemonEventsInput {
+                limit: Some(50),
+                project_root: Some("   ".to_string()),
+            },
+        )
+        .expect("poll result should be built");
+        assert_eq!(
+            result.get("project_root").and_then(Value::as_str),
+            Some(root_a.as_str())
+        );
+        let events = result
+            .get("events")
+            .and_then(Value::as_array)
+            .expect("events should be an array");
+        assert_eq!(events.len(), 2);
+        assert!(events.iter().all(|event| {
+            event.get("project_root").and_then(Value::as_str) == Some(root_a.as_str())
+        }));
     }
 }

@@ -389,7 +389,7 @@ pub(super) async fn handle_daemon_run(
                             emit_daemon_event_with_notifications(
                                 &mut seq,
                                 &phase_event.event_type,
-                                Some(summary.project_root.clone()),
+                                Some(phase_event.project_root.clone()),
                                 serde_json::json!({
                                     "workflow_id": phase_event.workflow_id,
                                     "task_id": phase_event.task_id,
@@ -494,12 +494,18 @@ mod tests {
     use crate::services::runtime::runtime_daemon::{daemon_events_log_path, DaemonEventRecord};
     use std::collections::HashSet;
     use std::path::PathBuf;
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::{Mutex, MutexGuard, OnceLock};
     use tempfile::TempDir;
 
     fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn lock_env() -> MutexGuard<'static, ()> {
+        env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     struct EnvVarGuard {
@@ -530,13 +536,16 @@ mod tests {
 
     #[tokio::test]
     async fn daemon_run_once_processes_registry_projects() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = lock_env();
 
         let config_root = TempDir::new().expect("config temp dir");
+        let home_root = TempDir::new().expect("home temp dir");
         let _config_guard = EnvVarGuard::set(
             "AO_CONFIG_DIR",
             Some(config_root.path().to_string_lossy().as_ref()),
         );
+        let _home_guard =
+            EnvVarGuard::set("HOME", Some(home_root.path().to_string_lossy().as_ref()));
         let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
         let _skip_runner = EnvVarGuard::set("AO_SKIP_RUNNER_START", Some("1"));
 
@@ -619,13 +628,16 @@ mod tests {
 
     #[tokio::test]
     async fn daemon_run_emits_task_state_change_events() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = lock_env();
 
         let config_root = TempDir::new().expect("config temp dir");
+        let home_root = TempDir::new().expect("home temp dir");
         let _config_guard = EnvVarGuard::set(
             "AO_CONFIG_DIR",
             Some(config_root.path().to_string_lossy().as_ref()),
         );
+        let _home_guard =
+            EnvVarGuard::set("HOME", Some(home_root.path().to_string_lossy().as_ref()));
         let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
         let _skip_runner = EnvVarGuard::set("AO_SKIP_RUNNER_START", Some("1"));
 
@@ -750,7 +762,7 @@ mod tests {
 
     #[tokio::test]
     async fn daemon_run_continues_when_notification_delivery_fails() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = lock_env();
 
         let config_root = TempDir::new().expect("config temp dir");
         let home_root = TempDir::new().expect("home temp dir");
@@ -850,13 +862,16 @@ mod tests {
 
     #[tokio::test]
     async fn daemon_run_emits_log_error_event_for_project_tick_failure() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = lock_env();
 
         let config_root = TempDir::new().expect("config temp dir");
+        let home_root = TempDir::new().expect("home temp dir");
         let _config_guard = EnvVarGuard::set(
             "AO_CONFIG_DIR",
             Some(config_root.path().to_string_lossy().as_ref()),
         );
+        let _home_guard =
+            EnvVarGuard::set("HOME", Some(home_root.path().to_string_lossy().as_ref()));
         let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
         let _skip_runner = EnvVarGuard::set("AO_SKIP_RUNNER_START", Some("1"));
 

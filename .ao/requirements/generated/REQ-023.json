@@ -1,9 +1,13 @@
 {
-  "acceptance_criteria": [],
-  "category": "quality",
+  "acceptance_criteria": [
+    "sanitize_identifier and repository_scope_for_path have a single canonical implementation",
+    "Priority enum is unified across protocol and core crates",
+    "cli_types.rs and web_api_service.rs are split into focused, maintainable modules"
+  ],
+  "category": null,
   "comments": [],
   "created_at": "2026-02-26T14:52:24.887962Z",
-  "description": "Eliminate duplicated implementations across crates (sanitize_identifier, repository_scope_for_path, classify_error) and unify conflicting type definitions (Priority enums).",
+  "description": "Eliminate duplicated implementations across crates and unify conflicting type definitions. TASK-031 consolidated sanitize_identifier and repository_scope_for_path. TASK-032 unified Priority type definitions across protocol and core. TASK-041 (in-progress) splits the monolith cli_types.rs and web_api_service.rs into focused modules.",
   "id": "REQ-023",
   "legacy_id": null,
   "links": {
@@ -12,15 +16,16 @@
     "related_requirements": [],
     "tasks": [
       "TASK-031",
-      "TASK-032"
+      "TASK-032",
+      "TASK-041"
     ],
     "tests": [],
     "workflows": []
   },
   "priority": "should",
-  "status": "draft",
+  "status": "em-review",
   "tags": [],
   "title": "Consolidate duplicated code and unify shared types",
-  "type": "technical",
-  "updated_at": "2026-02-27T06:58:56.198691Z"
+  "type": null,
+  "updated_at": "2026-02-27T02:31:01.684490Z"
 }

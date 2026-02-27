@@ -6,10 +6,10 @@
     "Logging supports redaction rules to avoid exposing secrets or sensitive payloads in UI-visible traces.",
     "Telemetry export format is documented and can be consumed by downstream monitoring tools."
   ],
-  "category": "runtime",
+  "category": null,
   "comments": [],
   "created_at": "2026-02-24T20:06:42.940529Z",
-  "description": "Instrument the React web GUI with structured client telemetry, correlation IDs, and operator-facing diagnostics so failures can be triaged quickly against backend run/events.",
+  "description": "Instrument the React web GUI with structured client telemetry, correlation IDs, and operator-facing diagnostics so failures can be triaged quickly against backend run/events. TASK-019 delivered the initial observability panel and structured logging. TASK-043 extends this to MCP-level agent output tailing.",
   "id": "REQ-019",
   "legacy_id": null,
   "links": {
@@ -17,15 +17,17 @@
     "mockups": [],
     "related_requirements": [],
     "tasks": [
-      "TASK-019"
+      "TASK-019",
+      "TASK-039",
+      "TASK-043"
     ],
     "tests": [],
     "workflows": []
   },
   "priority": "must",
-  "status": "draft",
+  "status": "em-review",
   "tags": [],
   "title": "Add first-class web UI observability and debug logging",
-  "type": "technical",
-  "updated_at": "2026-02-27T06:58:52.872942Z"
+  "type": null,
+  "updated_at": "2026-02-27T02:38:17.804187Z"
 }

@@ -61,7 +61,15 @@
       "output_contract": null,
       "output_json_schema": null,
       "command": null,
-      "manual": null
+      "manual": null,
+      "decision_contract": {
+        "required_evidence": [
+          "code_review_clean"
+        ],
+        "min_confidence": 0.7,
+        "max_risk": "medium",
+        "allow_missing_decision": true
+      }
     },
     "default": {
       "mode": "agent",
@@ -102,7 +110,15 @@
         "type": "object"
       },
       "command": null,
-      "manual": null
+      "manual": null,
+      "decision_contract": {
+        "required_evidence": [
+          "files_modified"
+        ],
+        "min_confidence": 0.7,
+        "max_risk": "medium",
+        "allow_missing_decision": true
+      }
     },
     "mockup-review": {
       "mode": "agent",
@@ -122,7 +138,13 @@
       "output_contract": null,
       "output_json_schema": null,
       "command": null,
-      "manual": null
+      "manual": null,
+      "decision_contract": {
+        "required_evidence": [],
+        "min_confidence": 0.6,
+        "max_risk": "medium",
+        "allow_missing_decision": true
+      }
     },
     "research": {
       "mode": "agent",
@@ -153,7 +175,15 @@
       "output_contract": null,
       "output_json_schema": null,
       "command": null,
-      "manual": null
+      "manual": null,
+      "decision_contract": {
+        "required_evidence": [
+          "tests_passed"
+        ],
+        "min_confidence": 0.8,
+        "max_risk": "medium",
+        "allow_missing_decision": true
+      }
     },
     "ux-research": {
       "mode": "agent",

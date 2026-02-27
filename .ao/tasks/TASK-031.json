@@ -6,7 +6,7 @@
   "blocked_by": null,
   "blocked_phase": null,
   "blocked_reason": null,
-  "branch_name": null,
+  "branch_name": "ao/task-031",
   "cancelled": false,
   "checklist": [],
   "complexity": "medium",
@@ -21,13 +21,13 @@
     "REQ-023"
   ],
   "metadata": {
-    "completed_at": null,
+    "completed_at": "2026-02-27T01:26:15.992840Z",
     "created_at": "2026-02-26T14:54:56.449069Z",
     "created_by": "ao-cli",
-    "started_at": null,
-    "updated_at": "2026-02-26T14:54:56.449069Z",
-    "updated_by": "ao-cli",
-    "version": 1
+    "started_at": "2026-02-26T21:22:03.370572Z",
+    "updated_at": "2026-02-27T01:26:20.743892Z",
+    "updated_by": "ao-daemon",
+    "version": 1514
   },
   "paused": false,
   "priority": "medium",
@@ -38,7 +38,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "backlog",
+  "status": "done",
   "tags": [],
   "title": "Consolidate sanitize_identifier and repository_scope_for_path",
   "type": "refactor",
@@ -50,5 +50,5 @@
     "requires_staging_deploy": false,
     "workflow_id": null
   },
-  "worktree_path": null
+  "worktree_path": "/Users/samishukri/.ao/ao-cli-1222ef9c4f94/worktrees/task-task-031"
 }

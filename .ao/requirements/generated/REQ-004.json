@@ -23,7 +23,7 @@
     "workflows": []
   },
   "priority": "should",
-  "status": "draft",
+  "status": "implemented",
   "tags": [
     "integration",
     "lens-engineering",
@@ -32,5 +32,5 @@
   ],
   "title": "Standardize llm-cli-wrapper and llm-mcp-server integration contract",
   "type": "technical",
-  "updated_at": "2026-02-24T19:21:21.010432Z"
+  "updated_at": "2026-02-27T02:36:11.444744Z"
 }

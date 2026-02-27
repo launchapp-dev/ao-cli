@@ -6,7 +6,7 @@
     "Perceived performance budget is defined and met for initial load and key route transitions under realistic project data sizes.",
     "Empty/loading/error states are intentionally designed and consistent across all route families."
   ],
-  "category": "quality",
+  "category": null,
   "comments": [],
   "created_at": "2026-02-24T19:52:00.415501Z",
   "description": "Ship the web GUI with enterprise-grade usability quality across desktop and mobile form factors, keyboard users, and assistive technologies.",
@@ -23,9 +23,9 @@
     "workflows": []
   },
   "priority": "should",
-  "status": "draft",
+  "status": "implemented",
   "tags": [],
   "title": "Meet accessibility, responsiveness, and performance baselines",
-  "type": "non-functional",
-  "updated_at": "2026-02-27T06:58:51.215207Z"
+  "type": null,
+  "updated_at": "2026-02-27T02:37:59.106845Z"
 }

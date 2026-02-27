@@ -23,7 +23,7 @@
     "workflows": []
   },
   "priority": "should",
-  "status": "draft",
+  "status": "implemented",
   "tags": [
     "contributor-workflow",
     "docs",
@@ -32,5 +32,5 @@
   ],
   "title": "Define and maintain the ao-cli self-hosting operating workflow",
   "type": "product",
-  "updated_at": "2026-02-24T19:21:20.999291Z"
+  "updated_at": "2026-02-27T02:38:08.140876Z"
 }

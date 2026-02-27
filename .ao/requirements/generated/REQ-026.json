@@ -1,15 +1,14 @@
 {
   "acceptance_criteria": [
-    "AO supports at least two channel connectors with a consistent adapter contract and pluggable extension path.",
-    "Operators can subscribe specific event types (workflow checkpoints, run failures, task state changes) per connector.",
-    "Connector credentials/tokens are stored in scoped config with clear redaction in logs and JSON outputs.",
-    "Delivery failures include retry/backoff policy and observable dead-letter/error reporting.",
-    "Documentation includes setup, security posture, and operational troubleshooting for each supported connector."
+    "All requirements have non-null category and type fields",
+    "Stale in-progress tasks are flagged after configurable inactivity threshold",
+    "Priority distribution policy is documented and optionally enforced",
+    "Automated test coverage for data quality checks"
   ],
   "category": null,
   "comments": [],
-  "created_at": "2026-02-25T19:50:55.851278Z",
-  "description": "Operators should be able to route AO task/workflow/run events to messaging channels (for example Slack, Discord, Teams, Telegram) for faster response and remote awareness.\n\nImplementation boundary: AO event routing and connector adapters with secure credential handling.",
+  "created_at": "2026-02-27T02:51:41.806097Z",
+  "description": "Requirement metadata is incomplete (13/24 missing category/type), task priorities are inflated (55% high), stale in-progress tasks have no detection mechanism, and unused task fields add noise. Establish data quality standards and tooling.",
   "id": "REQ-026",
   "legacy_id": null,
   "links": {
@@ -17,15 +16,18 @@
     "mockups": [],
     "related_requirements": [],
     "tasks": [
-      "TASK-026"
+      "TASK-048",
+      "TASK-049",
+      "TASK-055",
+      "TASK-056"
     ],
     "tests": [],
     "workflows": []
   },
-  "priority": "could",
+  "priority": "should",
   "status": "draft",
   "tags": [],
-  "title": "Add multi-channel notification connectors for workflow and run events",
+  "title": "Improve data quality and hygiene across tasks and requirements",
   "type": null,
-  "updated_at": "2026-02-25T19:51:07.561819Z"
+  "updated_at": "2026-02-27T02:52:12.508721Z"
 }

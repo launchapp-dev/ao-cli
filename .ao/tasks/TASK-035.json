@@ -6,7 +6,7 @@
   "blocked_by": null,
   "blocked_phase": null,
   "blocked_reason": null,
-  "branch_name": null,
+  "branch_name": "ao/task-035",
   "cancelled": false,
   "checklist": [],
   "complexity": "medium",
@@ -21,13 +21,13 @@
     "REQ-022"
   ],
   "metadata": {
-    "completed_at": null,
+    "completed_at": "2026-02-27T01:19:47.786577Z",
     "created_at": "2026-02-26T15:04:29.964226Z",
     "created_by": "ao-cli",
-    "started_at": null,
-    "updated_at": "2026-02-26T15:04:29.964226Z",
-    "updated_by": "ao-cli",
-    "version": 1
+    "started_at": "2026-02-26T21:59:16.934273Z",
+    "updated_at": "2026-02-27T01:19:47.786578Z",
+    "updated_by": "ao-daemon",
+    "version": 1202
   },
   "paused": false,
   "priority": "medium",
@@ -38,7 +38,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "backlog",
+  "status": "done",
   "tags": [],
   "title": "Make FileServiceHub git init opt-in",
   "type": "refactor",

@@ -23,7 +23,7 @@
     "workflows": []
   },
   "priority": "must",
-  "status": "draft",
+  "status": "implemented",
   "tags": [
     "cli",
     "error-handling",
@@ -32,5 +32,5 @@
   ],
   "title": "Improve daily CLI ergonomics for core ao command groups",
   "type": "functional",
-  "updated_at": "2026-02-24T19:21:21.003203Z"
+  "updated_at": "2026-02-27T02:36:06.947981Z"
 }

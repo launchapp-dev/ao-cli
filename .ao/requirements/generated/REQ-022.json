@@ -1,9 +1,13 @@
 {
-  "acceptance_criteria": [],
-  "category": "runtime",
+  "acceptance_criteria": [
+    "core-state.json writes use file locking to prevent concurrent corruption",
+    "FileServiceHub git init is opt-in, avoiding implicit side effects during concurrent access",
+    "Daemon and CLI can safely operate on state simultaneously without data loss"
+  ],
+  "category": null,
   "comments": [],
   "created_at": "2026-02-26T14:46:59.513786Z",
-  "description": "Prevent concurrent read-modify-write races on core-state.json when daemon and CLI operate simultaneously by introducing file locking or equivalent coordination.",
+  "description": "Prevent concurrent read-modify-write races on core-state.json when daemon and CLI operate simultaneously. TASK-033 added file locking to core-state.json persistence. TASK-035 made FileServiceHub git init opt-in to avoid contention during concurrent access.",
   "id": "REQ-022",
   "legacy_id": null,
   "links": {
@@ -18,9 +22,9 @@
     "workflows": []
   },
   "priority": "should",
-  "status": "draft",
+  "status": "implemented",
   "tags": [],
   "title": "Add concurrency-safe state persistence",
-  "type": "technical",
-  "updated_at": "2026-02-27T06:58:55.369972Z"
+  "type": null,
+  "updated_at": "2026-02-27T02:30:59.614917Z"
 }

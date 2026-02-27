@@ -6,7 +6,7 @@
   "blocked_by": null,
   "blocked_phase": null,
   "blocked_reason": null,
-  "branch_name": null,
+  "branch_name": "ao/task-032",
   "cancelled": false,
   "checklist": [],
   "complexity": "medium",
@@ -21,13 +21,13 @@
     "REQ-023"
   ],
   "metadata": {
-    "completed_at": null,
+    "completed_at": "2026-02-27T01:03:38.966061Z",
     "created_at": "2026-02-26T14:55:07.504090Z",
     "created_by": "ao-cli",
-    "started_at": null,
-    "updated_at": "2026-02-26T14:55:07.504090Z",
-    "updated_by": "ao-cli",
-    "version": 1
+    "started_at": "2026-02-26T21:22:03.220619Z",
+    "updated_at": "2026-02-27T01:03:38.966062Z",
+    "updated_by": "ao-daemon",
+    "version": 1507
   },
   "paused": false,
   "priority": "medium",
@@ -38,7 +38,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "backlog",
+  "status": "done",
   "tags": [],
   "title": "Unify Priority type definitions across protocol and core",
   "type": "refactor",

@@ -3,7 +3,7 @@
     "CI fails when prohibited desktop-wrapper dependencies are introduced in workspace crates.",
     "Dependency policy documentation lists allowed and prohibited dependency classes."
   ],
-  "category": "security",
+  "category": null,
   "comments": [],
   "created_at": "2026-02-24T19:48:30.582167Z",
   "description": "Prevent desktop-wrapper drift by enforcing Rust-only workspace dependencies and validating prohibited frameworks are excluded.",
@@ -20,9 +20,9 @@
     "workflows": []
   },
   "priority": "must",
-  "status": "draft",
+  "status": "implemented",
   "tags": [],
   "title": "Enforce Rust-only dependency guardrails",
-  "type": "technical",
-  "updated_at": "2026-02-27T06:58:42.882176Z"
+  "type": null,
+  "updated_at": "2026-02-27T02:37:05.063424Z"
 }

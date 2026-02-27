@@ -11,7 +11,12 @@
   "checklist": [],
   "complexity": "medium",
   "deadline": null,
-  "dependencies": [],
+  "dependencies": [
+    {
+      "task_id": "TASK-087",
+      "dependency_type": "blocked-by"
+    }
+  ],
   "description": "Implement the StorageBackend trait for SQLite using rusqlite or sqlx-sqlite. Schema: tasks, workflows, requirements, decisions, checkpoints, agent_runs tables. Use migrations (refinery or sqlx-migrate). Store JSON blobs for complex nested fields (checklist, evidence, metadata) with indexed columns for filterable fields (status, priority, assignee, created_at). SQLite file lives at .ao/state/ao.db. Supports single-user and CI environments without external dependencies. Include WAL mode for concurrent read performance.",
   "estimated_effort": null,
   "id": "TASK-088",
@@ -36,7 +41,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "ready",
+  "status": "backlog",
   "tags": [],
   "title": "Add SQLite storage backend implementation",
   "type": "feature",

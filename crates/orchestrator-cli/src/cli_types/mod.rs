@@ -119,6 +119,8 @@ mod tests {
             "in-progress",
             "--priority",
             "high",
+            "--risk",
+            "medium",
             "--assignee-type",
             "human",
             "--tag",
@@ -139,6 +141,7 @@ mod tests {
                 assert_eq!(args.task_type.as_deref(), Some("feature"));
                 assert_eq!(args.status.as_deref(), Some("in-progress"));
                 assert_eq!(args.priority.as_deref(), Some("high"));
+                assert_eq!(args.risk.as_deref(), Some("medium"));
                 assert_eq!(args.assignee_type.as_deref(), Some("human"));
                 assert_eq!(args.tag, vec!["api".to_string()]);
                 assert_eq!(args.linked_requirement.as_deref(), Some("REQ-123"));
@@ -146,6 +149,52 @@ mod tests {
                 assert_eq!(args.search.as_deref(), Some("critical path"));
             }
             _ => panic!("expected task list command"),
+        }
+    }
+
+    #[test]
+    fn parses_task_update_extended_fields_from_task_module() {
+        let cli = Cli::try_parse_from([
+            "ao",
+            "task",
+            "update",
+            "--id",
+            "TASK-100",
+            "--risk",
+            "high",
+            "--scope",
+            "large",
+            "--complexity",
+            "high",
+            "--impact-area",
+            "frontend",
+            "--replace-impact-area",
+            "--estimated-effort",
+            "2d",
+            "--max-cpu-percent",
+            "75",
+            "--clear-max-memory-mb",
+            "--requires-network",
+            "false",
+        ])
+        .expect("task update extended flags should parse");
+
+        match cli.command {
+            Command::Task {
+                command: TaskCommand::Update(args),
+            } => {
+                assert_eq!(args.id, "TASK-100");
+                assert_eq!(args.risk.as_deref(), Some("high"));
+                assert_eq!(args.scope.as_deref(), Some("large"));
+                assert_eq!(args.complexity.as_deref(), Some("high"));
+                assert_eq!(args.impact_area, vec!["frontend".to_string()]);
+                assert!(args.replace_impact_area);
+                assert_eq!(args.estimated_effort.as_deref(), Some("2d"));
+                assert_eq!(args.max_cpu_percent, Some(75.0));
+                assert!(args.clear_max_memory_mb);
+                assert_eq!(args.requires_network, Some(false));
+            }
+            _ => panic!("expected task update command"),
         }
     }
 

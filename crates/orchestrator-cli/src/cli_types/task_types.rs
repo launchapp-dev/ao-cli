@@ -1,9 +1,10 @@
 use clap::{Args, Subcommand};
 
 use super::{
-    IdArgs, DEPENDENCY_TYPE_HELP, INPUT_JSON_PRECEDENCE_HELP, TASK_PRIORITY_FILTER_HELP,
-    TASK_PRIORITY_HELP, TASK_STATUS_FILTER_HELP, TASK_STATUS_HELP, TASK_TYPE_FILTER_HELP,
-    TASK_TYPE_HELP,
+    IdArgs, DEPENDENCY_TYPE_HELP, INPUT_JSON_PRECEDENCE_HELP, TASK_COMPLEXITY_HELP,
+    TASK_IMPACT_AREA_HELP, TASK_PRIORITY_FILTER_HELP, TASK_PRIORITY_HELP, TASK_RISK_FILTER_HELP,
+    TASK_RISK_HELP, TASK_SCOPE_HELP, TASK_STATUS_FILTER_HELP, TASK_STATUS_HELP,
+    TASK_TYPE_FILTER_HELP, TASK_TYPE_HELP,
 };
 
 #[derive(Debug, Subcommand)]
@@ -50,6 +51,8 @@ pub(crate) struct TaskListArgs {
     pub(crate) status: Option<String>,
     #[arg(long, value_name = "PRIORITY", help = TASK_PRIORITY_FILTER_HELP)]
     pub(crate) priority: Option<String>,
+    #[arg(long, value_name = "RISK", help = TASK_RISK_FILTER_HELP)]
+    pub(crate) risk: Option<String>,
     #[arg(
         long,
         value_name = "ASSIGNEE_TYPE",
@@ -97,6 +100,38 @@ pub(crate) struct TaskCreateArgs {
     pub(crate) task_type: Option<String>,
     #[arg(long, value_name = "PRIORITY", help = TASK_PRIORITY_HELP)]
     pub(crate) priority: Option<String>,
+    #[arg(long, value_name = "RISK", help = TASK_RISK_HELP)]
+    pub(crate) risk: Option<String>,
+    #[arg(long, value_name = "SCOPE", help = TASK_SCOPE_HELP)]
+    pub(crate) scope: Option<String>,
+    #[arg(long, value_name = "COMPLEXITY", help = TASK_COMPLEXITY_HELP)]
+    pub(crate) complexity: Option<String>,
+    #[arg(
+        long = "impact-area",
+        value_name = "AREA",
+        help = "Impact areas for the task. Repeat to add multiple values."
+    )]
+    pub(crate) impact_area: Vec<String>,
+    #[arg(
+        long,
+        value_name = "TEXT",
+        help = "Estimated effort label (for example: 2d, 1 sprint, half-day)."
+    )]
+    pub(crate) estimated_effort: Option<String>,
+    #[arg(
+        long,
+        value_name = "PERCENT",
+        help = "Maximum CPU budget percentage (0-100)."
+    )]
+    pub(crate) max_cpu_percent: Option<f32>,
+    #[arg(long, value_name = "MB", help = "Maximum memory budget in MB.")]
+    pub(crate) max_memory_mb: Option<u64>,
+    #[arg(
+        long,
+        value_name = "BOOL",
+        help = "Whether the task requires network access."
+    )]
+    pub(crate) requires_network: Option<bool>,
     #[arg(
         long = "linked-architecture-entity",
         value_name = "ENTITY_ID",
@@ -119,6 +154,44 @@ pub(crate) struct TaskUpdateArgs {
     pub(crate) priority: Option<String>,
     #[arg(long, value_name = "STATUS", help = TASK_STATUS_HELP)]
     pub(crate) status: Option<String>,
+    #[arg(long, value_name = "RISK", help = TASK_RISK_HELP)]
+    pub(crate) risk: Option<String>,
+    #[arg(long, value_name = "SCOPE", help = TASK_SCOPE_HELP)]
+    pub(crate) scope: Option<String>,
+    #[arg(long, value_name = "COMPLEXITY", help = TASK_COMPLEXITY_HELP)]
+    pub(crate) complexity: Option<String>,
+    #[arg(long = "impact-area", value_name = "AREA", help = TASK_IMPACT_AREA_HELP)]
+    pub(crate) impact_area: Vec<String>,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Replace all impact areas with the provided --impact-area values."
+    )]
+    pub(crate) replace_impact_area: bool,
+    #[arg(
+        long,
+        value_name = "TEXT",
+        help = "Updated estimated effort label (empty string clears value)."
+    )]
+    pub(crate) estimated_effort: Option<String>,
+    #[arg(
+        long,
+        value_name = "PERCENT",
+        help = "Updated maximum CPU budget percentage (0-100)."
+    )]
+    pub(crate) max_cpu_percent: Option<f32>,
+    #[arg(long, value_name = "MB", help = "Updated maximum memory budget in MB.")]
+    pub(crate) max_memory_mb: Option<u64>,
+    #[arg(long, default_value_t = false, help = "Clear max CPU budget.")]
+    pub(crate) clear_max_cpu_percent: bool,
+    #[arg(long, default_value_t = false, help = "Clear max memory budget.")]
+    pub(crate) clear_max_memory_mb: bool,
+    #[arg(
+        long,
+        value_name = "BOOL",
+        help = "Whether the task requires network access."
+    )]
+    pub(crate) requires_network: Option<bool>,
     #[arg(
         long,
         value_name = "ASSIGNEE",

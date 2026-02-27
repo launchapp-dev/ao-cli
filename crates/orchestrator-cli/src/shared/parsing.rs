@@ -1,5 +1,8 @@
 use anyhow::Result;
-use orchestrator_core::{DependencyType, Priority, ProjectType, TaskStatus, TaskType};
+use orchestrator_core::{
+    Complexity, DependencyType, ImpactArea, Priority, ProjectType, RiskLevel, Scope, TaskStatus,
+    TaskType,
+};
 use protocol::{AgentRunEvent, RunId};
 use serde_json::Value;
 
@@ -9,6 +12,11 @@ const TASK_STATUS_EXPECTED: &str =
     "backlog|todo|ready|in-progress|in_progress|blocked|on-hold|on_hold|done|cancelled";
 const TASK_TYPE_EXPECTED: &str = "feature|bugfix|hotfix|refactor|docs|test|chore|experiment";
 const PRIORITY_EXPECTED: &str = "critical|high|medium|low";
+const RISK_EXPECTED: &str = "high|medium|low";
+const SCOPE_EXPECTED: &str = "large|medium|small";
+const COMPLEXITY_EXPECTED: &str = "high|medium|low";
+const IMPACT_AREA_EXPECTED: &str =
+    "frontend|backend|database|api|infrastructure|docs|tests|cicd|ci-cd|ci_cd";
 const DEPENDENCY_TYPE_EXPECTED: &str =
     "blocks-by|blocks_by|blocksby|blocked-by|blocked_by|blockedby|related-to|related_to|relatedto";
 const PROJECT_TYPE_EXPECTED: &str =
@@ -216,6 +224,94 @@ pub(crate) fn parse_priority_opt(value: Option<&str>) -> Result<Option<Priority>
     Ok(Some(priority))
 }
 
+pub(crate) fn parse_risk_opt(value: Option<&str>) -> Result<Option<RiskLevel>> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+
+    let normalized = value.trim().to_ascii_lowercase();
+    let risk = match normalized.as_str() {
+        "high" => RiskLevel::High,
+        "medium" => RiskLevel::Medium,
+        "low" => RiskLevel::Low,
+        _ => return Err(invalid_value_error("risk", value, RISK_EXPECTED)),
+    };
+
+    Ok(Some(risk))
+}
+
+pub(crate) fn parse_scope_opt(value: Option<&str>) -> Result<Option<Scope>> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+
+    let normalized = value.trim().to_ascii_lowercase();
+    let scope = match normalized.as_str() {
+        "large" => Scope::Large,
+        "medium" => Scope::Medium,
+        "small" => Scope::Small,
+        _ => return Err(invalid_value_error("scope", value, SCOPE_EXPECTED)),
+    };
+
+    Ok(Some(scope))
+}
+
+pub(crate) fn parse_complexity_opt(value: Option<&str>) -> Result<Option<Complexity>> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+
+    let normalized = value.trim().to_ascii_lowercase();
+    let complexity = match normalized.as_str() {
+        "high" => Complexity::High,
+        "medium" => Complexity::Medium,
+        "low" => Complexity::Low,
+        _ => {
+            return Err(invalid_value_error(
+                "complexity",
+                value,
+                COMPLEXITY_EXPECTED,
+            ))
+        }
+    };
+
+    Ok(Some(complexity))
+}
+
+pub(crate) fn parse_impact_area(value: &str) -> Result<ImpactArea> {
+    let normalized = value.trim().to_ascii_lowercase();
+    let impact_area = match normalized.as_str() {
+        "frontend" => ImpactArea::Frontend,
+        "backend" => ImpactArea::Backend,
+        "database" => ImpactArea::Database,
+        "api" => ImpactArea::Api,
+        "infrastructure" => ImpactArea::Infrastructure,
+        "docs" => ImpactArea::Docs,
+        "tests" => ImpactArea::Tests,
+        "cicd" | "ci-cd" | "ci_cd" => ImpactArea::CiCd,
+        _ => {
+            return Err(invalid_value_error(
+                "impact area",
+                value,
+                IMPACT_AREA_EXPECTED,
+            ))
+        }
+    };
+
+    Ok(impact_area)
+}
+
+pub(crate) fn parse_impact_areas(values: &[String]) -> Result<Vec<ImpactArea>> {
+    let mut parsed = Vec::with_capacity(values.len());
+    for value in values {
+        let impact_area = parse_impact_area(value)?;
+        if !parsed.contains(&impact_area) {
+            parsed.push(impact_area);
+        }
+    }
+    Ok(parsed)
+}
+
 pub(crate) fn parse_dependency_type(value: &str) -> Result<DependencyType> {
     let normalized = value.trim().to_ascii_lowercase();
     let dependency_type = match normalized.as_str() {
@@ -355,6 +451,34 @@ mod tests {
         let message = err.to_string();
         assert!(message.contains("invalid priority '<empty>'"));
         assert!(message.contains(COMMAND_HELP_HINT));
+    }
+
+    #[test]
+    fn parse_risk_is_case_insensitive_and_trimmed() {
+        let parsed = parse_risk_opt(Some("  HIGH "))
+            .expect("mixed-case values should parse")
+            .expect("risk should be present");
+        assert_eq!(parsed, RiskLevel::High);
+    }
+
+    #[test]
+    fn parse_scope_rejects_unknown_values_with_actionable_message() {
+        let err = parse_scope_opt(Some("tiny")).expect_err("unknown scope should fail");
+        let message = err.to_string();
+        assert!(message.contains("invalid scope"));
+        assert!(message.contains("large|medium|small"));
+        assert!(message.contains(COMMAND_HELP_HINT));
+    }
+
+    #[test]
+    fn parse_impact_areas_accepts_aliases_and_deduplicates() {
+        let values = vec![
+            "ci-cd".to_string(),
+            "cicd".to_string(),
+            "frontend".to_string(),
+        ];
+        let parsed = parse_impact_areas(&values).expect("impact areas should parse");
+        assert_eq!(parsed, vec![ImpactArea::CiCd, ImpactArea::Frontend]);
     }
 
     #[test]

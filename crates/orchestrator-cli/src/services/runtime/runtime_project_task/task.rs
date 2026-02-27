@@ -1,12 +1,150 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use orchestrator_core::{services::ServiceHub, TaskCreateInput, TaskFilter, TaskUpdateInput};
+use orchestrator_core::{
+    services::ServiceHub, Complexity, ImpactArea, OrchestratorTask, RiskLevel, Scope,
+    TaskCreateInput, TaskFilter, TaskUpdateInput,
+};
 
 use crate::{
-    ensure_destructive_confirmation, parse_dependency_type, parse_input_json_or,
-    parse_priority_opt, parse_task_status, parse_task_type_opt, print_value, TaskCommand,
+    ensure_destructive_confirmation, invalid_input_error, parse_complexity_opt,
+    parse_dependency_type, parse_impact_areas, parse_input_json_or, parse_priority_opt,
+    parse_risk_opt, parse_scope_opt, parse_task_status, parse_task_type_opt, print_value,
+    TaskCommand, TaskCreateArgs, TaskUpdateArgs,
 };
+
+#[derive(Debug, Default)]
+struct TaskFieldPatch {
+    risk: Option<RiskLevel>,
+    scope: Option<Scope>,
+    complexity: Option<Complexity>,
+    impact_area: Option<Vec<ImpactArea>>,
+    estimated_effort: Option<String>,
+    max_cpu_percent: Option<f32>,
+    max_memory_mb: Option<u64>,
+    requires_network: Option<bool>,
+    clear_max_cpu_percent: bool,
+    clear_max_memory_mb: bool,
+}
+
+impl TaskFieldPatch {
+    fn has_updates(&self) -> bool {
+        self.risk.is_some()
+            || self.scope.is_some()
+            || self.complexity.is_some()
+            || self.impact_area.is_some()
+            || self.estimated_effort.is_some()
+            || self.max_cpu_percent.is_some()
+            || self.max_memory_mb.is_some()
+            || self.requires_network.is_some()
+            || self.clear_max_cpu_percent
+            || self.clear_max_memory_mb
+    }
+
+    fn apply(self, task: &mut OrchestratorTask) {
+        if let Some(risk) = self.risk {
+            task.risk = risk;
+        }
+        if let Some(scope) = self.scope {
+            task.scope = scope;
+        }
+        if let Some(complexity) = self.complexity {
+            task.complexity = complexity;
+        }
+        if let Some(impact_area) = self.impact_area {
+            task.impact_area = impact_area;
+        }
+        if let Some(estimated_effort) = self.estimated_effort {
+            task.estimated_effort = if estimated_effort.trim().is_empty() {
+                None
+            } else {
+                Some(estimated_effort)
+            };
+        }
+        if self.clear_max_cpu_percent {
+            task.resource_requirements.max_cpu_percent = None;
+        }
+        if self.clear_max_memory_mb {
+            task.resource_requirements.max_memory_mb = None;
+        }
+        if let Some(max_cpu_percent) = self.max_cpu_percent {
+            task.resource_requirements.max_cpu_percent = Some(max_cpu_percent);
+        }
+        if let Some(max_memory_mb) = self.max_memory_mb {
+            task.resource_requirements.max_memory_mb = Some(max_memory_mb);
+        }
+        if let Some(requires_network) = self.requires_network {
+            task.resource_requirements.requires_network = requires_network;
+        }
+    }
+}
+
+fn validate_max_cpu_percent(max_cpu_percent: Option<f32>) -> Result<Option<f32>> {
+    let Some(value) = max_cpu_percent else {
+        return Ok(None);
+    };
+
+    if !value.is_finite() || !(0.0..=100.0).contains(&value) {
+        return Err(invalid_input_error(format!(
+            "invalid --max-cpu-percent '{value}'; expected a number between 0 and 100; run the same command with --help"
+        )));
+    }
+
+    Ok(Some(value))
+}
+
+fn build_create_field_patch(args: &TaskCreateArgs) -> Result<TaskFieldPatch> {
+    let impact_area = if args.impact_area.is_empty() {
+        None
+    } else {
+        Some(parse_impact_areas(&args.impact_area)?)
+    };
+
+    Ok(TaskFieldPatch {
+        risk: parse_risk_opt(args.risk.as_deref())?,
+        scope: parse_scope_opt(args.scope.as_deref())?,
+        complexity: parse_complexity_opt(args.complexity.as_deref())?,
+        impact_area,
+        estimated_effort: args.estimated_effort.clone(),
+        max_cpu_percent: validate_max_cpu_percent(args.max_cpu_percent)?,
+        max_memory_mb: args.max_memory_mb,
+        requires_network: args.requires_network,
+        clear_max_cpu_percent: false,
+        clear_max_memory_mb: false,
+    })
+}
+
+fn build_update_field_patch(args: &TaskUpdateArgs) -> Result<TaskFieldPatch> {
+    if args.clear_max_cpu_percent && args.max_cpu_percent.is_some() {
+        return Err(invalid_input_error(
+            "cannot combine --max-cpu-percent with --clear-max-cpu-percent",
+        ));
+    }
+    if args.clear_max_memory_mb && args.max_memory_mb.is_some() {
+        return Err(invalid_input_error(
+            "cannot combine --max-memory-mb with --clear-max-memory-mb",
+        ));
+    }
+
+    let impact_area = if args.replace_impact_area || !args.impact_area.is_empty() {
+        Some(parse_impact_areas(&args.impact_area)?)
+    } else {
+        None
+    };
+
+    Ok(TaskFieldPatch {
+        risk: parse_risk_opt(args.risk.as_deref())?,
+        scope: parse_scope_opt(args.scope.as_deref())?,
+        complexity: parse_complexity_opt(args.complexity.as_deref())?,
+        impact_area,
+        estimated_effort: args.estimated_effort.clone(),
+        max_cpu_percent: validate_max_cpu_percent(args.max_cpu_percent)?,
+        max_memory_mb: args.max_memory_mb,
+        requires_network: args.requires_network,
+        clear_max_cpu_percent: args.clear_max_cpu_percent,
+        clear_max_memory_mb: args.clear_max_memory_mb,
+    })
+}
 
 pub(crate) async fn handle_task(
     command: TaskCommand,
@@ -24,7 +162,7 @@ pub(crate) async fn handle_task(
                     None => None,
                 },
                 priority: parse_priority_opt(args.priority.as_deref())?,
-                risk: None,
+                risk: parse_risk_opt(args.risk.as_deref())?,
                 assignee_type: args.assignee_type,
                 tags: if args.tag.is_empty() {
                     None
@@ -56,6 +194,7 @@ pub(crate) async fn handle_task(
         TaskCommand::Stats => print_value(tasks.statistics().await?, json),
         TaskCommand::Get(args) => print_value(tasks.get(&args.id).await?, json),
         TaskCommand::Create(args) => {
+            let field_patch = build_create_field_patch(&args)?;
             let input = parse_input_json_or(args.input_json, || {
                 Ok(TaskCreateInput {
                     title: args.title,
@@ -68,9 +207,15 @@ pub(crate) async fn handle_task(
                     linked_architecture_entities: args.linked_architecture_entity,
                 })
             })?;
-            print_value(tasks.create(input).await?, json)
+            let mut task = tasks.create(input).await?;
+            if field_patch.has_updates() {
+                field_patch.apply(&mut task);
+                task = tasks.replace(task).await?;
+            }
+            print_value(task, json)
         }
         TaskCommand::Update(args) => {
+            let field_patch = build_update_field_patch(&args)?;
             let input = parse_input_json_or(args.input_json, || {
                 Ok(TaskUpdateInput {
                     title: args.title,
@@ -93,7 +238,12 @@ pub(crate) async fn handle_task(
                     },
                 })
             })?;
-            print_value(tasks.update(&args.id, input).await?, json)
+            let mut task = tasks.update(&args.id, input).await?;
+            if field_patch.has_updates() {
+                field_patch.apply(&mut task);
+                task = tasks.replace(task).await?;
+            }
+            print_value(task, json)
         }
         TaskCommand::Delete(args) => {
             let task = tasks.get(&args.id).await?;

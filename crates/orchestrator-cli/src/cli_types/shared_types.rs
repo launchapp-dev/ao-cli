@@ -12,6 +12,12 @@ pub(crate) const TASK_STATUS_FILTER_HELP: &str =
     "Status filter: backlog|todo|ready|in-progress|in_progress|blocked|on-hold|on_hold|done|cancelled.";
 pub(crate) const TASK_PRIORITY_HELP: &str = "Task priority: critical|high|medium|low.";
 pub(crate) const TASK_PRIORITY_FILTER_HELP: &str = "Priority filter: critical|high|medium|low.";
+pub(crate) const TASK_RISK_HELP: &str = "Task risk: high|medium|low.";
+pub(crate) const TASK_RISK_FILTER_HELP: &str = "Risk filter: high|medium|low.";
+pub(crate) const TASK_SCOPE_HELP: &str = "Task scope: large|medium|small.";
+pub(crate) const TASK_COMPLEXITY_HELP: &str = "Task complexity: high|medium|low.";
+pub(crate) const TASK_IMPACT_AREA_HELP: &str =
+    "Impact area: frontend|backend|database|api|infrastructure|docs|tests|cicd (also accepts ci-cd|ci_cd).";
 pub(crate) const REQUIREMENT_PRIORITY_HELP: &str =
     "Requirement priority: must|should|could|wont|won't.";
 pub(crate) const REQUIREMENT_STATUS_HELP: &str =

@@ -4,7 +4,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use orchestrator_core::{OrchestratorWorkflow, WorkflowStateManager, WorkflowStatus};
-use protocol::{AgentRunEvent, RunId};
+use protocol::{AgentRunEvent, OutputStreamType, RunId};
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::{CallToolResult, JsonObject, ServerCapabilities, ServerInfo},
@@ -19,6 +19,7 @@ use serde_json::{json, Value};
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, VecDeque};
 use std::fs;
+use std::io::{self, BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::UNIX_EPOCH;
@@ -1941,14 +1942,28 @@ fn read_output_tail_events(
     event_types: &[OutputTailEventType],
     limit: usize,
 ) -> Result<Vec<OutputTailEventRecord>> {
-    if !events_path.exists() {
-        return Ok(Vec::new());
-    }
+    let file = match fs::File::open(events_path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to read events log {}", events_path.display()));
+        }
+    };
 
-    let content = fs::read_to_string(events_path)
-        .with_context(|| format!("failed to read events log {}", events_path.display()))?;
+    let mut reader = BufReader::new(file);
+    let mut line_buffer = Vec::new();
     let mut tail = VecDeque::new();
-    for line in content.lines() {
+    loop {
+        line_buffer.clear();
+        let bytes_read = reader
+            .read_until(b'\n', &mut line_buffer)
+            .with_context(|| format!("failed to read events log {}", events_path.display()))?;
+        if bytes_read == 0 {
+            break;
+        }
+
+        let line = String::from_utf8_lossy(&line_buffer);
         let line = line.trim();
         if line.is_empty() {
             continue;
@@ -1970,6 +1985,14 @@ fn read_output_tail_events(
     Ok(tail.into_iter().collect())
 }
 
+fn output_stream_type_label(stream_type: OutputStreamType) -> &'static str {
+    match stream_type {
+        OutputStreamType::Stdout => "stdout",
+        OutputStreamType::Stderr => "stderr",
+        OutputStreamType::System => "system",
+    }
+}
+
 fn normalize_tail_event(
     event: AgentRunEvent,
     event_types: &[OutputTailEventType],
@@ -1988,9 +2011,7 @@ fn normalize_tail_event(
                 run_id: run_id.0,
                 text,
                 source_kind: "output_chunk".to_string(),
-                stream_type: serde_json::to_value(stream_type)
-                    .ok()
-                    .and_then(|value| value.as_str().map(ToOwned::to_owned)),
+                stream_type: Some(output_stream_type_label(stream_type).to_string()),
             })
         }
         AgentRunEvent::Error { run_id, error } => {
@@ -2147,9 +2168,17 @@ mod tests {
     }
 
     fn output_event(run_id: &str, text: &str) -> String {
+        output_event_with_stream(run_id, text, protocol::OutputStreamType::Stdout)
+    }
+
+    fn output_event_with_stream(
+        run_id: &str,
+        text: &str,
+        stream_type: protocol::OutputStreamType,
+    ) -> String {
         serde_json::to_string(&AgentRunEvent::OutputChunk {
             run_id: RunId(run_id.to_string()),
-            stream_type: protocol::OutputStreamType::Stdout,
+            stream_type,
             text: text.to_string(),
         })
         .expect("output event should serialize")
@@ -2671,6 +2700,158 @@ mod tests {
     }
 
     #[test]
+    fn build_output_tail_result_rejects_unsafe_run_id() {
+        let err = build_output_tail_result(
+            "/tmp/project",
+            OutputTailInput {
+                run_id: Some("../escape".to_string()),
+                task_id: None,
+                limit: None,
+                event_types: None,
+                project_root: None,
+            },
+        )
+        .expect_err("unsafe run id should fail");
+        assert!(err.to_string().contains("invalid run_id"));
+    }
+
+    #[test]
+    fn build_output_tail_result_filters_out_events_for_other_runs() {
+        let _lock = env_lock().lock().expect("env lock should be available");
+        let temp = TempDir::new().expect("tempdir should be created");
+        let _home_guard = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
+        let project_root = temp.path().join("project");
+        std::fs::create_dir_all(&project_root).expect("project dir should exist");
+        let root = project_root.to_string_lossy().to_string();
+        let run_id = "wf-filter-run-match-phase-0-d4";
+        let other_run = "wf-filter-run-other-phase-0-e5";
+        write_run_events(
+            root.as_str(),
+            run_id,
+            &[
+                output_event(run_id, "keep-output"),
+                output_event(other_run, "drop-output"),
+                thinking_event(other_run, "drop-thinking"),
+                thinking_event(run_id, "keep-thinking"),
+                error_event(run_id, "keep-error"),
+            ],
+        );
+
+        let result = build_output_tail_result(
+            root.as_str(),
+            OutputTailInput {
+                run_id: Some(run_id.to_string()),
+                task_id: None,
+                limit: Some(10),
+                event_types: Some(vec![
+                    "output".to_string(),
+                    "thinking".to_string(),
+                    "error".to_string(),
+                ]),
+                project_root: None,
+            },
+        )
+        .expect("tail result should build");
+
+        assert_eq!(result.get("count").and_then(Value::as_u64), Some(3));
+        let events = result
+            .get("events")
+            .and_then(Value::as_array)
+            .expect("events should be an array");
+        assert_eq!(events.len(), 3);
+        assert_eq!(
+            events[0].get("text").and_then(Value::as_str),
+            Some("keep-output")
+        );
+        assert_eq!(
+            events[1].get("text").and_then(Value::as_str),
+            Some("keep-thinking")
+        );
+        assert_eq!(
+            events[2].get("text").and_then(Value::as_str),
+            Some("keep-error")
+        );
+    }
+
+    #[test]
+    fn build_output_tail_result_returns_empty_when_events_log_missing() {
+        let _lock = env_lock().lock().expect("env lock should be available");
+        let temp = TempDir::new().expect("tempdir should be created");
+        let _home_guard = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
+        let project_root = temp.path().join("project");
+        std::fs::create_dir_all(&project_root).expect("project dir should exist");
+        let root = project_root.to_string_lossy().to_string();
+        let run_id = "wf-missing-events-phase-0-f6";
+        let run_path = run_dir(root.as_str(), &RunId(run_id.to_string()), None);
+        std::fs::create_dir_all(&run_path).expect("run directory should exist");
+
+        let result = build_output_tail_result(
+            root.as_str(),
+            OutputTailInput {
+                run_id: Some(run_id.to_string()),
+                task_id: None,
+                limit: Some(10),
+                event_types: None,
+                project_root: None,
+            },
+        )
+        .expect("tail result should build");
+
+        assert_eq!(result.get("count").and_then(Value::as_u64), Some(0));
+        assert_eq!(
+            result.get("events").and_then(Value::as_array).map(Vec::len),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn build_output_tail_result_skips_invalid_utf8_log_lines() {
+        let _lock = env_lock().lock().expect("env lock should be available");
+        let temp = TempDir::new().expect("tempdir should be created");
+        let _home_guard = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
+        let project_root = temp.path().join("project");
+        std::fs::create_dir_all(&project_root).expect("project dir should exist");
+        let root = project_root.to_string_lossy().to_string();
+        let run_id = "wf-invalid-utf8-phase-0-g7";
+        let run_path = run_dir(root.as_str(), &RunId(run_id.to_string()), None);
+        std::fs::create_dir_all(&run_path).expect("run directory should be created");
+        let mut payload = Vec::new();
+        payload.extend_from_slice(output_event(run_id, "visible-output").as_bytes());
+        payload.push(b'\n');
+        payload.extend_from_slice(&[0xff, 0xfe, b'\n']);
+        payload.extend_from_slice(thinking_event(run_id, "visible-thinking").as_bytes());
+        payload.push(b'\n');
+        std::fs::write(run_path.join("events.jsonl"), payload).expect("events should be written");
+
+        let result = build_output_tail_result(
+            root.as_str(),
+            OutputTailInput {
+                run_id: Some(run_id.to_string()),
+                task_id: None,
+                limit: Some(10),
+                event_types: None,
+                project_root: None,
+            },
+        )
+        .expect("tail result should build");
+
+        assert_eq!(result.get("count").and_then(Value::as_u64), Some(2));
+        let events = result
+            .get("events")
+            .and_then(Value::as_array)
+            .expect("events should be an array");
+        assert_eq!(events.len(), 2);
+        assert_eq!(
+            events[0].get("text").and_then(Value::as_str),
+            Some("visible-output")
+        );
+        assert_eq!(
+            events[1].get("text").and_then(Value::as_str),
+            Some("visible-thinking")
+        );
+    }
+
+    #[test]
     fn build_output_tail_result_defaults_to_output_and_thinking() {
         let _lock = env_lock().lock().expect("env lock should be available");
         let temp = TempDir::new().expect("tempdir should be created");
@@ -2732,6 +2913,57 @@ mod tests {
         assert_eq!(
             events[1].get("text").and_then(Value::as_str),
             Some("visible thought")
+        );
+    }
+
+    #[test]
+    fn build_output_tail_result_normalizes_output_stream_types() {
+        let _lock = env_lock().lock().expect("env lock should be available");
+        let temp = TempDir::new().expect("tempdir should be created");
+        let _home_guard = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
+        let project_root = temp.path().join("project");
+        std::fs::create_dir_all(&project_root).expect("project dir should exist");
+        let root = project_root.to_string_lossy().to_string();
+        let run_id = "wf-stream-types-phase-0-s9";
+        write_run_events(
+            root.as_str(),
+            run_id,
+            &[
+                output_event_with_stream(run_id, "stdout line", protocol::OutputStreamType::Stdout),
+                output_event_with_stream(run_id, "stderr line", protocol::OutputStreamType::Stderr),
+                output_event_with_stream(run_id, "system line", protocol::OutputStreamType::System),
+            ],
+        );
+
+        let result = build_output_tail_result(
+            root.as_str(),
+            OutputTailInput {
+                run_id: Some(run_id.to_string()),
+                task_id: None,
+                limit: Some(10),
+                event_types: Some(vec!["output".to_string()]),
+                project_root: None,
+            },
+        )
+        .expect("tail result should build");
+
+        assert_eq!(result.get("count").and_then(Value::as_u64), Some(3));
+        let events = result
+            .get("events")
+            .and_then(Value::as_array)
+            .expect("events should be an array");
+        assert_eq!(events.len(), 3);
+        assert_eq!(
+            events[0].get("stream_type").and_then(Value::as_str),
+            Some("stdout")
+        );
+        assert_eq!(
+            events[1].get("stream_type").and_then(Value::as_str),
+            Some("stderr")
+        );
+        assert_eq!(
+            events[2].get("stream_type").and_then(Value::as_str),
+            Some("system")
         );
     }
 

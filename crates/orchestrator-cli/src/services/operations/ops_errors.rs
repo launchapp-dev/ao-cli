@@ -1,6 +1,6 @@
 use crate::cli_types::ErrorsCommand;
-use crate::print_value;
-use anyhow::{anyhow, Result};
+use crate::{not_found_error, print_value};
+use anyhow::Result;
 use chrono::Utc;
 use orchestrator_core::{load_errors, save_errors, ErrorRecord, ErrorStore};
 use serde_json::Value;
@@ -193,7 +193,7 @@ pub(crate) async fn handle_errors(
                 .errors
                 .into_iter()
                 .find(|error| error.id == args.id)
-                .ok_or_else(|| anyhow!("error not found: {}", args.id))?;
+                .ok_or_else(|| not_found_error(format!("error not found: {}", args.id)))?;
             print_value(error, json)
         }
         ErrorsCommand::Stats => {
@@ -227,7 +227,7 @@ pub(crate) async fn handle_errors(
                 .errors
                 .iter_mut()
                 .find(|error| error.id == args.id)
-                .ok_or_else(|| anyhow!("error not found: {}", args.id))?;
+                .ok_or_else(|| not_found_error(format!("error not found: {}", args.id)))?;
             if error.recoverable {
                 error.recovered = true;
             }

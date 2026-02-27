@@ -1,5 +1,6 @@
 use super::*;
-use anyhow::{anyhow, Context, Result};
+use crate::{invalid_input_error, not_found_error};
+use anyhow::{Context, Result};
 
 use super::model::{GitConfirmationStoreCli, GitRepoRegistry, GitWorktreeInfoCli};
 
@@ -68,7 +69,9 @@ pub(super) fn resolve_repo_path(project_root: &str, repo_name: &str) -> Result<P
         return Ok(repo_path);
     }
 
-    anyhow::bail!("repository not found: {repo_name}")
+    Err(not_found_error(format!(
+        "repository not found: {repo_name}"
+    )))
 }
 
 fn parse_worktree_list_output(output: &str) -> Vec<GitWorktreeInfoCli> {
@@ -132,7 +135,7 @@ pub(super) fn resolve_worktree_path(repo_path: &Path, worktree_name: &str) -> Re
     let worktree = worktrees
         .into_iter()
         .find(|entry| entry.worktree_name == worktree_name || entry.path.ends_with(worktree_name))
-        .ok_or_else(|| anyhow!("worktree not found: {worktree_name}"))?;
+        .ok_or_else(|| not_found_error(format!("worktree not found: {worktree_name}")))?;
     Ok(PathBuf::from(worktree.path))
 }
 
@@ -156,14 +159,17 @@ pub(super) fn ensure_confirmation(
     operation_type: &str,
     repo_name: &str,
 ) -> Result<()> {
-    let confirmation_id = confirmation_id
-        .ok_or_else(|| anyhow!(git_confirmation_required_message(operation_type, repo_name)))?;
+    let confirmation_id = confirmation_id.ok_or_else(|| {
+        invalid_input_error(git_confirmation_required_message(operation_type, repo_name))
+    })?;
     let store = load_git_confirmations(project_root)?;
     let request = store
         .requests
         .iter()
         .find(|request| request.id == confirmation_id)
-        .ok_or_else(|| anyhow!("confirmation request not found: {confirmation_id}"))?;
+        .ok_or_else(|| {
+            not_found_error(format!("confirmation request not found: {confirmation_id}"))
+        })?;
     if request.blocked {
         anyhow::bail!("operation blocked by policy: {}", request.reason);
     }

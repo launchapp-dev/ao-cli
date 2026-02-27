@@ -1,5 +1,6 @@
 use super::*;
-use anyhow::{anyhow, Result};
+use crate::not_found_error;
+use anyhow::Result;
 
 use super::model::GitSyncStatusCli;
 use super::store::{
@@ -47,7 +48,9 @@ pub(super) fn handle_git_worktree(
             let worktree = load_worktrees(&repo_path)?
                 .into_iter()
                 .find(|entry| entry.worktree_name == args.worktree_name)
-                .ok_or_else(|| anyhow!("worktree not found: {}", args.worktree_name))?;
+                .ok_or_else(|| {
+                    not_found_error(format!("worktree not found: {}", args.worktree_name))
+                })?;
             print_value(worktree, json)
         }
         GitWorktreeCommand::Remove(args) => {

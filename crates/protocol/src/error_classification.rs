@@ -66,6 +66,28 @@ mod tests {
     }
 
     #[test]
+    fn classify_error_message_covers_cli_pattern_set() {
+        let cases = [
+            ("unknown argument '--bogus' found", ("invalid_input", 2)),
+            ("unrecognized option '--bogus'", ("invalid_input", 2)),
+            (
+                "CONFIRMATION_REQUIRED: rerun command with --confirm TASK-1",
+                ("invalid_input", 2),
+            ),
+            (
+                "priority must be one of critical|high|medium|low",
+                ("invalid_input", 2),
+            ),
+            ("resource already exists", ("conflict", 4)),
+            ("failed to connect to daemon", ("unavailable", 5)),
+        ];
+
+        for (message, expected) in cases {
+            assert_eq!(classify_error_message(message), expected, "{message}");
+        }
+    }
+
+    #[test]
     fn classify_error_message_marks_conflicts() {
         assert_eq!(
             classify_error_message("resource already exists"),

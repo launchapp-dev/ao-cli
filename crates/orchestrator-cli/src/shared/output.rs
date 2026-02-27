@@ -151,6 +151,27 @@ mod tests {
     }
 
     #[test]
+    fn classify_error_matches_protocol_classifier() {
+        let messages = [
+            "unknown argument '--bogus' found",
+            "unrecognized option '--bogus'",
+            "CONFIRMATION_REQUIRED: rerun command with --confirm TASK-1",
+            "priority must be one of critical|high|medium|low",
+            "resource already exists",
+            "failed to connect to daemon",
+            "task not found in unavailable registry",
+        ];
+
+        for message in messages {
+            assert_eq!(
+                classify_error(&anyhow!("{message}")),
+                protocol::classify_error_message(message),
+                "{message}"
+            );
+        }
+    }
+
+    #[test]
     fn should_emit_help_hint_is_case_insensitive() {
         assert!(!should_emit_help_hint("Run with --HELP for usage"));
         assert!(should_emit_help_hint("invalid priority value"));

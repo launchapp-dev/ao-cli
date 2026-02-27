@@ -2,19 +2,29 @@ use sha2::{Digest, Sha256};
 use std::path::Path;
 
 pub fn sanitize_identifier(value: &str) -> String {
-    let mut out = String::new();
+    let mut out = String::with_capacity(value.len());
+    let mut trailing_separator = false;
+
     for ch in value.chars() {
         match ch {
-            'a'..='z' | 'A'..='Z' | '0'..='9' => out.push(ch.to_ascii_lowercase()),
-            ' ' | '_' | '-' => out.push('-'),
+            'a'..='z' | 'A'..='Z' | '0'..='9' => {
+                out.push(ch.to_ascii_lowercase());
+                trailing_separator = false;
+            }
+            ' ' | '_' | '-' => {
+                if !out.is_empty() && !trailing_separator {
+                    out.push('-');
+                    trailing_separator = true;
+                }
+            }
             _ => {}
         }
     }
 
-    while out.contains("--") {
-        out = out.replace("--", "-");
+    if trailing_separator {
+        out.pop();
     }
-    out = out.trim_matches('-').to_string();
+
     if out.is_empty() {
         "repo".to_string()
     } else {
@@ -51,6 +61,11 @@ mod tests {
         assert_eq!(sanitize_identifier("Repo Name"), "repo-name");
         assert_eq!(sanitize_identifier("___"), "repo");
         assert_eq!(sanitize_identifier("A__B--C"), "a-b-c");
+        assert_eq!(
+            sanitize_identifier("  __My Repo!! -- 2026__  "),
+            "my-repo-2026"
+        );
+        assert_eq!(sanitize_identifier("日本語"), "repo");
     }
 
     #[test]
@@ -77,5 +92,14 @@ mod tests {
         assert_eq!(suffix.len(), 12);
         assert!(suffix.chars().all(|ch| ch.is_ascii_hexdigit()));
         assert_eq!(suffix, suffix.to_ascii_lowercase());
+    }
+
+    #[test]
+    fn repository_scope_for_path_uses_raw_path_when_canonicalize_fails() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let missing = temp.path().join("Missing Repo 2026");
+
+        let scope = repository_scope_for_path(&missing);
+        assert!(scope.starts_with("missing-repo-2026-"));
     }
 }

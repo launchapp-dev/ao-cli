@@ -142,8 +142,8 @@ fn daemon_agent_assignee_for_workflow_start(
     project_root: &str,
     workflow: &orchestrator_core::OrchestratorWorkflow,
     task: &orchestrator_core::OrchestratorTask,
-) -> Option<(String, Option<String>)> {
-    let phase_id = workflow_current_phase_id(workflow)?;
+) -> (String, Option<String>) {
+    let phase_id = workflow_current_phase_id(workflow).unwrap_or_else(|| "unknown".to_string());
     let runtime_config =
         orchestrator_core::load_agent_runtime_config_or_default(Path::new(project_root));
     let role = runtime_config
@@ -160,7 +160,7 @@ fn daemon_agent_assignee_for_workflow_start(
         routing_complexity_for_task(task),
     );
     let model = execution_targets.first().map(|(_, model)| model.clone());
-    Some((role, model))
+    (role, model)
 }
 
 async fn auto_assign_task_to_daemon_agent(
@@ -168,15 +168,12 @@ async fn auto_assign_task_to_daemon_agent(
     project_root: &str,
     task: &orchestrator_core::OrchestratorTask,
     workflow: &orchestrator_core::OrchestratorWorkflow,
-) {
-    if let Some((role, model)) =
-        daemon_agent_assignee_for_workflow_start(project_root, workflow, task)
-    {
-        let _ = hub
-            .tasks()
-            .assign_agent(&task.id, role, model, "ao-daemon".to_string())
-            .await;
-    }
+) -> Result<()> {
+    let (role, model) = daemon_agent_assignee_for_workflow_start(project_root, workflow, task);
+    hub.tasks()
+        .assign_agent(&task.id, role, model, "ao-daemon".to_string())
+        .await?;
+    Ok(())
 }
 
 fn collect_task_state_transitions(
@@ -745,7 +742,7 @@ pub(super) async fn run_ready_task_workflows_for_project(
                 pipeline_id: Some(pipeline_for_task(&task)),
             })
             .await?;
-        auto_assign_task_to_daemon_agent(hub.clone(), project_root, &task, &workflow).await;
+        auto_assign_task_to_daemon_agent(hub.clone(), project_root, &task, &workflow).await?;
         sync_task_status_for_workflow_result(
             hub.clone(),
             project_root,
@@ -1784,6 +1781,56 @@ fn run_cargo_check(cwd: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn daemon_agent_assignee_defaults_to_unknown_role_when_phase_metadata_missing() {
+        let hub = orchestrator_core::InMemoryServiceHub::new();
+        let task = hub
+            .tasks()
+            .create(TaskCreateInput {
+                title: "phase-less-workflow-assignee".to_string(),
+                description: "ensure daemon assignment still resolves when workflow phase is absent"
+                    .to_string(),
+                task_type: Some(TaskType::Feature),
+                priority: None,
+                created_by: Some("test".to_string()),
+                tags: Vec::new(),
+                linked_requirements: Vec::new(),
+                linked_architecture_entities: Vec::new(),
+            })
+            .await
+            .expect("task should be created");
+        let workflow = hub
+            .workflows()
+            .run(WorkflowRunInput {
+                task_id: task.id.clone(),
+                pipeline_id: None,
+            })
+            .await
+            .expect("workflow should start");
+
+        let mut phase_less_workflow = workflow;
+        phase_less_workflow.current_phase = None;
+        phase_less_workflow.phases.clear();
+        phase_less_workflow.current_phase_index = 0;
+
+        let project_root = TempDir::new().expect("temp dir should be created");
+        let project_root = project_root.path().to_string_lossy().to_string();
+        let (role, model) =
+            daemon_agent_assignee_for_workflow_start(&project_root, &phase_less_workflow, &task);
+        let runtime_config =
+            orchestrator_core::load_agent_runtime_config_or_default(Path::new(&project_root));
+        let expected_role = runtime_config
+            .phase_agent_id("unknown")
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| "unknown".to_string());
+
+        assert_eq!(role, expected_role);
+        assert!(model
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty()));
+    }
 
     #[test]
     fn parse_merge_conflict_recovery_response_parses_json_line_output() {

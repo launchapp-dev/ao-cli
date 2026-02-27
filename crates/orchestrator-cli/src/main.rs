@@ -64,7 +64,8 @@ async fn run(cli: Cli) -> Result<()> {
                     services::runtime::handle_project(command, hub.clone(), cli.json).await
                 }
                 Command::Task { command } => {
-                    services::runtime::handle_task(command, hub.clone(), cli.json).await
+                    services::runtime::handle_task(command, hub.clone(), &project_root, cli.json)
+                        .await
                 }
                 Command::Workflow { command } => {
                     services::operations::handle_workflow(

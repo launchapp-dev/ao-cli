@@ -1222,10 +1222,11 @@ mod tests {
             .await
             .expect("task should be ready");
 
-        let project_root = "/tmp/ao-test-ready-assignee";
+        let project_root = TempDir::new().expect("temp dir should be created");
+        let project_root_path = project_root.path().to_string_lossy().to_string();
         let started = run_ready_task_workflows_for_project(
             hub.clone() as Arc<dyn ServiceHub>,
-            project_root,
+            &project_root_path,
             5,
         )
         .await
@@ -1251,7 +1252,7 @@ mod tests {
             })
             .unwrap_or_else(|| "unknown".to_string());
         let runtime_config =
-            orchestrator_core::load_agent_runtime_config_or_default(Path::new(project_root));
+            orchestrator_core::load_agent_runtime_config_or_default(Path::new(&project_root_path));
         let expected_role = runtime_config
             .phase_agent_id(&phase_id)
             .map(ToOwned::to_owned)
@@ -1416,7 +1417,9 @@ mod tests {
             .await
             .expect("workflow list should load");
         assert_eq!(workflows.len(), 2);
-        assert!(workflows.iter().any(|workflow| workflow.id == conflicted.id));
+        assert!(workflows
+            .iter()
+            .any(|workflow| workflow.id == conflicted.id));
     }
 
     #[tokio::test]

@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::Path;
 use std::process::Command as ProcessCommand;
 use std::sync::Arc;
 
@@ -33,13 +33,7 @@ fn non_empty_env(key: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn project_root_for_git_identity() -> Option<PathBuf> {
-    non_empty_env("PROJECT_ROOT")
-        .map(PathBuf::from)
-        .or_else(|| std::env::current_dir().ok())
-}
-
-fn git_local_config_value(project_root: &PathBuf, key: &str) -> Option<String> {
+fn git_local_config_value(project_root: &Path, key: &str) -> Option<String> {
     let output = ProcessCommand::new("git")
         .arg("-C")
         .arg(project_root)
@@ -58,20 +52,18 @@ fn git_local_config_value(project_root: &PathBuf, key: &str) -> Option<String> {
     }
 }
 
-fn infer_human_assignee_identity() -> Option<String> {
+fn infer_human_assignee_identity(project_root: &Path) -> Option<String> {
     if let Some(user_id) = non_empty_env("AO_ASSIGNEE_USER_ID") {
         return Some(user_id);
     }
     if let Some(user_id) = non_empty_env("AO_USER_ID") {
         return Some(user_id);
     }
-    if let Some(project_root) = project_root_for_git_identity() {
-        if let Some(user_id) = git_local_config_value(&project_root, "user.email") {
-            return Some(user_id);
-        }
-        if let Some(user_id) = git_local_config_value(&project_root, "user.name") {
-            return Some(user_id);
-        }
+    if let Some(user_id) = git_local_config_value(project_root, "user.email") {
+        return Some(user_id);
+    }
+    if let Some(user_id) = git_local_config_value(project_root, "user.name") {
+        return Some(user_id);
     }
     non_empty_env("USER").or_else(|| non_empty_env("USERNAME"))
 }
@@ -80,13 +72,17 @@ async fn set_task_status_with_assignee_inference(
     tasks: Arc<dyn orchestrator_core::TaskServiceApi>,
     task_id: &str,
     status: orchestrator_core::TaskStatus,
+    project_root: &Path,
 ) -> Result<orchestrator_core::OrchestratorTask> {
+    let status_updated = tasks.set_status(task_id, status).await?;
     if status == orchestrator_core::TaskStatus::InProgress {
-        if let Some(user_id) = infer_human_assignee_identity() {
-            let _ = tasks.assign_human(task_id, user_id.clone(), user_id).await;
+        if let Some(user_id) = infer_human_assignee_identity(project_root) {
+            if let Ok(updated) = tasks.assign_human(task_id, user_id.clone(), user_id).await {
+                return Ok(updated);
+            }
         }
     }
-    tasks.set_status(task_id, status).await
+    Ok(status_updated)
 }
 
 fn has_non_empty_linked_requirements(input: &TaskCreateInput) -> bool {
@@ -104,6 +100,7 @@ fn should_warn_missing_linked_requirements(input: &TaskCreateInput) -> bool {
 pub(crate) async fn handle_task(
     command: TaskCommand,
     hub: Arc<dyn ServiceHub>,
+    project_root: &str,
     json: bool,
 ) -> Result<()> {
     let tasks = hub.tasks();
@@ -310,7 +307,13 @@ pub(crate) async fn handle_task(
         TaskCommand::Status(args) => {
             let status = parse_task_status(&args.status)?;
             print_value(
-                set_task_status_with_assignee_inference(tasks.clone(), &args.id, status).await?,
+                set_task_status_with_assignee_inference(
+                    tasks.clone(),
+                    &args.id,
+                    status,
+                    Path::new(project_root),
+                )
+                .await?,
                 json,
             )
         }
@@ -435,10 +438,9 @@ mod tests {
         let _ao_user = EnvVarGuard::set("AO_USER_ID", Some("ao-user"));
         let _user = EnvVarGuard::set("USER", Some("shell-user"));
         let _username = EnvVarGuard::set("USERNAME", Some("shell-username"));
-        let _project_root = EnvVarGuard::set("PROJECT_ROOT", None);
 
         assert_eq!(
-            infer_human_assignee_identity().as_deref(),
+            infer_human_assignee_identity(Path::new("/tmp/ao-task-assignee-test")).as_deref(),
             Some("assignee-user")
         );
     }
@@ -455,10 +457,9 @@ mod tests {
         init_git_repo(&repo);
         git_config(&repo, "user.email", "git-email@example.com");
         git_config(&repo, "user.name", "Git Name");
-        let _project_root = EnvVarGuard::set("PROJECT_ROOT", repo.path().to_str());
 
         assert_eq!(
-            infer_human_assignee_identity().as_deref(),
+            infer_human_assignee_identity(repo.path()).as_deref(),
             Some("git-email@example.com")
         );
     }
@@ -468,7 +469,6 @@ mod tests {
         let _lock = env_lock().lock().expect("env lock should be available");
         let _ao_assignee = EnvVarGuard::set("AO_ASSIGNEE_USER_ID", Some("operator@example.com"));
         let _ao_user = EnvVarGuard::set("AO_USER_ID", None);
-        let _project_root = EnvVarGuard::set("PROJECT_ROOT", None);
 
         let hub = Arc::new(InMemoryServiceHub::new());
         let created = hub
@@ -490,6 +490,7 @@ mod tests {
             hub.tasks(),
             &created.id,
             TaskStatus::InProgress,
+            Path::new("/tmp/ao-task-assignee-test"),
         )
         .await
         .expect("status update should succeed");
@@ -511,7 +512,6 @@ mod tests {
         let _user = EnvVarGuard::set("USER", None);
         let _username = EnvVarGuard::set("USERNAME", None);
         let repo = TempDir::new().expect("temp dir should be created");
-        let _project_root = EnvVarGuard::set("PROJECT_ROOT", repo.path().to_str());
 
         let hub = Arc::new(InMemoryServiceHub::new());
         let created = hub
@@ -533,6 +533,7 @@ mod tests {
             hub.tasks(),
             &created.id,
             TaskStatus::InProgress,
+            repo.path(),
         )
         .await
         .expect("status update should succeed");
@@ -544,7 +545,6 @@ mod tests {
     async fn set_task_status_non_in_progress_does_not_assign_human() {
         let _lock = env_lock().lock().expect("env lock should be available");
         let _ao_assignee = EnvVarGuard::set("AO_ASSIGNEE_USER_ID", Some("operator@example.com"));
-        let _project_root = EnvVarGuard::set("PROJECT_ROOT", None);
 
         let hub = Arc::new(InMemoryServiceHub::new());
         let created = hub
@@ -562,10 +562,14 @@ mod tests {
             .await
             .expect("task should be created");
 
-        let updated =
-            set_task_status_with_assignee_inference(hub.tasks(), &created.id, TaskStatus::Ready)
-                .await
-                .expect("status update should succeed");
+        let updated = set_task_status_with_assignee_inference(
+            hub.tasks(),
+            &created.id,
+            TaskStatus::Ready,
+            Path::new("/tmp/ao-task-assignee-test"),
+        )
+        .await
+        .expect("status update should succeed");
         assert_eq!(updated.status, TaskStatus::Ready);
         assert_eq!(updated.assignee, Assignee::Unassigned);
     }

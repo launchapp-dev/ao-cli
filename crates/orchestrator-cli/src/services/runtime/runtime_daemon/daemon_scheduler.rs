@@ -28,6 +28,8 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::time::sleep;
 use uuid::Uuid;
 
+#[path = "daemon_agent_pool.rs"]
+pub(super) mod daemon_agent_pool;
 #[path = "daemon_scheduler_frontend_gate.rs"]
 mod frontend_phase_gate;
 #[path = "daemon_scheduler_git_ops.rs"]

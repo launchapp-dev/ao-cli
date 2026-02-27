@@ -60,7 +60,7 @@ pub(crate) async fn handle_task_control(
             )
         }
         TaskControlCommand::Cancel(args) => {
-            let mut task = tasks.get(&args.task_id).await?;
+            let task = tasks.get(&args.task_id).await?;
             if task.cancelled {
                 return print_value(
                     serde_json::json!({
@@ -111,10 +111,9 @@ pub(crate) async fn handle_task_control(
                 "task-control cancel",
                 "--task-id",
             )?;
-            task.cancelled = true;
-            task.status = TaskStatus::Cancelled;
-            task.metadata.updated_by = "ao-cli".to_string();
-            tasks.replace(task).await?;
+            tasks
+                .set_status(&args.task_id, TaskStatus::Cancelled)
+                .await?;
             print_value(
                 serde_json::json!({
                     "success": true,

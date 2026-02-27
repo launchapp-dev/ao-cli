@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
-use anyhow::Result;
-use orchestrator_core::{services::ServiceHub, TaskCreateInput, TaskFilter, TaskUpdateInput};
+use anyhow::{anyhow, Result};
+use orchestrator_core::{
+    services::ServiceHub, TaskCreateInput, TaskFilter, TaskStatus, TaskUpdateInput,
+};
 
 use crate::{
     ensure_destructive_confirmation, parse_dependency_type, parse_input_json_or,
@@ -199,6 +201,13 @@ pub(crate) async fn handle_task(
         TaskCommand::Status(args) => {
             let status = parse_task_status(&args.status)?;
             print_value(tasks.set_status(&args.id, status).await?, json)
+        }
+        TaskCommand::Reopen(args) => {
+            let status = parse_task_status(&args.status)?;
+            if !matches!(status, TaskStatus::Backlog | TaskStatus::Ready) {
+                return Err(anyhow!("reopen target status must be backlog or ready"));
+            }
+            print_value(tasks.reopen(&args.id, status).await?, json)
         }
     }
 }

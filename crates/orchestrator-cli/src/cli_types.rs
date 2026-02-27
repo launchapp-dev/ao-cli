@@ -919,6 +919,8 @@ pub(crate) enum TaskCommand {
     DependencyRemove(TaskDependencyRemoveArgs),
     /// Set task status.
     Status(TaskStatusArgs),
+    /// Reopen a terminal task to backlog/ready.
+    Reopen(TaskReopenArgs),
 }
 
 #[derive(Debug, Args)]
@@ -1155,6 +1157,19 @@ pub(crate) struct TaskStatusArgs {
     #[arg(long, value_name = "TASK_ID", help = "Task identifier.")]
     pub(crate) id: String,
     #[arg(long, value_name = "STATUS", help = TASK_STATUS_HELP)]
+    pub(crate) status: String,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct TaskReopenArgs {
+    #[arg(long, value_name = "TASK_ID", help = "Task identifier.")]
+    pub(crate) id: String,
+    #[arg(
+        long,
+        value_name = "STATUS",
+        default_value = "backlog",
+        help = "Reopen target status: backlog|ready."
+    )]
     pub(crate) status: String,
 }
 

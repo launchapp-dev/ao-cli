@@ -105,19 +105,24 @@ impl TaskServiceApi for InMemoryServiceHub {
             .tasks
             .get_mut(id)
             .ok_or_else(|| anyhow!("task not found: {id}"))?;
-        apply_task_update(task, input);
+        apply_task_update(task, input)?;
         Ok(task.clone())
     }
 
     async fn replace(&self, task: OrchestratorTask) -> Result<OrchestratorTask> {
         let mut task = task;
+        let mut lock = self.state.write().await;
+        if let Some(previous_status) = lock.tasks.get(task.id.as_str()).map(|item| item.status) {
+            if previous_status != task.status {
+                evaluate_task_status_transition(
+                    previous_status,
+                    TaskStatusTransitionEvent::SetStatus(task.status),
+                )?;
+            }
+        }
         task.metadata.updated_at = Utc::now();
         task.metadata.version = task.metadata.version.saturating_add(1);
-        self.state
-            .write()
-            .await
-            .tasks
-            .insert(task.id.clone(), task.clone());
+        lock.tasks.insert(task.id.clone(), task.clone());
         Ok(task)
     }
 
@@ -178,7 +183,19 @@ impl TaskServiceApi for InMemoryServiceHub {
             .tasks
             .get_mut(id)
             .ok_or_else(|| anyhow!("task not found: {id}"))?;
-        apply_task_status(task, status);
+        set_task_status(task, status)?;
+        task.metadata.updated_at = Utc::now();
+        task.metadata.version = task.metadata.version.saturating_add(1);
+        Ok(task.clone())
+    }
+
+    async fn reopen(&self, id: &str, status: TaskStatus) -> Result<OrchestratorTask> {
+        let mut lock = self.state.write().await;
+        let task = lock
+            .tasks
+            .get_mut(id)
+            .ok_or_else(|| anyhow!("task not found: {id}"))?;
+        reopen_task(task, status)?;
         task.metadata.updated_at = Utc::now();
         task.metadata.version = task.metadata.version.saturating_add(1);
         Ok(task.clone())
@@ -405,7 +422,7 @@ impl TaskServiceApi for FileServiceHub {
                     .tasks
                     .get_mut(id)
                     .ok_or_else(|| anyhow!("task not found: {id}"))?;
-                apply_task_update(task, input);
+                apply_task_update(task, input)?;
                 Ok(task.clone())
             })
             .await?;
@@ -416,6 +433,16 @@ impl TaskServiceApi for FileServiceHub {
         let (task, _) = self
             .mutate_persistent_state(|state| {
                 let mut task = task;
+                if let Some(previous_status) =
+                    state.tasks.get(task.id.as_str()).map(|item| item.status)
+                {
+                    if previous_status != task.status {
+                        evaluate_task_status_transition(
+                            previous_status,
+                            TaskStatusTransitionEvent::SetStatus(task.status),
+                        )?;
+                    }
+                }
                 task.metadata.updated_at = Utc::now();
                 task.metadata.version = task.metadata.version.saturating_add(1);
                 state.tasks.insert(task.id.clone(), task.clone());
@@ -493,7 +520,23 @@ impl TaskServiceApi for FileServiceHub {
                     .tasks
                     .get_mut(id)
                     .ok_or_else(|| anyhow!("task not found: {id}"))?;
-                apply_task_status(task, status);
+                set_task_status(task, status)?;
+                task.metadata.updated_at = Utc::now();
+                task.metadata.version = task.metadata.version.saturating_add(1);
+                Ok(task.clone())
+            })
+            .await?;
+        Ok(task)
+    }
+
+    async fn reopen(&self, id: &str, status: TaskStatus) -> Result<OrchestratorTask> {
+        let (task, _) = self
+            .mutate_persistent_state(|state| {
+                let task = state
+                    .tasks
+                    .get_mut(id)
+                    .ok_or_else(|| anyhow!("task not found: {id}"))?;
+                reopen_task(task, status)?;
                 task.metadata.updated_at = Utc::now();
                 task.metadata.version = task.metadata.version.saturating_add(1);
                 Ok(task.clone())

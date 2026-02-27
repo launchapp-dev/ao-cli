@@ -321,6 +321,23 @@ fn help_uses_explicit_value_names_and_repeatable_flag_guidance(
         "task list help should explain repeatable tags"
     );
 
+    let task_reopen_help = Command::new(&binary)
+        .args(["task", "reopen", "--help"])
+        .output()?;
+    assert!(
+        task_reopen_help.status.success(),
+        "task reopen help should succeed"
+    );
+    let task_reopen_stdout = String::from_utf8(task_reopen_help.stdout)?;
+    assert!(
+        task_reopen_stdout.contains("--id <TASK_ID>"),
+        "task reopen help should use explicit TASK_ID value names"
+    );
+    assert!(
+        task_reopen_stdout.contains("Reopen target status: backlog|ready."),
+        "task reopen help should describe allowed reopen target statuses"
+    );
+
     Ok(())
 }
 

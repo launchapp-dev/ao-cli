@@ -205,6 +205,35 @@ async fn set_task_blocked_with_reason(
     Ok(())
 }
 
+async fn set_task_done_with_guardrails(hub: Arc<dyn ServiceHub>, task_id: &str) -> Result<()> {
+    let task = hub.tasks().get(task_id).await?;
+    match task.status {
+        TaskStatus::Done => Ok(()),
+        TaskStatus::InProgress => {
+            hub.tasks().set_status(task_id, TaskStatus::Done).await?;
+            Ok(())
+        }
+        TaskStatus::Backlog | TaskStatus::Ready => {
+            hub.tasks()
+                .set_status(task_id, TaskStatus::InProgress)
+                .await?;
+            hub.tasks().set_status(task_id, TaskStatus::Done).await?;
+            Ok(())
+        }
+        TaskStatus::Blocked | TaskStatus::OnHold => {
+            hub.tasks().set_status(task_id, TaskStatus::Ready).await?;
+            hub.tasks()
+                .set_status(task_id, TaskStatus::InProgress)
+                .await?;
+            hub.tasks().set_status(task_id, TaskStatus::Done).await?;
+            Ok(())
+        }
+        TaskStatus::Cancelled => Err(anyhow!(
+            "cannot mark cancelled task as done without explicit reopen action"
+        )),
+    }
+}
+
 async fn dependency_gate_issues_for_task(
     hub: Arc<dyn ServiceHub>,
     project_root: &str,
@@ -342,14 +371,14 @@ async fn reconcile_merge_gate_tasks_for_project(
             .map(str::trim)
             .filter(|value| !value.is_empty())
         else {
-            hub.tasks().set_status(&task.id, TaskStatus::Done).await?;
+            set_task_done_with_guardrails(hub.clone(), &task.id).await?;
             resolved = resolved.saturating_add(1);
             continue;
         };
 
         match is_branch_merged(project_root, branch_name) {
             Ok(Some(true)) | Ok(None) => {
-                hub.tasks().set_status(&task.id, TaskStatus::Done).await?;
+                set_task_done_with_guardrails(hub.clone(), &task.id).await?;
                 resolved = resolved.saturating_add(1);
             }
             Ok(Some(false)) | Err(_) => {}
@@ -370,13 +399,13 @@ async fn sync_task_status_for_workflow_result(
         WorkflowStatus::Completed => {
             let task = hub.tasks().get(task_id).await;
             let Ok(task) = task else {
-                let _ = hub.tasks().set_status(task_id, TaskStatus::Done).await;
+                let _ = set_task_done_with_guardrails(hub.clone(), task_id).await;
                 return;
             };
 
             match post_success_merge_push_and_cleanup(hub.clone(), project_root, &task).await {
                 Ok(git_ops::PostMergeOutcome::Completed) => {
-                    let _ = hub.tasks().set_status(task_id, TaskStatus::Done).await;
+                    let _ = set_task_done_with_guardrails(hub.clone(), task_id).await;
                     return;
                 }
                 Ok(git_ops::PostMergeOutcome::Skipped) => {}
@@ -424,7 +453,7 @@ async fn sync_task_status_for_workflow_result(
                             if let Some(workflow_id) = workflow_id {
                                 let _ = hub.workflows().resolve_merge_conflict(workflow_id).await;
                             }
-                            let _ = hub.tasks().set_status(task_id, TaskStatus::Done).await;
+                            let _ = set_task_done_with_guardrails(hub.clone(), task_id).await;
                         }
                         Err(error) => {
                             cleanup_merge_conflict_worktree(project_root, &context);
@@ -465,13 +494,13 @@ async fn sync_task_status_for_workflow_result(
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
             else {
-                let _ = hub.tasks().set_status(task_id, TaskStatus::Done).await;
+                let _ = set_task_done_with_guardrails(hub.clone(), task_id).await;
                 return;
             };
 
             match is_branch_merged(project_root, branch_name) {
                 Ok(Some(true)) | Ok(None) => {
-                    let _ = hub.tasks().set_status(task_id, TaskStatus::Done).await;
+                    let _ = set_task_done_with_guardrails(hub.clone(), task_id).await;
                 }
                 Ok(Some(false)) => {
                     let _ = set_task_blocked_with_reason(
@@ -655,7 +684,7 @@ pub(super) async fn run_ready_task_workflows_for_project(
             continue;
         }
         if completed_task_ids.contains(&task.id) {
-            let _ = hub.tasks().set_status(&task.id, TaskStatus::Done).await;
+            let _ = set_task_done_with_guardrails(hub.clone(), &task.id).await;
             continue;
         }
         let dependency_issues =

@@ -1101,6 +1101,156 @@ async fn task_filter_supports_linked_architecture_entity() {
 }
 
 #[tokio::test]
+async fn task_status_guardrails_enforced_for_set_update_and_replace() {
+    let hub = InMemoryServiceHub::new();
+    let task = TaskServiceApi::create(
+        &hub,
+        TaskCreateInput {
+            title: "transition guardrails".to_string(),
+            description: String::new(),
+            task_type: Some(TaskType::Feature),
+            priority: Some(Priority::Medium),
+            created_by: Some("tester".to_string()),
+            tags: vec![],
+            linked_requirements: vec![],
+            linked_architecture_entities: vec![],
+        },
+    )
+    .await
+    .expect("task should be created");
+
+    let done_error = TaskServiceApi::set_status(&hub, &task.id, TaskStatus::Done)
+        .await
+        .expect_err("done should require in-progress");
+    assert!(done_error
+        .to_string()
+        .contains("done requires prior status in-progress"));
+
+    TaskServiceApi::set_status(&hub, &task.id, TaskStatus::InProgress)
+        .await
+        .expect("in-progress from backlog should be allowed");
+    TaskServiceApi::set_status(&hub, &task.id, TaskStatus::Done)
+        .await
+        .expect("done from in-progress should be allowed");
+
+    let terminal_task = TaskServiceApi::get(&hub, &task.id)
+        .await
+        .expect("task should load");
+    let terminal_version = terminal_task.metadata.version;
+    let terminal_updated_at = terminal_task.metadata.updated_at;
+
+    let update_error = TaskServiceApi::update(
+        &hub,
+        &task.id,
+        TaskUpdateInput {
+            title: Some("should not apply".to_string()),
+            description: None,
+            priority: None,
+            status: Some(TaskStatus::Ready),
+            assignee: None,
+            tags: None,
+            updated_by: Some("tester".to_string()),
+            deadline: None,
+            linked_architecture_entities: None,
+        },
+    )
+    .await
+    .expect_err("terminal task should require explicit reopen");
+    assert!(update_error
+        .to_string()
+        .contains("terminal states require explicit reopen action"));
+
+    let after_failed_update = TaskServiceApi::get(&hub, &task.id)
+        .await
+        .expect("task should load");
+    assert_eq!(after_failed_update.status, TaskStatus::Done);
+    assert_eq!(after_failed_update.title, terminal_task.title);
+    assert_eq!(after_failed_update.metadata.version, terminal_version);
+    assert_eq!(after_failed_update.metadata.updated_at, terminal_updated_at);
+
+    let mut replacement = after_failed_update.clone();
+    replacement.status = TaskStatus::Ready;
+    replacement.metadata.updated_by = "tester".to_string();
+    let replace_error = TaskServiceApi::replace(&hub, replacement)
+        .await
+        .expect_err("replace should enforce transition guardrails");
+    assert!(replace_error
+        .to_string()
+        .contains("terminal states require explicit reopen action"));
+
+    let after_failed_replace = TaskServiceApi::get(&hub, &task.id)
+        .await
+        .expect("task should load");
+    assert_eq!(after_failed_replace.status, TaskStatus::Done);
+    assert_eq!(after_failed_replace.metadata.version, terminal_version);
+}
+
+#[tokio::test]
+async fn task_reopen_requires_terminal_source_and_allowed_target() {
+    let hub = InMemoryServiceHub::new();
+    let task = TaskServiceApi::create(
+        &hub,
+        TaskCreateInput {
+            title: "reopen lifecycle".to_string(),
+            description: String::new(),
+            task_type: Some(TaskType::Feature),
+            priority: Some(Priority::Medium),
+            created_by: Some("tester".to_string()),
+            tags: vec![],
+            linked_requirements: vec![],
+            linked_architecture_entities: vec![],
+        },
+    )
+    .await
+    .expect("task should be created");
+
+    let non_terminal_error = TaskServiceApi::reopen(&hub, &task.id, TaskStatus::Ready)
+        .await
+        .expect_err("reopen should fail for non-terminal task");
+    assert!(non_terminal_error
+        .to_string()
+        .contains("reopen is only allowed from done or cancelled"));
+
+    let cancelled = TaskServiceApi::set_status(&hub, &task.id, TaskStatus::Cancelled)
+        .await
+        .expect("cancelled should be allowed");
+    assert!(cancelled.cancelled);
+
+    let reopened = TaskServiceApi::reopen(&hub, &task.id, TaskStatus::Backlog)
+        .await
+        .expect("cancelled task should reopen to backlog");
+    assert_eq!(reopened.status, TaskStatus::Backlog);
+    assert!(!reopened.cancelled);
+
+    TaskServiceApi::set_status(&hub, &task.id, TaskStatus::InProgress)
+        .await
+        .expect("in-progress should be allowed");
+    TaskServiceApi::set_status(&hub, &task.id, TaskStatus::Done)
+        .await
+        .expect("done should be allowed");
+
+    let reopened_done = TaskServiceApi::reopen(&hub, &task.id, TaskStatus::Ready)
+        .await
+        .expect("done task should reopen to ready");
+    assert_eq!(reopened_done.status, TaskStatus::Ready);
+    assert!(!reopened_done.cancelled);
+
+    TaskServiceApi::set_status(&hub, &task.id, TaskStatus::InProgress)
+        .await
+        .expect("in-progress should be allowed");
+    TaskServiceApi::set_status(&hub, &task.id, TaskStatus::Done)
+        .await
+        .expect("done should be allowed");
+
+    let invalid_target_error = TaskServiceApi::reopen(&hub, &task.id, TaskStatus::InProgress)
+        .await
+        .expect_err("invalid reopen target should fail");
+    assert!(invalid_target_error
+        .to_string()
+        .contains("reopen target must be backlog or ready"));
+}
+
+#[tokio::test]
 async fn workflow_service_exposes_decisions_and_checkpoints() {
     let temp = tempfile::tempdir().expect("tempdir");
     let hub = file_hub(temp.path()).expect("create hub");

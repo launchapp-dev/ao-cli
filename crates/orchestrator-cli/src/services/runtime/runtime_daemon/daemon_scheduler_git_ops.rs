@@ -1876,10 +1876,21 @@ mod tests {
             })
             .await
             .expect("task should be created");
-        hub.tasks()
-            .set_status(&task.id, status)
-            .await
-            .expect("task status should be updated");
+        if status == TaskStatus::Done {
+            hub.tasks()
+                .set_status(&task.id, TaskStatus::InProgress)
+                .await
+                .expect("task should enter in-progress before done");
+            hub.tasks()
+                .set_status(&task.id, TaskStatus::Done)
+                .await
+                .expect("task status should be updated");
+        } else {
+            hub.tasks()
+                .set_status(&task.id, status)
+                .await
+                .expect("task status should be updated");
+        }
 
         let branch_name = format!("ao/{}", task.id.to_ascii_lowercase());
         let worktree_name = format!("task-{}", task.id.to_ascii_lowercase());

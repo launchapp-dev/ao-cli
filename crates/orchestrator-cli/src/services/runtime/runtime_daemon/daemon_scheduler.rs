@@ -1141,6 +1141,10 @@ mod tests {
             .starts_with(DEPENDENCY_GATE_PREFIX));
 
         hub.tasks()
+            .set_status(&dependency.id, TaskStatus::InProgress)
+            .await
+            .expect("dependency should become in-progress");
+        hub.tasks()
             .set_status(&dependency.id, TaskStatus::Done)
             .await
             .expect("dependency should become done");

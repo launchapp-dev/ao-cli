@@ -104,9 +104,15 @@ pub(super) struct AgentPool {
 impl AgentPool {
     pub(super) fn new(pool_size: usize) -> Self {
         let (completion_tx, completion_rx) = mpsc::unbounded_channel();
+        let accepting = pool_size > 0;
+        let semaphore = Arc::new(Semaphore::new(pool_size));
+        if !accepting {
+            semaphore.close();
+        }
+
         Self {
-            semaphore: Arc::new(Semaphore::new(pool_size)),
-            accepting: AtomicBool::new(true),
+            semaphore,
+            accepting: AtomicBool::new(accepting),
             state: Arc::new(AgentPoolState {
                 active_count: AtomicUsize::new(0),
                 total_spawned: AtomicUsize::new(0),
@@ -399,5 +405,75 @@ mod tests {
             .expect("drain should finish")
             .expect("drain join should succeed");
         assert_eq!(pool.active_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn zero_sized_pool_rejects_work_without_blocking() {
+        let pool = AgentPool::new(0);
+
+        assert_eq!(pool.active_count(), 0);
+        assert!(pool.is_full());
+        assert!(!pool.try_spawn(immediate_success_slot("slot-1")));
+
+        let spawned = timeout(
+            Duration::from_millis(100),
+            pool.spawn_agent(immediate_success_slot("slot-2")),
+        )
+        .await
+        .expect("spawn_agent should not block for a closed pool");
+        assert!(!spawned);
+
+        pool.drain().await;
+    }
+
+    #[tokio::test]
+    async fn drain_on_idle_pool_returns_immediately_and_rejects_future_spawns() {
+        let pool = AgentPool::new(2);
+
+        timeout(Duration::from_millis(100), pool.drain())
+            .await
+            .expect("drain should complete immediately when no slots are active");
+
+        assert_eq!(pool.active_count(), 0);
+        assert!(pool.is_full());
+        assert!(!pool.try_spawn(immediate_success_slot("slot-after-drain")));
+
+        let spawned = timeout(
+            Duration::from_millis(100),
+            pool.spawn_agent(immediate_success_slot("slot-after-drain-blocking")),
+        )
+        .await
+        .expect("spawn_agent should return without blocking once drain closes admissions");
+        assert!(!spawned);
+    }
+
+    #[tokio::test]
+    async fn panic_in_slot_is_reported_as_failure_and_releases_permit() {
+        let pool = AgentPool::new(1);
+        let mut completions = pool
+            .take_completion_receiver()
+            .expect("completion receiver");
+
+        let panic_context = AgentSlotContext::new("slot-panics");
+        assert!(pool.try_spawn(AgentSlot::new(panic_context.clone(), async move {
+            panic!("simulated panic");
+        })));
+
+        let completion = completions.recv().await.expect("completion event");
+        assert_eq!(completion.context.slot_id, "slot-panics");
+        match completion.outcome {
+            AgentSlotOutcome::Failed(message) => {
+                assert!(message.contains("panicked or was cancelled"));
+            }
+            AgentSlotOutcome::Success => panic!("expected failed completion"),
+        }
+
+        assert_eq!(pool.active_count(), 0);
+        assert_eq!(pool.total_spawned(), 1);
+        assert_eq!(pool.total_completed(), 1);
+        assert_eq!(pool.total_failed(), 1);
+        assert!(pool.try_spawn(immediate_success_slot("slot-after-panic")));
+        let _ = completions.recv().await.expect("follow-up completion");
+        pool.drain().await;
     }
 }

@@ -1,6 +1,6 @@
 use crate::cli_types::{QaApprovalCommand, QaCommand};
-use crate::print_value;
-use anyhow::{anyhow, Result};
+use crate::{not_found_error, print_value};
+use anyhow::Result;
 use chrono::Utc;
 use orchestrator_core::{
     load_qa_approvals, load_qa_results, save_qa_approvals, save_qa_results, QaGateResultRecord,
@@ -119,7 +119,7 @@ pub(crate) async fn handle_qa(command: QaCommand, project_root: &str, json: bool
                 .find(|result| {
                     result.workflow_id == args.workflow_id && result.phase_id == args.phase_id
                 })
-                .ok_or_else(|| anyhow!("phase gate results not found"))?;
+                .ok_or_else(|| not_found_error("phase gate results not found"))?;
             print_value(result, json)
         }
         QaCommand::List(args) => {

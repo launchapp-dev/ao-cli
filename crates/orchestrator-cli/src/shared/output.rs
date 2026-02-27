@@ -114,6 +114,15 @@ mod tests {
     }
 
     #[test]
+    fn classify_error_uses_typed_kind_when_message_contains_not_found_text() {
+        let (code, exit_code) = classify_error(&invalid_input_error(
+            "task not found: TASK-123; expected --id TASK-123",
+        ));
+        assert_eq!(code, "invalid_input");
+        assert_eq!(exit_code, 2);
+    }
+
+    #[test]
     fn classify_error_marks_typed_not_found_failures() {
         let (code, exit_code) = classify_error(&not_found_error("task not found: TASK-123"));
         assert_eq!(code, "not_found");
@@ -145,6 +154,15 @@ mod tests {
     #[test]
     fn classify_error_defaults_to_internal_for_untyped_errors() {
         let (code, exit_code) = classify_error(&anyhow!("unexpected panic in scheduler loop"));
+        assert_eq!(code, "internal");
+        assert_eq!(exit_code, 1);
+    }
+
+    #[test]
+    fn classify_error_does_not_treat_untyped_keyword_messages_as_conflicts() {
+        let (code, exit_code) = classify_error(&anyhow!(
+            "resource already exists but no typed conflict was attached"
+        ));
         assert_eq!(code, "internal");
         assert_eq!(exit_code, 1);
     }

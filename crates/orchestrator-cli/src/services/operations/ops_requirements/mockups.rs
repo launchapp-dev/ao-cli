@@ -1,6 +1,6 @@
 use crate::cli_types::MockupCommand;
-use crate::{parse_input_json_or, print_value};
-use anyhow::{anyhow, Result};
+use crate::{invalid_input_error, not_found_error, parse_input_json_or, print_value};
+use anyhow::Result;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -89,7 +89,7 @@ pub(super) async fn handle_requirement_mockups(
                 })
             })?;
             if input.name.trim().is_empty() {
-                anyhow::bail!("mockup name is required");
+                return Err(invalid_input_error("mockup name is required"));
             }
 
             let now = Utc::now().to_rfc3339();
@@ -116,7 +116,7 @@ pub(super) async fn handle_requirement_mockups(
                 .mockups
                 .iter_mut()
                 .find(|mockup| mockup.id == args.id)
-                .ok_or_else(|| anyhow!("mockup not found: {}", args.id))?;
+                .ok_or_else(|| not_found_error(format!("mockup not found: {}", args.id)))?;
             for requirement_id in args.requirement_id {
                 if !mockup
                     .requirement_ids
@@ -142,12 +142,14 @@ pub(super) async fn handle_requirement_mockups(
                 .mockups
                 .iter()
                 .find(|mockup| mockup.id == args.id)
-                .ok_or_else(|| anyhow!("mockup not found: {}", args.id))?;
+                .ok_or_else(|| not_found_error(format!("mockup not found: {}", args.id)))?;
             let file = mockup
                 .files
                 .iter()
                 .find(|file| file.relative_path == args.relative_path)
-                .ok_or_else(|| anyhow!("mockup file not found: {}", args.relative_path))?;
+                .ok_or_else(|| {
+                    not_found_error(format!("mockup file not found: {}", args.relative_path))
+                })?;
             print_value(file, json)
         }
     }

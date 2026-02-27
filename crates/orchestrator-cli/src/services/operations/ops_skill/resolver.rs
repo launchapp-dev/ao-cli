@@ -1,4 +1,5 @@
-use anyhow::{anyhow, Result};
+use crate::{invalid_input_error, not_found_error};
+use anyhow::Result;
 use semver::{Version, VersionReq};
 use std::cmp::Ordering;
 
@@ -37,7 +38,9 @@ pub(super) struct ResolveSkillResult {
 }
 
 fn parse_version_req(raw: &str) -> Result<VersionReq> {
-    VersionReq::parse(raw).map_err(|error| anyhow!("invalid version constraint '{raw}': {error}"))
+    VersionReq::parse(raw).map_err(|error| {
+        invalid_input_error(format!("invalid version constraint '{raw}': {error}"))
+    })
 }
 
 fn parse_exact_version_req(version: &str) -> Result<VersionReq> {
@@ -82,7 +85,7 @@ pub(super) fn resolve_skill_version(
 ) -> Result<ResolveSkillResult> {
     let name = request.name.trim();
     if name.is_empty() {
-        anyhow::bail!("invalid skill name");
+        return Err(invalid_input_error("invalid skill name"));
     }
 
     let mut candidates: Vec<&SkillVersionRecord> = catalog
@@ -90,7 +93,7 @@ pub(super) fn resolve_skill_version(
         .filter(|record| record.name == name)
         .collect();
     if candidates.is_empty() {
-        anyhow::bail!("skill not found: {name}");
+        return Err(not_found_error(format!("skill not found: {name}")));
     }
 
     let (source_constraint, source_origin) = match request.cli_source {
@@ -131,7 +134,9 @@ pub(super) fn resolve_skill_version(
     }
 
     if candidates.is_empty() {
-        anyhow::bail!("skill not found for source/registry constraints: {name}");
+        return Err(not_found_error(format!(
+            "skill not found for source/registry constraints: {name}"
+        )));
     }
 
     let (version_constraint, version_origin): (Option<VersionReq>, VersionConstraintOrigin) =
@@ -161,17 +166,23 @@ pub(super) fn resolve_skill_version(
         if before > 0 && candidates.is_empty() {
             match version_origin {
                 VersionConstraintOrigin::Cli => {
-                    anyhow::bail!(
+                    return Err(invalid_input_error(format!(
                         "invalid version constraint unsatisfied for skill '{}': {}",
                         name,
                         request.cli_version.unwrap_or_default()
-                    );
+                    )));
                 }
                 VersionConstraintOrigin::Lock => {
-                    anyhow::bail!("skill version not found for lock pin: {}", name);
+                    return Err(not_found_error(format!(
+                        "skill version not found for lock pin: {}",
+                        name
+                    )));
                 }
                 VersionConstraintOrigin::Project => {
-                    anyhow::bail!("skill version not found for project default: {}", name);
+                    return Err(not_found_error(format!(
+                        "skill version not found for project default: {}",
+                        name
+                    )));
                 }
                 VersionConstraintOrigin::None => {}
             }
@@ -197,7 +208,7 @@ pub(super) fn resolve_skill_version(
     let selected = candidates
         .into_iter()
         .next()
-        .ok_or_else(|| anyhow!("skill not found: {name}"))?
+        .ok_or_else(|| not_found_error(format!("skill not found: {name}")))?
         .clone();
 
     let used_lock_pin = matches!(source_origin, ConstraintOrigin::Lock)
@@ -217,6 +228,7 @@ pub(super) fn resolve_skill_version(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{classify_cli_error_kind, CliErrorKind};
 
     fn catalog_record(
         name: &str,
@@ -395,5 +407,36 @@ mod tests {
         assert_eq!(resolved.selected.source, "default-source");
         assert!(!resolved.used_lock_pin);
         assert!(resolved.used_project_default);
+    }
+
+    #[test]
+    fn resolver_reports_not_found_kind_for_missing_skill() {
+        let request = ResolveSkillRequest {
+            name: "missing",
+            cli_version: None,
+            cli_source: None,
+            cli_registry: None,
+            allow_prerelease: false,
+        };
+
+        let error = resolve_skill_version(&request, &[], None, None)
+            .expect_err("missing skill should produce an error");
+        assert_eq!(classify_cli_error_kind(&error), CliErrorKind::NotFound);
+    }
+
+    #[test]
+    fn resolver_reports_invalid_input_kind_for_bad_version_constraint() {
+        let catalog = vec![catalog_record("lint", "1.0.0", "source-a", "project")];
+        let request = ResolveSkillRequest {
+            name: "lint",
+            cli_version: Some("this-is-not-semver"),
+            cli_source: None,
+            cli_registry: None,
+            allow_prerelease: false,
+        };
+
+        let error = resolve_skill_version(&request, &catalog, None, None)
+            .expect_err("invalid version constraint should fail");
+        assert_eq!(classify_cli_error_kind(&error), CliErrorKind::InvalidInput);
     }
 }

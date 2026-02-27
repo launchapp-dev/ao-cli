@@ -1,5 +1,6 @@
 use super::*;
-use anyhow::{anyhow, Result};
+use crate::not_found_error;
+use anyhow::Result;
 
 use super::model::{GitConfirmationOutcomeCli, GitConfirmationRecordCli};
 use super::store::{load_git_confirmations, save_git_confirmations};
@@ -54,7 +55,12 @@ pub(super) fn handle_git_confirm(
                 .requests
                 .iter_mut()
                 .find(|request| request.id == args.request_id)
-                .ok_or_else(|| anyhow!("confirmation request not found: {}", args.request_id))?;
+                .ok_or_else(|| {
+                    not_found_error(format!(
+                        "confirmation request not found: {}",
+                        args.request_id
+                    ))
+                })?;
             request.approved = Some(args.approved);
             request.comment = args.comment;
             request.user_id = args.user_id;
@@ -75,7 +81,12 @@ pub(super) fn handle_git_confirm(
                 .requests
                 .iter_mut()
                 .find(|request| request.id == args.request_id)
-                .ok_or_else(|| anyhow!("confirmation request not found: {}", args.request_id))?;
+                .ok_or_else(|| {
+                    not_found_error(format!(
+                        "confirmation request not found: {}",
+                        args.request_id
+                    ))
+                })?;
             request.outcome = Some(GitConfirmationOutcomeCli {
                 success: args.success,
                 message: args.message,

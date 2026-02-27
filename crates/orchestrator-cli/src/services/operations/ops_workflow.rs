@@ -11,9 +11,10 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::{
-    ensure_destructive_confirmation, parse_input_json_or, print_value, WorkflowAgentRuntimeCommand,
-    WorkflowCheckpointCommand, WorkflowCommand, WorkflowConfigCommand, WorkflowPhaseCommand,
-    WorkflowPhasesCommand, WorkflowPipelinesCommand, WorkflowStateMachineCommand,
+    ensure_destructive_confirmation, not_found_error, parse_input_json_or, print_value,
+    WorkflowAgentRuntimeCommand, WorkflowCheckpointCommand, WorkflowCommand, WorkflowConfigCommand,
+    WorkflowPhaseCommand, WorkflowPhasesCommand, WorkflowPipelinesCommand,
+    WorkflowStateMachineCommand,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -435,7 +436,7 @@ fn migrate_v1_to_v2(project_root: &str) -> Result<Value> {
         .into_iter()
         .find(|path| path.exists())
         .ok_or_else(|| {
-            anyhow!("legacy workflow config not found (expected workflow-config.json)")
+            not_found_error("legacy workflow config not found (expected workflow-config.json)")
         })?;
     let legacy_workflow: LegacyWorkflowConfig =
         serde_json::from_str(&std::fs::read_to_string(&legacy_workflow_path)?)?;

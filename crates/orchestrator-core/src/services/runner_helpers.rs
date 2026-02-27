@@ -640,6 +640,8 @@ async fn stop_agent_runner_process_at_config_dir(config_dir: &Path) -> Result<bo
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use std::sync::{Mutex, OnceLock};
     use tempfile::TempDir;
 
     fn new_temp_runner_config_dir() -> (TempDir, PathBuf) {
@@ -647,6 +649,95 @@ mod tests {
         let config_dir = temp.path().join("runner");
         std::fs::create_dir_all(&config_dir).expect("create config dir");
         (temp, config_dir)
+    }
+
+    #[cfg(unix)]
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    #[cfg(unix)]
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    #[cfg(unix)]
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: Option<&str>) -> Self {
+            let previous = std::env::var(key).ok();
+            match value {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+            Self { key, previous }
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(previous) = &self.previous {
+                std::env::set_var(self.key, previous);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    struct CurrentDirGuard {
+        previous: PathBuf,
+    }
+
+    #[cfg(unix)]
+    impl CurrentDirGuard {
+        fn set(path: &Path) -> Self {
+            let previous = std::env::current_dir().expect("capture current directory");
+            std::env::set_current_dir(path).expect("set current directory for test");
+            Self { previous }
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for CurrentDirGuard {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(&self.previous);
+        }
+    }
+
+    #[cfg(unix)]
+    fn workspace_root() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .expect("workspace root")
+            .to_path_buf()
+    }
+
+    #[cfg(unix)]
+    fn ensure_agent_runner_binary_available(workspace_root: &Path) {
+        static BUILD_ONCE: OnceLock<()> = OnceLock::new();
+        BUILD_ONCE.get_or_init(|| {
+            let binary = workspace_root
+                .join("target")
+                .join("debug")
+                .join("agent-runner");
+            if binary.exists() {
+                return;
+            }
+
+            let status = Command::new("cargo")
+                .current_dir(workspace_root)
+                .args(["build", "-p", "agent-runner"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .expect("spawn cargo build -p agent-runner");
+            assert!(status.success(), "cargo build -p agent-runner failed");
+            assert!(binary.exists(), "agent-runner binary was not produced");
+        });
     }
 
     #[test]
@@ -831,5 +922,105 @@ mod tests {
                 "cycle {cycle} should not leave the spawned process alive"
             );
         }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn ensure_runner_startup_auto_provisions_missing_token() {
+        let _env_guard = env_lock()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        let workspace_root = workspace_root();
+        let _cwd_guard = CurrentDirGuard::set(&workspace_root);
+        ensure_agent_runner_binary_available(&workspace_root);
+
+        let project_root = tempfile::tempdir().expect("project tempdir");
+        let config_root = tempfile::tempdir().expect("config tempdir");
+        let config_dir = config_root.path().join("runner-config");
+        std::fs::create_dir_all(&config_dir).expect("create runner config dir");
+
+        let config_dir_str = config_dir
+            .to_str()
+            .expect("runner config dir should be valid UTF-8");
+        let _runner_config = EnvVarGuard::set("AO_RUNNER_CONFIG_DIR", Some(config_dir_str));
+        let _runner_token = EnvVarGuard::set("AGENT_RUNNER_TOKEN", None);
+        let _skip_runner_start = EnvVarGuard::set("AO_SKIP_RUNNER_START", None);
+
+        let test_result: Result<()> = async {
+            let initial_config =
+                protocol::Config::load_from_dir(&config_dir).context("load initial config")?;
+            anyhow::ensure!(
+                initial_config
+                    .agent_runner_token
+                    .as_deref()
+                    .map_or(true, |token| token.trim().is_empty()),
+                "expected precondition with missing or blank token"
+            );
+
+            let first_pid = ensure_agent_runner_running(project_root.path())
+                .await?
+                .ok_or_else(|| anyhow!("runner startup unexpectedly skipped"))?;
+            anyhow::ensure!(first_pid > 0, "runner startup should return a valid pid");
+
+            let generated_token = protocol::Config::load_from_dir(&config_dir)
+                .context("load generated token config")?
+                .agent_runner_token
+                .ok_or_else(|| anyhow!("expected generated token"))?;
+            anyhow::ensure!(
+                !generated_token.trim().is_empty(),
+                "generated token should be non-empty"
+            );
+            anyhow::ensure!(
+                Uuid::parse_str(&generated_token).is_ok(),
+                "generated token should be UUID-formatted"
+            );
+
+            let status = query_runner_status(&config_dir).await;
+            anyhow::ensure!(
+                status.is_some(),
+                "runner status probe should succeed with generated token"
+            );
+
+            let second_pid = ensure_agent_runner_running(project_root.path())
+                .await?
+                .ok_or_else(|| anyhow!("second runner startup unexpectedly skipped"))?;
+            anyhow::ensure!(second_pid > 0, "second startup should return a valid pid");
+
+            let reused_token = protocol::Config::load_from_dir(&config_dir)
+                .context("load token after second startup")?
+                .agent_runner_token
+                .ok_or_else(|| anyhow!("expected token after second startup"))?;
+            anyhow::ensure!(
+                reused_token == generated_token,
+                "token should be preserved across immediate repeated startup"
+            );
+
+            Ok(())
+        }
+        .await;
+
+        let stop_result = stop_agent_runner_process_at_config_dir(&config_dir).await;
+        if is_agent_runner_ready(&config_dir).await {
+            let _ = stop_agent_runner_process_at_config_dir(&config_dir).await;
+        }
+        let ready_after_cleanup = is_agent_runner_ready(&config_dir).await;
+
+        if let Err(error) = test_result {
+            panic!("{error:#}");
+        }
+        let stopped = stop_result.expect("stop runner after successful startup");
+        assert!(
+            stopped || !ready_after_cleanup,
+            "runner cleanup should leave no active runner endpoint"
+        );
+        assert!(
+            read_runner_pid_from_lock(&config_dir).is_none(),
+            "runner lock should be removed during cleanup"
+        );
+        assert!(
+            !ready_after_cleanup,
+            "runner should not be ready after cleanup"
+        );
     }
 }

@@ -2,8 +2,8 @@ use super::daemon_registry::canonicalize_lossy;
 use crate::cli_types::DaemonRunArgs;
 use crate::shared::{
     build_runtime_contract, collect_json_payload_lines, connect_runner,
-    ensure_ai_generated_tasks_for_requirements, event_matches_run,
-    requirement_has_active_tasks, run_prompt_against_runner, runner_config_dir, write_json_line,
+    ensure_ai_generated_tasks_for_requirements, event_matches_run, requirement_has_active_tasks,
+    run_prompt_against_runner, runner_config_dir, write_json_line,
 };
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;

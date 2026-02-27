@@ -914,10 +914,7 @@ async fn execute_running_workflow_phases_for_project(
                         continue;
                     }
                     AiRecoveryAction::SkipPhase => {
-                        let updated = hub
-                            .workflows()
-                            .complete_current_phase(&workflow.id)
-                            .await?;
+                        let updated = hub.workflows().complete_current_phase(&workflow.id).await?;
                         sync_task_status_for_workflow_result(
                             hub.clone(),
                             project_root,
@@ -1170,8 +1167,7 @@ async fn ensure_tasks_for_unplanned_requirements(
         return Ok(0);
     }
 
-    let summary =
-        ensure_ai_generated_tasks_for_requirements(hub, project_root, &unplanned).await?;
+    let summary = ensure_ai_generated_tasks_for_requirements(hub, project_root, &unplanned).await?;
     Ok(summary.requirements_generated)
 }
 
@@ -1321,9 +1317,9 @@ async fn attempt_ai_failure_recovery(
     error_message: &str,
     decision_history: &[orchestrator_core::WorkflowDecisionRecord],
 ) -> AiRecoveryAction {
-    let already_attempted = decision_history.iter().any(|record| {
-        record.phase_id == phase_id && record.reason.contains(AI_RECOVERY_MARKER)
-    });
+    let already_attempted = decision_history
+        .iter()
+        .any(|record| record.phase_id == phase_id && record.reason.contains(AI_RECOVERY_MARKER));
     if already_attempted {
         return AiRecoveryAction::Fail;
     }

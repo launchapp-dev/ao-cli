@@ -718,6 +718,7 @@ pub enum WorkflowDecisionRisk {
     High,
 }
 
+/// A single workflow phase decision captured during transition evaluation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowDecisionRecord {
     pub timestamp: DateTime<Utc>,

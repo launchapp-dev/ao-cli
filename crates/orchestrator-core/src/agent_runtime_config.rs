@@ -431,17 +431,18 @@ impl AgentRuntimeConfig {
     }
 
     pub fn is_structured_output_phase(&self, phase_id: &str) -> bool {
-        if self.phase_output_contract(phase_id).is_some()
-            || self.phase_output_json_schema(phase_id).is_some()
-        {
-            return true;
-        }
-
-        let normalized = phase_id.trim().to_ascii_lowercase();
-        if normalized.is_empty() {
+        let trimmed_phase_id = phase_id.trim();
+        if trimmed_phase_id.is_empty() {
             return false;
         }
 
+        if self.phase_execution(trimmed_phase_id).is_some_and(|definition| {
+            definition.output_contract.is_some() || definition.output_json_schema.is_some()
+        }) {
+            return true;
+        }
+
+        let normalized = trimmed_phase_id.to_ascii_lowercase();
         matches!(
             normalized.as_str(),
             "review"
@@ -1237,5 +1238,29 @@ mod tests {
         assert!(config.is_structured_output_phase("code-review"));
         assert!(config.is_structured_output_phase("implementation"));
         assert!(!config.is_structured_output_phase("testing"));
+    }
+
+    #[test]
+    fn structured_output_phase_accepts_trimmed_phase_ids() {
+        let config = builtin_agent_runtime_config();
+        assert!(config.is_structured_output_phase(" implementation "));
+        assert!(config.is_structured_output_phase(" CODE-REVIEW "));
+        assert!(!config.is_structured_output_phase(" testing "));
+    }
+
+    #[test]
+    fn structured_output_phase_rejects_empty_phase_even_with_structured_default() {
+        let mut config = builtin_agent_runtime_config();
+        let default_phase = config
+            .phases
+            .get_mut("default")
+            .expect("builtin config includes default phase");
+        default_phase.output_contract = Some(PhaseOutputContract {
+            kind: "phase_result".to_string(),
+            required_fields: Vec::new(),
+        });
+
+        assert!(config.is_structured_output_phase("custom-phase"));
+        assert!(!config.is_structured_output_phase("   "));
     }
 }

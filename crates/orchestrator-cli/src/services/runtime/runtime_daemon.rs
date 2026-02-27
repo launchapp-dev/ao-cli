@@ -1,4 +1,5 @@
 use std::fs::{self, OpenOptions};
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command as ProcessCommand, ExitStatus, Stdio};
 use std::sync::Arc;
@@ -33,12 +34,15 @@ pub(crate) use daemon_events::{daemon_events_log_path, poll_daemon_events, Daemo
 pub(crate) use daemon_registry::canonicalize_lossy;
 
 const AUTONOMOUS_STARTUP_PROBE_SECS: u64 = 3;
+const AUTONOMOUS_STARTUP_PROBE_POLL_MILLIS: u64 = 100;
 const AUTONOMOUS_STARTUP_LOG_TAIL_LINES: usize = 40;
 const AUTONOMOUS_STARTUP_LOG_TAIL_MAX_CHARS: usize = 8_000;
+const AUTONOMOUS_STARTUP_LOG_MAX_READ_BYTES: u64 = 128 * 1024;
 
 struct AutonomousDaemonSpawn {
     child: Child,
     log_path: PathBuf,
+    startup_log_offset: u64,
 }
 
 #[cfg(unix)]
@@ -161,22 +165,64 @@ async fn wait_for_autonomous_startup_probe(
     child: &mut Child,
     probe_window: Duration,
 ) -> Result<Option<ExitStatus>> {
-    tokio::time::sleep(probe_window).await;
-    child
-        .try_wait()
-        .context("failed to check autonomous daemon process state")
+    let deadline = tokio::time::Instant::now() + probe_window;
+    loop {
+        if let Some(status) = child
+            .try_wait()
+            .context("failed to check autonomous daemon process state")?
+        {
+            return Ok(Some(status));
+        }
+
+        let now = tokio::time::Instant::now();
+        if now >= deadline {
+            return Ok(None);
+        }
+
+        let remaining = deadline.saturating_duration_since(now);
+        let sleep_for = remaining.min(Duration::from_millis(AUTONOMOUS_STARTUP_PROBE_POLL_MILLIS));
+        tokio::time::sleep(sleep_for).await;
+    }
 }
 
-fn read_autonomous_startup_log_tail(log_path: &Path, max_lines: usize) -> Result<Option<String>> {
+fn read_autonomous_startup_log_tail(
+    log_path: &Path,
+    startup_log_offset: u64,
+    max_lines: usize,
+) -> Result<Option<String>> {
     if max_lines == 0 {
         return Ok(None);
     }
 
-    let content = match fs::read(log_path) {
-        Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+    let mut file = match std::fs::File::open(log_path) {
+        Ok(file) => file,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(err) => return Err(err.into()),
     };
+    let file_len = file
+        .metadata()
+        .with_context(|| format!("failed to read log metadata for {}", log_path.display()))?
+        .len();
+    if file_len <= startup_log_offset {
+        return Ok(None);
+    }
+
+    let available_bytes = file_len - startup_log_offset;
+    let read_bytes = available_bytes.min(AUTONOMOUS_STARTUP_LOG_MAX_READ_BYTES);
+    let read_start = file_len - read_bytes;
+
+    file.seek(SeekFrom::Start(read_start))
+        .with_context(|| format!("failed to seek startup log {}", log_path.display()))?;
+    let mut bytes = Vec::with_capacity(read_bytes as usize);
+    file.read_to_end(&mut bytes)
+        .with_context(|| format!("failed to read startup log {}", log_path.display()))?;
+
+    let mut content = String::from_utf8_lossy(&bytes).into_owned();
+    if read_start > startup_log_offset {
+        if let Some((_, remainder)) = content.split_once('\n') {
+            content = remainder.to_string();
+        }
+    }
 
     let mut lines = content
         .lines()
@@ -208,8 +254,12 @@ fn truncate_from_end(value: &str, max_chars: usize) -> String {
     format!("...[truncated]\n{suffix}")
 }
 
-fn autonomous_startup_log_diagnostics(log_path: &Path) -> String {
-    match read_autonomous_startup_log_tail(log_path, AUTONOMOUS_STARTUP_LOG_TAIL_LINES) {
+fn autonomous_startup_log_diagnostics(log_path: &Path, startup_log_offset: u64) -> String {
+    match read_autonomous_startup_log_tail(
+        log_path,
+        startup_log_offset,
+        AUTONOMOUS_STARTUP_LOG_TAIL_LINES,
+    ) {
         Ok(Some(tail)) => format!(
             "startup log tail (last {} lines):\n{}",
             AUTONOMOUS_STARTUP_LOG_TAIL_LINES,
@@ -224,11 +274,12 @@ fn autonomous_startup_failure_error(
     daemon_pid: u32,
     exit_status: Option<ExitStatus>,
     log_path: &Path,
+    startup_log_offset: u64,
 ) -> anyhow::Error {
     let status_detail = exit_status
         .map(|status| format!("process exited before startup probe completed ({status})"))
         .unwrap_or_else(|| "process was not alive after startup probe completed".to_string());
-    let diagnostics = autonomous_startup_log_diagnostics(log_path);
+    let diagnostics = autonomous_startup_log_diagnostics(log_path, startup_log_offset);
 
     anyhow!(
         "autonomous daemon failed startup validation for pid {daemon_pid}: {status_detail}. startup log path: {}.\n{diagnostics}",
@@ -376,6 +427,15 @@ fn spawn_autonomous_daemon_run(
                 log_path.display()
             )
         })?;
+    let startup_log_offset = stdout_log
+        .metadata()
+        .with_context(|| {
+            format!(
+                "failed to read autonomous daemon log metadata {}",
+                log_path.display()
+            )
+        })?
+        .len();
     let stderr_log = stdout_log.try_clone().with_context(|| {
         format!(
             "failed to clone autonomous daemon log handle {}",
@@ -450,7 +510,11 @@ fn spawn_autonomous_daemon_run(
     let child = command
         .spawn()
         .context("failed to spawn autonomous daemon run")?;
-    Ok(AutonomousDaemonSpawn { child, log_path })
+    Ok(AutonomousDaemonSpawn {
+        child,
+        log_path,
+        startup_log_offset,
+    })
 }
 
 pub(crate) async fn handle_daemon(
@@ -492,12 +556,13 @@ pub(crate) async fn handle_daemon(
                     Duration::from_secs(AUTONOMOUS_STARTUP_PROBE_SECS),
                 )
                 .await?;
-                if startup_status.is_some() || !is_process_alive(daemon_pid) {
+                if startup_status.is_some() {
                     let _ = set_registry_daemon_pid(project_root, None);
                     return Err(autonomous_startup_failure_error(
                         daemon_pid,
                         startup_status,
                         daemon_spawn.log_path.as_path(),
+                        daemon_spawn.startup_log_offset,
                     ));
                 }
 
@@ -613,7 +678,7 @@ mod tests {
         fs::write(&log_path, "line-1\n\nline-2\nline-3\nline-4\n")
             .expect("log file should be written");
 
-        let tail = read_autonomous_startup_log_tail(log_path.as_path(), 2)
+        let tail = read_autonomous_startup_log_tail(log_path.as_path(), 0, 2)
             .expect("log tail should be readable")
             .expect("log tail should be present");
         assert_eq!(tail, "line-3\nline-4");
@@ -623,9 +688,26 @@ mod tests {
     fn read_autonomous_startup_log_tail_returns_none_when_log_missing() {
         let temp = tempfile::tempdir().expect("tempdir should be created");
         let log_path = temp.path().join("missing.log");
-        let tail = read_autonomous_startup_log_tail(log_path.as_path(), 10)
+        let tail = read_autonomous_startup_log_tail(log_path.as_path(), 0, 10)
             .expect("missing log should be handled");
         assert!(tail.is_none());
+    }
+
+    #[test]
+    fn read_autonomous_startup_log_tail_ignores_preexisting_lines_before_start_offset() {
+        let temp = tempfile::tempdir().expect("tempdir should be created");
+        let log_path = temp.path().join("daemon.log");
+        fs::write(&log_path, "old-1\nold-2\n").expect("old log content should be written");
+        let startup_log_offset = fs::metadata(&log_path)
+            .expect("log metadata should be readable")
+            .len();
+        fs::write(&log_path, "old-1\nold-2\nnew-1\nnew-2\n")
+            .expect("new log content should be written");
+
+        let tail = read_autonomous_startup_log_tail(log_path.as_path(), startup_log_offset, 10)
+            .expect("log tail should be readable")
+            .expect("log tail should be present");
+        assert_eq!(tail, "new-1\nnew-2");
     }
 
     #[test]
@@ -634,7 +716,7 @@ mod tests {
         let log_path = temp.path().join("daemon.log");
         fs::write(&log_path, "first\nsecond\nthird\n").expect("log file should be written");
 
-        let error = autonomous_startup_failure_error(4242, None, log_path.as_path());
+        let error = autonomous_startup_failure_error(4242, None, log_path.as_path(), 0);
         let message = error.to_string();
         assert!(message.contains("pid 4242"));
         assert!(message.contains(log_path.to_string_lossy().as_ref()));

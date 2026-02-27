@@ -2,7 +2,9 @@
 mod test_harness;
 
 use anyhow::{Context, Result};
+use fs2::FileExt;
 use serde_json::Value;
+use std::fs::OpenOptions;
 use std::process::Command;
 use test_harness::CliHarness;
 
@@ -741,6 +743,66 @@ fn e2e_daemon_autonomous_start_idempotent_then_stop() -> Result<()> {
     );
 
     harness.run_json_ok(&["daemon", "stop"])?;
+    Ok(())
+}
+
+#[test]
+fn e2e_daemon_autonomous_start_reports_early_exit_failure() -> Result<()> {
+    let harness = CliHarness::new()?;
+
+    let lock_path = harness.project_root().join(".ao").join("daemon.lock");
+    if let Some(parent) = lock_path.parent() {
+        std::fs::create_dir_all(parent).context("daemon lock parent should be created")?;
+    }
+    let lock_file = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&lock_path)
+        .context("daemon lock should be opened")?;
+    lock_file
+        .try_lock_exclusive()
+        .context("daemon lock should be acquired in test")?;
+
+    let (failure, exit_code) = harness.run_json_err_with_exit(&[
+        "daemon",
+        "start",
+        "--autonomous",
+        "--skip-runner",
+        "--interval-secs",
+        "1",
+        "--include-registry",
+        "false",
+        "--auto-run-ready",
+        "false",
+        "--startup-cleanup",
+        "false",
+        "--resume-interrupted",
+        "false",
+        "--reconcile-stale",
+        "false",
+        "--max-tasks-per-tick",
+        "1",
+    ])?;
+    assert_ne!(exit_code, 0, "daemon start should fail when autonomous child exits");
+    let message = failure
+        .pointer("/error/message")
+        .and_then(Value::as_str)
+        .context("daemon start error should include /error/message")?;
+    assert!(
+        message.contains("autonomous daemon failed startup validation"),
+        "daemon start failure should indicate startup validation failure"
+    );
+    assert!(
+        message.contains("startup log path"),
+        "daemon start failure should include startup log path diagnostics"
+    );
+    assert!(
+        message.contains("startup log tail"),
+        "daemon start failure should include startup log tail diagnostics"
+    );
+
+    drop(lock_file);
     Ok(())
 }
 

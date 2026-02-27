@@ -446,22 +446,9 @@ impl AoMcpServer {
                         "result": data,
                     })))
                 } else {
-                    let mut payload = json!({ "tool": tool_name });
-                    if let Some(envelope) =
-                        result.stdout_json.as_ref().or(result.stderr_json.as_ref())
-                    {
-                        if let Some(error) = envelope.get("error") {
-                            payload["error"] = error.clone();
-                        } else if let Some(data) = envelope.get("data") {
-                            payload["error"] = data.clone();
-                        }
-                    }
-                    payload["exit_code"] = json!(result.exit_code);
-                    let stderr = result.stderr.trim().to_string();
-                    if !stderr.is_empty() {
-                        payload["stderr"] = json!(stderr);
-                    }
-                    Ok(CallToolResult::structured_error(payload))
+                    Ok(CallToolResult::structured_error(build_cli_error_payload(
+                        tool_name, &result,
+                    )))
                 }
             }
             Err(err) => Ok(CallToolResult::structured_error(json!({
@@ -2057,6 +2044,28 @@ fn parse_json(raw: &str) -> Option<Value> {
     serde_json::from_str(trimmed).ok()
 }
 
+fn build_cli_error_payload(tool_name: &str, result: &CliExecutionResult) -> Value {
+    let mut payload = json!({
+        "tool": tool_name,
+        "exit_code": result.exit_code,
+    });
+
+    if let Some(envelope) = result.stderr_json.as_ref().or(result.stdout_json.as_ref()) {
+        if let Some(error) = envelope.get("error") {
+            payload["error"] = error.clone();
+        } else if let Some(data) = envelope.get("data") {
+            payload["error"] = data.clone();
+        }
+    }
+
+    let stderr = result.stderr.trim().to_string();
+    if !stderr.is_empty() {
+        payload["stderr"] = json!(stderr);
+    }
+
+    payload
+}
+
 fn daemon_events_poll_limit(limit: Option<usize>) -> usize {
     let normalized = limit.unwrap_or(DEFAULT_DAEMON_EVENTS_LIMIT).max(1);
     normalized.min(MAX_DAEMON_EVENTS_LIMIT)
@@ -2243,6 +2252,64 @@ mod tests {
                 "--id".to_string(),
                 "task-123".to_string()
             ]
+        );
+    }
+
+    fn sample_cli_failure_result() -> CliExecutionResult {
+        CliExecutionResult {
+            command: "ao".to_string(),
+            args: vec!["--json".to_string()],
+            requested_args: vec!["daemon".to_string(), "start".to_string()],
+            project_root: "/tmp/project".to_string(),
+            exit_code: 5,
+            success: false,
+            stdout: String::new(),
+            stderr: String::new(),
+            stdout_json: None,
+            stderr_json: None,
+        }
+    }
+
+    #[test]
+    fn build_cli_error_payload_prefers_stderr_envelope_over_stdout_envelope() {
+        let mut result = sample_cli_failure_result();
+        result.stdout_json = Some(json!({
+            "schema": "ao.cli.v1",
+            "ok": false,
+            "error": { "message": "stdout-error" }
+        }));
+        result.stderr_json = Some(json!({
+            "schema": "ao.cli.v1",
+            "ok": false,
+            "error": { "message": "stderr-error" }
+        }));
+        result.stderr = "stderr body".to_string();
+
+        let payload = build_cli_error_payload("ao.daemon.start", &result);
+        assert_eq!(
+            payload.pointer("/error/message").and_then(Value::as_str),
+            Some("stderr-error")
+        );
+        assert_eq!(payload.get("exit_code").and_then(Value::as_i64), Some(5));
+        assert_eq!(
+            payload.get("stderr").and_then(Value::as_str),
+            Some("stderr body")
+        );
+    }
+
+    #[test]
+    fn build_cli_error_payload_falls_back_to_stdout_envelope_when_stderr_json_missing() {
+        let mut result = sample_cli_failure_result();
+        result.stdout_json = Some(json!({
+            "schema": "ao.cli.v1",
+            "ok": false,
+            "error": { "message": "stdout-error" }
+        }));
+
+        let payload = build_cli_error_payload("ao.daemon.start", &result);
+        assert_eq!(
+            payload.pointer("/error/message").and_then(Value::as_str),
+            Some("stdout-error")
         );
     }
 

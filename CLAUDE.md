@@ -87,5 +87,5 @@ ao task status --id TASK-XXX --status done          # Complete work
 - `classify_error` uses string matching on error messages (fragile)
 - `sanitize_identifier` / `repository_scope_for_path` duplicated across 3 locations
 - `Priority` type exists in 3 forms (protocol MoSCoW, core task priority, requirement priority)
-- `web_api_service.rs` and `cli_types.rs` are large monolith files
+- `web_api_service.rs` and `cli_types.rs` are large monolith files (tracked by TASK-041 docs in `crates/orchestrator-cli/docs/task-041-cli-types-web-api-service-modularization-*.md`)
 - Axum version mismatch: web-server uses 0.7, CLI uses 0.8

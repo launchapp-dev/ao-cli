@@ -1,0 +1,465 @@
+use anyhow::anyhow;
+use orchestrator_core::{
+    DependencyType, HandoffTargetRole, Priority, ProjectType, RequirementPriority,
+    RequirementStatus, RequirementType, RiskLevel, TaskFilter, TaskStatus, TaskType,
+    VisionDocument, VisionDraftInput,
+};
+use serde::de::DeserializeOwned;
+use serde_json::{json, Value};
+
+use crate::models::WebApiError;
+
+pub(super) fn parse_json_body<T: DeserializeOwned>(body: Value) -> Result<T, WebApiError> {
+    serde_json::from_value(body).map_err(|error| {
+        WebApiError::new("invalid_input", format!("invalid JSON body: {error}"), 2)
+    })
+}
+
+pub(super) fn enum_as_string<T: serde::Serialize>(value: &T) -> Result<String, WebApiError> {
+    let serialized = serde_json::to_value(value)
+        .map_err(|error| WebApiError::from(anyhow!("failed to serialize enum: {error}")))?;
+    Ok(serialized
+        .as_str()
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| "unknown".to_string()))
+}
+
+pub(super) fn default_true_flag() -> bool {
+    true
+}
+
+pub(super) fn normalize_optional_string(value: Option<String>) -> Option<String> {
+    value.and_then(|value| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    })
+}
+
+pub(super) fn normalize_string_list(values: Vec<String>) -> Vec<String> {
+    let mut normalized = Vec::new();
+
+    for value in values {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if !normalized.iter().any(|existing| existing == trimmed) {
+            normalized.push(trimmed.to_string());
+        }
+    }
+
+    normalized
+}
+
+pub(super) fn extract_project_name_from_markdown(markdown: &str) -> Option<String> {
+    for line in markdown.lines() {
+        let trimmed = line.trim();
+        if let Some(name) = trimmed.strip_prefix("- Name:") {
+            let name = name.trim();
+            if !name.is_empty() {
+                return Some(name.to_string());
+            }
+        }
+    }
+
+    None
+}
+
+pub(super) fn normalize_vision_input(input: &mut VisionDraftInput) {
+    input.project_name = normalize_optional_string(input.project_name.take());
+    input.problem_statement = input.problem_statement.trim().to_string();
+    input.target_users = normalize_string_list(std::mem::take(&mut input.target_users));
+    input.goals = normalize_string_list(std::mem::take(&mut input.goals));
+    input.constraints = normalize_string_list(std::mem::take(&mut input.constraints));
+    input.value_proposition = normalize_optional_string(input.value_proposition.take());
+}
+
+pub(super) fn refine_vision_heuristically(
+    current: &VisionDocument,
+    focus: Option<&str>,
+) -> (VisionDraftInput, Value, String) {
+    let mut goals = current.goals.clone();
+    let mut constraints = current.constraints.clone();
+    let mut goals_added = Vec::new();
+    let mut constraints_added = Vec::new();
+    let mut notes = Vec::new();
+
+    let goals_haystack = goals.join(" ").to_ascii_lowercase();
+    if !goals_haystack.contains("success metric") && !goals_haystack.contains("kpi") {
+        let addition = "Define measurable success metrics (activation, retention, and business impact) with explicit go/no-go thresholds.".to_string();
+        goals.push(addition.clone());
+        goals_added.push(addition);
+        notes.push("added measurable success metric guidance".to_string());
+    }
+
+    let constraints_haystack = constraints.join(" ").to_ascii_lowercase();
+    if !constraints_haystack.contains("traceable")
+        && !constraints_haystack.contains("machine-readable")
+    {
+        let addition =
+            "Requirements, tasks, and workflow artifacts must remain traceable and machine-readable."
+                .to_string();
+        constraints.push(addition.clone());
+        constraints_added.push(addition);
+        notes.push("added traceability constraint".to_string());
+    }
+
+    let mut normalized_focus = None;
+    if let Some(focus) = focus {
+        let focus = focus.trim();
+        if !focus.is_empty() {
+            normalized_focus = Some(focus.to_string());
+            let focus_lower = focus.to_ascii_lowercase();
+            let already_present = constraints
+                .iter()
+                .any(|constraint| constraint.to_ascii_lowercase().contains(&focus_lower));
+
+            if !already_present {
+                let addition = format!(
+                    "Refinement focus must be reflected in requirement acceptance criteria: {focus}."
+                );
+                constraints.push(addition.clone());
+                constraints_added.push(addition);
+            }
+            notes.push("captured requested refinement focus".to_string());
+        }
+    }
+
+    let project_name = extract_project_name_from_markdown(&current.markdown);
+    let value_proposition = match current.value_proposition.clone() {
+        Some(value) => Some(value),
+        None => {
+            notes.push("filled missing value proposition".to_string());
+            Some(
+                "Deliver measurable value for target users while preserving deterministic execution quality."
+                    .to_string(),
+            )
+        }
+    };
+
+    let mut refined_input = VisionDraftInput {
+        project_name,
+        problem_statement: current.problem_statement.clone(),
+        target_users: current.target_users.clone(),
+        goals,
+        constraints,
+        value_proposition,
+        complexity_assessment: current.complexity_assessment.clone(),
+    };
+    normalize_vision_input(&mut refined_input);
+
+    let rationale = if notes.is_empty() {
+        "No heuristic deltas were required; retained current vision content.".to_string()
+    } else {
+        format!(
+            "Heuristic refinement {}.",
+            notes
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
+
+    (
+        refined_input,
+        json!({
+            "goals_added": goals_added,
+            "constraints_added": constraints_added,
+            "focus": normalized_focus,
+        }),
+        rationale,
+    )
+}
+
+pub(super) fn build_task_filter(
+    task_type: Option<String>,
+    status: Option<String>,
+    priority: Option<String>,
+    risk: Option<String>,
+    assignee_type: Option<String>,
+    tags: Vec<String>,
+    linked_requirement: Option<String>,
+    linked_architecture_entity: Option<String>,
+    search: Option<String>,
+) -> Result<TaskFilter, WebApiError> {
+    Ok(TaskFilter {
+        task_type: parse_task_type_opt(task_type.as_deref())?,
+        status: status
+            .as_deref()
+            .map(parse_task_status)
+            .transpose()
+            .map_err(WebApiError::from)?,
+        priority: parse_priority_opt(priority.as_deref())?,
+        risk: parse_risk_opt(risk.as_deref())?,
+        assignee_type,
+        tags: if tags.is_empty() { None } else { Some(tags) },
+        linked_requirement,
+        linked_architecture_entity,
+        search_text: search,
+    })
+}
+
+pub(super) fn is_empty_task_filter(filter: &TaskFilter) -> bool {
+    filter.task_type.is_none()
+        && filter.status.is_none()
+        && filter.priority.is_none()
+        && filter.risk.is_none()
+        && filter.assignee_type.is_none()
+        && filter.tags.is_none()
+        && filter.linked_requirement.is_none()
+        && filter.linked_architecture_entity.is_none()
+        && filter.search_text.is_none()
+}
+
+pub(super) fn parse_task_status(value: &str) -> Result<TaskStatus, WebApiError> {
+    let parsed = match value {
+        "todo" | "backlog" => TaskStatus::Backlog,
+        "ready" => TaskStatus::Ready,
+        "in_progress" | "in-progress" => TaskStatus::InProgress,
+        "done" => TaskStatus::Done,
+        "blocked" => TaskStatus::Blocked,
+        "on_hold" | "on-hold" => TaskStatus::OnHold,
+        "cancelled" => TaskStatus::Cancelled,
+        _ => {
+            return Err(WebApiError::new(
+                "invalid_input",
+                format!("invalid status: {value}"),
+                2,
+            ))
+        }
+    };
+    Ok(parsed)
+}
+
+pub(super) fn parse_requirement_priority(value: &str) -> Result<RequirementPriority, WebApiError> {
+    let parsed = match value.trim().to_ascii_lowercase().as_str() {
+        "must" => RequirementPriority::Must,
+        "should" => RequirementPriority::Should,
+        "could" => RequirementPriority::Could,
+        "wont" | "won't" => RequirementPriority::Wont,
+        _ => {
+            return Err(WebApiError::new(
+                "invalid_input",
+                format!("invalid requirement priority: {value}"),
+                2,
+            ))
+        }
+    };
+
+    Ok(parsed)
+}
+
+pub(super) fn parse_requirement_priority_opt(
+    value: Option<&str>,
+) -> Result<Option<RequirementPriority>, WebApiError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+
+    Ok(Some(parse_requirement_priority(value)?))
+}
+
+pub(super) fn parse_requirement_status(value: &str) -> Result<RequirementStatus, WebApiError> {
+    let normalized = value.trim().to_ascii_lowercase().replace('_', "-");
+    let parsed = match normalized.as_str() {
+        "draft" => RequirementStatus::Draft,
+        "refined" => RequirementStatus::Refined,
+        "planned" => RequirementStatus::Planned,
+        "in-progress" => RequirementStatus::InProgress,
+        "done" => RequirementStatus::Done,
+        "po-review" => RequirementStatus::PoReview,
+        "em-review" => RequirementStatus::EmReview,
+        "needs-rework" => RequirementStatus::NeedsRework,
+        "approved" => RequirementStatus::Approved,
+        "implemented" => RequirementStatus::Implemented,
+        "deprecated" => RequirementStatus::Deprecated,
+        _ => {
+            return Err(WebApiError::new(
+                "invalid_input",
+                format!("invalid requirement status: {value}"),
+                2,
+            ))
+        }
+    };
+
+    Ok(parsed)
+}
+
+pub(super) fn parse_requirement_status_opt(
+    value: Option<&str>,
+) -> Result<Option<RequirementStatus>, WebApiError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+
+    Ok(Some(parse_requirement_status(value)?))
+}
+
+pub(super) fn parse_requirement_type_opt(
+    value: Option<&str>,
+) -> Result<Option<RequirementType>, WebApiError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+
+    let normalized = value.trim().to_ascii_lowercase().replace('_', "-");
+    let parsed = match normalized.as_str() {
+        "product" => RequirementType::Product,
+        "functional" => RequirementType::Functional,
+        "non-functional" => RequirementType::NonFunctional,
+        "technical" => RequirementType::Technical,
+        "other" => RequirementType::Other,
+        _ => {
+            return Err(WebApiError::new(
+                "invalid_input",
+                format!("invalid requirement_type: {value}"),
+                2,
+            ))
+        }
+    };
+
+    Ok(Some(parsed))
+}
+
+pub(super) fn parse_handoff_target_role(value: &str) -> Result<HandoffTargetRole, WebApiError> {
+    HandoffTargetRole::try_from(value)
+        .map_err(|error| WebApiError::new("invalid_input", format!("{error}"), 2))
+}
+
+pub(super) fn parse_task_type_opt(value: Option<&str>) -> Result<Option<TaskType>, WebApiError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+
+    let parsed = match value {
+        "feature" => TaskType::Feature,
+        "bugfix" => TaskType::Bugfix,
+        "hotfix" => TaskType::Hotfix,
+        "refactor" => TaskType::Refactor,
+        "docs" => TaskType::Docs,
+        "test" => TaskType::Test,
+        "chore" => TaskType::Chore,
+        "experiment" => TaskType::Experiment,
+        _ => {
+            return Err(WebApiError::new(
+                "invalid_input",
+                format!("invalid task_type: {value}"),
+                2,
+            ))
+        }
+    };
+
+    Ok(Some(parsed))
+}
+
+pub(super) fn parse_priority_opt(value: Option<&str>) -> Result<Option<Priority>, WebApiError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+
+    let parsed = match value {
+        "critical" => Priority::Critical,
+        "high" => Priority::High,
+        "medium" => Priority::Medium,
+        "low" => Priority::Low,
+        _ => {
+            return Err(WebApiError::new(
+                "invalid_input",
+                format!("invalid priority: {value}"),
+                2,
+            ))
+        }
+    };
+
+    Ok(Some(parsed))
+}
+
+pub(super) fn parse_risk_opt(value: Option<&str>) -> Result<Option<RiskLevel>, WebApiError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+
+    let parsed = match value {
+        "high" => RiskLevel::High,
+        "medium" => RiskLevel::Medium,
+        "low" => RiskLevel::Low,
+        _ => {
+            return Err(WebApiError::new(
+                "invalid_input",
+                format!("invalid risk: {value}"),
+                2,
+            ))
+        }
+    };
+
+    Ok(Some(parsed))
+}
+
+pub(super) fn parse_dependency_type(value: &str) -> Result<DependencyType, WebApiError> {
+    let parsed = match value {
+        "blocks-by" | "blocks_by" | "blocksby" => DependencyType::BlocksBy,
+        "blocked-by" | "blocked_by" | "blockedby" => DependencyType::BlockedBy,
+        "related-to" | "related_to" | "relatedto" => DependencyType::RelatedTo,
+        _ => {
+            return Err(WebApiError::new(
+                "invalid_input",
+                format!("invalid dependency_type: {value}"),
+                2,
+            ))
+        }
+    };
+
+    Ok(parsed)
+}
+
+pub(super) fn parse_project_type_opt(
+    value: Option<&str>,
+) -> Result<Option<ProjectType>, WebApiError> {
+    let Some(value) = value else {
+        return Ok(Some(ProjectType::Other));
+    };
+
+    let normalized = value.trim().to_ascii_lowercase();
+    let parsed = match normalized.as_str() {
+        "web-app" | "web_app" | "webapp" => ProjectType::WebApp,
+        "mobile-app" | "mobile_app" | "mobileapp" => ProjectType::MobileApp,
+        "desktop-app" | "desktop_app" | "desktopapp" => ProjectType::DesktopApp,
+        "full-stack-platform"
+        | "full_stack_platform"
+        | "fullstackplatform"
+        | "full-stack"
+        | "full_stack"
+        | "fullstack"
+        | "saas" => ProjectType::FullStackPlatform,
+        "library" => ProjectType::Library,
+        "infrastructure" => ProjectType::Infrastructure,
+        "other" | "greenfield" | "existing" => ProjectType::Other,
+        _ => {
+            return Err(WebApiError::new(
+                "invalid_input",
+                format!("invalid project_type: {}", value.trim()),
+                2,
+            ))
+        }
+    };
+
+    Ok(Some(parsed))
+}
+
+pub(super) fn requirement_status_key(status: RequirementStatus) -> String {
+    match status {
+        RequirementStatus::Draft => "draft",
+        RequirementStatus::Refined => "refined",
+        RequirementStatus::Planned => "planned",
+        RequirementStatus::InProgress => "in-progress",
+        RequirementStatus::Done => "done",
+        RequirementStatus::PoReview => "po-review",
+        RequirementStatus::EmReview => "em-review",
+        RequirementStatus::NeedsRework => "needs-rework",
+        RequirementStatus::Approved => "approved",
+        RequirementStatus::Implemented => "implemented",
+        RequirementStatus::Deprecated => "deprecated",
+    }
+    .to_string()
+}

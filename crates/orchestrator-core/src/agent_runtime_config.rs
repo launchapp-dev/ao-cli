@@ -1235,6 +1235,7 @@ mod tests {
     fn builtin_defaults_mark_review_as_structured_output() {
         let config = builtin_agent_runtime_config();
         assert!(config.is_structured_output_phase("code-review"));
-        assert!(!config.is_structured_output_phase("implementation"));
+        assert!(config.is_structured_output_phase("implementation"));
+        assert!(!config.is_structured_output_phase("testing"));
     }
 }

@@ -1,0 +1,52 @@
+{
+  "acceptance_criteria": [
+    "Agent Chat page is the default landing page and shows all active agent sessions with live-streaming output (OutputChunk, Thinking events) in a chat-style interface.",
+    "Users can send messages/instructions to running agents via a chat input, with the message delivered through the agent-runner IPC channel.",
+    "Each agent session shows: task context, current phase, confidence/verdict from PhaseDecision, elapsed time, and token usage.",
+    "Agent output renders structured content: code blocks with syntax highlighting, JSON decisions with collapsible detail, file diffs inline, and thinking/reasoning in a distinct visual style.",
+    "Chat history persists across page navigations and reconnects via SSE replay (last-event-id).",
+    "Task Board page shows all tasks in a kanban-style board grouped by status columns (backlog, ready, in-progress, blocked, done) with drag-and-drop status transitions.",
+    "Workflow Monitor page shows active workflows as a phase pipeline visualization with real-time progress, decision gates, and drill-down to agent output per phase.",
+    "Planning Hub page consolidates vision, requirements, and task creation into a guided flow with AI-assisted refinement.",
+    "Navigation prominently features agent count badge and notification indicators for agent events (decisions, errors, handoff requests).",
+    "All pages are responsive and functional on tablet/mobile viewports with touch-friendly controls.",
+    "Page structure supports deep-linking: /agents/:runId opens a specific agent chat session directly.",
+    "Dashboard provides at-a-glance metrics: active agents, queue depth, recent decisions, throughput (tasks/hour), and error rate."
+  ],
+  "category": "web-app",
+  "comments": [],
+  "created_at": "2026-02-27T16:17:55.306089+00:00",
+  "description": "Redesign the AO web application with agent interaction as the primary experience. The current web app is a CRUD management interface for tasks, requirements, and workflows. The new design makes **agent chat the centerpiece** \u2014 users should spend most of their time watching agents work, steering their decisions, and reviewing output, not clicking through admin forms.\n\n## Design Philosophy\n\nThe web app should feel like a **mission control for AI agents**, not a project management tool. The primary loop is:\n1. See what agents are doing right now (Agent Chat)\n2. Review their decisions and output (Workflow Monitor)\n3. Queue up more work (Task Board)\n4. Plan what needs to happen (Planning Hub)\n\n## Page Structure\n\n### 1. Agent Chat (Primary \u2014 `/agents`)\nThe default landing page. Split into:\n- **Session List** (left panel): All active agent runs, grouped by task. Shows agent model, phase, elapsed time, and status indicator (thinking, writing, idle, error).\n- **Chat View** (main panel): Selected agent's live output stream in a conversational layout:\n  - Agent thinking/reasoning shown in collapsible blocks with distinct styling\n  - Code changes shown as inline diffs with syntax highlighting\n  - JSON decisions (PhaseDecision, research_required, implementation_result) rendered as structured cards\n  - File modifications shown with before/after previews\n  - Error output highlighted with stack trace formatting\n- **Context Sidebar** (right panel, collapsible): Task details, linked requirements, phase pipeline progress, decision history for current workflow.\n- **Chat Input** (bottom): Send instructions/guidance to the running agent. Support for: plain text, code snippets, file references.\n- **Session URL**: `/agents/:runId` deep-links to a specific session.\n\n### 2. Task Board (`/tasks`)\nKanban-style board replacing the current list view:\n- Columns: Backlog | Ready | In Progress | Blocked | Done\n- Cards show: title, priority badge, assignee, linked workflow status indicator\n- Drag-and-drop between columns triggers status transition API calls\n- Click card \u2192 slide-out detail panel (not full page navigation)\n- Quick actions: assign, set priority, start workflow, add dependency\n- Filter bar: by priority, type, assignee, tag, requirement\n- \"New Task\" button opens inline creation form\n\n### 3. Workflow Monitor (`/workflows`)\nReal-time workflow execution dashboard:\n- Active workflows shown as horizontal phase pipelines (requirements \u2192 research \u2192 implementation \u2192 code-review \u2192 testing)\n- Each phase node shows: status (pending/running/passed/failed/rework), duration, agent model, decision verdict\n- Click a phase \u2192 opens agent chat for that phase's run\n- Decision gate visualization: confidence meter, risk indicator, evidence list, verdict (advance/rework/fail)\n- Rework loops shown as cycle indicators on the pipeline\n- Completed workflows shown in a timeline below\n\n### 4. Planning Hub (`/planning`)\nConsolidated planning interface:\n- **Vision** tab: Vision document editor with AI refinement\n- **Requirements** tab: Requirement list with status pipeline, priority matrix, acceptance criteria editor\n- **Generate** tab: AI-assisted task generation from requirements \u2014 select requirements, generate task breakdown, review and approve\n- Links between requirements \u2192 tasks \u2192 workflows visible as breadcrumb trails\n\n### 5. Dashboard (`/dashboard`)\nAt-a-glance operational metrics:\n- Active agents count with model breakdown\n- Queue depth (ready tasks waiting for agents)\n- Recent decisions (last 10) with verdict/confidence sparkline\n- Throughput: tasks completed per hour/day\n- Error rate and recent failures\n- Daemon health status with uptime\n- Quick actions: start/stop daemon, pause scheduling\n\n### 6. Settings (`/settings`)\n- Daemon configuration (max agents, interval, timeouts)\n- Agent runtime config editor (model selection, phase directives)\n- Storage backend selection (json-file, sqlite, postgres)\n- Notification preferences\n\n## Technical Constraints\n- Must use existing Axum web server and embedded static assets pattern\n- Must consume existing /api/v1 REST endpoints (extend as needed)\n- SSE for real-time updates (existing /api/v1/events endpoint)\n- WebSocket for bidirectional agent chat (new endpoint needed)\n- React + TypeScript frontend with Vite build\n- No additional frontend framework dependencies beyond what exists",
+  "id": "REQ-029",
+  "legacy_id": null,
+  "links": {
+    "flows": [],
+    "mockups": [],
+    "related_requirements": [
+      "REQ-020",
+      "REQ-022"
+    ],
+    "tasks": [
+      "TASK-065",
+      "TASK-066",
+      "TASK-067",
+      "TASK-068",
+      "TASK-069",
+      "TASK-083"
+    ],
+    "tests": [],
+    "workflows": []
+  },
+  "priority": "must",
+  "status": "draft",
+  "tags": [
+    "web-app",
+    "agent-chat",
+    "ux",
+    "real-time",
+    "lens-product"
+  ],
+  "title": "Agent-first web application redesign with chat-centric page structure",
+  "type": "product",
+  "updated_at": "2026-02-27T16:17:55.306320+00:00"
+}

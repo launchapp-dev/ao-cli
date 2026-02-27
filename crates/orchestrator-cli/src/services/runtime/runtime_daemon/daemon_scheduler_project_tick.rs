@@ -875,16 +875,26 @@ pub(super) async fn reconcile_stale_in_progress_tasks_for_project(
             continue;
         }
         if failed_task_ids.contains(&task.id) {
-            hub.tasks()
-                .set_status(&task.id, TaskStatus::Blocked)
-                .await?;
+            sync_task_status_for_workflow_result(
+                hub.clone(),
+                project_root,
+                &task.id,
+                WorkflowStatus::Failed,
+                None,
+            )
+            .await;
             reconciled = reconciled.saturating_add(1);
             continue;
         }
         if cancelled_task_ids.contains(&task.id) {
-            hub.tasks()
-                .set_status(&task.id, TaskStatus::Cancelled)
-                .await?;
+            sync_task_status_for_workflow_result(
+                hub.clone(),
+                project_root,
+                &task.id,
+                WorkflowStatus::Cancelled,
+                None,
+            )
+            .await;
             reconciled = reconciled.saturating_add(1);
             continue;
         }
@@ -2302,6 +2312,136 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn run_ready_dispatches_multiple_tasks_from_em_queue_before_fallback_picker() {
+        let _lock = env_lock().lock().expect("env lock should be available");
+        let home = TempDir::new().expect("home temp dir");
+        let _home_guard = EnvVarGuard::set("HOME", Some(home.path().to_string_lossy().as_ref()));
+
+        let hub = Arc::new(orchestrator_core::InMemoryServiceHub::new());
+        let project_root = TempDir::new().expect("project temp dir");
+        let project_root_str = project_root.path().to_string_lossy().to_string();
+
+        let queue_task_one = hub
+            .tasks()
+            .create(TaskCreateInput {
+                title: "queue-one".to_string(),
+                description: "first queue entry should start first".to_string(),
+                task_type: Some(TaskType::Feature),
+                priority: Some(Priority::Low),
+                created_by: Some("test".to_string()),
+                tags: Vec::new(),
+                linked_requirements: Vec::new(),
+                linked_architecture_entities: Vec::new(),
+            })
+            .await
+            .expect("first queue task should be created");
+        hub.tasks()
+            .set_status(&queue_task_one.id, TaskStatus::Ready)
+            .await
+            .expect("first queue task should be ready");
+
+        let queue_task_two = hub
+            .tasks()
+            .create(TaskCreateInput {
+                title: "queue-two".to_string(),
+                description: "second queue entry should start second".to_string(),
+                task_type: Some(TaskType::Feature),
+                priority: Some(Priority::Low),
+                created_by: Some("test".to_string()),
+                tags: Vec::new(),
+                linked_requirements: Vec::new(),
+                linked_architecture_entities: Vec::new(),
+            })
+            .await
+            .expect("second queue task should be created");
+        hub.tasks()
+            .set_status(&queue_task_two.id, TaskStatus::Ready)
+            .await
+            .expect("second queue task should be ready");
+
+        let fallback_task = hub
+            .tasks()
+            .create(TaskCreateInput {
+                title: "fallback-not-selected".to_string(),
+                description: "fallback picker should not run when queue yields tasks".to_string(),
+                task_type: Some(TaskType::Feature),
+                priority: Some(Priority::Critical),
+                created_by: Some("test".to_string()),
+                tags: Vec::new(),
+                linked_requirements: Vec::new(),
+                linked_architecture_entities: Vec::new(),
+            })
+            .await
+            .expect("fallback task should be created");
+        hub.tasks()
+            .set_status(&fallback_task.id, TaskStatus::Ready)
+            .await
+            .expect("fallback task should be ready");
+
+        save_em_work_queue_state(
+            &project_root_str,
+            &EmWorkQueueState {
+                entries: vec![
+                    EmWorkQueueEntry {
+                        task_id: queue_task_one.id.clone(),
+                        status: EmWorkQueueEntryStatus::Pending,
+                        workflow_id: None,
+                        assigned_at: None,
+                    },
+                    EmWorkQueueEntry {
+                        task_id: queue_task_two.id.clone(),
+                        status: EmWorkQueueEntryStatus::Pending,
+                        workflow_id: None,
+                        assigned_at: None,
+                    },
+                ],
+            },
+        )
+        .expect("queue state should be stored");
+
+        let summary = run_ready_task_workflows_for_project(
+            hub.clone() as Arc<dyn ServiceHub>,
+            &project_root_str,
+            2,
+        )
+        .await
+        .expect("ready runner should succeed");
+
+        assert_eq!(summary.started, 2);
+        assert_eq!(summary.started_workflows.len(), 2);
+        assert_eq!(summary.started_workflows[0].task_id, queue_task_one.id);
+        assert_eq!(summary.started_workflows[1].task_id, queue_task_two.id);
+        assert_eq!(
+            summary.started_workflows[0].selection_source,
+            TaskSelectionSource::EmQueue
+        );
+        assert_eq!(
+            summary.started_workflows[1].selection_source,
+            TaskSelectionSource::EmQueue
+        );
+        assert!(!summary
+            .started_workflows
+            .iter()
+            .any(|started| started.task_id == fallback_task.id));
+
+        let queue_state = load_em_work_queue_state(&project_root_str)
+            .expect("queue should load")
+            .expect("queue should exist");
+        for started in &summary.started_workflows {
+            let queue_entry = queue_state
+                .entries
+                .iter()
+                .find(|entry| entry.task_id == started.task_id)
+                .expect("started queue entry should remain present");
+            assert_eq!(queue_entry.status, EmWorkQueueEntryStatus::Assigned);
+            assert_eq!(
+                queue_entry.workflow_id.as_deref(),
+                Some(started.workflow_id.as_str())
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn run_ready_falls_back_when_queue_has_no_dispatchable_entries() {
         let _lock = env_lock().lock().expect("env lock should be available");
         let home = TempDir::new().expect("home temp dir");
@@ -2426,6 +2566,79 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn sync_task_status_for_workflow_result_removes_assigned_queue_entries_on_completion() {
+        let _lock = env_lock().lock().expect("env lock should be available");
+        let home = TempDir::new().expect("home temp dir");
+        let _home_guard = EnvVarGuard::set("HOME", Some(home.path().to_string_lossy().as_ref()));
+
+        let hub = Arc::new(orchestrator_core::InMemoryServiceHub::new());
+        let project_root = TempDir::new().expect("project temp dir");
+        let project_root_str = project_root.path().to_string_lossy().to_string();
+
+        let task = hub
+            .tasks()
+            .create(TaskCreateInput {
+                title: "queue-terminal-cleanup-completed".to_string(),
+                description: "assigned queue entry should be removed after completion".to_string(),
+                task_type: Some(TaskType::Feature),
+                priority: Some(Priority::Medium),
+                created_by: Some("test".to_string()),
+                tags: Vec::new(),
+                linked_requirements: Vec::new(),
+                linked_architecture_entities: Vec::new(),
+            })
+            .await
+            .expect("task should be created");
+        hub.tasks()
+            .set_status(&task.id, TaskStatus::InProgress)
+            .await
+            .expect("task should be in-progress");
+
+        let workflow = hub
+            .workflows()
+            .run(WorkflowRunInput {
+                task_id: task.id.clone(),
+                pipeline_id: None,
+            })
+            .await
+            .expect("workflow should start");
+
+        save_em_work_queue_state(
+            &project_root_str,
+            &EmWorkQueueState {
+                entries: vec![EmWorkQueueEntry {
+                    task_id: task.id.clone(),
+                    status: EmWorkQueueEntryStatus::Assigned,
+                    workflow_id: Some(workflow.id.clone()),
+                    assigned_at: Some(Utc::now().to_rfc3339()),
+                }],
+            },
+        )
+        .expect("queue state should be written");
+
+        sync_task_status_for_workflow_result(
+            hub.clone() as Arc<dyn ServiceHub>,
+            &project_root_str,
+            task.id.as_str(),
+            WorkflowStatus::Completed,
+            Some(workflow.id.as_str()),
+        )
+        .await;
+
+        let updated_task = hub.tasks().get(&task.id).await.expect("task should load");
+        assert_eq!(updated_task.status, TaskStatus::Done);
+
+        let queue_state =
+            load_em_work_queue_state(&project_root_str).expect("queue should load after cleanup");
+        assert!(
+            queue_state.is_none()
+                || queue_state
+                    .as_ref()
+                    .is_some_and(|state| state.entries.is_empty())
+        );
+    }
+
+    #[tokio::test]
     async fn sync_task_status_for_workflow_result_removes_assigned_queue_entries_on_failure() {
         let _lock = env_lock().lock().expect("env lock should be available");
         let home = TempDir::new().expect("home temp dir");
@@ -2484,6 +2697,162 @@ mod tests {
             Some(workflow.id.as_str()),
         )
         .await;
+
+        let queue_state =
+            load_em_work_queue_state(&project_root_str).expect("queue should load after cleanup");
+        assert!(
+            queue_state.is_none()
+                || queue_state
+                    .as_ref()
+                    .is_some_and(|state| state.entries.is_empty())
+        );
+    }
+
+    #[tokio::test]
+    async fn reconcile_stale_in_progress_removes_assigned_queue_entries_for_failed_workflow() {
+        let _lock = env_lock().lock().expect("env lock should be available");
+        let home = TempDir::new().expect("home temp dir");
+        let _home_guard = EnvVarGuard::set("HOME", Some(home.path().to_string_lossy().as_ref()));
+
+        let hub = Arc::new(orchestrator_core::InMemoryServiceHub::new());
+        let project_root = TempDir::new().expect("project temp dir");
+        let project_root_str = project_root.path().to_string_lossy().to_string();
+
+        let task = hub
+            .tasks()
+            .create(TaskCreateInput {
+                title: "stale-failed-reconcile-queue-cleanup".to_string(),
+                description: "failed stale reconciliation should remove queue assignment"
+                    .to_string(),
+                task_type: Some(TaskType::Feature),
+                priority: Some(Priority::Medium),
+                created_by: Some("test".to_string()),
+                tags: Vec::new(),
+                linked_requirements: Vec::new(),
+                linked_architecture_entities: Vec::new(),
+            })
+            .await
+            .expect("task should be created");
+        hub.tasks()
+            .set_status(&task.id, TaskStatus::InProgress)
+            .await
+            .expect("task should be in-progress");
+
+        let workflow = hub
+            .workflows()
+            .run(WorkflowRunInput {
+                task_id: task.id.clone(),
+                pipeline_id: None,
+            })
+            .await
+            .expect("workflow should start");
+
+        hub.workflows()
+            .fail_current_phase(&workflow.id, "forced failure".to_string())
+            .await
+            .expect("workflow should fail");
+
+        save_em_work_queue_state(
+            &project_root_str,
+            &EmWorkQueueState {
+                entries: vec![EmWorkQueueEntry {
+                    task_id: task.id.clone(),
+                    status: EmWorkQueueEntryStatus::Assigned,
+                    workflow_id: Some(workflow.id.clone()),
+                    assigned_at: Some(Utc::now().to_rfc3339()),
+                }],
+            },
+        )
+        .expect("queue state should be written");
+
+        let reconciled = reconcile_stale_in_progress_tasks_for_project(
+            hub.clone() as Arc<dyn ServiceHub>,
+            &project_root_str,
+        )
+        .await
+        .expect("stale reconciliation should succeed");
+        assert_eq!(reconciled, 1);
+
+        let updated_task = hub.tasks().get(&task.id).await.expect("task should load");
+        assert_eq!(updated_task.status, TaskStatus::Blocked);
+
+        let queue_state =
+            load_em_work_queue_state(&project_root_str).expect("queue should load after cleanup");
+        assert!(
+            queue_state.is_none()
+                || queue_state
+                    .as_ref()
+                    .is_some_and(|state| state.entries.is_empty())
+        );
+    }
+
+    #[tokio::test]
+    async fn reconcile_stale_in_progress_removes_assigned_queue_entries_for_cancelled_workflow() {
+        let _lock = env_lock().lock().expect("env lock should be available");
+        let home = TempDir::new().expect("home temp dir");
+        let _home_guard = EnvVarGuard::set("HOME", Some(home.path().to_string_lossy().as_ref()));
+
+        let hub = Arc::new(orchestrator_core::InMemoryServiceHub::new());
+        let project_root = TempDir::new().expect("project temp dir");
+        let project_root_str = project_root.path().to_string_lossy().to_string();
+
+        let task = hub
+            .tasks()
+            .create(TaskCreateInput {
+                title: "stale-cancelled-reconcile-queue-cleanup".to_string(),
+                description: "cancelled stale reconciliation should remove queue assignment"
+                    .to_string(),
+                task_type: Some(TaskType::Feature),
+                priority: Some(Priority::Medium),
+                created_by: Some("test".to_string()),
+                tags: Vec::new(),
+                linked_requirements: Vec::new(),
+                linked_architecture_entities: Vec::new(),
+            })
+            .await
+            .expect("task should be created");
+        hub.tasks()
+            .set_status(&task.id, TaskStatus::InProgress)
+            .await
+            .expect("task should be in-progress");
+
+        let workflow = hub
+            .workflows()
+            .run(WorkflowRunInput {
+                task_id: task.id.clone(),
+                pipeline_id: None,
+            })
+            .await
+            .expect("workflow should start");
+
+        hub.workflows()
+            .cancel(&workflow.id)
+            .await
+            .expect("workflow should cancel");
+
+        save_em_work_queue_state(
+            &project_root_str,
+            &EmWorkQueueState {
+                entries: vec![EmWorkQueueEntry {
+                    task_id: task.id.clone(),
+                    status: EmWorkQueueEntryStatus::Assigned,
+                    workflow_id: Some(workflow.id.clone()),
+                    assigned_at: Some(Utc::now().to_rfc3339()),
+                }],
+            },
+        )
+        .expect("queue state should be written");
+
+        let reconciled = reconcile_stale_in_progress_tasks_for_project(
+            hub.clone() as Arc<dyn ServiceHub>,
+            &project_root_str,
+        )
+        .await
+        .expect("stale reconciliation should succeed");
+        assert_eq!(reconciled, 1);
+
+        let updated_task = hub.tasks().get(&task.id).await.expect("task should load");
+        assert_eq!(updated_task.status, TaskStatus::Cancelled);
 
         let queue_state =
             load_em_work_queue_state(&project_root_str).expect("queue should load after cleanup");

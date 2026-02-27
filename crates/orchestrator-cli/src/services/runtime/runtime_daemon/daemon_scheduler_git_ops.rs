@@ -74,6 +74,42 @@ fn env_bool_override(key: &str) -> Option<bool> {
     }
 }
 
+const RUNTIME_BINARY_REFRESH_STATE_FILE: &str = "runtime-binary-refresh.json";
+const RUNTIME_BINARY_REFRESH_RETRY_BACKOFF_SECS: i64 = 300;
+const RUNTIME_BINARY_REFRESH_ENABLED_ENV: &str = "AO_AUTO_REBUILD_RUNNER_ON_MAIN_UPDATE";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RuntimeBinaryRefreshTrigger {
+    Tick,
+    PostMerge,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RuntimeBinaryRefreshOutcome {
+    Disabled,
+    NotGitRepo,
+    NotSupported,
+    MainHeadUnavailable,
+    Unchanged,
+    DeferredActiveAgents,
+    DeferredBackoff,
+    BuildFailed,
+    RunnerRefreshFailed,
+    Refreshed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct RuntimeBinaryRefreshState {
+    #[serde(default)]
+    last_successful_main_head: Option<String>,
+    #[serde(default)]
+    last_attempt_main_head: Option<String>,
+    #[serde(default)]
+    last_attempt_unix_secs: Option<i64>,
+    #[serde(default)]
+    last_error: Option<String>,
+}
+
 fn resolve_task_source_branch(task: &orchestrator_core::OrchestratorTask) -> Option<String> {
     if let Some(branch_name) = task
         .branch_name
@@ -481,6 +517,303 @@ pub(super) fn flush_git_integration_outbox(project_root: &str) -> Result<()> {
     }
 
     save_git_integration_outbox(project_root, &remaining)
+}
+
+fn runtime_binary_refresh_enabled() -> bool {
+    env_bool_override(RUNTIME_BINARY_REFRESH_ENABLED_ENV).unwrap_or(true)
+}
+
+fn runtime_binary_refresh_supported(project_root: &str) -> bool {
+    #[cfg(test)]
+    {
+        let _ = project_root;
+        return true;
+    }
+
+    #[allow(unreachable_code)]
+    {
+        let config_path = Path::new(project_root).join(".cargo").join("config.toml");
+        let Ok(content) = fs::read_to_string(config_path) else {
+            return false;
+        };
+        content.contains("ao-bin-build")
+    }
+}
+
+fn runtime_binary_refresh_retry_backoff_secs() -> i64 {
+    std::env::var("AO_RUNTIME_BINARY_REFRESH_RETRY_SECS")
+        .ok()
+        .and_then(|raw| raw.trim().parse::<i64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(RUNTIME_BINARY_REFRESH_RETRY_BACKOFF_SECS)
+}
+
+fn runtime_binary_refresh_state_path(project_root: &str) -> Result<PathBuf> {
+    Ok(repo_ao_root(project_root)?
+        .join("sync")
+        .join(RUNTIME_BINARY_REFRESH_STATE_FILE))
+}
+
+fn load_runtime_binary_refresh_state(project_root: &str) -> RuntimeBinaryRefreshState {
+    let Ok(path) = runtime_binary_refresh_state_path(project_root) else {
+        return RuntimeBinaryRefreshState::default();
+    };
+    if !path.exists() {
+        return RuntimeBinaryRefreshState::default();
+    }
+
+    let Ok(content) = fs::read_to_string(&path) else {
+        return RuntimeBinaryRefreshState::default();
+    };
+    if content.trim().is_empty() {
+        return RuntimeBinaryRefreshState::default();
+    }
+
+    serde_json::from_str::<RuntimeBinaryRefreshState>(&content).unwrap_or_default()
+}
+
+fn save_runtime_binary_refresh_state(
+    project_root: &str,
+    state: &RuntimeBinaryRefreshState,
+) -> Result<()> {
+    let path = runtime_binary_refresh_state_path(project_root)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or(RUNTIME_BINARY_REFRESH_STATE_FILE);
+    let tmp_path = path.with_file_name(format!("{file_name}.{}.tmp", Uuid::new_v4()));
+    let payload = serde_json::to_string_pretty(state)?;
+    fs::write(&tmp_path, format!("{payload}\n"))?;
+    fs::rename(&tmp_path, &path)?;
+    Ok(())
+}
+
+fn resolve_main_head_commit(project_root: &str) -> Option<String> {
+    for reference in [
+        "refs/heads/main",
+        "refs/remotes/origin/main",
+        "main",
+        "origin/main",
+        "HEAD",
+    ] {
+        let output = ProcessCommand::new("git")
+            .arg("-C")
+            .arg(project_root)
+            .args(["rev-parse", "--verify", reference])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            continue;
+        }
+        let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !sha.is_empty() {
+            return Some(sha);
+        }
+    }
+    None
+}
+
+fn runtime_binary_refresh_backoff_active(
+    state: &RuntimeBinaryRefreshState,
+    main_head: &str,
+    trigger: RuntimeBinaryRefreshTrigger,
+) -> bool {
+    if trigger != RuntimeBinaryRefreshTrigger::Tick {
+        return false;
+    }
+    if state.last_attempt_main_head.as_deref() != Some(main_head) {
+        return false;
+    }
+    if state
+        .last_error
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
+    {
+        return false;
+    }
+
+    let Some(last_attempt) = state.last_attempt_unix_secs else {
+        return false;
+    };
+    let elapsed = Utc::now().timestamp().saturating_sub(last_attempt);
+    elapsed < runtime_binary_refresh_retry_backoff_secs()
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct RuntimeBinaryRefreshTestHooks {
+    active_agents_override: Option<usize>,
+    build_results: std::collections::VecDeque<Result<()>>,
+    runner_refresh_results: std::collections::VecDeque<Result<()>>,
+    build_calls: usize,
+    runner_refresh_calls: usize,
+}
+
+#[cfg(test)]
+fn runtime_binary_refresh_test_hooks() -> &'static std::sync::Mutex<RuntimeBinaryRefreshTestHooks> {
+    static HOOKS: std::sync::OnceLock<std::sync::Mutex<RuntimeBinaryRefreshTestHooks>> =
+        std::sync::OnceLock::new();
+    HOOKS.get_or_init(|| std::sync::Mutex::new(RuntimeBinaryRefreshTestHooks::default()))
+}
+
+#[cfg(test)]
+fn with_runtime_binary_refresh_test_hooks<T>(
+    f: impl FnOnce(&mut RuntimeBinaryRefreshTestHooks) -> T,
+) -> T {
+    let mut hooks = runtime_binary_refresh_test_hooks()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    f(&mut hooks)
+}
+
+#[cfg(test)]
+fn runtime_binary_refresh_test_active_agents_override() -> Option<usize> {
+    with_runtime_binary_refresh_test_hooks(|hooks| hooks.active_agents_override)
+}
+
+#[cfg(test)]
+fn take_runtime_binary_refresh_build_result() -> Option<Result<()>> {
+    with_runtime_binary_refresh_test_hooks(|hooks| {
+        hooks.build_calls = hooks.build_calls.saturating_add(1);
+        hooks.build_results.pop_front()
+    })
+}
+
+#[cfg(test)]
+fn take_runtime_binary_refresh_runner_refresh_result() -> Option<Result<()>> {
+    with_runtime_binary_refresh_test_hooks(|hooks| {
+        hooks.runner_refresh_calls = hooks.runner_refresh_calls.saturating_add(1);
+        hooks.runner_refresh_results.pop_front()
+    })
+}
+
+async fn runtime_binary_refresh_active_agents(hub: Arc<dyn ServiceHub>) -> usize {
+    #[cfg(test)]
+    if let Some(override_count) = runtime_binary_refresh_test_active_agents_override() {
+        return override_count;
+    }
+
+    hub.daemon().active_agents().await.unwrap_or(usize::MAX)
+}
+
+fn run_runtime_binary_build(project_root: &str) -> Result<()> {
+    #[cfg(test)]
+    {
+        let _ = project_root;
+        if let Some(result) = take_runtime_binary_refresh_build_result() {
+            return result;
+        }
+        return Ok(());
+    }
+
+    #[allow(unreachable_code)]
+    let output = ProcessCommand::new("cargo")
+        .current_dir(project_root)
+        .arg("ao-bin-build")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .with_context(|| format!("failed to run cargo ao-bin-build in {}", project_root))?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "cargo ao-bin-build failed in {}: {}",
+            project_root,
+            summarize_command_output(&output.stdout, &output.stderr)
+        );
+    }
+    Ok(())
+}
+
+async fn refresh_runner_after_runtime_binary_build(hub: Arc<dyn ServiceHub>) -> Result<()> {
+    #[cfg(test)]
+    {
+        let _ = &hub;
+        if let Some(result) = take_runtime_binary_refresh_runner_refresh_result() {
+            return result;
+        }
+        return Ok(());
+    }
+
+    #[allow(unreachable_code)]
+    {
+        let daemon = hub.daemon();
+        let previous_status = daemon
+            .status()
+            .await
+            .unwrap_or(orchestrator_core::DaemonStatus::Running);
+        let _ = daemon.stop().await;
+        daemon
+            .start()
+            .await
+            .context("failed to restart runner after runtime binary refresh")?;
+        if previous_status == orchestrator_core::DaemonStatus::Paused {
+            let _ = daemon.pause().await;
+        }
+        Ok(())
+    }
+}
+
+pub(super) async fn refresh_runtime_binaries_if_main_advanced(
+    hub: Arc<dyn ServiceHub>,
+    project_root: &str,
+    trigger: RuntimeBinaryRefreshTrigger,
+) -> RuntimeBinaryRefreshOutcome {
+    if !runtime_binary_refresh_enabled() {
+        return RuntimeBinaryRefreshOutcome::Disabled;
+    }
+    if !is_git_repo(project_root) {
+        return RuntimeBinaryRefreshOutcome::NotGitRepo;
+    }
+    if !runtime_binary_refresh_supported(project_root) {
+        return RuntimeBinaryRefreshOutcome::NotSupported;
+    }
+
+    let Some(main_head) = resolve_main_head_commit(project_root) else {
+        return RuntimeBinaryRefreshOutcome::MainHeadUnavailable;
+    };
+    let mut state = load_runtime_binary_refresh_state(project_root);
+    if state.last_successful_main_head.as_deref() == Some(main_head.as_str()) {
+        return RuntimeBinaryRefreshOutcome::Unchanged;
+    }
+
+    let active_agents = runtime_binary_refresh_active_agents(hub.clone()).await;
+    if active_agents > 0 {
+        return RuntimeBinaryRefreshOutcome::DeferredActiveAgents;
+    }
+    if runtime_binary_refresh_backoff_active(&state, main_head.as_str(), trigger) {
+        return RuntimeBinaryRefreshOutcome::DeferredBackoff;
+    }
+
+    state.last_attempt_main_head = Some(main_head.clone());
+    state.last_attempt_unix_secs = Some(Utc::now().timestamp());
+    state.last_error = None;
+    let _ = save_runtime_binary_refresh_state(project_root, &state);
+
+    if let Err(error) = run_runtime_binary_build(project_root) {
+        state.last_error = Some(error.to_string());
+        let _ = save_runtime_binary_refresh_state(project_root, &state);
+        return RuntimeBinaryRefreshOutcome::BuildFailed;
+    }
+
+    if let Err(error) = refresh_runner_after_runtime_binary_build(hub).await {
+        state.last_error = Some(error.to_string());
+        let _ = save_runtime_binary_refresh_state(project_root, &state);
+        return RuntimeBinaryRefreshOutcome::RunnerRefreshFailed;
+    }
+
+    state.last_successful_main_head = Some(main_head);
+    state.last_attempt_unix_secs = Some(Utc::now().timestamp());
+    state.last_error = None;
+    let _ = save_runtime_binary_refresh_state(project_root, &state);
+    RuntimeBinaryRefreshOutcome::Refreshed
 }
 
 fn git_has_pending_changes(cwd: &str) -> Result<bool> {
@@ -1264,7 +1597,14 @@ pub(super) async fn post_success_merge_push_and_cleanup(
 
     cleanup_task_worktree_if_enabled(hub.clone(), project_root, task, &cfg).await?;
     if merged_successfully {
-        let _ = auto_prune_completed_task_worktrees_after_merge(hub, project_root, &cfg).await;
+        let _ =
+            auto_prune_completed_task_worktrees_after_merge(hub.clone(), project_root, &cfg).await;
+        let _ = refresh_runtime_binaries_if_main_advanced(
+            hub,
+            project_root,
+            RuntimeBinaryRefreshTrigger::PostMerge,
+        )
+        .await;
     }
     Ok(PostMergeOutcome::Completed)
 }
@@ -1357,7 +1697,13 @@ pub(super) async fn finalize_merge_conflict_resolution(
 
     let cfg = load_post_success_git_config(project_root);
     cleanup_task_worktree_if_enabled(hub.clone(), project_root, task, &cfg).await?;
-    let _ = auto_prune_completed_task_worktrees_after_merge(hub, project_root, &cfg).await;
+    let _ = auto_prune_completed_task_worktrees_after_merge(hub.clone(), project_root, &cfg).await;
+    let _ = refresh_runtime_binaries_if_main_advanced(
+        hub,
+        project_root,
+        RuntimeBinaryRefreshTrigger::PostMerge,
+    )
+    .await;
     Ok(())
 }
 
@@ -1751,6 +2097,7 @@ pub(super) fn is_branch_merged(project_root: &str, branch_name: &str) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use orchestrator_core::InMemoryServiceHub;
     use std::sync::{Mutex, OnceLock};
     use tempfile::TempDir;
 
@@ -1783,6 +2130,16 @@ mod tests {
                 std::env::remove_var(self.key);
             }
         }
+    }
+
+    fn reset_runtime_binary_refresh_hooks() {
+        with_runtime_binary_refresh_test_hooks(|hooks| {
+            *hooks = RuntimeBinaryRefreshTestHooks::default();
+        });
+    }
+
+    fn runtime_binary_refresh_build_calls() -> usize {
+        with_runtime_binary_refresh_test_hooks(|hooks| hooks.build_calls)
     }
 
     fn init_git_repo(project_root: &Path) {
@@ -2042,5 +2399,177 @@ mod tests {
             Some(done_worktree_path_string.as_str()),
             "task worktree_path should remain unchanged when auto-prune is disabled"
         );
+    }
+
+    #[tokio::test]
+    async fn runtime_binary_refresh_noops_when_main_head_unchanged() {
+        let _lock = env_lock().lock().expect("env lock should be available");
+        reset_runtime_binary_refresh_hooks();
+
+        let home = TempDir::new().expect("temp home");
+        let home_path = home.path().to_string_lossy().to_string();
+        let _home = EnvVarGuard::set("HOME", Some(home_path.as_str()));
+        let _enabled = EnvVarGuard::set(RUNTIME_BINARY_REFRESH_ENABLED_ENV, Some("1"));
+
+        let repo = TempDir::new().expect("temp repo");
+        init_git_repo(repo.path());
+        let project_root = repo.path().to_string_lossy().to_string();
+        let hub = Arc::new(InMemoryServiceHub::new()) as Arc<dyn ServiceHub>;
+
+        let first = refresh_runtime_binaries_if_main_advanced(
+            hub.clone(),
+            &project_root,
+            RuntimeBinaryRefreshTrigger::Tick,
+        )
+        .await;
+        assert_eq!(first, RuntimeBinaryRefreshOutcome::Refreshed);
+
+        let second = refresh_runtime_binaries_if_main_advanced(
+            hub,
+            &project_root,
+            RuntimeBinaryRefreshTrigger::Tick,
+        )
+        .await;
+        assert_eq!(second, RuntimeBinaryRefreshOutcome::Unchanged);
+        assert_eq!(runtime_binary_refresh_build_calls(), 1);
+
+        let state = load_runtime_binary_refresh_state(&project_root);
+        let main_head = resolve_main_head_commit(&project_root).expect("main head should resolve");
+        assert_eq!(
+            state.last_successful_main_head.as_deref(),
+            Some(main_head.as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn runtime_binary_refresh_defers_when_active_agents_are_present() {
+        let _lock = env_lock().lock().expect("env lock should be available");
+        reset_runtime_binary_refresh_hooks();
+
+        let home = TempDir::new().expect("temp home");
+        let home_path = home.path().to_string_lossy().to_string();
+        let _home = EnvVarGuard::set("HOME", Some(home_path.as_str()));
+        let _enabled = EnvVarGuard::set(RUNTIME_BINARY_REFRESH_ENABLED_ENV, Some("1"));
+
+        with_runtime_binary_refresh_test_hooks(|hooks| {
+            hooks.active_agents_override = Some(2);
+        });
+
+        let repo = TempDir::new().expect("temp repo");
+        init_git_repo(repo.path());
+        let project_root = repo.path().to_string_lossy().to_string();
+        let hub = Arc::new(InMemoryServiceHub::new()) as Arc<dyn ServiceHub>;
+
+        let outcome = refresh_runtime_binaries_if_main_advanced(
+            hub,
+            &project_root,
+            RuntimeBinaryRefreshTrigger::Tick,
+        )
+        .await;
+
+        assert_eq!(outcome, RuntimeBinaryRefreshOutcome::DeferredActiveAgents);
+        assert_eq!(runtime_binary_refresh_build_calls(), 0);
+        let state = load_runtime_binary_refresh_state(&project_root);
+        assert!(
+            state.last_successful_main_head.is_none(),
+            "deferred refresh should not advance successful watermark"
+        );
+    }
+
+    #[tokio::test]
+    async fn runtime_binary_refresh_applies_tick_backoff_after_build_failure() {
+        let _lock = env_lock().lock().expect("env lock should be available");
+        reset_runtime_binary_refresh_hooks();
+
+        let home = TempDir::new().expect("temp home");
+        let home_path = home.path().to_string_lossy().to_string();
+        let _home = EnvVarGuard::set("HOME", Some(home_path.as_str()));
+        let _enabled = EnvVarGuard::set(RUNTIME_BINARY_REFRESH_ENABLED_ENV, Some("1"));
+
+        with_runtime_binary_refresh_test_hooks(|hooks| {
+            hooks
+                .build_results
+                .push_back(Err(anyhow::anyhow!("simulated build failure")));
+        });
+
+        let repo = TempDir::new().expect("temp repo");
+        init_git_repo(repo.path());
+        let project_root = repo.path().to_string_lossy().to_string();
+        let hub = Arc::new(InMemoryServiceHub::new()) as Arc<dyn ServiceHub>;
+
+        let first = refresh_runtime_binaries_if_main_advanced(
+            hub.clone(),
+            &project_root,
+            RuntimeBinaryRefreshTrigger::Tick,
+        )
+        .await;
+        assert_eq!(first, RuntimeBinaryRefreshOutcome::BuildFailed);
+
+        let second = refresh_runtime_binaries_if_main_advanced(
+            hub,
+            &project_root,
+            RuntimeBinaryRefreshTrigger::Tick,
+        )
+        .await;
+        assert_eq!(second, RuntimeBinaryRefreshOutcome::DeferredBackoff);
+        assert_eq!(runtime_binary_refresh_build_calls(), 1);
+
+        let state = load_runtime_binary_refresh_state(&project_root);
+        assert!(
+            state.last_error.is_some(),
+            "failed build should persist an error for retry logic"
+        );
+        assert!(
+            state.last_successful_main_head.is_none(),
+            "failed build should not advance successful watermark"
+        );
+    }
+
+    #[tokio::test]
+    async fn runtime_binary_refresh_post_merge_trigger_bypasses_tick_backoff() {
+        let _lock = env_lock().lock().expect("env lock should be available");
+        reset_runtime_binary_refresh_hooks();
+
+        let home = TempDir::new().expect("temp home");
+        let home_path = home.path().to_string_lossy().to_string();
+        let _home = EnvVarGuard::set("HOME", Some(home_path.as_str()));
+        let _enabled = EnvVarGuard::set(RUNTIME_BINARY_REFRESH_ENABLED_ENV, Some("1"));
+
+        with_runtime_binary_refresh_test_hooks(|hooks| {
+            hooks
+                .build_results
+                .push_back(Err(anyhow::anyhow!("simulated build failure")));
+            hooks.build_results.push_back(Ok(()));
+        });
+
+        let repo = TempDir::new().expect("temp repo");
+        init_git_repo(repo.path());
+        let project_root = repo.path().to_string_lossy().to_string();
+        let hub = Arc::new(InMemoryServiceHub::new()) as Arc<dyn ServiceHub>;
+
+        let first = refresh_runtime_binaries_if_main_advanced(
+            hub.clone(),
+            &project_root,
+            RuntimeBinaryRefreshTrigger::Tick,
+        )
+        .await;
+        assert_eq!(first, RuntimeBinaryRefreshOutcome::BuildFailed);
+
+        let second = refresh_runtime_binaries_if_main_advanced(
+            hub,
+            &project_root,
+            RuntimeBinaryRefreshTrigger::PostMerge,
+        )
+        .await;
+        assert_eq!(second, RuntimeBinaryRefreshOutcome::Refreshed);
+        assert_eq!(runtime_binary_refresh_build_calls(), 2);
+
+        let state = load_runtime_binary_refresh_state(&project_root);
+        let main_head = resolve_main_head_commit(&project_root).expect("main head should resolve");
+        assert_eq!(
+            state.last_successful_main_head.as_deref(),
+            Some(main_head.as_str())
+        );
+        assert!(state.last_error.is_none());
     }
 }

@@ -1426,11 +1426,11 @@ impl AoMcpServer {
     #[tool(
         name = "ao.workflow.decisions",
         description = "List workflow decisions.",
-        input_schema = ao_schema_for_type::<IdInput>()
+        input_schema = ao_schema_for_type::<IdListInput>()
     )]
     async fn ao_workflow_decisions(
         &self,
-        params: Parameters<IdInput>,
+        params: Parameters<IdListInput>,
     ) -> Result<CallToolResult, McpError> {
         let input = params.0;
         let args = vec![
@@ -1439,8 +1439,17 @@ impl AoMcpServer {
             "--id".to_string(),
             input.id,
         ];
-        self.run_tool("ao.workflow.decisions", args, input.project_root)
-            .await
+        self.run_list_tool(
+            "ao.workflow.decisions",
+            args,
+            input.project_root,
+            ListGuardInput {
+                limit: input.limit,
+                offset: input.offset,
+                max_tokens: input.max_tokens,
+            },
+        )
+        .await
     }
 
     #[tool(
@@ -1574,6 +1583,17 @@ const WORKFLOW_SUMMARY_FIELDS: &[&str] = &[
     "total_reworks",
 ];
 
+const WORKFLOW_DECISION_SUMMARY_FIELDS: &[&str] = &[
+    "timestamp",
+    "phase_id",
+    "source",
+    "decision",
+    "target_phase",
+    "reason",
+    "confidence",
+    "risk",
+];
+
 const WORKFLOW_CHECKPOINT_SUMMARY_FIELDS: &[&str] = &[
     "id",
     "workflow_id",
@@ -1608,6 +1628,12 @@ const WORKFLOW_LIST_PROFILE: ListToolProfile = ListToolProfile {
     digest_status_fields: &["status", "current_phase"],
 };
 
+const WORKFLOW_DECISION_LIST_PROFILE: ListToolProfile = ListToolProfile {
+    summary_fields: WORKFLOW_DECISION_SUMMARY_FIELDS,
+    digest_id_fields: &["phase_id", "timestamp"],
+    digest_status_fields: &["decision", "risk", "source"],
+};
+
 const WORKFLOW_CHECKPOINT_LIST_PROFILE: ListToolProfile = ListToolProfile {
     summary_fields: WORKFLOW_CHECKPOINT_SUMMARY_FIELDS,
     digest_id_fields: &["id", "workflow_id", "task_id", "phase_id"],
@@ -1620,6 +1646,7 @@ fn list_tool_profile(tool_name: &str) -> Option<ListToolProfile> {
         "ao.task.list" | "ao.task.prioritized" => Some(TASK_LIST_PROFILE),
         "ao.requirements.list" => Some(REQUIREMENT_LIST_PROFILE),
         "ao.workflow.list" => Some(WORKFLOW_LIST_PROFILE),
+        "ao.workflow.decisions" => Some(WORKFLOW_DECISION_LIST_PROFILE),
         "ao.workflow.checkpoints.list" => Some(WORKFLOW_CHECKPOINT_LIST_PROFILE),
         _ => None,
     }
@@ -1762,7 +1789,7 @@ fn apply_list_size_guard(
         };
     }
 
-    let summary_only_item = build_summary_only_digest(&full_page_items, profile);
+    let summary_only_item = build_summary_only_digest(&full_page_items, profile, max_tokens);
     let summary_only_items = vec![summary_only_item];
     let summary_only_tokens = estimate_json_tokens(&Value::Array(summary_only_items.clone()));
     ListSizeGuardResult {
@@ -1773,7 +1800,11 @@ fn apply_list_size_guard(
     }
 }
 
-fn build_summary_only_digest(items: &[Value], profile: ListToolProfile) -> Value {
+fn build_summary_only_digest(
+    items: &[Value],
+    profile: ListToolProfile,
+    max_tokens: usize,
+) -> Value {
     let mut ids = Vec::new();
     let mut status_counts = std::collections::BTreeMap::new();
 
@@ -1789,12 +1820,56 @@ fn build_summary_only_digest(items: &[Value], profile: ListToolProfile) -> Value
         }
     }
 
-    json!({
-        "kind": "summary_only",
-        "item_count": items.len(),
-        "ids": ids,
-        "status_counts": status_counts,
-    })
+    let mut status_entries: Vec<(String, usize)> = status_counts.into_iter().collect();
+    let mut omitted_status_item_count = 0usize;
+
+    loop {
+        let digest = build_summary_only_digest_value(
+            items.len(),
+            &ids,
+            &status_entries,
+            omitted_status_item_count,
+        );
+        if estimate_json_tokens(&digest) <= max_tokens {
+            return digest;
+        }
+
+        if let Some((_, count)) = status_entries.pop() {
+            omitted_status_item_count = omitted_status_item_count.saturating_add(count);
+            continue;
+        }
+
+        if ids.pop().is_some() {
+            continue;
+        }
+
+        return digest;
+    }
+}
+
+fn build_summary_only_digest_value(
+    item_count: usize,
+    ids: &[String],
+    status_entries: &[(String, usize)],
+    omitted_status_item_count: usize,
+) -> Value {
+    let mut status_counts = serde_json::Map::new();
+    for (status, count) in status_entries {
+        status_counts.insert(status.clone(), json!(*count));
+    }
+
+    let mut digest = serde_json::Map::new();
+    digest.insert("kind".to_string(), json!("summary_only"));
+    digest.insert("item_count".to_string(), json!(item_count));
+    digest.insert("ids".to_string(), json!(ids));
+    digest.insert("status_counts".to_string(), Value::Object(status_counts));
+    if omitted_status_item_count > 0 {
+        digest.insert(
+            "omitted_status_item_count".to_string(),
+            json!(omitted_status_item_count),
+        );
+    }
+    Value::Object(digest)
 }
 
 fn find_text_field(value: &Value, fields: &[&str]) -> Option<String> {
@@ -2780,6 +2855,91 @@ mod tests {
     }
 
     #[test]
+    fn build_guarded_list_result_normalizes_limit_and_max_tokens_hint() {
+        let data = json!([
+            { "id": "TASK-1", "status": "todo" },
+            { "id": "TASK-2", "status": "done" }
+        ]);
+        let result = build_guarded_list_result(
+            "ao.task.list",
+            data,
+            ListGuardInput {
+                limit: Some(0),
+                offset: Some(0),
+                max_tokens: Some(0),
+            },
+        )
+        .expect("guarded list should build");
+
+        assert_eq!(
+            result.pointer("/pagination/limit").and_then(Value::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            result
+                .pointer("/pagination/returned")
+                .and_then(Value::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            result
+                .pointer("/size_guard/max_tokens_hint")
+                .and_then(Value::as_u64),
+            Some(MIN_MCP_LIST_MAX_TOKENS as u64)
+        );
+    }
+
+    #[test]
+    fn build_guarded_list_result_handles_offset_beyond_total() {
+        let data = json!([
+            { "id": "TASK-1", "status": "todo" },
+            { "id": "TASK-2", "status": "done" }
+        ]);
+        let result = build_guarded_list_result(
+            "ao.task.list",
+            data,
+            ListGuardInput {
+                limit: Some(5),
+                offset: Some(99),
+                max_tokens: Some(3000),
+            },
+        )
+        .expect("guarded list should build");
+
+        assert_eq!(
+            result.get("items").and_then(Value::as_array).map(Vec::len),
+            Some(0)
+        );
+        assert_eq!(
+            result.pointer("/pagination/offset").and_then(Value::as_u64),
+            Some(2)
+        );
+        assert_eq!(
+            result
+                .pointer("/pagination/returned")
+                .and_then(Value::as_u64),
+            Some(0)
+        );
+        assert_eq!(
+            result.pointer("/pagination/total").and_then(Value::as_u64),
+            Some(2)
+        );
+        assert_eq!(
+            result
+                .pointer("/pagination/has_more")
+                .and_then(Value::as_bool),
+            Some(false)
+        );
+        assert!(
+            result
+                .pointer("/pagination/next_offset")
+                .map(Value::is_null)
+                .unwrap_or(false),
+            "next_offset should be null when page is exhausted"
+        );
+    }
+
+    #[test]
     fn build_guarded_list_result_applies_offset_then_limit() {
         let data = json!([
             { "id": "TASK-1", "status": "todo" },
@@ -2933,6 +3093,87 @@ mod tests {
             .and_then(Value::as_array)
             .map(|ids| ids.len() <= 10)
             .unwrap_or(false));
+    }
+
+    #[test]
+    fn build_guarded_list_result_summary_only_respects_max_tokens_hint() {
+        let items: Vec<Value> = (0..MAX_MCP_LIST_LIMIT)
+            .map(|idx| {
+                json!({
+                    "id": format!("TASK-{idx:03}"),
+                    "status": format!("{idx:03}-{}", "s".repeat(48)),
+                    "details": "y".repeat(1200),
+                })
+            })
+            .collect();
+
+        let result = build_guarded_list_result(
+            "ao.task.list",
+            Value::Array(items),
+            ListGuardInput {
+                limit: Some(MAX_MCP_LIST_LIMIT),
+                offset: Some(0),
+                max_tokens: Some(MIN_MCP_LIST_MAX_TOKENS),
+            },
+        )
+        .expect("guarded list should build");
+
+        assert_eq!(
+            result
+                .pointer("/size_guard/mode")
+                .and_then(Value::as_str)
+                .expect("size guard mode"),
+            "summary_only"
+        );
+        assert!(
+            result
+                .pointer("/size_guard/estimated_tokens")
+                .and_then(Value::as_u64)
+                .map(|tokens| tokens <= MIN_MCP_LIST_MAX_TOKENS as u64)
+                .unwrap_or(false),
+            "summary-only payload should stay within max_tokens hint"
+        );
+        assert!(
+            result
+                .pointer("/items/0/omitted_status_item_count")
+                .and_then(Value::as_u64)
+                .map(|count| count > 0)
+                .unwrap_or(false),
+            "summary-only payload should drop status buckets when needed"
+        );
+    }
+
+    #[test]
+    fn build_guarded_list_result_supports_workflow_decisions() {
+        let result = build_guarded_list_result(
+            "ao.workflow.decisions",
+            json!([{
+                "timestamp": "2026-02-27T12:00:00Z",
+                "phase_id": "code-review",
+                "source": "llm",
+                "decision": "advance",
+                "reason": "ok",
+                "confidence": 0.9,
+                "risk": "low"
+            }]),
+            ListGuardInput {
+                limit: Some(10),
+                offset: Some(0),
+                max_tokens: Some(3000),
+            },
+        )
+        .expect("workflow decisions should support guarded list responses");
+
+        assert_eq!(
+            result.get("tool").and_then(Value::as_str),
+            Some("ao.workflow.decisions")
+        );
+        assert_eq!(
+            result
+                .pointer("/pagination/returned")
+                .and_then(Value::as_u64),
+            Some(1)
+        );
     }
 
     #[test]

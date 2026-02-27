@@ -2,26 +2,6 @@ use anyhow::Result;
 use serde::Serialize;
 
 const CLI_SCHEMA: &str = "ao.cli.v1";
-const INVALID_INPUT_PATTERNS: &[&str] = &[
-    "invalid",
-    "parse",
-    "missing required",
-    "required arguments were not provided",
-    "unexpected argument",
-    "unknown argument",
-    "unrecognized option",
-    "confirmation_required",
-    "must be",
-];
-const NOT_FOUND_PATTERNS: &[&str] = &["not found", "no such file or directory", "does not exist"];
-const CONFLICT_PATTERNS: &[&str] = &["already", "conflict"];
-const UNAVAILABLE_PATTERNS: &[&str] = &[
-    "timed out",
-    "timeout",
-    "connection",
-    "unavailable",
-    "failed to connect",
-];
 
 #[derive(Debug, Serialize)]
 struct CliSuccessEnvelope<T: Serialize> {
@@ -78,21 +58,7 @@ pub(crate) fn print_value<T: serde::Serialize>(value: T, json: bool) -> Result<(
 }
 
 pub(crate) fn classify_error(err: &anyhow::Error) -> (&'static str, i32) {
-    let message = err.to_string().to_ascii_lowercase();
-    if contains_any(&message, INVALID_INPUT_PATTERNS) {
-        return ("invalid_input", 2);
-    }
-    if contains_any(&message, NOT_FOUND_PATTERNS) {
-        return ("not_found", 3);
-    }
-    if contains_any(&message, CONFLICT_PATTERNS) {
-        return ("conflict", 4);
-    }
-    if contains_any(&message, UNAVAILABLE_PATTERNS) {
-        return ("unavailable", 5);
-    }
-
-    ("internal", 1)
+    protocol::classify_error_message(&err.to_string())
 }
 
 pub(crate) fn classify_exit_code(err: &anyhow::Error) -> i32 {
@@ -123,10 +89,6 @@ pub(crate) fn emit_cli_error(err: &anyhow::Error, json: bool) {
             eprintln!("hint: run with --help to view accepted arguments and values");
         }
     }
-}
-
-fn contains_any(message: &str, patterns: &[&str]) -> bool {
-    patterns.iter().any(|pattern| message.contains(pattern))
 }
 
 fn should_emit_help_hint(message: &str) -> bool {

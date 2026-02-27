@@ -1050,7 +1050,6 @@ async fn auto_prune_completed_task_worktrees_after_merge(
     }
 
     let project_root_normalized = normalize_path_for_match(project_root);
-    let managed_root_normalized = normalize_path_for_match(&managed_root.to_string_lossy());
     let tasks = hub.tasks().list().await?;
 
     let mut task_by_id: HashMap<String, orchestrator_core::OrchestratorTask> = HashMap::new();
@@ -1083,7 +1082,7 @@ async fn auto_prune_completed_task_worktrees_after_merge(
         if normalized_path == project_root_normalized {
             continue;
         }
-        if !normalized_path.starts_with(&managed_root_normalized) {
+        if !path_is_within_root(Path::new(&entry.path), &managed_root) {
             continue;
         }
 
@@ -2142,6 +2141,10 @@ mod tests {
         with_runtime_binary_refresh_test_hooks(|hooks| hooks.build_calls)
     }
 
+    fn runtime_binary_refresh_runner_refresh_calls() -> usize {
+        with_runtime_binary_refresh_test_hooks(|hooks| hooks.runner_refresh_calls)
+    }
+
     fn init_git_repo(project_root: &Path) {
         let init_main = ProcessCommand::new("git")
             .arg("init")
@@ -2402,6 +2405,116 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn auto_prune_completed_task_worktrees_after_merge_skips_paths_outside_managed_root() {
+        let _lock = env_lock().lock().expect("env lock should be available");
+        let home = TempDir::new().expect("temp home");
+        let home_path = home.path().to_string_lossy().to_string();
+        let _home = EnvVarGuard::set("HOME", Some(home_path.as_str()));
+
+        let repo = TempDir::new().expect("temp repo");
+        init_git_repo(repo.path());
+        let project_root = repo.path().to_string_lossy().to_string();
+        let hub = Arc::new(FileServiceHub::new(&project_root).expect("file service hub"));
+
+        let task = hub
+            .tasks()
+            .create(TaskCreateInput {
+                title: "outside managed root candidate".to_string(),
+                description: "outside managed root candidate".to_string(),
+                task_type: Some(TaskType::Feature),
+                priority: None,
+                created_by: Some("test".to_string()),
+                tags: Vec::new(),
+                linked_requirements: Vec::new(),
+                linked_architecture_entities: Vec::new(),
+            })
+            .await
+            .expect("task should be created");
+        hub.tasks()
+            .set_status(&task.id, TaskStatus::Done)
+            .await
+            .expect("task status should be updated");
+
+        let managed_root = repo_worktrees_root(&project_root).expect("managed root should resolve");
+        let managed_root_name = managed_root
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("worktrees")
+            .to_string();
+        let sibling_root = managed_root.with_file_name(format!("{managed_root_name}-shadow"));
+
+        let branch_name = format!("ao/{}", task.id.to_ascii_lowercase());
+        let worktree_name = format!("task-{}", task.id.to_ascii_lowercase());
+        let worktree_path = sibling_root.join(worktree_name);
+        if let Some(parent) = worktree_path.parent() {
+            std::fs::create_dir_all(parent).expect("outside worktree parent should be created");
+        }
+        let worktree_path_string = worktree_path.to_string_lossy().to_string();
+        run_git(
+            Path::new(&project_root),
+            &[
+                "worktree",
+                "add",
+                "-b",
+                branch_name.as_str(),
+                worktree_path_string.as_str(),
+                "main",
+            ],
+            "create outside managed root worktree",
+        );
+
+        let mut updated = hub
+            .tasks()
+            .get(&task.id)
+            .await
+            .expect("task should be readable");
+        updated.branch_name = Some(branch_name);
+        updated.worktree_path = Some(worktree_path_string.clone());
+        updated.metadata.updated_by = "test".to_string();
+        hub.tasks()
+            .replace(updated)
+            .await
+            .expect("task worktree metadata should be saved");
+
+        auto_prune_completed_task_worktrees_after_merge(
+            hub.clone() as Arc<dyn ServiceHub>,
+            &project_root,
+            &prune_config(true),
+        )
+        .await
+        .expect("auto-prune should succeed");
+
+        assert!(
+            worktree_path.exists(),
+            "outside managed-root worktree should never be pruned"
+        );
+
+        let task_after = hub
+            .tasks()
+            .get(&task.id)
+            .await
+            .expect("task should be readable");
+        assert_eq!(
+            task_after.worktree_path.as_deref(),
+            Some(worktree_path_string.as_str()),
+            "outside managed-root task metadata should remain unchanged"
+        );
+
+        let listed = ProcessCommand::new("git")
+            .arg("-C")
+            .arg(&project_root)
+            .args(["worktree", "list", "--porcelain"])
+            .output()
+            .expect("git worktree list should run");
+        assert!(listed.status.success(), "git worktree list should succeed");
+        let listed_stdout = String::from_utf8_lossy(&listed.stdout);
+        assert!(
+            listed_stdout.contains(worktree_path_string.as_str()),
+            "outside managed-root worktree should remain registered"
+        );
+    }
+
+    #[tokio::test]
     async fn runtime_binary_refresh_noops_when_main_head_unchanged() {
         let _lock = env_lock().lock().expect("env lock should be available");
         reset_runtime_binary_refresh_hooks();
@@ -2432,6 +2545,7 @@ mod tests {
         .await;
         assert_eq!(second, RuntimeBinaryRefreshOutcome::Unchanged);
         assert_eq!(runtime_binary_refresh_build_calls(), 1);
+        assert_eq!(runtime_binary_refresh_runner_refresh_calls(), 1);
 
         let state = load_runtime_binary_refresh_state(&project_root);
         let main_head = resolve_main_head_commit(&project_root).expect("main head should resolve");
@@ -2469,6 +2583,7 @@ mod tests {
 
         assert_eq!(outcome, RuntimeBinaryRefreshOutcome::DeferredActiveAgents);
         assert_eq!(runtime_binary_refresh_build_calls(), 0);
+        assert_eq!(runtime_binary_refresh_runner_refresh_calls(), 0);
         let state = load_runtime_binary_refresh_state(&project_root);
         assert!(
             state.last_successful_main_head.is_none(),
@@ -2513,6 +2628,7 @@ mod tests {
         .await;
         assert_eq!(second, RuntimeBinaryRefreshOutcome::DeferredBackoff);
         assert_eq!(runtime_binary_refresh_build_calls(), 1);
+        assert_eq!(runtime_binary_refresh_runner_refresh_calls(), 0);
 
         let state = load_runtime_binary_refresh_state(&project_root);
         assert!(
@@ -2522,6 +2638,56 @@ mod tests {
         assert!(
             state.last_successful_main_head.is_none(),
             "failed build should not advance successful watermark"
+        );
+    }
+
+    #[tokio::test]
+    async fn runtime_binary_refresh_applies_tick_backoff_after_runner_refresh_failure() {
+        let _lock = env_lock().lock().expect("env lock should be available");
+        reset_runtime_binary_refresh_hooks();
+
+        let home = TempDir::new().expect("temp home");
+        let home_path = home.path().to_string_lossy().to_string();
+        let _home = EnvVarGuard::set("HOME", Some(home_path.as_str()));
+        let _enabled = EnvVarGuard::set(RUNTIME_BINARY_REFRESH_ENABLED_ENV, Some("1"));
+
+        with_runtime_binary_refresh_test_hooks(|hooks| {
+            hooks
+                .runner_refresh_results
+                .push_back(Err(anyhow::anyhow!("simulated runner refresh failure")));
+        });
+
+        let repo = TempDir::new().expect("temp repo");
+        init_git_repo(repo.path());
+        let project_root = repo.path().to_string_lossy().to_string();
+        let hub = Arc::new(InMemoryServiceHub::new()) as Arc<dyn ServiceHub>;
+
+        let first = refresh_runtime_binaries_if_main_advanced(
+            hub.clone(),
+            &project_root,
+            RuntimeBinaryRefreshTrigger::Tick,
+        )
+        .await;
+        assert_eq!(first, RuntimeBinaryRefreshOutcome::RunnerRefreshFailed);
+
+        let second = refresh_runtime_binaries_if_main_advanced(
+            hub,
+            &project_root,
+            RuntimeBinaryRefreshTrigger::Tick,
+        )
+        .await;
+        assert_eq!(second, RuntimeBinaryRefreshOutcome::DeferredBackoff);
+        assert_eq!(runtime_binary_refresh_build_calls(), 1);
+        assert_eq!(runtime_binary_refresh_runner_refresh_calls(), 1);
+
+        let state = load_runtime_binary_refresh_state(&project_root);
+        assert!(
+            state.last_error.is_some(),
+            "failed runner refresh should persist an error for retry logic"
+        );
+        assert!(
+            state.last_successful_main_head.is_none(),
+            "failed runner refresh should not advance successful watermark"
         );
     }
 
@@ -2563,6 +2729,7 @@ mod tests {
         .await;
         assert_eq!(second, RuntimeBinaryRefreshOutcome::Refreshed);
         assert_eq!(runtime_binary_refresh_build_calls(), 2);
+        assert_eq!(runtime_binary_refresh_runner_refresh_calls(), 1);
 
         let state = load_runtime_binary_refresh_state(&project_root);
         let main_head = resolve_main_head_commit(&project_root).expect("main head should resolve");

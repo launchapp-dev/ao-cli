@@ -2290,3 +2290,46 @@ async fn execute_requirements_maps_requirement_priority_to_task_priority() {
         }
     }
 }
+
+#[tokio::test]
+async fn set_status_to_non_blocked_clears_paused_after_blocked_or_on_hold() {
+    let hub = InMemoryServiceHub::new();
+    let created = TaskServiceApi::create(
+        &hub,
+        TaskCreateInput {
+            title: "Paused state reset regression".to_string(),
+            description: "Ensure paused flag clears when unblocking".to_string(),
+            task_type: Some(TaskType::Bugfix),
+            priority: Some(Priority::Medium),
+            created_by: Some("tester".to_string()),
+            tags: vec![],
+            linked_requirements: vec![],
+            linked_architecture_entities: vec![],
+        },
+    )
+    .await
+    .expect("create task");
+
+    let blocked = TaskServiceApi::set_status(&hub, &created.id, TaskStatus::Blocked)
+        .await
+        .expect("set blocked status");
+    assert!(blocked.paused);
+    assert!(blocked.blocked_reason.is_some());
+    assert!(blocked.blocked_at.is_some());
+
+    let on_hold = TaskServiceApi::set_status(&hub, &created.id, TaskStatus::OnHold)
+        .await
+        .expect("set on-hold status");
+    assert_eq!(on_hold.status, TaskStatus::OnHold);
+    assert!(on_hold.paused);
+
+    let ready = TaskServiceApi::set_status(&hub, &created.id, TaskStatus::Ready)
+        .await
+        .expect("set ready status");
+    assert_eq!(ready.status, TaskStatus::Ready);
+    assert!(!ready.paused);
+    assert!(ready.blocked_reason.is_none());
+    assert!(ready.blocked_at.is_none());
+    assert!(ready.blocked_phase.is_none());
+    assert!(ready.blocked_by.is_none());
+}

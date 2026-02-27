@@ -30,6 +30,7 @@ pub(super) fn apply_task_status(task: &mut OrchestratorTask, status: TaskStatus)
         }
     }
     if !status.is_blocked() {
+        task.paused = false;
         task.blocked_reason = None;
         task.blocked_at = None;
         task.blocked_phase = None;

@@ -197,6 +197,9 @@ Initial requirements/tasks were created to bootstrap self-hosted development:
 - Reactive daemon phase pool coordinator planning artifacts for TASK-111 live in `crates/orchestrator-cli/docs/`:
   - `task-111-reactive-pool-coordinator-requirements.md`
   - `task-111-reactive-pool-coordinator-implementation-notes.md`
+- Daemon autonomous-start verification planning artifacts for TASK-107 live in `crates/orchestrator-cli/docs/`:
+  - `task-107-daemon-start-startup-survival-requirements.md`
+  - `task-107-daemon-start-startup-survival-implementation-notes.md`
 - Daemon notification connector planning artifacts for TASK-026 live in `crates/orchestrator-cli/docs/`:
   - `task-026-event-notification-connector-framework-requirements.md`
   - `task-026-event-notification-connector-framework-implementation-notes.md`

@@ -1,0 +1,44 @@
+{
+  "acceptance_criteria": [
+    "Ctrl+K opens a command palette overlay with searchable action list",
+    "Command palette shows actions: Create Task, Run Agent, View Workflow, Toggle Daemon, Refresh, Toggle Print Mode",
+    "Command palette supports fuzzy search by typing to filter actions",
+    "Enter executes selected action, Esc closes palette",
+    "H key moves focus to the left pane, L moves to the right pane",
+    "J key moves focus down in current pane, K moves focus up",
+    "gg moves selection to first item in current pane, G moves to last item",
+    "/ key activates search mode for current pane, Enter to execute search, Esc to cancel",
+    "? key shows help overlay with all keyboard shortcuts",
+    "Help overlay displays: navigation keys, command palette, search, refresh, print mode, quit",
+    "All vim-style keys work in their expected contexts (not interfering with prompt input)",
+    "Visual indicator shows which pane currently has focus",
+    "Existing functionality (q to quit, Ctrl+C, Enter to run, p for print mode, r for refresh, Ctrl+L clear) continues to work"
+  ],
+  "category": "feature",
+  "comments": [],
+  "created_at": "2026-02-28T00:00:00.000000Z",
+  "description": "Add command palette and vim-style navigation to the TUI for power users.\n\n**Implementation boundary:** This covers the TUI component in `crates/orchestrator-cli/src/services/tui/` only. No changes to daemon, agent runner, or other CLI commands.\n\n**Technical approach:**\n- Add `pane_focus` state to track which pane has keyboard focus (0=models, 1=output, 2=tasks)\n- Add `command_palette_open` state with fuzzy search filtering\n- Add `search_mode` and `search_query` state for / search\n- Add `help_overlay` state for ? overlay\n- Extend event handler to intercept vim keys only when not in prompt input mode\n- Add command palette rendering overlay\n- Add help overlay rendering\n- Update footer to show focused pane indicator",
+  "id": "REQ-033",
+  "legacy_id": null,
+  "links": {
+    "flows": [],
+    "mockups": [],
+    "related_requirements": [],
+    "tasks": [
+      "TASK-073"
+    ],
+    "tests": [],
+    "workflows": []
+  },
+  "priority": "could",
+  "status": "draft",
+  "tags": [
+    "tui",
+    "ux",
+    "vim",
+    "power-user"
+  ],
+  "title": "Add command palette and vim-style navigation to TUI",
+  "type": "product",
+  "updated_at": "2026-02-28T00:00:00.000000Z"
+}

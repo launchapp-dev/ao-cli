@@ -8,11 +8,12 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use orchestrator_core::services::ServiceHub;
+use orchestrator_core::TaskCreateInput;
 use ratatui::{backend::CrosstermBackend, Terminal};
 use tokio::sync::mpsc::unbounded_channel;
 
 use crate::services::tui::app_event::AppEvent;
-use crate::services::tui::app_state::AppState;
+use crate::services::tui::app_state::{AppState, TuiMode, PALETTE_ITEMS};
 use crate::services::tui::mcp_bridge::AoCliMcpBridge;
 use crate::services::tui::render::render;
 use crate::services::tui::run_agent::run_agent_session;
@@ -180,37 +181,268 @@ async fn run_event_loop(
             continue;
         }
 
-        match key.code {
-            KeyCode::Char('q') => break,
-            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => break,
-            KeyCode::Up | KeyCode::Char('k') => app.move_selection_up(),
-            KeyCode::Down | KeyCode::Char('j') => app.move_selection_down(),
-            KeyCode::Backspace => app.pop_prompt_char(),
-            KeyCode::Esc => app.clear_prompt(),
-            KeyCode::Enter => launch_selected_run(app, project_root),
-            KeyCode::Char('r') => {
-                app.refresh_profiles();
-                app.set_tasks(load_task_snapshots(hub).await?);
-                app.status_line = "refreshed models and tasks".to_string();
+        let should_quit = match app.mode.clone() {
+            TuiMode::CommandPalette { selected_idx } => {
+                handle_palette_key(app, key.code, key.modifiers, selected_idx, hub, project_root)
+                    .await?
             }
-            KeyCode::Char('p') => {
-                app.print_mode = !app.print_mode;
-                app.status_line = if app.print_mode {
-                    "print mode enabled (raw agent stream)".to_string()
-                } else {
-                    "print mode disabled (summarized events)".to_string()
-                };
+            TuiMode::Search { query } => {
+                handle_search_key(app, key.code, query);
+                false
             }
-            KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                app.clear_history();
-                app.status_line = "output cleared".to_string();
+            TuiMode::HelpOverlay => {
+                app.mode = TuiMode::Normal;
+                false
             }
-            KeyCode::Char(ch) => app.append_prompt_char(ch),
-            _ => {}
+            TuiMode::CreatingTask { title } => {
+                handle_create_task_key(app, key.code, title, hub).await?;
+                false
+            }
+            TuiMode::Normal => {
+                handle_normal_key(app, key.code, key.modifiers, hub, project_root).await?
+            }
+        };
+
+        if should_quit {
+            break;
         }
     }
 
     Ok(())
+}
+
+async fn handle_palette_key(
+    app: &mut AppState,
+    code: KeyCode,
+    _modifiers: KeyModifiers,
+    selected_idx: usize,
+    hub: &Arc<dyn ServiceHub>,
+    project_root: &str,
+) -> Result<bool> {
+    match code {
+        KeyCode::Esc => {
+            app.mode = TuiMode::Normal;
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            let new_idx = selected_idx.saturating_sub(1);
+            app.mode = TuiMode::CommandPalette { selected_idx: new_idx };
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            let new_idx = (selected_idx + 1).min(PALETTE_ITEMS.len() - 1);
+            app.mode = TuiMode::CommandPalette { selected_idx: new_idx };
+        }
+        KeyCode::Enter => {
+            app.mode = TuiMode::Normal;
+            execute_palette_action(app, selected_idx, hub, project_root).await?;
+        }
+        _ => {}
+    }
+    Ok(false)
+}
+
+async fn execute_palette_action(
+    app: &mut AppState,
+    selected_idx: usize,
+    hub: &Arc<dyn ServiceHub>,
+    project_root: &str,
+) -> Result<()> {
+    match selected_idx {
+        0 => {
+            app.mode = TuiMode::CreatingTask { title: String::new() };
+            app.status_line = "Create Task: type title, Enter to save, Esc to cancel".to_string();
+        }
+        1 => {
+            launch_selected_run(app, project_root);
+        }
+        2 => {
+            app.set_tasks(load_task_snapshots(hub).await?);
+            let workflows = hub.workflows().list().await.unwrap_or_default();
+            app.status_line = format!(
+                "workflows: {} total  tasks: {} total",
+                workflows.len(),
+                app.tasks.len()
+            );
+        }
+        3 => {
+            match hub.daemon().status().await {
+                Ok(status) => {
+                    let label = format!("{:?}", status);
+                    app.status_line = format!("daemon status: {label}");
+                }
+                Err(err) => {
+                    app.status_line = format!("daemon unavailable: {err}");
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn handle_search_key(app: &mut AppState, code: KeyCode, mut query: String) {
+    match code {
+        KeyCode::Esc => {
+            app.search_filter.clear();
+            app.mode = TuiMode::Normal;
+            app.status_line = "search cleared".to_string();
+        }
+        KeyCode::Enter => {
+            app.search_filter = query;
+            app.mode = TuiMode::Normal;
+            app.task_selected_idx = 0;
+            app.status_line = format!("filter: '{}'  Esc in / mode to clear", app.search_filter);
+        }
+        KeyCode::Backspace => {
+            query.pop();
+            app.mode = TuiMode::Search { query };
+        }
+        KeyCode::Char(ch) if !ch.is_control() => {
+            query.push(ch);
+            app.mode = TuiMode::Search { query };
+        }
+        _ => {}
+    }
+}
+
+async fn handle_create_task_key(
+    app: &mut AppState,
+    code: KeyCode,
+    mut title: String,
+    hub: &Arc<dyn ServiceHub>,
+) -> Result<()> {
+    match code {
+        KeyCode::Esc => {
+            app.mode = TuiMode::Normal;
+            app.status_line = "task creation cancelled".to_string();
+        }
+        KeyCode::Enter => {
+            let trimmed = title.trim().to_string();
+            if trimmed.is_empty() {
+                app.status_line = "task title cannot be empty".to_string();
+            } else {
+                match hub
+                    .tasks()
+                    .create(TaskCreateInput {
+                        title: trimmed,
+                        description: String::new(),
+                        task_type: None,
+                        priority: None,
+                        created_by: None,
+                        tags: Vec::new(),
+                        linked_requirements: Vec::new(),
+                        linked_architecture_entities: Vec::new(),
+                    })
+                    .await
+                {
+                    Ok(task) => {
+                        app.status_line = format!("created task {}", task.id);
+                        let tasks = load_task_snapshots(hub).await.unwrap_or_default();
+                        app.set_tasks(tasks);
+                    }
+                    Err(err) => {
+                        app.status_line = format!("failed to create task: {err}");
+                    }
+                }
+            }
+            app.mode = TuiMode::Normal;
+        }
+        KeyCode::Backspace => {
+            title.pop();
+            app.mode = TuiMode::CreatingTask { title };
+        }
+        KeyCode::Char(ch) if !ch.is_control() => {
+            title.push(ch);
+            app.mode = TuiMode::CreatingTask { title };
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn handle_normal_key(
+    app: &mut AppState,
+    code: KeyCode,
+    modifiers: KeyModifiers,
+    hub: &Arc<dyn ServiceHub>,
+    project_root: &str,
+) -> Result<bool> {
+    let ctrl = modifiers.contains(KeyModifiers::CONTROL);
+
+    if app.pending_g {
+        app.pending_g = false;
+        if code == KeyCode::Char('g') {
+            app.active_pane_jump_top();
+            return Ok(false);
+        }
+    }
+
+    match code {
+        KeyCode::Char('q') if !ctrl => {
+            return Ok(true);
+        }
+        KeyCode::Char('c') if ctrl => {
+            return Ok(true);
+        }
+        KeyCode::Char('k') if ctrl => {
+            app.mode = TuiMode::CommandPalette { selected_idx: 0 };
+        }
+        KeyCode::Char('l') if ctrl => {
+            app.clear_history();
+            app.status_line = "output cleared".to_string();
+        }
+        KeyCode::Char('?') => {
+            app.mode = TuiMode::HelpOverlay;
+        }
+        KeyCode::Char('/') => {
+            app.mode = TuiMode::Search { query: String::new() };
+        }
+        KeyCode::Char('G') => {
+            app.active_pane_jump_bottom();
+        }
+        KeyCode::Char('g') => {
+            app.pending_g = true;
+        }
+        KeyCode::Char('H') => {
+            app.move_pane_left();
+        }
+        KeyCode::Char('L') => {
+            app.move_pane_right();
+        }
+        KeyCode::Up | KeyCode::Char('k') | KeyCode::Char('K') => {
+            app.active_pane_move_up();
+        }
+        KeyCode::Down | KeyCode::Char('j') | KeyCode::Char('J') => {
+            app.active_pane_move_down();
+        }
+        KeyCode::Backspace => app.pop_prompt_char(),
+        KeyCode::Esc => {
+            if !app.search_filter.is_empty() {
+                app.search_filter.clear();
+                app.task_selected_idx = 0;
+                app.status_line = "search cleared".to_string();
+            } else {
+                app.clear_prompt();
+            }
+        }
+        KeyCode::Enter => launch_selected_run(app, project_root),
+        KeyCode::Char('r') => {
+            app.refresh_profiles();
+            app.set_tasks(load_task_snapshots(hub).await?);
+            app.status_line = "refreshed models and tasks".to_string();
+        }
+        KeyCode::Char('p') => {
+            app.print_mode = !app.print_mode;
+            app.status_line = if app.print_mode {
+                "print mode enabled (raw agent stream)".to_string()
+            } else {
+                "print mode disabled (summarized events)".to_string()
+            };
+        }
+        KeyCode::Char(ch) => app.append_prompt_char(ch),
+        _ => {}
+    }
+
+    Ok(false)
 }
 
 fn launch_selected_run(app: &mut AppState, project_root: &str) {

@@ -10,6 +10,29 @@ use crate::services::tui::task_snapshot::TaskSnapshot;
 
 const HISTORY_LIMIT: usize = 300;
 
+pub(crate) const PALETTE_ITEMS: &[&str] = &[
+    "Create Task",
+    "Run Agent",
+    "View Workflows",
+    "Toggle Daemon",
+];
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum ActivePane {
+    Models,
+    Output,
+    Tasks,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum TuiMode {
+    Normal,
+    CommandPalette { selected_idx: usize },
+    Search { query: String },
+    HelpOverlay,
+    CreatingTask { title: String },
+}
+
 pub(crate) struct AppState {
     pub(crate) mcp_endpoint: String,
     pub(crate) mcp_agent_id: String,
@@ -25,6 +48,12 @@ pub(crate) struct AppState {
     pub(crate) tasks: Vec<TaskSnapshot>,
     pub(crate) event_tx: UnboundedSender<AppEvent>,
     pub(crate) event_rx: UnboundedReceiver<AppEvent>,
+    pub(crate) active_pane: ActivePane,
+    pub(crate) mode: TuiMode,
+    pub(crate) pending_g: bool,
+    pub(crate) task_selected_idx: usize,
+    pub(crate) output_scroll: usize,
+    pub(crate) search_filter: String,
 }
 
 impl AppState {
@@ -52,13 +81,19 @@ impl AppState {
             profiles: Vec::new(),
             selected_profile_idx: 0,
             prompt: String::new(),
-            status_line: "Press Enter to run, p to toggle print mode, q to quit".to_string(),
+            status_line: "Ctrl+K=palette  ?=help  /=search  q=quit".to_string(),
             history: VecDeque::new(),
             run_in_flight: false,
             print_mode: true,
             tasks,
             event_tx,
             event_rx,
+            active_pane: ActivePane::Models,
+            mode: TuiMode::Normal,
+            pending_g: false,
+            task_selected_idx: 0,
+            output_scroll: 0,
+            search_filter: String::new(),
         };
         state.refresh_profiles();
         state
@@ -77,6 +112,112 @@ impl AppState {
     pub(crate) fn move_selection_down(&mut self) {
         if self.selected_profile_idx + 1 < self.profiles.len() {
             self.selected_profile_idx += 1;
+        }
+    }
+
+    pub(crate) fn active_pane_move_up(&mut self) {
+        match self.active_pane {
+            ActivePane::Models => self.move_selection_up(),
+            ActivePane::Tasks => {
+                if self.task_selected_idx > 0 {
+                    self.task_selected_idx -= 1;
+                }
+            }
+            ActivePane::Output => {
+                if self.output_scroll > 0 {
+                    self.output_scroll -= 1;
+                }
+            }
+        }
+    }
+
+    pub(crate) fn active_pane_move_down(&mut self) {
+        match self.active_pane {
+            ActivePane::Models => self.move_selection_down(),
+            ActivePane::Tasks => {
+                let count = self.filtered_tasks().len();
+                if self.task_selected_idx + 1 < count {
+                    self.task_selected_idx += 1;
+                }
+            }
+            ActivePane::Output => {
+                self.output_scroll = self.output_scroll.saturating_add(1);
+            }
+        }
+    }
+
+    pub(crate) fn active_pane_jump_top(&mut self) {
+        match self.active_pane {
+            ActivePane::Models => self.selected_profile_idx = 0,
+            ActivePane::Tasks => self.task_selected_idx = 0,
+            ActivePane::Output => self.output_scroll = 0,
+        }
+    }
+
+    pub(crate) fn active_pane_jump_bottom(&mut self) {
+        match self.active_pane {
+            ActivePane::Models => {
+                if !self.profiles.is_empty() {
+                    self.selected_profile_idx = self.profiles.len() - 1;
+                }
+            }
+            ActivePane::Tasks => {
+                let count = self.filtered_tasks().len();
+                if count > 0 {
+                    self.task_selected_idx = count - 1;
+                }
+            }
+            ActivePane::Output => {
+                self.output_scroll = self.history.len().saturating_sub(1);
+            }
+        }
+    }
+
+    pub(crate) fn move_pane_left(&mut self) {
+        self.active_pane = match self.active_pane {
+            ActivePane::Tasks => ActivePane::Output,
+            ActivePane::Output => ActivePane::Models,
+            ActivePane::Models => ActivePane::Models,
+        };
+    }
+
+    pub(crate) fn move_pane_right(&mut self) {
+        self.active_pane = match self.active_pane {
+            ActivePane::Models => ActivePane::Output,
+            ActivePane::Output => ActivePane::Tasks,
+            ActivePane::Tasks => ActivePane::Tasks,
+        };
+    }
+
+    pub(crate) fn filtered_tasks(&self) -> Vec<&TaskSnapshot> {
+        if self.search_filter.is_empty() || !matches!(self.active_pane, ActivePane::Tasks) {
+            self.tasks.iter().collect()
+        } else {
+            let filter = self.search_filter.to_lowercase();
+            self.tasks
+                .iter()
+                .filter(|t| {
+                    t.title.to_lowercase().contains(&filter)
+                        || t.id.to_lowercase().contains(&filter)
+                        || t.status.to_lowercase().contains(&filter)
+                })
+                .collect()
+        }
+    }
+
+    pub(crate) fn filtered_profiles(&self) -> Vec<(usize, &ModelProfile)> {
+        if self.search_filter.is_empty() || !matches!(self.active_pane, ActivePane::Models) {
+            self.profiles.iter().enumerate().collect()
+        } else {
+            let filter = self.search_filter.to_lowercase();
+            self.profiles
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| {
+                    p.model_id.to_lowercase().contains(&filter)
+                        || p.tool.to_lowercase().contains(&filter)
+                })
+                .collect()
         }
     }
 
@@ -121,10 +262,12 @@ impl AppState {
 
     pub(crate) fn set_tasks(&mut self, tasks: Vec<TaskSnapshot>) {
         self.tasks = tasks;
+        self.task_selected_idx = 0;
     }
 
     pub(crate) fn clear_history(&mut self) {
         self.history.clear();
+        self.output_scroll = 0;
     }
 
     pub(crate) fn history_lines(&self, max_lines: usize) -> Vec<String> {
@@ -137,6 +280,17 @@ impl AppState {
             .into_iter()
             .rev()
             .collect()
+    }
+
+    pub(crate) fn history_lines_scrolled(&self, visible_lines: usize) -> Vec<String> {
+        let total = self.history.len();
+        if total == 0 {
+            return Vec::new();
+        }
+        let clamped_scroll = self.output_scroll.min(total.saturating_sub(1));
+        let start = clamped_scroll;
+        let end = (start + visible_lines).min(total);
+        self.history.iter().skip(start).take(end - start).cloned().collect()
     }
 
     pub(crate) fn drain_events(&mut self) {

@@ -276,7 +276,13 @@ fn spawn_autonomous_daemon_run(project_root: &str, args: &DaemonStartArgs) -> Re
         .arg("--stale-threshold-hours")
         .arg(args.stale_threshold_hours.to_string())
         .arg("--max-tasks-per-tick")
-        .arg(args.max_tasks_per_tick.to_string())
+        .arg(args.max_tasks_per_tick.to_string());
+    if let Some(pool_size) = args.pool_size {
+        command.arg("--pool-size").arg(pool_size.to_string());
+    } else if let Some(max_agents) = args.max_agents {
+        command.arg("--max-agents").arg(max_agents.to_string());
+    }
+    command
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .stdin(Stdio::null());
@@ -296,10 +302,10 @@ fn spawn_autonomous_daemon_run(project_root: &str, args: &DaemonStartArgs) -> Re
             .arg("--auto-prune-worktrees-after-merge")
             .arg(auto_prune_worktrees_after_merge.to_string());
     }
-    if let Some(timeout_secs) = args.phase_timeout_secs {
+    if let Some(phase_timeout_secs) = args.phase_timeout_secs {
         command
             .arg("--phase-timeout-secs")
-            .arg(timeout_secs.to_string());
+            .arg(phase_timeout_secs.to_string());
     }
     if let Some(idle_timeout_secs) = args.idle_timeout_secs {
         command
@@ -307,8 +313,9 @@ fn spawn_autonomous_daemon_run(project_root: &str, args: &DaemonStartArgs) -> Re
             .arg(idle_timeout_secs.to_string());
     }
 
-    if let Some(max_agents) = args.max_agents {
-        command.env("AO_MAX_AGENTS", max_agents.to_string());
+    let pool_size = args.pool_size.or(args.max_agents);
+    if let Some(pool_size) = pool_size {
+        command.env("AO_MAX_AGENTS", pool_size.to_string());
     }
     if args.skip_runner {
         command.env("AO_SKIP_RUNNER_START", "1");
@@ -370,8 +377,8 @@ pub(crate) async fn handle_daemon(
                 );
             }
 
-            if let Some(max_agents) = args.max_agents {
-                std::env::set_var("AO_MAX_AGENTS", max_agents.to_string());
+            if let Some(pool_size) = args.pool_size.or(args.max_agents) {
+                std::env::set_var("AO_MAX_AGENTS", pool_size.to_string());
             } else {
                 std::env::remove_var("AO_MAX_AGENTS");
             }

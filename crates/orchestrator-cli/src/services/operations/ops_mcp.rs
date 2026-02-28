@@ -138,6 +138,8 @@ struct WorkflowRunInput {
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
 struct DaemonStartInput {
     #[serde(default)]
+    pool_size: Option<usize>,
+    #[serde(default)]
     max_agents: Option<usize>,
     #[serde(default)]
     interval_secs: Option<u64>,
@@ -555,7 +557,7 @@ impl AoMcpServer {
 impl AoMcpServer {
     #[tool(
         name = "ao.project.list",
-        description = "List known projects.",
+        description = "List all known AO projects. Purpose: Discover available projects managed by AO. Prerequisites: None. Example: {\"limit\": 10} or {\"search\": \"my-project\"}. Sequencing: Use with ao.project.get to get details of a specific project.",
         input_schema = ao_schema_for_type::<PaginatedProjectRootInput>()
     )]
     async fn ao_project_list(
@@ -578,7 +580,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.task.list",
-        description = "List tasks with optional filters.",
+        description = "List tasks with optional filters (status, priority, type, assignee, tags, linked requirements). Purpose: Find tasks matching criteria for work planning. Prerequisites: None. Example: {\"status\": \"in-progress\"} or {\"priority\": \"high\", \"tag\": [\"frontend\"]}. Sequencing: Filter results, then use ao.task.get for details or ao.task.status to update.",
         input_schema = ao_schema_for_type::<TaskListInput>()
     )]
     async fn ao_task_list(
@@ -612,7 +614,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.task.create",
-        description = "Create a task.",
+        description = "Create a new task in AO. Purpose: Add new work items to the task backlog. Prerequisites: None. Example: {\"title\": \"Fix login bug\", \"description\": \"Users cannot login with OAuth\", \"priority\": \"high\", \"linked_requirement\": [\"REQ-001\"]}. Sequencing: After creation, use ao.task.assign to assign owner, or ao.workflow.run to start working.",
         input_schema = ao_schema_for_type::<TaskCreateInput>()
     )]
     async fn ao_task_create(
@@ -627,7 +629,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.task.status",
-        description = "Update task status.",
+        description = "Update the status of a task. Purpose: Progress tasks through workflow states. Prerequisites: Task must exist (use ao.task.get to verify). Example: {\"id\": \"TASK-001\", \"status\": \"in-progress\"}. Valid statuses: backlog, todo, ready, in_progress, blocked, on_hold, done, cancelled. Sequencing: After marking done, consider ao.task.create for follow-up work.",
         input_schema = ao_schema_for_type::<TaskStatusInput>()
     )]
     async fn ao_task_status(
@@ -649,7 +651,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.task.get",
-        description = "Fetch a task by id.",
+        description = "Fetch a task by its ID. Purpose: Get full task details including description, checklist, dependencies, and metadata. Prerequisites: None. Example: {\"id\": \"TASK-001\"}. Sequencing: Use after ao.task.list to get details of a specific task, or before ao.task.status to verify task exists.",
         input_schema = ao_schema_for_type::<TaskGetInput>()
     )]
     async fn ao_task_get(
@@ -663,7 +665,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.task.delete",
-        description = "Delete a task.",
+        description = "Delete a task from AO. Purpose: Remove unwanted or duplicate tasks. Prerequisites: Task must exist. Warning: This is destructive. Use dry_run first. Example: {\"id\": \"TASK-999\", \"confirm\": true, \"dry_run\": false}. Sequencing: Use ao.task.get to verify task details first, or ao.task.list to find tasks.",
         input_schema = ao_schema_for_type::<TaskDeleteInput>()
     )]
     async fn ao_task_delete(
@@ -678,7 +680,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.task.pause",
-        description = "Pause a task.",
+        description = "Pause a running task. Purpose: Temporarily halt task execution without cancelling. Prerequisites: Task must be in-progress. Example: {\"task_id\": \"TASK-001\"}. Sequencing: Use ao.agent.control for running agents, or ao.task.status for workflow-managed tasks.",
         input_schema = ao_schema_for_type::<TaskControlInput>()
     )]
     async fn ao_task_pause(
@@ -693,7 +695,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.task.resume",
-        description = "Resume a paused task.",
+        description = "Resume a paused task. Purpose: Continue execution of a task that was previously paused. Prerequisites: Task must be paused. Example: {\"task_id\": \"TASK-001\"}. Sequencing: Use after ao.task.pause, or check status with ao.task.get first.",
         input_schema = ao_schema_for_type::<TaskControlInput>()
     )]
     async fn ao_task_resume(
@@ -708,7 +710,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.requirements.list",
-        description = "List requirements.",
+        description = "List requirements. Purpose: Discover requirements for planning and task creation. Prerequisites: None. Example: {\"limit\": 20} or {\"status\": \"draft\"}. Sequencing: Use ao.requirements.get for details, then ao.task.create to create tasks linked to requirements.",
         input_schema = ao_schema_for_type::<PaginatedProjectRootInput>()
     )]
     async fn ao_requirements_list(
@@ -731,7 +733,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.requirements.get",
-        description = "Get a requirement by id.",
+        description = "Get a requirement by its ID. Purpose: View full requirement details including title, description, priority, status, and linked tasks. Prerequisites: None. Example: {\"id\": \"REQ-001\"}. Sequencing: Use after ao.requirements.list to get details, or before ao.task.create to link new tasks.",
         input_schema = ao_schema_for_type::<RequirementGetInput>()
     )]
     async fn ao_requirements_get(
@@ -746,7 +748,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.workflow.list",
-        description = "List workflows.",
+        description = "List workflows. Purpose: View workflow executions and their current state. Prerequisites: None. Example: {\"limit\": 10} or {\"status\": \"running\"}. Sequencing: Use ao.workflow.get for specific workflow details, or ao.workflow.run to start a new workflow.",
         input_schema = ao_schema_for_type::<PaginatedProjectRootInput>()
     )]
     async fn ao_workflow_list(
@@ -769,7 +771,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.workflow.run",
-        description = "Run a workflow for a task and optional pipeline.",
+        description = "Run a workflow for a task. Purpose: Execute a workflow to complete task phases automatically. Prerequisites: Task should exist (use ao.task.get to verify). Example: {\"task_id\": \"TASK-001\"} or {\"task_id\": \"TASK-001\", \"pipeline_id\": \"default\"}. Sequencing: Use ao.task.status to track progress, ao.workflow.get to monitor, ao.workflow.pause/resume/cancel for control.",
         input_schema = ao_schema_for_type::<WorkflowRunInput>()
     )]
     async fn ao_workflow_run(
@@ -791,7 +793,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.daemon.start",
-        description = "Start the AO daemon.",
+        description = "Start the AO daemon. Purpose: Launch the background daemon for task scheduling and agent management. Prerequisites: None. Example: {} or {\"include-registry\": true, \"interval-secs\": 5}. Sequencing: After starting, use ao.daemon.status or ao.daemon.health to verify it's running.",
         input_schema = ao_schema_for_type::<DaemonStartInput>()
     )]
     async fn ao_daemon_start(
@@ -806,7 +808,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.daemon.stop",
-        description = "Stop the AO daemon.",
+        description = "Stop the AO daemon. Purpose: Shutdown the daemon gracefully. Prerequisites: Daemon must be running (check with ao.daemon.status). Example: {}. Sequencing: Use ao.daemon.status first to verify daemon is running, or ao.daemon.agents to see active agents before stopping.",
         input_schema = ao_schema_for_type::<ProjectRootInput>()
     )]
     async fn ao_daemon_stop(
@@ -823,7 +825,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.daemon.status",
-        description = "Get daemon status.",
+        description = "Get daemon status. Purpose: Check if daemon is running and view basic state. Prerequisites: None. Example: {}. Sequencing: Use after ao.daemon.start to verify startup, or before ao.daemon.stop to confirm running.",
         input_schema = ao_schema_for_type::<ProjectRootInput>()
     )]
     async fn ao_daemon_status(
@@ -840,7 +842,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.daemon.health",
-        description = "Check daemon health.",
+        description = "Check daemon health. Purpose: Get detailed health metrics including active agents, queue state, and capacity. Prerequisites: Daemon should be running. Example: {}. Sequencing: Use ao.daemon.status first to check if running, then ao.daemon.health for detailed metrics.",
         input_schema = ao_schema_for_type::<ProjectRootInput>()
     )]
     async fn ao_daemon_health(
@@ -857,7 +859,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.daemon.pause",
-        description = "Pause the daemon scheduler.",
+        description = "Pause the daemon scheduler. Purpose: Temporarily stop the daemon from picking up new tasks without stopping it. Prerequisites: Daemon must be running. Example: {}. Sequencing: Use ao.daemon.status first, then ao.daemon.resume to continue scheduling.",
         input_schema = ao_schema_for_type::<ProjectRootInput>()
     )]
     async fn ao_daemon_pause(
@@ -874,7 +876,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.daemon.resume",
-        description = "Resume the daemon scheduler.",
+        description = "Resume the daemon scheduler. Purpose: Continue task scheduling after a pause. Prerequisites: Daemon must be running and previously paused. Example: {}. Sequencing: Use after ao.daemon.pause, or check status with ao.daemon.status first.",
         input_schema = ao_schema_for_type::<ProjectRootInput>()
     )]
     async fn ao_daemon_resume(
@@ -891,7 +893,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.daemon.events",
-        description = "List recent daemon events.",
+        description = "List recent daemon events. Purpose: Debug and monitor daemon activity, task scheduling, and agent lifecycle events. Prerequisites: Daemon should be running. Example: {\"limit\": 50}. Sequencing: Use ao.daemon.status first to confirm running, then ao.daemon.agents to see active agents.",
         input_schema = ao_schema_for_type::<DaemonEventsInput>()
     )]
     async fn ao_daemon_events(
@@ -912,7 +914,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.daemon.agents",
-        description = "List active daemon agents.",
+        description = "List active daemon agents. Purpose: See currently running agent tasks and their status. Prerequisites: Daemon should be running. Example: {}. Sequencing: Use ao.daemon.status first to confirm running, then ao.agent.status for specific agent details.",
         input_schema = ao_schema_for_type::<ProjectRootInput>()
     )]
     async fn ao_daemon_agents(
@@ -929,7 +931,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.agent.run",
-        description = "Run an agent. Defaults to detached mode for MCP.",
+        description = "Run an agent to execute work. Purpose: Launch an AI agent to perform tasks. Prerequisites: Runner must be healthy (check ao.runner.health). Example: {\"tool\": \"claude\", \"model\": \"claude-3-opus\", \"prompt\": \"Fix the bug\"}. Sequencing: Use ao.agent.status to monitor, ao.agent.control to pause/resume/terminate.",
         input_schema = ao_schema_for_type::<AgentRunInput>()
     )]
     async fn ao_agent_run(
@@ -944,7 +946,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.agent.control",
-        description = "Control a running agent (pause, resume, terminate).",
+        description = "Control a running agent. Purpose: Pause, resume, or terminate an active agent run. Prerequisites: Agent must be running (use ao.agent.status to verify). Example: {\"run_id\": \"abc123\", \"action\": \"terminate\"}. Valid actions: pause, resume, terminate. Sequencing: Use ao.agent.status first to check state, ao.output.monitor to see output.",
         input_schema = ao_schema_for_type::<AgentControlInput>()
     )]
     async fn ao_agent_control(
@@ -967,7 +969,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.agent.status",
-        description = "Get status of an agent run.",
+        description = "Get status of an agent run. Purpose: Check if an agent is running, completed, or failed. Prerequisites: None (run_id from ao.agent.run). Example: {\"run_id\": \"abc123\"}. Sequencing: Use after ao.agent.run to track progress, or ao.agent.control to take action.",
         input_schema = ao_schema_for_type::<AgentStatusInput>()
     )]
     async fn ao_agent_status(
@@ -988,7 +990,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.agent.runner-status",
-        description = "Get agent runner process status.",
+        description = "Get agent runner process status. Purpose: Check runner health and capacity for agent execution. Prerequisites: None. Example: {} or {\"runner_scope\": \"project\"}. Sequencing: Use ao.runner.health for more details, or before ao.agent.run to ensure runner is ready.",
         input_schema = ao_schema_for_type::<RunnerScopeInput>()
     )]
     async fn ao_agent_runner_status(
@@ -1004,7 +1006,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.output.run",
-        description = "Get output for an agent run.",
+        description = "Get output for an agent run. Purpose: View stdout/stderr from an agent execution. Prerequisites: Run must exist (run_id from ao.agent.run). Example: {\"run_id\": \"abc123\"}. Sequencing: Use ao.agent.status first to check state, or ao.output.jsonl for structured logs.",
         input_schema = ao_schema_for_type::<RunIdInput>()
     )]
     async fn ao_output_run(
@@ -1024,7 +1026,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.output.monitor",
-        description = "Monitor output for a run, task, or phase.",
+        description = "Monitor output for a run, task, or phase. Purpose: Stream real-time output from running agents. Prerequisites: Run/task/phase must be active. Example: {\"run_id\": \"abc123\"} or {\"task_id\": \"TASK-001\", \"phase_id\": \"implementation\"}. Sequencing: Use after ao.agent.run or ao.workflow.run to monitor progress.",
         input_schema = ao_schema_for_type::<OutputMonitorInput>()
     )]
     async fn ao_output_monitor(
@@ -1046,7 +1048,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.output.tail",
-        description = "Return the most recent output, error, or thinking events for a run or task.",
+        description = "Get the most recent output, error, or thinking events. Purpose: Quick view of recent agent output without streaming. Prerequisites: Run or task must exist. Example: {\"run_id\": \"abc123\", \"limit\": 100} or {\"task_id\": \"TASK-001\", \"event_types\": [\"stdout\", \"stderr\"]}. Sequencing: Use after ao.agent.run to check progress, or ao.output.run for full output.",
         input_schema = ao_schema_for_type::<OutputTailInput>()
     )]
     async fn ao_output_tail(
@@ -1067,7 +1069,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.output.jsonl",
-        description = "Get JSONL log for an agent run.",
+        description = "Get JSONL log for an agent run. Purpose: Retrieve structured event logs for parsing or analysis. Prerequisites: Run must exist. Example: {\"run_id\": \"abc123\", \"entries\": true}. Sequencing: Use ao.output.run for human-readable output, or ao.output.artifacts for generated files.",
         input_schema = ao_schema_for_type::<OutputJsonlInput>()
     )]
     async fn ao_output_jsonl(
@@ -1090,7 +1092,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.output.artifacts",
-        description = "Get artifacts for an execution.",
+        description = "Get artifacts for an execution. Purpose: Retrieve files generated during agent execution (code, docs, etc). Prerequisites: Execution must have completed. Example: {\"execution_id\": \"exec-abc123\"}. Sequencing: Use after ao.agent.status shows completed, or ao.output.jsonl to find execution_id.",
         input_schema = ao_schema_for_type::<ExecutionIdInput>()
     )]
     async fn ao_output_artifacts(
@@ -1110,7 +1112,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.runner.health",
-        description = "Check runner process health.",
+        description = "Check runner process health. Purpose: Verify runner is running and has capacity for agent execution. Prerequisites: None. Example: {}. Sequencing: Use before ao.agent.run to ensure runner is ready, or ao.runner.orphans-detect if issues suspected.",
         input_schema = ao_schema_for_type::<ProjectRootInput>()
     )]
     async fn ao_runner_health(
@@ -1127,7 +1129,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.runner.orphans-detect",
-        description = "Detect orphaned runner processes.",
+        description = "Detect orphaned runner processes. Purpose: Find runner processes that are no longer managed by the daemon. Prerequisites: None. Example: {}. Sequencing: Use if agents aren't starting or ao.runner.health shows issues, then ao.runner.orphans-cleanup to fix.",
         input_schema = ao_schema_for_type::<ProjectRootInput>()
     )]
     async fn ao_runner_orphans_detect(
@@ -1148,7 +1150,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.runner.restart-stats",
-        description = "Get runner restart statistics.",
+        description = "Get runner restart statistics. Purpose: View runner uptime and restart history for reliability analysis. Prerequisites: None. Example: {}. Sequencing: Use if investigating stability issues, or after ao.runner.health shows problems.",
         input_schema = ao_schema_for_type::<ProjectRootInput>()
     )]
     async fn ao_runner_restart_stats(
@@ -1165,7 +1167,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.task.update",
-        description = "Update task fields.",
+        description = "Update task fields. Purpose: Modify task properties like title, description, priority, status, or assignee. Prerequisites: Task must exist. Example: {\"id\": \"TASK-001\", \"priority\": \"high\", \"description\": \"Updated description\"}. Sequencing: Use ao.task.get first to see current values, or ao.task.status for simple status changes.",
         input_schema = ao_schema_for_type::<TaskUpdateInput>()
     )]
     async fn ao_task_update(
@@ -1191,7 +1193,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.task.assign",
-        description = "Assign a task to a user or agent.",
+        description = "Assign a task to a user or agent. Purpose: Set task ownership for work assignment. Prerequisites: Task must exist. Example: {\"id\": \"TASK-001\", \"assignee\": \"user@email.com\"} or {\"id\": \"TASK-001\", \"assignee\": \"agent:claude\"}. Sequencing: Use ao.task.get first to verify assignee format, or ao.task.create to create and assign in one step.",
         input_schema = ao_schema_for_type::<TaskAssignInput>()
     )]
     async fn ao_task_assign(
@@ -1213,7 +1215,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.task.prioritized",
-        description = "List tasks in priority order.",
+        description = "List tasks in priority order. Purpose: Get ordered list of tasks ready for work (by priority, then dependencies). Prerequisites: None. Example: {\"limit\": 10}. Sequencing: Use ao.task.next for single best task, or ao.task.list for filtered views.",
         input_schema = ao_schema_for_type::<PaginatedProjectRootInput>()
     )]
     async fn ao_task_prioritized(
@@ -1236,7 +1238,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.task.next",
-        description = "Get the next task to work on.",
+        description = "Get the next task to work on. Purpose: Get the single highest priority task ready for work. Prerequisites: None. Example: {}. Sequencing: Use ao.task.prioritized to see all available tasks, or ao.task.get for details before starting.",
         input_schema = ao_schema_for_type::<ProjectRootInput>()
     )]
     async fn ao_task_next(
@@ -1253,7 +1255,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.task.stats",
-        description = "Get task statistics.",
+        description = "Get task statistics. Purpose: View aggregate task metrics (counts by status, priority, type). Prerequisites: None. Example: {}. Sequencing: Use ao.task.list for detailed listings, or ao.workflow.list for workflow stats.",
         input_schema = ao_schema_for_type::<ProjectRootInput>()
     )]
     async fn ao_task_stats(
@@ -1270,7 +1272,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.task.cancel",
-        description = "Cancel a task.",
+        description = "Cancel a task. Purpose: Stop a task and mark it as cancelled. Prerequisites: Task must exist. Warning: This may leave work incomplete. Example: {\"task_id\": \"TASK-001\"} or {\"task_id\": \"TASK-001\", \"confirm\": true, \"dry_run\": false}. Sequencing: Use ao.task.status to check current state first, or ao.agent.control to stop running agents.",
         input_schema = ao_schema_for_type::<TaskCancelInput>()
     )]
     async fn ao_task_cancel(
@@ -1294,7 +1296,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.task.set-priority",
-        description = "Set task priority.",
+        description = "Set task priority. Purpose: Change the priority of a task for scheduling. Prerequisites: Task must exist. Example: {\"task_id\": \"TASK-001\", \"priority\": \"critical\"}. Valid priorities: critical, high, medium, low. Sequencing: Use ao.task.get first to check current priority, or ao.task.stats to see distribution.",
         input_schema = ao_schema_for_type::<TaskSetPriorityInput>()
     )]
     async fn ao_task_set_priority(
@@ -1316,7 +1318,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.task.set-deadline",
-        description = "Set or clear a task deadline.",
+        description = "Set or clear a task deadline. Purpose: Add a due date for time-sensitive tasks. Prerequisites: Task must exist. Example: {\"task_id\": \"TASK-001\", \"deadline\": \"2024-12-31\"} or {\"task_id\": \"TASK-001\"} to clear. Sequencing: Use ao.task.get first to check, or ao.task.stats to see overdue tasks.",
         input_schema = ao_schema_for_type::<TaskSetDeadlineInput>()
     )]
     async fn ao_task_set_deadline(
@@ -1337,7 +1339,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.workflow.get",
-        description = "Get workflow details by id.",
+        description = "Get workflow details by ID. Purpose: View full workflow state including current phase, decisions, and checkpoints. Prerequisites: Workflow must exist. Example: {\"id\": \"wf-abc123\"}. Sequencing: Use after ao.workflow.list to find workflows, or ao.workflow.run to start new ones.",
         input_schema = ao_schema_for_type::<IdInput>()
     )]
     async fn ao_workflow_get(
@@ -1357,7 +1359,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.workflow.pause",
-        description = "Pause a running workflow.",
+        description = "Pause a running workflow. Purpose: Temporarily halt workflow execution without cancelling. Prerequisites: Workflow must be running. Example: {\"id\": \"wf-abc123\"}. Sequencing: Use ao.workflow.get to check status first, then ao.workflow.resume to continue.",
         input_schema = ao_schema_for_type::<WorkflowDestructiveInput>()
     )]
     async fn ao_workflow_pause(
@@ -1381,7 +1383,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.workflow.cancel",
-        description = "Cancel a running workflow.",
+        description = "Cancel a running workflow. Purpose: Stop a workflow permanently. Prerequisites: Workflow must be running. Warning: This terminates all phases. Example: {\"id\": \"wf-abc123\"}. Sequencing: Use ao.workflow.get to check status first, or ao.output.artifacts to save any generated artifacts.",
         input_schema = ao_schema_for_type::<WorkflowDestructiveInput>()
     )]
     async fn ao_workflow_cancel(
@@ -1405,7 +1407,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.workflow.resume",
-        description = "Resume a paused workflow.",
+        description = "Resume a paused workflow. Purpose: Continue execution of a paused workflow. Prerequisites: Workflow must be paused. Example: {\"id\": \"wf-abc123\"}. Sequencing: Use after ao.workflow.pause, or ao.workflow.get to verify paused state.",
         input_schema = ao_schema_for_type::<IdInput>()
     )]
     async fn ao_workflow_resume(
@@ -1425,7 +1427,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.workflow.decisions",
-        description = "List workflow decisions.",
+        description = "List workflow decisions. Purpose: View automated and manual decisions made during workflow execution. Prerequisites: Workflow must exist. Example: {\"id\": \"wf-abc123\"}. Sequencing: Use after ao.workflow.get to understand workflow state, or ao.workflow.checkpoints.list for phase boundaries.",
         input_schema = ao_schema_for_type::<IdListInput>()
     )]
     async fn ao_workflow_decisions(
@@ -1454,7 +1456,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.workflow.checkpoints.list",
-        description = "List workflow checkpoints.",
+        description = "List workflow checkpoints. Purpose: View saved workflow states for recovery or auditing. Prerequisites: Workflow must exist. Example: {\"id\": \"wf-abc123\"}. Sequencing: Use after ao.workflow.get to see current state, or ao.workflow.decisions to understand decision history.",
         input_schema = ao_schema_for_type::<IdListInput>()
     )]
     async fn ao_workflow_checkpoints_list(
@@ -1964,6 +1966,7 @@ fn default_codex() -> String {
 
 fn build_daemon_start_args(input: &DaemonStartInput) -> Vec<String> {
     let mut args = vec!["daemon".to_string(), "start".to_string()];
+    push_opt_usize(&mut args, "--pool-size", input.pool_size);
     push_opt_usize(&mut args, "--max-agents", input.max_agents);
     push_opt_num(&mut args, "--interval-secs", input.interval_secs);
     push_opt_num(

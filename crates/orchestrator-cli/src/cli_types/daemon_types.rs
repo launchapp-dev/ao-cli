@@ -36,7 +36,14 @@ pub(crate) struct DaemonStartArgs {
         long,
         value_name = "COUNT",
         value_parser = parse_positive_usize,
-        help = "Maximum number of concurrent agents."
+        help = "Maximum number of concurrent agents (agent pool size)."
+    )]
+    pub(crate) pool_size: Option<usize>,
+    #[arg(
+        long,
+        value_name = "COUNT",
+        value_parser = parse_positive_usize,
+        help = "Maximum number of concurrent agents (alias for --pool-size, deprecated)."
     )]
     pub(crate) max_agents: Option<usize>,
     #[arg(
@@ -47,7 +54,6 @@ pub(crate) struct DaemonStartArgs {
     pub(crate) skip_runner: bool,
     #[arg(
         long,
-        value_enum,
         value_name = "SCOPE",
         help = "Runner config scope: project or global."
     )]
@@ -63,7 +69,7 @@ pub(crate) struct DaemonStartArgs {
         value_name = "SECONDS",
         default_value_t = 5,
         value_parser = parse_positive_u64,
-        help = "Scheduler interval in seconds."
+        help = "Housekeeping timer interval in seconds (agent scheduling is reactive)."
     )]
     pub(crate) interval_secs: u64,
     #[arg(
@@ -145,7 +151,7 @@ pub(crate) struct DaemonStartArgs {
         value_name = "COUNT",
         default_value_t = 2,
         value_parser = parse_positive_usize,
-        help = "Maximum task workflows or phases to execute per scheduler tick."
+        help = "Maximum task workflows or phases to execute per scheduler tick. (Deprecated: use --pool-size / --max-agents to control agent concurrency)."
     )]
     pub(crate) max_tasks_per_tick: usize,
     #[arg(
@@ -168,10 +174,24 @@ pub(crate) struct DaemonStartArgs {
 pub(crate) struct DaemonRunArgs {
     #[arg(
         long,
+        value_name = "COUNT",
+        value_parser = parse_positive_usize,
+        help = "Maximum number of concurrent agents (agent pool size)."
+    )]
+    pub(crate) pool_size: Option<usize>,
+    #[arg(
+        long,
+        value_name = "COUNT",
+        value_parser = parse_positive_usize,
+        help = "Maximum number of concurrent agents (alias for --pool-size, deprecated)."
+    )]
+    pub(crate) max_agents: Option<usize>,
+    #[arg(
+        long,
         value_name = "SECONDS",
         default_value_t = 5,
         value_parser = parse_positive_u64,
-        help = "Scheduler interval in seconds."
+        help = "Housekeeping timer interval in seconds (agent scheduling is reactive)."
     )]
     pub(crate) interval_secs: u64,
     #[arg(
@@ -253,7 +273,7 @@ pub(crate) struct DaemonRunArgs {
         value_name = "COUNT",
         default_value_t = 2,
         value_parser = parse_positive_usize,
-        help = "Maximum task workflows or phases to execute per scheduler tick."
+        help = "Maximum task workflows or phases to execute per scheduler tick. (Deprecated: use --pool-size / --max-agents to control agent concurrency)."
     )]
     pub(crate) max_tasks_per_tick: usize,
     #[arg(

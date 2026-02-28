@@ -1749,6 +1749,8 @@ mod tests {
         .expect("core state should be writable");
 
         let args = DaemonRunArgs {
+            pool_size: None,
+            max_agents: None,
             interval_secs: 1,
             include_registry: false,
             ai_task_generation: false,
@@ -1835,6 +1837,8 @@ mod tests {
             .expect("requirement should be stored");
 
         let args = DaemonRunArgs {
+            pool_size: None,
+            max_agents: None,
             interval_secs: 1,
             include_registry: false,
             ai_task_generation: false,

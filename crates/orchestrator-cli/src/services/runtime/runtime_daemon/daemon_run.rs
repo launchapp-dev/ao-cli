@@ -710,6 +710,8 @@ mod tests {
         set_registry_runtime_paused(&secondary_root, false).expect("secondary registry entry");
 
         let args = DaemonRunArgs {
+            pool_size: None,
+            max_agents: None,
             interval_secs: 1,
             include_registry: true,
             ai_task_generation: false,
@@ -853,6 +855,8 @@ mod tests {
         set_registry_runtime_paused(&primary_root, false).expect("primary registry entry");
 
         let args = DaemonRunArgs {
+            pool_size: None,
+            max_agents: None,
             interval_secs: 1,
             include_registry: false,
             ai_task_generation: false,
@@ -965,6 +969,8 @@ mod tests {
         set_registry_runtime_paused(&primary_root, false).expect("primary registry entry");
 
         let args = DaemonRunArgs {
+            pool_size: None,
+            max_agents: None,
             interval_secs: 1,
             include_registry: false,
             ai_task_generation: false,
@@ -1090,6 +1096,8 @@ mod tests {
         .expect("pm-config should be written");
 
         let args = DaemonRunArgs {
+            pool_size: None,
+            max_agents: None,
             interval_secs: 1,
             include_registry: false,
             ai_task_generation: false,
@@ -1175,6 +1183,8 @@ mod tests {
         .expect("registry should be written");
 
         let args = DaemonRunArgs {
+            pool_size: None,
+            max_agents: None,
             interval_secs: 1,
             include_registry: true,
             ai_task_generation: false,

@@ -25,9 +25,9 @@
     "created_at": "2026-02-27T16:30:47.315346Z",
     "created_by": "ao-cli",
     "started_at": "2026-02-27T18:59:43.772322Z",
-    "updated_at": "2026-02-28T02:46:55.788944Z",
+    "updated_at": "2026-02-28T16:55:35.093925Z",
     "updated_by": "ao-daemon",
-    "version": 14
+    "version": 17
   },
   "paused": false,
   "priority": "low",
@@ -38,7 +38,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "in-progress",
+  "status": "ready",
   "tags": [],
   "title": "Add ao.files.scope MCP tool for task-relevant file discovery",
   "type": "feature",

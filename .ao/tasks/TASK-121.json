@@ -25,9 +25,9 @@
     "created_at": "2026-02-28T15:57:12.343823Z",
     "created_by": "ao-cli",
     "started_at": "2026-02-28T15:57:17.388125Z",
-    "updated_at": "2026-02-28T15:57:17.388126Z",
+    "updated_at": "2026-02-28T16:53:22.393485Z",
     "updated_by": "ao-daemon",
-    "version": 4
+    "version": 7
   },
   "paused": false,
   "priority": "high",
@@ -38,7 +38,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "in-progress",
+  "status": "ready",
   "tags": [],
   "title": "Extract reconciliation functions into dedicated module",
   "type": "refactor",

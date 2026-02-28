@@ -4,33 +4,38 @@
     "role": "default",
     "type": "agent"
   },
-  "blocked_at": null,
+  "blocked_at": "2026-02-28T17:27:47.350887Z",
   "blocked_by": null,
   "blocked_phase": null,
-  "blocked_reason": null,
+  "blocked_reason": "dependency gate: dependency TASK-125 is in-progress",
   "branch_name": null,
   "cancelled": false,
   "checklist": [],
   "complexity": "medium",
   "deadline": null,
-  "dependencies": [],
-  "description": "Sub-task 2/3 of TASK-112. Extract merge/push/cleanup and AI conflict recovery into daemon_scheduler_git_merge.rs.",
+  "dependencies": [
+    {
+      "dependency_type": "blocked-by",
+      "task_id": "TASK-125"
+    }
+  ],
+  "description": "Create workflow_executor/workflow_runner.rs with WorkflowRunner struct. Move process_phase_execution_completion, sync_task_status_for_workflow_result, research gate checks, and AI failure recovery from project_tick.rs. Create workflow_merge_recovery.rs. Part of daemon restructuring plan Phase B.",
   "estimated_effort": null,
-  "id": "TASK-122",
+  "id": "TASK-126",
   "impact_area": [],
   "linked_architecture_entities": [],
   "linked_requirements": [],
   "metadata": {
     "completed_at": null,
-    "created_at": "2026-02-28T15:57:28.886528Z",
+    "created_at": "2026-02-28T17:23:24.188512Z",
     "created_by": "ao-cli",
-    "started_at": "2026-02-28T15:57:34.445235Z",
-    "updated_at": "2026-02-28T16:55:26.346982Z",
+    "started_at": "2026-02-28T17:23:37.173250Z",
+    "updated_at": "2026-02-28T17:27:47.470814Z",
     "updated_by": "ao-daemon",
-    "version": 7
+    "version": 43
   },
-  "paused": false,
-  "priority": "medium",
+  "paused": true,
+  "priority": "critical",
   "resource_requirements": {
     "max_cpu_percent": null,
     "max_memory_mb": null,
@@ -38,9 +43,9 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "ready",
+  "status": "blocked",
   "tags": [],
-  "title": "Extract git merge/conflict recovery from sync_task_status",
+  "title": "Extract Layer 2 - Workflow Runner",
   "type": "refactor",
   "workflow_metadata": {
     "requires_architecture": false,

@@ -25,9 +25,9 @@
     "created_at": "2026-02-27T16:05:38.594366Z",
     "created_by": "ao-cli",
     "started_at": "2026-02-27T18:31:45.552849Z",
-    "updated_at": "2026-02-28T16:19:30.680910Z",
+    "updated_at": "2026-02-28T16:53:15.689541Z",
     "updated_by": "ao-daemon",
-    "version": 22
+    "version": 25
   },
   "paused": false,
   "priority": "medium",
@@ -38,7 +38,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "in-progress",
+  "status": "ready",
   "tags": [],
   "title": "Add command palette and vim-style navigation to TUI",
   "type": "feature",

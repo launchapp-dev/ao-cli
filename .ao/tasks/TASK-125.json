@@ -8,29 +8,29 @@
   "blocked_by": null,
   "blocked_phase": null,
   "blocked_reason": null,
-  "branch_name": "ao/task-063",
+  "branch_name": "ao/task-125",
   "cancelled": false,
   "checklist": [],
   "complexity": "medium",
   "deadline": null,
   "dependencies": [],
-  "description": "Add `ao queue` command group:\n- `ao queue list` — show ordered queue, running workflows, and deferred tasks\n- `ao queue push TASK-XXX` — manually add to queue\n- `ao queue remove TASK-XXX` — remove from queue\n- `ao queue explain` — show the EM's last reasoning for the current ordering\n\nSupport --json output following the ao.cli.v1 envelope contract.",
+  "description": "Move phase execution code from daemon_scheduler_phase_exec.rs into new workflow_executor/phase_executor.rs module. Move git commit helpers to phase_git.rs. Create mod.rs re-exports. Update daemon_scheduler.rs to import from new location. Part of daemon restructuring plan Phase A.",
   "estimated_effort": null,
-  "id": "TASK-063",
+  "id": "TASK-125",
   "impact_area": [],
   "linked_architecture_entities": [],
   "linked_requirements": [],
   "metadata": {
     "completed_at": null,
-    "created_at": "2026-02-27T15:58:32.576818Z",
+    "created_at": "2026-02-28T17:23:02.171610Z",
     "created_by": "ao-cli",
-    "started_at": "2026-02-27T16:03:24.472817Z",
-    "updated_at": "2026-02-28T16:55:36.503228Z",
+    "started_at": "2026-02-28T17:23:17.923773Z",
+    "updated_at": "2026-02-28T17:27:40.642038Z",
     "updated_by": "ao-daemon",
-    "version": 29
+    "version": 63
   },
   "paused": false,
-  "priority": "medium",
+  "priority": "critical",
   "resource_requirements": {
     "max_cpu_percent": null,
     "max_memory_mb": null,
@@ -38,10 +38,10 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "ready",
+  "status": "in-progress",
   "tags": [],
-  "title": "Add ao queue CLI command for queue visibility",
-  "type": "feature",
+  "title": "Extract Layer 1 - Phase Executor to workflow_executor/",
+  "type": "refactor",
   "workflow_metadata": {
     "requires_architecture": false,
     "requires_design": false,
@@ -50,5 +50,5 @@
     "requires_staging_deploy": false,
     "workflow_id": null
   },
-  "worktree_path": "/Users/samishukri/.ao/ao-cli-1222ef9c4f94/worktrees/task-task-063"
+  "worktree_path": "/Users/samishukri/.ao/ao-cli-1222ef9c4f94/worktrees/task-task-125"
 }

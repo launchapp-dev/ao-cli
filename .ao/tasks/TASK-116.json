@@ -25,9 +25,9 @@
     "created_at": "2026-02-27T17:19:14.083009Z",
     "created_by": "ao-cli",
     "started_at": "2026-02-27T17:46:21.426878Z",
-    "updated_at": "2026-02-28T16:22:13.170011Z",
+    "updated_at": "2026-02-28T16:53:17.030906Z",
     "updated_by": "ao-daemon",
-    "version": 33
+    "version": 36
   },
   "paused": false,
   "priority": "medium",
@@ -38,7 +38,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "in-progress",
+  "status": "ready",
   "tags": [],
   "title": "Map existing CLI flags to pool model and update daemon start",
   "type": "feature",

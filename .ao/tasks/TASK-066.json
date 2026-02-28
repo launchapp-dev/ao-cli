@@ -1,6 +1,6 @@
 {
   "assignee": {
-    "model": "claude-sonnet-4-6",
+    "model": "minimax/MiniMax-M2.1",
     "role": "default",
     "type": "agent"
   },
@@ -25,9 +25,9 @@
     "created_at": "2026-02-27T16:05:15.157634Z",
     "created_by": "ao-cli",
     "started_at": "2026-02-27T17:37:28.139998Z",
-    "updated_at": "2026-02-28T02:41:15.261209Z",
+    "updated_at": "2026-02-28T17:30:33.054673Z",
     "updated_by": "ao-daemon",
-    "version": 23
+    "version": 139
   },
   "paused": false,
   "priority": "high",

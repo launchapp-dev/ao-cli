@@ -25,9 +25,9 @@
     "created_at": "2026-02-27T01:26:38.334067Z",
     "created_by": "ao-cli",
     "started_at": "2026-02-27T01:26:46.781964Z",
-    "updated_at": "2026-02-28T07:50:29.232361Z",
+    "updated_at": "2026-02-28T16:55:20.965089Z",
     "updated_by": "ao-daemon",
-    "version": 44
+    "version": 47
   },
   "paused": false,
   "priority": "medium",
@@ -38,7 +38,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "in-progress",
+  "status": "ready",
   "tags": [],
   "title": "Auto-provision IPC auth token in ensure_agent_runner_running",
   "type": "test",

@@ -1,6 +1,6 @@
 {
   "assignee": {
-    "model": "claude-sonnet-4-6",
+    "model": "minimax/MiniMax-M2.1",
     "role": "default",
     "type": "agent"
   },
@@ -25,9 +25,9 @@
     "created_at": "2026-02-27T02:50:50.351552Z",
     "created_by": "ao-cli",
     "started_at": "2026-02-27T02:53:52.761713Z",
-    "updated_at": "2026-02-28T16:44:43.386131Z",
+    "updated_at": "2026-02-28T17:28:28.143524Z",
     "updated_by": "ao-daemon",
-    "version": 33
+    "version": 107
   },
   "paused": false,
   "priority": "high",
@@ -38,7 +38,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "done",
+  "status": "in-progress",
   "tags": [],
   "title": "Add status transition validation to task state changes",
   "type": "feature",

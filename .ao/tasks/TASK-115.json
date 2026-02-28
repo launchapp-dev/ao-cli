@@ -25,9 +25,9 @@
     "created_at": "2026-02-27T17:19:06.890095Z",
     "created_by": "ao-cli",
     "started_at": "2026-02-27T17:46:19.060877Z",
-    "updated_at": "2026-02-28T04:25:16.503956Z",
+    "updated_at": "2026-02-28T16:55:47.372948Z",
     "updated_by": "ao-daemon",
-    "version": 31
+    "version": 34
   },
   "paused": false,
   "priority": "medium",
@@ -38,7 +38,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "in-progress",
+  "status": "ready",
   "tags": [],
   "title": "Add graceful pool drain to daemon stop and pause commands",
   "type": "feature",

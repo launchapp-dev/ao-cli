@@ -1,36 +1,39 @@
 {
   "assignee": {
-    "model": "minimax/MiniMax-M2.1",
-    "role": "default",
-    "type": "agent"
+    "type": "unassigned"
   },
-  "blocked_at": null,
+  "blocked_at": "2026-02-28T17:26:20.430010Z",
   "blocked_by": null,
   "blocked_phase": null,
-  "blocked_reason": null,
+  "blocked_reason": "dependency gate: dependency TASK-126 is blocked",
   "branch_name": null,
   "cancelled": false,
   "checklist": [],
   "complexity": "medium",
   "deadline": null,
-  "dependencies": [],
-  "description": "Sub-task 2/3 of TASK-112. Extract merge/push/cleanup and AI conflict recovery into daemon_scheduler_git_merge.rs.",
+  "dependencies": [
+    {
+      "dependency_type": "blocked-by",
+      "task_id": "TASK-126"
+    }
+  ],
+  "description": "Add Execute subcommand to workflow CLI types in cli_types.rs. Add handler in ops_workflow.rs that uses WorkflowRunner directly without daemon. Supports full workflow and single-phase modes. Part of daemon restructuring plan Phase C.",
   "estimated_effort": null,
-  "id": "TASK-122",
+  "id": "TASK-127",
   "impact_area": [],
   "linked_architecture_entities": [],
   "linked_requirements": [],
   "metadata": {
     "completed_at": null,
-    "created_at": "2026-02-28T15:57:28.886528Z",
+    "created_at": "2026-02-28T17:23:25.590719Z",
     "created_by": "ao-cli",
-    "started_at": "2026-02-28T15:57:34.445235Z",
-    "updated_at": "2026-02-28T16:55:26.346982Z",
+    "started_at": null,
+    "updated_at": "2026-02-28T17:26:20.556276Z",
     "updated_by": "ao-daemon",
-    "version": 7
+    "version": 5
   },
-  "paused": false,
-  "priority": "medium",
+  "paused": true,
+  "priority": "high",
   "resource_requirements": {
     "max_cpu_percent": null,
     "max_memory_mb": null,
@@ -38,10 +41,10 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "ready",
+  "status": "blocked",
   "tags": [],
-  "title": "Extract git merge/conflict recovery from sync_task_status",
-  "type": "refactor",
+  "title": "Add ao workflow execute CLI command",
+  "type": "feature",
   "workflow_metadata": {
     "requires_architecture": false,
     "requires_design": false,

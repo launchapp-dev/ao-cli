@@ -1,35 +1,38 @@
 {
   "assignee": {
-    "model": "minimax/MiniMax-M2.1",
-    "role": "default",
-    "type": "agent"
+    "type": "unassigned"
   },
-  "blocked_at": null,
+  "blocked_at": "2026-02-28T17:26:39.766147Z",
   "blocked_by": null,
   "blocked_phase": null,
-  "blocked_reason": null,
+  "blocked_reason": "dependency gate: dependency TASK-128 is blocked",
   "branch_name": null,
   "cancelled": false,
   "checklist": [],
   "complexity": "medium",
   "deadline": null,
-  "dependencies": [],
-  "description": "Sub-task 2/3 of TASK-112. Extract merge/push/cleanup and AI conflict recovery into daemon_scheduler_git_merge.rs.",
+  "dependencies": [
+    {
+      "dependency_type": "blocked-by",
+      "task_id": "TASK-128"
+    }
+  ],
+  "description": "Add TaskFailureRecord type, exponential backoff formula, max consecutive failures (5), task-failure-backoff.json persistence, integration with retry and recovery loops. Part of daemon restructuring plan Phase F.",
   "estimated_effort": null,
-  "id": "TASK-122",
+  "id": "TASK-130",
   "impact_area": [],
   "linked_architecture_entities": [],
   "linked_requirements": [],
   "metadata": {
     "completed_at": null,
-    "created_at": "2026-02-28T15:57:28.886528Z",
+    "created_at": "2026-02-28T17:23:30.295712Z",
     "created_by": "ao-cli",
-    "started_at": "2026-02-28T15:57:34.445235Z",
-    "updated_at": "2026-02-28T16:55:26.346982Z",
+    "started_at": null,
+    "updated_at": "2026-02-28T17:26:39.887486Z",
     "updated_by": "ao-daemon",
-    "version": 7
+    "version": 5
   },
-  "paused": false,
+  "paused": true,
   "priority": "medium",
   "resource_requirements": {
     "max_cpu_percent": null,
@@ -38,10 +41,10 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "ready",
+  "status": "blocked",
   "tags": [],
-  "title": "Extract git merge/conflict recovery from sync_task_status",
-  "type": "refactor",
+  "title": "Add task failure backoff",
+  "type": "feature",
   "workflow_metadata": {
     "requires_architecture": false,
     "requires_design": false,

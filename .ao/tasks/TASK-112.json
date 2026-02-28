@@ -25,9 +25,9 @@
     "created_at": "2026-02-27T17:18:44.431614Z",
     "created_by": "ao-cli",
     "started_at": "2026-02-27T17:24:51.056074Z",
-    "updated_at": "2026-02-28T08:15:18.444557Z",
+    "updated_at": "2026-02-28T16:53:21.058602Z",
     "updated_by": "ao-daemon",
-    "version": 30
+    "version": 33
   },
   "paused": false,
   "priority": "high",
@@ -38,7 +38,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "in-progress",
+  "status": "ready",
   "tags": [],
   "title": "Separate housekeeping timer from agent execution in daemon run loop",
   "type": "feature",

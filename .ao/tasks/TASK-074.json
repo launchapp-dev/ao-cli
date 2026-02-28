@@ -25,9 +25,9 @@
     "created_at": "2026-02-27T16:05:42.112434Z",
     "created_by": "ao-cli",
     "started_at": "2026-02-27T18:31:44.720958Z",
-    "updated_at": "2026-02-28T04:25:27.344340Z",
+    "updated_at": "2026-02-28T16:55:29.717293Z",
     "updated_by": "ao-daemon",
-    "version": 20
+    "version": 23
   },
   "paused": false,
   "priority": "medium",
@@ -38,7 +38,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "in-progress",
+  "status": "ready",
   "tags": [],
   "title": "Add split-pane layouts with persistent tabs to TUI",
   "type": "feature",

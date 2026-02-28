@@ -25,9 +25,9 @@
     "created_at": "2026-02-27T16:09:03.130351Z",
     "created_by": "ao-cli",
     "started_at": "2026-02-27T18:24:46.790328Z",
-    "updated_at": "2026-02-28T16:21:33.796818Z",
+    "updated_at": "2026-02-28T16:53:17.699105Z",
     "updated_by": "ao-daemon",
-    "version": 29
+    "version": 32
   },
   "paused": false,
   "priority": "medium",
@@ -38,7 +38,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "in-progress",
+  "status": "ready",
   "tags": [],
   "title": "Add queue management and work queue REST API endpoints",
   "type": "feature",

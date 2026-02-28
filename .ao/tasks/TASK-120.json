@@ -25,9 +25,9 @@
     "created_at": "2026-02-28T15:37:05.272282Z",
     "created_by": "ao-cli",
     "started_at": "2026-02-28T15:37:09.904541Z",
-    "updated_at": "2026-02-28T16:44:53.217118Z",
+    "updated_at": "2026-02-28T17:30:29.571379Z",
     "updated_by": "ao-daemon",
-    "version": 5
+    "version": 571
   },
   "paused": false,
   "priority": "critical",
@@ -38,7 +38,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "done",
+  "status": "in-progress",
   "tags": [],
   "title": "Implement structured phase decision contracts for workflow engine",
   "type": "feature",

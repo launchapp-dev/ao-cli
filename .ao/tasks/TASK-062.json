@@ -25,9 +25,9 @@
     "created_at": "2026-02-27T15:58:29.208628Z",
     "created_by": "ao-cli",
     "started_at": "2026-02-27T18:59:42.899967Z",
-    "updated_at": "2026-02-28T08:10:33.819820Z",
+    "updated_at": "2026-02-28T16:55:33.073319Z",
     "updated_by": "ao-daemon",
-    "version": 18
+    "version": 21
   },
   "paused": false,
   "priority": "medium",
@@ -38,7 +38,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "in-progress",
+  "status": "ready",
   "tags": [],
   "title": "Expose EM work queue via MCP tools",
   "type": "feature",

@@ -25,9 +25,9 @@
     "created_at": "2026-02-27T16:10:17.407129Z",
     "created_by": "ao-cli",
     "started_at": "2026-02-27T18:09:54.336588Z",
-    "updated_at": "2026-02-28T02:46:01.919373Z",
+    "updated_at": "2026-02-28T16:55:31.061104Z",
     "updated_by": "ao-daemon",
-    "version": 21
+    "version": 24
   },
   "paused": false,
   "priority": "medium",
@@ -38,7 +38,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "in-progress",
+  "status": "ready",
   "tags": [],
   "title": "Add PostgreSQL storage backend implementation",
   "type": "feature",

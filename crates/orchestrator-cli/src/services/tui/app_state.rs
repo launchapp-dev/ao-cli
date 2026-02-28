@@ -10,6 +10,21 @@ use crate::services::tui::task_snapshot::TaskSnapshot;
 
 const HISTORY_LIMIT: usize = 300;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FocusPane {
+    Models,
+    Tasks,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ModalState {
+    None,
+    TaskDetail,
+    StatusPicker { selected: usize },
+    AssignInput { input: String },
+    CreateTask { title_input: String },
+}
+
 pub(crate) struct AppState {
     pub(crate) mcp_endpoint: String,
     pub(crate) mcp_agent_id: String,
@@ -25,6 +40,9 @@ pub(crate) struct AppState {
     pub(crate) tasks: Vec<TaskSnapshot>,
     pub(crate) event_tx: UnboundedSender<AppEvent>,
     pub(crate) event_rx: UnboundedReceiver<AppEvent>,
+    pub(crate) focus: FocusPane,
+    pub(crate) task_selected_idx: usize,
+    pub(crate) modal: ModalState,
 }
 
 impl AppState {
@@ -52,13 +70,17 @@ impl AppState {
             profiles: Vec::new(),
             selected_profile_idx: 0,
             prompt: String::new(),
-            status_line: "Press Enter to run, p to toggle print mode, q to quit".to_string(),
+            status_line: "Tab=switch pane  Enter=detail/run  s=status  a=assign  c=create  q=quit"
+                .to_string(),
             history: VecDeque::new(),
             run_in_flight: false,
             print_mode: true,
             tasks,
             event_tx,
             event_rx,
+            focus: FocusPane::Models,
+            task_selected_idx: 0,
+            modal: ModalState::None,
         };
         state.refresh_profiles();
         state
@@ -78,6 +100,29 @@ impl AppState {
         if self.selected_profile_idx + 1 < self.profiles.len() {
             self.selected_profile_idx += 1;
         }
+    }
+
+    pub(crate) fn cycle_focus(&mut self) {
+        self.focus = match self.focus {
+            FocusPane::Models => FocusPane::Tasks,
+            FocusPane::Tasks => FocusPane::Models,
+        };
+    }
+
+    pub(crate) fn task_move_up(&mut self) {
+        if self.task_selected_idx > 0 {
+            self.task_selected_idx -= 1;
+        }
+    }
+
+    pub(crate) fn task_move_down(&mut self) {
+        if !self.tasks.is_empty() && self.task_selected_idx + 1 < self.tasks.len() {
+            self.task_selected_idx += 1;
+        }
+    }
+
+    pub(crate) fn selected_task(&self) -> Option<&TaskSnapshot> {
+        self.tasks.get(self.task_selected_idx)
     }
 
     pub(crate) fn append_prompt_char(&mut self, ch: char) {
@@ -120,7 +165,11 @@ impl AppState {
     }
 
     pub(crate) fn set_tasks(&mut self, tasks: Vec<TaskSnapshot>) {
+        let len = tasks.len();
         self.tasks = tasks;
+        if self.task_selected_idx >= len && len > 0 {
+            self.task_selected_idx = len - 1;
+        }
     }
 
     pub(crate) fn clear_history(&mut self) {
@@ -157,6 +206,17 @@ impl AppState {
                         format!("run failed: {summary}")
                     };
                     self.push_history(summary);
+                }
+                Ok(AppEvent::TasksRefreshed(tasks)) => {
+                    let len = tasks.len();
+                    self.tasks = tasks;
+                    if self.task_selected_idx >= len && len > 0 {
+                        self.task_selected_idx = len - 1;
+                    }
+                    self.status_line = format!("tasks refreshed ({len})");
+                }
+                Ok(AppEvent::TaskOpError(msg)) => {
+                    self.status_line = format!("task op failed: {msg}");
                 }
                 Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
                 Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {

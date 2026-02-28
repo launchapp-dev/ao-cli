@@ -1693,19 +1693,12 @@ fn phase_execution_events_from_signals(
     metadata: &PhaseExecutionMetadata,
     signals: &[PhaseExecutionSignal],
 ) -> Vec<PhaseExecutionEvent> {
-    signals
-        .iter()
-        .map(|signal| PhaseExecutionEvent {
-            event_type: signal.event_type.clone(),
-            project_root: project_root.to_string(),
-            workflow_id: workflow.id.clone(),
-            task_id: workflow.task_id.clone(),
-            phase_id: metadata.phase_id.clone(),
-            phase_mode: metadata.phase_mode.clone(),
-            metadata: metadata.clone(),
-            payload: signal.payload.clone(),
-        })
-        .collect()
+    crate::services::runtime::workflow_executor::workflow_runner::phase_execution_events_from_signals(
+        project_root,
+        workflow,
+        metadata,
+        signals,
+    )
 }
 
 fn phase_execution_metadata_artifact_path(project_root: &str, run_id: &str) -> PathBuf {
@@ -1983,33 +1976,9 @@ async fn retry_failed_task_workflows(hub: Arc<dyn ServiceHub>) -> Result<usize> 
     Ok(retried)
 }
 
-const AI_RECOVERY_TIMEOUT_SECS: u64 = 120;
-const AI_RECOVERY_MARKER: &str = "ai-failure-recovery";
-const MAX_DECOMPOSE_SUBTASKS: usize = 3;
-
-#[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
-struct AiRecoveryResponse {
-    action: String,
-    #[serde(default)]
-    reason: String,
-    #[serde(default)]
-    subtasks: Vec<AiRecoverySubtask>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct AiRecoverySubtask {
-    title: String,
-    #[serde(default)]
-    description: String,
-}
-
-enum AiRecoveryAction {
-    Retry,
-    Decompose(Vec<AiRecoverySubtask>),
-    SkipPhase,
-    Fail,
-}
+use crate::services::runtime::workflow_executor::workflow_runner::{
+    AiRecoveryAction, AI_RECOVERY_MARKER,
+};
 
 async fn attempt_ai_failure_recovery(
     project_root: &str,
@@ -2018,334 +1987,31 @@ async fn attempt_ai_failure_recovery(
     error_message: &str,
     decision_history: &[orchestrator_core::WorkflowDecisionRecord],
 ) -> AiRecoveryAction {
-    let already_attempted = decision_history
-        .iter()
-        .any(|record| record.phase_id == phase_id && record.reason.contains(AI_RECOVERY_MARKER));
-    if already_attempted {
-        return AiRecoveryAction::Fail;
-    }
-
-    let model = default_primary_model_for_phase("implementation", None).to_string();
-    let tool = tool_for_model_id(&model).to_string();
-
-    let prompt = format!(
-        r#"A workflow phase has failed. Analyze the error and recommend a recovery action.
-
-## Task
-- Title: {title}
-- Description: {description}
-
-## Failed Phase
-- Phase ID: {phase_id}
-- Error: {error}
-
-## Instructions
-Return exactly one JSON object with your recommendation:
-{{
-  "action": "retry|decompose|skip_phase|fail",
-  "reason": "Brief explanation of your recommendation",
-  "subtasks": [
-    {{"title": "Subtask title", "description": "Subtask description"}}
-  ]
-}}
-
-Rules:
-- "retry" — the error is transient or environmental, retrying might succeed
-- "decompose" — the task is too complex, break it into smaller subtasks (max 3)
-- "skip_phase" — the phase is non-critical and can be skipped safely
-- "fail" — the error is fundamental and cannot be recovered
-- Only include "subtasks" if action is "decompose"
-- Output valid JSON only, no markdown fences"#,
-        title = task.title,
-        description = task.description.chars().take(1000).collect::<String>(),
-        phase_id = phase_id,
-        error = error_message.chars().take(500).collect::<String>(),
-    );
-
-    let result = run_prompt_against_runner(
+    crate::services::runtime::workflow_executor::workflow_runner::attempt_ai_failure_recovery(
         project_root,
-        &prompt,
-        &model,
-        &tool,
-        AI_RECOVERY_TIMEOUT_SECS,
+        task,
+        phase_id,
+        error_message,
+        decision_history,
     )
-    .await;
-
-    let Ok(transcript) = result else {
-        return AiRecoveryAction::Fail;
-    };
-
-    let parsed = parse_ai_recovery_response(&transcript);
-    let Some(response) = parsed else {
-        return AiRecoveryAction::Fail;
-    };
-
-    match response.action.trim().to_ascii_lowercase().as_str() {
-        "retry" => AiRecoveryAction::Retry,
-        "decompose" if !response.subtasks.is_empty() => {
-            let subtasks: Vec<_> = response
-                .subtasks
-                .into_iter()
-                .filter(|s| !s.title.trim().is_empty())
-                .take(MAX_DECOMPOSE_SUBTASKS)
-                .collect();
-            if subtasks.is_empty() {
-                AiRecoveryAction::Fail
-            } else {
-                AiRecoveryAction::Decompose(subtasks)
-            }
-        }
-        "skip_phase" => AiRecoveryAction::SkipPhase,
-        _ => AiRecoveryAction::Fail,
-    }
+    .await
 }
 
-fn parse_ai_recovery_response(text: &str) -> Option<AiRecoveryResponse> {
-    for (_raw, payload) in collect_json_payload_lines(text) {
-        if let Ok(response) = serde_json::from_value::<AiRecoveryResponse>(payload) {
-            if !response.action.is_empty() {
-                return Some(response);
-            }
-        }
-    }
-    if let Ok(response) = serde_json::from_str::<AiRecoveryResponse>(text.trim()) {
-        if !response.action.is_empty() {
-            return Some(response);
-        }
-    }
-    None
-}
-
-const MERGE_CONFLICT_RECOVERY_TIMEOUT_SECS: u64 = 300;
-const MERGE_CONFLICT_RECOVERY_RESULT_KIND: &str = "merge_conflict_resolution_result";
-const MERGE_CONFLICT_RECOVERY_PROMPT_TEMPLATE: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/prompts/runtime/merge_conflict_recovery.prompt"
-));
-
-#[derive(Debug, Clone, Deserialize)]
-struct MergeConflictRecoveryResponse {
-    kind: String,
-    status: String,
-    #[serde(default)]
-    commit_message: String,
-    #[serde(default)]
-    reason: String,
-}
-
-fn build_merge_conflict_recovery_prompt(
-    task: &orchestrator_core::OrchestratorTask,
-    context: &git_ops::MergeConflictContext,
-) -> String {
-    let conflicted_files = if context.conflicted_files.is_empty() {
-        "- (none detected by git)".to_string()
-    } else {
-        context
-            .conflicted_files
-            .iter()
-            .map(|path| format!("- {}", path))
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
-
-    MERGE_CONFLICT_RECOVERY_PROMPT_TEMPLATE
-        .replace("__TASK_TITLE__", task.title.trim())
-        .replace(
-            "__TASK_DESCRIPTION__",
-            task.description
-                .chars()
-                .take(2000)
-                .collect::<String>()
-                .as_str(),
-        )
-        .replace("__SOURCE_BRANCH__", context.source_branch.as_str())
-        .replace("__TARGET_BRANCH__", context.target_branch.as_str())
-        .replace(
-            "__MERGE_WORKTREE_PATH__",
-            context.merge_worktree_path.as_str(),
-        )
-        .replace("__CONFLICTED_FILES__", conflicted_files.as_str())
-}
-
-async fn run_merge_conflict_recovery_prompt_against_runner(
-    project_root: &str,
-    execution_cwd: &str,
-    prompt: &str,
-    model: &str,
-    tool: &str,
-    timeout_secs: u64,
-) -> Result<String> {
-    let run_id = RunId(format!("merge-conflict-recovery-{}", Uuid::new_v4()));
-    let mut context = serde_json::json!({
-        "tool": tool,
-        "prompt": prompt,
-        "cwd": execution_cwd,
-        "project_root": project_root,
-        "planning_stage": "merge-conflict-recovery",
-        "allowed_tools": ["Read", "Glob", "Grep", "Edit", "Write", "Bash"],
-        "timeout_secs": timeout_secs,
-    });
-    if let Some(runtime_contract) = build_runtime_contract(tool, model, prompt) {
-        context["runtime_contract"] = runtime_contract;
-    }
-
-    let request = AgentRunRequest {
-        protocol_version: PROTOCOL_VERSION.to_string(),
-        run_id: run_id.clone(),
-        model: ModelId(model.to_string()),
-        context,
-        timeout_secs: Some(timeout_secs),
-    };
-
-    let config_dir = runner_config_dir(Path::new(project_root));
-    let stream = connect_runner(&config_dir).await?;
-    let (read_half, mut write_half) = tokio::io::split(stream);
-    write_json_line(&mut write_half, &request).await?;
-
-    let mut lines = BufReader::new(read_half).lines();
-    let mut transcript = String::new();
-    let mut finished_successfully = false;
-    while let Some(line) = lines.next_line().await? {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        let Ok(event) = serde_json::from_str::<AgentRunEvent>(line) else {
-            continue;
-        };
-        if !event_matches_run(&event, &run_id) {
-            continue;
-        }
-
-        match event {
-            AgentRunEvent::OutputChunk { text, .. } => {
-                transcript.push_str(&text);
-                transcript.push('\n');
-            }
-            AgentRunEvent::Thinking { content, .. } => {
-                transcript.push_str(&content);
-                transcript.push('\n');
-            }
-            AgentRunEvent::Error { error, .. } => {
-                anyhow::bail!("merge conflict recovery run failed: {error}");
-            }
-            AgentRunEvent::Finished { exit_code, .. } => {
-                if exit_code.unwrap_or_default() != 0 {
-                    anyhow::bail!(
-                        "merge conflict recovery run exited with non-zero code: {:?}",
-                        exit_code
-                    );
-                }
-                finished_successfully = true;
-                break;
-            }
-            _ => {}
-        }
-    }
-
-    if !finished_successfully {
-        anyhow::bail!("runner disconnected before merge conflict recovery completed");
-    }
-
-    if transcript.trim().is_empty() {
-        anyhow::bail!("merge conflict recovery run produced empty output");
-    }
-
-    Ok(transcript)
-}
+use crate::services::runtime::workflow_executor::workflow_merge_recovery;
 
 async fn attempt_ai_merge_conflict_recovery(
     project_root: &str,
     task: &orchestrator_core::OrchestratorTask,
     context: &git_ops::MergeConflictContext,
 ) -> Result<()> {
-    let model = default_primary_model_for_phase("implementation", None).to_string();
-    let tool = tool_for_model_id(&model).to_string();
-    let prompt = build_merge_conflict_recovery_prompt(task, context);
-    let transcript = run_merge_conflict_recovery_prompt_against_runner(
-        project_root,
-        context.merge_worktree_path.as_str(),
-        &prompt,
-        &model,
-        &tool,
-        MERGE_CONFLICT_RECOVERY_TIMEOUT_SECS,
-    )
-    .await?;
-
-    let response = parse_merge_conflict_recovery_response(&transcript)
-        .ok_or_else(|| anyhow!("merge conflict recovery output was not parseable JSON"))?;
-
-    let status = merge_conflict_recovery_status(response.status.as_str())
-        .ok_or_else(|| anyhow!("merge conflict recovery output has invalid status"))?;
-
-    match status {
-        "resolved" => {
-            if response.commit_message.trim().is_empty() {
-                anyhow::bail!("merge conflict recovery output is missing non-empty commit_message");
-            }
-            run_cargo_check(context.merge_worktree_path.as_str())?;
-            Ok(())
-        }
-        "failed" => {
-            let reason = response.reason.trim();
-            if reason.is_empty() {
-                anyhow::bail!("merge conflict recovery agent reported failure");
-            }
-            anyhow::bail!("merge conflict recovery agent reported failure: {reason}");
-        }
-        _ => anyhow::bail!("merge conflict recovery output has invalid status"),
-    }
+    workflow_merge_recovery::attempt_ai_merge_conflict_recovery(project_root, task, context).await
 }
 
-fn merge_conflict_recovery_status(status: &str) -> Option<&'static str> {
-    match status.trim().to_ascii_lowercase().as_str() {
-        "resolved" => Some("resolved"),
-        "failed" => Some("failed"),
-        _ => None,
-    }
-}
-
-fn is_valid_merge_conflict_recovery_response(response: &MergeConflictRecoveryResponse) -> bool {
-    response
-        .kind
-        .trim()
-        .eq_ignore_ascii_case(MERGE_CONFLICT_RECOVERY_RESULT_KIND)
-        && merge_conflict_recovery_status(response.status.as_str()).is_some()
-}
-
-fn parse_merge_conflict_recovery_response(text: &str) -> Option<MergeConflictRecoveryResponse> {
-    let mut parsed_response = None;
-    for (_raw, payload) in collect_json_payload_lines(text) {
-        if let Ok(response) = serde_json::from_value::<MergeConflictRecoveryResponse>(payload) {
-            if is_valid_merge_conflict_recovery_response(&response) {
-                parsed_response = Some(response);
-            }
-        }
-    }
-    if parsed_response.is_some() {
-        return parsed_response;
-    }
-
-    if let Ok(response) = serde_json::from_str::<MergeConflictRecoveryResponse>(text.trim()) {
-        if is_valid_merge_conflict_recovery_response(&response) {
-            return Some(response);
-        }
-    }
-    None
-}
-
-fn run_cargo_check(cwd: &str) -> Result<()> {
-    let status = ProcessCommand::new("cargo")
-        .current_dir(cwd)
-        .arg("check")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .with_context(|| format!("failed to run cargo check in {}", cwd))?;
-    if !status.success() {
-        anyhow::bail!("cargo check failed in {}", cwd);
-    }
-    Ok(())
+#[cfg(test)]
+fn parse_merge_conflict_recovery_response(
+    text: &str,
+) -> Option<workflow_merge_recovery::MergeConflictRecoveryResponse> {
+    workflow_merge_recovery::parse_merge_conflict_recovery_response(text)
 }
 
 #[cfg(test)]

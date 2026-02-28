@@ -4,10 +4,10 @@
     "role": "default",
     "type": "agent"
   },
-  "blocked_at": "2026-02-28T17:51:48.633872Z",
+  "blocked_at": null,
   "blocked_by": null,
   "blocked_phase": null,
-  "blocked_reason": "dependency gate: dependency TASK-125 is in-progress",
+  "blocked_reason": null,
   "branch_name": null,
   "cancelled": false,
   "checklist": [],
@@ -30,11 +30,11 @@
     "created_at": "2026-02-28T17:23:24.188512Z",
     "created_by": "ao-cli",
     "started_at": "2026-02-28T17:23:37.173250Z",
-    "updated_at": "2026-02-28T17:51:48.883842Z",
+    "updated_at": "2026-02-28T17:58:46.732388Z",
     "updated_by": "ao-daemon",
-    "version": 47
+    "version": 52
   },
-  "paused": true,
+  "paused": false,
   "priority": "critical",
   "resource_requirements": {
     "max_cpu_percent": null,
@@ -43,7 +43,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "blocked",
+  "status": "ready",
   "tags": [],
   "title": "Extract Layer 2 - Workflow Runner",
   "type": "refactor",

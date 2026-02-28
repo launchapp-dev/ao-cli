@@ -105,7 +105,7 @@ impl TaskServiceApi for InMemoryServiceHub {
             .tasks
             .get_mut(id)
             .ok_or_else(|| anyhow!("task not found: {id}"))?;
-        apply_task_update(task, input);
+        apply_task_update(task, input)?;
         Ok(task.clone())
     }
 
@@ -405,7 +405,7 @@ impl TaskServiceApi for FileServiceHub {
                     .tasks
                     .get_mut(id)
                     .ok_or_else(|| anyhow!("task not found: {id}"))?;
-                apply_task_update(task, input);
+                apply_task_update(task, input)?;
                 Ok(task.clone())
             })
             .await?;

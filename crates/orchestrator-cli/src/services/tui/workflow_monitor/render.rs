@@ -9,7 +9,7 @@ use ratatui::{
 };
 
 use super::state::{
-    phase_status_icon, workflow_status_icon, OutputStreamType, WorkflowMonitorState,
+    phase_status_icon, workflow_status_icon, OutputLine, OutputStreamType, WorkflowMonitorState,
 };
 
 pub(super) fn render(frame: &mut Frame<'_>, state: &WorkflowMonitorState) {
@@ -28,11 +28,7 @@ pub(super) fn render(frame: &mut Frame<'_>, state: &WorkflowMonitorState) {
     render_footer(frame, state, root[1]);
 }
 
-fn render_tree(
-    frame: &mut Frame<'_>,
-    state: &WorkflowMonitorState,
-    area: ratatui::layout::Rect,
-) {
+fn render_tree(frame: &mut Frame<'_>, state: &WorkflowMonitorState, area: ratatui::layout::Rect) {
     let workflows = state.filtered_workflows();
 
     let items: Vec<ListItem<'_>> = if workflows.is_empty() {
@@ -106,11 +102,7 @@ fn render_tree(
     frame.render_widget(list, area);
 }
 
-fn render_output(
-    frame: &mut Frame<'_>,
-    state: &WorkflowMonitorState,
-    area: ratatui::layout::Rect,
-) {
+fn render_output(frame: &mut Frame<'_>, state: &WorkflowMonitorState, area: ratatui::layout::Rect) {
     let visible_height = area.height.saturating_sub(2) as usize;
     let total = state.output_buffer.len();
 
@@ -144,11 +136,7 @@ fn render_output(
     frame.render_widget(para, area);
 }
 
-fn render_footer(
-    frame: &mut Frame<'_>,
-    state: &WorkflowMonitorState,
-    area: ratatui::layout::Rect,
-) {
+fn render_footer(frame: &mut Frame<'_>, state: &WorkflowMonitorState, area: ratatui::layout::Rect) {
     let secs_ago = (Utc::now() - state.last_refresh).num_seconds();
     let filter_hint = if state.filter_mode {
         format!("  Filter: {}|", state.filter)
@@ -174,7 +162,10 @@ fn format_output_line(line: &OutputLine) -> Line<'_> {
     if line.is_json {
         Line::from(highlight_json_line(&line.text))
     } else {
-        Line::from(Span::styled(line.text.as_str(), Style::default().fg(base_color)))
+        Line::from(Span::styled(
+            line.text.as_str(),
+            Style::default().fg(base_color),
+        ))
     }
 }
 
@@ -219,7 +210,13 @@ fn highlight_json_line(text: &str) -> Vec<Span<'_>> {
                 };
                 spans.push(Span::styled(token, Style::default().fg(color)));
             }
-            c if c.is_ascii_digit() => {
+            c if c.is_ascii_digit()
+                || (c == '-'
+                    && text
+                        .as_bytes()
+                        .get(pos + 1)
+                        .map_or(false, |b| b.is_ascii_digit())) =>
+            {
                 let start = pos;
                 pos += ch_len;
                 while pos < text.len() {
@@ -227,7 +224,13 @@ fn highlight_json_line(text: &str) -> Vec<Span<'_>> {
                         Some(c) => c,
                         None => break,
                     };
-                    if nc.is_ascii_digit() || nc == '.' || nc == 'e' || nc == 'E' || nc == '+' {
+                    if nc.is_ascii_digit()
+                        || nc == '.'
+                        || nc == 'e'
+                        || nc == 'E'
+                        || nc == '+'
+                        || nc == '-'
+                    {
                         pos += nc.len_utf8();
                     } else {
                         break;
@@ -275,12 +278,82 @@ fn highlight_json_line(text: &str) -> Vec<Span<'_>> {
     spans
 }
 
-fn truncate(s: &str, max: usize) -> &str {
-    if s.len() <= max {
-        s
-    } else {
-        &s[..max]
+fn truncate(s: &str, max_chars: usize) -> &str {
+    match s.char_indices().nth(max_chars) {
+        Some((i, _)) => &s[..i],
+        None => s,
     }
 }
 
-use super::state::OutputLine;
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncate_short_string_returns_unchanged() {
+        assert_eq!(truncate("short", 10), "short");
+    }
+
+    #[test]
+    fn truncate_exact_length_returns_unchanged() {
+        assert_eq!(truncate("exactly5", 8), "exactly5");
+    }
+
+    #[test]
+    fn truncate_long_string_cuts_at_char_boundary() {
+        assert_eq!(truncate("this is a long string", 7), "this is");
+    }
+
+    #[test]
+    fn truncate_handles_unicode() {
+        assert_eq!(truncate("日本語テスト", 3), "日本語");
+        assert_eq!(truncate("🦀🦀🦀🦀", 2), "🦀🦀");
+    }
+
+    #[test]
+    fn truncate_empty_string_returns_empty() {
+        assert_eq!(truncate("", 5), "");
+    }
+
+    #[test]
+    fn highlight_json_line_handles_empty() {
+        let spans = highlight_json_line("");
+        assert!(spans.is_empty() || (spans.len() == 1 && spans[0].content == ""));
+    }
+
+    #[test]
+    fn highlight_json_line_string_key() {
+        let spans = highlight_json_line(r#""key": "value""#);
+        assert!(!spans.is_empty());
+    }
+
+    #[test]
+    fn highlight_json_line_numbers() {
+        let spans = highlight_json_line(r#"{"count": 42, "ratio": 3.14}"#);
+        assert!(!spans.is_empty());
+    }
+
+    #[test]
+    fn highlight_json_line_booleans_and_null() {
+        let spans = highlight_json_line(r#"{"active": true, "disabled": false, "empty": null}"#);
+        assert!(!spans.is_empty());
+    }
+
+    #[test]
+    fn highlight_json_line_negative_numbers() {
+        let spans = highlight_json_line(r#"{"temp": -10, "delta": -2.5}"#);
+        assert!(!spans.is_empty());
+    }
+
+    #[test]
+    fn highlight_json_line_scientific_notation() {
+        let spans = highlight_json_line(r#"{"big": 1.5e10, "small": 2e-3}"#);
+        assert!(!spans.is_empty());
+    }
+
+    #[test]
+    fn highlight_json_line_escaped_strings() {
+        let spans = highlight_json_line(r#"{"msg": "hello \"world\""}"#);
+        assert!(!spans.is_empty());
+    }
+}

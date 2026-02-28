@@ -67,14 +67,14 @@ pub fn canonical_model_id(model_id: &str) -> String {
         "gemini-3" | "gemini-3.0-pro" | "gemini-3-pro-latest" | "gemini-pro-3" => {
             "gemini-3-pro".to_string()
         }
-        "glm-5" | "glm5" | "zai/glm-5" | "z-ai/glm-5" | "zai-coding-plan-glm-5" => {
-            "zai-coding-plan/glm-5".to_string()
-        }
-        "minimax-m2.5"
-        | "minimax-m2-5"
-        | "minimax/m2.5"
-        | "minimax/m2-5"
-        | "minimax/minimax-m2.5" => "minimax/MiniMax-M2.5".to_string(),
+        "glm-5" | "glm5" | "zai/glm-5" | "z-ai/glm-5" | "zai-coding-plan-glm-5"
+        | "zai-coding-plan/glm-5" => "zai-coding-plan/glm-5".to_string(),
+        "minimax-m2.1"
+        | "minimax-m2-1"
+        | "minimax/m2.1"
+        | "minimax/m2-1"
+        | "minimax/minimax-m2.1"
+        | "minimax/MiniMax-M2.1" => "minimax/MiniMax-M2.1".to_string(),
         _ => trimmed.to_string(),
     }
 }
@@ -138,7 +138,7 @@ pub fn default_model_specs() -> Vec<(String, String)> {
         ("gemini-3-pro".to_string(), "gemini".to_string()),
         ("gemini-3.1-pro-preview".to_string(), "gemini".to_string()),
         ("zai-coding-plan/glm-5".to_string(), "opencode".to_string()),
-        ("minimax/MiniMax-M2.5".to_string(), "opencode".to_string()),
+        ("minimax/MiniMax-M2.1".to_string(), "opencode".to_string()),
     ]
 }
 
@@ -170,6 +170,14 @@ fn is_review_phase(phase_id: &str) -> bool {
     )
 }
 
+fn is_requirements_phase(phase_id: &str) -> bool {
+    phase_id == "requirements"
+}
+
+fn is_testing_phase(phase_id: &str) -> bool {
+    matches!(phase_id, "testing" | "test" | "qa")
+}
+
 pub fn default_primary_model_for_phase(
     phase_id: &str,
     complexity: Option<ModelRoutingComplexity>,
@@ -185,7 +193,26 @@ pub fn default_primary_model_for_phase(
         };
     }
 
-    "claude-sonnet-4-6"
+    if is_requirements_phase(phase_id) {
+        return match complexity.unwrap_or(ModelRoutingComplexity::Medium) {
+            ModelRoutingComplexity::Low => "zai-coding-plan/glm-5",
+            ModelRoutingComplexity::Medium => "minimax/MiniMax-M2.1",
+            ModelRoutingComplexity::High => "claude-sonnet-4-6",
+        };
+    }
+
+    if is_testing_phase(phase_id) {
+        return match complexity.unwrap_or(ModelRoutingComplexity::Medium) {
+            ModelRoutingComplexity::Low => "minimax/MiniMax-M2.1",
+            ModelRoutingComplexity::Medium => "zai-coding-plan/glm-5",
+            ModelRoutingComplexity::High => "claude-sonnet-4-6",
+        };
+    }
+
+    match complexity.unwrap_or(ModelRoutingComplexity::Medium) {
+        ModelRoutingComplexity::Low => "zai-coding-plan/glm-5",
+        ModelRoutingComplexity::Medium | ModelRoutingComplexity::High => "claude-sonnet-4-6",
+    }
 }
 
 pub fn default_fallback_models_for_phase(
@@ -197,7 +224,7 @@ pub fn default_fallback_models_for_phase(
             "claude-sonnet-4-6",
             "gemini-2.5-pro",
             "zai-coding-plan/glm-5",
-            "minimax/MiniMax-M2.5",
+            "minimax/MiniMax-M2.1",
             "gpt-5.3-codex",
         ];
     }
@@ -208,13 +235,13 @@ pub fn default_fallback_models_for_phase(
                 "claude-sonnet-4-6",
                 "gemini-3.1-pro-preview",
                 "zai-coding-plan/glm-5",
-                "minimax/MiniMax-M2.5",
+                "minimax/MiniMax-M2.1",
                 "gpt-5.3-codex",
             ],
             ModelRoutingComplexity::Low | ModelRoutingComplexity::Medium => vec![
                 "gemini-3.1-pro-preview",
                 "zai-coding-plan/glm-5",
-                "minimax/MiniMax-M2.5",
+                "minimax/MiniMax-M2.1",
                 "gpt-5.3-codex",
                 "claude-opus-4-6",
             ],
@@ -223,21 +250,21 @@ pub fn default_fallback_models_for_phase(
 
     match complexity.unwrap_or(ModelRoutingComplexity::Medium) {
         ModelRoutingComplexity::Low => vec![
-            "zai-coding-plan/glm-5",
-            "minimax/MiniMax-M2.5",
+            "minimax/MiniMax-M2.1",
+            "claude-sonnet-4-6",
             "gemini-3.1-pro-preview",
             "gpt-5.3-codex",
         ],
         ModelRoutingComplexity::Medium => vec![
             "zai-coding-plan/glm-5",
-            "minimax/MiniMax-M2.5",
+            "minimax/MiniMax-M2.1",
             "gemini-3.1-pro-preview",
             "gpt-5.3-codex",
         ],
         ModelRoutingComplexity::High => vec![
             "claude-opus-4-6",
             "zai-coding-plan/glm-5",
-            "minimax/MiniMax-M2.5",
+            "minimax/MiniMax-M2.1",
             "gemini-3.1-pro-preview",
             "gpt-5.3-codex",
         ],
@@ -264,7 +291,7 @@ mod tests {
         assert_eq!(canonical_model_id("gemini-pro"), "gemini-2.5-pro");
         assert_eq!(canonical_model_id("gemini-3.0-pro"), "gemini-3-pro");
         assert_eq!(canonical_model_id("glm-5"), "zai-coding-plan/glm-5");
-        assert_eq!(canonical_model_id("minimax-m2.5"), "minimax/MiniMax-M2.5");
+        assert_eq!(canonical_model_id("minimax-m2.1"), "minimax/MiniMax-M2.1");
     }
 
     #[test]
@@ -276,7 +303,7 @@ mod tests {
             "claude"
         );
         assert_eq!(tool_for_model_id("zai-coding-plan/glm-5"), "opencode");
-        assert_eq!(tool_for_model_id("minimax/MiniMax-M2.5"), "opencode");
+        assert_eq!(tool_for_model_id("minimax/MiniMax-M2.1"), "opencode");
         assert_eq!(tool_for_model_id("gemini-2.5-pro"), "gemini");
         assert_eq!(tool_for_model_id("gpt-5.3-codex"), "codex");
     }
@@ -289,6 +316,38 @@ mod tests {
         );
         assert_eq!(
             default_primary_model_for_phase("code-review", Some(ModelRoutingComplexity::Medium)),
+            "claude-sonnet-4-6"
+        );
+    }
+
+    #[test]
+    fn low_complexity_routes_to_glm_and_minimax() {
+        assert_eq!(
+            default_primary_model_for_phase("implementation", Some(ModelRoutingComplexity::Low)),
+            "zai-coding-plan/glm-5"
+        );
+        assert_eq!(
+            default_primary_model_for_phase("requirements", Some(ModelRoutingComplexity::Low)),
+            "zai-coding-plan/glm-5"
+        );
+        assert_eq!(
+            default_primary_model_for_phase("testing", Some(ModelRoutingComplexity::Low)),
+            "minimax/MiniMax-M2.1"
+        );
+    }
+
+    #[test]
+    fn medium_complexity_uses_cheaper_models_for_lightweight_phases() {
+        assert_eq!(
+            default_primary_model_for_phase("requirements", Some(ModelRoutingComplexity::Medium)),
+            "minimax/MiniMax-M2.1"
+        );
+        assert_eq!(
+            default_primary_model_for_phase("testing", Some(ModelRoutingComplexity::Medium)),
+            "zai-coding-plan/glm-5"
+        );
+        assert_eq!(
+            default_primary_model_for_phase("implementation", Some(ModelRoutingComplexity::Medium)),
             "claude-sonnet-4-6"
         );
     }

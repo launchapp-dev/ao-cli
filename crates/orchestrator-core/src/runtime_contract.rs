@@ -140,6 +140,7 @@ pub fn build_cli_launch_contract(
         "claude" => {
             let mut args = vec![
                 "--print".to_string(),
+                "--dangerously-skip-permissions".to_string(),
                 "--verbose".to_string(),
                 "--output-format".to_string(),
                 "stream-json".to_string(),

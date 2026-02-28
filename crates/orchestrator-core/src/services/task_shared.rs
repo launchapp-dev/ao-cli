@@ -11,6 +11,31 @@ pub(super) fn next_task_id(tasks: &HashMap<String, OrchestratorTask>) -> String 
     format!("TASK-{next_seq:03}")
 }
 
+pub(super) fn validate_task_status_transition(
+    current: TaskStatus,
+    target: TaskStatus,
+) -> Result<()> {
+    if current == target {
+        return Ok(());
+    }
+    match current {
+        TaskStatus::Done | TaskStatus::Cancelled => {
+            Err(anyhow!(
+                "cannot transition from {} to {} — use reopen to move out of terminal state",
+                serde_json::to_value(current)
+                    .ok()
+                    .and_then(|v| v.as_str().map(String::from))
+                    .unwrap_or_else(|| format!("{:?}", current)),
+                serde_json::to_value(target)
+                    .ok()
+                    .and_then(|v| v.as_str().map(String::from))
+                    .unwrap_or_else(|| format!("{:?}", target)),
+            ))
+        }
+        _ => Ok(()),
+    }
+}
+
 pub(super) fn apply_task_status(task: &mut OrchestratorTask, status: TaskStatus) {
     let is_blocked_status = status.is_blocked();
     task.status = status;
@@ -39,7 +64,7 @@ pub(super) fn apply_task_status(task: &mut OrchestratorTask, status: TaskStatus)
     }
 }
 
-pub(super) fn apply_task_update(task: &mut OrchestratorTask, input: TaskUpdateInput) {
+pub(super) fn apply_task_update(task: &mut OrchestratorTask, input: TaskUpdateInput) -> Result<()> {
     if let Some(title) = input.title {
         task.title = title;
     }
@@ -50,6 +75,7 @@ pub(super) fn apply_task_update(task: &mut OrchestratorTask, input: TaskUpdateIn
         task.priority = priority;
     }
     if let Some(status) = input.status {
+        validate_task_status_transition(task.status, status)?;
         apply_task_status(task, status);
     }
     if let Some(assignee) = input.assignee {
@@ -73,6 +99,7 @@ pub(super) fn apply_task_update(task: &mut OrchestratorTask, input: TaskUpdateIn
     if let Some(updated_by) = input.updated_by {
         task.metadata.updated_by = updated_by;
     }
+    Ok(())
 }
 
 pub(super) fn validate_linked_architecture_entities(

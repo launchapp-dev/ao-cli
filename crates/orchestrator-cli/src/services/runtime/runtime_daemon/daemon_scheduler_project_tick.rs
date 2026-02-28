@@ -163,7 +163,7 @@ struct EmWorkQueueState {
 }
 
 fn em_work_queue_state_path(project_root: &str) -> Result<PathBuf> {
-    Ok(daemon_repo_runtime_root(project_root)?
+    Ok(git_ops::daemon_repo_runtime_root(project_root)?
         .join("scheduler")
         .join(EM_WORK_QUEUE_STATE_FILE))
 }
@@ -578,8 +578,8 @@ fn collect_task_state_transitions(
 
         transitions.push(TaskStateTransition {
             task_id: task.id.clone(),
-            from_status: task_status_label(previous.status).to_string(),
-            to_status: task_status_label(task.status).to_string(),
+            from_status: git_ops::task_status_label(previous.status).to_string(),
+            to_status: git_ops::task_status_label(task.status).to_string(),
             changed_at: task.metadata.updated_at.to_rfc3339(),
             workflow_id,
             phase_id,
@@ -639,7 +639,7 @@ async fn dependency_gate_issues_for_task(
             issues.push(format!(
                 "dependency {} is {}",
                 dependency.task_id,
-                task_status_label(dependency_task.status)
+                git_ops::task_status_label(dependency_task.status)
             ));
             continue;
         }
@@ -650,7 +650,7 @@ async fn dependency_gate_issues_for_task(
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            match is_branch_merged(project_root, branch_name) {
+            match git_ops::is_branch_merged(project_root, branch_name) {
                 Ok(Some(true)) | Ok(None) => {}
                 Ok(Some(false)) => {
                     issues.push(format!(
@@ -757,7 +757,7 @@ async fn reconcile_merge_gate_tasks_for_project(
             continue;
         };
 
-        match is_branch_merged(project_root, branch_name) {
+        match git_ops::is_branch_merged(project_root, branch_name) {
             Ok(Some(true)) | Ok(None) => {
                 hub.tasks().set_status(&task.id, TaskStatus::Done).await?;
                 resolved = resolved.saturating_add(1);
@@ -785,7 +785,7 @@ async fn sync_task_status_for_workflow_result(
                 return;
             };
 
-            match post_success_merge_push_and_cleanup(hub.clone(), project_root, &task).await {
+            match git_ops::post_success_merge_push_and_cleanup(hub.clone(), project_root, &task).await {
                 Ok(git_ops::PostMergeOutcome::Completed) => {
                     let _ = hub.tasks().set_status(task_id, TaskStatus::Done).await;
                     return;
@@ -810,7 +810,7 @@ async fn sync_task_status_for_workflow_result(
                     let recovery_result =
                         attempt_ai_merge_conflict_recovery(project_root, &task, &context).await;
                     if let Err(error) = recovery_result {
-                        cleanup_merge_conflict_worktree(project_root, &context);
+                        git_ops::cleanup_merge_conflict_worktree(project_root, &context);
                         let _ = set_task_blocked_with_reason(
                             hub.clone(),
                             &task,
@@ -823,7 +823,7 @@ async fn sync_task_status_for_workflow_result(
                         return;
                     }
 
-                    match finalize_merge_conflict_resolution(
+                    match git_ops::finalize_merge_conflict_resolution(
                         hub.clone(),
                         project_root,
                         &task,
@@ -838,7 +838,7 @@ async fn sync_task_status_for_workflow_result(
                             let _ = hub.tasks().set_status(task_id, TaskStatus::Done).await;
                         }
                         Err(error) => {
-                            cleanup_merge_conflict_worktree(project_root, &context);
+                            git_ops::cleanup_merge_conflict_worktree(project_root, &context);
                             let _ = set_task_blocked_with_reason(
                                 hub.clone(),
                                 &task,
@@ -880,7 +880,7 @@ async fn sync_task_status_for_workflow_result(
                 return;
             };
 
-            match is_branch_merged(project_root, branch_name) {
+            match git_ops::is_branch_merged(project_root, branch_name) {
                 Ok(Some(true)) | Ok(None) => {
                     let _ = hub.tasks().set_status(task_id, TaskStatus::Done).await;
                 }
@@ -1387,7 +1387,7 @@ async fn execute_running_workflow_phases_for_project(
             continue;
         }
 
-        let execution_cwd = ensure_task_execution_cwd(hub.clone(), project_root, &task)
+        let execution_cwd = git_ops::ensure_task_execution_cwd(hub.clone(), project_root, &task)
             .await
             .unwrap_or_else(|_| project_root.to_string());
         git_ops::rebase_worktree_on_main(project_root, &execution_cwd);
@@ -3419,7 +3419,7 @@ thinking...
 pub(super) async fn project_tick(root: &str, args: &DaemonRunArgs) -> Result<ProjectTickSummary> {
     let root = canonicalize_lossy(root);
     let hub = Arc::new(FileServiceHub::new(&root)?);
-    let _ = flush_git_integration_outbox(&root);
+    let _ = git_ops::flush_git_integration_outbox(&root);
     let requirements_before = hub.planning().list_requirements().await.unwrap_or_default();
     let tasks_before = hub.tasks().list().await.unwrap_or_default();
     let daemon = hub.daemon();
@@ -3479,7 +3479,7 @@ pub(super) async fn project_tick(root: &str, args: &DaemonRunArgs) -> Result<Pro
     } else {
         ReadyTaskWorkflowStartSummary::default()
     };
-    let _ = refresh_runtime_binaries_if_main_advanced(
+    let _ = git_ops::refresh_runtime_binaries_if_main_advanced(
         hub.clone(),
         &root,
         git_ops::RuntimeBinaryRefreshTrigger::Tick,

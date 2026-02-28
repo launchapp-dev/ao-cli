@@ -1565,7 +1565,7 @@ mod tests {
             .expect("task should be created");
 
         let execution_cwd =
-            ensure_task_execution_cwd(hub.clone() as Arc<dyn ServiceHub>, &project_root, &task)
+            git_ops::ensure_task_execution_cwd(hub.clone() as Arc<dyn ServiceHub>, &project_root, &task)
                 .await
                 .expect("execution cwd should be provisioned");
 
@@ -1620,7 +1620,7 @@ mod tests {
             .expect("checkout should run");
         assert!(checkout_main.success(), "checkout main should succeed");
 
-        let merged = is_branch_merged(&project_root, "feature/unmerged")
+        let merged = git_ops::is_branch_merged(&project_root, "feature/unmerged")
             .expect("branch merge check should succeed");
         assert_eq!(merged, Some(false));
     }
@@ -1667,7 +1667,7 @@ mod tests {
             .expect("git merge should run");
         assert!(merge.success(), "merge should succeed");
 
-        let merged = is_branch_merged(&project_root, "feature/merged")
+        let merged = git_ops::is_branch_merged(&project_root, "feature/merged")
             .expect("branch merge check should succeed");
         assert_eq!(merged, Some(true));
     }
@@ -1880,59 +1880,6 @@ use crate::services::runtime::workflow_executor::workflow_runner::{
 
 const DEPENDENCY_GATE_PREFIX: &str = "dependency gate:";
 const MERGE_GATE_PREFIX: &str = "merge gate:";
-
-async fn post_success_merge_push_and_cleanup(
-    hub: Arc<dyn ServiceHub>,
-    project_root: &str,
-    task: &orchestrator_core::OrchestratorTask,
-) -> Result<git_ops::PostMergeOutcome> {
-    git_ops::post_success_merge_push_and_cleanup(hub, project_root, task).await
-}
-
-async fn finalize_merge_conflict_resolution(
-    hub: Arc<dyn ServiceHub>,
-    project_root: &str,
-    task: &orchestrator_core::OrchestratorTask,
-    context: &git_ops::MergeConflictContext,
-) -> Result<()> {
-    git_ops::finalize_merge_conflict_resolution(hub, project_root, task, context).await
-}
-
-fn cleanup_merge_conflict_worktree(project_root: &str, context: &git_ops::MergeConflictContext) {
-    git_ops::cleanup_merge_conflict_worktree(project_root, context)
-}
-
-fn flush_git_integration_outbox(project_root: &str) -> Result<()> {
-    git_ops::flush_git_integration_outbox(project_root)
-}
-
-async fn refresh_runtime_binaries_if_main_advanced(
-    hub: Arc<dyn ServiceHub>,
-    project_root: &str,
-    trigger: git_ops::RuntimeBinaryRefreshTrigger,
-) -> git_ops::RuntimeBinaryRefreshOutcome {
-    git_ops::refresh_runtime_binaries_if_main_advanced(hub, project_root, trigger).await
-}
-
-fn task_status_label(status: TaskStatus) -> &'static str {
-    git_ops::task_status_label(status)
-}
-
-async fn ensure_task_execution_cwd(
-    hub: Arc<dyn ServiceHub>,
-    project_root: &str,
-    task: &orchestrator_core::OrchestratorTask,
-) -> Result<String> {
-    git_ops::ensure_task_execution_cwd(hub, project_root, task).await
-}
-
-fn is_branch_merged(project_root: &str, branch_name: &str) -> Result<Option<bool>> {
-    git_ops::is_branch_merged(project_root, branch_name)
-}
-
-fn daemon_repo_runtime_root(project_root: &str) -> Result<PathBuf> {
-    git_ops::daemon_repo_runtime_root(project_root)
-}
 
 fn dependency_blocked_reason(issues: &[String]) -> String {
     format!("{DEPENDENCY_GATE_PREFIX} {}", issues.join("; "))

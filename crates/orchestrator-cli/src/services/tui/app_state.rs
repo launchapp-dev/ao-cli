@@ -5,6 +5,7 @@ use std::process::Command as ProcessCommand;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::services::tui::app_event::AppEvent;
+use crate::services::tui::daemon_snapshot::DaemonSnapshot;
 use crate::services::tui::model_profile::ModelProfile;
 use crate::services::tui::task_snapshot::TaskSnapshot;
 
@@ -23,6 +24,7 @@ pub(crate) struct AppState {
     pub(crate) run_in_flight: bool,
     pub(crate) print_mode: bool,
     pub(crate) tasks: Vec<TaskSnapshot>,
+    pub(crate) daemon: DaemonSnapshot,
     pub(crate) event_tx: UnboundedSender<AppEvent>,
     pub(crate) event_rx: UnboundedReceiver<AppEvent>,
 }
@@ -52,11 +54,13 @@ impl AppState {
             profiles: Vec::new(),
             selected_profile_idx: 0,
             prompt: String::new(),
-            status_line: "Press Enter to run, p to toggle print mode, q to quit".to_string(),
+            status_line: "Enter=run  p=print mode  d=daemon  s=scheduler  r=refresh  q=quit"
+                .to_string(),
             history: VecDeque::new(),
             run_in_flight: false,
             print_mode: true,
             tasks,
+            daemon: DaemonSnapshot::default(),
             event_tx,
             event_rx,
         };
@@ -121,6 +125,10 @@ impl AppState {
 
     pub(crate) fn set_tasks(&mut self, tasks: Vec<TaskSnapshot>) {
         self.tasks = tasks;
+    }
+
+    pub(crate) fn set_daemon(&mut self, daemon: DaemonSnapshot) {
+        self.daemon = daemon;
     }
 
     pub(crate) fn clear_history(&mut self) {

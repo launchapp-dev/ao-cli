@@ -1,5 +1,6 @@
 mod app_event;
 mod app_state;
+mod daemon_snapshot;
 mod handle_tui;
 mod mcp_bridge;
 mod model_profile;

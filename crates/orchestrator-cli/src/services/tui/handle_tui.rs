@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
 use crossterm::{
@@ -13,11 +13,14 @@ use tokio::sync::mpsc::unbounded_channel;
 
 use crate::services::tui::app_event::AppEvent;
 use crate::services::tui::app_state::AppState;
+use crate::services::tui::daemon_snapshot::DaemonSnapshot;
 use crate::services::tui::mcp_bridge::AoCliMcpBridge;
 use crate::services::tui::render::render;
 use crate::services::tui::run_agent::run_agent_session;
 use crate::services::tui::task_snapshot::TaskSnapshot;
 use crate::TuiArgs;
+
+const DAEMON_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
 
 pub(crate) async fn handle_tui(
     args: TuiArgs,
@@ -52,6 +55,7 @@ pub(crate) async fn handle_tui(
 
     let (event_tx, event_rx) = unbounded_channel();
     let initial_tasks = load_task_snapshots(&hub).await?;
+    let initial_daemon = load_daemon_snapshot(&hub).await;
     let mut app = AppState::new(
         bridge.endpoint().to_string(),
         "ao".to_string(),
@@ -61,6 +65,7 @@ pub(crate) async fn handle_tui(
         event_tx,
         event_rx,
     );
+    app.set_daemon(initial_daemon);
 
     app.push_history(format!("MCP locked to AO CLI via {}", app.mcp_endpoint));
 
@@ -165,8 +170,16 @@ async fn run_event_loop(
     hub: &Arc<dyn ServiceHub>,
     project_root: &str,
 ) -> Result<()> {
+    let mut last_daemon_refresh = Instant::now();
+
     loop {
         app.drain_events();
+
+        if last_daemon_refresh.elapsed() >= DAEMON_REFRESH_INTERVAL {
+            app.set_daemon(load_daemon_snapshot(hub).await);
+            last_daemon_refresh = Instant::now();
+        }
+
         terminal.draw(|frame| render(frame, app))?;
 
         if !event::poll(Duration::from_millis(100))? {
@@ -191,7 +204,9 @@ async fn run_event_loop(
             KeyCode::Char('r') => {
                 app.refresh_profiles();
                 app.set_tasks(load_task_snapshots(hub).await?);
-                app.status_line = "refreshed models and tasks".to_string();
+                app.set_daemon(load_daemon_snapshot(hub).await);
+                last_daemon_refresh = Instant::now();
+                app.status_line = "refreshed models, tasks, and daemon status".to_string();
             }
             KeyCode::Char('p') => {
                 app.print_mode = !app.print_mode;
@@ -200,6 +215,16 @@ async fn run_event_loop(
                 } else {
                     "print mode disabled (summarized events)".to_string()
                 };
+            }
+            KeyCode::Char('d') => {
+                toggle_daemon(app, hub).await;
+                app.set_daemon(load_daemon_snapshot(hub).await);
+                last_daemon_refresh = Instant::now();
+            }
+            KeyCode::Char('s') => {
+                toggle_scheduler_pause(app, hub).await;
+                app.set_daemon(load_daemon_snapshot(hub).await);
+                last_daemon_refresh = Instant::now();
             }
             KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 app.clear_history();
@@ -211,6 +236,36 @@ async fn run_event_loop(
     }
 
     Ok(())
+}
+
+async fn toggle_daemon(app: &mut AppState, hub: &Arc<dyn ServiceHub>) {
+    let daemon_svc = hub.daemon();
+    if app.daemon.is_running_or_paused() {
+        match daemon_svc.stop().await {
+            Ok(()) => app.status_line = "daemon stopped".to_string(),
+            Err(err) => app.status_line = format!("failed to stop daemon: {err}"),
+        }
+    } else {
+        match daemon_svc.start().await {
+            Ok(()) => app.status_line = "daemon started".to_string(),
+            Err(err) => app.status_line = format!("failed to start daemon: {err}"),
+        }
+    }
+}
+
+async fn toggle_scheduler_pause(app: &mut AppState, hub: &Arc<dyn ServiceHub>) {
+    let daemon_svc = hub.daemon();
+    if app.daemon.is_paused() {
+        match daemon_svc.resume().await {
+            Ok(()) => app.status_line = "scheduler resumed".to_string(),
+            Err(err) => app.status_line = format!("failed to resume scheduler: {err}"),
+        }
+    } else {
+        match daemon_svc.pause().await {
+            Ok(()) => app.status_line = "scheduler paused".to_string(),
+            Err(err) => app.status_line = format!("failed to pause scheduler: {err}"),
+        }
+    }
 }
 
 fn launch_selected_run(app: &mut AppState, project_root: &str) {
@@ -289,6 +344,18 @@ async fn load_task_snapshots(hub: &Arc<dyn ServiceHub>) -> Result<Vec<TaskSnapsh
         .take(24)
         .map(TaskSnapshot::from_task)
         .collect())
+}
+
+async fn load_daemon_snapshot(hub: &Arc<dyn ServiceHub>) -> DaemonSnapshot {
+    let daemon_svc = hub.daemon();
+    let health_result = daemon_svc.health().await;
+    let stats_result = hub.tasks().statistics().await;
+
+    match (health_result, stats_result) {
+        (Ok(health), Ok(stats)) => DaemonSnapshot::from_health_and_stats(health, stats),
+        (Err(err), _) => DaemonSnapshot::from_error(err.to_string()),
+        (_, Err(err)) => DaemonSnapshot::from_error(err.to_string()),
+    }
 }
 
 fn initialize_terminal() -> Result<Terminal<CrosstermBackend<std::io::Stdout>>> {

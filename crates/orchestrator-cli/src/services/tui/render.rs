@@ -67,6 +67,11 @@ pub(crate) fn render(frame: &mut Frame<'_>, app: &AppState) {
         List::new(output_lines).block(Block::default().borders(Borders::ALL).title("Agent Output"));
     frame.render_widget(output_list, body[1]);
 
+    let right_panes = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
+        .split(body[2]);
+
     let task_items = app
         .tasks
         .iter()
@@ -77,10 +82,23 @@ pub(crate) fn render(frame: &mut Frame<'_>, app: &AppState) {
             .borders(Borders::ALL)
             .title("Prioritized Tasks"),
     );
-    frame.render_widget(task_list, body[2]);
+    frame.render_widget(task_list, right_panes[0]);
+
+    let daemon_lines: Vec<ListItem<'_>> = app
+        .daemon
+        .daemon_lines()
+        .into_iter()
+        .map(ListItem::new)
+        .collect();
+    let daemon_pane = List::new(daemon_lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Daemon (d=start/stop s=pause)"),
+    );
+    frame.render_widget(daemon_pane, right_panes[1]);
 
     let footer = Paragraph::new(format!(
-        "Status: {}\nMode: {}\nPrompt: {}\nEnter=run  p=toggle print mode  Backspace=edit  Esc=clear  r=refresh  Ctrl+L=clear output  q=quit",
+        "Status: {}\nMode: {}\nPrompt: {}\nEnter=run  p=print mode  d=daemon  s=scheduler  Backspace=edit  Esc=clear  r=refresh  Ctrl+L=clear  q=quit",
         app.status_line,
         if app.print_mode { "print/raw" } else { "summary" },
         app.prompt

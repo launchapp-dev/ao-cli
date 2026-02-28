@@ -50,7 +50,13 @@
       "Bash(xargs -I{} sh -c 'echo \"\"=== {} ===\"\" && python3 -c \"\"import json; d=json.load\\(open\\(\\\\\"\"{}\\\\\"\"\\)\\); print\\(f\\\\\"\"  {d[\\\\\"\"id\\\\\"\"]}: {d[\\\\\"\"title\\\\\"\"]}  [{d[\\\\\"\"status\\\\\"\"]}] completed={d[\\\\\"\"metadata\\\\\"\"].get\\(\\\\\"\"completed_at\\\\\"\",\\\\\"\"N/A\\\\\"\"\\)}\\\\\"\"\\)\"\" 2>/dev/null')",
       "mcp__ao__ao_agent_runner-status",
       "Bash(cargo check:*)",
-      "Bash(pkill:*)"
+      "Bash(pkill:*)",
+      "Bash(lsof:*)",
+      "Bash(pstree:*)",
+      "Bash(opencode:*)",
+      "Bash(gtimeout 30:*)",
+      "Bash(pip3 install:*)",
+      "Bash(brew install:*)"
     ]
   }
 }

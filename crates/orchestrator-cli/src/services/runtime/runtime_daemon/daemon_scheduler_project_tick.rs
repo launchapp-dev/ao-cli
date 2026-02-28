@@ -25,7 +25,7 @@ use bootstrap::*;
 pub(super) async fn project_tick(root: &str, args: &DaemonRunArgs) -> Result<ProjectTickSummary> {
     let root = canonicalize_lossy(root);
     let hub = Arc::new(FileServiceHub::new(&root)?);
-    let _ = flush_git_integration_outbox(&root);
+    let _ = git_ops::flush_git_integration_outbox(&root);
     let requirements_before = hub.planning().list_requirements().await.unwrap_or_default();
     let tasks_before = hub.tasks().list().await.unwrap_or_default();
     let daemon = hub.daemon();
@@ -85,7 +85,7 @@ pub(super) async fn project_tick(root: &str, args: &DaemonRunArgs) -> Result<Pro
     } else {
         ReadyTaskWorkflowStartSummary::default()
     };
-    let _ = refresh_runtime_binaries_if_main_advanced(
+    let _ = git_ops::refresh_runtime_binaries_if_main_advanced(
         hub.clone(),
         &root,
         git_ops::RuntimeBinaryRefreshTrigger::Tick,

@@ -63,7 +63,7 @@ pub struct EmWorkQueueState {
 }
 
 pub fn em_work_queue_state_path(project_root: &str) -> Result<PathBuf> {
-    Ok(daemon_repo_runtime_root(project_root)?
+    Ok(git_ops::daemon_repo_runtime_root(project_root)?
         .join("scheduler")
         .join(EM_WORK_QUEUE_STATE_FILE))
 }
@@ -311,7 +311,7 @@ pub async fn sync_task_status_for_workflow_result(
                 return;
             };
 
-            match post_success_merge_push_and_cleanup(hub.clone(), project_root, &task).await {
+            match git_ops::post_success_merge_push_and_cleanup(hub.clone(), project_root, &task).await {
                 Ok(git_ops::PostMergeOutcome::Completed) => {
                     let _ = hub.tasks().set_status(task_id, TaskStatus::Done).await;
                     return;
@@ -336,7 +336,7 @@ pub async fn sync_task_status_for_workflow_result(
                     let recovery_result =
                         attempt_ai_merge_conflict_recovery(project_root, &task, &context).await;
                     if let Err(error) = recovery_result {
-                        cleanup_merge_conflict_worktree(project_root, &context);
+                        git_ops::cleanup_merge_conflict_worktree(project_root, &context);
                         let _ = set_task_blocked_with_reason(
                             hub.clone(),
                             &task,
@@ -349,7 +349,7 @@ pub async fn sync_task_status_for_workflow_result(
                         return;
                     }
 
-                    match finalize_merge_conflict_resolution(
+                    match git_ops::finalize_merge_conflict_resolution(
                         hub.clone(),
                         project_root,
                         &task,
@@ -364,7 +364,7 @@ pub async fn sync_task_status_for_workflow_result(
                             let _ = hub.tasks().set_status(task_id, TaskStatus::Done).await;
                         }
                         Err(error) => {
-                            cleanup_merge_conflict_worktree(project_root, &context);
+                            git_ops::cleanup_merge_conflict_worktree(project_root, &context);
                             let _ = set_task_blocked_with_reason(
                                 hub.clone(),
                                 &task,
@@ -406,7 +406,7 @@ pub async fn sync_task_status_for_workflow_result(
                 return;
             };
 
-            match is_branch_merged(project_root, branch_name) {
+            match git_ops::is_branch_merged(project_root, branch_name) {
                 Ok(Some(true)) | Ok(None) => {
                     let _ = hub.tasks().set_status(task_id, TaskStatus::Done).await;
                 }

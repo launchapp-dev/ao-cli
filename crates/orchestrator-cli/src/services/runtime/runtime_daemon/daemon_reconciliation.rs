@@ -44,7 +44,7 @@ pub async fn dependency_gate_issues_for_task(
             issues.push(format!(
                 "dependency {} is {}",
                 dependency.task_id,
-                task_status_label(dependency_task.status)
+                git_ops::task_status_label(dependency_task.status)
             ));
             continue;
         }
@@ -55,7 +55,7 @@ pub async fn dependency_gate_issues_for_task(
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            match is_branch_merged(project_root, branch_name) {
+            match git_ops::is_branch_merged(project_root, branch_name) {
                 Ok(Some(true)) | Ok(None) => {}
                 Ok(Some(false)) => {
                     issues.push(format!(
@@ -162,7 +162,7 @@ pub async fn reconcile_merge_gate_tasks_for_project(
             continue;
         };
 
-        match is_branch_merged(project_root, branch_name) {
+        match git_ops::is_branch_merged(project_root, branch_name) {
             Ok(Some(true)) | Ok(None) => {
                 hub.tasks().set_status(&task.id, TaskStatus::Done).await?;
                 resolved = resolved.saturating_add(1);

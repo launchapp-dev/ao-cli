@@ -1,13 +1,12 @@
 {
   "assignee": {
-    "model": "minimax/MiniMax-M2.1",
-    "role": "default",
-    "type": "agent"
+    "type": "human",
+    "user_id": "samishukri"
   },
-  "blocked_at": "2026-02-28T17:26:39.482600Z",
+  "blocked_at": null,
   "blocked_by": null,
   "blocked_phase": null,
-  "blocked_reason": "dependency gate: dependency TASK-127 is blocked",
+  "blocked_reason": null,
   "branch_name": null,
   "cancelled": false,
   "checklist": [],
@@ -30,11 +29,11 @@
     "created_at": "2026-02-28T17:23:28.655976Z",
     "created_by": "ao-cli",
     "started_at": "2026-02-28T17:23:39.661237Z",
-    "updated_at": "2026-02-28T17:26:39.604731Z",
-    "updated_by": "ao-daemon",
-    "version": 45
+    "updated_at": "2026-02-28T19:37:24.856372Z",
+    "updated_by": "samishukri",
+    "version": 47
   },
-  "paused": true,
+  "paused": false,
   "priority": "high",
   "resource_requirements": {
     "max_cpu_percent": null,
@@ -43,7 +42,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "blocked",
+  "status": "in-progress",
   "tags": [],
   "title": "Split git_ops.rs into 5 modules",
   "type": "refactor",

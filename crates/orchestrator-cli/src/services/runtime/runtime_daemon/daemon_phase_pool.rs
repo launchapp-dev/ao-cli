@@ -240,7 +240,7 @@ pub async fn execute_running_workflow_phases_for_project(
             continue;
         }
 
-        let execution_cwd = ensure_task_execution_cwd(hub.clone(), project_root, &task)
+        let execution_cwd = git_ops::ensure_task_execution_cwd(hub.clone(), project_root, &task)
             .await
             .unwrap_or_else(|_| project_root.to_string());
         git_ops::rebase_worktree_on_main(project_root, &execution_cwd);

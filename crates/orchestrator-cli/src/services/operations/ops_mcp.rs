@@ -7,7 +7,12 @@ use orchestrator_core::{OrchestratorWorkflow, WorkflowStateManager, WorkflowStat
 use protocol::{AgentRunEvent, OutputStreamType, RunId};
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
-    model::{CallToolResult, JsonObject, ServerCapabilities, ServerInfo},
+    model::{
+        Annotated, CallToolResult, ErrorCode, JsonObject, ListResourcesResult, PaginatedRequestParams,
+        RawResource, ReadResourceRequestParams, ReadResourceResult, ResourceContents,
+        ServerCapabilities, ServerInfo,
+    },
+    service::{RequestContext, RoleServer},
     tool, tool_handler, tool_router,
     transport::stdio,
     ErrorData as McpError, ServerHandler, ServiceExt,
@@ -1762,10 +1767,158 @@ impl ServerHandler for AoMcpServer {
             instructions: Some(
                 "Use these typed AO tools to run orchestrator CLI operations over MCP.".to_string(),
             ),
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
+            capabilities: ServerCapabilities::builder()
+                .enable_tools()
+                .enable_resources()
+                .build(),
             ..Default::default()
         }
     }
+
+    async fn list_resources(
+        &self,
+        _params: Option<PaginatedRequestParams>,
+        _ctx: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, rmcp::model::ErrorData> {
+        let mut resource_tasks = RawResource::new("ao://project/tasks", "Tasks Index");
+        resource_tasks.description = Some("AO project task index with id, title, status, priority".to_string());
+        resource_tasks.mime_type = Some("application/json".to_string());
+        
+        let mut resource_requirements = RawResource::new("ao://project/requirements", "Requirements Index");
+        resource_requirements.description = Some("AO project requirements index with id, title, status, priority".to_string());
+        resource_requirements.mime_type = Some("application/json".to_string());
+        
+        let mut resource_daemon = RawResource::new("ao://project/daemon-events", "Daemon Events");
+        resource_daemon.description = Some("Recent daemon events for project observability. Supports ?limit=N query param".to_string());
+        resource_daemon.mime_type = Some("application/json".to_string());
+        
+        let resources = vec![
+            Annotated::new(resource_tasks, None),
+            Annotated::new(resource_requirements, None),
+            Annotated::new(resource_daemon, None),
+        ];
+        Ok(ListResourcesResult::with_all_items(resources))
+    }
+
+    async fn read_resource(
+        &self,
+        params: ReadResourceRequestParams,
+        _ctx: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResult, rmcp::model::ErrorData> {
+        let uri = params.uri.to_string();
+        let (resource_uri, query) = parse_resource_uri(&uri);
+        
+        match resource_uri.as_str() {
+            "ao://project/tasks" => {
+                let path = PathBuf::from(&self.default_project_root).join(".ao/tasks/index.json");
+                let (content, _modified) = read_file_with_mtime(&path)
+                    .map_err(|e| McpError::new(ErrorCode::INTERNAL_ERROR, format!("failed to read tasks: {}", e), None))?;
+                let result = ReadResourceResult {
+                    contents: vec![ResourceContents::TextResourceContents {
+                        uri: uri.clone(),
+                        mime_type: Some("application/json".to_string()),
+                        text: content,
+                        meta: None,
+                    }],
+                };
+                Ok(result)
+            }
+            "ao://project/requirements" => {
+                let path = PathBuf::from(&self.default_project_root).join(".ao/requirements/index.json");
+                let (content, _modified) = read_file_with_mtime(&path)
+                    .map_err(|e| McpError::new(ErrorCode::INTERNAL_ERROR, format!("failed to read requirements: {}", e), None))?;
+                let result = ReadResourceResult {
+                    contents: vec![ResourceContents::TextResourceContents {
+                        uri: uri.clone(),
+                        mime_type: Some("application/json".to_string()),
+                        text: content,
+                        meta: None,
+                    }],
+                };
+                Ok(result)
+            }
+            "ao://project/daemon-events" => {
+                let limit = query
+                    .get("limit")
+                    .and_then(|v| v.parse::<usize>().ok())
+                    .unwrap_or(100);
+                let content = read_daemon_events(&self.default_project_root, limit)
+                    .map_err(|e| McpError::new(ErrorCode::INTERNAL_ERROR, format!("failed to read daemon events: {}", e), None))?;
+                let result = ReadResourceResult {
+                    contents: vec![ResourceContents::TextResourceContents {
+                        uri: uri.clone(),
+                        mime_type: Some("application/json".to_string()),
+                        text: content,
+                        meta: None,
+                    }],
+                };
+                Ok(result)
+            }
+            _ => Err(McpError::new(ErrorCode::RESOURCE_NOT_FOUND, format!("unknown resource: {}", uri), None)),
+        }
+    }
+}
+
+fn parse_resource_uri(uri: &str) -> (String, std::collections::HashMap<String, String>) {
+    let mut query = std::collections::HashMap::new();
+    if let Some((path, query_str)) = uri.split_once('?') {
+        for pair in query_str.split('&') {
+            if let Some((key, value)) = pair.split_once('=') {
+                query.insert(key.to_string(), value.to_string());
+            }
+        }
+        (path.to_string(), query)
+    } else {
+        (uri.to_string(), query)
+    }
+}
+
+fn read_daemon_events(_project_root: &str, limit: usize) -> Result<String, std::io::Error> {
+    use protocol::Config;
+    let path = Config::global_config_dir().join("daemon-events.jsonl");
+    if !path.exists() {
+        return Ok(json!({
+            "events": [],
+            "limit": limit,
+            "message": "no daemon events file found"
+        }).to_string());
+    }
+    let content = fs::read_to_string(&path)?;
+    let events: Vec<Value> = content
+        .lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .take(limit)
+        .collect();
+    Ok(json!({
+        "events": events,
+        "count": events.len(),
+        "limit": limit,
+        "events_path": path.to_string_lossy()
+    }).to_string())
+}
+
+fn read_file_with_mtime(path: &Path) -> Result<(String, Option<u64>), std::io::Error> {
+    let content = fs::read_to_string(path)?;
+    let modified = fs::metadata(path)?
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64);
+    Ok((content, modified))
+}
+
+fn get_daemon_events_mtime(_project_root: &str) -> Result<(String, Option<u64>), std::io::Error> {
+    use protocol::Config;
+    let path = Config::global_config_dir().join("daemon-events.jsonl");
+    if !path.exists() {
+        return Ok((path.to_string_lossy().to_string(), None));
+    }
+    let modified = fs::metadata(&path)?
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64);
+    Ok((path.to_string_lossy().to_string(), modified))
 }
 
 pub(crate) async fn handle_mcp(command: McpCommand, project_root: &str) -> Result<()> {

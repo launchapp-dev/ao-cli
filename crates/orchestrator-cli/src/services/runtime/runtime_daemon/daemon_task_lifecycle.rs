@@ -183,8 +183,8 @@ pub fn collect_task_state_transitions(
 
         transitions.push(TaskStateTransition {
             task_id: task.id.clone(),
-            from_status: task_status_label(previous.status).to_string(),
-            to_status: task_status_label(task.status).to_string(),
+            from_status: git_ops::task_status_label(previous.status).to_string(),
+            to_status: git_ops::task_status_label(task.status).to_string(),
             changed_at: task.metadata.updated_at.to_rfc3339(),
             workflow_id,
             phase_id,

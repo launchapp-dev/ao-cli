@@ -198,6 +198,8 @@ const MAX_MCP_LIST_LIMIT: usize = 200;
 const DEFAULT_MCP_LIST_MAX_TOKENS: usize = 3000;
 const MIN_MCP_LIST_MAX_TOKENS: usize = 256;
 const MAX_MCP_LIST_MAX_TOKENS: usize = 12_000;
+const BATCH_RESULT_SCHEMA: &str = "ao.mcp.batch.result.v1";
+const MAX_BATCH_SIZE: usize = 100;
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 struct AgentRunInput {
@@ -325,6 +327,88 @@ struct TaskAssignInput {
     assignee: String,
     #[serde(default)]
     project_root: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum OnError {
+    #[default]
+    Stop,
+    Continue,
+}
+
+impl OnError {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Stop => "stop",
+            Self::Continue => "continue",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+struct BulkTaskStatusItem {
+    id: String,
+    status: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+struct TaskBulkStatusInput {
+    updates: Vec<BulkTaskStatusItem>,
+    #[serde(default)]
+    on_error: OnError,
+    #[serde(default)]
+    project_root: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+struct BulkTaskUpdateItem {
+    id: String,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    priority: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    assignee: Option<String>,
+    #[serde(default)]
+    input_json: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+struct TaskBulkUpdateInput {
+    updates: Vec<BulkTaskUpdateItem>,
+    #[serde(default)]
+    on_error: OnError,
+    #[serde(default)]
+    project_root: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+struct BulkWorkflowRunItem {
+    task_id: String,
+    #[serde(default)]
+    pipeline_id: Option<String>,
+    #[serde(default)]
+    input_json: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+struct WorkflowRunMultipleInput {
+    runs: Vec<BulkWorkflowRunItem>,
+    #[serde(default)]
+    on_error: OnError,
+    #[serde(default)]
+    project_root: Option<String>,
+}
+
+struct BatchItemExec {
+    target_id: String,
+    command: String,
+    args: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
@@ -548,6 +632,111 @@ impl AoMcpServer {
                 "error": err.to_string(),
             }))),
         }
+    }
+
+    async fn run_batch_tool(
+        &self,
+        tool_name: &str,
+        items: Vec<BatchItemExec>,
+        on_error: &OnError,
+        project_root_override: Option<String>,
+    ) -> Result<CallToolResult, McpError> {
+        let requested = items.len();
+        let mut outcomes: Vec<Value> = Vec::with_capacity(requested);
+        let mut stopped = false;
+
+        for (index, item) in items.into_iter().enumerate() {
+            if stopped {
+                outcomes.push(json!({
+                    "index": index,
+                    "status": "skipped",
+                    "target_id": item.target_id,
+                    "command": item.command,
+                    "result": null,
+                    "error": null,
+                    "exit_code": null,
+                    "reason": "stopped after earlier failure",
+                }));
+                continue;
+            }
+
+            match self.execute_ao(item.args, project_root_override.clone()).await {
+                Ok(exec_result) => {
+                    if exec_result.success {
+                        let data = extract_cli_success_data(exec_result.stdout_json);
+                        outcomes.push(json!({
+                            "index": index,
+                            "status": "success",
+                            "target_id": item.target_id,
+                            "command": item.command,
+                            "result": data,
+                            "error": null,
+                            "exit_code": exec_result.exit_code,
+                        }));
+                    } else {
+                        let error = batch_item_error_from_result(&exec_result);
+                        outcomes.push(json!({
+                            "index": index,
+                            "status": "failed",
+                            "target_id": item.target_id,
+                            "command": item.command,
+                            "result": null,
+                            "error": error,
+                            "exit_code": exec_result.exit_code,
+                        }));
+                        if *on_error == OnError::Stop {
+                            stopped = true;
+                        }
+                    }
+                }
+                Err(err) => {
+                    outcomes.push(json!({
+                        "index": index,
+                        "status": "failed",
+                        "target_id": item.target_id,
+                        "command": item.command,
+                        "result": null,
+                        "error": { "error": err.to_string() },
+                        "exit_code": null,
+                    }));
+                    if *on_error == OnError::Stop {
+                        stopped = true;
+                    }
+                }
+            }
+        }
+
+        let executed = outcomes
+            .iter()
+            .filter(|o| o["status"] != "skipped")
+            .count();
+        let succeeded = outcomes
+            .iter()
+            .filter(|o| o["status"] == "success")
+            .count();
+        let failed = outcomes
+            .iter()
+            .filter(|o| o["status"] == "failed")
+            .count();
+        let skipped = outcomes
+            .iter()
+            .filter(|o| o["status"] == "skipped")
+            .count();
+
+        Ok(CallToolResult::structured(json!({
+            "schema": BATCH_RESULT_SCHEMA,
+            "tool": tool_name,
+            "on_error": on_error.as_str(),
+            "summary": {
+                "requested": requested,
+                "executed": executed,
+                "succeeded": succeeded,
+                "failed": failed,
+                "skipped": skipped,
+                "completed": failed == 0,
+            },
+            "results": outcomes,
+        })))
     }
 }
 
@@ -1481,6 +1670,112 @@ impl AoMcpServer {
         )
         .await
     }
+
+    #[tool(
+        name = "ao.task.bulk-status",
+        description = "Batch-update status for multiple tasks in one call.",
+        input_schema = ao_schema_for_type::<TaskBulkStatusInput>()
+    )]
+    async fn ao_task_bulk_status(
+        &self,
+        params: Parameters<TaskBulkStatusInput>,
+    ) -> Result<CallToolResult, McpError> {
+        let input = params.0;
+        if let Err(msg) = validate_bulk_status_input("ao.task.bulk-status", &input.updates) {
+            return Ok(CallToolResult::structured_error(json!({
+                "tool": "ao.task.bulk-status",
+                "error": msg,
+            })));
+        }
+        let items: Vec<BatchItemExec> = input
+            .updates
+            .into_iter()
+            .map(|item| {
+                let args = build_bulk_status_item_args(&item);
+                let command = args.join(" ");
+                BatchItemExec {
+                    target_id: item.id,
+                    command,
+                    args,
+                }
+            })
+            .collect();
+        self.run_batch_tool("ao.task.bulk-status", items, &input.on_error, input.project_root)
+            .await
+    }
+
+    #[tool(
+        name = "ao.task.bulk-update",
+        description = "Batch-update fields for multiple tasks in one call.",
+        input_schema = ao_schema_for_type::<TaskBulkUpdateInput>()
+    )]
+    async fn ao_task_bulk_update(
+        &self,
+        params: Parameters<TaskBulkUpdateInput>,
+    ) -> Result<CallToolResult, McpError> {
+        let input = params.0;
+        if let Err(msg) = validate_bulk_update_input("ao.task.bulk-update", &input.updates) {
+            return Ok(CallToolResult::structured_error(json!({
+                "tool": "ao.task.bulk-update",
+                "error": msg,
+            })));
+        }
+        let items: Vec<BatchItemExec> = input
+            .updates
+            .into_iter()
+            .map(|item| {
+                let args = build_bulk_update_item_args(&item);
+                let command = args.join(" ");
+                BatchItemExec {
+                    target_id: item.id,
+                    command,
+                    args,
+                }
+            })
+            .collect();
+        self.run_batch_tool("ao.task.bulk-update", items, &input.on_error, input.project_root)
+            .await
+    }
+
+    #[tool(
+        name = "ao.workflow.run-multiple",
+        description = "Run a workflow for multiple tasks in one call.",
+        input_schema = ao_schema_for_type::<WorkflowRunMultipleInput>()
+    )]
+    async fn ao_workflow_run_multiple(
+        &self,
+        params: Parameters<WorkflowRunMultipleInput>,
+    ) -> Result<CallToolResult, McpError> {
+        let input = params.0;
+        if let Err(msg) =
+            validate_workflow_run_multiple_input("ao.workflow.run-multiple", &input.runs)
+        {
+            return Ok(CallToolResult::structured_error(json!({
+                "tool": "ao.workflow.run-multiple",
+                "error": msg,
+            })));
+        }
+        let items: Vec<BatchItemExec> = input
+            .runs
+            .into_iter()
+            .map(|item| {
+                let args = build_bulk_workflow_run_item_args(&item);
+                let command = args.join(" ");
+                BatchItemExec {
+                    target_id: item.task_id,
+                    command,
+                    args,
+                }
+            })
+            .collect();
+        self.run_batch_tool(
+            "ao.workflow.run-multiple",
+            items,
+            &input.on_error,
+            input.project_root,
+        )
+        .await
+    }
 }
 
 #[tool_handler(router = self.tool_router)]
@@ -2086,6 +2381,153 @@ fn build_requirements_get_args(id: String) -> Vec<String> {
         "--id".to_string(),
         id,
     ]
+}
+
+fn build_bulk_status_item_args(item: &BulkTaskStatusItem) -> Vec<String> {
+    vec![
+        "task".to_string(),
+        "status".to_string(),
+        "--id".to_string(),
+        item.id.clone(),
+        "--status".to_string(),
+        item.status.clone(),
+    ]
+}
+
+fn build_bulk_update_item_args(item: &BulkTaskUpdateItem) -> Vec<String> {
+    let mut args = vec![
+        "task".to_string(),
+        "update".to_string(),
+        "--id".to_string(),
+        item.id.clone(),
+    ];
+    push_opt(&mut args, "--title", item.title.clone());
+    push_opt(&mut args, "--description", item.description.clone());
+    push_opt(&mut args, "--priority", item.priority.clone());
+    push_opt(&mut args, "--status", item.status.clone());
+    push_opt(&mut args, "--assignee", item.assignee.clone());
+    push_opt(&mut args, "--input-json", item.input_json.clone());
+    args
+}
+
+fn build_bulk_workflow_run_item_args(item: &BulkWorkflowRunItem) -> Vec<String> {
+    let mut args = vec![
+        "workflow".to_string(),
+        "run".to_string(),
+        "--task-id".to_string(),
+        item.task_id.clone(),
+    ];
+    push_opt(&mut args, "--pipeline-id", item.pipeline_id.clone());
+    push_opt(&mut args, "--input-json", item.input_json.clone());
+    args
+}
+
+fn validate_bulk_status_input(
+    tool_name: &str,
+    updates: &[BulkTaskStatusItem],
+) -> Result<(), String> {
+    if updates.is_empty() {
+        return Err(format!("{tool_name}: updates must not be empty"));
+    }
+    if updates.len() > MAX_BATCH_SIZE {
+        return Err(format!(
+            "{tool_name}: updates count {} exceeds maximum {MAX_BATCH_SIZE}",
+            updates.len()
+        ));
+    }
+    let mut seen_ids = std::collections::HashSet::new();
+    for (i, item) in updates.iter().enumerate() {
+        if item.id.trim().is_empty() {
+            return Err(format!("{tool_name}: item[{i}].id must not be empty"));
+        }
+        if item.status.trim().is_empty() {
+            return Err(format!("{tool_name}: item[{i}].status must not be empty"));
+        }
+        if !seen_ids.insert(item.id.as_str()) {
+            return Err(format!(
+                "{tool_name}: duplicate id '{}' at index {i}",
+                item.id
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_bulk_update_input(
+    tool_name: &str,
+    updates: &[BulkTaskUpdateItem],
+) -> Result<(), String> {
+    if updates.is_empty() {
+        return Err(format!("{tool_name}: updates must not be empty"));
+    }
+    if updates.len() > MAX_BATCH_SIZE {
+        return Err(format!(
+            "{tool_name}: updates count {} exceeds maximum {MAX_BATCH_SIZE}",
+            updates.len()
+        ));
+    }
+    let mut seen_ids = std::collections::HashSet::new();
+    for (i, item) in updates.iter().enumerate() {
+        if item.id.trim().is_empty() {
+            return Err(format!("{tool_name}: item[{i}].id must not be empty"));
+        }
+        let has_update = item.title.is_some()
+            || item.description.is_some()
+            || item.priority.is_some()
+            || item.status.is_some()
+            || item.assignee.is_some()
+            || item.input_json.is_some();
+        if !has_update {
+            return Err(format!(
+                "{tool_name}: item[{i}] (id='{}') must include at least one update field",
+                item.id
+            ));
+        }
+        if !seen_ids.insert(item.id.as_str()) {
+            return Err(format!(
+                "{tool_name}: duplicate id '{}' at index {i}",
+                item.id
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_workflow_run_multiple_input(
+    tool_name: &str,
+    runs: &[BulkWorkflowRunItem],
+) -> Result<(), String> {
+    if runs.is_empty() {
+        return Err(format!("{tool_name}: runs must not be empty"));
+    }
+    if runs.len() > MAX_BATCH_SIZE {
+        return Err(format!(
+            "{tool_name}: runs count {} exceeds maximum {MAX_BATCH_SIZE}",
+            runs.len()
+        ));
+    }
+    for (i, item) in runs.iter().enumerate() {
+        if item.task_id.trim().is_empty() {
+            return Err(format!("{tool_name}: item[{i}].task_id must not be empty"));
+        }
+    }
+    Ok(())
+}
+
+fn batch_item_error_from_result(result: &CliExecutionResult) -> Value {
+    let mut payload = json!({ "exit_code": result.exit_code });
+    if let Some(envelope) = &result.stdout_json {
+        if let Some(error) = envelope.get("error") {
+            payload["error"] = error.clone();
+        } else if let Some(data) = envelope.get("data") {
+            payload["error"] = data.clone();
+        }
+    }
+    let stderr = result.stderr.trim().to_string();
+    if !stderr.is_empty() {
+        payload["stderr"] = json!(stderr);
+    }
+    payload
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2831,6 +3273,357 @@ mod tests {
                 "--id".to_string(),
                 "REQ-123".to_string(),
             ]
+        );
+    }
+
+    #[test]
+    fn build_bulk_status_item_args_basic() {
+        let item = BulkTaskStatusItem {
+            id: "TASK-1".to_string(),
+            status: "done".to_string(),
+        };
+        let args = build_bulk_status_item_args(&item);
+        assert_eq!(
+            args,
+            vec![
+                "task".to_string(),
+                "status".to_string(),
+                "--id".to_string(),
+                "TASK-1".to_string(),
+                "--status".to_string(),
+                "done".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn build_bulk_update_item_args_id_only_field() {
+        let item = BulkTaskUpdateItem {
+            id: "TASK-2".to_string(),
+            title: Some("New title".to_string()),
+            description: None,
+            priority: None,
+            status: None,
+            assignee: None,
+            input_json: None,
+        };
+        let args = build_bulk_update_item_args(&item);
+        assert_eq!(
+            args,
+            vec![
+                "task".to_string(),
+                "update".to_string(),
+                "--id".to_string(),
+                "TASK-2".to_string(),
+                "--title".to_string(),
+                "New title".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn build_bulk_update_item_args_all_optional_fields() {
+        let item = BulkTaskUpdateItem {
+            id: "TASK-3".to_string(),
+            title: Some("T".to_string()),
+            description: Some("D".to_string()),
+            priority: Some("high".to_string()),
+            status: Some("in-progress".to_string()),
+            assignee: Some("alice".to_string()),
+            input_json: Some(r#"{"k":"v"}"#.to_string()),
+        };
+        let args = build_bulk_update_item_args(&item);
+        assert_eq!(
+            args,
+            vec![
+                "task".to_string(),
+                "update".to_string(),
+                "--id".to_string(),
+                "TASK-3".to_string(),
+                "--title".to_string(),
+                "T".to_string(),
+                "--description".to_string(),
+                "D".to_string(),
+                "--priority".to_string(),
+                "high".to_string(),
+                "--status".to_string(),
+                "in-progress".to_string(),
+                "--assignee".to_string(),
+                "alice".to_string(),
+                "--input-json".to_string(),
+                r#"{"k":"v"}"#.to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn build_bulk_workflow_run_item_args_basic() {
+        let item = BulkWorkflowRunItem {
+            task_id: "TASK-4".to_string(),
+            pipeline_id: None,
+            input_json: None,
+        };
+        let args = build_bulk_workflow_run_item_args(&item);
+        assert_eq!(
+            args,
+            vec![
+                "workflow".to_string(),
+                "run".to_string(),
+                "--task-id".to_string(),
+                "TASK-4".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn build_bulk_workflow_run_item_args_with_pipeline_and_input() {
+        let item = BulkWorkflowRunItem {
+            task_id: "TASK-5".to_string(),
+            pipeline_id: Some("my-pipeline".to_string()),
+            input_json: Some(r#"{"key":"val"}"#.to_string()),
+        };
+        let args = build_bulk_workflow_run_item_args(&item);
+        assert_eq!(
+            args,
+            vec![
+                "workflow".to_string(),
+                "run".to_string(),
+                "--task-id".to_string(),
+                "TASK-5".to_string(),
+                "--pipeline-id".to_string(),
+                "my-pipeline".to_string(),
+                "--input-json".to_string(),
+                r#"{"key":"val"}"#.to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn validate_bulk_status_input_rejects_empty() {
+        let err = validate_bulk_status_input("ao.task.bulk-status", &[])
+            .unwrap_err();
+        assert!(
+            err.contains("must not be empty"),
+            "expected empty-array error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_bulk_status_input_rejects_over_max() {
+        let updates: Vec<BulkTaskStatusItem> = (0..=MAX_BATCH_SIZE)
+            .map(|i| BulkTaskStatusItem {
+                id: format!("TASK-{i}"),
+                status: "done".to_string(),
+            })
+            .collect();
+        let err = validate_bulk_status_input("ao.task.bulk-status", &updates).unwrap_err();
+        assert!(
+            err.contains("exceeds maximum"),
+            "expected max-size error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_bulk_status_input_rejects_duplicate_ids() {
+        let updates = vec![
+            BulkTaskStatusItem {
+                id: "TASK-1".to_string(),
+                status: "done".to_string(),
+            },
+            BulkTaskStatusItem {
+                id: "TASK-1".to_string(),
+                status: "todo".to_string(),
+            },
+        ];
+        let err = validate_bulk_status_input("ao.task.bulk-status", &updates).unwrap_err();
+        assert!(
+            err.contains("duplicate id"),
+            "expected duplicate-id error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_bulk_status_input_rejects_empty_id() {
+        let updates = vec![BulkTaskStatusItem {
+            id: "  ".to_string(),
+            status: "done".to_string(),
+        }];
+        let err = validate_bulk_status_input("ao.task.bulk-status", &updates).unwrap_err();
+        assert!(
+            err.contains(".id must not be empty"),
+            "expected empty-id error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_bulk_update_input_rejects_empty() {
+        let err = validate_bulk_update_input("ao.task.bulk-update", &[]).unwrap_err();
+        assert!(
+            err.contains("must not be empty"),
+            "expected empty-array error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_bulk_update_input_rejects_item_with_no_fields() {
+        let updates = vec![BulkTaskUpdateItem {
+            id: "TASK-1".to_string(),
+            title: None,
+            description: None,
+            priority: None,
+            status: None,
+            assignee: None,
+            input_json: None,
+        }];
+        let err = validate_bulk_update_input("ao.task.bulk-update", &updates).unwrap_err();
+        assert!(
+            err.contains("must include at least one update field"),
+            "expected no-field error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_bulk_update_input_rejects_duplicate_ids() {
+        let updates = vec![
+            BulkTaskUpdateItem {
+                id: "TASK-1".to_string(),
+                title: Some("A".to_string()),
+                description: None,
+                priority: None,
+                status: None,
+                assignee: None,
+                input_json: None,
+            },
+            BulkTaskUpdateItem {
+                id: "TASK-1".to_string(),
+                title: Some("B".to_string()),
+                description: None,
+                priority: None,
+                status: None,
+                assignee: None,
+                input_json: None,
+            },
+        ];
+        let err = validate_bulk_update_input("ao.task.bulk-update", &updates).unwrap_err();
+        assert!(
+            err.contains("duplicate id"),
+            "expected duplicate-id error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_bulk_update_input_accepts_valid_items() {
+        let updates = vec![
+            BulkTaskUpdateItem {
+                id: "TASK-1".to_string(),
+                title: Some("New title".to_string()),
+                description: None,
+                priority: None,
+                status: None,
+                assignee: None,
+                input_json: None,
+            },
+            BulkTaskUpdateItem {
+                id: "TASK-2".to_string(),
+                title: None,
+                description: None,
+                priority: Some("high".to_string()),
+                status: None,
+                assignee: None,
+                input_json: None,
+            },
+        ];
+        assert!(validate_bulk_update_input("ao.task.bulk-update", &updates).is_ok());
+    }
+
+    #[test]
+    fn validate_workflow_run_multiple_rejects_empty() {
+        let err = validate_workflow_run_multiple_input("ao.workflow.run-multiple", &[])
+            .unwrap_err();
+        assert!(
+            err.contains("must not be empty"),
+            "expected empty-array error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_workflow_run_multiple_rejects_empty_task_id() {
+        let runs = vec![BulkWorkflowRunItem {
+            task_id: "".to_string(),
+            pipeline_id: None,
+            input_json: None,
+        }];
+        let err =
+            validate_workflow_run_multiple_input("ao.workflow.run-multiple", &runs).unwrap_err();
+        assert!(
+            err.contains("task_id must not be empty"),
+            "expected empty-task-id error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_workflow_run_multiple_accepts_valid_runs() {
+        let runs = vec![
+            BulkWorkflowRunItem {
+                task_id: "TASK-1".to_string(),
+                pipeline_id: None,
+                input_json: None,
+            },
+            BulkWorkflowRunItem {
+                task_id: "TASK-2".to_string(),
+                pipeline_id: Some("p1".to_string()),
+                input_json: None,
+            },
+        ];
+        assert!(validate_workflow_run_multiple_input("ao.workflow.run-multiple", &runs).is_ok());
+    }
+
+    #[test]
+    fn on_error_default_is_stop() {
+        let on_error = OnError::default();
+        assert_eq!(on_error, OnError::Stop);
+        assert_eq!(on_error.as_str(), "stop");
+    }
+
+    #[test]
+    fn on_error_continue_as_str() {
+        assert_eq!(OnError::Continue.as_str(), "continue");
+    }
+
+    #[test]
+    fn validate_bulk_update_input_rejects_over_max() {
+        let updates: Vec<BulkTaskUpdateItem> = (0..=MAX_BATCH_SIZE)
+            .map(|i| BulkTaskUpdateItem {
+                id: format!("TASK-{i}"),
+                title: Some("T".to_string()),
+                description: None,
+                priority: None,
+                status: None,
+                assignee: None,
+                input_json: None,
+            })
+            .collect();
+        let err = validate_bulk_update_input("ao.task.bulk-update", &updates).unwrap_err();
+        assert!(
+            err.contains("exceeds maximum"),
+            "expected max-size error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_workflow_run_multiple_rejects_over_max() {
+        let runs: Vec<BulkWorkflowRunItem> = (0..=MAX_BATCH_SIZE)
+            .map(|i| BulkWorkflowRunItem {
+                task_id: format!("TASK-{i}"),
+                pipeline_id: None,
+                input_json: None,
+            })
+            .collect();
+        let err =
+            validate_workflow_run_multiple_input("ao.workflow.run-multiple", &runs).unwrap_err();
+        assert!(
+            err.contains("exceeds maximum"),
+            "expected max-size error, got: {err}"
         );
     }
 

@@ -6,7 +6,8 @@ use orchestrator_core::{RequirementItem, RequirementPriority, RequirementStatus,
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct RequirementCreateInputCli {

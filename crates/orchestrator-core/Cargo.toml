@@ -17,6 +17,7 @@ libc = "0.2"
 fs2 = "0.4"
 sha2 = "0.10"
 protocol = { path = "../protocol" }
+cli-wrapper = { path = "../llm-cli-wrapper", package = "llm-cli-wrapper" }
 
 [dev-dependencies]
 tempfile = "3"

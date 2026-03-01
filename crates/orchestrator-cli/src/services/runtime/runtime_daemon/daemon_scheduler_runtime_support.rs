@@ -193,55 +193,19 @@ fn codex_reasoning_effort(reasoning_override: Option<&str>) -> Option<String> {
 }
 
 fn codex_exec_insert_index(args: &[Value]) -> usize {
-    args.iter()
-        .position(|item| item.as_str().is_some_and(|value| value == "exec"))
-        .unwrap_or(0)
+    cli_wrapper::codex_exec_insert_index_json(args)
 }
 
 fn launch_prompt_insert_index(args: &[Value]) -> usize {
-    args.len().saturating_sub(1)
+    cli_wrapper::launch_prompt_insert_index_json(args)
 }
 
 fn ensure_flag_value_if_missing(args: &mut Vec<Value>, flag: &str, value: &str, insert_at: usize) {
-    if args
-        .iter()
-        .any(|item| item.as_str().is_some_and(|existing| existing == flag))
-    {
-        return;
-    }
-
-    let insert_at = insert_at.min(args.len());
-    args.insert(insert_at, Value::String(flag.to_string()));
-    args.insert(
-        (insert_at + 1).min(args.len()),
-        Value::String(value.to_string()),
-    );
+    cli_wrapper::ensure_flag_value_json(args, flag, value, insert_at);
 }
 
 fn ensure_codex_config_override(args: &mut Vec<Value>, key: &str, value_expr: &str) {
-    let key_prefix = format!("{key}=");
-    let target = format!("{key}={value_expr}");
-
-    let mut index = 0usize;
-    while index + 1 < args.len() {
-        let Some(flag) = args[index].as_str() else {
-            index += 1;
-            continue;
-        };
-        if flag == "-c" || flag == "--config" {
-            if let Some(existing) = args.get(index + 1).and_then(Value::as_str) {
-                if existing.starts_with(&key_prefix) {
-                    args[index + 1] = Value::String(target);
-                    return;
-                }
-            }
-        }
-        index += 1;
-    }
-
-    let insert_at = codex_exec_insert_index(args);
-    args.insert(insert_at, Value::String("-c".to_string()));
-    args.insert(insert_at + 1, Value::String(target));
+    cli_wrapper::ensure_codex_config_override_json(args, key, value_expr);
 }
 
 fn codex_network_access_enabled(network_access_override: Option<bool>) -> bool {

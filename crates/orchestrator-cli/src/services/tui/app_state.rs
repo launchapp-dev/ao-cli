@@ -1,6 +1,4 @@
 use std::collections::{HashSet, VecDeque};
-use std::path::PathBuf;
-use std::process::Command as ProcessCommand;
 
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
@@ -319,7 +317,7 @@ fn ordered_default_model_specs() -> Vec<(String, String)> {
 }
 
 fn build_profile(model_id: &str, tool: &str) -> ModelProfile {
-    if lookup_binary_in_path(tool).is_none() {
+    if cli_wrapper::lookup_binary_in_path(tool).is_none() {
         return ModelProfile {
             model_id: model_id.to_string(),
             tool: tool.to_string(),
@@ -333,53 +331,6 @@ fn build_profile(model_id: &str, tool: &str) -> ModelProfile {
         tool: tool.to_string(),
         availability: "available".to_string(),
         details: None,
-    }
-}
-
-fn lookup_binary_in_path(binary_name: &str) -> Option<PathBuf> {
-    #[cfg(unix)]
-    {
-        let output = ProcessCommand::new("which")
-            .arg(binary_name)
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
-        }
-        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if path.is_empty() {
-            None
-        } else {
-            Some(PathBuf::from(path))
-        }
-    }
-
-    #[cfg(windows)]
-    {
-        let output = ProcessCommand::new("where")
-            .arg(binary_name)
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
-        }
-        let first = String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .next()
-            .map(str::trim)
-            .unwrap_or_default()
-            .to_string();
-        if first.is_empty() {
-            None
-        } else {
-            Some(PathBuf::from(first))
-        }
-    }
-
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = binary_name;
-        None
     }
 }
 

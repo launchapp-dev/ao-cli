@@ -4,7 +4,6 @@ use protocol::{
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::process::Command as ProcessCommand;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct ModelStatusDtoCli {
@@ -47,59 +46,12 @@ pub(super) fn default_model_specs() -> Vec<(String, String)> {
     protocol_default_model_specs()
 }
 
-fn lookup_binary_in_path(binary_name: &str) -> Option<PathBuf> {
-    #[cfg(unix)]
-    {
-        let output = ProcessCommand::new("which")
-            .arg(binary_name)
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
-        }
-        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if path.is_empty() {
-            None
-        } else {
-            Some(PathBuf::from(path))
-        }
-    }
-
-    #[cfg(windows)]
-    {
-        let output = ProcessCommand::new("where")
-            .arg(binary_name)
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
-        }
-        let first = String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .next()
-            .map(str::trim)
-            .unwrap_or_default()
-            .to_string();
-        if first.is_empty() {
-            None
-        } else {
-            Some(PathBuf::from(first))
-        }
-    }
-
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = binary_name;
-        None
-    }
-}
-
 fn required_api_keys_for_tool(cli_tool: &str) -> Vec<&'static str> {
     protocol_required_api_keys_for_tool(cli_tool).to_vec()
 }
 
 pub(super) fn evaluate_model_status(model_id: &str, cli_tool: &str) -> ModelStatusDtoCli {
-    if lookup_binary_in_path(cli_tool).is_none() {
+    if cli_wrapper::lookup_binary_in_path(cli_tool).is_none() {
         return ModelStatusDtoCli {
             model_id: model_id.to_string(),
             cli_tool: cli_tool.to_string(),

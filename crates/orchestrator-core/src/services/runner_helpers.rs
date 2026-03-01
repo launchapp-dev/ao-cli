@@ -385,44 +385,7 @@ fn runner_status_is_compatible(
 }
 
 pub(super) fn lookup_binary_in_path(binary_name: &str) -> Option<PathBuf> {
-    #[cfg(unix)]
-    {
-        let output = Command::new("which").arg(binary_name).output().ok()?;
-        if !output.status.success() {
-            return None;
-        }
-        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if path.is_empty() {
-            None
-        } else {
-            Some(PathBuf::from(path))
-        }
-    }
-
-    #[cfg(windows)]
-    {
-        let output = Command::new("where").arg(binary_name).output().ok()?;
-        if !output.status.success() {
-            return None;
-        }
-        let first_line = String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .next()
-            .map(str::trim)
-            .unwrap_or_default()
-            .to_string();
-        if first_line.is_empty() {
-            None
-        } else {
-            Some(PathBuf::from(first_line))
-        }
-    }
-
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = binary_name;
-        None
-    }
+    cli_wrapper::lookup_binary_in_path(binary_name)
 }
 
 pub(super) fn find_agent_runner_binary() -> Result<PathBuf> {

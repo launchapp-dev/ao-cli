@@ -2,21 +2,22 @@
 
 ## Project Overview
 
-AO (`ao`) is a Rust-only agent orchestrator CLI. 9-crate workspace providing CLI, daemon, agent runner, LLM wrappers, MCP server, and web UI for orchestrating AI agent workflows.
+AO (`ao`) is a Rust-only agent orchestrator CLI. 10-crate workspace providing CLI, daemon, agent runner, LLM wrappers, MCP server, and web UI for orchestrating AI agent workflows.
 
 ## Workspace Layout
 
 ```
 crates/
-├── orchestrator-cli/     # Main `ao` binary (clap-based CLI)
-├── orchestrator-core/    # Domain logic, state management, FileServiceHub
-├── orchestrator-web-api/ # Web API business logic (WebApiService)
+├── orchestrator-cli/        # Main `ao` binary (clap-based CLI)
+├── orchestrator-core/       # Domain logic, state management, FileServiceHub
+├── orchestrator-web-api/    # Web API business logic (WebApiService)
 ├── orchestrator-web-server/ # Axum web server + embedded static assets
 ├── orchestrator-web-contracts/ # Shared web types
-├── protocol/             # Wire protocol types shared across all crates
-├── agent-runner/         # Standalone daemon managing LLM CLI processes via IPC
-├── llm-cli-wrapper/      # Abstraction over AI CLI tools (claude, codex, gemini, etc.)
-└── llm-mcp-server/       # MCP server for external agent bridging
+├── protocol/                # Wire protocol types shared across all crates
+├── agent-runner/            # Standalone daemon managing LLM CLI processes via IPC
+├── llm-cli-wrapper/         # Abstraction over AI CLI tools (claude, codex, gemini, etc.)
+├── oai-runner/              # OpenAI-compatible streaming API client
+└── llm-mcp-server/          # MCP server for external agent bridging
 ```
 
 ## Build & Run
@@ -40,7 +41,7 @@ cargo test --workspace                # Run all tests
 ## Key Entry Points
 
 - CLI dispatch: `crates/orchestrator-cli/src/main.rs`
-- CLI type definitions: `crates/orchestrator-cli/src/cli_types.rs`
+- CLI type definitions: `crates/orchestrator-cli/src/cli_types/` (modularized into per-domain files)
 - Error classification: `crates/orchestrator-cli/src/shared/output.rs`
 - Runner IPC: `crates/orchestrator-cli/src/shared/runner.rs`
 - Core state + persistence: `crates/orchestrator-core/src/services.rs`
@@ -82,10 +83,23 @@ ao task status --id TASK-XXX --status in-progress  # Start work
 ao task status --id TASK-XXX --status done          # Complete work
 ```
 
+## CLI Command Surface
+
+Full command tree reference: `docs/cli-command-surface.md`
+
+24 top-level commands, ~130+ subcommands. Key groups:
+- **Core workflow**: `task`, `workflow`, `daemon`, `agent`
+- **Planning**: `vision`, `requirements`, `execute`, `architecture`
+- **Operations**: `runner`, `output`, `errors`, `history`
+- **Infrastructure**: `git`, `model`, `skill`, `mcp`, `web`
+- **UX**: `status`, `setup`, `doctor`, `tui`, `workflow-monitor`
+- **Review/QA**: `review`, `qa`
+
 ## Known Issues to Be Aware Of
 
 - `classify_error` uses string matching on error messages (fragile)
 - `sanitize_identifier` / `repository_scope_for_path` duplicated across 3 locations
 - `Priority` type exists in 3 forms (protocol MoSCoW, core task priority, requirement priority)
-- `web_api_service.rs` and `cli_types.rs` are large monolith files (tracked by TASK-041 docs in `crates/orchestrator-cli/docs/task-041-cli-types-web-api-service-modularization-*.md`)
+- `planning` command duplicates `vision` + `requirements` surfaces (should be consolidated)
+- `task-control` is split from `task` (should be merged under `task`)
 - Axum version mismatch: web-server uses 0.7, CLI uses 0.8

@@ -1,4 +1,4 @@
 {
-  "runtime_paused": false,
-  "daemon_pid": 96298
+  "runtime_paused": true,
+  "daemon_pid": null
 }

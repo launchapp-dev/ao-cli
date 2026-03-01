@@ -97,7 +97,7 @@ pub(super) async fn build_cli_invocation(
         _ => {
             warn!(tool, "Unsupported tool requested");
             bail!(
-                "Unsupported tool: {}. Configure a supported CLI (claude, codex, gemini, opencode) or provide an executable on PATH.",
+                "Unsupported tool: {}. Configure a supported CLI (claude, codex, gemini, opencode, oai-runner) or provide an executable on PATH.",
                 tool
             )
         }

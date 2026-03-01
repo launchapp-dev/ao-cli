@@ -22,6 +22,7 @@ pub fn parse_cli_type(name: &str) -> Option<CliType> {
         "codex" => Some(CliType::Codex),
         "gemini" => Some(CliType::Gemini),
         "opencode" | "open-code" => Some(CliType::OpenCode),
+        "oai-runner" | "ao-oai-runner" => Some(CliType::OaiRunner),
         "aider" => Some(CliType::Aider),
         "cursor" => Some(CliType::Cursor),
         "cline" => Some(CliType::Cline),
@@ -103,6 +104,15 @@ pub fn ensure_machine_json_output(invocation: &mut LaunchInvocation) {
             ensure_flag_value(&mut invocation.args, "--output-format", "json", insert_at);
         }
         "opencode" => {
+            let insert_at = invocation
+                .args
+                .iter()
+                .position(|entry| entry == "run")
+                .map(|index| index + 1)
+                .unwrap_or(0);
+            ensure_flag_value(&mut invocation.args, "--format", "json", insert_at);
+        }
+        "ao-oai-runner" | "oai-runner" => {
             let insert_at = invocation
                 .args
                 .iter()

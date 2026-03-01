@@ -1,6 +1,6 @@
 {
   "assignee": {
-    "model": "minimax/MiniMax-M2.1",
+    "model": "minimax/MiniMax-M2.5",
     "role": "default",
     "type": "agent"
   },
@@ -25,9 +25,9 @@
     "created_at": "2026-02-27T17:18:27.527853Z",
     "created_by": "ao-cli",
     "started_at": "2026-02-27T17:37:25.137428Z",
-    "updated_at": "2026-02-28T18:18:47.493167Z",
+    "updated_at": "2026-03-01T20:57:03.044745Z",
     "updated_by": "ao-daemon",
-    "version": 885
+    "version": 950
   },
   "paused": false,
   "priority": "high",

@@ -476,6 +476,19 @@ fn apply_opencode_native_mcp_lockdown(
     env.insert("OPENCODE_CONFIG_CONTENT".to_string(), config.to_string());
 }
 
+fn apply_oai_runner_native_mcp_lockdown(
+    args: &mut Vec<String>,
+    transport: McpServerTransport<'_>,
+) {
+    let config = match transport {
+        McpServerTransport::Stdio { command, args: stdio_args } => {
+            serde_json::json!([{ "command": command, "args": stdio_args }])
+        }
+        McpServerTransport::Http(_) => return,
+    };
+    ensure_flag_value(args, "--mcp-config", &config.to_string(), 0);
+}
+
 fn apply_native_mcp_policy(
     invocation: &mut super::process_builder::CliInvocation,
     enforcement: &McpToolEnforcement,
@@ -511,6 +524,9 @@ fn apply_native_mcp_policy(
             temp_cleanup,
         )?,
         "opencode" => apply_opencode_native_mcp_lockdown(env, transport, agent_id),
+        "ao-oai-runner" => {
+            apply_oai_runner_native_mcp_lockdown(&mut invocation.args, transport);
+        }
         _ => {
             bail!(
                 "MCP-only policy enabled, but no native enforcement adapter exists for CLI command '{}'",

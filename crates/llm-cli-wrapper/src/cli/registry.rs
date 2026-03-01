@@ -10,6 +10,7 @@ use super::claude::ClaudeCli;
 use super::codex::CodexCli;
 use super::gemini::GeminiCli;
 use super::interface::CliInterface;
+use super::oai_runner::OaiRunnerCli;
 use super::opencode::OpenCodeCli;
 use super::types::{CliMetadata, CliStatus, CliType};
 use crate::error::{Error, Result};
@@ -38,6 +39,7 @@ impl CliRegistry {
             CliType::Codex,
             CliType::Gemini,
             CliType::OpenCode,
+            CliType::OaiRunner,
             CliType::Aider,
         ] {
             if let Ok(path) = which(cli_type.executable_name()) {
@@ -102,6 +104,7 @@ impl CliRegistry {
             CliType::Codex => Arc::new(CodexCli::new(metadata)),
             CliType::Gemini => Arc::new(GeminiCli::new(metadata)),
             CliType::OpenCode => Arc::new(OpenCodeCli::new(metadata)),
+            CliType::OaiRunner => Arc::new(OaiRunnerCli::new(metadata)),
             _ => {
                 return Err(Error::CliNotFound(format!(
                     "No implementation for {:?}",

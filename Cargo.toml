@@ -9,12 +9,14 @@ members = [
   "crates/orchestrator-web-contracts",
   "crates/orchestrator-web-api",
   "crates/orchestrator-web-server",
+  "crates/oai-runner",
 ]
 default-members = [
   "crates/orchestrator-cli",
   "crates/agent-runner",
   "crates/llm-cli-wrapper",
   "crates/llm-mcp-server",
+  "crates/oai-runner",
 ]
 resolver = "2"
 

@@ -131,6 +131,47 @@ fn phase_output_json_schema_for(project_root: &str, phase_id: &str) -> Option<Va
         .cloned()
 }
 
+fn inject_read_only_flag(runtime_contract: &mut Value) {
+    let cli_name = runtime_contract
+        .pointer("/cli/name")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+
+    if cli_name == "oai-runner" {
+        if let Some(args) = runtime_contract
+            .pointer_mut("/cli/launch/args")
+            .and_then(Value::as_array_mut)
+        {
+            let prompt_idx = args.len().saturating_sub(1);
+            args.insert(prompt_idx, Value::String("--read-only".to_string()));
+        }
+    }
+}
+
+fn inject_response_schema_into_launch_args(runtime_contract: &mut Value, schema: &Value) {
+    let cli_name = runtime_contract
+        .pointer("/cli/name")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+
+    let schema_flag = match cli_name {
+        "oai-runner" => Some("--response-schema"),
+        _ => None,
+    };
+
+    if let Some(flag) = schema_flag {
+        if let Some(args) = runtime_contract
+            .pointer_mut("/cli/launch/args")
+            .and_then(Value::as_array_mut)
+        {
+            let prompt_idx = args.len().saturating_sub(1);
+            let schema_str = serde_json::to_string(schema).unwrap_or_default();
+            args.insert(prompt_idx, Value::String(flag.to_string()));
+            args.insert(prompt_idx + 1, Value::String(schema_str));
+        }
+    }
+}
+
 fn phase_decision_contract_for(
     project_root: &str,
     phase_id: &str,
@@ -158,6 +199,13 @@ pub(crate) fn build_phase_prompt(
     task_description: &str,
     phase_id: &str,
 ) -> String {
+    let is_write_phase =
+        matches!(phase_id, "implementation" | "code-review" | "testing" | "wireframe" | "design");
+    let phase_action_rule = if is_write_phase {
+        "Requirements:\n- Make concrete file changes in this repository."
+    } else {
+        "Requirements:\n- This is a READ-ONLY phase. Do NOT create, edit, or write any files. Do NOT run commands that modify the repository.\n- Read and analyze the codebase to assess the task. Your only output should be your assessment and phase decision."
+    };
     let enforce_product_file_changes =
         matches!(phase_id, "implementation" | "code-review" | "testing");
     let phase_contract = phase_output_contract_for(project_root, phase_id);
@@ -196,6 +244,7 @@ pub(crate) fn build_phase_prompt(
         .replace("__TASK_DESCRIPTION__", task_description)
         .replace("__PHASE_ID__", phase_id)
         .replace("__PHASE_DIRECTIVE__", phase_directive.trim())
+        .replace("__PHASE_ACTION_RULE__", phase_action_rule)
         .replace("__PRODUCT_CHANGE_RULE__", product_change_rule)
         .replace("__PHASE_SAFETY_RULES__", phase_safety_rules)
         .replace("__PHASE_DECISION_RULE__", &phase_decision_rule)
@@ -742,6 +791,12 @@ pub(crate) async fn run_workflow_phase_with_agent(
                     .as_object_mut()
                     .expect("json object")
                     .insert("policy".to_string(), policy);
+            }
+            if let Some(schema) = phase_output_schema.as_ref() {
+                inject_response_schema_into_launch_args(&mut runtime_contract, schema);
+            }
+            if !matches!(phase_id, "implementation" | "code-review" | "testing" | "wireframe" | "design") {
+                inject_read_only_flag(&mut runtime_contract);
             }
             inject_cli_launch_overrides(
                 &mut runtime_contract,

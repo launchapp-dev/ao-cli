@@ -4,10 +4,10 @@
     "role": "default",
     "type": "agent"
   },
-  "blocked_at": null,
+  "blocked_at": "2026-03-01T20:47:17.402516Z",
   "blocked_by": null,
   "blocked_phase": null,
-  "blocked_reason": null,
+  "blocked_reason": "Blocked by status update",
   "branch_name": "ao/task-072",
   "cancelled": false,
   "checklist": [],
@@ -25,11 +25,11 @@
     "created_at": "2026-02-27T16:05:35.625276Z",
     "created_by": "ao-cli",
     "started_at": "2026-02-27T17:37:25.881045Z",
-    "updated_at": "2026-02-28T18:13:04.367707Z",
+    "updated_at": "2026-03-01T20:47:17.402517Z",
     "updated_by": "ao-daemon",
-    "version": 605
+    "version": 606
   },
-  "paused": false,
+  "paused": true,
   "priority": "high",
   "resource_requirements": {
     "max_cpu_percent": null,
@@ -38,7 +38,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "in-progress",
+  "status": "blocked",
   "tags": [],
   "title": "Add daemon status and queue dashboard pane to TUI",
   "type": "feature",

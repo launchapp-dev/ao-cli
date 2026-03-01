@@ -96,6 +96,15 @@ pub fn cli_capabilities_for_tool(tool: &str) -> Option<CliCapabilities> {
             max_context_tokens: Some(200_000),
             supports_mcp: true,
         }),
+        "oai-runner" => Some(CliCapabilities {
+            supports_file_editing: true,
+            supports_streaming: true,
+            supports_tool_use: true,
+            supports_vision: false,
+            supports_long_context: true,
+            max_context_tokens: Some(200_000),
+            supports_mcp: true,
+        }),
         "aider" => Some(CliCapabilities {
             supports_file_editing: true,
             supports_streaming: true,
@@ -215,14 +224,28 @@ pub fn build_cli_launch_contract(
             args.push(prompt.to_string());
             args
         }
+        "oai-runner" => {
+            let mut args = vec!["run".to_string()];
+            args.push("-m".to_string());
+            args.push(model_id.to_string());
+            args.push("--format".to_string());
+            args.push("json".to_string());
+            args.push(prompt.to_string());
+            args
+        }
         _ => return None,
+    };
+
+    let default_command = match normalized.as_str() {
+        "oai-runner" => "ao-oai-runner".to_string(),
+        _ => normalized,
     };
 
     let command = command_override
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToString::to_string)
-        .unwrap_or(normalized);
+        .unwrap_or(default_command);
 
     Some(json!({
         "command": command,

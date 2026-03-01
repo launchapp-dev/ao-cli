@@ -9,6 +9,7 @@ pub mod types;
 pub mod claude;
 pub mod codex;
 pub mod gemini;
+pub mod oai_runner;
 pub mod opencode;
 
 pub use interface::{CliCommand, CliInterface, CliOutput};

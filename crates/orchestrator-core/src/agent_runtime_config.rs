@@ -151,6 +151,44 @@ pub struct AgentToolPolicy {
     pub deny: Vec<String>,
 }
 
+impl AgentToolPolicy {
+    pub fn is_tool_permitted(&self, tool_name: &str) -> bool {
+        let allowed = if self.allow.is_empty() {
+            true
+        } else {
+            self.allow.iter().any(|p| glob_match(p, tool_name))
+        };
+
+        if !allowed {
+            return false;
+        }
+
+        if self.deny.is_empty() {
+            return true;
+        }
+
+        !self.deny.iter().any(|p| glob_match(p, tool_name))
+    }
+}
+
+fn glob_match(pattern: &str, value: &str) -> bool {
+    let pat = pattern.as_bytes();
+    let val = value.as_bytes();
+    glob_match_inner(pat, val)
+}
+
+fn glob_match_inner(pat: &[u8], val: &[u8]) -> bool {
+    match (pat.first(), val.first()) {
+        (None, None) => true,
+        (Some(b'*'), _) => {
+            glob_match_inner(&pat[1..], val)
+                || (!val.is_empty() && glob_match_inner(pat, &val[1..]))
+        }
+        (Some(&p), Some(&v)) if p == v => glob_match_inner(&pat[1..], &val[1..]),
+        _ => false,
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentMcpServerSource {
@@ -2508,5 +2546,139 @@ mod tests {
         assert!(!json.contains("mcp_server_configs"));
         assert!(!json.contains("structured_capabilities"));
         assert!(!json.contains("project_overrides"));
+    }
+
+    #[test]
+    fn tool_policy_empty_permits_all() {
+        let policy = AgentToolPolicy::default();
+        assert!(policy.is_tool_permitted("task.list"));
+        assert!(policy.is_tool_permitted("anything"));
+        assert!(policy.is_tool_permitted(""));
+    }
+
+    #[test]
+    fn tool_policy_allowlist_only() {
+        let policy = AgentToolPolicy {
+            allow: vec!["task.*".to_string(), "workflow.run".to_string()],
+            deny: vec![],
+        };
+        assert!(policy.is_tool_permitted("task.list"));
+        assert!(policy.is_tool_permitted("task.create"));
+        assert!(policy.is_tool_permitted("task.get"));
+        assert!(policy.is_tool_permitted("workflow.run"));
+        assert!(!policy.is_tool_permitted("workflow.cancel"));
+        assert!(!policy.is_tool_permitted("daemon.stop"));
+        assert!(!policy.is_tool_permitted(""));
+    }
+
+    #[test]
+    fn tool_policy_denylist_only() {
+        let policy = AgentToolPolicy {
+            allow: vec![],
+            deny: vec!["daemon.*".to_string(), "project.remove".to_string()],
+        };
+        assert!(policy.is_tool_permitted("task.list"));
+        assert!(policy.is_tool_permitted("workflow.run"));
+        assert!(!policy.is_tool_permitted("daemon.stop"));
+        assert!(!policy.is_tool_permitted("daemon.start"));
+        assert!(!policy.is_tool_permitted("project.remove"));
+        assert!(policy.is_tool_permitted("project.list"));
+    }
+
+    #[test]
+    fn tool_policy_combined_allow_and_deny() {
+        let policy = AgentToolPolicy {
+            allow: vec!["task.*".to_string()],
+            deny: vec!["task.delete".to_string()],
+        };
+        assert!(policy.is_tool_permitted("task.list"));
+        assert!(policy.is_tool_permitted("task.create"));
+        assert!(!policy.is_tool_permitted("task.delete"));
+        assert!(!policy.is_tool_permitted("workflow.run"));
+    }
+
+    #[test]
+    fn tool_policy_glob_wildcard_matches_across_dots() {
+        let policy = AgentToolPolicy {
+            allow: vec!["ao.*".to_string()],
+            deny: vec![],
+        };
+        assert!(policy.is_tool_permitted("ao.task.list"));
+        assert!(policy.is_tool_permitted("ao.workflow.run"));
+        assert!(policy.is_tool_permitted("ao.x"));
+        assert!(!policy.is_tool_permitted("other.thing"));
+    }
+
+    #[test]
+    fn tool_policy_exact_match() {
+        let policy = AgentToolPolicy {
+            allow: vec!["task.list".to_string()],
+            deny: vec![],
+        };
+        assert!(policy.is_tool_permitted("task.list"));
+        assert!(!policy.is_tool_permitted("task.create"));
+        assert!(!policy.is_tool_permitted("task.list.extra"));
+    }
+
+    #[test]
+    fn tool_policy_wildcard_only_pattern() {
+        let policy = AgentToolPolicy {
+            allow: vec!["*".to_string()],
+            deny: vec![],
+        };
+        assert!(policy.is_tool_permitted("anything"));
+        assert!(policy.is_tool_permitted("a.b.c"));
+        assert!(policy.is_tool_permitted(""));
+    }
+
+    #[test]
+    fn tool_policy_empty_tool_name() {
+        let policy = AgentToolPolicy {
+            allow: vec!["task.*".to_string()],
+            deny: vec![],
+        };
+        assert!(!policy.is_tool_permitted(""));
+
+        let deny_policy = AgentToolPolicy {
+            allow: vec![],
+            deny: vec!["*".to_string()],
+        };
+        assert!(!deny_policy.is_tool_permitted(""));
+    }
+
+    #[test]
+    fn tool_policy_multiple_wildcards() {
+        let policy = AgentToolPolicy {
+            allow: vec!["a.*.c".to_string()],
+            deny: vec![],
+        };
+        assert!(policy.is_tool_permitted("a.b.c"));
+        assert!(policy.is_tool_permitted("a.x.y.c"));
+        assert!(!policy.is_tool_permitted("a.b.d"));
+    }
+
+    #[test]
+    fn tool_policy_prefix_wildcard() {
+        let policy = AgentToolPolicy {
+            allow: vec!["task.get*".to_string()],
+            deny: vec![],
+        };
+        assert!(policy.is_tool_permitted("task.get"));
+        assert!(policy.is_tool_permitted("task.get_by_id"));
+        assert!(!policy.is_tool_permitted("task.list"));
+    }
+
+    #[test]
+    fn glob_match_basic() {
+        assert!(glob_match("*", "anything"));
+        assert!(glob_match("abc", "abc"));
+        assert!(!glob_match("abc", "abcd"));
+        assert!(!glob_match("abcd", "abc"));
+        assert!(glob_match("a*c", "abc"));
+        assert!(glob_match("a*c", "aXYZc"));
+        assert!(!glob_match("a*c", "aXYZd"));
+        assert!(glob_match("*.*", "a.b"));
+        assert!(glob_match("task.*", "task.list"));
+        assert!(glob_match("task.*", "task.list.nested"));
     }
 }

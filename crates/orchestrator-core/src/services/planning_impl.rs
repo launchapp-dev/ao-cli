@@ -77,7 +77,7 @@ impl PlanningServiceApi for InMemoryServiceHub {
             requirement.relative_path = Some(format!("generated/{}.json", requirement.id));
         }
         if requirement.source.trim().is_empty() {
-            requirement.source = "ao-core".to_string();
+            requirement.source = protocol::ACTOR_CORE.to_string();
         }
         if requirement.created_at.timestamp() == 0 {
             requirement.created_at = now;
@@ -244,7 +244,7 @@ impl PlanningServiceApi for FileServiceHub {
                     requirement.relative_path = Some(format!("generated/{}.json", requirement.id));
                 }
                 if requirement.source.trim().is_empty() {
-                    requirement.source = "ao-core".to_string();
+                    requirement.source = protocol::ACTOR_CORE.to_string();
                 }
                 if requirement.created_at.timestamp() == 0 {
                     requirement.created_at = now;

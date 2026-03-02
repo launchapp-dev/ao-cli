@@ -197,14 +197,6 @@ fn phase_tool_id(phase_id: &str, model_id: &str, caps: &PhaseCapabilities) -> St
     PhaseTargetPlanner::tool_for_model_id(model_id).to_string()
 }
 
-fn parse_env_bool(key: &str) -> bool {
-    std::env::var(key)
-        .ok()
-        .map(|value| value.trim().to_ascii_lowercase())
-        .map(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
-        .unwrap_or(false)
-}
-
 fn enforce_write_capable_phase_target(
     tool_id: String,
     model_id: String,
@@ -214,7 +206,7 @@ fn enforce_write_capable_phase_target(
     if !phase_writes_files {
         return (normalized_tool_id, model_id);
     }
-    if !parse_env_bool("AO_ALLOW_NON_EDITING_PHASE_TOOL")
+    if !protocol::parse_env_bool("AO_ALLOW_NON_EDITING_PHASE_TOOL")
         && !tool_supports_repository_writes(&normalized_tool_id)
     {
         let fallback_model = std::env::var("AO_PHASE_MODEL_FILE_EDIT")

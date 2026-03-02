@@ -14,7 +14,7 @@ pub async fn set_task_blocked_with_reason(
     updated.blocked_phase = None;
     updated.blocked_by = blocked_by;
     updated.metadata.updated_at = Utc::now();
-    updated.metadata.updated_by = "ao-daemon".to_string();
+    updated.metadata.updated_by = protocol::ACTOR_DAEMON.to_string();
     updated.metadata.version = updated.metadata.version.saturating_add(1);
     hub.tasks().replace(updated).await?;
     Ok(())
@@ -81,16 +81,7 @@ pub async fn reconcile_dependency_gate_tasks_for_project(
     project_root: &str,
 ) -> Result<usize> {
     let workflows = hub.workflows().list().await.unwrap_or_default();
-    let active_task_ids: HashSet<String> = workflows
-        .into_iter()
-        .filter(|workflow| {
-            matches!(
-                workflow.status,
-                WorkflowStatus::Running | WorkflowStatus::Paused | WorkflowStatus::Pending
-            )
-        })
-        .map(|workflow| workflow.task_id)
-        .collect();
+    let active_task_ids = active_workflow_task_ids(&workflows);
 
     let mut changed = 0usize;
     let tasks = hub.tasks().list().await?;
@@ -130,16 +121,7 @@ pub async fn reconcile_merge_gate_tasks_for_project(
     project_root: &str,
 ) -> Result<usize> {
     let workflows = hub.workflows().list().await.unwrap_or_default();
-    let active_task_ids: HashSet<String> = workflows
-        .into_iter()
-        .filter(|workflow| {
-            matches!(
-                workflow.status,
-                WorkflowStatus::Running | WorkflowStatus::Paused | WorkflowStatus::Pending
-            )
-        })
-        .map(|workflow| workflow.task_id)
-        .collect();
+    let active_task_ids = active_workflow_task_ids(&workflows);
 
     let mut resolved = 0usize;
     let tasks = hub.tasks().list().await?;
@@ -179,16 +161,7 @@ pub async fn reconcile_stale_in_progress_tasks_for_project(
     project_root: &str,
 ) -> Result<usize> {
     let workflows = hub.workflows().list().await.unwrap_or_default();
-    let active_task_ids: HashSet<String> = workflows
-        .iter()
-        .filter(|workflow| {
-            matches!(
-                workflow.status,
-                WorkflowStatus::Running | WorkflowStatus::Paused | WorkflowStatus::Pending
-            )
-        })
-        .map(|workflow| workflow.task_id.clone())
-        .collect();
+    let active_task_ids = active_workflow_task_ids(&workflows);
     let completed_task_ids: HashSet<String> = workflows
         .iter()
         .filter(|workflow| is_terminally_completed_workflow(workflow))
@@ -312,8 +285,10 @@ pub async fn recover_orphaned_running_workflows(
         }
 
         eprintln!(
-            "ao-daemon: recovering orphaned running workflow {} (task {})",
-            workflow.id, workflow.task_id
+            "{}: recovering orphaned running workflow {} (task {})",
+            protocol::ACTOR_DAEMON,
+            workflow.id,
+            workflow.task_id
         );
         let task_id = workflow.task_id.clone();
         if let Ok(_updated) = hub.workflows().cancel(&workflow.id).await {

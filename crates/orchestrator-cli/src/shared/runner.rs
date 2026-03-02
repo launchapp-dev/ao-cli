@@ -427,25 +427,16 @@ pub(crate) fn build_runtime_contract(tool: &str, model: &str, prompt: &str) -> O
     Some(runtime_contract)
 }
 
-fn parse_env_flag_enabled(key: &str, default_value: bool) -> bool {
-    std::env::var(key)
-        .ok()
-        .map(|value| value.trim().to_ascii_lowercase())
-        .filter(|value| !value.is_empty())
-        .map(|value| !matches!(value.as_str(), "0" | "false" | "no" | "off"))
-        .unwrap_or(default_value)
-}
-
 fn codex_web_search_enabled() -> bool {
-    parse_env_flag_enabled("AO_CODEX_WEB_SEARCH", true)
+    protocol::parse_env_bool_opt("AO_CODEX_WEB_SEARCH").unwrap_or(true)
 }
 
 fn codex_network_access_enabled() -> bool {
-    parse_env_flag_enabled("AO_CODEX_NETWORK_ACCESS", true)
+    protocol::parse_env_bool_opt("AO_CODEX_NETWORK_ACCESS").unwrap_or(true)
 }
 
 fn claude_bypass_permissions_enabled() -> bool {
-    parse_env_flag_enabled("AO_CLAUDE_BYPASS_PERMISSIONS", false)
+    protocol::parse_env_bool("AO_CLAUDE_BYPASS_PERMISSIONS")
 }
 
 fn env_codex_reasoning_effort_override() -> Option<String> {

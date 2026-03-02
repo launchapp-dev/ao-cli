@@ -196,7 +196,7 @@ pub(crate) struct TaskAssignAgentArgs {
     #[arg(
         long,
         value_name = "USER",
-        default_value = "ao-cli",
+        default_value = protocol::ACTOR_CLI,
         help = "Audit user id recorded in task metadata."
     )]
     pub(crate) updated_by: String,
@@ -211,7 +211,7 @@ pub(crate) struct TaskAssignHumanArgs {
     #[arg(
         long,
         value_name = "USER",
-        default_value = "ao-cli",
+        default_value = protocol::ACTOR_CLI,
         help = "Audit user id recorded in task metadata."
     )]
     pub(crate) updated_by: String,
@@ -226,7 +226,7 @@ pub(crate) struct TaskChecklistAddArgs {
     #[arg(
         long,
         value_name = "USER",
-        default_value = "ao-cli",
+        default_value = protocol::ACTOR_CLI,
         help = "Audit user id recorded in task metadata."
     )]
     pub(crate) updated_by: String,
@@ -243,7 +243,7 @@ pub(crate) struct TaskChecklistUpdateArgs {
     #[arg(
         long,
         value_name = "USER",
-        default_value = "ao-cli",
+        default_value = protocol::ACTOR_CLI,
         help = "Audit user id recorded in task metadata."
     )]
     pub(crate) updated_by: String,
@@ -264,7 +264,7 @@ pub(crate) struct TaskDependencyAddArgs {
     #[arg(
         long,
         value_name = "USER",
-        default_value = "ao-cli",
+        default_value = protocol::ACTOR_CLI,
         help = "Audit user id recorded in task metadata."
     )]
     pub(crate) updated_by: String,
@@ -283,7 +283,7 @@ pub(crate) struct TaskDependencyRemoveArgs {
     #[arg(
         long,
         value_name = "USER",
-        default_value = "ao-cli",
+        default_value = protocol::ACTOR_CLI,
         help = "Audit user id recorded in task metadata."
     )]
     pub(crate) updated_by: String,

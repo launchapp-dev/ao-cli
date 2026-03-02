@@ -197,8 +197,10 @@ pub fn remove_terminal_em_work_queue_entry_non_fatal(
 ) {
     if let Err(error) = remove_terminal_em_work_queue_entry(project_root, task_id, workflow_id) {
         eprintln!(
-            "ao-daemon: failed to remove terminal EM queue entry for task {}: {}",
-            task_id, error
+            "{}: failed to remove terminal EM queue entry for task {}: {}",
+            protocol::ACTOR_DAEMON,
+            task_id,
+            error
         );
     }
 }
@@ -230,6 +232,21 @@ pub fn is_terminally_completed_workflow(workflow: &orchestrator_core::Orchestrat
     workflow.status == WorkflowStatus::Completed
         && workflow.machine_state == orchestrator_core::WorkflowMachineState::Completed
         && workflow.completed_at.is_some()
+}
+
+pub fn active_workflow_task_ids(
+    workflows: &[orchestrator_core::OrchestratorWorkflow],
+) -> HashSet<String> {
+    workflows
+        .iter()
+        .filter(|workflow| {
+            matches!(
+                workflow.status,
+                WorkflowStatus::Running | WorkflowStatus::Paused | WorkflowStatus::Pending
+            )
+        })
+        .map(|workflow| workflow.task_id.clone())
+        .collect()
 }
 
 pub fn workflow_current_phase_id(workflow: &orchestrator_core::OrchestratorWorkflow) -> Option<String> {
@@ -292,7 +309,7 @@ pub async fn auto_assign_task_to_daemon_agent(
 ) -> Result<()> {
     let (role, model) = daemon_agent_assignee_for_workflow_start(project_root, workflow, task);
     hub.tasks()
-        .assign_agent(&task.id, role, model, "ao-daemon".to_string())
+        .assign_agent(&task.id, role, model, protocol::ACTOR_DAEMON.to_string())
         .await?;
     Ok(())
 }
@@ -459,16 +476,7 @@ pub async fn run_ready_task_workflows_for_project(
     }
 
     let workflows = hub.workflows().list().await.unwrap_or_default();
-    let mut active_task_ids: HashSet<String> = workflows
-        .iter()
-        .filter(|workflow| {
-            matches!(
-                workflow.status,
-                WorkflowStatus::Running | WorkflowStatus::Paused | WorkflowStatus::Pending
-            )
-        })
-        .map(|workflow| workflow.task_id.clone())
-        .collect();
+    let mut active_task_ids = active_workflow_task_ids(&workflows);
     let completed_task_ids: HashSet<String> = workflows
         .iter()
         .filter(|workflow| is_terminally_completed_workflow(workflow))
@@ -529,7 +537,7 @@ pub async fn run_ready_task_workflows_for_project(
         }
         Ok(None) => {}
         Err(error) => {
-            eprintln!("ao-daemon: failed to load EM work queue state: {}", error);
+            eprintln!("{}: failed to load EM work queue state: {}", protocol::ACTOR_DAEMON, error);
         }
     }
 
@@ -580,8 +588,10 @@ pub async fn run_ready_task_workflows_for_project(
                 mark_em_work_queue_entry_assigned(project_root, &task.id, workflow.id.as_str())
             {
                 eprintln!(
-                    "ao-daemon: failed to mark EM queue entry assigned for task {}: {}",
-                    task.id, error
+                    "{}: failed to mark EM queue entry assigned for task {}: {}",
+                    protocol::ACTOR_DAEMON,
+                    task.id,
+                    error
                 );
             }
         }

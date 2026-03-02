@@ -407,7 +407,7 @@ pub async fn auto_prune_completed_task_worktrees_after_merge(
 
         let mut updated = task.clone();
         updated.worktree_path = None;
-        updated.metadata.updated_by = "ao-daemon".to_string();
+        updated.metadata.updated_by = protocol::ACTOR_DAEMON.to_string();
         hub.tasks().replace(updated).await?;
         updated_tasks.insert(task.id);
     }
@@ -450,7 +450,7 @@ pub async fn cleanup_task_worktree_if_enabled(
 
     let mut updated = task.clone();
     updated.worktree_path = None;
-    updated.metadata.updated_by = "ao-daemon".to_string();
+    updated.metadata.updated_by = protocol::ACTOR_DAEMON.to_string();
     hub.tasks().replace(updated).await?;
     Ok(())
 }

@@ -172,7 +172,7 @@ async fn clear_task_worktree_path_if_matches(
 
     let mut updated = task;
     updated.worktree_path = None;
-    updated.metadata.updated_by = "ao-cli".to_string();
+    updated.metadata.updated_by = protocol::ACTOR_CLI.to_string();
     task_service
         .replace(updated)
         .await

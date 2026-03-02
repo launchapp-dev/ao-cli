@@ -130,15 +130,6 @@ fn parse_env_usize(key: &str) -> Option<usize> {
         .and_then(|value| value.trim().parse::<usize>().ok())
 }
 
-fn parse_env_flag_enabled(key: &str, default_value: bool) -> bool {
-    std::env::var(key)
-        .ok()
-        .map(|value| value.trim().to_ascii_lowercase())
-        .filter(|value| !value.is_empty())
-        .map(|value| !matches!(value.as_str(), "0" | "false" | "no" | "off"))
-        .unwrap_or(default_value)
-}
-
 pub(crate) fn phase_runner_attempts() -> usize {
     parse_env_usize("AO_PHASE_RUN_ATTEMPTS")
         .unwrap_or(3)
@@ -170,11 +161,13 @@ pub(super) fn requirement_needs_refinement(requirement: &RequirementItem) -> boo
 }
 
 fn codex_web_search_enabled(web_search_override: Option<bool>) -> bool {
-    web_search_override.unwrap_or_else(|| parse_env_flag_enabled("AO_CODEX_WEB_SEARCH", true))
+    web_search_override
+        .or_else(|| protocol::parse_env_bool_opt("AO_CODEX_WEB_SEARCH"))
+        .unwrap_or(true)
 }
 
 fn claude_bypass_permissions_enabled() -> bool {
-    parse_env_flag_enabled("AO_CLAUDE_BYPASS_PERMISSIONS", false)
+    protocol::parse_env_bool("AO_CLAUDE_BYPASS_PERMISSIONS")
 }
 
 fn env_codex_reasoning_effort_override() -> Option<String> {
@@ -210,7 +203,8 @@ fn ensure_codex_config_override(args: &mut Vec<Value>, key: &str, value_expr: &s
 
 fn codex_network_access_enabled(network_access_override: Option<bool>) -> bool {
     network_access_override
-        .unwrap_or_else(|| parse_env_flag_enabled("AO_CODEX_NETWORK_ACCESS", true))
+        .or_else(|| protocol::parse_env_bool_opt("AO_CODEX_NETWORK_ACCESS"))
+        .unwrap_or(true)
 }
 
 fn parse_env_string_list_json(

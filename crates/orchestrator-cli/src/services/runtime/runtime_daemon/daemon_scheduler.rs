@@ -1321,7 +1321,7 @@ mod tests {
             }
             other => panic!("expected agent assignee, found {other:?}"),
         }
-        assert_eq!(task_state.metadata.updated_by, "ao-daemon");
+        assert_eq!(task_state.metadata.updated_by, protocol::ACTOR_DAEMON);
     }
 
     #[tokio::test]

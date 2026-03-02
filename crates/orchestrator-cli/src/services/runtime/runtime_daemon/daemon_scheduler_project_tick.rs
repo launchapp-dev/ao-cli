@@ -55,7 +55,7 @@ pub(super) async fn project_tick(root: &str, args: &DaemonRunArgs) -> Result<Pro
         resumed_workflows = resumed;
     }
 
-    let recovered_orphans =
+    let _recovered_orphans =
         recover_orphaned_running_workflows(hub.clone(), &root).await;
 
     let reconciled_stale_tasks = if args.reconcile_stale {

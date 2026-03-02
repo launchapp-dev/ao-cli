@@ -934,7 +934,7 @@ async fn approve_manual_phase(
         phase_id: phase_id.to_string(),
         note: note.to_string(),
         approved_at: Utc::now().to_rfc3339(),
-        approved_by: "ao-cli".to_string(),
+        approved_by: protocol::ACTOR_CLI.to_string(),
     });
     write_manual_approvals(project_root, &store)?;
 

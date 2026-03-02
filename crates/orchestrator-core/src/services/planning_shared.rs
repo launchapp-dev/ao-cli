@@ -758,7 +758,7 @@ Run `ao requirements draft`/`ao requirements refine` (or upsert explicit constra
                     ));
                     task.blocked_at = Some(Utc::now());
                     task.metadata.updated_at = Utc::now();
-                    task.metadata.updated_by = "ao-cli".to_string();
+                    task.metadata.updated_by = protocol::ACTOR_CLI.to_string();
                     task.metadata.version = task.metadata.version.saturating_add(1);
                 }
                 continue;

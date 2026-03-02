@@ -37,7 +37,7 @@ pub struct RuntimeBinaryRefreshState {
 }
 
 fn runtime_binary_refresh_enabled() -> bool {
-    env_bool_override(RUNTIME_BINARY_REFRESH_ENABLED_ENV).unwrap_or(true)
+    protocol::parse_env_bool_opt(RUNTIME_BINARY_REFRESH_ENABLED_ENV).unwrap_or(true)
 }
 
 fn runtime_binary_refresh_supported(project_root: &str) -> bool {

@@ -87,6 +87,7 @@ impl WorkflowResumeManager {
                 WorkflowStatus::Running => true,
                 WorkflowStatus::Paused if self.config.resume_paused => true,
                 WorkflowStatus::Failed if self.config.resume_failed => true,
+                WorkflowStatus::Escalated => true,
                 WorkflowStatus::Pending
                 | WorkflowStatus::Paused
                 | WorkflowStatus::Completed

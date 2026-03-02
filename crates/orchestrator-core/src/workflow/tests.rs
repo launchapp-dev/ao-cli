@@ -304,8 +304,8 @@ fn resume_clears_failure_and_can_complete_after_retry() {
     );
 
     executor.mark_current_phase_failed(&mut workflow, "first attempt failed".to_string());
-    assert_eq!(workflow.status, WorkflowStatus::Failed);
-    assert_eq!(workflow.machine_state, WorkflowMachineState::Failed);
+    assert_eq!(workflow.status, WorkflowStatus::Escalated);
+    assert_eq!(workflow.machine_state, WorkflowMachineState::HumanEscalated);
     assert!(workflow.failure_reason.is_some());
 
     executor.resume(&mut workflow);

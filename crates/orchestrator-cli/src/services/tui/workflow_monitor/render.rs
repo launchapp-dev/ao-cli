@@ -51,6 +51,7 @@ fn render_tree(frame: &mut Frame<'_>, state: &WorkflowMonitorState, area: ratatu
                     WorkflowStatus::Running => Style::default().fg(Color::Cyan),
                     WorkflowStatus::Completed => Style::default().fg(Color::Green),
                     WorkflowStatus::Failed => Style::default().fg(Color::Red),
+                    WorkflowStatus::Escalated => Style::default().fg(Color::LightRed),
                     WorkflowStatus::Paused => Style::default().fg(Color::Magenta),
                     WorkflowStatus::Cancelled => Style::default().fg(Color::DarkGray),
                     WorkflowStatus::Pending => Style::default().fg(Color::White),

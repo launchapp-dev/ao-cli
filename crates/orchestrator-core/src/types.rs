@@ -695,6 +695,7 @@ pub enum WorkflowStatus {
     Paused,
     Completed,
     Failed,
+    Escalated,
     Cancelled,
 }
 
@@ -835,6 +836,7 @@ pub enum WorkflowMachineState {
     Completed,
     MergeConflict,
     Failed,
+    HumanEscalated,
     Cancelled,
 }
 
@@ -853,6 +855,7 @@ pub enum WorkflowMachineEvent {
     ResumeRequested,
     CancelRequested,
     ReworkBudgetExceeded,
+    HumanFeedbackProvided,
     MergeConflictDetected,
     MergeConflictResolved,
     NoMorePhases,

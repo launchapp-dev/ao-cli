@@ -436,6 +436,10 @@ pub async fn sync_task_status_for_workflow_result(
             remove_terminal_em_work_queue_entry_non_fatal(project_root, task_id, workflow_id);
             let _ = hub.tasks().set_status(task_id, TaskStatus::Blocked).await;
         }
+        WorkflowStatus::Escalated => {
+            remove_terminal_em_work_queue_entry_non_fatal(project_root, task_id, workflow_id);
+            let _ = hub.tasks().set_status(task_id, TaskStatus::Blocked).await;
+        }
         WorkflowStatus::Cancelled => {
             remove_terminal_em_work_queue_entry_non_fatal(project_root, task_id, workflow_id);
             let _ = hub.tasks().set_status(task_id, TaskStatus::Cancelled).await;

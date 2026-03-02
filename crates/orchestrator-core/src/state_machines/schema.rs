@@ -192,7 +192,7 @@ pub fn builtin_state_machines_document() -> StateMachinesDocument {
                 WorkflowTransitionDefinition {
                     from: WorkflowMachineState::EvaluateTransition,
                     event: WorkflowMachineEvent::ReworkBudgetExceeded,
-                    to: WorkflowMachineState::Failed,
+                    to: WorkflowMachineState::HumanEscalated,
                     guard: None,
                     action: None,
                 },
@@ -269,7 +269,7 @@ pub fn builtin_state_machines_document() -> StateMachinesDocument {
                 WorkflowTransitionDefinition {
                     from: WorkflowMachineState::EvaluateGates,
                     event: WorkflowMachineEvent::ReworkBudgetExceeded,
-                    to: WorkflowMachineState::Failed,
+                    to: WorkflowMachineState::HumanEscalated,
                     guard: None,
                     action: None,
                 },
@@ -311,7 +311,7 @@ pub fn builtin_state_machines_document() -> StateMachinesDocument {
                 WorkflowTransitionDefinition {
                     from: WorkflowMachineState::ApplyTransition,
                     event: WorkflowMachineEvent::ReworkBudgetExceeded,
-                    to: WorkflowMachineState::Failed,
+                    to: WorkflowMachineState::HumanEscalated,
                     guard: None,
                     action: None,
                 },
@@ -324,6 +324,27 @@ pub fn builtin_state_machines_document() -> StateMachinesDocument {
                 },
                 WorkflowTransitionDefinition {
                     from: WorkflowMachineState::Paused,
+                    event: WorkflowMachineEvent::CancelRequested,
+                    to: WorkflowMachineState::Cancelled,
+                    guard: None,
+                    action: None,
+                },
+                WorkflowTransitionDefinition {
+                    from: WorkflowMachineState::HumanEscalated,
+                    event: WorkflowMachineEvent::HumanFeedbackProvided,
+                    to: WorkflowMachineState::EvaluateTransition,
+                    guard: None,
+                    action: None,
+                },
+                WorkflowTransitionDefinition {
+                    from: WorkflowMachineState::HumanEscalated,
+                    event: WorkflowMachineEvent::ResumeRequested,
+                    to: WorkflowMachineState::EvaluateTransition,
+                    guard: None,
+                    action: None,
+                },
+                WorkflowTransitionDefinition {
+                    from: WorkflowMachineState::HumanEscalated,
                     event: WorkflowMachineEvent::CancelRequested,
                     to: WorkflowMachineState::Cancelled,
                     guard: None,

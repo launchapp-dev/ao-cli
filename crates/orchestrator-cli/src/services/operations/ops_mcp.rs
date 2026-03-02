@@ -67,6 +67,8 @@ struct TaskListInput {
     #[serde(default)]
     linked_requirement: Option<String>,
     #[serde(default)]
+    linked_architecture_entity: Option<String>,
+    #[serde(default)]
     search: Option<String>,
     #[serde(default)]
     limit: Option<usize>,
@@ -107,6 +109,8 @@ struct TaskCreateInput {
     priority: Option<String>,
     #[serde(default)]
     linked_requirement: Vec<String>,
+    #[serde(default)]
+    linked_architecture_entity: Vec<String>,
     #[serde(default)]
     project_root: Option<String>,
 }
@@ -343,6 +347,10 @@ struct TaskUpdateInput {
     #[serde(default)]
     assignee: Option<String>,
     #[serde(default)]
+    linked_architecture_entity: Vec<String>,
+    #[serde(default)]
+    replace_linked_architecture_entities: bool,
+    #[serde(default)]
     input_json: Option<String>,
     #[serde(default)]
     project_root: Option<String>,
@@ -352,6 +360,12 @@ struct TaskUpdateInput {
 struct TaskAssignInput {
     id: String,
     assignee: String,
+    #[serde(default)]
+    assignee_type: Option<String>,
+    #[serde(default)]
+    agent_role: Option<String>,
+    #[serde(default)]
+    model: Option<String>,
     #[serde(default)]
     project_root: Option<String>,
 }
@@ -462,6 +476,23 @@ struct TaskSetDeadlineInput {
     task_id: String,
     #[serde(default)]
     deadline: Option<String>,
+    #[serde(default)]
+    project_root: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+struct TaskChecklistAddInput {
+    id: String,
+    description: String,
+    #[serde(default)]
+    project_root: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+struct TaskChecklistUpdateInput {
+    id: String,
+    item_id: String,
+    completed: bool,
     #[serde(default)]
     project_root: Option<String>,
 }
@@ -790,6 +821,11 @@ impl AoMcpServer {
             args.push(tag);
         }
         push_opt(&mut args, "--linked-requirement", input.linked_requirement);
+        push_opt(
+            &mut args,
+            "--linked-architecture-entity",
+            input.linked_architecture_entity,
+        );
         push_opt(&mut args, "--search", input.search);
         self.run_list_tool(
             "ao.task.list",
@@ -1378,6 +1414,13 @@ impl AoMcpServer {
         push_opt(&mut args, "--priority", input.priority);
         push_opt(&mut args, "--status", input.status);
         push_opt(&mut args, "--assignee", input.assignee);
+        for entity_id in input.linked_architecture_entity {
+            args.push("--linked-architecture-entity".to_string());
+            args.push(entity_id);
+        }
+        if input.replace_linked_architecture_entities {
+            args.push("--replace-linked-architecture-entities".to_string());
+        }
         push_opt(&mut args, "--input-json", input.input_json);
         self.run_tool("ao.task.update", args, input.project_root)
             .await
@@ -1393,7 +1436,7 @@ impl AoMcpServer {
         params: Parameters<TaskAssignInput>,
     ) -> Result<CallToolResult, McpError> {
         let input = params.0;
-        let args = vec![
+        let mut args = vec![
             "task".to_string(),
             "assign".to_string(),
             "--id".to_string(),
@@ -1401,6 +1444,9 @@ impl AoMcpServer {
             "--assignee".to_string(),
             input.assignee,
         ];
+        push_opt(&mut args, "--assignee-type", input.assignee_type);
+        push_opt(&mut args, "--agent-role", input.agent_role);
+        push_opt(&mut args, "--model", input.model);
         self.run_tool("ao.task.assign", args, input.project_root)
             .await
     }
@@ -1531,6 +1577,52 @@ impl AoMcpServer {
         ];
         push_opt(&mut args, "--deadline", input.deadline);
         self.run_tool("ao.task.set-deadline", args, input.project_root)
+            .await
+    }
+
+    #[tool(
+        name = "ao.task.checklist-add",
+        description = "Add a checklist item to a task. Purpose: Track subtasks or acceptance criteria within a task. Prerequisites: Task must exist. Example: {\"id\": \"TASK-001\", \"description\": \"Write unit tests\"}. Sequencing: Use ao.task.get first to see existing checklist, or ao.task.checklist-update to toggle completion.",
+        input_schema = ao_schema_for_type::<TaskChecklistAddInput>()
+    )]
+    async fn ao_task_checklist_add(
+        &self,
+        params: Parameters<TaskChecklistAddInput>,
+    ) -> Result<CallToolResult, McpError> {
+        let input = params.0;
+        let args = vec![
+            "task".to_string(),
+            "checklist-add".to_string(),
+            "--id".to_string(),
+            input.id,
+            "--description".to_string(),
+            input.description,
+        ];
+        self.run_tool("ao.task.checklist-add", args, input.project_root)
+            .await
+    }
+
+    #[tool(
+        name = "ao.task.checklist-update",
+        description = "Mark a checklist item complete or incomplete. Purpose: Track progress on subtasks within a task. Prerequisites: Task and checklist item must exist. Example: {\"id\": \"TASK-001\", \"item_id\": \"chk-1\", \"completed\": true}. Sequencing: Use ao.task.get first to find item_id values, or ao.task.checklist-add to create items.",
+        input_schema = ao_schema_for_type::<TaskChecklistUpdateInput>()
+    )]
+    async fn ao_task_checklist_update(
+        &self,
+        params: Parameters<TaskChecklistUpdateInput>,
+    ) -> Result<CallToolResult, McpError> {
+        let input = params.0;
+        let args = vec![
+            "task".to_string(),
+            "checklist-update".to_string(),
+            "--id".to_string(),
+            input.id,
+            "--item-id".to_string(),
+            input.item_id,
+            "--completed".to_string(),
+            input.completed.to_string(),
+        ];
+        self.run_tool("ao.task.checklist-update", args, input.project_root)
             .await
     }
 
@@ -2476,6 +2568,10 @@ fn build_task_create_args(input: &TaskCreateInput) -> Vec<String> {
         args.push("--linked-requirement".to_string());
         args.push(requirement_id.clone());
     }
+    for entity_id in &input.linked_architecture_entity {
+        args.push("--linked-architecture-entity".to_string());
+        args.push(entity_id.clone());
+    }
     args
 }
 
@@ -3378,6 +3474,7 @@ mod tests {
             task_type: Some("feature".to_string()),
             priority: Some("high".to_string()),
             linked_requirement: vec!["REQ-123".to_string(), "REQ-456".to_string()],
+            linked_architecture_entity: Vec::new(),
             project_root: None,
         });
         assert_eq!(
@@ -3409,6 +3506,7 @@ mod tests {
             task_type: None,
             priority: None,
             linked_requirement: Vec::new(),
+            linked_architecture_entity: Vec::new(),
             project_root: None,
         });
         assert_eq!(

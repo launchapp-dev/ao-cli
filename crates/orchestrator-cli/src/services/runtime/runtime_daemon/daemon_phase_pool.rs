@@ -26,6 +26,7 @@ pub struct ReactivePhasePoolState {
     pub completion_rx: mpsc::UnboundedReceiver<ReactivePhaseCompletion>,
     pub in_flight_workflow_ids: HashSet<String>,
     pub allow_spawns: bool,
+    pub draining: bool,
 }
 
 impl ReactivePhasePoolState {
@@ -36,6 +37,7 @@ impl ReactivePhasePoolState {
             completion_rx,
             in_flight_workflow_ids: HashSet::new(),
             allow_spawns: true,
+            draining: false,
         }
     }
 }
@@ -87,6 +89,19 @@ pub fn clear_running_workflow_phase_pool(project_root: &str) {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     pools.remove(project_root);
+}
+
+pub fn set_pool_draining(project_root: &str, draining: bool) {
+    with_reactive_phase_pool_state_mut(project_root, |state| {
+        state.draining = draining;
+        if draining {
+            state.allow_spawns = false;
+        }
+    });
+}
+
+pub fn is_pool_draining(project_root: &str) -> bool {
+    with_reactive_phase_pool_state_mut(project_root, |state| state.draining)
 }
 
 pub fn has_running_workflow_phase_pool_activity(project_root: &str) -> bool {

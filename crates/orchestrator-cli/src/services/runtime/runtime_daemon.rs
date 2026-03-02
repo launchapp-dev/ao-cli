@@ -32,6 +32,8 @@ pub(crate) use daemon_events::{daemon_events_log_path, poll_daemon_events, Daemo
 
 use protocol::{is_process_alive, terminate_process};
 
+const DRAIN_TIMEOUT_SECS: u64 = 30;
+const DRAIN_POLL_MILLIS: u64 = 250;
 const AUTONOMOUS_STARTUP_PROBE_SECS: u64 = 3;
 const AUTONOMOUS_STARTUP_PROBE_POLL_MILLIS: u64 = 100;
 const AUTONOMOUS_STARTUP_LOG_TAIL_LINES: usize = 40;
@@ -674,6 +676,17 @@ pub(crate) async fn handle_daemon(
         DaemonCommand::Stop => {
             if let Some(existing_pid) = get_daemon_pid(project_root)? {
                 let _ = terminate_process(existing_pid);
+                let drain_deadline =
+                    tokio::time::Instant::now() + Duration::from_secs(DRAIN_TIMEOUT_SECS);
+                while tokio::time::Instant::now() < drain_deadline {
+                    if !is_process_alive(existing_pid) {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(DRAIN_POLL_MILLIS)).await;
+                }
+                if is_process_alive(existing_pid) {
+                    let _ = terminate_process(existing_pid);
+                }
                 let _ = set_daemon_pid(project_root, None);
             }
             remove_daemon_pid(project_root);
@@ -684,10 +697,8 @@ pub(crate) async fn handle_daemon(
             result.map(|_| print_ok("daemon stopped", json))
         }
         DaemonCommand::Pause => {
+            let _ = set_runtime_paused(project_root, true);
             let result = daemon.pause().await;
-            if result.is_ok() {
-                let _ = set_runtime_paused(project_root, true);
-            }
             result.map(|_| print_ok("daemon paused", json))
         }
         DaemonCommand::Resume => {

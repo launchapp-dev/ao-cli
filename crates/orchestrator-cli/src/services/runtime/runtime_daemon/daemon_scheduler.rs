@@ -1987,6 +1987,18 @@ pub(super) fn pause_running_workflow_phase_spawns(project_root: &str) {
     project_tick_ops::phase_pool::pause_running_workflow_phase_spawns(project_root);
 }
 
+pub(super) fn set_pool_draining(project_root: &str, draining: bool) {
+    project_tick_ops::phase_pool::set_pool_draining(project_root, draining);
+}
+
+pub(super) fn is_pool_draining(project_root: &str) -> bool {
+    project_tick_ops::phase_pool::is_pool_draining(project_root)
+}
+
+pub(super) fn has_running_workflow_phase_pool_activity(project_root: &str) -> bool {
+    project_tick_ops::phase_pool::has_running_workflow_phase_pool_activity(project_root)
+}
+
 pub(super) fn clear_running_workflow_phase_pool(project_root: &str) {
     project_tick_ops::phase_pool::clear_running_workflow_phase_pool(project_root);
 }

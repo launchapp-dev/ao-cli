@@ -137,7 +137,7 @@ fn assignee_type_label(assignee: &Assignee) -> &'static str {
     }
 }
 
-pub(super) fn task_matches_filter(task: &OrchestratorTask, filter: &TaskFilter) -> bool {
+pub fn task_matches_filter(task: &OrchestratorTask, filter: &TaskFilter) -> bool {
     if let Some(task_type) = filter.task_type {
         if task.task_type != task_type {
             return false;

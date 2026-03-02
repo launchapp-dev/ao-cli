@@ -49,6 +49,7 @@ use planning_utils::*;
 use runner_helpers::*;
 use state_store::{load_core_state, load_core_state_for_mutation, CoreState};
 use task_shared::*;
+pub use task_shared::task_matches_filter;
 
 pub fn evaluate_task_priority_policy(
     tasks: &[OrchestratorTask],

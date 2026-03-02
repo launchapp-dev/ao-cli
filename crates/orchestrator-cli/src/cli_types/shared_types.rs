@@ -20,6 +20,7 @@ pub(crate) const REQUIREMENT_CATEGORY_HELP: &str =
     "Requirement category: documentation|usability|runtime|integration|quality|release|security.";
 pub(crate) const REQUIREMENT_TYPE_HELP: &str =
     "Requirement type: product|functional|non-functional|nonfunctional|non_functional|technical|other.";
+pub(crate) const TASK_RISK_FILTER_HELP: &str = "Risk filter: high|medium|low.";
 pub(crate) const DEPENDENCY_TYPE_HELP: &str =
     "Dependency type: blocks-by|blocks_by|blocked-by|blocked_by|related-to|related_to.";
 

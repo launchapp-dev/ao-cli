@@ -1,9 +1,10 @@
 use clap::{Args, Subcommand};
 
 use super::{
-    parse_positive_u64, IdArgs, DEPENDENCY_TYPE_HELP, INPUT_JSON_PRECEDENCE_HELP,
-    TASK_PRIORITY_FILTER_HELP, TASK_PRIORITY_HELP, TASK_STATUS_FILTER_HELP, TASK_STATUS_HELP,
-    TASK_TYPE_FILTER_HELP, TASK_TYPE_HELP,
+    parse_positive_u64, parse_positive_usize, IdArgs, DEPENDENCY_TYPE_HELP,
+    INPUT_JSON_PRECEDENCE_HELP, TASK_PRIORITY_FILTER_HELP, TASK_PRIORITY_HELP,
+    TASK_RISK_FILTER_HELP, TASK_STATUS_FILTER_HELP, TASK_STATUS_HELP, TASK_TYPE_FILTER_HELP,
+    TASK_TYPE_HELP,
 };
 
 #[derive(Debug, Subcommand)]
@@ -11,7 +12,7 @@ pub(crate) enum TaskCommand {
     /// List tasks with optional filters.
     List(TaskListArgs),
     /// List tasks sorted by priority/urgency.
-    Prioritized,
+    Prioritized(TaskPrioritizedArgs),
     /// Get the next ready task.
     Next,
     /// Show task statistics.
@@ -59,6 +60,8 @@ pub(crate) struct TaskListArgs {
     pub(crate) status: Option<String>,
     #[arg(long, value_name = "PRIORITY", help = TASK_PRIORITY_FILTER_HELP)]
     pub(crate) priority: Option<String>,
+    #[arg(long, value_name = "RISK", help = TASK_RISK_FILTER_HELP)]
+    pub(crate) risk: Option<String>,
     #[arg(
         long,
         value_name = "ASSIGNEE_TYPE",
@@ -89,6 +92,54 @@ pub(crate) struct TaskListArgs {
         help = "Case-insensitive text search over task title and description."
     )]
     pub(crate) search: Option<String>,
+    #[arg(
+        long,
+        value_name = "COUNT",
+        value_parser = parse_positive_usize,
+        help = "Maximum number of tasks to return."
+    )]
+    pub(crate) limit: Option<usize>,
+    #[arg(
+        long,
+        value_name = "COUNT",
+        default_value_t = 0,
+        help = "Number of tasks to skip before returning results."
+    )]
+    pub(crate) offset: usize,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct TaskPrioritizedArgs {
+    #[arg(long, value_name = "STATUS", help = TASK_STATUS_FILTER_HELP)]
+    pub(crate) status: Option<String>,
+    #[arg(long, value_name = "PRIORITY", help = TASK_PRIORITY_FILTER_HELP)]
+    pub(crate) priority: Option<String>,
+    #[arg(
+        long,
+        value_name = "ASSIGNEE_TYPE",
+        help = "Assignee type filter: agent|human|unassigned."
+    )]
+    pub(crate) assignee_type: Option<String>,
+    #[arg(
+        long,
+        value_name = "TEXT",
+        help = "Case-insensitive text search over task title and description."
+    )]
+    pub(crate) search: Option<String>,
+    #[arg(
+        long,
+        value_name = "COUNT",
+        value_parser = parse_positive_usize,
+        help = "Maximum number of tasks to return."
+    )]
+    pub(crate) limit: Option<usize>,
+    #[arg(
+        long,
+        value_name = "COUNT",
+        default_value_t = 0,
+        help = "Number of tasks to skip before returning results."
+    )]
+    pub(crate) offset: usize,
 }
 
 #[derive(Debug, Args)]

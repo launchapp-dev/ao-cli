@@ -1,5 +1,5 @@
 use anyhow::Result;
-use orchestrator_core::{DependencyType, Priority, ProjectType, TaskStatus, TaskType};
+use orchestrator_core::{DependencyType, Priority, ProjectType, RiskLevel, TaskStatus, TaskType};
 use protocol::{AgentRunEvent, RunId};
 use serde_json::Value;
 
@@ -214,6 +214,22 @@ pub(crate) fn parse_priority_opt(value: Option<&str>) -> Result<Option<Priority>
     };
 
     Ok(Some(priority))
+}
+
+pub(crate) fn parse_risk_opt(value: Option<&str>) -> Result<Option<RiskLevel>> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+
+    let normalized = value.trim().to_ascii_lowercase();
+    let risk = match normalized.as_str() {
+        "high" => RiskLevel::High,
+        "medium" => RiskLevel::Medium,
+        "low" => RiskLevel::Low,
+        _ => return Err(invalid_value_error("risk level", value, "high|medium|low")),
+    };
+
+    Ok(Some(risk))
 }
 
 pub(crate) fn parse_dependency_type(value: &str) -> Result<DependencyType> {

@@ -13,7 +13,8 @@ use serde::Serialize;
 use crate::services::runtime::{stale_in_progress_summary, StaleInProgressSummary};
 use crate::{
     ensure_destructive_confirmation, parse_dependency_type, parse_input_json_or,
-    parse_priority_opt, parse_task_status, parse_task_type_opt, print_value, TaskCommand,
+    parse_priority_opt, parse_risk_opt, parse_task_status, parse_task_type_opt, print_value,
+    TaskCommand,
 };
 
 #[derive(Debug, Serialize)]
@@ -25,6 +26,14 @@ struct TaskStatsOutput {
 }
 
 const UNLINKED_REQUIREMENTS_WARNING: &str = "warning: creating non-chore task without linked requirements; pass --linked-requirement <REQ_ID> to improve traceability";
+
+fn paginate<T>(items: Vec<T>, offset: usize, limit: Option<usize>) -> Vec<T> {
+    let skipped: Vec<T> = items.into_iter().skip(offset).collect();
+    match limit {
+        Some(n) => skipped.into_iter().take(n).collect(),
+        None => skipped,
+    }
+}
 
 fn non_empty_env(key: &str) -> Option<String> {
     std::env::var(key)
@@ -107,6 +116,8 @@ pub(crate) async fn handle_task(
 
     match command {
         TaskCommand::List(args) => {
+            let limit = args.limit;
+            let offset = args.offset;
             let filter = TaskFilter {
                 task_type: parse_task_type_opt(args.task_type.as_deref())?,
                 status: match args.status {
@@ -114,7 +125,7 @@ pub(crate) async fn handle_task(
                     None => None,
                 },
                 priority: parse_priority_opt(args.priority.as_deref())?,
-                risk: None,
+                risk: parse_risk_opt(args.risk.as_deref())?,
                 assignee_type: args.assignee_type,
                 tags: if args.tag.is_empty() {
                     None
@@ -126,22 +137,46 @@ pub(crate) async fn handle_task(
                 search_text: args.search,
             };
 
-            if filter.task_type.is_none()
-                && filter.status.is_none()
-                && filter.priority.is_none()
-                && filter.risk.is_none()
-                && filter.assignee_type.is_none()
-                && filter.tags.is_none()
-                && filter.linked_requirement.is_none()
-                && filter.linked_architecture_entity.is_none()
-                && filter.search_text.is_none()
-            {
-                print_value(tasks.list().await?, json)
+            let has_filter = filter.task_type.is_some()
+                || filter.status.is_some()
+                || filter.priority.is_some()
+                || filter.risk.is_some()
+                || filter.assignee_type.is_some()
+                || filter.tags.is_some()
+                || filter.linked_requirement.is_some()
+                || filter.linked_architecture_entity.is_some()
+                || filter.search_text.is_some();
+
+            let result = if has_filter {
+                tasks.list_filtered(filter).await?
             } else {
-                print_value(tasks.list_filtered(filter).await?, json)
-            }
+                tasks.list().await?
+            };
+            print_value(paginate(result, offset, limit), json)
         }
-        TaskCommand::Prioritized => print_value(tasks.list_prioritized().await?, json),
+        TaskCommand::Prioritized(args) => {
+            let mut result = tasks.list_prioritized().await?;
+            let status_filter = match args.status {
+                Some(status) => Some(parse_task_status(&status)?),
+                None => None,
+            };
+            let priority_filter = parse_priority_opt(args.priority.as_deref())?;
+            if status_filter.is_some()
+                || priority_filter.is_some()
+                || args.assignee_type.is_some()
+                || args.search.is_some()
+            {
+                let filter = TaskFilter {
+                    status: status_filter,
+                    priority: priority_filter,
+                    assignee_type: args.assignee_type,
+                    search_text: args.search,
+                    ..Default::default()
+                };
+                result.retain(|task| orchestrator_core::services::task_matches_filter(task, &filter));
+            }
+            print_value(paginate(result, args.offset, args.limit), json)
+        }
         TaskCommand::Next => print_value(tasks.next_task().await?, json),
         TaskCommand::Stats(args) => {
             let task_list = tasks.list().await?;

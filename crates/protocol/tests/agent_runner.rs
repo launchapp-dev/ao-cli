@@ -1,4 +1,5 @@
 use protocol::*;
+use std::collections::BTreeMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -265,6 +266,7 @@ fn test_config_get_token_uses_env_over_config() {
     let _env = EnvVarGuard::set("AGENT_RUNNER_TOKEN", Some("env-token"));
     let config = Config {
         agent_runner_token: Some("config-token".to_string()),
+        mcp_servers: BTreeMap::new(),
     };
 
     let token = config.get_token().expect("env token should resolve");
@@ -277,6 +279,7 @@ fn test_config_get_token_rejects_blank_env_value() {
     let _env = EnvVarGuard::set("AGENT_RUNNER_TOKEN", Some("   "));
     let config = Config {
         agent_runner_token: Some("config-token".to_string()),
+        mcp_servers: BTreeMap::new(),
     };
 
     let error = config
@@ -294,6 +297,7 @@ fn test_config_get_token_rejects_blank_config_value() {
     let _env = EnvVarGuard::set("AGENT_RUNNER_TOKEN", None);
     let config = Config {
         agent_runner_token: Some("   ".to_string()),
+        mcp_servers: BTreeMap::new(),
     };
 
     let error = config
@@ -311,6 +315,7 @@ fn test_config_get_token_rejects_missing_token() {
     let _env = EnvVarGuard::set("AGENT_RUNNER_TOKEN", None);
     let config = Config {
         agent_runner_token: None,
+        mcp_servers: BTreeMap::new(),
     };
 
     let error = config

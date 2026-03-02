@@ -22,7 +22,7 @@ pub use common::*;
 // Explicit re-exports for config helpers used across crates
 pub use config::{
     cli_tracker_path, daemon_events_log_path, default_allowed_tool_prefixes, parse_env_bool,
-    parse_env_bool_opt, Config,
+    parse_env_bool_opt, Config, ProjectMcpServerEntry,
 };
 pub use daemon::*;
 pub use error_classification::*;

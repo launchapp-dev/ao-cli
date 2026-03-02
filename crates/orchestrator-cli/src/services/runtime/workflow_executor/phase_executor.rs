@@ -266,6 +266,53 @@ fn inject_agent_tool_policy(runtime_contract: &mut Value, project_root: &str, ph
     }
 }
 
+fn inject_project_mcp_servers(
+    runtime_contract: &mut Value,
+    project_root: &str,
+    phase_id: &str,
+) {
+    let project_config = match protocol::Config::load_or_default(project_root) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    if project_config.mcp_servers.is_empty() {
+        return;
+    }
+    let agent_id = load_agent_runtime_config(project_root)
+        .phase_agent_id(phase_id)
+        .map(ToOwned::to_owned);
+    let mut servers = serde_json::Map::new();
+    for (name, entry) in &project_config.mcp_servers {
+        let assigned = entry.assign_to.is_empty()
+            || agent_id
+                .as_deref()
+                .is_some_and(|id| entry.assign_to.iter().any(|a| a.eq_ignore_ascii_case(id)));
+        if !assigned {
+            continue;
+        }
+        servers.insert(
+            name.clone(),
+            serde_json::json!({
+                "command": entry.command,
+                "args": entry.args,
+                "env": entry.env,
+            }),
+        );
+    }
+    if servers.is_empty() {
+        return;
+    }
+    if let Some(mcp) = runtime_contract
+        .get_mut("mcp")
+        .and_then(Value::as_object_mut)
+    {
+        mcp.insert(
+            "additional_servers".to_string(),
+            Value::Object(servers),
+        );
+    }
+}
+
 fn phase_decision_contract_for(
     project_root: &str,
     phase_id: &str,
@@ -906,6 +953,7 @@ pub(crate) async fn run_workflow_phase_with_agent(
             );
             inject_default_stdio_mcp(&mut runtime_contract, project_root);
             inject_agent_tool_policy(&mut runtime_contract, project_root, phase_id);
+            inject_project_mcp_servers(&mut runtime_contract, project_root, phase_id);
             context
                 .as_object_mut()
                 .expect("json object")

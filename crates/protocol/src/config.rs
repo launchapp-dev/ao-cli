@@ -1,12 +1,26 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ProjectMcpServerEntry {
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    #[serde(default)]
+    pub assign_to: Vec<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
     pub agent_runner_token: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub mcp_servers: BTreeMap<String, ProjectMcpServerEntry>,
 }
 
 impl Config {
@@ -84,6 +98,7 @@ impl Config {
 
         let default_config = Self {
             agent_runner_token: None,
+            mcp_servers: BTreeMap::new(),
         };
         let json = serde_json::to_string_pretty(&default_config)?;
         fs::write(config_path, json)?;
@@ -194,4 +209,52 @@ pub fn parse_env_bool_opt(key: &str) -> Option<bool> {
         .map(|value| value.trim().to_ascii_lowercase())
         .filter(|value| !value.is_empty())
         .map(|value| !matches!(value.as_str(), "0" | "false" | "no" | "off"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_without_mcp_servers_deserializes() {
+        let json = r#"{"agent_runner_token": null}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert!(config.mcp_servers.is_empty());
+    }
+
+    #[test]
+    fn config_with_mcp_servers_roundtrips() {
+        let json = r#"{
+            "agent_runner_token": null,
+            "mcp_servers": {
+                "my-db": {
+                    "command": "/usr/local/bin/db-mcp",
+                    "args": ["--port", "5432"],
+                    "env": {"DB_HOST": "localhost"},
+                    "assign_to": ["swe"]
+                }
+            }
+        }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.mcp_servers.len(), 1);
+        let entry = &config.mcp_servers["my-db"];
+        assert_eq!(entry.command, "/usr/local/bin/db-mcp");
+        assert_eq!(entry.args, vec!["--port", "5432"]);
+        assert_eq!(entry.env.get("DB_HOST").map(String::as_str), Some("localhost"));
+        assert_eq!(entry.assign_to, vec!["swe"]);
+
+        let serialized = serde_json::to_string(&config).unwrap();
+        let roundtripped: Config = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(roundtripped.mcp_servers.len(), 1);
+    }
+
+    #[test]
+    fn config_serialization_omits_empty_mcp_servers() {
+        let config = Config {
+            agent_runner_token: None,
+            mcp_servers: BTreeMap::new(),
+        };
+        let json = serde_json::to_string_pretty(&config).unwrap();
+        assert!(!json.contains("mcp_servers"));
+    }
 }

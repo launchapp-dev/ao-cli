@@ -30,6 +30,14 @@ struct McpStdioConfig {
 }
 
 #[derive(Debug, Clone)]
+struct AdditionalMcpServer {
+    name: String,
+    command: String,
+    args: Vec<String>,
+    env: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone)]
 struct McpToolEnforcement {
     enabled: bool,
     endpoint: Option<String>,
@@ -38,6 +46,7 @@ struct McpToolEnforcement {
     allowed_prefixes: Vec<String>,
     tool_policy_allow: Vec<String>,
     tool_policy_deny: Vec<String>,
+    additional_servers: Vec<AdditionalMcpServer>,
 }
 
 #[derive(Debug, Default)]
@@ -71,6 +80,7 @@ fn resolve_mcp_tool_enforcement(
             allowed_prefixes: Vec::new(),
             tool_policy_allow: Vec::new(),
             tool_policy_deny: Vec::new(),
+            additional_servers: Vec::new(),
         };
     };
 
@@ -157,6 +167,46 @@ fn resolve_mcp_tool_enforcement(
     let tool_policy_allow = parse_string_array("/mcp/tool_policy/allow");
     let tool_policy_deny = parse_string_array("/mcp/tool_policy/deny");
 
+    let additional_servers = contract
+        .pointer("/mcp/additional_servers")
+        .and_then(serde_json::Value::as_object)
+        .map(|servers| {
+            servers
+                .iter()
+                .map(|(name, entry)| AdditionalMcpServer {
+                    name: name.clone(),
+                    command: entry
+                        .get("command")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    args: entry
+                        .get("args")
+                        .and_then(serde_json::Value::as_array)
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(serde_json::Value::as_str)
+                                .map(ToString::to_string)
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                    env: entry
+                        .get("env")
+                        .and_then(serde_json::Value::as_object)
+                        .map(|e| {
+                            e.iter()
+                                .filter_map(|(k, v)| {
+                                    v.as_str().map(|val| (k.clone(), val.to_string()))
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                })
+                .filter(|s| !s.command.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+
     McpToolEnforcement {
         enabled,
         endpoint,
@@ -165,6 +215,7 @@ fn resolve_mcp_tool_enforcement(
         allowed_prefixes,
         tool_policy_allow,
         tool_policy_deny,
+        additional_servers,
     }
 }
 
@@ -299,8 +350,9 @@ fn apply_claude_native_mcp_lockdown(
     args: &mut Vec<String>,
     transport: McpServerTransport<'_>,
     agent_id: &str,
+    additional_servers: &[AdditionalMcpServer],
 ) {
-    let server = match transport {
+    let primary = match transport {
         McpServerTransport::Http(endpoint) => serde_json::json!({
             "type": "http",
             "url": endpoint
@@ -310,12 +362,18 @@ fn apply_claude_native_mcp_lockdown(
             "args": args
         }),
     };
-    let config = serde_json::json!({
-        "mcpServers": {
-            agent_id: server
-        }
-    })
-    .to_string();
+    let mut mcp_servers = serde_json::Map::new();
+    mcp_servers.insert(agent_id.to_string(), primary);
+    for server in additional_servers {
+        mcp_servers.insert(
+            server.name.clone(),
+            serde_json::json!({
+                "command": server.command,
+                "args": server.args
+            }),
+        );
+    }
+    let config = serde_json::json!({ "mcpServers": mcp_servers }).to_string();
     ensure_flag(args, "--strict-mcp-config", 0);
     ensure_flag_value(args, "--mcp-config", &config, 0);
     ensure_flag_value(args, "--permission-mode", "bypassPermissions", 0);
@@ -326,9 +384,17 @@ fn apply_codex_native_mcp_lockdown(
     transport: McpServerTransport<'_>,
     agent_id: &str,
     configured_servers: &[String],
+    additional_servers: &[AdditionalMcpServer],
 ) {
+    let additional_names: Vec<&str> = additional_servers.iter().map(|s| s.name.as_str()).collect();
     for server_name in configured_servers {
         if server_name.eq_ignore_ascii_case(agent_id) {
+            continue;
+        }
+        if additional_names
+            .iter()
+            .any(|n| n.eq_ignore_ascii_case(server_name))
+        {
             continue;
         }
         ensure_codex_config_override(args, &format!("mcp_servers.{server_name}.enabled"), "false");
@@ -356,6 +422,22 @@ fn apply_codex_native_mcp_lockdown(
         }
     }
     ensure_codex_config_override(args, &format!("{base}.enabled"), "true");
+
+    for server in additional_servers {
+        let sbase = format!("mcp_servers.{}", server.name);
+        ensure_codex_config_override(args, &format!("{sbase}.command"), &toml_string(&server.command));
+        let toml_args = format!(
+            "[{}]",
+            server
+                .args
+                .iter()
+                .map(|arg| toml_string(arg))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        ensure_codex_config_override(args, &format!("{sbase}.args"), &toml_args);
+        ensure_codex_config_override(args, &format!("{sbase}.enabled"), "true");
+    }
 }
 
 fn apply_gemini_native_mcp_lockdown(
@@ -365,9 +447,15 @@ fn apply_gemini_native_mcp_lockdown(
     agent_id: &str,
     run_id: &RunId,
     temp_cleanup: &mut TempPathCleanup,
+    additional_servers: &[AdditionalMcpServer],
 ) -> Result<()> {
-    ensure_flag_value(args, "--allowed-mcp-server-names", agent_id, 0);
-    let server = match transport {
+    let mut allowed_names = vec![agent_id.to_string()];
+    for server in additional_servers {
+        allowed_names.push(server.name.clone());
+    }
+    let allowed_csv = allowed_names.join(",");
+    ensure_flag_value(args, "--allowed-mcp-server-names", &allowed_csv, 0);
+    let primary = match transport {
         McpServerTransport::Http(endpoint) => serde_json::json!({
             "type": "http",
             "url": endpoint
@@ -376,24 +464,32 @@ fn apply_gemini_native_mcp_lockdown(
             "type": "stdio",
             "command": command,
             "args": args,
-            // Gemini MCP currently fails on draft 2020-12 tool schemas.
-            // Force AO MCP tool schemas to draft-07 for this adapter only.
             "env": {
                 "AO_MCP_SCHEMA_DRAFT": "draft07"
             }
         }),
     };
+    let mut mcp_servers = serde_json::Map::new();
+    mcp_servers.insert(agent_id.to_string(), primary);
+    for server in additional_servers {
+        mcp_servers.insert(
+            server.name.clone(),
+            serde_json::json!({
+                "type": "stdio",
+                "command": server.command,
+                "args": server.args,
+            }),
+        );
+    }
     let settings = serde_json::json!({
         "tools": {
             "core": []
         },
         "mcp": {
-            "allowed": [agent_id],
+            "allowed": allowed_names,
             "excluded": []
         },
-        "mcpServers": {
-            agent_id: server
-        }
+        "mcpServers": mcp_servers
     });
     let settings_path = write_temp_json_file(run_id, "gemini-mcp", &settings)?;
     env.insert(
@@ -408,8 +504,9 @@ fn apply_opencode_native_mcp_lockdown(
     env: &mut HashMap<String, String>,
     transport: McpServerTransport<'_>,
     agent_id: &str,
+    additional_servers: &[AdditionalMcpServer],
 ) {
-    let server = match transport {
+    let primary = match transport {
         McpServerTransport::Http(endpoint) => serde_json::json!({
             "type": "remote",
             "url": endpoint,
@@ -426,11 +523,22 @@ fn apply_opencode_native_mcp_lockdown(
             })
         }
     };
-    let config = serde_json::json!({
-        "mcp": {
-            agent_id: server
-        }
-    });
+    let mut mcp_entries = serde_json::Map::new();
+    mcp_entries.insert(agent_id.to_string(), primary);
+    for server in additional_servers {
+        let mut command_with_args = Vec::with_capacity(server.args.len() + 1);
+        command_with_args.push(server.command.clone());
+        command_with_args.extend(server.args.iter().cloned());
+        mcp_entries.insert(
+            server.name.clone(),
+            serde_json::json!({
+                "type": "local",
+                "command": command_with_args,
+                "enabled": true
+            }),
+        );
+    }
+    let config = serde_json::json!({ "mcp": mcp_entries });
     env.insert("OPENCODE_CONFIG_CONTENT".to_string(), config.to_string());
 }
 
@@ -462,8 +570,15 @@ fn apply_native_mcp_policy(
     let agent_id = enforcement.agent_id.trim();
     let cli = canonical_cli_name(&invocation.command);
 
+    let additional = &enforcement.additional_servers;
+
     match cli.as_str() {
-        "claude" => apply_claude_native_mcp_lockdown(&mut invocation.args, transport, agent_id),
+        "claude" => apply_claude_native_mcp_lockdown(
+            &mut invocation.args,
+            transport,
+            agent_id,
+            additional,
+        ),
         "codex" => {
             let configured_servers = discover_codex_mcp_server_names();
             apply_codex_native_mcp_lockdown(
@@ -471,6 +586,7 @@ fn apply_native_mcp_policy(
                 transport,
                 agent_id,
                 &configured_servers,
+                additional,
             );
         }
         "gemini" => apply_gemini_native_mcp_lockdown(
@@ -480,8 +596,9 @@ fn apply_native_mcp_policy(
             agent_id,
             run_id,
             temp_cleanup,
+            additional,
         )?,
-        "opencode" => apply_opencode_native_mcp_lockdown(env, transport, agent_id),
+        "opencode" => apply_opencode_native_mcp_lockdown(env, transport, agent_id, additional),
         "ao-oai-runner" => {
             apply_oai_runner_native_mcp_lockdown(&mut invocation.args, transport);
         }
@@ -1117,6 +1234,7 @@ mod tests {
             allowed_prefixes: vec!["ao.".to_string()],
             tool_policy_allow: Vec::new(),
             tool_policy_deny: Vec::new(),
+            additional_servers: Vec::new(),
         };
         let mut env = HashMap::new();
         let mut cleanup = TempPathCleanup::default();
@@ -1149,6 +1267,7 @@ mod tests {
             allowed_prefixes: vec!["ao.".to_string()],
             tool_policy_allow: Vec::new(),
             tool_policy_deny: Vec::new(),
+            additional_servers: Vec::new(),
         };
         let mut env = HashMap::new();
         let mut cleanup = TempPathCleanup::default();
@@ -1187,6 +1306,7 @@ mod tests {
             allowed_prefixes: vec!["ao.".to_string()],
             tool_policy_allow: Vec::new(),
             tool_policy_deny: Vec::new(),
+            additional_servers: Vec::new(),
         };
         let mut env = HashMap::new();
         let mut cleanup = TempPathCleanup::default();
@@ -1220,6 +1340,7 @@ mod tests {
             allowed_prefixes: vec!["ao.".to_string()],
             tool_policy_allow: Vec::new(),
             tool_policy_deny: Vec::new(),
+            additional_servers: Vec::new(),
         };
         let mut env = HashMap::new();
         let mut cleanup = TempPathCleanup::default();
@@ -1275,6 +1396,7 @@ mod tests {
             McpServerTransport::Http("http://127.0.0.1:3101/mcp/ao"),
             "ao",
             &configured_servers,
+            &[],
         );
 
         let joined = args.join(" ");
@@ -1303,6 +1425,7 @@ mod tests {
                 ],
             },
             "ao",
+            &[],
             &[],
         );
 
@@ -1339,6 +1462,7 @@ mod tests {
             allowed_prefixes: vec!["ao.".to_string()],
             tool_policy_allow: Vec::new(),
             tool_policy_deny: Vec::new(),
+            additional_servers: Vec::new(),
         };
         let mut env = HashMap::new();
         let mut cleanup = TempPathCleanup::default();
@@ -1387,6 +1511,7 @@ mod tests {
             allowed_prefixes: vec!["ao.".to_string()],
             tool_policy_allow: Vec::new(),
             tool_policy_deny: Vec::new(),
+            additional_servers: Vec::new(),
         };
         let mut env = HashMap::new();
         let mut cleanup = TempPathCleanup::default();
@@ -1447,6 +1572,7 @@ mod tests {
             allowed_prefixes: vec!["ao.".to_string()],
             tool_policy_allow: Vec::new(),
             tool_policy_deny: Vec::new(),
+            additional_servers: Vec::new(),
         };
         let mut env = HashMap::new();
         let mut cleanup = TempPathCleanup::default();
@@ -1496,6 +1622,7 @@ mod tests {
             allowed_prefixes: vec!["ao.".to_string(), "mcp__ao__".to_string()],
             tool_policy_allow: allow.into_iter().map(ToString::to_string).collect(),
             tool_policy_deny: deny.into_iter().map(ToString::to_string).collect(),
+            additional_servers: Vec::new(),
         }
     }
 
@@ -1568,5 +1695,69 @@ mod tests {
         assert!(is_tool_call_allowed("ao.task.list", &serde_json::json!({}), &enforcement));
         assert!(!is_tool_call_allowed("ao.task.delete", &serde_json::json!({}), &enforcement));
         assert!(!is_tool_call_allowed("ao.daemon.start", &serde_json::json!({}), &enforcement));
+    }
+
+    #[test]
+    fn resolve_enforcement_parses_additional_servers() {
+        let contract = serde_json::json!({
+            "cli": {
+                "name": "claude",
+                "capabilities": { "supports_mcp": true, "supports_tool_use": true },
+                "launch": { "args": ["--print", "hello"] }
+            },
+            "mcp": {
+                "endpoint": "http://127.0.0.1:3101/mcp/ao",
+                "agent_id": "ao",
+                "additional_servers": {
+                    "my-db": {
+                        "command": "/usr/local/bin/db-mcp",
+                        "args": ["--port", "5432"],
+                        "env": { "DB_HOST": "localhost" }
+                    }
+                }
+            }
+        });
+        let enforcement = resolve_mcp_tool_enforcement(Some(&contract));
+        assert_eq!(enforcement.additional_servers.len(), 1);
+        assert_eq!(enforcement.additional_servers[0].name, "my-db");
+        assert_eq!(enforcement.additional_servers[0].command, "/usr/local/bin/db-mcp");
+        assert_eq!(enforcement.additional_servers[0].args, vec!["--port", "5432"]);
+        assert_eq!(
+            enforcement.additional_servers[0].env.get("DB_HOST").map(String::as_str),
+            Some("localhost")
+        );
+    }
+
+    #[test]
+    fn claude_lockdown_includes_additional_servers() {
+        let mut args = vec!["--print".to_string(), "hello".to_string()];
+        let additional = vec![AdditionalMcpServer {
+            name: "my-db".to_string(),
+            command: "/usr/local/bin/db-mcp".to_string(),
+            args: vec!["--port".to_string(), "5432".to_string()],
+            env: HashMap::new(),
+        }];
+        apply_claude_native_mcp_lockdown(
+            &mut args,
+            McpServerTransport::Stdio {
+                command: "/usr/local/bin/ao",
+                args: &["mcp".to_string(), "serve".to_string()],
+            },
+            "ao",
+            &additional,
+        );
+        let joined = args.join(" ");
+        assert!(joined.contains("mcpServers"));
+        let mcp_config_idx = args.iter().position(|a| a == "--mcp-config").unwrap();
+        let config_json: serde_json::Value =
+            serde_json::from_str(&args[mcp_config_idx + 1]).unwrap();
+        assert!(config_json.pointer("/mcpServers/ao").is_some());
+        assert!(config_json.pointer("/mcpServers/my-db").is_some());
+        assert_eq!(
+            config_json
+                .pointer("/mcpServers/my-db/command")
+                .and_then(serde_json::Value::as_str),
+            Some("/usr/local/bin/db-mcp")
+        );
     }
 }

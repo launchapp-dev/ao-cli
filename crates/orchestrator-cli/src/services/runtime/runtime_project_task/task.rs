@@ -258,20 +258,24 @@ pub(crate) async fn handle_task(
             )
         }
         TaskCommand::Assign(args) => {
-            print_value(tasks.assign(&args.id, args.assignee).await?, json)
+            let is_agent = args.assignee_type.as_deref() == Some("agent") || args.agent_role.is_some();
+            if is_agent {
+                let role = args.agent_role.unwrap_or(args.assignee);
+                print_value(
+                    tasks
+                        .assign_agent(&args.id, role, args.model, args.updated_by)
+                        .await?,
+                    json,
+                )
+            } else {
+                print_value(
+                    tasks
+                        .assign_human(&args.id, args.assignee, args.updated_by)
+                        .await?,
+                    json,
+                )
+            }
         }
-        TaskCommand::AssignAgent(args) => print_value(
-            tasks
-                .assign_agent(&args.id, args.role, args.model, args.updated_by)
-                .await?,
-            json,
-        ),
-        TaskCommand::AssignHuman(args) => print_value(
-            tasks
-                .assign_human(&args.id, args.user_id, args.updated_by)
-                .await?,
-            json,
-        ),
         TaskCommand::ChecklistAdd(args) => print_value(
             tasks
                 .add_checklist_item(&args.id, args.description, args.updated_by)

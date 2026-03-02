@@ -13,6 +13,41 @@ use super::schema::{
 };
 use super::validator::validate_state_machines_document;
 
+#[derive(Debug, Clone)]
+pub enum TransitionError {
+    NoTransition {
+        from: WorkflowMachineState,
+        event: WorkflowMachineEvent,
+    },
+    GuardBlocked {
+        from: WorkflowMachineState,
+        event: WorkflowMachineEvent,
+        guard: String,
+    },
+}
+
+impl std::fmt::Display for TransitionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoTransition { from, event } => {
+                write!(f, "no transition from {from:?} on {event:?}")
+            }
+            Self::GuardBlocked {
+                from,
+                event,
+                guard,
+            } => {
+                write!(
+                    f,
+                    "guard '{guard}' blocked transition from {from:?} on {event:?}"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for TransitionError {}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MachineSource {
@@ -165,8 +200,9 @@ impl CompiledWorkflowMachine {
         current: WorkflowMachineState,
         event: WorkflowMachineEvent,
         mut guard_evaluator: impl FnMut(&str) -> bool,
-    ) -> WorkflowTransitionOutcome {
-        let mut first_guard_result = None;
+    ) -> std::result::Result<WorkflowTransitionOutcome, TransitionError> {
+        let mut blocked_guard: Option<String> = None;
+        let mut had_guard = false;
 
         for transition in &self.transitions {
             if transition.from != current || transition.event != event {
@@ -174,30 +210,37 @@ impl CompiledWorkflowMachine {
             }
 
             if let Some(guard_id) = transition.guard.as_deref() {
+                had_guard = true;
                 let allowed = guard_evaluator(guard_id);
-                if first_guard_result.is_none() {
-                    first_guard_result = Some(allowed);
-                }
                 if !allowed {
+                    if blocked_guard.is_none() {
+                        blocked_guard = Some(guard_id.to_string());
+                    }
                     continue;
                 }
             }
 
-            return WorkflowTransitionOutcome {
+            let guard_passed = if had_guard { Some(true) } else { None };
+            return Ok(WorkflowTransitionOutcome {
                 from: current,
                 event,
                 to: transition.to,
                 matched: true,
-                guard_passed: first_guard_result,
-            };
+                guard_passed,
+            });
         }
 
-        WorkflowTransitionOutcome {
-            from: current,
-            event,
-            to: current,
-            matched: false,
-            guard_passed: first_guard_result,
+        if let Some(guard) = blocked_guard {
+            Err(TransitionError::GuardBlocked {
+                from: current,
+                event,
+                guard,
+            })
+        } else {
+            Err(TransitionError::NoTransition {
+                from: current,
+                event,
+            })
         }
     }
 
@@ -416,7 +459,8 @@ mod tests {
             WorkflowMachineState::Idle,
             WorkflowMachineEvent::Start,
             |_| true,
-        );
+        )
+        .expect("test: Idle + Start should transition");
         assert!(outcome.matched);
         assert_eq!(outcome.to, WorkflowMachineState::EvaluateTransition);
     }

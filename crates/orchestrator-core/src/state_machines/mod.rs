@@ -11,7 +11,7 @@ mod validator;
 pub use engine::{
     compile_state_machines_document, evaluate_guard, CompiledRequirementLifecycleMachine,
     CompiledStateMachines, CompiledWorkflowMachine, GuardContext, MachineMetadata, MachineSource,
-    RequirementTransitionOutcome, WorkflowTransitionOutcome,
+    RequirementTransitionOutcome, TransitionError, WorkflowTransitionOutcome,
 };
 pub use schema::{
     builtin_state_machines_document, RequirementLifecycleEvent, RequirementLifecyclePolicy,

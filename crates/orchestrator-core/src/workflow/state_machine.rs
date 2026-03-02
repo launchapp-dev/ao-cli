@@ -1,6 +1,6 @@
 use crate::state_machines::{
     builtin_compiled_state_machines, evaluate_guard, CompiledWorkflowMachine, GuardContext,
-    WorkflowTransitionOutcome,
+    TransitionError, WorkflowTransitionOutcome,
 };
 use crate::types::{WorkflowMachineEvent, WorkflowMachineState};
 
@@ -37,24 +37,26 @@ impl WorkflowStateMachine {
         self.current
     }
 
-    pub fn apply(&mut self, event: WorkflowMachineEvent) -> WorkflowMachineState {
-        let transition = self.definition.apply(self.current, event, |_| true);
-        self.current = transition.to;
-
-        self.current
+    pub fn apply(
+        &mut self,
+        event: WorkflowMachineEvent,
+    ) -> Result<WorkflowMachineState, TransitionError> {
+        let outcome = self.definition.apply(self.current, event, |_| true)?;
+        self.current = outcome.to;
+        Ok(self.current)
     }
 
     pub fn apply_with_guard_context(
         &mut self,
         event: WorkflowMachineEvent,
         context: &GuardContext,
-    ) -> WorkflowTransitionOutcome {
-        let outcome = self
-            .definition
-            .apply(self.current, event, |guard_id| {
-                evaluate_guard(guard_id, context)
-            });
+    ) -> Result<WorkflowTransitionOutcome, TransitionError> {
+        let outcome =
+            self.definition
+                .apply(self.current, event, |guard_id| {
+                    evaluate_guard(guard_id, context)
+                })?;
         self.current = outcome.to;
-        outcome
+        Ok(outcome)
     }
 }

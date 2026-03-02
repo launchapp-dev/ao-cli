@@ -309,7 +309,8 @@ impl WorkflowLifecycleExecutor {
             }
 
             let mut machine = self.state_machine(workflow.machine_state);
-            machine.apply(WorkflowMachineEvent::PhaseSkipped);
+            machine.apply(WorkflowMachineEvent::PhaseSkipped)
+                .expect("skip: PhaseSkipped transition");
 
             let next_phase = workflow
                 .phases
@@ -327,7 +328,8 @@ impl WorkflowLifecycleExecutor {
 
             let next_idx = workflow.current_phase_index + 1;
             if next_idx < workflow.phases.len() {
-                machine.apply(WorkflowMachineEvent::PhaseStarted);
+                machine.apply(WorkflowMachineEvent::PhaseStarted)
+                    .expect("skip: PhaseStarted after skip");
                 workflow.current_phase_index = next_idx;
                 if let Some(next) = workflow.phases.get_mut(next_idx) {
                     next.status = WorkflowPhaseStatus::Running;
@@ -336,7 +338,8 @@ impl WorkflowLifecycleExecutor {
                     workflow.current_phase = Some(next.phase_id.clone());
                 }
             } else {
-                machine.apply(WorkflowMachineEvent::NoMorePhases);
+                machine.apply(WorkflowMachineEvent::NoMorePhases)
+                    .expect("skip: NoMorePhases after skip");
                 workflow.completed_at = Some(now);
                 workflow.current_phase = None;
                 workflow.machine_state = machine.state();
@@ -363,8 +366,10 @@ impl WorkflowLifecycleExecutor {
             .collect();
 
         let mut machine = self.state_machine(self.state_machines.workflow.initial_state());
-        machine.apply(WorkflowMachineEvent::Start);
-        machine.apply(WorkflowMachineEvent::PhaseStarted);
+        machine.apply(WorkflowMachineEvent::Start)
+            .expect("bootstrap: Idle -> Start");
+        machine.apply(WorkflowMachineEvent::PhaseStarted)
+            .expect("bootstrap: EvaluateTransition -> PhaseStarted");
 
         if let Some(first) = phases.first_mut() {
             first.status = WorkflowPhaseStatus::Running;
@@ -404,7 +409,8 @@ impl WorkflowLifecycleExecutor {
         }
 
         let mut machine = self.state_machine(workflow.machine_state);
-        machine.apply(WorkflowMachineEvent::PauseRequested);
+        machine.apply(WorkflowMachineEvent::PauseRequested)
+            .expect("pause: PauseRequested transition");
         workflow.machine_state = machine.state();
         workflow.sync_status();
     }
@@ -418,8 +424,10 @@ impl WorkflowLifecycleExecutor {
         }
 
         let mut machine = self.state_machine(workflow.machine_state);
-        machine.apply(WorkflowMachineEvent::ResumeRequested);
-        machine.apply(WorkflowMachineEvent::PhaseStarted);
+        machine.apply(WorkflowMachineEvent::ResumeRequested)
+            .expect("resume: ResumeRequested transition");
+        machine.apply(WorkflowMachineEvent::PhaseStarted)
+            .expect("resume: PhaseStarted after resume");
         workflow.machine_state = machine.state();
         workflow.sync_status();
         workflow.completed_at = None;
@@ -449,7 +457,8 @@ impl WorkflowLifecycleExecutor {
         }
 
         let mut machine = self.state_machine(workflow.machine_state);
-        machine.apply(WorkflowMachineEvent::CancelRequested);
+        machine.apply(WorkflowMachineEvent::CancelRequested)
+            .expect("cancel: CancelRequested transition");
         workflow.machine_state = machine.state();
         workflow.sync_status();
         workflow.completed_at = Some(Utc::now());
@@ -483,7 +492,8 @@ impl WorkflowLifecycleExecutor {
         }
 
         let mut machine = self.state_machine(workflow.machine_state);
-        machine.apply(WorkflowMachineEvent::PhaseSucceeded);
+        machine.apply(WorkflowMachineEvent::PhaseSucceeded)
+            .expect("success: PhaseSucceeded transition");
 
         let gate_result = self.evaluate_gates(&decision, workflow);
         let effect = self.resolve_success_transition(
@@ -551,10 +561,12 @@ impl WorkflowLifecycleExecutor {
         let decision_target = decision.as_ref().and_then(|d| d.target_phase.clone());
         let target_phase_id = config_target.or(decision_target);
         if target_phase_id.is_some() {
-            machine.apply(WorkflowMachineEvent::PhaseTargetSelected);
+            machine.apply(WorkflowMachineEvent::PhaseTargetSelected)
+                .expect("advance: PhaseTargetSelected transition");
         } else {
-            machine.apply(WorkflowMachineEvent::GatesPassed);
-            machine.apply(WorkflowMachineEvent::PolicyDecisionReady);
+            machine.apply(WorkflowMachineEvent::GatesPassed)
+                .expect("advance: GatesPassed transition");
+            let _ = machine.apply(WorkflowMachineEvent::PolicyDecisionReady);
         }
         let next_idx = match &target_phase_id {
             Some(id) => find_phase_index(&workflow.phases, id),
@@ -587,8 +599,10 @@ impl WorkflowLifecycleExecutor {
                 machine_hash: machine_hash.clone(),
                 machine_source: machine_source.clone(),
             };
-            machine.apply(WorkflowMachineEvent::Start);
-            machine.apply(WorkflowMachineEvent::PhaseStarted);
+            machine.apply(WorkflowMachineEvent::Start)
+                .expect("advance: Start next phase cycle");
+            machine.apply(WorkflowMachineEvent::PhaseStarted)
+                .expect("advance: PhaseStarted next phase");
             TransitionEffect {
                 next_phase_index: Some(next_idx),
                 phase_status: Some(WorkflowPhaseStatus::Running),
@@ -616,7 +630,8 @@ impl WorkflowLifecycleExecutor {
                 machine_hash,
                 machine_source,
             };
-            machine.apply(WorkflowMachineEvent::NoMorePhases);
+            machine.apply(WorkflowMachineEvent::NoMorePhases)
+                .expect("advance: NoMorePhases completion");
             TransitionEffect {
                 next_phase_index: None,
                 phase_status: None,
@@ -641,7 +656,8 @@ impl WorkflowLifecycleExecutor {
         workflow: &OrchestratorWorkflow,
         machine: &mut WorkflowStateMachine,
     ) -> TransitionEffect {
-        machine.apply(WorkflowMachineEvent::GatesFailed);
+        machine.apply(WorkflowMachineEvent::GatesFailed)
+            .expect("rework: GatesFailed transition");
         let intermediate_machine_state = machine.state();
 
         let config_rework_target = self.resolve_verdict_target(current_phase_id, "rework");
@@ -686,7 +702,8 @@ impl WorkflowLifecycleExecutor {
             intermediate_machine_state,
             self.state_machines.workflow.clone(),
         );
-        retry_machine.apply(WorkflowMachineEvent::RetryPhaseStarted);
+        retry_machine.apply(WorkflowMachineEvent::RetryPhaseStarted)
+            .expect("rework: RetryPhaseStarted transition");
 
         TransitionEffect {
             next_phase_index: Some(rework_idx),
@@ -709,9 +726,10 @@ impl WorkflowLifecycleExecutor {
         reason: &str,
         machine: &mut WorkflowStateMachine,
     ) -> TransitionEffect {
-        machine.apply(WorkflowMachineEvent::GatesFailed);
-        machine.apply(WorkflowMachineEvent::PolicyDecisionFailed);
-        machine.apply(WorkflowMachineEvent::ReworkBudgetExceeded);
+        machine.apply(WorkflowMachineEvent::GatesFailed)
+            .expect("gate_fail: GatesFailed transition");
+        let _ = machine.apply(WorkflowMachineEvent::PolicyDecisionFailed);
+        let _ = machine.apply(WorkflowMachineEvent::ReworkBudgetExceeded);
         let final_state = machine.state();
         let is_escalated = final_state == WorkflowMachineState::HumanEscalated;
         let workflow_status = if is_escalated {
@@ -883,10 +901,12 @@ impl WorkflowLifecycleExecutor {
         workflow: &OrchestratorWorkflow,
     ) -> TransitionEffect {
         let mut machine = self.state_machine(workflow.machine_state);
-        machine.apply(WorkflowMachineEvent::PhaseFailed);
-        machine.apply(WorkflowMachineEvent::GatesFailed);
-        machine.apply(WorkflowMachineEvent::PolicyDecisionFailed);
-        machine.apply(WorkflowMachineEvent::ReworkBudgetExceeded);
+        machine.apply(WorkflowMachineEvent::PhaseFailed)
+            .expect("failure: PhaseFailed transition");
+        machine.apply(WorkflowMachineEvent::GatesFailed)
+            .expect("failure: GatesFailed transition");
+        let _ = machine.apply(WorkflowMachineEvent::PolicyDecisionFailed);
+        let _ = machine.apply(WorkflowMachineEvent::ReworkBudgetExceeded);
         let final_state = machine.state();
         let workflow_status = final_state.to_workflow_status();
 
@@ -919,7 +939,8 @@ impl WorkflowLifecycleExecutor {
         }
 
         let mut machine = self.state_machine(workflow.machine_state);
-        machine.apply(WorkflowMachineEvent::MergeConflictDetected);
+        machine.apply(WorkflowMachineEvent::MergeConflictDetected)
+            .expect("merge_conflict: MergeConflictDetected transition");
         workflow.machine_state = machine.state();
         if workflow.machine_state != WorkflowMachineState::MergeConflict {
             workflow.machine_state = WorkflowMachineState::MergeConflict;
@@ -935,7 +956,8 @@ impl WorkflowLifecycleExecutor {
         }
 
         let mut machine = self.state_machine(workflow.machine_state);
-        machine.apply(WorkflowMachineEvent::MergeConflictResolved);
+        machine.apply(WorkflowMachineEvent::MergeConflictResolved)
+            .expect("merge_conflict: MergeConflictResolved transition");
         workflow.machine_state = machine.state();
         if workflow.machine_state != WorkflowMachineState::Completed {
             workflow.machine_state = WorkflowMachineState::Completed;

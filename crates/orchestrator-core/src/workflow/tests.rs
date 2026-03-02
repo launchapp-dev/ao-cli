@@ -39,16 +39,16 @@ fn make_workflow(status: WorkflowStatus) -> OrchestratorWorkflow {
 #[test]
 fn state_machine_transitions() {
     let mut machine = WorkflowStateMachine::default();
-    machine.apply(WorkflowMachineEvent::Start);
+    machine.apply(WorkflowMachineEvent::Start).unwrap();
     assert_eq!(machine.state(), WorkflowMachineState::EvaluateTransition);
 
-    machine.apply(WorkflowMachineEvent::PhaseStarted);
+    machine.apply(WorkflowMachineEvent::PhaseStarted).unwrap();
     assert_eq!(machine.state(), WorkflowMachineState::RunPhase);
 
-    machine.apply(WorkflowMachineEvent::PhaseSucceeded);
+    machine.apply(WorkflowMachineEvent::PhaseSucceeded).unwrap();
     assert_eq!(machine.state(), WorkflowMachineState::EvaluateGates);
 
-    machine.apply(WorkflowMachineEvent::GatesPassed);
+    machine.apply(WorkflowMachineEvent::GatesPassed).unwrap();
     assert_eq!(machine.state(), WorkflowMachineState::ApplyTransition);
 }
 
@@ -56,24 +56,24 @@ fn state_machine_transitions() {
 fn state_machine_allows_resume_from_failed() {
     let mut machine = WorkflowStateMachine::new(WorkflowMachineState::Failed);
 
-    machine.apply(WorkflowMachineEvent::ResumeRequested);
+    machine.apply(WorkflowMachineEvent::ResumeRequested).unwrap();
     assert_eq!(machine.state(), WorkflowMachineState::EvaluateTransition);
 
-    machine.apply(WorkflowMachineEvent::PhaseStarted);
+    machine.apply(WorkflowMachineEvent::PhaseStarted).unwrap();
     assert_eq!(machine.state(), WorkflowMachineState::RunPhase);
 }
 
 #[test]
 fn state_machine_enters_merge_conflict_from_completed() {
     let mut machine = WorkflowStateMachine::new(WorkflowMachineState::Completed);
-    machine.apply(WorkflowMachineEvent::MergeConflictDetected);
+    machine.apply(WorkflowMachineEvent::MergeConflictDetected).unwrap();
     assert_eq!(machine.state(), WorkflowMachineState::MergeConflict);
 }
 
 #[test]
 fn state_machine_resolves_merge_conflict_to_completed() {
     let mut machine = WorkflowStateMachine::new(WorkflowMachineState::MergeConflict);
-    machine.apply(WorkflowMachineEvent::MergeConflictResolved);
+    machine.apply(WorkflowMachineEvent::MergeConflictResolved).unwrap();
     assert_eq!(machine.state(), WorkflowMachineState::Completed);
 }
 

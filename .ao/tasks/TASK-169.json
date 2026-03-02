@@ -1,6 +1,7 @@
 {
   "assignee": {
-    "type": "unassigned"
+    "type": "human",
+    "user_id": "samishukri"
   },
   "blocked_at": null,
   "blocked_by": null,
@@ -21,13 +22,13 @@
     "REQ-031"
   ],
   "metadata": {
-    "completed_at": null,
+    "completed_at": "2026-03-02T01:19:56.159817Z",
     "created_at": "2026-03-02T00:45:01.594308Z",
     "created_by": "ao-cli",
-    "started_at": null,
-    "updated_at": "2026-03-02T00:45:01.594308Z",
-    "updated_by": "ao-cli",
-    "version": 1
+    "started_at": "2026-03-02T01:02:47.806401Z",
+    "updated_at": "2026-03-02T01:19:56.159818Z",
+    "updated_by": "samishukri",
+    "version": 4
   },
   "paused": false,
   "priority": "high",
@@ -38,7 +39,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "backlog",
+  "status": "done",
   "tags": [],
   "title": "Add skip_if guard conditions to workflow phase execution",
   "type": "feature",

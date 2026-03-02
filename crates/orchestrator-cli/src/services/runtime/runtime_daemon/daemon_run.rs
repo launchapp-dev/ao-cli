@@ -426,6 +426,8 @@ pub(super) async fn handle_daemon_run(
                         "compiled": true,
                         "source_files": source_count,
                         "output_path": result.output_path.display().to_string(),
+                        "phase_definitions": result.config.phase_definitions.len(),
+                        "agent_profiles": result.config.agent_profiles.len(),
                     }),
                     json,
                     notification_runtime.as_mut(),

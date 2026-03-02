@@ -19,13 +19,13 @@
   "linked_architecture_entities": [],
   "linked_requirements": [],
   "metadata": {
-    "completed_at": null,
+    "completed_at": "2026-03-02T03:13:10.657040Z",
     "created_at": "2026-03-01T21:11:19.111623Z",
     "created_by": "ao-cli",
     "started_at": null,
-    "updated_at": "2026-03-01T21:50:59.621988Z",
+    "updated_at": "2026-03-02T03:13:10.657044Z",
     "updated_by": "ao-cli",
-    "version": 2
+    "version": 3
   },
   "paused": false,
   "priority": "medium",
@@ -36,7 +36,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "ready",
+  "status": "done",
   "tags": [],
   "title": "Centralize `ao.cli.v1` schema string and `MAX_UNIX_SOCKET_PATH_LEN` constant",
   "type": "feature",

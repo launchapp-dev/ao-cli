@@ -1,0 +1,71 @@
+agents:
+  po-reviewer:
+    system_prompt: |
+      You are a Product Owner reviewing completed development work.
+      Your job is to verify that ALL acceptance criteria and requirements
+      from the original task are fully met by the implementation.
+      You must be thorough and check every requirement, not just a sample.
+    model: claude-sonnet-4-6
+    tool: claude
+    skills: []
+    capabilities:
+      code_execution: false
+
+phases:
+  unit-test:
+    mode: command
+    directive: "Run the workspace test suite"
+    command:
+      program: cargo
+      args: ["test", "--workspace"]
+      timeout_secs: 600
+
+  lint:
+    mode: command
+    directive: "Run clippy with deny warnings"
+    command:
+      program: cargo
+      args: ["clippy", "--workspace", "--", "-D", "warnings"]
+      timeout_secs: 120
+
+pipelines:
+  - id: review-cycle
+    name: "Review Cycle"
+    description: "Reusable code review and testing sequence"
+    phases:
+      - code-review:
+          on_verdict:
+            rework:
+              target: code-review
+      - testing
+
+  - id: quick-fix
+    name: "Quick Fix"
+    description: "Fast pipeline for small bug fixes"
+    phases:
+      - implementation
+      - testing
+
+  - id: standard
+    name: "Standard (Custom)"
+    description: "Standard pipeline with review sub-pipeline"
+    phases:
+      - requirements
+      - implementation:
+          skip_if:
+            - "task_type == docs"
+      - pipeline: review-cycle
+
+  - id: gated
+    name: "Gated"
+    description: "Full pipeline with requirements validation, implementation, deterministic test/lint gates, code review, and PO sign-off"
+    phases:
+      - requirements
+      - implementation
+      - unit-test
+      - lint
+      - code-review:
+          on_verdict:
+            rework:
+              target: implementation
+      - po-review

@@ -7,7 +7,11 @@ use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::agent_runtime_config::AgentRuntimeConfig;
+use crate::agent_runtime_config::{
+    AgentProfile, AgentRuntimeConfig, CommandCwdMode, PhaseCommandDefinition, PhaseExecutionMode,
+    PhaseManualDefinition,
+};
+use crate::PhaseExecutionDefinition;
 
 pub const WORKFLOW_CONFIG_SCHEMA_ID: &str = "ao.workflow-config.v2";
 pub const WORKFLOW_CONFIG_VERSION: u32 = 2;
@@ -207,6 +211,12 @@ pub struct WorkflowConfig {
     pub pipelines: Vec<PipelineDefinition>,
     #[serde(default)]
     pub checkpoint_retention: WorkflowCheckpointRetentionConfig,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub phase_definitions: BTreeMap<String, PhaseExecutionDefinition>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub agent_profiles: BTreeMap<String, AgentProfile>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools_allowlist: Vec<String>,
 }
 
 impl Default for WorkflowConfig {
@@ -386,6 +396,9 @@ pub fn builtin_workflow_config() -> WorkflowConfig {
                     ],
                 },
             ],
+            phase_definitions: BTreeMap::new(),
+            agent_profiles: BTreeMap::new(),
+            tools_allowlist: Vec::new(),
         })
         .clone()
 }
@@ -615,9 +628,13 @@ pub fn validate_workflow_and_runtime_configs(
                 ));
             }
 
-            if !runtime.has_phase_definition(phase_id) {
+            let in_workflow = workflow
+                .phase_definitions
+                .keys()
+                .any(|k| k.eq_ignore_ascii_case(phase_id));
+            if !in_workflow && !runtime.has_phase_definition(phase_id) {
                 errors.push(format!(
-                    "pipeline '{}' phase '{}' is missing from agent-runtime phases",
+                    "pipeline '{}' phase '{}' is missing from agent-runtime phases and workflow phase_definitions",
                     pipeline.id, phase_id
                 ));
             }
@@ -816,6 +833,88 @@ pub fn validate_workflow_config(config: &WorkflowConfig) -> Result<()> {
         ));
     }
 
+    for (phase_id, definition) in &config.phase_definitions {
+        if phase_id.trim().is_empty() {
+            errors.push("phase_definitions contains an empty phase id".to_string());
+            continue;
+        }
+        match definition.mode {
+            PhaseExecutionMode::Command => {
+                let Some(command) = definition.command.as_ref() else {
+                    errors.push(format!(
+                        "phase_definitions['{}'] mode 'command' requires command block",
+                        phase_id
+                    ));
+                    continue;
+                };
+                if command.program.trim().is_empty() {
+                    errors.push(format!(
+                        "phase_definitions['{}'].command.program must not be empty",
+                        phase_id
+                    ));
+                }
+                if command.success_exit_codes.is_empty() {
+                    errors.push(format!(
+                        "phase_definitions['{}'].command.success_exit_codes must include at least one code",
+                        phase_id
+                    ));
+                }
+                if !config.tools_allowlist.is_empty()
+                    && !config
+                        .tools_allowlist
+                        .iter()
+                        .any(|t| t.eq_ignore_ascii_case(&command.program))
+                {
+                    errors.push(format!(
+                        "phase_definitions['{}'].command.program '{}' is not in tools_allowlist",
+                        phase_id, command.program
+                    ));
+                }
+                if definition.manual.is_some() {
+                    errors.push(format!(
+                        "phase_definitions['{}'] mode 'command' must not include manual block",
+                        phase_id
+                    ));
+                }
+            }
+            PhaseExecutionMode::Manual => {
+                let Some(manual) = definition.manual.as_ref() else {
+                    errors.push(format!(
+                        "phase_definitions['{}'] mode 'manual' requires manual block",
+                        phase_id
+                    ));
+                    continue;
+                };
+                if manual.instructions.trim().is_empty() {
+                    errors.push(format!(
+                        "phase_definitions['{}'].manual.instructions must not be empty",
+                        phase_id
+                    ));
+                }
+                if definition.command.is_some() {
+                    errors.push(format!(
+                        "phase_definitions['{}'] mode 'manual' must not include command block",
+                        phase_id
+                    ));
+                }
+            }
+            PhaseExecutionMode::Agent => {
+                if definition.agent_id.is_some() {
+                    if let Some(agent_id) = definition.agent_id.as_deref() {
+                        if !agent_id.trim().is_empty()
+                            && !config.agent_profiles.contains_key(agent_id)
+                        {
+                            errors.push(format!(
+                                "phase_definitions['{}'] references agent '{}' not found in agent_profiles (will check runtime config at execution time)",
+                                phase_id, agent_id
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     if errors.is_empty() {
         Ok(())
     } else {
@@ -859,6 +958,163 @@ struct YamlPipelineDefinition {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+struct YamlCommandDefinition {
+    program: String,
+    #[serde(default)]
+    args: Vec<String>,
+    #[serde(default)]
+    env: BTreeMap<String, String>,
+    #[serde(default)]
+    cwd_mode: Option<String>,
+    #[serde(default)]
+    cwd_path: Option<String>,
+    #[serde(default)]
+    timeout_secs: Option<u64>,
+    #[serde(default)]
+    success_exit_codes: Option<Vec<i32>>,
+    #[serde(default)]
+    parse_json_output: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct YamlManualDefinition {
+    instructions: String,
+    #[serde(default)]
+    approval_note_required: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct YamlPhaseDefinition {
+    mode: String,
+    #[serde(default)]
+    command: Option<YamlCommandDefinition>,
+    #[serde(default)]
+    manual: Option<YamlManualDefinition>,
+    #[serde(default)]
+    directive: Option<String>,
+}
+
+fn parse_cwd_mode(value: &str) -> Result<CommandCwdMode> {
+    match value.to_ascii_lowercase().replace('-', "_").as_str() {
+        "project_root" => Ok(CommandCwdMode::ProjectRoot),
+        "task_root" => Ok(CommandCwdMode::TaskRoot),
+        "path" => Ok(CommandCwdMode::Path),
+        other => Err(anyhow!("unknown cwd_mode '{}' (expected project_root, task_root, or path)", other)),
+    }
+}
+
+fn yaml_phase_to_execution_definition(
+    phase_id: &str,
+    yaml: YamlPhaseDefinition,
+) -> Result<PhaseExecutionDefinition> {
+    let mode = match yaml.mode.to_ascii_lowercase().as_str() {
+        "command" => PhaseExecutionMode::Command,
+        "manual" => PhaseExecutionMode::Manual,
+        "agent" => {
+            return Err(anyhow!(
+                "phases['{}'] mode 'agent' is not supported in YAML — agent phases belong in agent-runtime-config",
+                phase_id
+            ));
+        }
+        other => {
+            return Err(anyhow!(
+                "phases['{}'] has unknown mode '{}' (expected command or manual)",
+                phase_id,
+                other
+            ));
+        }
+    };
+
+    let command = match (&mode, yaml.command) {
+        (PhaseExecutionMode::Command, Some(cmd)) => Some(PhaseCommandDefinition {
+            program: cmd.program,
+            args: cmd.args,
+            env: cmd.env,
+            cwd_mode: cmd
+                .cwd_mode
+                .as_deref()
+                .map(parse_cwd_mode)
+                .transpose()?
+                .unwrap_or(CommandCwdMode::ProjectRoot),
+            cwd_path: cmd.cwd_path,
+            timeout_secs: cmd.timeout_secs,
+            success_exit_codes: cmd.success_exit_codes.unwrap_or_else(|| vec![0]),
+            parse_json_output: cmd.parse_json_output.unwrap_or(false),
+            expected_result_kind: None,
+            expected_schema: None,
+        }),
+        (PhaseExecutionMode::Command, None) => {
+            return Err(anyhow!(
+                "phases['{}'] mode 'command' requires a command block",
+                phase_id
+            ));
+        }
+        (_, Some(_)) => {
+            return Err(anyhow!(
+                "phases['{}'] mode '{}' must not include a command block",
+                phase_id,
+                yaml.mode
+            ));
+        }
+        _ => None,
+    };
+
+    let manual = match (&mode, yaml.manual) {
+        (PhaseExecutionMode::Manual, Some(m)) => Some(PhaseManualDefinition {
+            instructions: m.instructions,
+            approval_note_required: m.approval_note_required.unwrap_or(false),
+        }),
+        (PhaseExecutionMode::Manual, None) => {
+            return Err(anyhow!(
+                "phases['{}'] mode 'manual' requires a manual block",
+                phase_id
+            ));
+        }
+        (_, Some(_)) => {
+            return Err(anyhow!(
+                "phases['{}'] mode '{}' must not include a manual block",
+                phase_id,
+                yaml.mode
+            ));
+        }
+        _ => None,
+    };
+
+    Ok(PhaseExecutionDefinition {
+        mode,
+        agent_id: None,
+        directive: yaml.directive,
+        runtime: None,
+        capabilities: None,
+        output_contract: None,
+        output_json_schema: None,
+        decision_contract: None,
+        retry: None,
+        command,
+        manual,
+    })
+}
+
+fn title_case_phase_id(phase_id: &str) -> String {
+    phase_id
+        .split(['-', '_'])
+        .filter(|part| !part.trim().is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => {
+                    let mut label = first.to_ascii_uppercase().to_string();
+                    label.push_str(chars.as_str());
+                    label
+                }
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[derive(Debug, Clone, Deserialize)]
 struct YamlWorkflowFile {
     #[serde(default)]
     default_pipeline_id: Option<String>,
@@ -866,6 +1122,12 @@ struct YamlWorkflowFile {
     phase_catalog: Option<BTreeMap<String, PhaseUiDefinition>>,
     #[serde(default)]
     pipelines: Vec<YamlPipelineDefinition>,
+    #[serde(default)]
+    phases: BTreeMap<String, YamlPhaseDefinition>,
+    #[serde(default)]
+    agents: BTreeMap<String, AgentProfile>,
+    #[serde(default)]
+    tools_allowlist: Vec<String>,
 }
 
 fn yaml_phase_entry_to_pipeline_phase_entry(entry: YamlPhaseEntry) -> Result<PipelinePhaseEntry> {
@@ -917,12 +1179,41 @@ pub fn parse_yaml_workflow_config(yaml_str: &str) -> Result<WorkflowConfig> {
         .map(yaml_pipeline_to_pipeline_definition)
         .collect::<Result<Vec<_>>>()?;
 
+    let mut phase_definitions = BTreeMap::new();
+    let mut auto_phase_catalog = BTreeMap::new();
+    for (phase_id, yaml_phase) in yaml_file.phases {
+        let definition = yaml_phase_to_execution_definition(&phase_id, yaml_phase)
+            .with_context(|| format!("error converting YAML phase '{}'", phase_id))?;
+        if !auto_phase_catalog.contains_key(&phase_id) {
+            auto_phase_catalog.insert(
+                phase_id.clone(),
+                PhaseUiDefinition {
+                    label: title_case_phase_id(&phase_id),
+                    description: String::new(),
+                    category: match definition.mode {
+                        PhaseExecutionMode::Command => "build".to_string(),
+                        PhaseExecutionMode::Manual => "manual".to_string(),
+                        PhaseExecutionMode::Agent => "agent".to_string(),
+                    },
+                    icon: None,
+                    docs_url: None,
+                    tags: Vec::new(),
+                    visible: true,
+                },
+            );
+        }
+        phase_definitions.insert(phase_id, definition);
+    }
+
     let base = builtin_workflow_config();
 
     let default_pipeline_id = yaml_file
         .default_pipeline_id
         .unwrap_or(base.default_pipeline_id);
-    let phase_catalog = yaml_file.phase_catalog.unwrap_or(base.phase_catalog);
+    let mut phase_catalog = yaml_file.phase_catalog.unwrap_or(base.phase_catalog);
+    for (id, ui_def) in auto_phase_catalog {
+        phase_catalog.entry(id).or_insert(ui_def);
+    }
 
     Ok(WorkflowConfig {
         schema: WORKFLOW_CONFIG_SCHEMA_ID.to_string(),
@@ -935,6 +1226,9 @@ pub fn parse_yaml_workflow_config(yaml_str: &str) -> Result<WorkflowConfig> {
             pipelines
         },
         checkpoint_retention: WorkflowCheckpointRetentionConfig::default(),
+        phase_definitions,
+        agent_profiles: yaml_file.agents,
+        tools_allowlist: yaml_file.tools_allowlist,
     })
 }
 
@@ -1012,6 +1306,23 @@ pub fn merge_yaml_into_config(base: WorkflowConfig, yaml: WorkflowConfig) -> Wor
         phase_catalog.insert(key, value);
     }
 
+    let mut phase_definitions = base.phase_definitions;
+    for (key, value) in yaml.phase_definitions {
+        phase_definitions.insert(key, value);
+    }
+
+    let mut agent_profiles = base.agent_profiles;
+    for (key, value) in yaml.agent_profiles {
+        agent_profiles.insert(key, value);
+    }
+
+    let mut tools_set: HashSet<String> = base.tools_allowlist.into_iter().collect();
+    for tool in yaml.tools_allowlist {
+        tools_set.insert(tool);
+    }
+    let mut tools_allowlist: Vec<String> = tools_set.into_iter().collect();
+    tools_allowlist.sort();
+
     let default_pipeline_id = if yaml.default_pipeline_id != base.default_pipeline_id
         && !yaml.default_pipeline_id.is_empty()
     {
@@ -1027,6 +1338,9 @@ pub fn merge_yaml_into_config(base: WorkflowConfig, yaml: WorkflowConfig) -> Wor
         phase_catalog,
         pipelines,
         checkpoint_retention: base.checkpoint_retention,
+        phase_definitions,
+        agent_profiles,
+        tools_allowlist,
     }
 }
 
@@ -1939,6 +2253,517 @@ pipelines:
             err.to_string().contains("sub-pipeline 'nonexistent' not found"),
             "error should mention missing pipeline: {}",
             err
+        );
+    }
+
+    #[test]
+    fn yaml_parses_command_phase() {
+        let yaml = r#"
+phases:
+  build:
+    mode: command
+    command:
+      program: cargo
+      args: ["build", "--release"]
+      timeout_secs: 300
+
+pipelines:
+  - id: standard
+    name: Standard
+    phases:
+      - requirements
+      - implementation
+      - build
+      - testing
+"#;
+        let config = parse_yaml_workflow_config(yaml).expect("should parse YAML with command phase");
+        assert!(config.phase_definitions.contains_key("build"));
+        let build = &config.phase_definitions["build"];
+        assert_eq!(build.mode, PhaseExecutionMode::Command);
+        let cmd = build.command.as_ref().expect("should have command");
+        assert_eq!(cmd.program, "cargo");
+        assert_eq!(cmd.args, vec!["build", "--release"]);
+        assert_eq!(cmd.timeout_secs, Some(300));
+        assert_eq!(cmd.cwd_mode, CommandCwdMode::ProjectRoot);
+        assert_eq!(cmd.success_exit_codes, vec![0]);
+    }
+
+    #[test]
+    fn yaml_parses_manual_phase() {
+        let yaml = r#"
+phases:
+  approval:
+    mode: manual
+    manual:
+      instructions: "Review and approve the deployment plan"
+      approval_note_required: true
+
+pipelines:
+  - id: standard
+    name: Standard
+    phases:
+      - requirements
+      - implementation
+      - approval
+      - testing
+"#;
+        let config = parse_yaml_workflow_config(yaml).expect("should parse YAML with manual phase");
+        assert!(config.phase_definitions.contains_key("approval"));
+        let approval = &config.phase_definitions["approval"];
+        assert_eq!(approval.mode, PhaseExecutionMode::Manual);
+        let manual = approval.manual.as_ref().expect("should have manual");
+        assert_eq!(manual.instructions, "Review and approve the deployment plan");
+        assert!(manual.approval_note_required);
+    }
+
+    #[test]
+    fn yaml_parses_agent_profile() {
+        let yaml = r#"
+agents:
+  researcher:
+    system_prompt: "You are a research agent focused on code analysis"
+    model: gemini-3.1-pro-preview
+    web_search: true
+    skills:
+      - deep-search
+    capabilities:
+      code_execution: false
+
+pipelines:
+  - id: standard
+    name: Standard
+    phases:
+      - requirements
+      - implementation
+      - testing
+"#;
+        let config = parse_yaml_workflow_config(yaml).expect("should parse YAML with agent profile");
+        assert!(config.agent_profiles.contains_key("researcher"));
+        let researcher = &config.agent_profiles["researcher"];
+        assert_eq!(researcher.system_prompt, "You are a research agent focused on code analysis");
+        assert_eq!(researcher.model.as_deref(), Some("gemini-3.1-pro-preview"));
+        assert_eq!(researcher.web_search, Some(true));
+        assert_eq!(researcher.skills, vec!["deep-search"]);
+        assert_eq!(researcher.capabilities.get("code_execution"), Some(&false));
+    }
+
+    #[test]
+    fn yaml_auto_registers_command_phase_in_catalog() {
+        let yaml = r#"
+phases:
+  cargo-build:
+    mode: command
+    command:
+      program: cargo
+      args: ["build"]
+
+pipelines:
+  - id: standard
+    name: Standard
+    phases:
+      - requirements
+      - implementation
+      - cargo-build
+      - testing
+"#;
+        let config = parse_yaml_workflow_config(yaml).expect("should parse");
+        assert!(config.phase_catalog.contains_key("cargo-build"));
+        let catalog_entry = &config.phase_catalog["cargo-build"];
+        assert_eq!(catalog_entry.label, "Cargo Build");
+        assert_eq!(catalog_entry.category, "build");
+    }
+
+    #[test]
+    fn yaml_collects_tools_allowlist() {
+        let yaml = r#"
+tools_allowlist:
+  - cargo
+  - npm
+
+pipelines:
+  - id: standard
+    name: Standard
+    phases:
+      - requirements
+      - implementation
+      - testing
+"#;
+        let config = parse_yaml_workflow_config(yaml).expect("should parse");
+        assert!(config.tools_allowlist.contains(&"cargo".to_string()));
+        assert!(config.tools_allowlist.contains(&"npm".to_string()));
+    }
+
+    #[test]
+    fn yaml_rejects_agent_mode_phase() {
+        let yaml = r#"
+phases:
+  research:
+    mode: agent
+
+pipelines:
+  - id: standard
+    name: Standard
+    phases:
+      - requirements
+"#;
+        let err = parse_yaml_workflow_config(yaml)
+            .expect_err("should reject agent mode in YAML phases");
+        let message = format!("{:#}", err);
+        assert!(
+            message.contains("not supported in YAML"),
+            "error should mention YAML restriction: {}",
+            message
+        );
+    }
+
+    #[test]
+    fn yaml_rejects_missing_command_block() {
+        let yaml = r#"
+phases:
+  build:
+    mode: command
+
+pipelines:
+  - id: standard
+    name: Standard
+    phases:
+      - requirements
+"#;
+        let err = parse_yaml_workflow_config(yaml)
+            .expect_err("should reject command mode without command block");
+        let message = format!("{:#}", err);
+        assert!(
+            message.contains("requires a command block"),
+            "error should mention missing command block: {}",
+            message
+        );
+    }
+
+    #[test]
+    fn yaml_rejects_missing_manual_block() {
+        let yaml = r#"
+phases:
+  approval:
+    mode: manual
+
+pipelines:
+  - id: standard
+    name: Standard
+    phases:
+      - requirements
+"#;
+        let err = parse_yaml_workflow_config(yaml)
+            .expect_err("should reject manual mode without manual block");
+        let message = format!("{:#}", err);
+        assert!(
+            message.contains("requires a manual block"),
+            "error should mention missing manual block: {}",
+            message
+        );
+    }
+
+    #[test]
+    fn yaml_merge_combines_phase_definitions() {
+        let base_yaml = r#"
+phases:
+  build:
+    mode: command
+    command:
+      program: cargo
+      args: ["build"]
+
+pipelines:
+  - id: standard
+    name: Standard
+    phases:
+      - requirements
+      - implementation
+      - build
+      - testing
+"#;
+        let overlay_yaml = r#"
+phases:
+  lint:
+    mode: command
+    command:
+      program: cargo
+      args: ["clippy"]
+"#;
+        let base = parse_yaml_workflow_config(base_yaml).expect("parse base");
+        let overlay = parse_yaml_workflow_config(overlay_yaml).expect("parse overlay");
+        let merged = merge_yaml_into_config(base, overlay);
+        assert!(merged.phase_definitions.contains_key("build"));
+        assert!(merged.phase_definitions.contains_key("lint"));
+    }
+
+    #[test]
+    fn yaml_merge_combines_agent_profiles() {
+        let base_yaml = r#"
+agents:
+  researcher:
+    system_prompt: "Research agent"
+    model: gemini-3.1-pro-preview
+
+pipelines:
+  - id: standard
+    name: Standard
+    phases:
+      - requirements
+      - testing
+"#;
+        let overlay_yaml = r#"
+agents:
+  implementer:
+    system_prompt: "Implementation agent"
+    model: claude-sonnet-4-6
+"#;
+        let base = parse_yaml_workflow_config(base_yaml).expect("parse base");
+        let overlay = parse_yaml_workflow_config(overlay_yaml).expect("parse overlay");
+        let merged = merge_yaml_into_config(base, overlay);
+        assert!(merged.agent_profiles.contains_key("researcher"));
+        assert!(merged.agent_profiles.contains_key("implementer"));
+    }
+
+    #[test]
+    fn yaml_merge_deduplicates_tools_allowlist() {
+        let base_yaml = r#"
+tools_allowlist:
+  - cargo
+  - npm
+
+pipelines:
+  - id: standard
+    name: Standard
+    phases:
+      - requirements
+"#;
+        let overlay_yaml = r#"
+tools_allowlist:
+  - cargo
+  - python
+"#;
+        let base = parse_yaml_workflow_config(base_yaml).expect("parse base");
+        let overlay = parse_yaml_workflow_config(overlay_yaml).expect("parse overlay");
+        let merged = merge_yaml_into_config(base, overlay);
+        assert!(merged.tools_allowlist.contains(&"cargo".to_string()));
+        assert!(merged.tools_allowlist.contains(&"npm".to_string()));
+        assert!(merged.tools_allowlist.contains(&"python".to_string()));
+        let cargo_count = merged
+            .tools_allowlist
+            .iter()
+            .filter(|t| *t == "cargo")
+            .count();
+        assert_eq!(cargo_count, 1, "cargo should appear only once after merge");
+    }
+
+    #[test]
+    fn cross_validation_accepts_workflow_defined_phases() {
+        let yaml = r#"
+phases:
+  build:
+    mode: command
+    command:
+      program: cargo
+      args: ["build"]
+
+pipelines:
+  - id: standard
+    name: Standard
+    phases:
+      - requirements
+      - implementation
+      - build
+      - testing
+"#;
+        let config = parse_yaml_workflow_config(yaml).expect("parse yaml");
+        let runtime = crate::agent_runtime_config::builtin_agent_runtime_config();
+        let result = validate_workflow_and_runtime_configs(&config, &runtime);
+        assert!(
+            result.is_ok(),
+            "cross-validation should pass for workflow-defined phase: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn validate_rejects_command_program_not_in_allowlist() {
+        let mut config = builtin_workflow_config();
+        config.tools_allowlist = vec!["npm".to_string()];
+        config.phase_definitions.insert(
+            "build".to_string(),
+            PhaseExecutionDefinition {
+                mode: PhaseExecutionMode::Command,
+                agent_id: None,
+                directive: None,
+                runtime: None,
+                capabilities: None,
+                output_contract: None,
+                output_json_schema: None,
+                decision_contract: None,
+                retry: None,
+                command: Some(PhaseCommandDefinition {
+                    program: "cargo".to_string(),
+                    args: vec!["build".to_string()],
+                    env: BTreeMap::new(),
+                    cwd_mode: CommandCwdMode::ProjectRoot,
+                    cwd_path: None,
+                    timeout_secs: None,
+                    success_exit_codes: vec![0],
+                    parse_json_output: false,
+                    expected_result_kind: None,
+                    expected_schema: None,
+                }),
+                manual: None,
+            },
+        );
+        let err = validate_workflow_config(&config)
+            .expect_err("should reject program not in allowlist");
+        let message = err.to_string();
+        assert!(
+            message.contains("not in tools_allowlist"),
+            "error should mention allowlist: {}",
+            message
+        );
+    }
+
+    #[test]
+    fn yaml_agent_profile_with_all_fields_deserializes() {
+        let yaml = r#"
+agents:
+  full-agent:
+    description: "A fully configured agent"
+    system_prompt: "You are a specialized agent"
+    role: "researcher"
+    tool: claude
+    model: claude-sonnet-4-6
+    fallback_models:
+      - claude-haiku-4-5
+    reasoning_effort: high
+    web_search: true
+    network_access: false
+    timeout_secs: 600
+    max_attempts: 3
+    skills:
+      - deep-search
+      - code-analysis
+    capabilities:
+      code_execution: true
+      file_write: false
+    tool_policy:
+      allow:
+        - Read
+        - Grep
+      deny:
+        - Write
+
+pipelines:
+  - id: standard
+    name: Standard
+    phases:
+      - requirements
+"#;
+        let config = parse_yaml_workflow_config(yaml).expect("should parse full agent profile");
+        let agent = &config.agent_profiles["full-agent"];
+        assert_eq!(agent.description, "A fully configured agent");
+        assert_eq!(agent.system_prompt, "You are a specialized agent");
+        assert_eq!(agent.role.as_deref(), Some("researcher"));
+        assert_eq!(agent.tool.as_deref(), Some("claude"));
+        assert_eq!(agent.model.as_deref(), Some("claude-sonnet-4-6"));
+        assert_eq!(agent.fallback_models, vec!["claude-haiku-4-5"]);
+        assert_eq!(agent.reasoning_effort.as_deref(), Some("high"));
+        assert_eq!(agent.web_search, Some(true));
+        assert_eq!(agent.network_access, Some(false));
+        assert_eq!(agent.timeout_secs, Some(600));
+        assert_eq!(agent.max_attempts, Some(3));
+        assert_eq!(agent.skills, vec!["deep-search", "code-analysis"]);
+        assert_eq!(agent.capabilities.get("code_execution"), Some(&true));
+        assert_eq!(agent.capabilities.get("file_write"), Some(&false));
+        assert_eq!(agent.tool_policy.allow, vec!["Read", "Grep"]);
+        assert_eq!(agent.tool_policy.deny, vec!["Write"]);
+    }
+
+    #[test]
+    fn yaml_command_phase_with_all_options() {
+        let yaml = r#"
+phases:
+  custom-build:
+    mode: command
+    directive: "Build with custom settings"
+    command:
+      program: make
+      args: ["all", "-j4"]
+      env:
+        CC: gcc
+        CFLAGS: "-O2"
+      cwd_mode: task_root
+      timeout_secs: 600
+      success_exit_codes: [0, 2]
+      parse_json_output: true
+
+pipelines:
+  - id: standard
+    name: Standard
+    phases:
+      - requirements
+"#;
+        let config = parse_yaml_workflow_config(yaml).expect("should parse");
+        let phase = &config.phase_definitions["custom-build"];
+        assert_eq!(phase.directive.as_deref(), Some("Build with custom settings"));
+        let cmd = phase.command.as_ref().expect("command");
+        assert_eq!(cmd.program, "make");
+        assert_eq!(cmd.args, vec!["all", "-j4"]);
+        assert_eq!(cmd.env.get("CC"), Some(&"gcc".to_string()));
+        assert_eq!(cmd.cwd_mode, CommandCwdMode::TaskRoot);
+        assert_eq!(cmd.timeout_secs, Some(600));
+        assert_eq!(cmd.success_exit_codes, vec![0, 2]);
+        assert!(cmd.parse_json_output);
+    }
+
+    #[test]
+    fn existing_configs_without_new_fields_deserialize() {
+        let json = serde_json::json!({
+            "schema": WORKFLOW_CONFIG_SCHEMA_ID,
+            "version": WORKFLOW_CONFIG_VERSION,
+            "default_pipeline_id": "standard",
+            "phase_catalog": {
+                "requirements": {
+                    "label": "Requirements",
+                    "description": "",
+                    "category": "planning",
+                    "visible": true,
+                    "tags": []
+                }
+            },
+            "pipelines": [{
+                "id": "standard",
+                "name": "Standard",
+                "description": "",
+                "phases": ["requirements"]
+            }]
+        });
+        let config: WorkflowConfig =
+            serde_json::from_value(json).expect("should deserialize without new fields");
+        assert!(config.phase_definitions.is_empty());
+        assert!(config.agent_profiles.is_empty());
+        assert!(config.tools_allowlist.is_empty());
+    }
+
+    #[test]
+    fn new_fields_skip_serializing_when_empty() {
+        let config = builtin_workflow_config();
+        let json = serde_json::to_value(&config).expect("serialize");
+        let obj = json.as_object().expect("should be object");
+        assert!(
+            !obj.contains_key("phase_definitions"),
+            "empty phase_definitions should not be serialized"
+        );
+        assert!(
+            !obj.contains_key("agent_profiles"),
+            "empty agent_profiles should not be serialized"
+        );
+        assert!(
+            !obj.contains_key("tools_allowlist"),
+            "empty tools_allowlist should not be serialized"
         );
     }
 }

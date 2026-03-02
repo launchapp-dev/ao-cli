@@ -176,6 +176,96 @@ fn inject_response_schema_into_launch_args(runtime_contract: &mut Value, schema:
     }
 }
 
+fn inject_default_stdio_mcp(runtime_contract: &mut Value, project_root: &str) {
+    if runtime_contract
+        .pointer("/mcp/stdio/command")
+        .and_then(Value::as_str)
+        .is_some_and(|v| !v.trim().is_empty())
+    {
+        return;
+    }
+
+    if std::env::var("AO_MCP_TRANSPORT")
+        .ok()
+        .map(|v| v.trim().to_ascii_lowercase())
+        .is_some_and(|v| v == "http")
+    {
+        return;
+    }
+
+    let supports_mcp = runtime_contract
+        .pointer("/cli/capabilities/supports_mcp")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if !supports_mcp {
+        return;
+    }
+
+    let command = std::env::var("AO_MCP_STDIO_COMMAND")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .or_else(|| {
+            std::env::current_exe()
+                .ok()
+                .map(|p| p.to_string_lossy().to_string())
+        });
+    let Some(command) = command else {
+        return;
+    };
+
+    let args = std::env::var("AO_MCP_STDIO_ARGS_JSON")
+        .ok()
+        .and_then(|v| serde_json::from_str::<Vec<String>>(&v).ok())
+        .unwrap_or_else(|| {
+            vec![
+                "--project-root".to_string(),
+                project_root.to_string(),
+                "mcp".to_string(),
+                "serve".to_string(),
+            ]
+        });
+
+    if let Some(mcp) = runtime_contract
+        .get_mut("mcp")
+        .and_then(Value::as_object_mut)
+    {
+        mcp.insert(
+            "stdio".to_string(),
+            serde_json::json!({ "command": command, "args": args }),
+        );
+        let has_agent_id = mcp
+            .get("agent_id")
+            .and_then(Value::as_str)
+            .is_some_and(|v| !v.trim().is_empty());
+        if !has_agent_id {
+            mcp.insert("agent_id".to_string(), serde_json::json!("ao"));
+        }
+    }
+}
+
+fn inject_agent_tool_policy(runtime_contract: &mut Value, project_root: &str, phase_id: &str) {
+    let config = load_agent_runtime_config(project_root);
+    let Some(profile) = config.phase_agent_profile(phase_id) else {
+        return;
+    };
+    let policy = &profile.tool_policy;
+    if policy.allow.is_empty() && policy.deny.is_empty() {
+        return;
+    }
+    if let Some(mcp) = runtime_contract
+        .get_mut("mcp")
+        .and_then(Value::as_object_mut)
+    {
+        mcp.insert(
+            "tool_policy".to_string(),
+            serde_json::json!({
+                "allow": policy.allow,
+                "deny": policy.deny,
+            }),
+        );
+    }
+}
+
 fn phase_decision_contract_for(
     project_root: &str,
     phase_id: &str,
@@ -814,6 +904,8 @@ pub(crate) async fn run_workflow_phase_with_agent(
                     .unwrap_or("codex"),
                 phase_runtime_settings,
             );
+            inject_default_stdio_mcp(&mut runtime_contract, project_root);
+            inject_agent_tool_policy(&mut runtime_contract, project_root, phase_id);
             context
                 .as_object_mut()
                 .expect("json object")
@@ -1260,17 +1352,40 @@ pub(crate) async fn run_workflow_phase(
         &runtime_loaded.config,
     )?;
 
-    let definition = runtime_loaded
+    let mut merged_runtime = runtime_loaded.config.clone();
+    for (id, profile) in &workflow_config.config.agent_profiles {
+        merged_runtime
+            .agents
+            .entry(id.clone())
+            .or_insert_with(|| profile.clone());
+    }
+    if !workflow_config.config.tools_allowlist.is_empty() {
+        let mut combined: std::collections::HashSet<String> =
+            merged_runtime.tools_allowlist.iter().cloned().collect();
+        combined.extend(workflow_config.config.tools_allowlist.iter().cloned());
+        merged_runtime.tools_allowlist = combined.into_iter().collect();
+        merged_runtime.tools_allowlist.sort();
+    }
+
+    let definition = workflow_config
         .config
-        .phase_execution(phase_id)
-        .ok_or_else(|| anyhow!("phase '{}' is missing from agent runtime config", phase_id))?;
-    let agent_id = runtime_loaded
-        .config
-        .phase_agent_id(phase_id)
+        .phase_definitions
+        .get(phase_id)
+        .or_else(|| merged_runtime.phase_execution(phase_id))
+        .ok_or_else(|| {
+            anyhow!(
+                "phase '{}' is missing from both workflow config and agent runtime config",
+                phase_id
+            )
+        })?;
+    let agent_id = definition
+        .agent_id
+        .as_deref()
+        .or_else(|| merged_runtime.phase_agent_id(phase_id))
         .map(ToOwned::to_owned);
     let agent_profile_hash = agent_id
         .as_deref()
-        .and_then(|id| runtime_loaded.config.agent_profile(id))
+        .and_then(|id| merged_runtime.agent_profile(id))
         .map(hash_serializable);
 
     let mut metadata = PhaseExecutionMetadata {
@@ -1307,51 +1422,44 @@ pub(crate) async fn run_workflow_phase(
     match definition.mode {
         orchestrator_core::PhaseExecutionMode::Agent => {
             let runtime_settings = Some(WorkflowPhaseRuntimeSettings {
-                tool: runtime_loaded
-                    .config
+                tool: merged_runtime
                     .phase_tool_override(phase_id)
                     .map(ToOwned::to_owned),
-                model: runtime_loaded
-                    .config
+                model: merged_runtime
                     .phase_model_override(phase_id)
                     .map(ToOwned::to_owned),
-                fallback_models: runtime_loaded.config.phase_fallback_models(phase_id),
-                reasoning_effort: runtime_loaded
-                    .config
+                fallback_models: merged_runtime.phase_fallback_models(phase_id),
+                reasoning_effort: merged_runtime
                     .phase_reasoning_effort(phase_id)
                     .map(ToOwned::to_owned),
-                web_search: runtime_loaded.config.phase_web_search(phase_id),
-                network_access: runtime_loaded.config.phase_network_access(phase_id),
-                timeout_secs: runtime_loaded.config.phase_timeout_secs(phase_id),
-                max_attempts: runtime_loaded.config.phase_max_attempts(phase_id),
-                extra_args: runtime_loaded.config.phase_extra_args(phase_id),
-                codex_config_overrides: runtime_loaded
-                    .config
+                web_search: merged_runtime.phase_web_search(phase_id),
+                network_access: merged_runtime.phase_network_access(phase_id),
+                timeout_secs: merged_runtime.phase_timeout_secs(phase_id),
+                max_attempts: merged_runtime.phase_max_attempts(phase_id),
+                extra_args: merged_runtime.phase_extra_args(phase_id),
+                codex_config_overrides: merged_runtime
                     .phase_codex_config_overrides(phase_id),
             });
 
             let routing_complexity = routing_complexity(task_complexity);
-            let exec_caps = runtime_loaded.config.phase_capabilities(phase_id);
+            let exec_caps = merged_runtime.phase_capabilities(phase_id);
             let execution_targets = PhaseTargetPlanner::build_phase_execution_targets(
                 phase_id,
-                runtime_loaded
-                    .config
+                merged_runtime
                     .phase_model_override(phase_id)
                     .or_else(|| {
                         runtime_settings
                             .as_ref()
                             .and_then(|settings| settings.model.as_deref())
                     }),
-                runtime_loaded
-                    .config
+                merged_runtime
                     .phase_tool_override(phase_id)
                     .or_else(|| {
                         runtime_settings
                             .as_ref()
                             .and_then(|settings| settings.tool.as_deref())
                     }),
-                runtime_loaded
-                    .config
+                merged_runtime
                     .phase_fallback_models(phase_id)
                     .as_slice(),
                 routing_complexity,
@@ -1459,7 +1567,7 @@ pub(crate) async fn run_workflow_phase(
                 project_root,
                 execution_cwd,
                 phase_id,
-                &runtime_loaded.config,
+                &merged_runtime,
                 command,
             )
             .await?;

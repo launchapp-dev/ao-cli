@@ -1,6 +1,7 @@
 {
   "assignee": {
-    "type": "unassigned"
+    "type": "human",
+    "user_id": "samishukri"
   },
   "blocked_at": null,
   "blocked_by": null,
@@ -26,13 +27,13 @@
     "REQ-031"
   ],
   "metadata": {
-    "completed_at": null,
+    "completed_at": "2026-03-02T01:13:08.812851Z",
     "created_at": "2026-03-02T00:45:00.855108Z",
     "created_by": "ao-cli",
-    "started_at": null,
-    "updated_at": "2026-03-02T00:46:13.522045Z",
-    "updated_by": "ao-cli",
-    "version": 3
+    "started_at": "2026-03-02T01:02:46.499506Z",
+    "updated_at": "2026-03-02T01:13:08.812854Z",
+    "updated_by": "samishukri",
+    "version": 6
   },
   "paused": false,
   "priority": "high",
@@ -43,7 +44,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "backlog",
+  "status": "done",
   "tags": [],
   "title": "Add on_verdict transition routing to pipeline phase config",
   "type": "feature",

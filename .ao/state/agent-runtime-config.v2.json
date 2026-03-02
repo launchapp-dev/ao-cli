@@ -50,6 +50,30 @@
         "sandbox_mode=danger-full-access",
         "sandbox_workspace_write.network_access=true"
       ]
+    },
+    "po-reviewer": {
+      "description": "Product Owner reviewer that validates requirements and acceptance criteria",
+      "system_prompt": "You are a Product Owner reviewing completed development work. Your job is to verify that ALL acceptance criteria and requirements from the original task are fully met by the implementation. You must be thorough and check every requirement, not just a sample.",
+      "role": "reviewer",
+      "mcp_servers": {},
+      "tool_policy": {
+        "allow": [],
+        "deny": []
+      },
+      "skills": [],
+      "capabilities": {
+        "code_execution": false
+      },
+      "tool": "claude",
+      "model": "claude-sonnet-4-6",
+      "fallback_models": [],
+      "reasoning_effort": null,
+      "web_search": null,
+      "network_access": null,
+      "timeout_secs": null,
+      "max_attempts": null,
+      "extra_args": [],
+      "codex_config_overrides": []
     }
   },
   "phases": {
@@ -99,7 +123,9 @@
       "runtime": {
         "tool": "oai-runner",
         "model": "zai-coding-plan/glm-5",
-        "fallback_models": ["minimax/MiniMax-M2.5"],
+        "fallback_models": [
+          "minimax/MiniMax-M2.5"
+        ],
         "reasoning_effort": null,
         "web_search": null,
         "network_access": null,
@@ -155,7 +181,7 @@
     "requirements": {
       "mode": "agent",
       "agent_id": "default",
-      "directive": "Clarify implementation scope, constraints, and acceptance criteria. Update docs and implementation notes as needed.",
+      "directive": "Validate and refine the task requirements. You MUST:\n1. Read the task file from .ao/tasks/ to understand all requirements\n2. Assess whether the task description has clear, testable acceptance criteria\n3. If acceptance criteria are missing or vague, update the task description with explicit criteria\n4. Verify the task has sufficient context for implementation (constraints, edge cases, dependencies)\n5. If the task references other files or components, verify they exist in the codebase\n\nEmit your phase decision:\n- verdict: advance \u2014 if requirements are clear, complete, and ready for implementation\n- verdict: rework \u2014 if requirements need clarification (list exactly what is missing)\n- verdict: fail \u2014 only if the task is fundamentally undefined",
       "runtime": {
         "tool": "oai-runner",
         "model": "minimax/MiniMax-M2.5",
@@ -168,13 +194,18 @@
         "extra_args": [],
         "codex_config_overrides": []
       },
-      "output_contract": null,
+      "output_contract": {
+        "kind": "requirements_result",
+        "required_fields": []
+      },
       "output_json_schema": null,
       "command": null,
       "manual": null,
       "decision_contract": {
-        "required_evidence": [],
-        "min_confidence": 0.6,
+        "required_evidence": [
+          "requirements_verified"
+        ],
+        "min_confidence": 0.7,
         "max_risk": "medium",
         "allow_missing_decision": true
       }
@@ -248,6 +279,40 @@
       "output_json_schema": null,
       "command": null,
       "manual": null
+    },
+    "po-review": {
+      "mode": "agent",
+      "agent_id": "po-reviewer",
+      "directive": "Act as a Product Owner. Review the completed implementation against the original task requirements and acceptance criteria. Read the task description, checklist items, and all code changes. Verify EVERY requirement is met, not just a sample. If any requirement or acceptance criterion is NOT fully met, set verdict to rework and list exactly what is missing. Only advance if the task is 100% complete.",
+      "runtime": {
+        "tool": "claude",
+        "model": "claude-sonnet-4-6",
+        "fallback_models": [],
+        "reasoning_effort": null,
+        "web_search": null,
+        "network_access": null,
+        "timeout_secs": null,
+        "max_attempts": null,
+        "extra_args": [],
+        "codex_config_overrides": []
+      },
+      "output_contract": {
+        "kind": "po_review_result",
+        "required_fields": []
+      },
+      "output_json_schema": null,
+      "command": null,
+      "manual": null,
+      "decision_contract": {
+        "required_evidence": [
+          "requirements_verified"
+        ],
+        "min_confidence": 0.8,
+        "max_risk": "medium",
+        "allow_missing_decision": true
+      },
+      "capabilities": null,
+      "retry": null
     }
   }
 }

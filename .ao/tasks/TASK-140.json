@@ -21,13 +21,13 @@
   "linked_architecture_entities": [],
   "linked_requirements": [],
   "metadata": {
-    "completed_at": null,
+    "completed_at": "2026-03-02T17:49:01.034942Z",
     "created_at": "2026-03-01T21:04:36.582142Z",
     "created_by": "ao-cli",
     "started_at": "2026-03-01T21:53:31.335613Z",
-    "updated_at": "2026-03-01T21:54:48.859143Z",
+    "updated_at": "2026-03-02T17:49:01.034945Z",
     "updated_by": "ao-daemon",
-    "version": 22
+    "version": 24
   },
   "paused": false,
   "priority": "high",
@@ -38,7 +38,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "in-progress",
+  "status": "done",
   "tags": [],
   "title": "Remove `planning` facade command (duplicates `vision` + `requirements`)",
   "type": "feature",

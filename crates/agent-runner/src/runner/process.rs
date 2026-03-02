@@ -36,6 +36,8 @@ struct McpToolEnforcement {
     stdio: Option<McpStdioConfig>,
     agent_id: String,
     allowed_prefixes: Vec<String>,
+    tool_policy_allow: Vec<String>,
+    tool_policy_deny: Vec<String>,
 }
 
 #[derive(Debug, Default)]
@@ -67,6 +69,8 @@ fn resolve_mcp_tool_enforcement(
             stdio: None,
             agent_id: "ao".to_string(),
             allowed_prefixes: Vec::new(),
+            tool_policy_allow: Vec::new(),
+            tool_policy_deny: Vec::new(),
         };
     };
 
@@ -135,12 +139,32 @@ fn resolve_mcp_tool_enforcement(
         allowed_prefixes = protocol::default_allowed_tool_prefixes(&agent_id);
     }
 
+    let parse_string_array = |pointer: &str| -> Vec<String> {
+        contract
+            .pointer(pointer)
+            .and_then(serde_json::Value::as_array)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty())
+                    .map(ToString::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let tool_policy_allow = parse_string_array("/mcp/tool_policy/allow");
+    let tool_policy_deny = parse_string_array("/mcp/tool_policy/deny");
+
     McpToolEnforcement {
         enabled,
         endpoint,
         stdio,
         agent_id,
         allowed_prefixes,
+        tool_policy_allow,
+        tool_policy_deny,
     }
 }
 
@@ -472,6 +496,41 @@ fn apply_native_mcp_policy(
     Ok(())
 }
 
+fn tool_policy_glob_match(pattern: &str, value: &str) -> bool {
+    fn inner(pat: &[u8], val: &[u8]) -> bool {
+        match (pat.first(), val.first()) {
+            (None, None) => true,
+            (Some(b'*'), _) => {
+                inner(&pat[1..], val) || (!val.is_empty() && inner(pat, &val[1..]))
+            }
+            (Some(&p), Some(&v)) if p == v => inner(&pat[1..], &val[1..]),
+            _ => false,
+        }
+    }
+    inner(pattern.as_bytes(), value.as_bytes())
+}
+
+fn is_tool_policy_permitted(tool_name: &str, enforcement: &McpToolEnforcement) -> bool {
+    if enforcement.tool_policy_allow.is_empty() && enforcement.tool_policy_deny.is_empty() {
+        return true;
+    }
+    let allowed = if enforcement.tool_policy_allow.is_empty() {
+        true
+    } else {
+        enforcement
+            .tool_policy_allow
+            .iter()
+            .any(|p| tool_policy_glob_match(p, tool_name))
+    };
+    if !allowed {
+        return false;
+    }
+    !enforcement
+        .tool_policy_deny
+        .iter()
+        .any(|p| tool_policy_glob_match(p, tool_name))
+}
+
 fn is_tool_call_allowed(
     tool_name: &str,
     parameters: &serde_json::Value,
@@ -518,10 +577,14 @@ fn is_tool_call_allowed(
         return true;
     }
 
-    enforcement
+    let prefix_allowed = enforcement
         .allowed_prefixes
         .iter()
-        .any(|prefix| normalized.starts_with(prefix))
+        .any(|prefix| normalized.starts_with(prefix));
+    if !prefix_allowed {
+        return false;
+    }
+    is_tool_policy_permitted(&normalized, enforcement)
 }
 
 // Keeping this explicit signature preserves current call sites across the
@@ -1052,6 +1115,8 @@ mod tests {
             }),
             agent_id: "ao".to_string(),
             allowed_prefixes: vec!["ao.".to_string()],
+            tool_policy_allow: Vec::new(),
+            tool_policy_deny: Vec::new(),
         };
         let mut env = HashMap::new();
         let mut cleanup = TempPathCleanup::default();
@@ -1082,6 +1147,8 @@ mod tests {
             stdio: None,
             agent_id: "ao".to_string(),
             allowed_prefixes: vec!["ao.".to_string()],
+            tool_policy_allow: Vec::new(),
+            tool_policy_deny: Vec::new(),
         };
         let mut env = HashMap::new();
         let mut cleanup = TempPathCleanup::default();
@@ -1118,6 +1185,8 @@ mod tests {
             stdio: None,
             agent_id: "ao".to_string(),
             allowed_prefixes: vec!["ao.".to_string()],
+            tool_policy_allow: Vec::new(),
+            tool_policy_deny: Vec::new(),
         };
         let mut env = HashMap::new();
         let mut cleanup = TempPathCleanup::default();
@@ -1149,6 +1218,8 @@ mod tests {
             stdio: None,
             agent_id: "ao".to_string(),
             allowed_prefixes: vec!["ao.".to_string()],
+            tool_policy_allow: Vec::new(),
+            tool_policy_deny: Vec::new(),
         };
         let mut env = HashMap::new();
         let mut cleanup = TempPathCleanup::default();
@@ -1266,6 +1337,8 @@ mod tests {
             }),
             agent_id: "ao".to_string(),
             allowed_prefixes: vec!["ao.".to_string()],
+            tool_policy_allow: Vec::new(),
+            tool_policy_deny: Vec::new(),
         };
         let mut env = HashMap::new();
         let mut cleanup = TempPathCleanup::default();
@@ -1312,6 +1385,8 @@ mod tests {
             stdio: None,
             agent_id: "ao".to_string(),
             allowed_prefixes: vec!["ao.".to_string()],
+            tool_policy_allow: Vec::new(),
+            tool_policy_deny: Vec::new(),
         };
         let mut env = HashMap::new();
         let mut cleanup = TempPathCleanup::default();
@@ -1370,6 +1445,8 @@ mod tests {
             }),
             agent_id: "ao".to_string(),
             allowed_prefixes: vec!["ao.".to_string()],
+            tool_policy_allow: Vec::new(),
+            tool_policy_deny: Vec::new(),
         };
         let mut env = HashMap::new();
         let mut cleanup = TempPathCleanup::default();
@@ -1408,5 +1485,88 @@ mod tests {
             Some("serve")
         );
         assert!(parsed.pointer("/mcp/ao/args").is_none());
+    }
+
+    fn enforcement_with_tool_policy(allow: Vec<&str>, deny: Vec<&str>) -> McpToolEnforcement {
+        McpToolEnforcement {
+            enabled: true,
+            endpoint: Some("http://127.0.0.1:3101/mcp/ao".to_string()),
+            stdio: None,
+            agent_id: "ao".to_string(),
+            allowed_prefixes: vec!["ao.".to_string(), "mcp__ao__".to_string()],
+            tool_policy_allow: allow.into_iter().map(ToString::to_string).collect(),
+            tool_policy_deny: deny.into_iter().map(ToString::to_string).collect(),
+        }
+    }
+
+    #[test]
+    fn tool_policy_empty_permits_all_prefixed_tools() {
+        let enforcement = enforcement_with_tool_policy(vec![], vec![]);
+        assert!(is_tool_call_allowed("ao.task.list", &serde_json::json!({}), &enforcement));
+        assert!(is_tool_call_allowed("ao.daemon.start", &serde_json::json!({}), &enforcement));
+    }
+
+    #[test]
+    fn tool_policy_allowlist_restricts_to_matching() {
+        let enforcement = enforcement_with_tool_policy(vec!["ao.task.*"], vec![]);
+        assert!(is_tool_call_allowed("ao.task.list", &serde_json::json!({}), &enforcement));
+        assert!(is_tool_call_allowed("ao.task.get", &serde_json::json!({}), &enforcement));
+        assert!(!is_tool_call_allowed("ao.daemon.start", &serde_json::json!({}), &enforcement));
+    }
+
+    #[test]
+    fn tool_policy_denylist_blocks_matching() {
+        let enforcement = enforcement_with_tool_policy(vec![], vec!["ao.daemon.*"]);
+        assert!(is_tool_call_allowed("ao.task.list", &serde_json::json!({}), &enforcement));
+        assert!(!is_tool_call_allowed("ao.daemon.start", &serde_json::json!({}), &enforcement));
+        assert!(!is_tool_call_allowed("ao.daemon.stop", &serde_json::json!({}), &enforcement));
+    }
+
+    #[test]
+    fn tool_policy_deny_overrides_allow() {
+        let enforcement = enforcement_with_tool_policy(vec!["ao.*"], vec!["ao.daemon.*"]);
+        assert!(is_tool_call_allowed("ao.task.list", &serde_json::json!({}), &enforcement));
+        assert!(!is_tool_call_allowed("ao.daemon.start", &serde_json::json!({}), &enforcement));
+    }
+
+    #[test]
+    fn tool_policy_does_not_affect_phase_transition() {
+        let enforcement = enforcement_with_tool_policy(vec!["ao.task.*"], vec![]);
+        assert!(is_tool_call_allowed("phase_transition", &serde_json::json!({}), &enforcement));
+    }
+
+    #[test]
+    fn tool_policy_glob_match_basics() {
+        assert!(tool_policy_glob_match("ao.*", "ao.task"));
+        assert!(tool_policy_glob_match("ao.task.*", "ao.task.list"));
+        assert!(tool_policy_glob_match("*", "anything"));
+        assert!(!tool_policy_glob_match("ao.task.*", "ao.daemon.start"));
+        assert!(tool_policy_glob_match("ao.task.list", "ao.task.list"));
+        assert!(!tool_policy_glob_match("ao.task.list", "ao.task.get"));
+    }
+
+    #[test]
+    fn resolve_enforcement_parses_tool_policy_from_contract() {
+        let contract = serde_json::json!({
+            "cli": {
+                "name": "claude",
+                "capabilities": { "supports_mcp": true, "supports_tool_use": true },
+                "launch": { "args": ["--print", "hello"] }
+            },
+            "mcp": {
+                "endpoint": "http://127.0.0.1:3101/mcp/ao",
+                "agent_id": "ao",
+                "tool_policy": {
+                    "allow": ["ao.task.*", "ao.workflow.*"],
+                    "deny": ["ao.task.delete"]
+                }
+            }
+        });
+        let enforcement = resolve_mcp_tool_enforcement(Some(&contract));
+        assert_eq!(enforcement.tool_policy_allow, vec!["ao.task.*", "ao.workflow.*"]);
+        assert_eq!(enforcement.tool_policy_deny, vec!["ao.task.delete"]);
+        assert!(is_tool_call_allowed("ao.task.list", &serde_json::json!({}), &enforcement));
+        assert!(!is_tool_call_allowed("ao.task.delete", &serde_json::json!({}), &enforcement));
+        assert!(!is_tool_call_allowed("ao.daemon.start", &serde_json::json!({}), &enforcement));
     }
 }

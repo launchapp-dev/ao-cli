@@ -422,24 +422,19 @@ pub struct VisionDocument {
     pub updated_at: DateTime<Utc>,
 }
 
-/// Requirement-level MoSCoW priority (`must|should|could|wont`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum RequirementPriority {
-    Must,
-    #[default]
-    Should,
-    Could,
-    Wont,
+pub use protocol::RequirementPriority;
+
+pub trait RequirementPriorityExt {
+    #[must_use]
+    fn to_task_priority(self) -> Priority;
 }
 
-impl RequirementPriority {
-    #[must_use]
-    pub const fn to_task_priority(self) -> Priority {
+impl RequirementPriorityExt for RequirementPriority {
+    fn to_task_priority(self) -> Priority {
         match self {
-            Self::Must => Priority::High,
-            Self::Should => Priority::Medium,
-            Self::Could | Self::Wont => Priority::Low,
+            RequirementPriority::Must => Priority::High,
+            RequirementPriority::Should => Priority::Medium,
+            RequirementPriority::Could | RequirementPriority::Wont => Priority::Low,
         }
     }
 }
@@ -462,15 +457,7 @@ pub enum RequirementStatus {
     Deprecated,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum RequirementType {
-    Product,
-    Functional,
-    NonFunctional,
-    Technical,
-    Other,
-}
+pub use protocol::RequirementType;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RequirementLinks {
@@ -1389,7 +1376,7 @@ pub struct WorkflowRunInput {
 mod tests {
     use super::{
         PhaseDecision, PhaseDecisionVerdict, PhaseEvidence, PhaseEvidenceKind, Priority,
-        RequirementPriority, TaskStatus, TaskType, WorkflowDecisionRisk,
+        RequirementPriority, RequirementPriorityExt, TaskStatus, TaskType, WorkflowDecisionRisk,
     };
     use serde_json::json;
 

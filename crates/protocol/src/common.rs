@@ -31,11 +31,12 @@ impl Timestamp {
     }
 }
 
-/// Requirement-level MoSCoW priority used in protocol requirement payloads.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Requirement-level MoSCoW priority (`must|should|could|wont`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum RequirementPriority {
     Must,
+    #[default]
     Should,
     Could,
     Wont,

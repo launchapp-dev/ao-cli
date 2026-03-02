@@ -5,7 +5,8 @@ use std::sync::Arc;
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use orchestrator_core::{
-    services::ServiceHub, Complexity, RequirementItem, Scope, TaskCreateInput, TaskStatus, TaskType,
+    services::ServiceHub, Complexity, RequirementItem, RequirementPriorityExt, Scope,
+    TaskCreateInput, TaskStatus, TaskType,
 };
 use protocol::{
     default_fallback_models_for_phase, default_primary_model_for_phase, tool_for_model_id,

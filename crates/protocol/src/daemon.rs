@@ -35,12 +35,14 @@ pub struct NodePosition {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "kebab-case")]
 pub enum RequirementType {
+    Product,
     Functional,
+    #[serde(alias = "nonfunctional")]
     NonFunctional,
     Technical,
-    Product,
+    Other,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

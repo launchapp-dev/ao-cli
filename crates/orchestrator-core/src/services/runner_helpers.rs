@@ -159,14 +159,30 @@ pub(super) fn is_runner_process_alive(pid: u32) -> bool {
         return false;
     }
 
-    Command::new("kill")
+    let signal_ok = Command::new("kill")
         .arg("-0")
         .arg(pid.to_string())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
         .map(|status| status.success())
-        .unwrap_or(false)
+        .unwrap_or(false);
+
+    if !signal_ok {
+        return false;
+    }
+
+    if let Ok(output) = Command::new("ps")
+        .args(["-o", "state=", "-p", &pid.to_string()])
+        .output()
+    {
+        let state = String::from_utf8_lossy(&output.stdout);
+        if state.trim().starts_with('Z') {
+            return false;
+        }
+    }
+
+    true
 }
 
 #[cfg(windows)]
@@ -459,7 +475,25 @@ pub(super) async fn ensure_agent_runner_running(project_root: &Path) -> Result<O
             if runner_status_is_compatible(&status, expected_build_id.as_deref()) {
                 return Ok(read_runner_pid_from_lock(&config_dir));
             }
+            let old_pid = read_runner_pid_from_lock(&config_dir);
             let _ = stop_agent_runner_process(project_root).await;
+            if let Some(pid) = old_pid {
+                for _ in 0..50 {
+                    if !is_runner_process_alive(pid) {
+                        break;
+                    }
+                    sleep(Duration::from_millis(100)).await;
+                }
+                #[cfg(unix)]
+                if is_runner_process_alive(pid) {
+                    let _ = Command::new("kill")
+                        .arg("-9")
+                        .arg(pid.to_string())
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .status();
+                }
+            }
         } else {
             return Err(anyhow!(
                 "agent-runner authentication succeeded but status probe returned no response"

@@ -1,5 +1,5 @@
 use super::*;
-use crate::not_found_error;
+use crate::{dry_run_envelope, not_found_error};
 use anyhow::{anyhow, Context, Result};
 use orchestrator_core::{FileServiceHub, ServiceHub, TaskStatus};
 use serde_json::json;
@@ -238,27 +238,13 @@ pub(super) async fn handle_git_worktree(
                 let repo = args.repo.clone();
                 let worktree_name = args.worktree_name.clone();
                 return print_value(
-                    serde_json::json!({
-                        "operation": "git.worktree.remove",
-                        "target": {
-                            "repo": repo.clone(),
-                            "worktree_name": worktree_name.clone(),
-                        },
-                        "action": "git.worktree.remove",
-                        "dry_run": true,
-                        "destructive": true,
-                        "planned_effects": [
-                            "remove git worktree from repository",
-                        ],
-                        "next_step": git_confirmation_next_step("remove_worktree", &repo),
-                        "repo": repo,
-                        "repo_path": repo_path.display().to_string(),
-                        "worktree_name": worktree_name,
-                        "worktree_path": worktree_path.display().to_string(),
-                        "force": args.force,
-                        "requires_confirmation": true,
-                        "command": cmd,
-                    }),
+                    dry_run_envelope(
+                        "git.worktree.remove",
+                        &format!("{}/{}", repo, worktree_name),
+                        "git.worktree.remove",
+                        vec!["remove git worktree from repository".to_string()],
+                        &git_confirmation_next_step("remove_worktree", &repo),
+                    ),
                     json,
                 );
             }
@@ -453,44 +439,30 @@ pub(super) async fn handle_git_worktree(
                 .collect();
 
             if args.dry_run {
-                let mut planned_effects = vec![
-                    "remove git worktree registrations for terminal task worktrees".to_string(),
-                    "remove task worktree directories under managed root".to_string(),
-                ];
-                if args.delete_remote_branch {
-                    planned_effects.push(format!(
-                        "delete eligible task branches from remote '{}'",
-                        args.remote
-                    ));
-                }
+                let planned_effects = if args.delete_remote_branch {
+                    vec![
+                        "remove git worktree registrations for terminal task worktrees".to_string(),
+                        "remove task worktree directories under managed root".to_string(),
+                        format!(
+                            "delete eligible task branches from remote '{}'",
+                            args.remote
+                        ),
+                    ]
+                } else {
+                    vec![
+                        "remove git worktree registrations for terminal task worktrees".to_string(),
+                        "remove task worktree directories under managed root".to_string(),
+                    ]
+                };
+
                 return print_value(
-                    json!({
-                        "operation": "git.worktree.prune",
-                        "target": {
-                            "repo": args.repo,
-                            "remote": args.remote,
-                            "delete_remote_branch": args.delete_remote_branch,
-                        },
-                        "action": "git.worktree.prune",
-                        "destructive": true,
-                        "repo": args.repo,
-                        "repo_path": repo_path_display,
-                        "managed_worktrees_root": managed_root_display,
-                        "dry_run": true,
-                        "requires_confirmation": true,
-                        "planned_effects": planned_effects,
-                        "next_step": git_confirmation_next_step(PRUNE_WORKTREES_CONFIRMATION_OPERATION, &args.repo),
-                        "delete_remote_branch": args.delete_remote_branch,
-                        "remote": args.remote,
-                        "total_worktrees": worktree_reports.len(),
-                        "candidate_count": candidate_reports.len(),
-                        "skipped_count": worktree_reports.len().saturating_sub(candidate_reports.len()),
-                        "worktrees": worktree_reports,
-                        "candidates": candidate_reports,
-                        "pruned_count": 0,
-                        "remote_deleted_count": 0,
-                        "errors": [],
-                    }),
+                    dry_run_envelope(
+                        "git.worktree.prune",
+                        &args.repo,
+                        "git.worktree.prune",
+                        planned_effects,
+                        &git_confirmation_next_step(PRUNE_WORKTREES_CONFIRMATION_OPERATION, &args.repo),
+                    ),
                     json,
                 );
             }
@@ -720,30 +692,13 @@ pub(super) async fn handle_git_worktree(
                     "rerun without --dry-run to execute git worktree push".to_string()
                 };
                 return print_value(
-                    serde_json::json!({
-                        "operation": "git.worktree.push",
-                        "target": {
-                            "repo": repo.clone(),
-                            "worktree_name": worktree_name.clone(),
-                            "remote": remote.clone(),
-                            "branch": branch_name.clone(),
-                        },
-                        "action": "git.worktree.push",
-                        "dry_run": true,
-                        "destructive": args.force,
-                        "planned_effects": [
-                            "push worktree branch updates to remote",
-                        ],
-                        "next_step": next_step,
-                        "repo": repo,
-                        "worktree_name": worktree_name,
-                        "worktree_path": worktree_path.display().to_string(),
-                        "remote": remote,
-                        "branch": branch_name,
-                        "force": args.force,
-                        "requires_confirmation": args.force,
-                        "command": cmd,
-                    }),
+                    dry_run_envelope(
+                        "git.worktree.push",
+                        &format!("{}/{}/{}/{}", repo, worktree_name, remote, branch_name),
+                        "git.worktree.push",
+                        vec!["push worktree branch updates to remote".to_string()],
+                        &next_step,
+                    ),
                     json,
                 );
             }

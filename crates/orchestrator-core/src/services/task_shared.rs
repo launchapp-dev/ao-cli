@@ -480,3 +480,217 @@ fn parse_deadline(value: Option<&str>) -> Option<chrono::DateTime<Utc>> {
         .and_then(|raw| chrono::DateTime::parse_from_rfc3339(raw).ok())
         .map(|timestamp| timestamp.with_timezone(&Utc))
 }
+
+pub(super) fn create_task_in_state(
+    state: &mut super::state_store::CoreState,
+    input: TaskCreateInput,
+) -> Result<OrchestratorTask> {
+    let now = Utc::now();
+    let id = next_task_id(&state.tasks);
+    let created_by = input.created_by.unwrap_or_else(|| protocol::ACTOR_CLI.to_string());
+    validate_linked_architecture_entities(&state.architecture, &input.linked_architecture_entities)?;
+    let task = OrchestratorTask {
+        id: id.clone(),
+        title: input.title,
+        description: input.description,
+        task_type: input.task_type.unwrap_or(TaskType::Feature),
+        status: TaskStatus::Backlog,
+        blocked_reason: None,
+        blocked_at: None,
+        blocked_phase: None,
+        blocked_by: None,
+        priority: input.priority.unwrap_or(Priority::Medium),
+        risk: RiskLevel::Medium,
+        scope: Scope::Medium,
+        complexity: Complexity::Medium,
+        impact_area: Vec::new(),
+        assignee: Assignee::Unassigned,
+        estimated_effort: None,
+        linked_requirements: input.linked_requirements,
+        linked_architecture_entities: input.linked_architecture_entities,
+        dependencies: Vec::new(),
+        checklist: Vec::new(),
+        tags: input.tags,
+        workflow_metadata: WorkflowMetadata::default(),
+        worktree_path: None,
+        branch_name: None,
+        metadata: TaskMetadata {
+            created_at: now,
+            updated_at: now,
+            created_by: created_by.clone(),
+            updated_by: created_by,
+            started_at: None,
+            completed_at: None,
+            version: 1,
+        },
+        deadline: None,
+        paused: false,
+        cancelled: false,
+        resource_requirements: Default::default(),
+    };
+    state.tasks.insert(id, task.clone());
+    Ok(task)
+}
+
+pub(super) fn update_task_in_state(
+    state: &mut super::state_store::CoreState,
+    id: &str,
+    input: TaskUpdateInput,
+) -> Result<OrchestratorTask> {
+    if let Some(entity_ids) = input.linked_architecture_entities.as_ref() {
+        validate_linked_architecture_entities(&state.architecture, entity_ids)?;
+    }
+    let task = state
+        .tasks
+        .get_mut(id)
+        .ok_or_else(|| anyhow!("task not found: {id}"))?;
+    apply_task_update(task, input)?;
+    Ok(task.clone())
+}
+
+pub(super) fn replace_task_in_state(
+    state: &mut super::state_store::CoreState,
+    mut task: OrchestratorTask,
+) -> Result<OrchestratorTask> {
+    task.metadata.updated_at = Utc::now();
+    task.metadata.version = task.metadata.version.saturating_add(1);
+    state.tasks.insert(task.id.clone(), task.clone());
+    Ok(task)
+}
+
+pub(super) fn delete_task_in_state(
+    state: &mut super::state_store::CoreState,
+    id: &str,
+) -> Result<()> {
+    state
+        .tasks
+        .remove(id)
+        .ok_or_else(|| anyhow!("task not found: {id}"))?;
+    Ok(())
+}
+
+fn get_task_mut<'a>(
+    state: &'a mut super::state_store::CoreState,
+    id: &str,
+) -> Result<&'a mut OrchestratorTask> {
+    state
+        .tasks
+        .get_mut(id)
+        .ok_or_else(|| anyhow!("task not found: {id}"))
+}
+
+fn bump_task_version(task: &mut OrchestratorTask, updated_by: String) {
+    task.metadata.updated_at = Utc::now();
+    task.metadata.updated_by = updated_by;
+    task.metadata.version = task.metadata.version.saturating_add(1);
+}
+
+pub(super) fn assign_agent_in_state(
+    state: &mut super::state_store::CoreState,
+    id: &str,
+    role: String,
+    model: Option<String>,
+    updated_by: String,
+) -> Result<OrchestratorTask> {
+    let task = get_task_mut(state, id)?;
+    task.assignee = Assignee::Agent { role, model };
+    bump_task_version(task, updated_by);
+    Ok(task.clone())
+}
+
+pub(super) fn assign_human_in_state(
+    state: &mut super::state_store::CoreState,
+    id: &str,
+    user_id: String,
+    updated_by: String,
+) -> Result<OrchestratorTask> {
+    let task = get_task_mut(state, id)?;
+    task.assignee = Assignee::Human { user_id };
+    bump_task_version(task, updated_by);
+    Ok(task.clone())
+}
+
+pub(super) fn set_status_in_state(
+    state: &mut super::state_store::CoreState,
+    id: &str,
+    status: TaskStatus,
+) -> Result<OrchestratorTask> {
+    let task = get_task_mut(state, id)?;
+    apply_task_status(task, status);
+    task.metadata.updated_at = Utc::now();
+    task.metadata.version = task.metadata.version.saturating_add(1);
+    Ok(task.clone())
+}
+
+pub(super) fn add_checklist_item_in_state(
+    state: &mut super::state_store::CoreState,
+    id: &str,
+    description: String,
+    updated_by: String,
+) -> Result<OrchestratorTask> {
+    let task = get_task_mut(state, id)?;
+    task.checklist.push(ChecklistItem {
+        id: Uuid::new_v4().to_string(),
+        description,
+        completed: false,
+        created_at: Utc::now(),
+        completed_at: None,
+    });
+    bump_task_version(task, updated_by);
+    Ok(task.clone())
+}
+
+pub(super) fn update_checklist_item_in_state(
+    state: &mut super::state_store::CoreState,
+    id: &str,
+    item_id: &str,
+    completed: bool,
+    updated_by: String,
+) -> Result<OrchestratorTask> {
+    let task = get_task_mut(state, id)?;
+    let item = task
+        .checklist
+        .iter_mut()
+        .find(|item| item.id == item_id)
+        .ok_or_else(|| anyhow!("checklist item not found: {item_id}"))?;
+    item.completed = completed;
+    item.completed_at = if completed { Some(Utc::now()) } else { None };
+    bump_task_version(task, updated_by);
+    Ok(task.clone())
+}
+
+pub(super) fn add_dependency_in_state(
+    state: &mut super::state_store::CoreState,
+    id: &str,
+    dependency_id: &str,
+    dependency_type: DependencyType,
+    updated_by: String,
+) -> Result<OrchestratorTask> {
+    if !state.tasks.contains_key(dependency_id) {
+        return Err(anyhow!("dependency task not found: {dependency_id}"));
+    }
+    let task = get_task_mut(state, id)?;
+    if !task.dependencies.iter().any(|existing| {
+        existing.task_id == dependency_id && existing.dependency_type == dependency_type
+    }) {
+        task.dependencies.push(TaskDependency {
+            task_id: dependency_id.to_string(),
+            dependency_type,
+        });
+    }
+    bump_task_version(task, updated_by);
+    Ok(task.clone())
+}
+
+pub(super) fn remove_dependency_in_state(
+    state: &mut super::state_store::CoreState,
+    id: &str,
+    dependency_id: &str,
+    updated_by: String,
+) -> Result<OrchestratorTask> {
+    let task = get_task_mut(state, id)?;
+    task.dependencies
+        .retain(|dependency| dependency.task_id != dependency_id);
+    bump_task_version(task, updated_by);
+    Ok(task.clone())
+}

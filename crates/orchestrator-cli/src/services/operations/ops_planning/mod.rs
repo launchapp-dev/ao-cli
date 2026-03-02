@@ -103,44 +103,27 @@ pub(crate) async fn handle_execute(
 ) -> Result<()> {
     let planning = hub.planning();
 
-    match command {
-        ExecuteCommand::Plan(args) => {
-            let input = parse_input_json_or(args.input_json, || {
-                Ok(RequirementsExecutionInput {
-                    requirement_ids: args.requirement_ids,
-                    start_workflows: false,
-                    pipeline_id: args.pipeline_id,
-                    include_wont: args.include_wont,
-                })
-            })?;
-            maybe_generate_ai_tasks_for_requirements(
-                hub.clone(),
-                project_root,
-                &input.requirement_ids,
-                args.ai_task_generation,
-            )
-            .await?;
-            print_value(planning.execute_requirements(input).await?, json)
-        }
-        ExecuteCommand::Run(args) => {
-            let input = parse_input_json_or(args.input_json, || {
-                Ok(RequirementsExecutionInput {
-                    requirement_ids: args.requirement_ids,
-                    start_workflows: true,
-                    pipeline_id: args.pipeline_id,
-                    include_wont: args.include_wont,
-                })
-            })?;
-            maybe_generate_ai_tasks_for_requirements(
-                hub.clone(),
-                project_root,
-                &input.requirement_ids,
-                args.ai_task_generation,
-            )
-            .await?;
-            print_value(planning.execute_requirements(input).await?, json)
-        }
-    }
+    let (args, start_workflows) = match command {
+        ExecuteCommand::Plan(args) => (args, false),
+        ExecuteCommand::Run(args) => (args, true),
+    };
+
+    let input = parse_input_json_or(args.input_json, || {
+        Ok(RequirementsExecutionInput {
+            requirement_ids: args.requirement_ids,
+            start_workflows,
+            pipeline_id: args.pipeline_id,
+            include_wont: args.include_wont,
+        })
+    })?;
+    maybe_generate_ai_tasks_for_requirements(
+        hub.clone(),
+        project_root,
+        &input.requirement_ids,
+        args.ai_task_generation,
+    )
+    .await?;
+    print_value(planning.execute_requirements(input).await?, json)
 }
 
 pub(crate) async fn handle_planning(

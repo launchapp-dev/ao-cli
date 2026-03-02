@@ -26,6 +26,7 @@ pub struct ReactivePhasePoolState {
     pub completion_rx: mpsc::UnboundedReceiver<ReactivePhaseCompletion>,
     pub in_flight_workflow_ids: HashSet<String>,
     pub allow_spawns: bool,
+    pub draining: bool,
 }
 
 impl ReactivePhasePoolState {
@@ -36,6 +37,7 @@ impl ReactivePhasePoolState {
             completion_rx,
             in_flight_workflow_ids: HashSet::new(),
             allow_spawns: true,
+            draining: false,
         }
     }
 }
@@ -89,6 +91,19 @@ pub fn clear_running_workflow_phase_pool(project_root: &str) {
     pools.remove(project_root);
 }
 
+pub fn set_pool_draining(project_root: &str, draining: bool) {
+    with_reactive_phase_pool_state_mut(project_root, |state| {
+        state.draining = draining;
+        if draining {
+            state.allow_spawns = false;
+        }
+    });
+}
+
+pub fn is_pool_draining(project_root: &str) -> bool {
+    with_reactive_phase_pool_state_mut(project_root, |state| state.draining)
+}
+
 pub fn has_running_workflow_phase_pool_activity(project_root: &str) -> bool {
     let pools = reactive_phase_pools()
         .lock()
@@ -123,18 +138,18 @@ pub async fn execute_running_workflow_phases_for_project(
     });
 
     for completion in completions {
-        process_phase_execution_completion(
+        let slot_result = process_agent_result(
             hub.clone(),
             project_root,
             completion.workflow,
             completion.task,
             completion.phase_id,
             completion.run_result,
-            &mut executed,
-            &mut failed,
-            &mut phase_events,
         )
         .await?;
+        executed = executed.saturating_add(slot_result.executed);
+        failed = failed.saturating_add(slot_result.failed);
+        phase_events.extend(slot_result.phase_events);
     }
 
     if max_phases_per_tick == 0 {
@@ -303,221 +318,6 @@ pub async fn execute_running_workflow_phases_for_project(
     Ok((executed, failed, phase_events))
 }
 
-async fn process_phase_execution_completion(
-    hub: Arc<dyn ServiceHub>,
-    project_root: &str,
-    workflow: orchestrator_core::OrchestratorWorkflow,
-    task: orchestrator_core::OrchestratorTask,
-    phase_id: String,
-    run_result: std::result::Result<PhaseExecutionRunResult, String>,
-    executed: &mut usize,
-    failed: &mut usize,
-    phase_events: &mut Vec<PhaseExecutionEvent>,
-) -> Result<()> {
-    match run_result {
-        Ok(result) => {
-            phase_events.extend(phase_execution_events_from_signals(
-                project_root,
-                &workflow,
-                &result.metadata,
-                &result.signals,
-            ));
-
-            let _ = persist_phase_output(
-                project_root,
-                &workflow.id,
-                &phase_id,
-                &result.outcome,
-            );
-
-            match result.outcome {
-                PhaseExecutionOutcome::Completed { phase_decision, .. } => {
-                    enforce_frontend_phase_gate(project_root, &workflow.id, &phase_id, &task)?;
-                    let updated = hub
-                        .workflows()
-                        .complete_current_phase_with_decision(&workflow.id, phase_decision)
-                        .await?;
-                    sync_task_status_for_workflow_result(
-                        hub.clone(),
-                        project_root,
-                        &updated.task_id,
-                        updated.status,
-                        Some(updated.id.as_str()),
-                    )
-                    .await;
-                    *executed = executed.saturating_add(1);
-                }
-                PhaseExecutionOutcome::NeedsResearch { reason } => {
-                    if phase_id == "research" {
-                        let updated = hub
-                            .workflows()
-                            .fail_current_phase(
-                                &workflow.id,
-                                format!("research phase requested additional research: {reason}"),
-                            )
-                            .await?;
-                        sync_task_status_for_workflow_result(
-                            hub.clone(),
-                            project_root,
-                            &updated.task_id,
-                            updated.status,
-                            Some(updated.id.as_str()),
-                        )
-                        .await;
-                        *failed = failed.saturating_add(1);
-                    } else {
-                        let prior_research_rework =
-                            workflow.decision_history.iter().any(|record| {
-                                record.phase_id == phase_id
-                                    && record.decision
-                                        == orchestrator_core::WorkflowDecisionAction::Rework
-                                    && record.target_phase.as_deref() == Some("research")
-                            });
-
-                        let updated = if prior_research_rework {
-                            hub.workflows().complete_current_phase(&workflow.id).await?
-                        } else {
-                            hub.workflows()
-                                .request_research(&workflow.id, reason)
-                                .await?
-                        };
-                        sync_task_status_for_workflow_result(
-                            hub.clone(),
-                            project_root,
-                            &updated.task_id,
-                            updated.status,
-                            Some(updated.id.as_str()),
-                        )
-                        .await;
-                        if prior_research_rework {
-                            *executed = executed.saturating_add(1);
-                        }
-                    }
-                }
-                PhaseExecutionOutcome::ManualPending { .. } => {
-                    // Manual mode waits for explicit CLI approval.
-                }
-            }
-        }
-        Err(error_message) => {
-            if error_message.contains("contract violation")
-                || error_message.contains("schema validation failed")
-                || error_message.contains("payload kind mismatch")
-            {
-                phase_events.push(PhaseExecutionEvent {
-                    event_type: "workflow-phase-contract-violation".to_string(),
-                    project_root: project_root.to_string(),
-                    workflow_id: workflow.id.clone(),
-                    task_id: workflow.task_id.clone(),
-                    phase_id: phase_id.clone(),
-                    phase_mode: "unknown".to_string(),
-                    metadata: PhaseExecutionMetadata {
-                        phase_id: phase_id.clone(),
-                        phase_mode: "unknown".to_string(),
-                        phase_definition_hash: "unknown".to_string(),
-                        agent_runtime_config_hash: "unknown".to_string(),
-                        agent_runtime_schema:
-                            orchestrator_core::agent_runtime_config::AGENT_RUNTIME_CONFIG_SCHEMA_ID
-                                .to_string(),
-                        agent_runtime_version:
-                            orchestrator_core::agent_runtime_config::AGENT_RUNTIME_CONFIG_VERSION,
-                        agent_runtime_source: "unknown".to_string(),
-                        agent_id: None,
-                        agent_profile_hash: None,
-                        selected_tool: None,
-                        selected_model: None,
-                    },
-                    payload: serde_json::json!({
-                        "workflow_id": workflow.id,
-                        "task_id": workflow.task_id,
-                        "phase_id": phase_id,
-                        "error": error_message,
-                    }),
-                });
-            }
-            if PhaseFailureClassifier::is_transient_runner_error_message(&error_message) {
-                return Ok(());
-            }
-
-            let recovery = attempt_ai_failure_recovery(
-                project_root,
-                &task,
-                &phase_id,
-                &error_message,
-                &workflow.decision_history,
-            )
-            .await;
-
-            match recovery {
-                AiRecoveryAction::Retry => {}
-                AiRecoveryAction::SkipPhase => {
-                    let updated = hub.workflows().complete_current_phase(&workflow.id).await?;
-                    sync_task_status_for_workflow_result(
-                        hub.clone(),
-                        project_root,
-                        &updated.task_id,
-                        updated.status,
-                        Some(updated.id.as_str()),
-                    )
-                    .await;
-                    *executed = executed.saturating_add(1);
-                }
-                AiRecoveryAction::Decompose(subtasks) => {
-                    let linked_requirements = task.linked_requirements.clone();
-                    for subtask_def in subtasks {
-                        let _ = hub
-                            .tasks()
-                            .create(TaskCreateInput {
-                                title: subtask_def.title,
-                                description: subtask_def.description,
-                                task_type: Some(TaskType::Feature),
-                                priority: Some(task.priority),
-                                created_by: Some(AI_RECOVERY_MARKER.to_string()),
-                                tags: vec!["ai-decomposed".to_string(), "ai-generated".to_string()],
-                                linked_requirements: linked_requirements.clone(),
-                                linked_architecture_entities: Vec::new(),
-                            })
-                            .await;
-                    }
-                    let fail_reason = format!(
-                        "{AI_RECOVERY_MARKER}: decomposed into subtasks — {}",
-                        error_message
-                    );
-                    let updated = hub
-                        .workflows()
-                        .fail_current_phase(&workflow.id, fail_reason)
-                        .await?;
-                    sync_task_status_for_workflow_result(
-                        hub.clone(),
-                        project_root,
-                        &updated.task_id,
-                        updated.status,
-                        Some(updated.id.as_str()),
-                    )
-                    .await;
-                    *failed = failed.saturating_add(1);
-                }
-                AiRecoveryAction::Fail => {
-                    let updated = hub
-                        .workflows()
-                        .fail_current_phase(&workflow.id, error_message)
-                        .await?;
-                    sync_task_status_for_workflow_result(
-                        hub.clone(),
-                        project_root,
-                        &updated.task_id,
-                        updated.status,
-                        Some(updated.id.as_str()),
-                    )
-                    .await;
-                    *failed = failed.saturating_add(1);
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
 pub async fn drain_running_workflow_phases_for_project(
     hub: Arc<dyn ServiceHub>,
     project_root: &str,
@@ -548,20 +348,6 @@ pub async fn drain_running_workflow_phases_for_project(
 
     clear_running_workflow_phase_pool(project_root);
     Ok((executed_total, failed_total, phase_events))
-}
-
-fn phase_execution_events_from_signals(
-    project_root: &str,
-    workflow: &orchestrator_core::OrchestratorWorkflow,
-    metadata: &PhaseExecutionMetadata,
-    signals: &[PhaseExecutionSignal],
-) -> Vec<PhaseExecutionEvent> {
-    crate::services::runtime::workflow_executor::workflow_runner::phase_execution_events_from_signals(
-        project_root,
-        workflow,
-        metadata,
-        signals,
-    )
 }
 
 fn phase_execution_metadata_artifact_path(project_root: &str, run_id: &str) -> PathBuf {
@@ -615,27 +401,6 @@ fn append_phase_execution_metadata_artifact(
     std::fs::write(&tmp_path, payload)?;
     std::fs::rename(&tmp_path, &path)?;
     Ok(())
-}
-
-use crate::services::runtime::workflow_executor::workflow_runner::{
-    AiRecoveryAction, AI_RECOVERY_MARKER,
-};
-
-async fn attempt_ai_failure_recovery(
-    project_root: &str,
-    task: &orchestrator_core::OrchestratorTask,
-    phase_id: &str,
-    error_message: &str,
-    decision_history: &[orchestrator_core::WorkflowDecisionRecord],
-) -> AiRecoveryAction {
-    crate::services::runtime::workflow_executor::workflow_runner::attempt_ai_failure_recovery(
-        project_root,
-        task,
-        phase_id,
-        error_message,
-        decision_history,
-    )
-    .await
 }
 
 use crate::services::runtime::workflow_executor::workflow_merge_recovery;

@@ -16,11 +16,15 @@ pub(super) mod task_lifecycle;
 #[path = "daemon_bootstrap.rs"]
 pub(super) mod bootstrap;
 
+#[path = "daemon_agent_slot.rs"]
+pub(super) mod agent_slot;
+
 use task_dispatch::*;
 use phase_pool::*;
 use reconciliation::*;
 use task_lifecycle::*;
 use bootstrap::*;
+use agent_slot::*;
 
 pub(super) async fn project_tick(root: &str, args: &DaemonRunArgs) -> Result<ProjectTickSummary> {
     let root = canonicalize_lossy(root);
@@ -67,12 +71,14 @@ pub(super) async fn project_tick(root: &str, args: &DaemonRunArgs) -> Result<Pro
         reconcile_dependency_gate_tasks_for_project(hub.clone(), &root).await?;
     let reconciled_merge_tasks = reconcile_merge_gate_tasks_for_project(hub.clone(), &root).await?;
 
-    if args.auto_run_ready {
+    let pool_draining = phase_pool::is_pool_draining(&root);
+
+    if !pool_draining && args.auto_run_ready {
         let _ = retry_failed_task_workflows(hub.clone()).await;
         let _ = promote_backlog_tasks_to_ready(hub.clone(), &root).await;
     }
 
-    let ready_dispatch_limit = if args.auto_run_ready {
+    let ready_dispatch_limit = if !pool_draining && args.auto_run_ready {
         match daemon.health().await {
             Ok(health) => ready_task_dispatch_limit(args.max_tasks_per_tick, &health),
             Err(_) => args.max_tasks_per_tick,
@@ -80,7 +86,7 @@ pub(super) async fn project_tick(root: &str, args: &DaemonRunArgs) -> Result<Pro
     } else {
         0
     };
-    let ready_workflow_starts = if args.auto_run_ready {
+    let ready_workflow_starts = if !pool_draining && args.auto_run_ready {
         run_ready_task_workflows_for_project(hub.clone(), &root, ready_dispatch_limit).await?
     } else {
         ReadyTaskWorkflowStartSummary::default()

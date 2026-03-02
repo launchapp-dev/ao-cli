@@ -804,7 +804,7 @@ fn handle_daemon_logs(
     for line in &lines {
         println!("{line}");
     }
-    Ok()
+    Ok(())
 }
 
 async fn handle_daemon_events(args: DaemonEventsArgs, json: bool) -> Result<()> {

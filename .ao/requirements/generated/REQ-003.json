@@ -26,7 +26,7 @@
     "workflows": []
   },
   "priority": "must",
-  "status": "em-review",
+  "status": "implemented",
   "tags": [
     "lens-engineering",
     "lens-ops",
@@ -36,5 +36,5 @@
   ],
   "title": "Harden agent-runner lifecycle reliability and diagnostics",
   "type": "non-functional",
-  "updated_at": "2026-02-27T02:39:04.032836Z"
+  "updated_at": "2026-03-02T19:14:00.704283Z"
 }

@@ -78,7 +78,20 @@
       "Bash(wc:*)",
       "Bash(gemini:*)",
       "Bash(jq:*)",
-      "Bash(do python3:*)"
+      "Bash(do python3:*)",
+      "Bash(cargo ao-bin-check:*)",
+      "Bash(awk:*)",
+      "mcp__ao__ao_task_prioritized",
+      "mcp__ao__ao_requirements_get",
+      "mcp__ao__ao_task_update",
+      "mcp__ao__ao_task_bulk-status",
+      "Bash(cd:*)",
+      "mcp__ao__ao_task_cancel",
+      "mcp__ao__ao_workflow_run-multiple",
+      "Bash(md5:*)",
+      "Bash(/usr/bin/grep:*)",
+      "mcp__ao__ao_output_tail",
+      "mcp__ao__ao_workflow_get"
     ]
   },
   "enableAllProjectMcpServers": true,

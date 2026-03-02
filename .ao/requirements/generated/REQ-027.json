@@ -24,9 +24,9 @@
     "workflows": []
   },
   "priority": "should",
-  "status": "draft",
+  "status": "implemented",
   "tags": [],
   "title": "Harden workflow engine storage and state consistency",
   "type": null,
-  "updated_at": "2026-02-27T02:52:14.542940Z"
+  "updated_at": "2026-03-02T19:27:22.948959Z"
 }

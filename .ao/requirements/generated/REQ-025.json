@@ -8,7 +8,7 @@
   "category": null,
   "comments": [],
   "created_at": "2026-02-27T02:51:39.818598Z",
-  "description": "Task status transitions have no validation — any state can move to any other. The paused flag has a bug where it persists after unblocking. Implement proper task state machine with transition rules and fix the paused flag inconsistency.",
+  "description": "Task status transitions need stronger validation. TASK-046 (done) fixed the paused flag persisting after unblocking — apply_task_status now correctly clears paused, blocked_reason, blocked_at, blocked_phase, and blocked_by. Partial validation exists via validate_task_status_transition (blocks transitions out of Done/Cancelled terminal states). Remaining work (TASK-047, ready): enforce that InProgress requires Ready or Backlog as prior state, and add comprehensive automated test coverage for all valid/invalid transitions.",
   "id": "REQ-025",
   "legacy_id": null,
   "links": {
@@ -23,9 +23,9 @@
     "workflows": []
   },
   "priority": "must",
-  "status": "draft",
+  "status": "em-review",
   "tags": [],
   "title": "Enforce task lifecycle correctness and state machine guardrails",
   "type": null,
-  "updated_at": "2026-02-27T02:52:10.781289Z"
+  "updated_at": "2026-03-02T20:09:38.964113Z"
 }

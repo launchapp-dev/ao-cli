@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-AO (`ao`) is a Rust-only agent orchestrator CLI. 10-crate workspace providing CLI, daemon, agent runner, LLM wrappers, MCP server, and web UI for orchestrating AI agent workflows.
+AO (`ao`) is a Rust-only agent orchestrator CLI. 9-crate workspace providing CLI, daemon, agent runner, LLM wrappers, MCP server, and web UI for orchestrating AI agent workflows.
 
 ## Workspace Layout
 
@@ -16,7 +16,7 @@ crates/
 ├── protocol/                # Wire protocol types shared across all crates
 ├── agent-runner/            # Standalone daemon managing LLM CLI processes via IPC
 ├── llm-cli-wrapper/         # Abstraction over AI CLI tools (claude, codex, gemini, etc.)
-└── oai-runner/              # OpenAI-compatible streaming API client
+└── oai-runner/              # OpenAI-compatible streaming API client (MCP server is embedded in orchestrator-cli via rmcp)
 ```
 
 ## Build & Run
@@ -97,8 +97,4 @@ Full command tree reference: `docs/cli-command-surface.md`
 ## Known Issues to Be Aware Of
 
 - `classify_error` uses string matching on error messages (fragile)
-- `sanitize_identifier` / `repository_scope_for_path` duplicated across 3 locations
-- `Priority` type exists in 3 forms (protocol MoSCoW, core task priority, requirement priority)
-- `planning` command duplicates `vision` + `requirements` surfaces (should be consolidated)
 - `task-control` is split from `task` (should be merged under `task`)
-- Axum version mismatch: web-server uses 0.7, CLI uses 0.8

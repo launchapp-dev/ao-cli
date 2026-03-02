@@ -21,13 +21,13 @@
   "linked_architecture_entities": [],
   "linked_requirements": [],
   "metadata": {
-    "completed_at": null,
+    "completed_at": "2026-03-02T19:29:27.588467Z",
     "created_at": "2026-02-27T16:27:17.780129Z",
     "created_by": "ao-cli",
     "started_at": "2026-02-27T17:58:38.807380Z",
-    "updated_at": "2026-02-28T16:55:37.184178Z",
+    "updated_at": "2026-03-02T19:29:27.588469Z",
     "updated_by": "ao-daemon",
-    "version": 25
+    "version": 26
   },
   "paused": false,
   "priority": "medium",
@@ -38,7 +38,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "ready",
+  "status": "done",
   "tags": [],
   "title": "Add custom MCP server registration in project config (.ao/config.json)",
   "type": "feature",

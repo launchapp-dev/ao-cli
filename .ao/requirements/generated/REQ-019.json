@@ -25,9 +25,9 @@
     "workflows": []
   },
   "priority": "must",
-  "status": "em-review",
+  "status": "implemented",
   "tags": [],
   "title": "Add first-class web UI observability and debug logging",
   "type": null,
-  "updated_at": "2026-02-27T02:38:17.804187Z"
+  "updated_at": "2026-03-02T19:14:02.693951Z"
 }

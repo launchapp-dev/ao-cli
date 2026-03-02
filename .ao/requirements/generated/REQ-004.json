@@ -9,7 +9,7 @@
   "category": "integration",
   "comments": [],
   "created_at": "2026-02-24T17:24:43.920053Z",
-  "description": "Integration between wrapper and MCP server becomes predictable, reducing setup drift across environments.\n\n**Implementation boundary:** Defines build/startup/endpoint-resolution contract and smoke validation between `llm-cli-wrapper` and `llm-mcp-server`. Excludes agent-runner lifecycle and general CLI help UX.",
+  "description": "OBSOLETE: The llm-mcp-server crate was removed from the workspace. The MCP server now lives in orchestrator-cli/src/services/operations/ops_mcp.rs using the rmcp library. This requirement's original scope (build/startup/endpoint-resolution contract between llm-cli-wrapper and llm-mcp-server) is no longer applicable. The integration contract now applies to the embedded MCP server in orchestrator-cli.",
   "id": "REQ-004",
   "legacy_id": null,
   "links": {
@@ -32,5 +32,5 @@
   ],
   "title": "Standardize llm-cli-wrapper and llm-mcp-server integration contract",
   "type": "technical",
-  "updated_at": "2026-02-27T02:36:11.444744Z"
+  "updated_at": "2026-03-02T20:09:23.434729Z"
 }

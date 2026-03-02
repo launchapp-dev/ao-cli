@@ -9,7 +9,7 @@
   "category": "quality",
   "comments": [],
   "created_at": "2026-02-24T17:24:44.632605Z",
-  "description": "Changes are validated consistently so regressions are caught before merge across AO’s core Rust workspace.\n\n**Implementation boundary:** CI checks for compile/test/smoke quality gates in this repository’s Rust crates. Excludes release packaging/distribution mechanics.",
+  "description": "Changes are validated consistently so regressions are caught before merge across AO's core Rust workspace. CI runs cargo check for orchestrator-cli, orchestrator-core, agent-runner, llm-cli-wrapper, oai-runner, and web crates on every pull request. NOTE: llm-mcp-server was removed from the workspace; CI matrix updated accordingly.",
   "id": "REQ-005",
   "legacy_id": null,
   "links": {
@@ -35,5 +35,5 @@
   ],
   "title": "Establish Rust-only CI quality gates for workspace health",
   "type": "technical",
-  "updated_at": "2026-02-27T02:51:37.811789Z"
+  "updated_at": "2026-03-02T20:09:25.409625Z"
 }

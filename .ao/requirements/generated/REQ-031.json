@@ -3,7 +3,7 @@
   "category": null,
   "comments": [],
   "created_at": "2026-03-02T00:31:11.109812Z",
-  "description": "AO already has a compiled state machine (10 states, 15 events, 34 transitions in state_machines/schema.rs) but it acts as a bookkeeping layer, not a routing layer. Phase advancement is positional (current_phase_index + 1), not driven by the state machine transitions. The Rework decision has a target_phase field but the executor ignores it — it just re-runs the current phase. Additionally, pipelines are JSON-only with no user-authored YAML surface.\n\n## Current Architecture (what exists)\n- WorkflowMachineState: Idle, EvaluateTransition, RunPhase, EvaluateGates, ApplyTransition, Paused, Completed, MergeConflict, Failed, Cancelled\n- WorkflowDecisionAction: Advance, Skip, Rework, Repeat, Fail (with target_phase: Option<String>)\n- WorkflowPhaseExecution.attempt: u32 (per-phase retry counter)\n- MAX_PHASE_REWORKS=3 in lifecycle_executor.rs\n- Phase capabilities (PhaseCapabilities from TASK-147)\n- Checkpoint system (save/restore at phase boundaries)\n- Research phase dynamic injection\n\n## Gap Analysis\n- Phase routing is index-based, not ID-based — Rework can't jump to a specific phase\n- No skip conditions — phases always execute unless manually removed\n- No conditional transitions (on_verdict routing) — code-review can't route to different phases based on verdict\n- No escalation state — workflow goes straight to Failed when rework budget exceeds, no HumanEscalated\n- No per-phase retry config — global MAX_PHASE_REWORKS applies to all phases equally\n- No cross-phase data passing — each phase starts fresh with only task title/description\n- No YAML surface — pipelines defined only in .ao/state/ JSON managed via CLI\n- No command-mode phases — every phase requires an AI agent\n- No parallel phases — strictly sequential execution\n\n## Scope\n\n### Phase 1: State Machine as Routing Layer\n1. ID-based phase transitions: Replace current_phase_index with ID-based lookup. When Rework specifies target_phase, executor jumps to that phase.\n2. on_verdict routing: Per-phase config declaring verdict-to-target routing (e.g., code-review rework -> implementation, advance -> testing).\n3. skip_if conditions: Per-phase guards evaluated against task context (task_type, impact_area, capabilities).\n4. HumanEscalated state: New state distinct from Paused/Failed. Entered on rework budget exceeded. Awaitable via ao workflow resume with feedback.\n5. Per-phase retry config: max_attempts and retry_backoff configurable per phase.\n\n### Phase 2: YAML Surface and Composability\n6. YAML workflow definitions: ao.workflows.yaml committed to repo, compiles to internal JSON.\n7. Cross-phase data passing: Persist phase output JSON, inject into next phase prompt via template variables.\n8. Command-mode phases: Shell command phases (command: cargo test) with exit code + stdout as output.\n9. Sub-pipeline composition: Reference other pipelines as nested steps.\n\n### Phase 3: Advanced Patterns\n10. Parallel phase execution: depends_on for DAG-style concurrency.\n11. Trigger declarations: on: push, on: pr_opened, on: schedule for event-driven dispatch.\n12. Loop constructs: Bounded iteration with exit conditions.\n\n## References\n- State machine: crates/orchestrator-core/src/state_machines/schema.rs\n- FSM engine: crates/orchestrator-core/src/state_machines/engine.rs\n- Phase advancement: crates/orchestrator-core/src/workflow/lifecycle_executor.rs\n- Workflow config: crates/orchestrator-core/src/workflow_config.rs\n- Phase executor: crates/orchestrator-cli/src/services/runtime/workflow_executor/phase_executor.rs",
+  "description": "State machine-driven workflow engine with composable YAML pipelines.\n\n## Phase 1: State Machine as Routing Layer — COMPLETED\nAll 5 items implemented via TASK-167 through TASK-171:\n1. ID-based phase transitions (TASK-167) — replaced current_phase_index with ID-based lookup\n2. on_verdict routing (TASK-168) — per-phase config declaring verdict-to-target routing\n3. skip_if conditions (TASK-169) — per-phase guards evaluated against task context\n4. HumanEscalated state (TASK-170) — distinct from Paused/Failed, entered on rework budget exceeded\n5. Per-phase retry config (TASK-171) — max_attempts and retry_backoff configurable per phase\n\n## Phase 2: YAML Surface and Composability — COMPLETED\nAll 3 items implemented via TASK-172 through TASK-174:\n6. YAML workflow definitions (TASK-172) — ao.workflows.yaml compiles to internal JSON, sub-pipeline composition supported\n7. Cross-phase data passing (TASK-173) — phase outputs persisted and injected via __PRIOR_PHASE_OUTPUTS__\n8. Command-mode phases (TASK-174) — shell command phases with exit code + stdout as output\n\n## Phase 3: Advanced Patterns — NOT STARTED (no tasks created)\n9. Parallel phase execution: depends_on for DAG-style concurrency\n10. Trigger declarations: on: push, on: pr_opened, on: schedule for event-driven dispatch\n11. Loop constructs: Bounded iteration with exit conditions",
   "id": "REQ-031",
   "legacy_id": null,
   "links": {
@@ -11,22 +11,17 @@
     "mockups": [],
     "related_requirements": [],
     "tasks": [
-      "TASK-167",
-      "TASK-168",
-      "TASK-169",
-      "TASK-170",
-      "TASK-171",
-      "TASK-172",
-      "TASK-173",
-      "TASK-174"
+      "TASK-215",
+      "TASK-216",
+      "TASK-217"
     ],
     "tests": [],
     "workflows": []
   },
   "priority": "should",
-  "status": "draft",
+  "status": "em-review",
   "tags": [],
   "title": "State Machine-Driven Workflow Engine with Composable YAML Pipelines",
   "type": null,
-  "updated_at": "2026-03-02T00:45:45.472505Z"
+  "updated_at": "2026-03-02T20:29:03.028823Z"
 }

@@ -276,7 +276,7 @@ impl DaemonNotificationRuntime {
         let project_root = canonicalize_lossy(project_root);
         let config = load_notification_config(&project_root)?;
         let client = Client::builder()
-            .user_agent("ao-daemon-notifier/1")
+            .user_agent(format!("{}-notifier/1", protocol::ACTOR_DAEMON))
             .build()
             .context("failed to construct notification HTTP client")?;
         Ok(Self {

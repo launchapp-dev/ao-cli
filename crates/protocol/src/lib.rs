@@ -20,7 +20,8 @@ pub use agent_runner::*;
 pub use common::*;
 // Explicit re-exports for config helpers used across crates
 pub use config::{
-    cli_tracker_path, daemon_events_log_path, default_allowed_mcp_tool_prefixes, Config,
+    cli_tracker_path, daemon_events_log_path, default_allowed_mcp_tool_prefixes, parse_env_bool,
+    parse_env_bool_opt, Config,
 };
 pub use daemon::*;
 pub use error_classification::*;
@@ -33,3 +34,6 @@ pub const PROTOCOL_VERSION: &str = "1.0.0";
 
 pub const CLI_SCHEMA_ID: &str = "ao.cli.v1";
 pub const MAX_UNIX_SOCKET_PATH_LEN: usize = 100;
+pub const ACTOR_CLI: &str = "ao-cli";
+pub const ACTOR_DAEMON: &str = "ao-daemon";
+pub const ACTOR_CORE: &str = "ao-core";

@@ -41,16 +41,16 @@ pub fn load_post_success_git_config(project_root: &str) -> PostSuccessGitConfig 
         cfg.auto_prune_worktrees_after_merge = value.auto_prune_worktrees_after_merge;
     }
 
-    if let Some(enabled) = env_bool_override("AO_AUTO_MERGE_ENABLED") {
+    if let Some(enabled) = protocol::parse_env_bool_opt("AO_AUTO_MERGE_ENABLED") {
         cfg.auto_merge_enabled = enabled;
     }
-    if let Some(enabled) = env_bool_override("AO_AUTO_PR_ENABLED") {
+    if let Some(enabled) = protocol::parse_env_bool_opt("AO_AUTO_PR_ENABLED") {
         cfg.auto_pr_enabled = enabled;
     }
-    if let Some(enabled) = env_bool_override("AO_AUTO_COMMIT_BEFORE_MERGE") {
+    if let Some(enabled) = protocol::parse_env_bool_opt("AO_AUTO_COMMIT_BEFORE_MERGE") {
         cfg.auto_commit_before_merge = enabled;
     }
-    if let Some(enabled) = env_bool_override("AO_AUTO_PRUNE_WORKTREES_AFTER_MERGE") {
+    if let Some(enabled) = protocol::parse_env_bool_opt("AO_AUTO_PRUNE_WORKTREES_AFTER_MERGE") {
         cfg.auto_prune_worktrees_after_merge = enabled;
     }
 
@@ -62,15 +62,6 @@ pub fn load_post_success_git_config(project_root: &str) -> PostSuccessGitConfig 
     }
 
     cfg
-}
-
-pub fn env_bool_override(key: &str) -> Option<bool> {
-    let value = std::env::var(key).ok()?;
-    match value.trim().to_ascii_lowercase().as_str() {
-        "1" | "true" | "yes" | "on" => Some(true),
-        "0" | "false" | "no" | "off" => Some(false),
-        _ => None,
-    }
 }
 
 pub fn resolve_task_source_branch(

@@ -235,16 +235,7 @@ pub async fn promote_backlog_tasks_to_ready(
     project_root: &str,
 ) -> Result<usize> {
     let workflows = hub.workflows().list().await.unwrap_or_default();
-    let active_task_ids: HashSet<String> = workflows
-        .iter()
-        .filter(|workflow| {
-            matches!(
-                workflow.status,
-                WorkflowStatus::Running | WorkflowStatus::Paused | WorkflowStatus::Pending
-            )
-        })
-        .map(|workflow| workflow.task_id.clone())
-        .collect();
+    let active_task_ids = active_workflow_task_ids(&workflows);
 
     let candidates = hub.tasks().list().await?;
     let mut promoted = 0usize;

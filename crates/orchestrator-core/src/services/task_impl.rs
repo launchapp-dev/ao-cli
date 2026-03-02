@@ -47,7 +47,7 @@ impl TaskServiceApi for InMemoryServiceHub {
         let now = Utc::now();
         let mut lock = self.state.write().await;
         let id = next_task_id(&lock.tasks);
-        let created_by = input.created_by.unwrap_or_else(|| "ao-cli".to_string());
+        let created_by = input.created_by.unwrap_or_else(|| protocol::ACTOR_CLI.to_string());
         validate_linked_architecture_entities(
             &lock.architecture,
             &input.linked_architecture_entities,
@@ -341,7 +341,7 @@ impl TaskServiceApi for FileServiceHub {
             linked_architecture_entities,
         } = input;
         let now = Utc::now();
-        let created_by = created_by.unwrap_or_else(|| "ao-cli".to_string());
+        let created_by = created_by.unwrap_or_else(|| protocol::ACTOR_CLI.to_string());
         let (task, _) = self
             .mutate_persistent_state(|state| {
                 let id = next_task_id(&state.tasks);

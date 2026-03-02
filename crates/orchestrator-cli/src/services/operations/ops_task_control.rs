@@ -34,7 +34,7 @@ pub(crate) async fn handle_task_control(
                 );
             }
             task.paused = true;
-            task.metadata.updated_by = "ao-cli".to_string();
+            task.metadata.updated_by = protocol::ACTOR_CLI.to_string();
             tasks.replace(task).await?;
             print_value(
                 serde_json::json!({
@@ -57,7 +57,7 @@ pub(crate) async fn handle_task_control(
                 );
             }
             task.paused = false;
-            task.metadata.updated_by = "ao-cli".to_string();
+            task.metadata.updated_by = protocol::ACTOR_CLI.to_string();
             tasks.replace(task).await?;
             print_value(
                 serde_json::json!({
@@ -106,7 +106,7 @@ pub(crate) async fn handle_task_control(
             )?;
             task.cancelled = true;
             task.status = TaskStatus::Cancelled;
-            task.metadata.updated_by = "ao-cli".to_string();
+            task.metadata.updated_by = protocol::ACTOR_CLI.to_string();
             tasks.replace(task).await?;
             print_value(
                 serde_json::json!({
@@ -121,7 +121,7 @@ pub(crate) async fn handle_task_control(
                 .ok_or_else(|| anyhow!("priority is required"))?;
             let mut task = tasks.get(&args.task_id).await?;
             task.priority = priority;
-            task.metadata.updated_by = "ao-cli".to_string();
+            task.metadata.updated_by = protocol::ACTOR_CLI.to_string();
             tasks.replace(task).await?;
             print_value(
                 serde_json::json!({
@@ -147,7 +147,7 @@ pub(crate) async fn handle_task_control(
                 })
                 .transpose()?;
             task.deadline = normalized;
-            task.metadata.updated_by = "ao-cli".to_string();
+            task.metadata.updated_by = protocol::ACTOR_CLI.to_string();
             tasks.replace(task).await?;
             print_value(
                 serde_json::json!({
@@ -197,7 +197,7 @@ pub(crate) async fn handle_task_control(
             for change in &plan.changes {
                 if let Some(mut task) = tasks_by_id.remove(change.task_id.as_str()) {
                     task.priority = change.to;
-                    task.metadata.updated_by = "ao-cli".to_string();
+                    task.metadata.updated_by = protocol::ACTOR_CLI.to_string();
                     tasks.replace(task).await?;
                 }
             }

@@ -174,3 +174,24 @@ pub fn default_allowed_mcp_tool_prefixes(agent_id: &str) -> Vec<String> {
     prefixes.dedup();
     prefixes
 }
+
+/// Parses a boolean environment variable.
+///
+/// Returns true if the value is not "0", "false", "no", or "off" (case-insensitive).
+/// Returns false if not set or matches one of the false values.
+pub fn parse_env_bool(key: &str) -> bool {
+    parse_env_bool_opt(key).unwrap_or(false)
+}
+
+/// Parses a boolean environment variable into an Option.
+///
+/// Returns Some(true) if the value is not "0", "false", "no", or "off" (case-insensitive).
+/// Returns Some(false) if it matches one of the false values.
+/// Returns None if not set or empty.
+pub fn parse_env_bool_opt(key: &str) -> Option<bool> {
+    std::env::var(key)
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty())
+        .map(|value| !matches!(value.as_str(), "0" | "false" | "no" | "off"))
+}

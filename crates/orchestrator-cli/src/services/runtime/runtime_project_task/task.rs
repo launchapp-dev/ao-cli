@@ -167,7 +167,7 @@ pub(crate) async fn handle_task(
                     description: args.description,
                     task_type: parse_task_type_opt(args.task_type.as_deref())?,
                     priority: parse_priority_opt(args.priority.as_deref())?,
-                    created_by: Some("ao-cli".to_string()),
+                    created_by: Some(protocol::ACTOR_CLI.to_string()),
                     tags: Vec::new(),
                     linked_requirements: args.linked_requirement,
                     linked_architecture_entities: args.linked_architecture_entity,
@@ -190,7 +190,7 @@ pub(crate) async fn handle_task(
                     },
                     assignee: args.assignee,
                     tags: None,
-                    updated_by: Some("ao-cli".to_string()),
+                    updated_by: Some(protocol::ACTOR_CLI.to_string()),
                     deadline: None,
                     linked_architecture_entities: if args.replace_linked_architecture_entities
                         || !args.linked_architecture_entity.is_empty()

@@ -117,6 +117,7 @@ impl DaemonServiceApi for InMemoryServiceHub {
 
     async fn health(&self) -> Result<DaemonHealth> {
         let lock = self.state.read().await;
+        let pool_size = lock.daemon_max_agents.map(|m| m as u32);
         Ok(DaemonHealth {
             healthy: matches!(
                 lock.daemon_status,
@@ -130,6 +131,12 @@ impl DaemonServiceApi for InMemoryServiceHub {
             project_root: None,
             daemon_pid: None,
             process_alive: None,
+            pool_size,
+            pool_utilization_percent: pool_size.map(|_| 0.0),
+            queued_tasks: Some(0),
+            total_agents_spawned: None,
+            total_agents_completed: None,
+            total_agents_failed: None,
         })
     }
 
@@ -305,6 +312,19 @@ impl DaemonServiceApi for FileServiceHub {
             0
         };
         let lock = self.state.read().await;
+        let pool_size = lock.daemon_max_agents.map(|m| m as u32);
+        let pool_utilization_percent = pool_size.map(|ps| {
+            if ps == 0 {
+                0.0
+            } else {
+                (active_agents as f64 / ps as f64) * 100.0
+            }
+        });
+        let queued_tasks = lock
+            .tasks
+            .values()
+            .filter(|t| t.status == TaskStatus::Ready)
+            .count() as u32;
 
         Ok(DaemonHealth {
             healthy: matches!(status, DaemonStatus::Running | DaemonStatus::Paused)
@@ -317,6 +337,12 @@ impl DaemonServiceApi for FileServiceHub {
             project_root: Some(self.project_root.display().to_string()),
             daemon_pid: None,
             process_alive: None,
+            pool_size,
+            pool_utilization_percent,
+            queued_tasks: Some(queued_tasks),
+            total_agents_spawned: None,
+            total_agents_completed: None,
+            total_agents_failed: None,
         })
     }
 

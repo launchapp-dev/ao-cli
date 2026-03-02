@@ -33,6 +33,18 @@ pub struct DaemonHealth {
     pub daemon_pid: Option<u32>,
     #[serde(default)]
     pub process_alive: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pool_size: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pool_utilization_percent: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queued_tasks: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_agents_spawned: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_agents_completed: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_agents_failed: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -47,8 +47,15 @@ pub struct PipelinePhaseConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SubPipelineRef {
+    pub pipeline: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum PipelinePhaseEntry {
+    SubPipeline(SubPipelineRef),
     Simple(String),
     Rich(PipelinePhaseConfig),
 }
@@ -58,12 +65,13 @@ impl PipelinePhaseEntry {
         match self {
             PipelinePhaseEntry::Simple(id) => id.as_str(),
             PipelinePhaseEntry::Rich(config) => config.id.as_str(),
+            PipelinePhaseEntry::SubPipeline(sub) => sub.pipeline.as_str(),
         }
     }
 
     pub fn on_verdict(&self) -> Option<&HashMap<String, PhaseTransitionConfig>> {
         match self {
-            PipelinePhaseEntry::Simple(_) => None,
+            PipelinePhaseEntry::Simple(_) | PipelinePhaseEntry::SubPipeline(_) => None,
             PipelinePhaseEntry::Rich(config) => {
                 if config.on_verdict.is_empty() {
                     None
@@ -76,9 +84,13 @@ impl PipelinePhaseEntry {
 
     pub fn skip_if(&self) -> &[String] {
         match self {
-            PipelinePhaseEntry::Simple(_) => &[],
+            PipelinePhaseEntry::Simple(_) | PipelinePhaseEntry::SubPipeline(_) => &[],
             PipelinePhaseEntry::Rich(config) => &config.skip_if,
         }
+    }
+
+    pub fn is_sub_pipeline(&self) -> bool {
+        matches!(self, PipelinePhaseEntry::SubPipeline(_))
     }
 }
 
@@ -116,6 +128,52 @@ impl PipelineDefinition {
             .find(|entry| entry.phase_id().eq_ignore_ascii_case(phase_id))
             .and_then(|entry| entry.on_verdict())
     }
+}
+
+pub fn expand_pipeline_phases(
+    pipelines: &[PipelineDefinition],
+    pipeline_id: &str,
+) -> Result<Vec<PipelinePhaseEntry>> {
+    let mut visited = HashSet::new();
+    expand_pipeline_phases_inner(pipelines, pipeline_id, &mut visited)
+}
+
+fn expand_pipeline_phases_inner(
+    pipelines: &[PipelineDefinition],
+    pipeline_id: &str,
+    visited: &mut HashSet<String>,
+) -> Result<Vec<PipelinePhaseEntry>> {
+    let normalized = pipeline_id.to_ascii_lowercase();
+    if !visited.insert(normalized.clone()) {
+        let chain: Vec<&str> = visited.iter().map(String::as_str).collect();
+        return Err(anyhow!(
+            "circular sub-pipeline reference detected: '{}' (visited: {})",
+            pipeline_id,
+            chain.join(" -> ")
+        ));
+    }
+
+    let pipeline = pipelines
+        .iter()
+        .find(|p| p.id.eq_ignore_ascii_case(pipeline_id))
+        .ok_or_else(|| anyhow!("sub-pipeline '{}' not found", pipeline_id))?;
+
+    let mut expanded = Vec::new();
+    for entry in &pipeline.phases {
+        match entry {
+            PipelinePhaseEntry::SubPipeline(sub) => {
+                let sub_phases =
+                    expand_pipeline_phases_inner(pipelines, &sub.pipeline, visited)?;
+                expanded.extend(sub_phases);
+            }
+            other => {
+                expanded.push(other.clone());
+            }
+        }
+    }
+
+    visited.remove(&normalized);
+    Ok(expanded)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -445,13 +503,14 @@ pub fn resolve_pipeline_phase_plan(
         return None;
     }
 
-    let pipeline = config
+    config
         .pipelines
         .iter()
         .find(|pipeline| pipeline.id.eq_ignore_ascii_case(requested))?;
 
-    let phases: Vec<String> = pipeline
-        .phases
+    let expanded = expand_pipeline_phases(&config.pipelines, requested).ok()?;
+
+    let phases: Vec<String> = expanded
         .iter()
         .map(|entry| entry.phase_id())
         .map(str::trim)
@@ -479,16 +538,13 @@ pub fn resolve_pipeline_verdict_routing(
         return HashMap::new();
     }
 
-    let Some(pipeline) = config
-        .pipelines
-        .iter()
-        .find(|pipeline| pipeline.id.eq_ignore_ascii_case(requested))
-    else {
-        return HashMap::new();
+    let expanded = match expand_pipeline_phases(&config.pipelines, requested) {
+        Ok(phases) => phases,
+        Err(_) => return HashMap::new(),
     };
 
     let mut routing = HashMap::new();
-    for entry in &pipeline.phases {
+    for entry in &expanded {
         if let Some(verdicts) = entry.on_verdict() {
             if !verdicts.is_empty() {
                 routing.insert(entry.phase_id().to_owned(), verdicts.clone());
@@ -511,16 +567,13 @@ pub fn resolve_pipeline_skip_guards(
         return HashMap::new();
     }
 
-    let Some(pipeline) = config
-        .pipelines
-        .iter()
-        .find(|pipeline| pipeline.id.eq_ignore_ascii_case(requested))
-    else {
-        return HashMap::new();
+    let expanded = match expand_pipeline_phases(&config.pipelines, requested) {
+        Ok(phases) => phases,
+        Err(_) => return HashMap::new(),
     };
 
     let mut guards = HashMap::new();
-    for entry in &pipeline.phases {
+    for entry in &expanded {
         let skip_if = entry.skip_if();
         if !skip_if.is_empty() {
             guards.insert(
@@ -540,7 +593,12 @@ pub fn validate_workflow_and_runtime_configs(
 
     let mut errors = Vec::new();
     for pipeline in &workflow.pipelines {
-        for entry in &pipeline.phases {
+        let expanded = match expand_pipeline_phases(&workflow.pipelines, &pipeline.id) {
+            Ok(phases) => phases,
+            Err(_) => continue,
+        };
+
+        for entry in &expanded {
             let phase_id = entry.phase_id().trim();
             if phase_id.is_empty() {
                 continue;
@@ -654,15 +712,29 @@ pub fn validate_workflow_config(config: &WorkflowConfig) -> Result<()> {
             continue;
         }
 
-        let phase_ids_in_pipeline: Vec<&str> = pipeline
-            .phases
-            .iter()
-            .map(|entry| entry.phase_id().trim())
-            .filter(|id| !id.is_empty())
-            .collect();
-
-
         for entry in &pipeline.phases {
+            if let PipelinePhaseEntry::SubPipeline(sub) = entry {
+                let ref_id = sub.pipeline.trim();
+                if ref_id.is_empty() {
+                    errors.push(format!(
+                        "pipeline '{}' contains a sub-pipeline reference with an empty id",
+                        pipeline_id
+                    ));
+                    continue;
+                }
+                if !config
+                    .pipelines
+                    .iter()
+                    .any(|p| p.id.eq_ignore_ascii_case(ref_id))
+                {
+                    errors.push(format!(
+                        "pipeline '{}' references unknown sub-pipeline '{}'",
+                        pipeline_id, ref_id
+                    ));
+                }
+                continue;
+            }
+
             let phase_id = entry.phase_id().trim();
             if phase_id.is_empty() {
                 errors.push(format!(
@@ -682,27 +754,53 @@ pub fn validate_workflow_config(config: &WorkflowConfig) -> Result<()> {
                     pipeline_id, phase_id
                 ));
             }
+        }
 
-            if let Some(verdicts) = entry.on_verdict() {
-                for (verdict_key, transition) in verdicts {
-                    let target = transition.target.trim();
-                    if target.is_empty() {
-                        errors.push(format!(
-                            "pipeline '{}' phase '{}' on_verdict '{}' has an empty target",
-                            pipeline_id, phase_id, verdict_key
-                        ));
-                        continue;
-                    }
-                    if !phase_ids_in_pipeline
-                        .iter()
-                        .any(|id| id.eq_ignore_ascii_case(target))
-                    {
-                        errors.push(format!(
-                            "pipeline '{}' phase '{}' on_verdict '{}' targets unknown phase '{}'",
-                            pipeline_id, phase_id, verdict_key, target
-                        ));
+        match expand_pipeline_phases(&config.pipelines, pipeline_id) {
+            Ok(expanded) => {
+                if expanded.is_empty() {
+                    errors.push(format!(
+                        "pipeline '{}' expands to zero phases",
+                        pipeline_id
+                    ));
+                }
+
+                let expanded_phase_ids: Vec<String> = expanded
+                    .iter()
+                    .map(|e| e.phase_id().trim().to_owned())
+                    .filter(|id| !id.is_empty())
+                    .collect();
+
+                for entry in &expanded {
+                    if let Some(verdicts) = entry.on_verdict() {
+                        let phase_id = entry.phase_id().trim();
+                        for (verdict_key, transition) in verdicts {
+                            let target = transition.target.trim();
+                            if target.is_empty() {
+                                errors.push(format!(
+                                    "pipeline '{}' phase '{}' on_verdict '{}' has an empty target",
+                                    pipeline_id, phase_id, verdict_key
+                                ));
+                                continue;
+                            }
+                            if !expanded_phase_ids
+                                .iter()
+                                .any(|id| id.eq_ignore_ascii_case(target))
+                            {
+                                errors.push(format!(
+                                    "pipeline '{}' phase '{}' on_verdict '{}' targets unknown phase '{}'",
+                                    pipeline_id, phase_id, verdict_key, target
+                                ));
+                            }
+                        }
                     }
                 }
+            }
+            Err(e) => {
+                errors.push(format!(
+                    "pipeline '{}' sub-pipeline expansion failed: {}",
+                    pipeline_id, e
+                ));
             }
         }
     }
@@ -736,8 +834,15 @@ struct YamlPhaseRichConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct YamlSubPipelineRef {
+    pipeline: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 enum YamlPhaseEntry {
+    SubPipeline(YamlSubPipelineRef),
     Simple(String),
     Rich(HashMap<String, YamlPhaseRichConfig>),
 }
@@ -766,6 +871,9 @@ struct YamlWorkflowFile {
 fn yaml_phase_entry_to_pipeline_phase_entry(entry: YamlPhaseEntry) -> Result<PipelinePhaseEntry> {
     match entry {
         YamlPhaseEntry::Simple(id) => Ok(PipelinePhaseEntry::Simple(id)),
+        YamlPhaseEntry::SubPipeline(sub) => Ok(PipelinePhaseEntry::SubPipeline(SubPipelineRef {
+            pipeline: sub.pipeline,
+        })),
         YamlPhaseEntry::Rich(map) => {
             if map.len() != 1 {
                 return Err(anyhow!(
@@ -1482,5 +1590,355 @@ pipelines:
             .find(|p| p.id == "standard")
             .expect("standard pipeline");
         assert_eq!(standard.name, "Compiled Standard");
+    }
+
+    fn make_pipeline(id: &str, phases: Vec<PipelinePhaseEntry>) -> PipelineDefinition {
+        PipelineDefinition {
+            id: id.to_string(),
+            name: id.to_string(),
+            description: String::new(),
+            phases,
+        }
+    }
+
+    #[test]
+    fn expand_basic_sub_pipeline() {
+        let pipelines = vec![
+            make_pipeline(
+                "review-cycle",
+                vec![
+                    PipelinePhaseEntry::Simple("code-review".into()),
+                    PipelinePhaseEntry::Simple("testing".into()),
+                ],
+            ),
+            make_pipeline(
+                "standard",
+                vec![
+                    PipelinePhaseEntry::Simple("requirements".into()),
+                    PipelinePhaseEntry::Simple("implementation".into()),
+                    PipelinePhaseEntry::SubPipeline(SubPipelineRef {
+                        pipeline: "review-cycle".into(),
+                    }),
+                    PipelinePhaseEntry::Simple("merge".into()),
+                ],
+            ),
+        ];
+
+        let expanded = expand_pipeline_phases(&pipelines, "standard").expect("should expand");
+        let ids: Vec<&str> = expanded.iter().map(|e| e.phase_id()).collect();
+        assert_eq!(
+            ids,
+            vec!["requirements", "implementation", "code-review", "testing", "merge"]
+        );
+    }
+
+    #[test]
+    fn expand_nested_sub_pipelines() {
+        let pipelines = vec![
+            make_pipeline(
+                "lint",
+                vec![PipelinePhaseEntry::Simple("code-review".into())],
+            ),
+            make_pipeline(
+                "review-cycle",
+                vec![
+                    PipelinePhaseEntry::SubPipeline(SubPipelineRef {
+                        pipeline: "lint".into(),
+                    }),
+                    PipelinePhaseEntry::Simple("testing".into()),
+                ],
+            ),
+            make_pipeline(
+                "standard",
+                vec![
+                    PipelinePhaseEntry::Simple("requirements".into()),
+                    PipelinePhaseEntry::SubPipeline(SubPipelineRef {
+                        pipeline: "review-cycle".into(),
+                    }),
+                ],
+            ),
+        ];
+
+        let expanded = expand_pipeline_phases(&pipelines, "standard").expect("should expand");
+        let ids: Vec<&str> = expanded.iter().map(|e| e.phase_id()).collect();
+        assert_eq!(ids, vec!["requirements", "code-review", "testing"]);
+    }
+
+    #[test]
+    fn expand_detects_circular_reference() {
+        let pipelines = vec![
+            make_pipeline(
+                "a",
+                vec![PipelinePhaseEntry::SubPipeline(SubPipelineRef {
+                    pipeline: "b".into(),
+                })],
+            ),
+            make_pipeline(
+                "b",
+                vec![PipelinePhaseEntry::SubPipeline(SubPipelineRef {
+                    pipeline: "a".into(),
+                })],
+            ),
+        ];
+
+        let err = expand_pipeline_phases(&pipelines, "a").expect_err("should detect cycle");
+        assert!(
+            err.to_string().contains("circular sub-pipeline reference"),
+            "error should mention circular reference: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn expand_detects_self_reference() {
+        let pipelines = vec![make_pipeline(
+            "self-ref",
+            vec![PipelinePhaseEntry::SubPipeline(SubPipelineRef {
+                pipeline: "self-ref".into(),
+            })],
+        )];
+
+        let err =
+            expand_pipeline_phases(&pipelines, "self-ref").expect_err("should detect self-ref");
+        assert!(
+            err.to_string().contains("circular sub-pipeline reference"),
+            "error should mention circular reference: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn expand_errors_on_missing_pipeline_reference() {
+        let pipelines = vec![make_pipeline(
+            "standard",
+            vec![PipelinePhaseEntry::SubPipeline(SubPipelineRef {
+                pipeline: "nonexistent".into(),
+            })],
+        )];
+
+        let err = expand_pipeline_phases(&pipelines, "standard")
+            .expect_err("should error on missing ref");
+        assert!(
+            err.to_string().contains("sub-pipeline 'nonexistent' not found"),
+            "error should mention missing pipeline: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn expand_preserves_rich_phase_config() {
+        let mut on_verdict = HashMap::new();
+        on_verdict.insert(
+            "rework".to_string(),
+            PhaseTransitionConfig {
+                target: "implementation".to_string(),
+                guard: None,
+            },
+        );
+
+        let pipelines = vec![
+            make_pipeline(
+                "review",
+                vec![PipelinePhaseEntry::Rich(PipelinePhaseConfig {
+                    id: "code-review".into(),
+                    on_verdict: on_verdict.clone(),
+                    skip_if: vec!["task_type == 'docs'".into()],
+                })],
+            ),
+            make_pipeline(
+                "standard",
+                vec![
+                    PipelinePhaseEntry::Simple("implementation".into()),
+                    PipelinePhaseEntry::SubPipeline(SubPipelineRef {
+                        pipeline: "review".into(),
+                    }),
+                ],
+            ),
+        ];
+
+        let expanded = expand_pipeline_phases(&pipelines, "standard").expect("should expand");
+        assert_eq!(expanded.len(), 2);
+        assert_eq!(expanded[1].phase_id(), "code-review");
+        let verdicts = expanded[1].on_verdict().expect("should have on_verdict");
+        assert_eq!(verdicts["rework"].target, "implementation");
+        assert_eq!(expanded[1].skip_if(), &["task_type == 'docs'"]);
+    }
+
+    #[test]
+    fn serde_deserializes_sub_pipeline_ref() {
+        let json = r#"{"pipeline": "review-cycle"}"#;
+        let entry: PipelinePhaseEntry =
+            serde_json::from_str(json).expect("deserialize sub-pipeline");
+        assert!(entry.is_sub_pipeline());
+        assert_eq!(entry.phase_id(), "review-cycle");
+    }
+
+    #[test]
+    fn serde_round_trips_sub_pipeline_entry() {
+        let entry = PipelinePhaseEntry::SubPipeline(SubPipelineRef {
+            pipeline: "review-cycle".into(),
+        });
+        let json = serde_json::to_string(&entry).expect("serialize");
+        let deserialized: PipelinePhaseEntry = serde_json::from_str(&json).expect("deserialize");
+        assert!(deserialized.is_sub_pipeline());
+        assert_eq!(deserialized.phase_id(), "review-cycle");
+    }
+
+    #[test]
+    fn serde_deserializes_pipeline_with_mixed_entries() {
+        let json = r#"{
+            "id": "full",
+            "name": "Full Pipeline",
+            "description": "",
+            "phases": [
+                "requirements",
+                {"pipeline": "review-cycle"},
+                {"id": "testing", "skip_if": ["task_type == 'docs'"]},
+                "merge"
+            ]
+        }"#;
+        let pipeline: PipelineDefinition = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(pipeline.phases.len(), 4);
+        assert!(!pipeline.phases[0].is_sub_pipeline());
+        assert!(pipeline.phases[1].is_sub_pipeline());
+        assert_eq!(pipeline.phases[1].phase_id(), "review-cycle");
+        assert!(!pipeline.phases[2].is_sub_pipeline());
+        assert_eq!(pipeline.phases[2].phase_id(), "testing");
+        assert!(!pipeline.phases[3].is_sub_pipeline());
+    }
+
+    #[test]
+    fn yaml_parses_sub_pipeline_ref() {
+        let yaml = r#"
+pipelines:
+  - id: review-cycle
+    name: Review Cycle
+    phases:
+      - code-review
+      - testing
+  - id: standard
+    name: Standard
+    phases:
+      - requirements
+      - implementation
+      - pipeline: review-cycle
+      - merge
+"#;
+        let config = parse_yaml_workflow_config(yaml).expect("should parse YAML with sub-pipeline");
+        let standard = config
+            .pipelines
+            .iter()
+            .find(|p| p.id == "standard")
+            .expect("should have standard pipeline");
+        assert_eq!(standard.phases.len(), 4);
+        assert!(standard.phases[2].is_sub_pipeline());
+        assert_eq!(standard.phases[2].phase_id(), "review-cycle");
+    }
+
+    #[test]
+    fn resolve_phase_plan_expands_sub_pipelines() {
+        let mut config = builtin_workflow_config();
+        config.pipelines.push(PipelineDefinition {
+            id: "review-cycle".into(),
+            name: "Review Cycle".into(),
+            description: String::new(),
+            phases: vec![
+                PipelinePhaseEntry::Simple("code-review".into()),
+                PipelinePhaseEntry::Simple("testing".into()),
+            ],
+        });
+
+        let standard = config
+            .pipelines
+            .iter_mut()
+            .find(|p| p.id == "standard")
+            .expect("standard pipeline");
+        standard.phases = vec![
+            PipelinePhaseEntry::Simple("requirements".into()),
+            PipelinePhaseEntry::Simple("implementation".into()),
+            PipelinePhaseEntry::SubPipeline(SubPipelineRef {
+                pipeline: "review-cycle".into(),
+            }),
+        ];
+
+        let phases =
+            resolve_pipeline_phase_plan(&config, Some("standard")).expect("should resolve");
+        assert_eq!(
+            phases,
+            vec!["requirements", "implementation", "code-review", "testing"]
+        );
+    }
+
+    #[test]
+    fn validate_rejects_missing_sub_pipeline_reference() {
+        let mut config = builtin_workflow_config();
+        let standard = config
+            .pipelines
+            .iter_mut()
+            .find(|p| p.id == "standard")
+            .expect("standard pipeline");
+        standard.phases = vec![
+            PipelinePhaseEntry::Simple("requirements".into()),
+            PipelinePhaseEntry::SubPipeline(SubPipelineRef {
+                pipeline: "nonexistent".into(),
+            }),
+        ];
+
+        let err = validate_workflow_config(&config)
+            .expect_err("should reject missing sub-pipeline ref");
+        let message = err.to_string();
+        assert!(
+            message.contains("references unknown sub-pipeline 'nonexistent'"),
+            "error should mention missing sub-pipeline: {}",
+            message
+        );
+    }
+
+    #[test]
+    fn validate_rejects_circular_sub_pipeline() {
+        let mut config = builtin_workflow_config();
+        config.pipelines = vec![
+            PipelineDefinition {
+                id: "standard".into(),
+                name: "Standard".into(),
+                description: String::new(),
+                phases: vec![PipelinePhaseEntry::SubPipeline(SubPipelineRef {
+                    pipeline: "review".into(),
+                })],
+            },
+            PipelineDefinition {
+                id: "review".into(),
+                name: "Review".into(),
+                description: String::new(),
+                phases: vec![PipelinePhaseEntry::SubPipeline(SubPipelineRef {
+                    pipeline: "standard".into(),
+                })],
+            },
+        ];
+
+        let err =
+            validate_workflow_config(&config).expect_err("should reject circular sub-pipeline");
+        let message = err.to_string();
+        assert!(
+            message.contains("sub-pipeline expansion failed"),
+            "error should mention expansion failure: {}",
+            message
+        );
+    }
+
+    #[test]
+    fn expand_pipeline_not_found_at_top_level() {
+        let pipelines = vec![make_pipeline(
+            "standard",
+            vec![PipelinePhaseEntry::Simple("requirements".into())],
+        )];
+
+        let err = expand_pipeline_phases(&pipelines, "nonexistent")
+            .expect_err("should error on missing pipeline");
+        assert!(
+            err.to_string().contains("sub-pipeline 'nonexistent' not found"),
+            "error should mention missing pipeline: {}",
+            err
+        );
     }
 }

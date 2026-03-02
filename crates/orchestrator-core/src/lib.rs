@@ -86,15 +86,15 @@ pub use workflow::{
 };
 pub use workflow_config::{
     builtin_workflow_config, compile_and_write_yaml_workflows, compile_yaml_workflow_files,
-    ensure_workflow_config_file, legacy_workflow_config_paths, load_workflow_config,
-    load_workflow_config_or_default, load_workflow_config_with_metadata,
+    ensure_workflow_config_file, expand_pipeline_phases, legacy_workflow_config_paths,
+    load_workflow_config, load_workflow_config_or_default, load_workflow_config_with_metadata,
     merge_yaml_into_config, parse_yaml_workflow_config, resolve_pipeline_phase_plan,
     resolve_pipeline_skip_guards, resolve_pipeline_verdict_routing,
     validate_workflow_and_runtime_configs, validate_workflow_config, workflow_config_hash,
     workflow_config_path, write_workflow_config, yaml_workflows_dir, CompileYamlResult,
     LoadedWorkflowConfig, PhaseTransitionConfig, PhaseUiDefinition, PipelineDefinition,
-    PipelinePhaseConfig, PipelinePhaseEntry, WorkflowCheckpointRetentionConfig, WorkflowConfig,
-    WorkflowConfigMetadata, WorkflowConfigSource, WORKFLOW_CONFIG_FILE_NAME,
+    PipelinePhaseConfig, PipelinePhaseEntry, SubPipelineRef, WorkflowCheckpointRetentionConfig,
+    WorkflowConfig, WorkflowConfigMetadata, WorkflowConfigSource, WORKFLOW_CONFIG_FILE_NAME,
     WORKFLOW_CONFIG_SCHEMA_ID, WORKFLOW_CONFIG_VERSION, YAML_WORKFLOWS_DIR,
 };
 pub use model_quality::{

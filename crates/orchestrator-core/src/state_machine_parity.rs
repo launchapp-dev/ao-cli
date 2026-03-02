@@ -13,6 +13,7 @@ fn workflow_transition_matrix_matches_legacy_behavior() {
         WorkflowMachineState::Completed,
         WorkflowMachineState::MergeConflict,
         WorkflowMachineState::Failed,
+        WorkflowMachineState::HumanEscalated,
         WorkflowMachineState::Cancelled,
     ];
     let events = [
@@ -28,6 +29,7 @@ fn workflow_transition_matrix_matches_legacy_behavior() {
         WorkflowMachineEvent::ResumeRequested,
         WorkflowMachineEvent::CancelRequested,
         WorkflowMachineEvent::ReworkBudgetExceeded,
+        WorkflowMachineEvent::HumanFeedbackProvided,
         WorkflowMachineEvent::MergeConflictDetected,
         WorkflowMachineEvent::MergeConflictResolved,
         WorkflowMachineEvent::NoMorePhases,
@@ -69,7 +71,7 @@ fn legacy_transition(
             WorkflowMachineEvent::NoMorePhases => WorkflowMachineState::Completed,
             WorkflowMachineEvent::PauseRequested => WorkflowMachineState::Paused,
             WorkflowMachineEvent::CancelRequested => WorkflowMachineState::Cancelled,
-            WorkflowMachineEvent::ReworkBudgetExceeded => WorkflowMachineState::Failed,
+            WorkflowMachineEvent::ReworkBudgetExceeded => WorkflowMachineState::HumanEscalated,
             _ => WorkflowMachineState::EvaluateTransition,
         },
         WorkflowMachineState::RunPhase => match event {
@@ -87,7 +89,7 @@ fn legacy_transition(
             | WorkflowMachineEvent::PolicyDecisionFailed => WorkflowMachineState::ApplyTransition,
             WorkflowMachineEvent::PauseRequested => WorkflowMachineState::Paused,
             WorkflowMachineEvent::CancelRequested => WorkflowMachineState::Cancelled,
-            WorkflowMachineEvent::ReworkBudgetExceeded => WorkflowMachineState::Failed,
+            WorkflowMachineEvent::ReworkBudgetExceeded => WorkflowMachineState::HumanEscalated,
             _ => WorkflowMachineState::EvaluateGates,
         },
         WorkflowMachineState::ApplyTransition => match event {
@@ -96,7 +98,7 @@ fn legacy_transition(
             WorkflowMachineEvent::PhaseStarted => WorkflowMachineState::RunPhase,
             WorkflowMachineEvent::PauseRequested => WorkflowMachineState::Paused,
             WorkflowMachineEvent::CancelRequested => WorkflowMachineState::Cancelled,
-            WorkflowMachineEvent::ReworkBudgetExceeded => WorkflowMachineState::Failed,
+            WorkflowMachineEvent::ReworkBudgetExceeded => WorkflowMachineState::HumanEscalated,
             _ => WorkflowMachineState::ApplyTransition,
         },
         WorkflowMachineState::Paused => match event {
@@ -117,6 +119,14 @@ fn legacy_transition(
             WorkflowMachineEvent::ResumeRequested => WorkflowMachineState::EvaluateTransition,
             WorkflowMachineEvent::CancelRequested => WorkflowMachineState::Cancelled,
             _ => WorkflowMachineState::Failed,
+        },
+        WorkflowMachineState::HumanEscalated => match event {
+            WorkflowMachineEvent::HumanFeedbackProvided => {
+                WorkflowMachineState::EvaluateTransition
+            }
+            WorkflowMachineEvent::ResumeRequested => WorkflowMachineState::EvaluateTransition,
+            WorkflowMachineEvent::CancelRequested => WorkflowMachineState::Cancelled,
+            _ => WorkflowMachineState::HumanEscalated,
         },
         WorkflowMachineState::Cancelled => WorkflowMachineState::Cancelled,
     }

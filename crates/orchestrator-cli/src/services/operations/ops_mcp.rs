@@ -2835,11 +2835,12 @@ fn compare_workflow_candidates(
 fn workflow_status_priority(status: WorkflowStatus) -> usize {
     match status {
         WorkflowStatus::Running => 0,
-        WorkflowStatus::Paused => 1,
-        WorkflowStatus::Pending => 2,
-        WorkflowStatus::Failed => 3,
-        WorkflowStatus::Completed => 4,
-        WorkflowStatus::Cancelled => 5,
+        WorkflowStatus::Escalated => 1,
+        WorkflowStatus::Paused => 2,
+        WorkflowStatus::Pending => 3,
+        WorkflowStatus::Failed => 4,
+        WorkflowStatus::Completed => 5,
+        WorkflowStatus::Cancelled => 6,
     }
 }
 

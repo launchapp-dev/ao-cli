@@ -125,6 +125,7 @@ pub(super) fn workflow_status_icon(status: WorkflowStatus) -> &'static str {
         WorkflowStatus::Paused => "⏸",
         WorkflowStatus::Completed => "●",
         WorkflowStatus::Failed => "✗",
+        WorkflowStatus::Escalated => "⚠",
         WorkflowStatus::Cancelled => "⊘",
     }
 }
@@ -332,6 +333,7 @@ mod tests {
         assert_eq!(workflow_status_icon(WorkflowStatus::Paused), "⏸");
         assert_eq!(workflow_status_icon(WorkflowStatus::Completed), "●");
         assert_eq!(workflow_status_icon(WorkflowStatus::Failed), "✗");
+        assert_eq!(workflow_status_icon(WorkflowStatus::Escalated), "⚠");
         assert_eq!(workflow_status_icon(WorkflowStatus::Cancelled), "⊘");
     }
 

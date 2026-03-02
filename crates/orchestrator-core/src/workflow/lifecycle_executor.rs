@@ -134,7 +134,10 @@ impl WorkflowLifecycleExecutor {
     pub fn pause(&self, workflow: &mut OrchestratorWorkflow) {
         if matches!(
             workflow.status,
-            WorkflowStatus::Completed | WorkflowStatus::Failed | WorkflowStatus::Cancelled
+            WorkflowStatus::Completed
+                | WorkflowStatus::Failed
+                | WorkflowStatus::Escalated
+                | WorkflowStatus::Cancelled
         ) {
             return;
         }
@@ -345,7 +348,13 @@ impl WorkflowLifecycleExecutor {
                 machine.apply(WorkflowMachineEvent::PolicyDecisionFailed);
                 machine.apply(WorkflowMachineEvent::ReworkBudgetExceeded);
                 workflow.machine_state = machine.state();
-                workflow.status = WorkflowStatus::Failed;
+                let is_escalated =
+                    workflow.machine_state == WorkflowMachineState::HumanEscalated;
+                workflow.status = if is_escalated {
+                    WorkflowStatus::Escalated
+                } else {
+                    WorkflowStatus::Failed
+                };
                 workflow.completed_at = Some(Utc::now());
                 workflow.failure_reason = Some(reason.clone());
 
@@ -488,7 +497,11 @@ impl WorkflowLifecycleExecutor {
         machine.apply(WorkflowMachineEvent::PolicyDecisionFailed);
         machine.apply(WorkflowMachineEvent::ReworkBudgetExceeded);
         workflow.machine_state = machine.state();
-        workflow.status = WorkflowStatus::Failed;
+        workflow.status = if workflow.machine_state == WorkflowMachineState::HumanEscalated {
+            WorkflowStatus::Escalated
+        } else {
+            WorkflowStatus::Failed
+        };
         workflow.completed_at = Some(Utc::now());
         workflow.failure_reason = Some(error.clone());
         workflow.decision_history.push(self.decision_record(
@@ -624,7 +637,10 @@ impl WorkflowLifecycleExecutor {
             self.mark_current_phase_success(workflow);
             if matches!(
                 workflow.status,
-                WorkflowStatus::Completed | WorkflowStatus::Failed | WorkflowStatus::Cancelled
+                WorkflowStatus::Completed
+                    | WorkflowStatus::Failed
+                    | WorkflowStatus::Escalated
+                    | WorkflowStatus::Cancelled
             ) {
                 break;
             }

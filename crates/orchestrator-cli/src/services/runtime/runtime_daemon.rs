@@ -150,7 +150,7 @@ fn read_daemon_pid(project_root: &str) -> Option<u32> {
         .and_then(|s| s.trim().parse().ok())
 }
 
-fn autonomous_daemon_log_path(project_root: &str) -> PathBuf {
+pub(crate) fn autonomous_daemon_log_path(project_root: &str) -> PathBuf {
     let canonical_root = PathBuf::from(canonicalize_lossy(project_root));
     let scoped_runtime_root = dirs::home_dir().map(|home| {
         home.join(".ao")
@@ -740,6 +740,9 @@ pub(crate) async fn handle_daemon(
     }
 }
 
+const DEFAULT_DAEMON_LOG_LINES: usize = 100;
+
+
 fn handle_daemon_logs(
     limit: Option<usize>,
     search: Option<String>,
@@ -747,63 +750,61 @@ fn handle_daemon_logs(
     json: bool,
 ) -> Result<()> {
     let log_path = autonomous_daemon_log_path(project_root);
-    let limit = limit.unwrap_or(100);
+    let limit = limit.unwrap_or(DEFAULT_DAEMON_LOG_LINES);
 
     let content = match fs::read_to_string(&log_path) {
-        Ok(content) => content,
+        Ok(c) => c,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            return print_value(
-                serde_json::json!({
-                    "log_path": log_path.display().to_string(),
-                    "line_count": 0,
-                    "lines": [],
-                    "has_more": false,
-                }),
-                json,
-            );
+            if json {
+                return print_value(
+                    serde_json::json!({
+                        "log_path": log_path.display().to_string(),
+                        "line_count": 0,
+                        "lines": [],
+                        "has_more": false,
+                    }),
+                    json,
+                );
+            }
+            eprintln!("no daemon log file found at {}", log_path.display());
+            return Ok(());
         }
         Err(err) => {
-            return Err(anyhow!(
-                "failed to read daemon log at {}: {}",
-                log_path.display(),
-                err
-            ));
+            return Err(
+                anyhow!("failed to read daemon log at {}: {}", log_path.display(), err),
+            );
         }
     };
 
-    let all_lines: Vec<&str> = content.lines().collect();
+    let mut lines: Vec<&str> = content.lines().collect();
 
-    let filtered: Vec<&str> = if let Some(ref search) = search {
-        all_lines
-            .iter()
-            .filter(|line| line.contains(search.as_str()))
-            .copied()
-            .collect()
-    } else {
-        all_lines
-    };
+    if let Some(ref needle) = search {
+        lines.retain(|line| line.contains(needle.as_str()));
+    }
 
-    let total = filtered.len();
+    let total = lines.len();
     let has_more = total > limit;
-    let start = total.saturating_sub(limit);
-    let lines: Vec<&str> = filtered[start..].to_vec();
+    if total > limit {
+        lines = lines.split_off(total - limit);
+    }
 
     if json {
-        print_value(
+        let json_lines: Vec<&str> = lines.clone();
+        return print_value(
             serde_json::json!({
                 "log_path": log_path.display().to_string(),
                 "line_count": lines.len(),
-                "lines": lines,
+                "lines": json_lines,
                 "has_more": has_more,
             }),
             json,
-        )
-    } else {
-        for line in &lines {
-            println!("{}", line);
-        }
-        Ok(())
+        );
     }
+
+    for line in &lines {
+        println!("{line}");
+    }
+    Ok()
 }
 
 async fn handle_daemon_events(args: DaemonEventsArgs, json: bool) -> Result<()> {

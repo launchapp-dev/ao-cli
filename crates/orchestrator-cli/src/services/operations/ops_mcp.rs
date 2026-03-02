@@ -221,7 +221,7 @@ struct DaemonEventsInput {
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
 struct DaemonLogsInput {
     #[serde(default)]
-    limit: Option<u32>,
+    limit: Option<usize>,
     #[serde(default)]
     search: Option<String>,
     #[serde(default)]
@@ -1176,18 +1176,16 @@ impl AoMcpServer {
         &self,
         params: Parameters<DaemonLogsInput>,
     ) -> Result<CallToolResult, McpError> {
-        let input = params.0;
-        let mut args = vec!["daemon".to_string(), "logs".to_string()];
-        if let Some(limit) = input.limit {
-            args.push("--limit".to_string());
-            args.push(limit.to_string());
+        match build_daemon_logs_result(&self.default_project_root, params.0) {
+            Ok(result) => Ok(CallToolResult::structured(json!({
+                "tool": "ao.daemon.logs",
+                "result": result,
+            }))),
+            Err(error) => Ok(CallToolResult::structured_error(json!({
+                "tool": "ao.daemon.logs",
+                "error": error.to_string(),
+            }))),
         }
-        if let Some(search) = input.search {
-            args.push("--search".to_string());
-            args.push(search);
-        }
-        self.run_tool("ao.daemon.logs", args, input.project_root)
-            .await
     }
 
     #[tool(
@@ -3295,6 +3293,49 @@ fn build_daemon_events_poll_result(
         "limit": limit,
         "count": response.count,
         "events": response.events,
+    }))
+}
+
+const DEFAULT_DAEMON_LOGS_LIMIT: usize = 100;
+
+fn build_daemon_logs_result(default_project_root: &str, input: DaemonLogsInput) -> Result<Value> {
+    let project_root =
+        resolve_daemon_events_project_root(default_project_root, input.project_root);
+    let limit = input.limit.unwrap_or(DEFAULT_DAEMON_LOGS_LIMIT).max(1);
+    let log_path = crate::services::runtime::autonomous_daemon_log_path(&project_root);
+
+    let content = match std::fs::read_to_string(&log_path) {
+        Ok(c) => c,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(json!({
+                "log_path": log_path.display().to_string(),
+                "line_count": 0,
+                "lines": [],
+                "has_more": false,
+            }));
+        }
+        Err(err) => {
+            anyhow::bail!("failed to read daemon log at {}: {}", log_path.display(), err);
+        }
+    };
+
+    let mut lines: Vec<&str> = content.lines().collect();
+
+    if let Some(ref needle) = input.search {
+        lines.retain(|line| line.contains(needle.as_str()));
+    }
+
+    let total = lines.len();
+    let has_more = total > limit;
+    if total > limit {
+        lines = lines.split_off(total - limit);
+    }
+
+    Ok(json!({
+        "log_path": log_path.display().to_string(),
+        "line_count": lines.len(),
+        "lines": lines,
+        "has_more": has_more,
     }))
 }
 

@@ -527,6 +527,7 @@ pub(super) fn create_task_in_state(
         paused: false,
         cancelled: false,
         resource_requirements: Default::default(),
+        dispatch_history: Vec::new(),
     };
     state.tasks.insert(id, task.clone());
     Ok(task)

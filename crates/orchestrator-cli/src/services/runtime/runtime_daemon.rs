@@ -30,6 +30,8 @@ use daemon_run::handle_daemon_run;
 
 pub(crate) use daemon_events::{daemon_events_log_path, poll_daemon_events, DaemonEventRecord};
 
+use protocol::{is_process_alive, terminate_process};
+
 const AUTONOMOUS_STARTUP_PROBE_SECS: u64 = 3;
 const AUTONOMOUS_STARTUP_PROBE_POLL_MILLIS: u64 = 100;
 const AUTONOMOUS_STARTUP_LOG_TAIL_LINES: usize = 40;
@@ -40,96 +42,6 @@ struct AutonomousDaemonSpawn {
     child: Child,
     log_path: PathBuf,
     startup_log_offset: u64,
-}
-
-#[cfg(unix)]
-fn is_process_alive(pid: u32) -> bool {
-    if pid == 0 {
-        return false;
-    }
-    ProcessCommand::new("kill")
-        .arg("-0")
-        .arg(pid.to_string())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
-}
-
-#[cfg(windows)]
-fn is_process_alive(pid: u32) -> bool {
-    if pid == 0 {
-        return false;
-    }
-    ProcessCommand::new("tasklist")
-        .args(["/FI", &format!("PID eq {pid}")])
-        .output()
-        .map(|output| {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            stdout.contains(&pid.to_string())
-        })
-        .unwrap_or(false)
-}
-
-#[cfg(not(any(unix, windows)))]
-fn is_process_alive(_pid: u32) -> bool {
-    false
-}
-
-#[cfg(unix)]
-fn terminate_process(pid: u32) -> Result<bool> {
-    if pid == 0 || !is_process_alive(pid) {
-        return Ok(false);
-    }
-
-    let status = ProcessCommand::new("kill")
-        .arg("-TERM")
-        .arg(pid.to_string())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .context("failed to send SIGTERM to autonomous daemon process")?;
-    if !status.success() {
-        return Err(anyhow!("kill -TERM {} failed", pid));
-    }
-
-    for _ in 0..20 {
-        if !is_process_alive(pid) {
-            return Ok(true);
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-
-    let _ = ProcessCommand::new("kill")
-        .arg("-KILL")
-        .arg(pid.to_string())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-
-    Ok(!is_process_alive(pid))
-}
-
-#[cfg(windows)]
-fn terminate_process(pid: u32) -> Result<bool> {
-    if pid == 0 || !is_process_alive(pid) {
-        return Ok(false);
-    }
-
-    let status = ProcessCommand::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .status()
-        .context("failed to terminate autonomous daemon process")?;
-    if !status.success() {
-        return Err(anyhow!("taskkill failed for daemon pid {}", pid));
-    }
-    Ok(true)
-}
-
-#[cfg(not(any(unix, windows)))]
-fn terminate_process(_pid: u32) -> Result<bool> {
-    Ok(false)
 }
 
 fn runner_scope_value(scope: &RunnerScopeArg) -> &'static str {

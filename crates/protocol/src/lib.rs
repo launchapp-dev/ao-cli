@@ -14,6 +14,7 @@ pub mod error_classification;
 pub mod errors;
 pub mod model_routing;
 pub mod output;
+pub mod process;
 pub mod repository_scope;
 
 pub use agent_runner::*;
@@ -28,6 +29,7 @@ pub use error_classification::*;
 pub use errors::*;
 pub use model_routing::*;
 pub use output::*;
+pub use process::*;
 pub use repository_scope::*;
 
 pub const PROTOCOL_VERSION: &str = "1.0.0";

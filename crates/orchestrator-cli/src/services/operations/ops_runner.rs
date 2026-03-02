@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use std::process::Command as ProcessCommand;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
@@ -39,65 +38,7 @@ fn save_cli_tracker(tracker: &CliTrackerStateCli) -> Result<()> {
     write_json_pretty(&protocol::cli_tracker_path(), tracker)
 }
 
-#[cfg(unix)]
-fn process_exists_cli(pid: i32) -> bool {
-    if pid <= 0 {
-        return false;
-    }
-    ProcessCommand::new("kill")
-        .arg("-0")
-        .arg(pid.to_string())
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
-}
-
-#[cfg(windows)]
-fn process_exists_cli(pid: i32) -> bool {
-    if pid <= 0 {
-        return false;
-    }
-    ProcessCommand::new("tasklist")
-        .args(["/FI", &format!("PID eq {pid}")])
-        .output()
-        .map(|output| String::from_utf8_lossy(&output.stdout).contains(&pid.to_string()))
-        .unwrap_or(false)
-}
-
-#[cfg(not(any(unix, windows)))]
-fn process_exists_cli(_pid: i32) -> bool {
-    false
-}
-
-#[cfg(unix)]
-fn kill_process_cli(pid: i32) -> bool {
-    if pid <= 0 {
-        return false;
-    }
-    ProcessCommand::new("kill")
-        .arg("-TERM")
-        .arg(pid.to_string())
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
-}
-
-#[cfg(windows)]
-fn kill_process_cli(pid: i32) -> bool {
-    if pid <= 0 {
-        return false;
-    }
-    ProcessCommand::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
-}
-
-#[cfg(not(any(unix, windows)))]
-fn kill_process_cli(_pid: i32) -> bool {
-    false
-}
+use protocol::{process_exists as process_exists_cli, kill_process as kill_process_cli};
 
 async fn query_runner_status_direct(project_root: &str) -> Option<RunnerStatusResponse> {
     let config_dir = runner_config_dir(Path::new(project_root));

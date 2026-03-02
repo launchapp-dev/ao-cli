@@ -33,13 +33,43 @@ pub struct PhaseUiDefinition {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PipelinePhaseConfig {
+    pub phase_id: String,
+    #[serde(default)]
+    pub skip_if: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PipelinePhaseEntry {
+    Simple(String),
+    Config(PipelinePhaseConfig),
+}
+
+impl PipelinePhaseEntry {
+    pub fn phase_id(&self) -> &str {
+        match self {
+            Self::Simple(id) => id.as_str(),
+            Self::Config(config) => config.phase_id.as_str(),
+        }
+    }
+
+    pub fn skip_if(&self) -> &[String] {
+        match self {
+            Self::Simple(_) => &[],
+            Self::Config(config) => &config.skip_if,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PipelineDefinition {
     pub id: String,
     pub name: String,
     #[serde(default)]
     pub description: String,
     #[serde(default)]
-    pub phases: Vec<String>,
+    pub phases: Vec<PipelinePhaseEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -229,10 +259,10 @@ pub fn builtin_workflow_config() -> WorkflowConfig {
                         "Default execution flow across requirements, implementation, review, and testing."
                             .to_string(),
                     phases: vec![
-                        "requirements".to_string(),
-                        "implementation".to_string(),
-                        "code-review".to_string(),
-                        "testing".to_string(),
+                        PipelinePhaseEntry::Simple("requirements".to_string()),
+                        PipelinePhaseEntry::Simple("implementation".to_string()),
+                        PipelinePhaseEntry::Simple("code-review".to_string()),
+                        PipelinePhaseEntry::Simple("testing".to_string()),
                     ],
                 },
                 PipelineDefinition {
@@ -242,13 +272,13 @@ pub fn builtin_workflow_config() -> WorkflowConfig {
                         "Frontend-oriented flow with UX research, wireframes, and mockup review gates."
                             .to_string(),
                     phases: vec![
-                        "requirements".to_string(),
-                        "ux-research".to_string(),
-                        "wireframe".to_string(),
-                        "mockup-review".to_string(),
-                        "implementation".to_string(),
-                        "code-review".to_string(),
-                        "testing".to_string(),
+                        PipelinePhaseEntry::Simple("requirements".to_string()),
+                        PipelinePhaseEntry::Simple("ux-research".to_string()),
+                        PipelinePhaseEntry::Simple("wireframe".to_string()),
+                        PipelinePhaseEntry::Simple("mockup-review".to_string()),
+                        PipelinePhaseEntry::Simple("implementation".to_string()),
+                        PipelinePhaseEntry::Simple("code-review".to_string()),
+                        PipelinePhaseEntry::Simple("testing".to_string()),
                     ],
                 },
             ],
@@ -377,7 +407,7 @@ pub fn resolve_pipeline_phase_plan(
     let phases: Vec<String> = pipeline
         .phases
         .iter()
-        .map(String::as_str)
+        .map(|entry| entry.phase_id())
         .map(str::trim)
         .filter(|phase| !phase.is_empty())
         .map(ToOwned::to_owned)
@@ -390,6 +420,41 @@ pub fn resolve_pipeline_phase_plan(
     }
 }
 
+pub fn resolve_pipeline_skip_guards(
+    config: &WorkflowConfig,
+    pipeline_id: Option<&str>,
+) -> std::collections::HashMap<String, Vec<String>> {
+    let requested = pipeline_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(config.default_pipeline_id.trim());
+
+    if requested.is_empty() {
+        return std::collections::HashMap::new();
+    }
+
+    let pipeline = match config
+        .pipelines
+        .iter()
+        .find(|pipeline| pipeline.id.eq_ignore_ascii_case(requested))
+    {
+        Some(p) => p,
+        None => return std::collections::HashMap::new(),
+    };
+
+    let mut guards = std::collections::HashMap::new();
+    for entry in &pipeline.phases {
+        let skip_if = entry.skip_if();
+        if !skip_if.is_empty() {
+            guards.insert(
+                entry.phase_id().trim().to_owned(),
+                skip_if.to_vec(),
+            );
+        }
+    }
+    guards
+}
+
 pub fn validate_workflow_and_runtime_configs(
     workflow: &WorkflowConfig,
     runtime: &AgentRuntimeConfig,
@@ -398,8 +463,8 @@ pub fn validate_workflow_and_runtime_configs(
 
     let mut errors = Vec::new();
     for pipeline in &workflow.pipelines {
-        for phase in &pipeline.phases {
-            let phase_id = phase.trim();
+        for entry in &pipeline.phases {
+            let phase_id = entry.phase_id().trim();
             if phase_id.is_empty() {
                 continue;
             }
@@ -512,8 +577,8 @@ pub fn validate_workflow_config(config: &WorkflowConfig) -> Result<()> {
             continue;
         }
 
-        for phase in &pipeline.phases {
-            let phase_id = phase.trim();
+        for entry in &pipeline.phases {
+            let phase_id = entry.phase_id().trim();
             if phase_id.is_empty() {
                 errors.push(format!(
                     "pipeline '{}' contains an empty phase id",
@@ -581,6 +646,76 @@ mod tests {
             err.to_string()
                 .contains("checkpoint_retention.keep_last_per_phase"),
             "validation error should mention checkpoint retention"
+        );
+    }
+
+    #[test]
+    fn pipeline_phase_entry_deserializes_from_string() {
+        let json = r#""requirements""#;
+        let entry: PipelinePhaseEntry = serde_json::from_str(json).expect("parse string entry");
+        assert_eq!(entry.phase_id(), "requirements");
+        assert!(entry.skip_if().is_empty());
+    }
+
+    #[test]
+    fn pipeline_phase_entry_deserializes_from_object_with_skip_if() {
+        let json = r#"{"phase_id": "testing", "skip_if": ["task_type == 'docs'"]}"#;
+        let entry: PipelinePhaseEntry = serde_json::from_str(json).expect("parse config entry");
+        assert_eq!(entry.phase_id(), "testing");
+        assert_eq!(entry.skip_if(), &["task_type == 'docs'"]);
+    }
+
+    #[test]
+    fn pipeline_phase_entry_deserializes_from_object_without_skip_if() {
+        let json = r#"{"phase_id": "implementation"}"#;
+        let entry: PipelinePhaseEntry = serde_json::from_str(json).expect("parse config entry");
+        assert_eq!(entry.phase_id(), "implementation");
+        assert!(entry.skip_if().is_empty());
+    }
+
+    #[test]
+    fn pipeline_definition_deserializes_mixed_phase_entries() {
+        let json = r#"{
+            "id": "test-pipeline",
+            "name": "Test",
+            "phases": [
+                "requirements",
+                {"phase_id": "testing", "skip_if": ["task_type == 'docs'"]},
+                "implementation"
+            ]
+        }"#;
+        let pipeline: PipelineDefinition =
+            serde_json::from_str(json).expect("parse mixed pipeline");
+        assert_eq!(pipeline.phases.len(), 3);
+        assert_eq!(pipeline.phases[0].phase_id(), "requirements");
+        assert!(pipeline.phases[0].skip_if().is_empty());
+        assert_eq!(pipeline.phases[1].phase_id(), "testing");
+        assert_eq!(pipeline.phases[1].skip_if(), &["task_type == 'docs'"]);
+        assert_eq!(pipeline.phases[2].phase_id(), "implementation");
+    }
+
+    #[test]
+    fn resolve_pipeline_skip_guards_extracts_guards_from_config() {
+        let mut config = builtin_workflow_config();
+        let standard_pipeline = config
+            .pipelines
+            .iter_mut()
+            .find(|p| p.id == "standard")
+            .expect("standard pipeline");
+        standard_pipeline.phases = vec![
+            PipelinePhaseEntry::Simple("requirements".to_string()),
+            PipelinePhaseEntry::Config(PipelinePhaseConfig {
+                phase_id: "testing".to_string(),
+                skip_if: vec!["task_type == 'docs'".to_string()],
+            }),
+            PipelinePhaseEntry::Simple("implementation".to_string()),
+        ];
+
+        let guards = resolve_pipeline_skip_guards(&config, Some("standard"));
+        assert_eq!(guards.len(), 1);
+        assert_eq!(
+            guards.get("testing").unwrap(),
+            &vec!["task_type == 'docs'".to_string()]
         );
     }
 }

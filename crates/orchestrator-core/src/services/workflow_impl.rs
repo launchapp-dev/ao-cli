@@ -262,20 +262,30 @@ impl WorkflowServiceApi for FileServiceHub {
         let state_machines = load_compiled_state_machines(self.project_root.as_path())?;
         let task = self.state.read().await.tasks.get(&input.task_id).cloned();
         let pipeline_id = effective_pipeline_id(input.pipeline_id.as_deref(), task.as_ref());
+        let workflow_config =
+            crate::load_workflow_config_or_default(self.project_root.as_path());
+        let skip_guards = crate::resolve_pipeline_skip_guards(
+            &workflow_config.config,
+            Some(pipeline_id.as_str()),
+        );
         let executor = WorkflowLifecycleExecutor::with_state_machines(
             crate::resolve_phase_plan_for_pipeline(
                 Some(self.project_root.as_path()),
                 Some(pipeline_id.as_str()),
             )?,
             state_machines,
-        );
-        let workflow = executor.bootstrap(
+        )
+        .with_skip_guards(skip_guards);
+        let mut workflow = executor.bootstrap(
             id.clone(),
             WorkflowRunInput {
                 task_id: input.task_id,
                 pipeline_id: Some(pipeline_id),
             },
         );
+        if let Some(ref task) = task {
+            executor.skip_guarded_phases(&mut workflow, task);
+        }
 
         let manager = self.workflow_manager();
         manager.save(&workflow)?;
@@ -393,14 +403,24 @@ impl WorkflowServiceApi for FileServiceHub {
         let manager = self.workflow_manager();
         let mut workflow = manager.load(id)?;
         let state_machines = load_compiled_state_machines(self.project_root.as_path())?;
-        WorkflowLifecycleExecutor::with_state_machines(
+        let workflow_config =
+            crate::load_workflow_config_or_default(self.project_root.as_path());
+        let skip_guards = crate::resolve_pipeline_skip_guards(
+            &workflow_config.config,
+            workflow.pipeline_id.as_deref(),
+        );
+        let executor = WorkflowLifecycleExecutor::with_state_machines(
             crate::resolve_phase_plan_for_pipeline(
                 Some(self.project_root.as_path()),
                 workflow.pipeline_id.as_deref(),
             )?,
             state_machines,
         )
-        .mark_current_phase_success_with_decision(&mut workflow, decision);
+        .with_skip_guards(skip_guards);
+        executor.mark_current_phase_success_with_decision(&mut workflow, decision);
+        if let Some(task) = self.state.read().await.tasks.get(&workflow.task_id).cloned() {
+            executor.skip_guarded_phases(&mut workflow, &task);
+        }
         manager.save(&workflow)?;
         let mut workflow = manager.save_checkpoint(&workflow, CheckpointReason::StatusChange)?;
         if workflow.status == crate::types::WorkflowStatus::Completed {

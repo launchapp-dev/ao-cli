@@ -24,12 +24,9 @@ pub(crate) enum TaskCommand {
     Update(TaskUpdateArgs),
     /// Delete a task (confirmation required).
     Delete(TaskDeleteArgs),
-    /// Assign a generic assignee string to a task.
+    /// Assign an assignee to a task.
+    #[command(alias = "assign-agent", alias = "assign-human")]
     Assign(TaskAssignArgs),
-    /// Assign an agent role to a task.
-    AssignAgent(TaskAssignAgentArgs),
-    /// Assign a human user to a task.
-    AssignHuman(TaskAssignHumanArgs),
     /// Add a checklist item.
     ChecklistAdd(TaskChecklistAddArgs),
     /// Mark a checklist item complete/incomplete.
@@ -181,33 +178,24 @@ pub(crate) struct TaskDeleteArgs {
 pub(crate) struct TaskAssignArgs {
     #[arg(long, value_name = "TASK_ID", help = "Task identifier.")]
     pub(crate) id: String,
-    #[arg(long, value_name = "ASSIGNEE", help = "Assignee value.")]
-    pub(crate) assignee: String,
-}
-
-#[derive(Debug, Args)]
-pub(crate) struct TaskAssignAgentArgs {
-    #[arg(long, value_name = "TASK_ID", help = "Task identifier.")]
-    pub(crate) id: String,
-    #[arg(long, value_name = "ROLE", help = "Agent role identifier.")]
-    pub(crate) role: String,
-    #[arg(long, value_name = "MODEL", help = "Optional model override.")]
-    pub(crate) model: Option<String>,
     #[arg(
         long,
-        value_name = "USER",
-        default_value = protocol::ACTOR_CLI,
-        help = "Audit user id recorded in task metadata."
+        alias = "role",
+        alias = "user-id",
+        value_name = "ASSIGNEE",
+        help = "Assignee identifier (user id or agent role)."
     )]
-    pub(crate) updated_by: String,
-}
-
-#[derive(Debug, Args)]
-pub(crate) struct TaskAssignHumanArgs {
-    #[arg(long, value_name = "TASK_ID", help = "Task identifier.")]
-    pub(crate) id: String,
-    #[arg(long, value_name = "USER_ID", help = "Human user id.")]
-    pub(crate) user_id: String,
+    pub(crate) assignee: String,
+    #[arg(
+        long = "type",
+        value_name = "TYPE",
+        help = "Assignee type: agent|human."
+    )]
+    pub(crate) assignee_type: Option<String>,
+    #[arg(long = "agent-role", value_name = "ROLE", help = "Agent role identifier.")]
+    pub(crate) agent_role: Option<String>,
+    #[arg(long, value_name = "MODEL", help = "Optional model override (agent only).")]
+    pub(crate) model: Option<String>,
     #[arg(
         long,
         value_name = "USER",

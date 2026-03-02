@@ -303,6 +303,77 @@ mod tests {
     }
 
     #[test]
+    fn parses_task_assign_with_aliases() {
+        let cli = Cli::try_parse_from([
+            "ao",
+            "task",
+            "assign",
+            "--id",
+            "TASK-001",
+            "--assignee",
+            "alice",
+            "--type",
+            "human",
+        ])
+        .expect("task assign should parse");
+
+        match cli.command {
+            Command::Task {
+                command: TaskCommand::Assign(args),
+            } => {
+                assert_eq!(args.id, "TASK-001");
+                assert_eq!(args.assignee, "alice");
+                assert_eq!(args.assignee_type.as_deref(), Some("human"));
+            }
+            _ => panic!("expected task assign command"),
+        }
+
+        // Test assign-agent alias and --role alias
+        let cli = Cli::try_parse_from([
+            "ao",
+            "task",
+            "assign-agent",
+            "--id",
+            "TASK-001",
+            "--role",
+            "coder",
+        ])
+        .expect("task assign-agent alias should parse");
+
+        match cli.command {
+            Command::Task {
+                command: TaskCommand::Assign(args),
+            } => {
+                assert_eq!(args.id, "TASK-001");
+                assert_eq!(args.assignee, "coder");
+            }
+            _ => panic!("expected task assign command via alias"),
+        }
+
+        // Test assign-human alias and --user-id alias
+        let cli = Cli::try_parse_from([
+            "ao",
+            "task",
+            "assign-human",
+            "--id",
+            "TASK-001",
+            "--user-id",
+            "bob",
+        ])
+        .expect("task assign-human alias should parse");
+
+        match cli.command {
+            Command::Task {
+                command: TaskCommand::Assign(args),
+            } => {
+                assert_eq!(args.id, "TASK-001");
+                assert_eq!(args.assignee, "bob");
+            }
+            _ => panic!("expected task assign command via alias"),
+        }
+    }
+
+    #[test]
     fn parses_workflow_phase_approve_from_workflow_module() {
         let cli = Cli::try_parse_from([
             "ao",

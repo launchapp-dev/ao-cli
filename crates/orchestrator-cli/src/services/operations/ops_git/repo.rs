@@ -1,4 +1,5 @@
 use super::*;
+use crate::dry_run_envelope;
 use anyhow::{Context, Result};
 
 use super::model::GitRepoRefCli;
@@ -173,28 +174,13 @@ pub(super) fn handle_git_push(args: GitPushArgs, project_root: &str, json: bool)
             "rerun without --dry-run to execute git push".to_string()
         };
         return print_value(
-            serde_json::json!({
-                "operation": "git.push",
-                "target": {
-                    "repo": repo.clone(),
-                    "remote": remote.clone(),
-                    "branch": branch.clone(),
-                },
-                "action": "git.push",
-                "dry_run": true,
-                "destructive": args.force,
-                "planned_effects": [
-                    "push branch updates to remote",
-                ],
-                "next_step": next_step,
-                "repo": repo,
-                "repo_path": repo_path.display().to_string(),
-                "remote": remote,
-                "branch": branch,
-                "force": args.force,
-                "requires_confirmation": args.force,
-                "command": cmd,
-            }),
+            dry_run_envelope(
+                "git.push",
+                &format!("{}/{}/{}", repo, remote, branch),
+                "git.push",
+                vec!["push branch updates to remote".to_string()],
+                &next_step,
+            ),
             json,
         );
     }

@@ -7,8 +7,8 @@ use orchestrator_core::{
 };
 
 use crate::{
-    ensure_destructive_confirmation, invalid_input_error, parse_priority_opt, print_value,
-    TaskControlCommand,
+    dry_run_envelope, ensure_destructive_confirmation, invalid_input_error, parse_priority_opt,
+    print_value, TaskControlCommand,
 };
 
 const PRIORITY_REBALANCE_OPERATION: &str = "task-control.rebalance-priority";
@@ -81,35 +81,20 @@ pub(crate) async fn handle_task_control(
             }
             if args.dry_run {
                 let task_id = task.id.clone();
-                let task_status = task.status.clone();
-                let task_paused = task.paused;
-                let task_cancelled = task.cancelled;
                 return print_value(
-                    serde_json::json!({
-                        "operation": "task-control.cancel",
-                        "target": {
-                            "task_id": task_id.clone(),
-                        },
-                        "action": "task-control.cancel",
-                        "dry_run": true,
-                        "destructive": true,
-                        "requires_confirmation": true,
-                        "planned_effects": [
-                            "mark task as cancelled",
-                            "set task status to cancelled",
+                    dry_run_envelope(
+                        "task-control.cancel",
+                        &task_id,
+                        "task-control.cancel",
+                        vec![
+                            "mark task as cancelled".to_string(),
+                            "set task status to cancelled".to_string(),
                         ],
-                        "next_step": format!(
+                        &format!(
                             "rerun 'ao task-control cancel --task-id {} --confirm {}' to apply",
-                            task_id,
-                            task_id
+                            task_id, task_id
                         ),
-                        "task": {
-                            "task_id": task_id,
-                            "status": task_status,
-                            "paused": task_paused,
-                            "cancelled": task_cancelled,
-                        },
-                    }),
+                    ),
                     json,
                 );
             }
@@ -185,26 +170,20 @@ pub(crate) async fn handle_task_control(
 
             if !args.apply {
                 return print_value(
-                    serde_json::json!({
-                        "operation": PRIORITY_REBALANCE_OPERATION,
-                        "target": {
-                            "task_count": all_tasks.len(),
-                        },
-                        "action": PRIORITY_REBALANCE_OPERATION,
-                        "dry_run": true,
-                        "destructive": true,
-                        "requires_confirmation": true,
-                        "planned_effects": [
-                            "reserve critical for blocked active tasks",
-                            "enforce high-priority budget for active tasks",
-                            "rebalance remaining tasks to medium/low",
+                    dry_run_envelope(
+                        PRIORITY_REBALANCE_OPERATION,
+                        &all_tasks.len().to_string(),
+                        PRIORITY_REBALANCE_OPERATION,
+                        vec![
+                            "reserve critical for blocked active tasks".to_string(),
+                            "enforce high-priority budget for active tasks".to_string(),
+                            "rebalance remaining tasks to medium/low".to_string(),
                         ],
-                        "next_step": format!(
+                        &format!(
                             "rerun 'ao task-control rebalance-priority --apply --confirm {}' to apply",
                             PRIORITY_REBALANCE_CONFIRM_TOKEN
                         ),
-                        "plan": plan,
-                    }),
+                    ),
                     json,
                 );
             }

@@ -11,10 +11,10 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::{
-    ensure_destructive_confirmation, not_found_error, parse_input_json_or, print_value,
-    WorkflowAgentRuntimeCommand, WorkflowCheckpointCommand, WorkflowCommand, WorkflowConfigCommand,
-    WorkflowExecuteArgs, WorkflowPhaseCommand, WorkflowPhasesCommand, WorkflowPipelinesCommand,
-    WorkflowStateMachineCommand,
+    dry_run_envelope, ensure_destructive_confirmation, not_found_error, parse_input_json_or,
+    print_value, WorkflowAgentRuntimeCommand, WorkflowCheckpointCommand, WorkflowCommand,
+    WorkflowConfigCommand, WorkflowExecuteArgs, WorkflowPhaseCommand, WorkflowPhasesCommand,
+    WorkflowPipelinesCommand, WorkflowStateMachineCommand,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -762,7 +762,6 @@ fn remove_phase_definition(project_root: &str, phase_id: &str) -> Result<Value> 
 }
 
 fn preview_phase_removal(project_root: &str, phase_id: &str) -> Result<Value> {
-    let workflow = orchestrator_core::load_workflow_config(Path::new(project_root))?;
     let runtime = orchestrator_core::load_agent_runtime_config(Path::new(project_root))?;
     let normalized_phase_id = runtime
         .phases
@@ -771,39 +770,16 @@ fn preview_phase_removal(project_root: &str, phase_id: &str) -> Result<Value> {
         .cloned()
         .ok_or_else(|| anyhow!("phase '{}' does not exist", phase_id))?;
 
-    let blocking_pipelines: Vec<String> = workflow
-        .pipelines
-        .iter()
-        .filter(|pipeline| {
-            pipeline
-                .phases
-                .iter()
-                .any(|phase| phase.eq_ignore_ascii_case(normalized_phase_id.as_str()))
-        })
-        .map(|pipeline| pipeline.id.clone())
-        .collect();
-
-    Ok(serde_json::json!({
-        "operation": "workflow.phases.remove",
-        "target": {
-            "phase_id": normalized_phase_id,
-        },
-        "action": "workflow.phases.remove",
-        "dry_run": true,
-        "destructive": true,
-        "requires_confirmation": true,
-        "planned_effects": [
-            "remove phase runtime definition",
-        ],
-        "next_step": format!(
+    Ok(dry_run_envelope(
+        "workflow.phases.remove",
+        &normalized_phase_id,
+        "workflow.phases.remove",
+        vec!["remove phase runtime definition".to_string()],
+        &format!(
             "rerun 'ao workflow phases remove --phase {} --confirm {}' to apply",
-            phase_id,
-            phase_id
+            phase_id, phase_id
         ),
-        "phase_id": normalized_phase_id,
-        "can_remove": blocking_pipelines.is_empty(),
-        "blocking_pipelines": blocking_pipelines,
-    }))
+    ))
 }
 
 fn upsert_pipeline(
@@ -1024,27 +1000,16 @@ pub(crate) async fn handle_workflow(
             if args.dry_run {
                 let workflow_id = workflow.id.clone();
                 return print_value(
-                    serde_json::json!({
-                        "operation": "workflow.pause",
-                        "target": {
-                            "workflow_id": workflow_id.clone(),
-                        },
-                        "action": "workflow.pause",
-                        "dry_run": true,
-                        "destructive": true,
-                        "requires_confirmation": true,
-                        "planned_effects": [
-                            "pause workflow execution",
-                        ],
-                        "next_step": format!(
+                    dry_run_envelope(
+                        "workflow.pause",
+                        &workflow_id,
+                        "workflow.pause",
+                        vec!["pause workflow execution".to_string()],
+                        &format!(
                             "rerun 'ao workflow pause --id {} --confirm {}' to apply",
-                            workflow_id,
-                            workflow_id
+                            workflow_id, workflow_id
                         ),
-                        "workflow_id": workflow_id,
-                        "status": workflow.status,
-                        "current_phase": workflow.current_phase,
-                    }),
+                    ),
                     json,
                 );
             }
@@ -1061,27 +1026,16 @@ pub(crate) async fn handle_workflow(
             if args.dry_run {
                 let workflow_id = workflow.id.clone();
                 return print_value(
-                    serde_json::json!({
-                        "operation": "workflow.cancel",
-                        "target": {
-                            "workflow_id": workflow_id.clone(),
-                        },
-                        "action": "workflow.cancel",
-                        "dry_run": true,
-                        "destructive": true,
-                        "requires_confirmation": true,
-                        "planned_effects": [
-                            "cancel workflow execution",
-                        ],
-                        "next_step": format!(
+                    dry_run_envelope(
+                        "workflow.cancel",
+                        &workflow_id,
+                        "workflow.cancel",
+                        vec!["cancel workflow execution".to_string()],
+                        &format!(
                             "rerun 'ao workflow cancel --id {} --confirm {}' to apply",
-                            workflow_id,
-                            workflow_id
+                            workflow_id, workflow_id
                         ),
-                        "workflow_id": workflow_id,
-                        "status": workflow.status,
-                        "current_phase": workflow.current_phase,
-                    }),
+                    ),
                     json,
                 );
             }

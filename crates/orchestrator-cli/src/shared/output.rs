@@ -1,5 +1,6 @@
 use anyhow::Result;
 use serde::Serialize;
+use serde_json::{json, Value};
 
 use super::{classify_cli_error_kind, CliErrorKind};
 
@@ -98,6 +99,25 @@ pub(crate) fn emit_cli_error(err: &anyhow::Error, json: bool) {
 
 fn should_emit_help_hint(message: &str) -> bool {
     !message.to_ascii_lowercase().contains("--help")
+}
+
+pub(crate) fn dry_run_envelope(
+    operation: &str,
+    target: &str,
+    action: &str,
+    effects: Vec<String>,
+    confirm_hint: &str,
+) -> Value {
+    json!({
+        "operation": operation,
+        "target": target,
+        "action": action,
+        "dry_run": true,
+        "destructive": true,
+        "requires_confirmation": true,
+        "planned_effects": effects,
+        "next_step": confirm_hint,
+    })
 }
 
 #[cfg(test)]

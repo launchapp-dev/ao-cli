@@ -107,15 +107,7 @@ async fn run(cli: Cli) -> Result<()> {
                     )
                     .await
                 }
-                Command::Planning { command } => {
-                    services::operations::handle_planning(
-                        command,
-                        hub.clone(),
-                        &project_root,
-                        cli.json,
-                    )
-                    .await
-                }
+
                 Command::Review { command } => {
                     services::operations::handle_review(
                         command,

@@ -72,11 +72,7 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: ExecuteCommand,
     },
-    /// Planning facade for vision and requirements workflows.
-    Planning {
-        #[command(subcommand)]
-        command: PlanningCommand,
-    },
+
     /// Record and inspect review decisions and handoffs.
     Review {
         #[command(subcommand)]

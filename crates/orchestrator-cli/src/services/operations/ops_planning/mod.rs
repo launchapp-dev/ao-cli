@@ -11,13 +11,13 @@ mod types;
 
 use std::sync::Arc;
 
-use super::ops_history::write_history_execution_event;
+
 use anyhow::Result;
 use orchestrator_core::{services::ServiceHub, RequirementsExecutionInput, VisionDraftInput};
 
 use crate::{
     ensure_ai_generated_tasks_for_requirements, parse_input_json_or, print_value, ExecuteCommand,
-    PlanningCommand, PlanningRequirementsCommand, PlanningVisionCommand, VisionCommand,
+    VisionCommand,
 };
 
 use self::draft_runtime::{draft_vision_with_ai_complexity, VisionDraftAiOptions};
@@ -126,135 +126,6 @@ pub(crate) async fn handle_execute(
     print_value(planning.execute_requirements(input).await?, json)
 }
 
-pub(crate) async fn handle_planning(
-    command: PlanningCommand,
-    hub: Arc<dyn ServiceHub>,
-    project_root: &str,
-    json: bool,
-) -> Result<()> {
-    let planning = hub.planning();
-    match command {
-        PlanningCommand::Vision { command } => match command {
-            PlanningVisionCommand::Draft(args) => {
-                let input = parse_input_json_or(args.input_json, || {
-                    Ok(VisionDraftInput {
-                        project_name: args.project_name,
-                        problem_statement: args.problem,
-                        target_users: args.target_user,
-                        goals: args.goal,
-                        constraints: args.constraint,
-                        value_proposition: args.value_proposition,
-                        complexity_assessment: None,
-                    })
-                })?;
-                let options = VisionDraftAiOptions {
-                    use_ai_complexity: args.use_ai_complexity,
-                    tool: args.tool,
-                    model: args.model,
-                    timeout_secs: args.timeout_secs,
-                    start_runner: args.start_runner,
-                    allow_heuristic_fallback: args.allow_heuristic_fallback,
-                };
-                print_value(
-                    draft_vision_with_ai_complexity(hub.clone(), project_root, input, options)
-                        .await?,
-                    json,
-                )
-            }
-            PlanningVisionCommand::Refine(args) => {
-                let input = parse_input_json_or(args.input_json, || {
-                    Ok(VisionRefineInputPayload {
-                        focus: args.focus,
-                        use_ai: args.use_ai,
-                        tool: args.tool,
-                        model: args.model,
-                        timeout_secs: args.timeout_secs,
-                        start_runner: args.start_runner,
-                        allow_heuristic_fallback: args.allow_heuristic_fallback,
-                        preserve_core: args.preserve_core,
-                    })
-                })?;
-                print_value(
-                    run_vision_refine(hub.clone(), project_root, input).await?,
-                    json,
-                )
-            }
-            PlanningVisionCommand::Get => print_value(planning.get_vision().await?, json),
-        },
-        PlanningCommand::Requirements { command } => match command {
-            PlanningRequirementsCommand::Draft(args) => {
-                let input = parse_input_json_or(args.input_json, || {
-                    Ok(RequirementsDraftInputPayload {
-                        include_codebase_scan: args.include_codebase_scan,
-                        append_only: args.append_only,
-                        max_requirements: args.max_requirements,
-                        draft_strategy: args.draft_strategy,
-                        po_parallelism: args.po_parallelism,
-                        quality_repair_attempts: args.quality_repair_attempts,
-                        allow_heuristic_complexity: args.allow_heuristic_complexity,
-                        tool: args.tool,
-                        model: args.model,
-                        timeout_secs: args.timeout_secs,
-                        start_runner: args.start_runner,
-                    })
-                })?;
-                print_value(
-                    run_requirements_draft(hub.clone(), project_root, input).await?,
-                    json,
-                )
-            }
-            PlanningRequirementsCommand::List => {
-                print_value(planning.list_requirements().await?, json)
-            }
-            PlanningRequirementsCommand::Get(args) => {
-                print_value(planning.get_requirement(&args.id).await?, json)
-            }
-            PlanningRequirementsCommand::Refine(args) => {
-                let input = parse_input_json_or(args.input_json, || {
-                    Ok(RequirementsRefineInputPayload {
-                        requirement_ids: args.requirement_ids,
-                        focus: args.focus,
-                        use_ai: args.use_ai,
-                        tool: args.tool,
-                        model: args.model,
-                        timeout_secs: args.timeout_secs,
-                        start_runner: args.start_runner,
-                    })
-                })?;
-                print_value(
-                    run_requirements_refine(hub.clone(), project_root, input).await?,
-                    json,
-                )
-            }
-            PlanningRequirementsCommand::Execute(args) => {
-                let input = parse_input_json_or(args.input_json, || {
-                    Ok(RequirementsExecutionInput {
-                        requirement_ids: args.requirement_ids,
-                        start_workflows: args.start_workflows,
-                        pipeline_id: args.pipeline_id,
-                        include_wont: args.include_wont,
-                    })
-                })?;
-                maybe_generate_ai_tasks_for_requirements(
-                    hub.clone(),
-                    project_root,
-                    &input.requirement_ids,
-                    args.ai_task_generation,
-                )
-                .await?;
-                let result = planning.execute_requirements(input).await?;
-                let _ = write_history_execution_event(
-                    project_root,
-                    "planning-execute",
-                    None,
-                    "completed",
-                    serde_json::to_value(&result).unwrap_or_else(|_| serde_json::json!({})),
-                );
-                print_value(result, json)
-            }
-        },
-    }
-}
 
 #[cfg(test)]
 mod tests {

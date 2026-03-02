@@ -9,7 +9,7 @@ mod history_types;
 mod mcp_types;
 mod model_types;
 mod output_types;
-mod planning_types;
+
 mod project_types;
 mod qa_types;
 mod requirements_types;
@@ -37,7 +37,7 @@ pub(crate) use history_types::*;
 pub(crate) use mcp_types::*;
 pub(crate) use model_types::*;
 pub(crate) use output_types::*;
-pub(crate) use planning_types::*;
+
 pub(crate) use project_types::*;
 pub(crate) use qa_types::*;
 pub(crate) use requirements_types::*;

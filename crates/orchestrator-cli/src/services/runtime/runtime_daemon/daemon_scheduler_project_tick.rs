@@ -949,6 +949,12 @@ mod tests {
             project_root: None,
             daemon_pid: None,
             process_alive: None,
+            pool_size: None,
+            pool_utilization_percent: None,
+            queued_tasks: None,
+            total_agents_spawned: None,
+            total_agents_completed: None,
+            total_agents_failed: None,
         };
         assert_eq!(ready_task_dispatch_limit(4, &uncapped), 4);
 
@@ -962,6 +968,12 @@ mod tests {
             project_root: None,
             daemon_pid: None,
             process_alive: None,
+            pool_size: None,
+            pool_utilization_percent: None,
+            queued_tasks: None,
+            total_agents_spawned: None,
+            total_agents_completed: None,
+            total_agents_failed: None,
         };
         assert_eq!(ready_task_dispatch_limit(10, &capped), 2);
         assert_eq!(ready_task_dispatch_limit(1, &capped), 1);
@@ -976,6 +988,12 @@ mod tests {
             project_root: None,
             daemon_pid: None,
             process_alive: None,
+            pool_size: None,
+            pool_utilization_percent: None,
+            queued_tasks: None,
+            total_agents_spawned: None,
+            total_agents_completed: None,
+            total_agents_failed: None,
         };
         assert_eq!(ready_task_dispatch_limit(3, &saturated), 0);
     }

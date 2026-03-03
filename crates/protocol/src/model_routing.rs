@@ -264,17 +264,15 @@ pub fn default_primary_model_for_phase(
 
     if caps.is_requirements {
         return match complexity.unwrap_or(ModelRoutingComplexity::Medium) {
-            ModelRoutingComplexity::Low => "zai-coding-plan/glm-5",
-            ModelRoutingComplexity::Medium => "minimax/MiniMax-M2.5",
-            ModelRoutingComplexity::High => "claude-sonnet-4-6",
+            ModelRoutingComplexity::Low => "minimax/MiniMax-M2.5",
+            ModelRoutingComplexity::Medium | ModelRoutingComplexity::High => "claude-sonnet-4-6",
         };
     }
 
     if caps.is_testing {
         return match complexity.unwrap_or(ModelRoutingComplexity::Medium) {
             ModelRoutingComplexity::Low => "minimax/MiniMax-M2.5",
-            ModelRoutingComplexity::Medium => "zai-coding-plan/glm-5",
-            ModelRoutingComplexity::High => "claude-sonnet-4-6",
+            ModelRoutingComplexity::Medium | ModelRoutingComplexity::High => "claude-sonnet-4-6",
         };
     }
 
@@ -392,7 +390,7 @@ mod tests {
     }
 
     #[test]
-    fn low_complexity_routes_to_glm_and_minimax() {
+    fn low_complexity_routes_to_cheaper_models() {
         let impl_caps = PhaseCapabilities::defaults_for_phase("implementation");
         assert_eq!(
             default_primary_model_for_phase(Some(ModelRoutingComplexity::Low), &impl_caps),
@@ -401,7 +399,7 @@ mod tests {
         let req_caps = PhaseCapabilities::defaults_for_phase("requirements");
         assert_eq!(
             default_primary_model_for_phase(Some(ModelRoutingComplexity::Low), &req_caps),
-            "zai-coding-plan/glm-5"
+            "minimax/MiniMax-M2.5"
         );
         let test_caps = PhaseCapabilities::defaults_for_phase("testing");
         assert_eq!(
@@ -411,16 +409,16 @@ mod tests {
     }
 
     #[test]
-    fn medium_complexity_uses_cheaper_models_for_lightweight_phases() {
+    fn medium_complexity_defaults_to_claude_for_requirements_and_testing() {
         let req_caps = PhaseCapabilities::defaults_for_phase("requirements");
         assert_eq!(
             default_primary_model_for_phase(Some(ModelRoutingComplexity::Medium), &req_caps),
-            "minimax/MiniMax-M2.5"
+            "claude-sonnet-4-6"
         );
         let test_caps = PhaseCapabilities::defaults_for_phase("testing");
         assert_eq!(
             default_primary_model_for_phase(Some(ModelRoutingComplexity::Medium), &test_caps),
-            "zai-coding-plan/glm-5"
+            "claude-sonnet-4-6"
         );
         let impl_caps = PhaseCapabilities::defaults_for_phase("implementation");
         assert_eq!(

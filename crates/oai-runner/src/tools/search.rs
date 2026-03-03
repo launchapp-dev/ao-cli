@@ -12,20 +12,11 @@ pub fn search_files(
         _ => working_dir.to_path_buf(),
     };
 
-    let mut cmd = std::process::Command::new("grep");
-    cmd.arg("-rn")
-        .arg("--color=never")
-        .arg("-E")
-        .arg(pattern);
-
-    if let Some(inc) = include {
-        cmd.arg("--include").arg(inc);
-    }
-
-    cmd.arg(base.to_string_lossy().as_ref());
-
-    let output = cmd.output()
-        .map_err(|e| anyhow::anyhow!("Failed to execute grep: {}", e))?;
+    let output = if let Ok(rg_output) = try_ripgrep(&base, pattern, include) {
+        rg_output
+    } else {
+        try_grep(&base, pattern, include)?
+    };
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -58,4 +49,44 @@ pub fn search_files(
     }
 
     Ok(result)
+}
+
+fn try_ripgrep(
+    base: &Path,
+    pattern: &str,
+    include: Option<&str>,
+) -> Result<std::process::Output> {
+    let mut cmd = std::process::Command::new("rg");
+    cmd.arg("-n").arg("--color=never").arg("-E").arg(pattern);
+
+    if let Some(inc) = include {
+        cmd.arg("--glob").arg(inc);
+    }
+
+    cmd.arg(base.to_string_lossy().as_ref());
+
+    cmd.output()
+        .map_err(|e| anyhow::anyhow!("rg not available: {}", e))
+}
+
+fn try_grep(
+    base: &Path,
+    pattern: &str,
+    include: Option<&str>,
+) -> Result<std::process::Output> {
+    let mut cmd = std::process::Command::new("grep");
+    cmd.arg("-rn").arg("--color=never").arg("-E").arg(pattern);
+
+    for dir in &["target", ".git", "node_modules", ".ao", "__pycache__", ".next", "dist", "build"] {
+        cmd.arg("--exclude-dir").arg(dir);
+    }
+
+    if let Some(inc) = include {
+        cmd.arg("--include").arg(inc);
+    }
+
+    cmd.arg(base.to_string_lossy().as_ref());
+
+    cmd.output()
+        .map_err(|e| anyhow::anyhow!("Failed to execute grep: {}", e))
 }

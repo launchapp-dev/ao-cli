@@ -14,7 +14,7 @@ use serde::Serialize;
 
 use crate::services::runtime::{stale_in_progress_summary, StaleInProgressSummary};
 use crate::{
-    ensure_destructive_confirmation, invalid_input_error, parse_dependency_type,
+    ensure_destructive_confirmation, invalid_input_error, not_found_error, parse_dependency_type,
     parse_input_json_or, parse_priority_opt, parse_risk_opt, parse_task_status,
     parse_task_type_opt, print_value, TaskCommand,
 };
@@ -94,6 +94,15 @@ async fn set_task_status_with_assignee_inference(
         }
     }
     Ok(status_updated)
+}
+
+fn classify_task_service_error(e: anyhow::Error) -> anyhow::Error {
+    let msg = e.to_string();
+    if msg.contains("not found") {
+        not_found_error(msg)
+    } else {
+        e
+    }
 }
 
 fn has_non_empty_linked_requirements(input: &TaskCreateInput) -> bool {
@@ -196,7 +205,10 @@ pub(crate) async fn handle_task(
                 json,
             )
         }
-        TaskCommand::Get(args) => print_value(tasks.get(&args.id).await?, json),
+        TaskCommand::Get(args) => {
+            let task = tasks.get(&args.id).await.map_err(classify_task_service_error)?;
+            print_value(task, json)
+        }
         TaskCommand::Create(args) => {
             let input = parse_input_json_or(args.input_json, || {
                 Ok(TaskCreateInput {
@@ -241,7 +253,7 @@ pub(crate) async fn handle_task(
             print_value(tasks.update(&args.id, input).await?, json)
         }
         TaskCommand::Delete(args) => {
-            let task = tasks.get(&args.id).await?;
+            let task = tasks.get(&args.id).await.map_err(classify_task_service_error)?;
             if args.dry_run {
                 let task_id = task.id.clone();
                 let task_title = task.title.clone();
@@ -359,11 +371,11 @@ pub(crate) async fn handle_task(
             )
         }
         TaskCommand::History(args) => {
-            let task = tasks.get(&args.id).await?;
+            let task = tasks.get(&args.id).await.map_err(classify_task_service_error)?;
             print_value(&task.dispatch_history, json)
         }
         TaskCommand::Pause(args) => {
-            let mut task = tasks.get(&args.task_id).await?;
+            let mut task = tasks.get(&args.task_id).await.map_err(classify_task_service_error)?;
             if task.paused {
                 return print_value(
                     serde_json::json!({
@@ -386,7 +398,7 @@ pub(crate) async fn handle_task(
             )
         }
         TaskCommand::Resume(args) => {
-            let mut task = tasks.get(&args.task_id).await?;
+            let mut task = tasks.get(&args.task_id).await.map_err(classify_task_service_error)?;
             if !task.paused {
                 return print_value(
                     serde_json::json!({
@@ -409,7 +421,7 @@ pub(crate) async fn handle_task(
             )
         }
         TaskCommand::Cancel(args) => {
-            let mut task = tasks.get(&args.task_id).await?;
+            let mut task = tasks.get(&args.task_id).await.map_err(classify_task_service_error)?;
             if task.cancelled {
                 return print_value(
                     serde_json::json!({
@@ -463,7 +475,7 @@ pub(crate) async fn handle_task(
         TaskCommand::SetPriority(args) => {
             let priority = parse_priority_opt(Some(args.priority.as_str()))?
                 .ok_or_else(|| anyhow!("priority is required"))?;
-            let mut task = tasks.get(&args.task_id).await?;
+            let mut task = tasks.get(&args.task_id).await.map_err(classify_task_service_error)?;
             task.priority = priority;
             task.metadata.updated_by = protocol::ACTOR_CLI.to_string();
             tasks.replace(task).await?;
@@ -476,7 +488,7 @@ pub(crate) async fn handle_task(
             )
         }
         TaskCommand::SetDeadline(args) => {
-            let mut task = tasks.get(&args.task_id).await?;
+            let mut task = tasks.get(&args.task_id).await.map_err(classify_task_service_error)?;
             let normalized = args
                 .deadline
                 .as_deref()

@@ -1,4 +1,6 @@
 {
   "runtime_paused": true,
-  "daemon_pid": null
+  "daemon_pid": null,
+  "shutdown_requested": false,
+  "shutdown_timeout_secs": null
 }

@@ -439,7 +439,7 @@ pub(super) fn inject_codex_reasoning_effort(
             args.insert(insert_at, Value::String("-c".to_string()));
             args.insert(
                 insert_at + 1,
-                Value::String(format!("model_reasoning_effort=\"{effort}\"")),
+                Value::String(format!("model_reasoning_effort={effort}")),
             );
         }
     }

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -252,7 +252,9 @@ impl FileServiceHub {
     pub fn new(project_root: impl AsRef<Path>) -> Result<Self> {
         let project_root = project_root.as_ref().to_path_buf();
         Self::bootstrap_project_base_configs(&project_root)?;
-        let state_file = project_root.join(".ao").join("core-state.json");
+        let scoped_root = protocol::scoped_state_root(&project_root)
+            .unwrap_or_else(|| project_root.join(".ao"));
+        let state_file = scoped_root.join("core-state.json");
 
         let mut state = load_core_state(&state_file);
 
@@ -324,7 +326,7 @@ impl FileServiceHub {
         let mut state = self.state.write().await;
         *state = load_core_state_for_mutation(&self.state_file)?;
         let output = mutator(&mut state)?;
-        Self::persist_snapshot(&self.state_file, &state)?;
+        Self::persist_and_clear_dirty(&self.state_file, &mut state)?;
         Ok((output, state.clone()))
     }
 
@@ -362,13 +364,7 @@ impl FileServiceHub {
     }
 
     fn index_root_for_state_file(path: &Path) -> Option<PathBuf> {
-        let project_root = path.parent()?.parent()?;
-        let home = dirs::home_dir()?;
-        Some(
-            home.join(".ao")
-                .join("index")
-                .join(protocol::repository_scope_for_path(project_root)),
-        )
+        path.parent().map(|scoped_root| scoped_root.join("index"))
     }
 
     fn legacy_requirement_status(status: RequirementStatus) -> &'static str {
@@ -417,7 +413,7 @@ impl FileServiceHub {
         })
     }
 
-    fn write_requirement_files(path: &Path, snapshot: &CoreState) -> Result<()> {
+    fn write_requirement_files(path: &Path, snapshot: &CoreState, only_ids: Option<&HashSet<String>>) -> Result<()> {
         let Some(ao_dir) = Self::ao_dir_for_state_file(path) else {
             return Ok(());
         };
@@ -442,7 +438,9 @@ impl FileServiceHub {
             }
 
             let payload = Self::legacy_requirement_payload(&requirement);
-            std::fs::write(&full_path, serde_json::to_string_pretty(&payload)?)?;
+            if only_ids.is_none() || only_ids.map_or(false, |ids| ids.contains(&requirement.id)) {
+                std::fs::write(&full_path, serde_json::to_string_pretty(&payload)?)?;
+            }
 
             let mut linked_tasks = requirement.links.tasks.clone();
             linked_tasks.extend(requirement.linked_task_ids.clone());
@@ -489,7 +487,7 @@ impl FileServiceHub {
         Ok(())
     }
 
-    fn write_task_files(path: &Path, snapshot: &CoreState) -> Result<()> {
+    fn write_task_files(path: &Path, snapshot: &CoreState, only_ids: Option<&HashSet<String>>) -> Result<()> {
         let Some(ao_dir) = Self::ao_dir_for_state_file(path) else {
             return Ok(());
         };
@@ -548,10 +546,12 @@ impl FileServiceHub {
                 "cancelled": task.cancelled,
                 "resource_requirements": task.resource_requirements,
             });
-            std::fs::write(
-                tasks_dir.join(format!("{}.json", task.id)),
-                serde_json::to_string_pretty(&payload)?,
-            )?;
+            if only_ids.is_none() || only_ids.map_or(false, |ids| ids.contains(&task.id)) {
+                std::fs::write(
+                    tasks_dir.join(format!("{}.json", task.id)),
+                    serde_json::to_string_pretty(&payload)?,
+                )?;
+            }
 
             index_entries.push(serde_json::json!({
                 "id": task.id,
@@ -599,8 +599,8 @@ impl FileServiceHub {
             serde_json::to_string_pretty(&snapshot.architecture)?,
         )?;
 
-        Self::write_requirement_files(path, snapshot)?;
-        Self::write_task_files(path, snapshot)?;
+        Self::write_requirement_files(path, snapshot, None)?;
+        Self::write_task_files(path, snapshot, None)?;
 
         Ok(())
     }
@@ -608,6 +608,51 @@ impl FileServiceHub {
     fn persist_snapshot(path: &Path, snapshot: &CoreState) -> Result<()> {
         crate::domain_state::write_json_pretty(path, snapshot)?;
         Self::persist_structured_artifacts(path, snapshot)?;
+        Ok(())
+    }
+
+    fn persist_and_clear_dirty(path: &Path, state: &mut CoreState) -> Result<()> {
+        crate::domain_state::write_json_pretty(path, &*state)?;
+
+        if let Some(docs_dir) = Self::docs_dir_for_state_file(path) {
+            std::fs::create_dir_all(&docs_dir)?;
+
+            let vision_json_path = docs_dir.join("vision.json");
+            if let Some(vision) = &state.vision {
+                std::fs::write(&vision_json_path, serde_json::to_string_pretty(vision)?)?;
+            } else if vision_json_path.exists() {
+                std::fs::remove_file(&vision_json_path)?;
+            }
+
+            let architecture_json_path = docs_dir.join("architecture.json");
+            std::fs::write(
+                &architecture_json_path,
+                serde_json::to_string_pretty(&state.architecture)?,
+            )?;
+
+            if state.all_tasks_dirty || !state.dirty_tasks.is_empty() {
+                let only = if state.all_tasks_dirty {
+                    None
+                } else {
+                    Some(&state.dirty_tasks)
+                };
+                Self::write_task_files(path, state, only)?;
+            }
+
+            if state.all_requirements_dirty || !state.dirty_requirements.is_empty() {
+                let only = if state.all_requirements_dirty {
+                    None
+                } else {
+                    Some(&state.dirty_requirements)
+                };
+                Self::write_requirement_files(path, state, only)?;
+            }
+        }
+
+        state.dirty_tasks.clear();
+        state.dirty_requirements.clear();
+        state.all_tasks_dirty = false;
+        state.all_requirements_dirty = false;
         Ok(())
     }
 
@@ -696,14 +741,76 @@ impl FileServiceHub {
         Self::ensure_project_git_repository(project_root)
     }
 
+    fn maybe_migrate_state_to_scoped_root(project_root: &Path) -> Result<()> {
+        let Some(scoped_root) = protocol::scoped_state_root(project_root) else {
+            return Ok(());
+        };
+        if scoped_root.join("core-state.json").exists() {
+            return Ok(());
+        }
+        let legacy_ao = project_root.join(".ao");
+        if !legacy_ao.join("core-state.json").exists() {
+            return Ok(());
+        }
+        std::fs::create_dir_all(&scoped_root)?;
+        let copy = |name: &str| -> Result<()> {
+            let src = legacy_ao.join(name);
+            if src.exists() {
+                let dst = scoped_root.join(name);
+                if src.is_dir() {
+                    Self::copy_dir_recursive(&src, &dst)?;
+                } else {
+                    if let Some(parent) = dst.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    std::fs::copy(&src, &dst)?;
+                }
+            }
+            Ok(())
+        };
+        copy("core-state.json")?;
+        copy("resume-config.json")?;
+        copy("state")?;
+        copy("tasks")?;
+        copy("requirements")?;
+        copy("docs")?;
+        copy("workflow-state")?;
+        std::fs::write(
+            scoped_root.join(".migrated-from-repo"),
+            project_root.display().to_string(),
+        )?;
+        Ok(())
+    }
+
+    fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
+        std::fs::create_dir_all(dst)?;
+        for entry in std::fs::read_dir(src)? {
+            let entry = entry?;
+            let src_path = entry.path();
+            let dst_path = dst.join(entry.file_name());
+            if src_path.is_dir() {
+                Self::copy_dir_recursive(&src_path, &dst_path)?;
+            } else {
+                std::fs::copy(&src_path, &dst_path)?;
+            }
+        }
+        Ok(())
+    }
+
     fn bootstrap_project_base_configs(project_root: &Path) -> Result<()> {
         std::fs::create_dir_all(project_root)?;
 
         let ao_dir = project_root.join(".ao");
-        let state_dir = ao_dir.join("state");
+        std::fs::create_dir_all(&ao_dir)?;
+
+        Self::maybe_migrate_state_to_scoped_root(project_root)?;
+
+        let scoped_root = protocol::scoped_state_root(project_root)
+            .unwrap_or_else(|| project_root.join(".ao"));
+        let state_dir = scoped_root.join("state");
         std::fs::create_dir_all(&state_dir)?;
 
-        let core_state_path = ao_dir.join("core-state.json");
+        let core_state_path = scoped_root.join("core-state.json");
         let is_new_project = !core_state_path.exists();
         if !core_state_path.exists() {
             let _file_lock = Self::lock_state_file(&core_state_path)?;
@@ -712,7 +819,10 @@ impl FileServiceHub {
             }
         }
 
-        Self::write_json_if_missing(&ao_dir.join("resume-config.json"), &ResumeConfig::default())?;
+        Self::write_json_if_missing(
+            &scoped_root.join("resume-config.json"),
+            &ResumeConfig::default(),
+        )?;
         crate::state_machines::ensure_state_machines_file(project_root)?;
         if is_new_project {
             crate::workflow_config::ensure_workflow_config_file(project_root)?;

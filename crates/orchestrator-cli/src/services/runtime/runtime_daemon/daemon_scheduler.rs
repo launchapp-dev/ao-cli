@@ -399,10 +399,10 @@ mod tests {
             PhaseTargetPlanner::tool_for_model_id("opencode-x"),
             "opencode"
         );
-        assert_eq!(PhaseTargetPlanner::tool_for_model_id("glm-4.5"), "opencode");
+        assert_eq!(PhaseTargetPlanner::tool_for_model_id("glm-4.5"), "oai-runner");
         assert_eq!(
             PhaseTargetPlanner::tool_for_model_id("minimax-m1"),
-            "opencode"
+            "oai-runner"
         );
         assert_eq!(
             PhaseTargetPlanner::tool_for_model_id("gpt-5.3-codex"),
@@ -818,7 +818,7 @@ mod tests {
             .filter_map(Value::as_str)
             .collect::<Vec<_>>();
         assert!(args.contains(&"-c"));
-        assert!(args.contains(&"model_reasoning_effort=\"xhigh\""));
+        assert!(args.contains(&"model_reasoning_effort=xhigh"));
     }
 
     #[test]
@@ -1785,7 +1785,9 @@ mod tests {
 
         // Avoid runner bootstrap in this test: project_tick should reconcile state without
         // depending on an external agent-runner process.
-        let state_path = Path::new(&project_root).join(".ao").join("core-state.json");
+        let state_path = protocol::scoped_state_root(Path::new(&project_root))
+            .unwrap_or_else(|| Path::new(&project_root).join(".ao"))
+            .join("core-state.json");
         let mut state_json: Value = serde_json::from_str(
             &fs::read_to_string(&state_path).expect("core state should be readable"),
         )

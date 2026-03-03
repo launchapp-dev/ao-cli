@@ -906,9 +906,8 @@ impl WorkflowLifecycleExecutor {
         machine.apply(WorkflowMachineEvent::GatesFailed)
             .expect("failure: GatesFailed transition");
         let _ = machine.apply(WorkflowMachineEvent::PolicyDecisionFailed);
-        let _ = machine.apply(WorkflowMachineEvent::ReworkBudgetExceeded);
-        let final_state = machine.state();
-        let workflow_status = final_state.to_workflow_status();
+        let workflow_status = WorkflowStatus::Failed;
+        let final_state = WorkflowMachineState::Failed;
 
         let record = self.decision_record(
             current_phase_id.to_string(),

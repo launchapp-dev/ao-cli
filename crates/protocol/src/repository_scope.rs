@@ -1,5 +1,13 @@
 use sha2::{Digest, Sha256};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+pub fn scoped_state_root(project_root: &Path) -> Option<PathBuf> {
+    let home = dirs::home_dir()?;
+    Some(
+        home.join(".ao")
+            .join(repository_scope_for_path(project_root)),
+    )
+}
 
 pub fn sanitize_identifier(value: &str, fallback: &str) -> String {
     let mut out = String::with_capacity(value.len());

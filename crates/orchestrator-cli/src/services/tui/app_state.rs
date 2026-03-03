@@ -349,7 +349,7 @@ mod tests {
     #[test]
     fn ordered_defaults_start_with_tool_default_model() {
         let defaults = ordered_default_model_specs();
-        for tool in ["claude", "codex", "gemini", "opencode"] {
+        for tool in ["claude", "codex", "gemini", "oai-runner"] {
             let expected =
                 protocol::default_model_for_tool(tool).expect("tool should have default");
             let first_for_tool = defaults

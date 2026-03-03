@@ -1206,10 +1206,7 @@ fn format_duration(d: std::time::Duration) -> String {
     }
 }
 
-fn emit_phase_header(phase_id: &str, index: usize, total: usize, json: bool) {
-    if json {
-        return;
-    }
+fn emit_phase_header(phase_id: &str, index: usize, total: usize, _json: bool) {
     use std::io::Write as _;
     let color = use_ansi_colors();
     let (bold, cyan, reset) = if color {
@@ -1226,10 +1223,7 @@ fn emit_phase_header(phase_id: &str, index: usize, total: usize, json: bool) {
     );
 }
 
-fn emit_phase_footer(phase_id: &str, duration: std::time::Duration, succeeded: bool, json: bool) {
-    if json {
-        return;
-    }
+fn emit_phase_footer(phase_id: &str, duration: std::time::Duration, succeeded: bool, _json: bool) {
     use std::io::Write as _;
     let color = use_ansi_colors();
     let dur = format_duration(duration);
@@ -1245,11 +1239,8 @@ fn emit_phase_footer(phase_id: &str, duration: std::time::Duration, succeeded: b
 fn emit_workflow_summary(
     results: &[serde_json::Value],
     total_duration: std::time::Duration,
-    json: bool,
+    _json: bool,
 ) {
-    if json {
-        return;
-    }
     use std::io::Write as _;
     let color = use_ansi_colors();
     let (bold, green, red, dim, reset) = if color {
@@ -1312,13 +1303,12 @@ async fn handle_workflow_execute(
             .ok_or_else(|| anyhow!("no workflow found for task '{}'", args.task_id))
     })?;
 
-    let execution_cwd = crate::services::runtime::daemon_scheduler::ensure_task_execution_cwd(
-        hub.clone(),
-        project_root,
-        &task,
-    )
-    .await
-    .unwrap_or_else(|_| project_root.to_string());
+    let execution_cwd = task
+        .worktree_path
+        .as_deref()
+        .filter(|p| !p.is_empty() && Path::new(p).exists())
+        .unwrap_or(project_root)
+        .to_string();
     trace_workflow_execute(&format!("execution_cwd={}", execution_cwd));
 
     let phases_to_run: Vec<String> = if let Some(ref phase_id) = args.phase {

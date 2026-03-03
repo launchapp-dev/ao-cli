@@ -35,6 +35,8 @@ pub(crate) use daemon_events::{
 
 use protocol::{is_process_alive, terminate_process};
 
+const DRAIN_TIMEOUT_SECS: u64 = 30;
+const DRAIN_POLL_MILLIS: u64 = 250;
 const AUTONOMOUS_STARTUP_PROBE_SECS: u64 = 3;
 const AUTONOMOUS_STARTUP_PROBE_POLL_MILLIS: u64 = 100;
 const AUTONOMOUS_STARTUP_LOG_TAIL_LINES: usize = 40;
@@ -699,10 +701,8 @@ pub(crate) async fn handle_daemon(
             Ok(())
         }
         DaemonCommand::Pause => {
+            let _ = set_runtime_paused(project_root, true);
             let result = daemon.pause().await;
-            if result.is_ok() {
-                let _ = set_runtime_paused(project_root, true);
-            }
             result.map(|_| print_ok("daemon paused", json))
         }
         DaemonCommand::Resume => {

@@ -1409,10 +1409,7 @@ pub(crate) async fn run_workflow_phase(
 
     let mut merged_runtime = runtime_loaded.config.clone();
     for (id, profile) in &workflow_config.config.agent_profiles {
-        merged_runtime
-            .agents
-            .entry(id.clone())
-            .or_insert_with(|| profile.clone());
+        merged_runtime.agents.insert(id.clone(), profile.clone());
     }
     if !workflow_config.config.tools_allowlist.is_empty() {
         let mut combined: std::collections::HashSet<String> =

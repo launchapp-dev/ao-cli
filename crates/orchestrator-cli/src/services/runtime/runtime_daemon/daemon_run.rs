@@ -14,9 +14,10 @@ use super::daemon_events::{emit_daemon_event, next_daemon_event};
 use super::daemon_notifications::{DaemonNotificationRuntime, NotificationLifecycleEvent};
 use super::daemon_scheduler::{
     clear_running_workflow_phase_pool, drain_running_workflow_phases_for_project,
+    has_running_workflow_phase_pool_activity, is_pool_draining,
     pause_running_workflow_phase_spawns, project_tick,
     recover_orphaned_running_workflows_on_startup, resume_running_workflow_phase_spawns,
-    subscribe_phase_completion_wake,
+    set_pool_draining, subscribe_phase_completion_wake,
 };
 use super::{
     canonicalize_lossy, get_daemon_pid, is_shutdown_requested, set_daemon_pid, set_runtime_paused,
@@ -296,6 +297,37 @@ fn emit_project_tick_summary_events(
     Ok(())
 }
 
+struct SigtermStream {
+    #[cfg(unix)]
+    inner: tokio::signal::unix::Signal,
+}
+
+impl SigtermStream {
+    fn new() -> Result<Self> {
+        #[cfg(unix)]
+        {
+            let inner =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+            Ok(Self { inner })
+        }
+        #[cfg(not(unix))]
+        {
+            Ok(Self {})
+        }
+    }
+
+    async fn recv(&mut self) {
+        #[cfg(unix)]
+        {
+            self.inner.recv().await;
+        }
+        #[cfg(not(unix))]
+        {
+            std::future::pending::<()>().await;
+        }
+    }
+}
+
 pub(super) async fn handle_daemon_run(
     args: DaemonRunArgs,
     hub: Arc<dyn ServiceHub>,
@@ -476,8 +508,19 @@ pub(super) async fn handle_daemon_run(
 
         let interval = Duration::from_secs(args.interval_secs.max(1));
         let mut completion_wake_rx = subscribe_phase_completion_wake();
+        let mut sigterm_stream = SigtermStream::new()?;
         loop {
-            resume_running_workflow_phase_spawns(project_root);
+            let externally_paused = super::load_daemon_runtime_state(project_root)
+                .map(|state| state.runtime_paused)
+                .unwrap_or(false);
+            if externally_paused && !is_pool_draining(project_root) {
+                set_pool_draining(project_root, true);
+            } else if !externally_paused && is_pool_draining(project_root) {
+                set_pool_draining(project_root, false);
+                resume_running_workflow_phase_spawns(project_root);
+            } else if !is_pool_draining(project_root) {
+                resume_running_workflow_phase_spawns(project_root);
+            }
             match project_tick(project_root, &args).await {
                 Ok(summary) => {
                     if summary.started_daemon {
@@ -521,6 +564,13 @@ pub(super) async fn handle_daemon_run(
                         )?
                     }
                 }
+            }
+
+            if is_pool_draining(project_root)
+                && !has_running_workflow_phase_pool_activity(project_root)
+            {
+                clear_running_workflow_phase_pool(project_root);
+                break;
             }
 
             if args.once {
@@ -594,7 +644,15 @@ pub(super) async fn handle_daemon_run(
 
             tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
-                    pause_running_workflow_phase_spawns(project_root);
+                    emit_daemon_event_with_notifications(
+                        &mut seq,
+                        "daemon-draining",
+                        Some(primary_root.clone()),
+                        serde_json::json!({"trigger":"ctrl_c"}),
+                        json,
+                        notification_runtime.as_mut(),
+                    )?;
+                    set_pool_draining(project_root, true);
                     if let Err(error) = drain_running_workflow_phases_for_project(
                         hub.clone(),
                         project_root,
@@ -617,6 +675,43 @@ pub(super) async fn handle_daemon_run(
                             notification_runtime.as_mut(),
                         )?;
                     }
+                    set_pool_draining(project_root, false);
+                    clear_running_workflow_phase_pool(project_root);
+                    break;
+                }
+                _ = sigterm_stream.recv() => {
+                    emit_daemon_event_with_notifications(
+                        &mut seq,
+                        "daemon-draining",
+                        Some(primary_root.clone()),
+                        serde_json::json!({"trigger":"sigterm"}),
+                        json,
+                        notification_runtime.as_mut(),
+                    )?;
+                    set_pool_draining(project_root, true);
+                    if let Err(error) = drain_running_workflow_phases_for_project(
+                        hub.clone(),
+                        project_root,
+                        args.max_tasks_per_tick,
+                    )
+                    .await
+                    {
+                        emit_daemon_event_with_notifications(
+                            &mut seq,
+                            "log",
+                            Some(primary_root.clone()),
+                            serde_json::json!({
+                                "level": "error",
+                                "message": format!(
+                                    "failed draining in-flight workflow phases during SIGTERM shutdown: {}",
+                                    error
+                                ),
+                            }),
+                            json,
+                            notification_runtime.as_mut(),
+                        )?;
+                    }
+                    set_pool_draining(project_root, false);
                     clear_running_workflow_phase_pool(project_root);
                     break;
                 }

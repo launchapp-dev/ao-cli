@@ -162,18 +162,6 @@ pub fn is_terminal_task_status(status: TaskStatus) -> bool {
     matches!(status, TaskStatus::Done | TaskStatus::Cancelled)
 }
 
-pub fn task_status_label(status: TaskStatus) -> &'static str {
-    match status {
-        TaskStatus::Backlog => "backlog",
-        TaskStatus::Ready => "ready",
-        TaskStatus::InProgress => "in-progress",
-        TaskStatus::Blocked => "blocked",
-        TaskStatus::OnHold => "on-hold",
-        TaskStatus::Done => "done",
-        TaskStatus::Cancelled => "cancelled",
-    }
-}
-
 pub fn default_task_worktree_name(task_id: &str) -> String {
     format!("task-{}", protocol::sanitize_identifier(task_id, "task"))
 }

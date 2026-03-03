@@ -77,6 +77,38 @@ impl TaskStatus {
     }
 }
 
+impl std::fmt::Display for TaskStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Backlog => "backlog",
+            Self::Ready => "ready",
+            Self::InProgress => "in-progress",
+            Self::Blocked => "blocked",
+            Self::OnHold => "on-hold",
+            Self::Done => "done",
+            Self::Cancelled => "cancelled",
+        })
+    }
+}
+
+impl std::str::FromStr for TaskStatus {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let normalized = s.trim().to_ascii_lowercase();
+        Ok(match normalized.as_str() {
+            "todo" | "backlog" => Self::Backlog,
+            "ready" => Self::Ready,
+            "in_progress" | "in-progress" => Self::InProgress,
+            "done" | "completed" => Self::Done,
+            "blocked" => Self::Blocked,
+            "on_hold" | "on-hold" => Self::OnHold,
+            "cancelled" => Self::Cancelled,
+            _ => return Err(format!("unknown task status: {s}")),
+        })
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TaskType {
@@ -467,6 +499,46 @@ pub enum RequirementStatus {
     Approved,
     Implemented,
     Deprecated,
+}
+
+impl std::fmt::Display for RequirementStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Draft => "draft",
+            Self::Refined => "refined",
+            Self::Planned => "planned",
+            Self::InProgress => "in-progress",
+            Self::Done => "done",
+            Self::PoReview => "po-review",
+            Self::EmReview => "em-review",
+            Self::NeedsRework => "needs-rework",
+            Self::Approved => "approved",
+            Self::Implemented => "implemented",
+            Self::Deprecated => "deprecated",
+        })
+    }
+}
+
+impl std::str::FromStr for RequirementStatus {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let normalized = s.trim().to_ascii_lowercase().replace('_', "-");
+        Ok(match normalized.as_str() {
+            "draft" => Self::Draft,
+            "refined" => Self::Refined,
+            "planned" => Self::Planned,
+            "in-progress" => Self::InProgress,
+            "done" => Self::Done,
+            "po-review" => Self::PoReview,
+            "em-review" => Self::EmReview,
+            "needs-rework" => Self::NeedsRework,
+            "approved" => Self::Approved,
+            "implemented" => Self::Implemented,
+            "deprecated" => Self::Deprecated,
+            _ => return Err(format!("unknown requirement status: {s}")),
+        })
+    }
 }
 
 pub use protocol::RequirementType;

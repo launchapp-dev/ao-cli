@@ -31,24 +31,12 @@ impl TaskSnapshot {
         }
     }
 
-    pub(crate) fn status_label(&self) -> &'static str {
-        status_label(self.status)
+    pub(crate) fn status_label(&self) -> String {
+        self.status.to_string()
     }
 
     pub(crate) fn label(&self) -> String {
-        format!("{} [{}] {}", self.id, self.status_label(), self.title)
-    }
-}
-
-pub(crate) fn status_label(status: TaskStatus) -> &'static str {
-    match status {
-        TaskStatus::Backlog => "backlog",
-        TaskStatus::Ready => "ready",
-        TaskStatus::InProgress => "in-progress",
-        TaskStatus::Blocked => "blocked",
-        TaskStatus::OnHold => "on-hold",
-        TaskStatus::Done => "done",
-        TaskStatus::Cancelled => "cancelled",
+        format!("{} [{}] {}", self.id, self.status, self.title)
     }
 }
 
@@ -133,14 +121,14 @@ mod tests {
     }
 
     #[test]
-    fn status_label_returns_correct_strings() {
-        assert_eq!(status_label(TaskStatus::Backlog), "backlog");
-        assert_eq!(status_label(TaskStatus::Ready), "ready");
-        assert_eq!(status_label(TaskStatus::InProgress), "in-progress");
-        assert_eq!(status_label(TaskStatus::Blocked), "blocked");
-        assert_eq!(status_label(TaskStatus::OnHold), "on-hold");
-        assert_eq!(status_label(TaskStatus::Done), "done");
-        assert_eq!(status_label(TaskStatus::Cancelled), "cancelled");
+    fn status_display_returns_correct_strings() {
+        assert_eq!(TaskStatus::Backlog.to_string(), "backlog");
+        assert_eq!(TaskStatus::Ready.to_string(), "ready");
+        assert_eq!(TaskStatus::InProgress.to_string(), "in-progress");
+        assert_eq!(TaskStatus::Blocked.to_string(), "blocked");
+        assert_eq!(TaskStatus::OnHold.to_string(), "on-hold");
+        assert_eq!(TaskStatus::Done.to_string(), "done");
+        assert_eq!(TaskStatus::Cancelled.to_string(), "cancelled");
     }
 
     #[test]
@@ -206,7 +194,7 @@ mod tests {
     }
 
     #[test]
-    fn status_label_method_matches_function() {
+    fn status_label_method_matches_display() {
         let snapshot = TaskSnapshot {
             id: "TASK-001".to_string(),
             status: TaskStatus::InProgress,
@@ -214,9 +202,6 @@ mod tests {
             description: String::new(),
             assignee_label: String::new(),
         };
-        assert_eq!(
-            snapshot.status_label(),
-            status_label(TaskStatus::InProgress)
-        );
+        assert_eq!(snapshot.status_label(), TaskStatus::InProgress.to_string());
     }
 }

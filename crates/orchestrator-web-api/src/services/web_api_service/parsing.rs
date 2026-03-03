@@ -219,24 +219,9 @@ pub(super) fn is_empty_task_filter(filter: &TaskFilter) -> bool {
 }
 
 pub(super) fn parse_task_status(value: &str) -> Result<TaskStatus, WebApiError> {
-    let normalized = normalize_enum_key(value);
-    let parsed = match normalized.as_str() {
-        "todo" | "backlog" => TaskStatus::Backlog,
-        "ready" => TaskStatus::Ready,
-        "in-progress" => TaskStatus::InProgress,
-        "done" => TaskStatus::Done,
-        "blocked" => TaskStatus::Blocked,
-        "on-hold" => TaskStatus::OnHold,
-        "cancelled" => TaskStatus::Cancelled,
-        _ => {
-            return Err(WebApiError::new(
-                "invalid_input",
-                format!("invalid status: {value}"),
-                2,
-            ))
-        }
-    };
-    Ok(parsed)
+    value.parse().map_err(|_| {
+        WebApiError::new("invalid_input", format!("invalid status: {value}"), 2)
+    })
 }
 
 pub(super) fn parse_requirement_priority(value: &str) -> Result<RequirementPriority, WebApiError> {
@@ -268,29 +253,13 @@ pub(super) fn parse_requirement_priority_opt(
 }
 
 pub(super) fn parse_requirement_status(value: &str) -> Result<RequirementStatus, WebApiError> {
-    let normalized = value.trim().to_ascii_lowercase().replace('_', "-");
-    let parsed = match normalized.as_str() {
-        "draft" => RequirementStatus::Draft,
-        "refined" => RequirementStatus::Refined,
-        "planned" => RequirementStatus::Planned,
-        "in-progress" => RequirementStatus::InProgress,
-        "done" => RequirementStatus::Done,
-        "po-review" => RequirementStatus::PoReview,
-        "em-review" => RequirementStatus::EmReview,
-        "needs-rework" => RequirementStatus::NeedsRework,
-        "approved" => RequirementStatus::Approved,
-        "implemented" => RequirementStatus::Implemented,
-        "deprecated" => RequirementStatus::Deprecated,
-        _ => {
-            return Err(WebApiError::new(
-                "invalid_input",
-                format!("invalid requirement status: {value}"),
-                2,
-            ))
-        }
-    };
-
-    Ok(parsed)
+    value.parse().map_err(|_| {
+        WebApiError::new(
+            "invalid_input",
+            format!("invalid requirement status: {value}"),
+            2,
+        )
+    })
 }
 
 pub(super) fn parse_requirement_status_opt(
@@ -456,23 +425,6 @@ pub(super) fn parse_project_type_opt(
     };
 
     Ok(Some(parsed))
-}
-
-pub(super) fn requirement_status_key(status: RequirementStatus) -> String {
-    match status {
-        RequirementStatus::Draft => "draft",
-        RequirementStatus::Refined => "refined",
-        RequirementStatus::Planned => "planned",
-        RequirementStatus::InProgress => "in-progress",
-        RequirementStatus::Done => "done",
-        RequirementStatus::PoReview => "po-review",
-        RequirementStatus::EmReview => "em-review",
-        RequirementStatus::NeedsRework => "needs-rework",
-        RequirementStatus::Approved => "approved",
-        RequirementStatus::Implemented => "implemented",
-        RequirementStatus::Deprecated => "deprecated",
-    }
-    .to_string()
 }
 
 fn parse_assignee_type_opt(value: Option<String>) -> Result<Option<String>, WebApiError> {

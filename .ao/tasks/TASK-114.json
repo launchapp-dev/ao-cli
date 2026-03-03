@@ -21,13 +21,13 @@
   "linked_architecture_entities": [],
   "linked_requirements": [],
   "metadata": {
-    "completed_at": null,
+    "completed_at": "2026-03-03T00:09:15.436530Z",
     "created_at": "2026-02-27T17:18:57.830748Z",
     "created_by": "ao-cli",
     "started_at": "2026-02-27T17:46:20.390567Z",
-    "updated_at": "2026-02-28T16:53:16.360550Z",
+    "updated_at": "2026-03-03T00:09:15.436531Z",
     "updated_by": "ao-daemon",
-    "version": 39
+    "version": 40
   },
   "paused": false,
   "priority": "medium",
@@ -38,7 +38,7 @@
   },
   "risk": "medium",
   "scope": "medium",
-  "status": "ready",
+  "status": "done",
   "tags": [],
   "title": "Emit real-time agent lifecycle events for pool visibility",
   "type": "feature",

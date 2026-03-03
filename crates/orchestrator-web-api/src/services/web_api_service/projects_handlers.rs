@@ -4,7 +4,7 @@ use orchestrator_core::{FileServiceHub, ProjectCreateInput, ServiceHub};
 use serde_json::{json, Value};
 
 use super::{
-    parsing::{parse_json_body, parse_project_type_opt, requirement_status_key},
+    parsing::{parse_json_body, parse_project_type_opt},
     requests::{ProjectCreateRequest, ProjectPatchRequest},
     WebApiError, WebApiService,
 };
@@ -135,7 +135,7 @@ impl WebApiService {
         let mut requirement_rows = Vec::with_capacity(requirements.len());
 
         for requirement in requirements {
-            let status_key = requirement_status_key(requirement.status);
+            let status_key = requirement.status.to_string();
             *by_status.entry(status_key.clone()).or_default() += 1;
             let updated_at = requirement.updated_at.to_rfc3339();
             if latest_updated_at

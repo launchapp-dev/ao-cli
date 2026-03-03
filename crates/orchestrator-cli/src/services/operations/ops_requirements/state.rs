@@ -367,21 +367,9 @@ fn parse_requirement_category(value: &str) -> Result<String> {
 }
 
 fn parse_requirement_status(value: &str) -> Result<RequirementStatus> {
-    let parsed = match value.trim().to_ascii_lowercase().as_str() {
-        "draft" => RequirementStatus::Draft,
-        "refined" => RequirementStatus::Refined,
-        "planned" => RequirementStatus::Planned,
-        "in-progress" | "in_progress" => RequirementStatus::InProgress,
-        "done" => RequirementStatus::Done,
-        _ => {
-            return Err(invalid_requirement_value_error(
-                "status",
-                value,
-                REQUIREMENT_STATUS_EXPECTED,
-            ))
-        }
-    };
-    Ok(parsed)
+    value.parse().map_err(|_| {
+        invalid_requirement_value_error("status", value, REQUIREMENT_STATUS_EXPECTED)
+    })
 }
 
 fn parse_requirement_priority_opt(value: Option<&str>) -> Result<Option<RequirementPriority>> {

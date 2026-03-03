@@ -44,7 +44,7 @@ pub async fn dependency_gate_issues_for_task(
             issues.push(format!(
                 "dependency {} is {}",
                 dependency.task_id,
-                git_ops::task_status_label(dependency_task.status)
+                dependency_task.status
             ));
             continue;
         }

@@ -12,22 +12,6 @@ fn normalize_requirement_lifecycle_phase(phase: &str) -> Option<&'static str> {
     }
 }
 
-fn requirement_status_label(status: orchestrator_core::RequirementStatus) -> &'static str {
-    match status {
-        orchestrator_core::RequirementStatus::Draft => "draft",
-        orchestrator_core::RequirementStatus::Refined => "refined",
-        orchestrator_core::RequirementStatus::Planned => "planned",
-        orchestrator_core::RequirementStatus::InProgress => "in-progress",
-        orchestrator_core::RequirementStatus::Done => "done",
-        orchestrator_core::RequirementStatus::PoReview => "po-review",
-        orchestrator_core::RequirementStatus::EmReview => "em-review",
-        orchestrator_core::RequirementStatus::NeedsRework => "needs-rework",
-        orchestrator_core::RequirementStatus::Approved => "approved",
-        orchestrator_core::RequirementStatus::Implemented => "implemented",
-        orchestrator_core::RequirementStatus::Deprecated => "deprecated",
-    }
-}
-
 fn requirement_lifecycle_comment_key(requirement_id: &str, phase: &str, content: &str) -> String {
     format!(
         "{}|{}|{}",
@@ -77,7 +61,7 @@ pub fn collect_requirement_lifecycle_transitions(
                 requirement_id: requirement.id.clone(),
                 requirement_title: requirement.title.clone(),
                 phase: phase.to_string(),
-                status: requirement_status_label(requirement.status).to_string(),
+                status: requirement.status.to_string(),
                 transition_at: comment.timestamp.to_rfc3339(),
                 comment: {
                     let trimmed = comment.content.trim();
@@ -183,8 +167,8 @@ pub fn collect_task_state_transitions(
 
         transitions.push(TaskStateTransition {
             task_id: task.id.clone(),
-            from_status: git_ops::task_status_label(previous.status).to_string(),
-            to_status: git_ops::task_status_label(task.status).to_string(),
+            from_status: previous.status.to_string(),
+            to_status: task.status.to_string(),
             changed_at: task.metadata.updated_at.to_rfc3339(),
             workflow_id,
             phase_id,

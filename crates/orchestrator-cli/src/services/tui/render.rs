@@ -6,7 +6,7 @@ use ratatui::{
 };
 
 use crate::services::tui::app_state::{AppState, CreateTaskField, FocusPane, ModalState};
-use crate::services::tui::task_snapshot::{status_label, STATUS_CYCLE};
+use crate::services::tui::task_snapshot::STATUS_CYCLE;
 
 pub(crate) fn render(frame: &mut Frame<'_>, app: &AppState) {
     let root = Layout::default()
@@ -202,7 +202,7 @@ fn render_modal(frame: &mut Frame<'_>, app: &AppState) {
                     .iter()
                     .enumerate()
                     .map(|(i, s)| {
-                        let lbl = status_label(*s);
+                        let lbl = s.to_string();
                         if i == *selected {
                             ListItem::new(format!("» {lbl}")).style(
                                 Style::default()

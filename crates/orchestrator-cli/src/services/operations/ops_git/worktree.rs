@@ -32,18 +32,6 @@ struct PruneCandidate {
 
 const PRUNE_WORKTREES_CONFIRMATION_OPERATION: &str = "prune_worktrees";
 
-fn task_status_label(status: TaskStatus) -> &'static str {
-    match status {
-        TaskStatus::Backlog => "backlog",
-        TaskStatus::Ready => "ready",
-        TaskStatus::InProgress => "in-progress",
-        TaskStatus::Blocked => "blocked",
-        TaskStatus::OnHold => "on-hold",
-        TaskStatus::Done => "done",
-        TaskStatus::Cancelled => "cancelled",
-    }
-}
-
 fn normalize_branch(branch: &str) -> String {
     branch.trim().trim_start_matches("refs/heads/").to_string()
 }
@@ -358,7 +346,7 @@ pub(super) async fn handle_git_worktree(
                     .or_else(|| inferred_task_id.clone());
                 let task_status = matched_task
                     .as_ref()
-                    .map(|task| task_status_label(task.status).to_string());
+                    .map(|task| task.status.to_string());
                 let terminal_task = matched_task
                     .as_ref()
                     .map(|task| task.status.is_terminal())

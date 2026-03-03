@@ -439,18 +439,6 @@ fn sync_requirement_task_links(requirement: &mut RequirementItem, task_ids: &[St
     requirement.links.tasks.dedup();
 }
 
-fn task_status_label(status: TaskStatus) -> &'static str {
-    match status {
-        TaskStatus::Backlog => "backlog",
-        TaskStatus::Ready => "ready",
-        TaskStatus::InProgress => "in-progress",
-        TaskStatus::Blocked => "blocked",
-        TaskStatus::OnHold => "on-hold",
-        TaskStatus::Done => "done",
-        TaskStatus::Cancelled => "cancelled",
-    }
-}
-
 fn default_task_checklist(needs_research: bool, now: chrono::DateTime<Utc>) -> Vec<ChecklistItem> {
     let mut checklist_items = vec![
         "Requirement scope refined and approved by PO/EM gates.".to_string(),
@@ -489,7 +477,7 @@ fn unsatisfied_blocked_dependencies(lock: &CoreState, task: &OrchestratorTask) -
             Some(dep_task) => issues.push(format!(
                 "{} ({})",
                 dependency.task_id,
-                task_status_label(dep_task.status)
+                dep_task.status
             )),
             None => issues.push(format!("{} (missing)", dependency.task_id)),
         }

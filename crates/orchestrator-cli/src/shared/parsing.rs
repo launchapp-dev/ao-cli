@@ -163,19 +163,9 @@ pub(crate) fn read_agent_status(
 }
 
 pub(crate) fn parse_task_status(value: &str) -> Result<TaskStatus> {
-    let normalized = value.trim().to_ascii_lowercase();
-    let status = match normalized.as_str() {
-        "todo" | "backlog" => TaskStatus::Backlog,
-        "ready" => TaskStatus::Ready,
-        "in_progress" | "in-progress" => TaskStatus::InProgress,
-        "done" => TaskStatus::Done,
-        "blocked" => TaskStatus::Blocked,
-        "on_hold" | "on-hold" => TaskStatus::OnHold,
-        "cancelled" => TaskStatus::Cancelled,
-        _ => return Err(invalid_value_error("status", value, TASK_STATUS_EXPECTED)),
-    };
-
-    Ok(status)
+    value
+        .parse()
+        .map_err(|_| invalid_value_error("status", value, TASK_STATUS_EXPECTED))
 }
 
 pub(crate) fn parse_task_type_opt(value: Option<&str>) -> Result<Option<TaskType>> {

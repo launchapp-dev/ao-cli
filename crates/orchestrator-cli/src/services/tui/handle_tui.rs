@@ -327,9 +327,8 @@ async fn handle_key_status_picker(
         KeyCode::Enter => {
             if let Some(task) = app.selected_task().cloned() {
                 let new_status: TaskStatus = STATUS_CYCLE[selected];
-                let new_status_label = crate::services::tui::task_snapshot::status_label(new_status);
                 app.modal = ModalState::None;
-                app.status_line = format!("updating {} to {}...", task.id, new_status_label);
+                app.status_line = format!("updating {} to {}...", task.id, new_status);
                 let task_svc = hub.tasks();
                 let tx = app.event_tx.clone();
                 tokio::spawn(async move {

@@ -2,6 +2,12 @@ use super::*;
 
 #[async_trait]
 impl PlanningServiceApi for InMemoryServiceHub {
+    fn requirements_provider(&self) -> Arc<dyn RequirementsProvider> {
+        Arc::new(crate::providers::BuiltinRequirementsProvider::new(Arc::new(
+            self.clone(),
+        )))
+    }
+
     async fn draft_vision(&self, input: VisionDraftInput) -> Result<VisionDocument> {
         let now = Utc::now();
         let project_name = input
@@ -119,6 +125,12 @@ impl PlanningServiceApi for InMemoryServiceHub {
 
 #[async_trait]
 impl PlanningServiceApi for FileServiceHub {
+    fn requirements_provider(&self) -> Arc<dyn RequirementsProvider> {
+        Arc::new(crate::providers::BuiltinRequirementsProvider::new(Arc::new(
+            self.clone(),
+        )))
+    }
+
     async fn draft_vision(&self, input: VisionDraftInput) -> Result<VisionDocument> {
         let now = Utc::now();
         let requested_project_name = input.project_name.clone();

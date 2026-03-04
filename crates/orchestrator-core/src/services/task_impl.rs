@@ -2,6 +2,10 @@ use super::*;
 
 #[async_trait]
 impl TaskServiceApi for InMemoryServiceHub {
+    fn task_provider(&self) -> Arc<dyn TaskProvider> {
+        Arc::new(crate::providers::BuiltinTaskProvider::new(Arc::new(self.clone())))
+    }
+
     async fn list(&self) -> Result<Vec<OrchestratorTask>> {
         Ok(self.state.read().await.tasks.values().cloned().collect())
     }
@@ -139,6 +143,10 @@ impl TaskServiceApi for InMemoryServiceHub {
 
 #[async_trait]
 impl TaskServiceApi for FileServiceHub {
+    fn task_provider(&self) -> Arc<dyn TaskProvider> {
+        Arc::new(crate::providers::BuiltinTaskProvider::new(Arc::new(self.clone())))
+    }
+
     async fn list(&self) -> Result<Vec<OrchestratorTask>> {
         Ok(self.state.read().await.tasks.values().cloned().collect())
     }

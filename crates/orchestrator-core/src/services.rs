@@ -14,6 +14,7 @@ use tokio::sync::RwLock;
 use tokio::time::sleep;
 use uuid::Uuid;
 
+use crate::providers::{BuiltinRequirementsProvider, BuiltinTaskProvider, RequirementsProvider, TaskProvider};
 use crate::types::{
     AgentHandoffRequestInput, AgentHandoffResult, ArchitectureGraph, Assignee, ChecklistItem,
     CheckpointReason, CodebaseInsight, Complexity, ComplexityAssessment,
@@ -100,6 +101,7 @@ pub trait ProjectServiceApi: Send + Sync {
 
 #[async_trait]
 pub trait TaskServiceApi: Send + Sync {
+    fn task_provider(&self) -> Arc<dyn TaskProvider>;
     async fn list(&self) -> Result<Vec<OrchestratorTask>>;
     async fn list_filtered(&self, filter: TaskFilter) -> Result<Vec<OrchestratorTask>>;
     async fn list_prioritized(&self) -> Result<Vec<OrchestratorTask>>;
@@ -182,6 +184,7 @@ pub trait WorkflowServiceApi: Send + Sync {
 
 #[async_trait]
 pub trait PlanningServiceApi: Send + Sync {
+    fn requirements_provider(&self) -> Arc<dyn RequirementsProvider>;
     async fn draft_vision(&self, input: VisionDraftInput) -> Result<VisionDocument>;
     async fn get_vision(&self) -> Result<Option<VisionDocument>>;
     async fn draft_requirements(
@@ -211,8 +214,10 @@ pub trait ServiceHub: Send + Sync {
     fn daemon(&self) -> Arc<dyn DaemonServiceApi>;
     fn projects(&self) -> Arc<dyn ProjectServiceApi>;
     fn tasks(&self) -> Arc<dyn TaskServiceApi>;
+    fn task_provider(&self) -> Arc<dyn TaskProvider>;
     fn workflows(&self) -> Arc<dyn WorkflowServiceApi>;
     fn planning(&self) -> Arc<dyn PlanningServiceApi>;
+    fn requirements_provider(&self) -> Arc<dyn RequirementsProvider>;
     fn review(&self) -> Arc<dyn ReviewServiceApi>;
 }
 
@@ -857,12 +862,20 @@ impl ServiceHub for InMemoryServiceHub {
         Arc::new(self.clone())
     }
 
+    fn task_provider(&self) -> Arc<dyn TaskProvider> {
+        Arc::new(BuiltinTaskProvider::new(Arc::new(self.clone())))
+    }
+
     fn workflows(&self) -> Arc<dyn WorkflowServiceApi> {
         Arc::new(self.clone())
     }
 
     fn planning(&self) -> Arc<dyn PlanningServiceApi> {
         Arc::new(self.clone())
+    }
+
+    fn requirements_provider(&self) -> Arc<dyn RequirementsProvider> {
+        Arc::new(BuiltinRequirementsProvider::new(Arc::new(self.clone())))
     }
 
     fn review(&self) -> Arc<dyn ReviewServiceApi> {
@@ -883,12 +896,20 @@ impl ServiceHub for FileServiceHub {
         Arc::new(self.clone())
     }
 
+    fn task_provider(&self) -> Arc<dyn TaskProvider> {
+        Arc::new(BuiltinTaskProvider::new(Arc::new(self.clone())))
+    }
+
     fn workflows(&self) -> Arc<dyn WorkflowServiceApi> {
         Arc::new(self.clone())
     }
 
     fn planning(&self) -> Arc<dyn PlanningServiceApi> {
         Arc::new(self.clone())
+    }
+
+    fn requirements_provider(&self) -> Arc<dyn RequirementsProvider> {
+        Arc::new(BuiltinRequirementsProvider::new(Arc::new(self.clone())))
     }
 
     fn review(&self) -> Arc<dyn ReviewServiceApi> {

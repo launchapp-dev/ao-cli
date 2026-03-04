@@ -4,7 +4,6 @@ use anyhow::Result;
 
 use crate::providers::{RequirementsProvider, TaskProvider};
 use crate::services::{PlanningServiceApi, TaskServiceApi};
-use crate::services::FileServiceHub;
 use crate::types::{
     DependencyType, OrchestratorTask, RequirementItem, RequirementsDraftInput, RequirementsDraftResult,
     RequirementsExecutionInput, RequirementsExecutionResult, RequirementsRefineInput, TaskCreateInput,
@@ -13,11 +12,11 @@ use crate::types::{
 
 #[derive(Clone)]
 pub struct BuiltinTaskProvider {
-    hub: Arc<FileServiceHub>,
+    hub: Arc<dyn TaskServiceApi>,
 }
 
 impl BuiltinTaskProvider {
-    pub fn new(hub: Arc<FileServiceHub>) -> Self {
+    pub fn new(hub: Arc<dyn TaskServiceApi>) -> Self {
         Self { hub }
     }
 }
@@ -119,11 +118,11 @@ impl TaskProvider for BuiltinTaskProvider {
 
 #[derive(Clone)]
 pub struct BuiltinRequirementsProvider {
-    hub: Arc<FileServiceHub>,
+    hub: Arc<dyn PlanningServiceApi>,
 }
 
 impl BuiltinRequirementsProvider {
-    pub fn new(hub: Arc<FileServiceHub>) -> Self {
+    pub fn new(hub: Arc<dyn PlanningServiceApi>) -> Self {
         Self { hub }
     }
 }

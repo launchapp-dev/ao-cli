@@ -86,6 +86,9 @@ pub trait RequirementsProvider: Send + Sync {
 }
 
 pub mod builtin;
+pub mod git;
 
 pub use builtin::{BuiltinRequirementsProvider, BuiltinTaskProvider};
-
+pub use git::{
+    CreatePrInput, GitHubProvider, GitProvider, MergeResult, PullRequestInfo, WorktreeInfo,
+};

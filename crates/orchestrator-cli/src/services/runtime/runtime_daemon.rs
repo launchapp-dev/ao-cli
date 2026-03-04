@@ -18,6 +18,7 @@ use crate::{
 mod daemon_events;
 mod daemon_notifications;
 mod daemon_run;
+pub mod daemon_process_manager;
 pub(crate) mod daemon_scheduler;
 
 use daemon_events::handle_daemon_events_impl;

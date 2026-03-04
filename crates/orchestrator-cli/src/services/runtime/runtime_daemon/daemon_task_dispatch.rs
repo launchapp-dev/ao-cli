@@ -542,7 +542,7 @@ pub async fn sync_task_status_for_workflow_result(
     }
 }
 
-fn should_skip_dispatch(task: &orchestrator_core::OrchestratorTask) -> bool {
+pub(super) fn should_skip_dispatch(task: &orchestrator_core::OrchestratorTask) -> bool {
     if let Some(count) = task.consecutive_dispatch_failures {
         if count >= MAX_DISPATCH_RETRIES {
             return true;

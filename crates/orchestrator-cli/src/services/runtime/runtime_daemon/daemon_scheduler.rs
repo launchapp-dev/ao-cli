@@ -1,6 +1,7 @@
 use super::canonicalize_lossy;
 use crate::cli_types::DaemonRunArgs;
 use crate::services::runtime::runtime_daemon::append_daemon_event_fire_and_forget;
+use crate::services::runtime::runtime_daemon::daemon_process_manager::ProcessManager;
 use crate::shared::{
     ensure_ai_generated_tasks_for_requirements, requirement_has_active_tasks,
 };
@@ -1987,6 +1988,14 @@ pub(super) async fn drain_running_workflow_phases_for_project(
 
 pub(super) async fn project_tick(root: &str, args: &DaemonRunArgs) -> Result<ProjectTickSummary> {
     project_tick_ops::project_tick(root, args).await
+}
+
+pub(super) async fn slim_project_tick(
+    root: &str,
+    args: &DaemonRunArgs,
+    process_manager: &mut ProcessManager,
+) -> Result<ProjectTickSummary> {
+    project_tick_ops::slim_daemon_tick(root, args, process_manager).await
 }
 
 pub(super) async fn recover_orphaned_running_workflows_on_startup(

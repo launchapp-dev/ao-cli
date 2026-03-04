@@ -1,5 +1,6 @@
 use super::*;
 use crate::services::runtime::stale_in_progress_summary;
+use crate::services::runtime::runtime_daemon::daemon_process_manager::{CompletedProcess, ProcessManager};
 
 #[path = "daemon_task_dispatch.rs"]
 pub(super) mod task_dispatch;
@@ -25,6 +26,21 @@ use reconciliation::*;
 use task_lifecycle::*;
 use bootstrap::*;
 use agent_slot::*;
+
+fn pipeline_for_task(task: &orchestrator_core::OrchestratorTask) -> String {
+    if task.is_frontend_related() {
+        orchestrator_core::UI_UX_PIPELINE_ID.to_string()
+    } else {
+        orchestrator_core::STANDARD_PIPELINE_ID.to_string()
+    }
+}
+
+fn completion_reason(completion: &CompletedProcess) -> String {
+    completion
+        .failure_reason
+        .clone()
+        .unwrap_or_else(|| format!("workflow runner exited with status {:?}", completion.exit_code))
+}
 
 pub(super) async fn project_tick(root: &str, args: &DaemonRunArgs) -> Result<ProjectTickSummary> {
     let root = canonicalize_lossy(root);
@@ -174,6 +190,258 @@ pub(super) async fn project_tick(root: &str, args: &DaemonRunArgs) -> Result<Pro
         executed_workflow_phases,
         failed_workflow_phases,
         phase_execution_events,
+        requirement_lifecycle_transitions,
+        task_state_transitions,
+    })
+}
+
+pub(super) async fn slim_daemon_tick(
+    root: &str,
+    args: &DaemonRunArgs,
+    process_manager: &mut ProcessManager,
+) -> Result<ProjectTickSummary> {
+    let root = canonicalize_lossy(root);
+    let hub = Arc::new(FileServiceHub::new(&root)?);
+    let _ = git_ops::flush_git_integration_outbox(&root);
+    let requirements_before = hub.planning().list_requirements().await.unwrap_or_default();
+    let tasks_before = hub.tasks().list().await.unwrap_or_default();
+    let daemon = hub.daemon();
+    let status = daemon.status().await?;
+    let mut started_daemon = false;
+    if !matches!(
+        status,
+        orchestrator_core::DaemonStatus::Running | orchestrator_core::DaemonStatus::Paused
+    ) {
+        daemon.start().await?;
+        started_daemon = true;
+    }
+
+    bootstrap_from_vision_if_needed(hub.clone(), args.startup_cleanup, args.ai_task_generation)
+        .await?;
+
+    if args.ai_task_generation {
+        let _ = ensure_tasks_for_unplanned_requirements(hub.clone(), &root).await;
+    }
+
+    let mut cleaned_stale_workflows = 0usize;
+    let mut resumed_workflows = 0usize;
+    if args.resume_interrupted {
+        let (cleaned, resumed) =
+            resume_interrupted_workflows_for_project(hub.clone(), &root).await?;
+        cleaned_stale_workflows = cleaned;
+        resumed_workflows = resumed;
+    }
+
+    let _recovered_orphans = recover_orphaned_running_workflows(hub.clone(), &root).await;
+
+    let reconciled_stale_tasks = if args.reconcile_stale {
+        reconcile_stale_in_progress_tasks_for_project(hub.clone(), &root).await?
+    } else {
+        0
+    };
+    let reconciled_dependency_tasks =
+        reconcile_dependency_gate_tasks_for_project(hub.clone(), &root).await?;
+    let reconciled_merge_tasks = reconcile_merge_gate_tasks_for_project(hub.clone(), &root).await?;
+
+    let pool_draining = phase_pool::is_pool_draining(&root);
+
+    let mut completed_processes = process_manager.check_running();
+    let mut executed_workflow_phases = 0usize;
+    let mut failed_workflow_phases = 0usize;
+
+    while let Some(completed) = completed_processes.pop() {
+        if completed.success {
+            remove_terminal_em_work_queue_entry_non_fatal(&root, &completed.task_id, None);
+            let _ = hub
+                .tasks()
+                .set_status(&completed.task_id, TaskStatus::Done)
+                .await;
+            executed_workflow_phases = executed_workflow_phases.saturating_add(1);
+            continue;
+        }
+
+        let reason = completion_reason(&completed);
+        if let Ok(task) = hub.tasks().get(&completed.task_id).await {
+            let _ = set_task_blocked_with_reason(
+                hub.clone(),
+                &task,
+                format!("workflow runner failed: {reason}"),
+                None,
+            )
+            .await;
+        } else {
+            let _ = hub
+                .tasks()
+                .set_status(&completed.task_id, TaskStatus::Blocked)
+                .await;
+        }
+        failed_workflow_phases = failed_workflow_phases.saturating_add(1);
+    }
+
+    if !pool_draining && args.auto_run_ready {
+        let _ = retry_failed_task_workflows(hub.clone()).await;
+        let _ = promote_backlog_tasks_to_ready(hub.clone(), &root).await;
+    }
+
+    let daemon_health = daemon.health().await.ok();
+    let configured_max_agents = args
+        .pool_size
+        .or(args.max_agents)
+        .or_else(|| daemon_health.and_then(|health| health.max_agents))
+        .unwrap_or(args.max_tasks_per_tick);
+    let ready_dispatch_limit = if !pool_draining && args.auto_run_ready {
+        configured_max_agents
+            .saturating_sub(process_manager.active_count())
+            .min(args.max_tasks_per_tick)
+    } else {
+        0
+    };
+
+    let workflows = hub.workflows().list().await.unwrap_or_default();
+    let active_task_ids = active_workflow_task_ids(&workflows);
+    let mut ready_workflows_started = Vec::new();
+
+    if ready_dispatch_limit > 0 {
+        let candidates = hub.tasks().list_prioritized().await?;
+        for task in candidates {
+            if ready_workflows_started.len() >= ready_dispatch_limit {
+                break;
+            }
+
+            if task.paused || task.cancelled {
+                continue;
+            }
+            if task.status != TaskStatus::Ready {
+                continue;
+            }
+            if active_task_ids.contains(&task.id) {
+                continue;
+            }
+            if should_skip_dispatch(&task) {
+                continue;
+            }
+
+            let dependency_issues =
+                dependency_gate_issues_for_task(hub.clone(), &root, &task).await;
+            if !dependency_issues.is_empty() {
+                let reason = dependency_blocked_reason(&dependency_issues);
+                let _ = set_task_blocked_with_reason(
+                    hub.clone(),
+                    &task,
+                    reason,
+                    None,
+                )
+                .await;
+                continue;
+            }
+
+            let pipeline_id = pipeline_for_task(&task);
+            match process_manager.spawn_workflow_runner(&task.id, &pipeline_id, &root) {
+                Ok(_) => {
+                    let _ = hub
+                        .tasks()
+                        .set_status(&task.id, TaskStatus::InProgress)
+                        .await;
+                    ready_workflows_started.push(ReadyTaskWorkflowStart {
+                        task_id: task.id.clone(),
+                        workflow_id: task.id.clone(),
+                        selection_source: TaskSelectionSource::FallbackPicker,
+                    });
+                }
+                Err(error) => {
+                    let reason = format!("failed to start workflow runner: {error}");
+                    let _ = set_task_blocked_with_reason(
+                        hub.clone(),
+                        &task,
+                        reason,
+                        None,
+                    )
+                    .await;
+                }
+            }
+        }
+    }
+
+    let _ = git_ops::refresh_runtime_binaries_if_main_advanced(
+        hub.clone(),
+        &root,
+        git_ops::RuntimeBinaryRefreshTrigger::Tick,
+    )
+    .await;
+
+    let health = serde_json::to_value(daemon.health().await?)?;
+    let tasks = hub.tasks().list().await?;
+    let workflows = hub.workflows().list().await.unwrap_or_default();
+
+    let tasks_total = tasks.len();
+    let tasks_ready = tasks
+        .iter()
+        .filter(|task| matches!(task.status, TaskStatus::Ready | TaskStatus::Backlog))
+        .count();
+    let tasks_in_progress = tasks
+        .iter()
+        .filter(|task| task.status == TaskStatus::InProgress)
+        .count();
+    let tasks_blocked = tasks.iter().filter(|task| task.status.is_blocked()).count();
+    let tasks_done = tasks
+        .iter()
+        .filter(|task| task.status.is_terminal())
+        .count();
+    let stale_in_progress =
+        stale_in_progress_summary(&tasks, args.stale_threshold_hours, Utc::now());
+
+    let workflows_running = workflows
+        .iter()
+        .filter(|workflow| {
+            matches!(
+                workflow.status,
+                WorkflowStatus::Running | WorkflowStatus::Paused
+            )
+        })
+        .count();
+    let workflows_completed = workflows
+        .iter()
+        .filter(|workflow| is_terminally_completed_workflow(workflow))
+        .count();
+    let workflows_failed = workflows
+        .iter()
+        .filter(|workflow| workflow.status == WorkflowStatus::Failed)
+        .count();
+    let requirements_after = hub.planning().list_requirements().await.unwrap_or_default();
+    let requirement_lifecycle_transitions =
+        collect_requirement_lifecycle_transitions(&requirements_before, &requirements_after);
+    let task_state_transitions = collect_task_state_transitions(
+        &tasks_before,
+        &tasks,
+        &workflows,
+        &[],
+        &ready_workflows_started,
+    );
+
+    Ok(ProjectTickSummary {
+        project_root: root,
+        started_daemon,
+        health,
+        tasks_total,
+        tasks_ready,
+        tasks_in_progress,
+        tasks_blocked,
+        tasks_done,
+        stale_in_progress_count: stale_in_progress.count,
+        stale_in_progress_threshold_hours: stale_in_progress.threshold_hours,
+        stale_in_progress_task_ids: stale_in_progress.task_ids(),
+        workflows_running,
+        workflows_completed,
+        workflows_failed,
+        resumed_workflows,
+        cleaned_stale_workflows,
+        reconciled_stale_tasks: reconciled_stale_tasks
+            .saturating_add(reconciled_dependency_tasks)
+            .saturating_add(reconciled_merge_tasks),
+        started_ready_workflows: ready_workflows_started.len(),
+        executed_workflow_phases,
+        failed_workflow_phases,
+        phase_execution_events: Vec::new(),
         requirement_lifecycle_transitions,
         task_state_transitions,
     })

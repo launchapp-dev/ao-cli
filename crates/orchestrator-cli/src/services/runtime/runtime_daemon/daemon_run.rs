@@ -15,7 +15,7 @@ use super::daemon_notifications::{DaemonNotificationRuntime, NotificationLifecyc
 use super::daemon_scheduler::{
     clear_running_workflow_phase_pool, drain_running_workflow_phases_for_project,
     has_running_workflow_phase_pool_activity, is_pool_draining,
-    pause_running_workflow_phase_spawns, project_tick,
+    pause_running_workflow_phase_spawns, slim_project_tick,
     recover_orphaned_running_workflows_on_startup, resume_running_workflow_phase_spawns,
     set_pool_draining, subscribe_phase_completion_wake,
 };
@@ -23,6 +23,7 @@ use super::{
     canonicalize_lossy, get_daemon_pid, is_shutdown_requested, set_daemon_pid, set_runtime_paused,
     set_shutdown_requested,
 };
+use super::daemon_process_manager::ProcessManager;
 
 struct DaemonRunGuard {
     project_root: String,
@@ -507,6 +508,7 @@ pub(super) async fn handle_daemon_run(
         }
 
         let interval = Duration::from_secs(args.interval_secs.max(1));
+        let mut process_manager = ProcessManager::new();
         let mut completion_wake_rx = subscribe_phase_completion_wake();
         let mut sigterm_stream = SigtermStream::new()?;
         loop {
@@ -521,7 +523,7 @@ pub(super) async fn handle_daemon_run(
             } else if !is_pool_draining(project_root) {
                 resume_running_workflow_phase_spawns(project_root);
             }
-            match project_tick(project_root, &args).await {
+            match slim_project_tick(project_root, &args, &mut process_manager).await {
                 Ok(summary) => {
                     if summary.started_daemon {
                         stop_daemon_on_exit = true;

@@ -49,38 +49,10 @@ pub fn sanitize_env() -> HashMap<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::ffi::{OsStr, OsString};
+    use std::ffi::OsStr;
     use std::sync::MutexGuard;
 
-    struct EnvVarGuard {
-        key: &'static str,
-        previous: Option<OsString>,
-    }
-
-    impl EnvVarGuard {
-        fn set(key: &'static str, value: Option<&str>) -> Self {
-            Self::set_os(key, value.map(OsStr::new))
-        }
-
-        fn set_os(key: &'static str, value: Option<&OsStr>) -> Self {
-            let previous = std::env::var_os(key);
-            match value {
-                Some(value) => std::env::set_var(key, value),
-                None => std::env::remove_var(key),
-            };
-            Self { key, previous }
-        }
-    }
-
-    impl Drop for EnvVarGuard {
-        fn drop(&mut self) {
-            if let Some(previous) = &self.previous {
-                std::env::set_var(self.key, previous);
-            } else {
-                std::env::remove_var(self.key);
-            }
-        }
-    }
+    use protocol::test_utils::EnvVarGuard;
 
     fn env_lock() -> MutexGuard<'static, ()> {
         crate::test_env_lock()

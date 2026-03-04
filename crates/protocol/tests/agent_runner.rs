@@ -1,3 +1,4 @@
+use protocol::test_utils::EnvVarGuard;
 use protocol::*;
 use std::collections::BTreeMap;
 use std::sync::{Mutex, OnceLock};
@@ -6,32 +7,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 fn env_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))
-}
-
-struct EnvVarGuard {
-    key: &'static str,
-    previous: Option<String>,
-}
-
-impl EnvVarGuard {
-    fn set(key: &'static str, value: Option<&str>) -> Self {
-        let previous = std::env::var(key).ok();
-        match value {
-            Some(value) => std::env::set_var(key, value),
-            None => std::env::remove_var(key),
-        }
-        Self { key, previous }
-    }
-}
-
-impl Drop for EnvVarGuard {
-    fn drop(&mut self) {
-        if let Some(previous) = &self.previous {
-            std::env::set_var(self.key, previous);
-        } else {
-            std::env::remove_var(self.key);
-        }
-    }
 }
 
 fn temp_config_dir(label: &str) -> std::path::PathBuf {

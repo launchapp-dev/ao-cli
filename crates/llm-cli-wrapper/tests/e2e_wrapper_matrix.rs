@@ -19,38 +19,7 @@ fn env_lock() -> &'static Mutex<()> {
     LOCK.get_or_init(|| Mutex::new(()))
 }
 
-struct EnvVarGuard {
-    key: String,
-    previous: Option<String>,
-}
-
-impl EnvVarGuard {
-    fn set(key: &str, value: &str) -> Self {
-        Self::set_optional(key, Some(value))
-    }
-
-    fn set_optional(key: &str, value: Option<&str>) -> Self {
-        let previous = std::env::var(key).ok();
-        match value {
-            Some(value) => std::env::set_var(key, value),
-            None => std::env::remove_var(key),
-        }
-        Self {
-            key: key.to_string(),
-            previous,
-        }
-    }
-}
-
-impl Drop for EnvVarGuard {
-    fn drop(&mut self) {
-        if let Some(previous) = &self.previous {
-            std::env::set_var(&self.key, previous);
-        } else {
-            std::env::remove_var(&self.key);
-        }
-    }
-}
+use protocol::test_utils::EnvVarGuard;
 
 struct MockCliSandbox {
     _root: TempDir,
@@ -151,7 +120,7 @@ async fn e2e_registry_discovers_mock_clis_and_health_is_available() -> Result<()
     let _lock = env_lock().lock().expect("env lock should not be poisoned");
     let sandbox = MockCliSandbox::new()?;
     let path_value = sandbox.bin_dir().to_string_lossy().to_string();
-    let _path_guard = EnvVarGuard::set("PATH", &path_value);
+    let _path_guard = EnvVarGuard::set("PATH", Some(&path_value));
 
     let mut registry = CliRegistry::new();
     let discovered = registry.discover_clis().await?;
@@ -226,9 +195,9 @@ async fn e2e_coding_agent_task_suite_passes_for_opencode() -> Result<()> {
     let _lock = env_lock().lock().expect("env lock should not be poisoned");
     let sandbox = MockCliSandbox::new()?;
     let path_value = sandbox.bin_dir().to_string_lossy().to_string();
-    let _path_guard = EnvVarGuard::set("PATH", &path_value);
+    let _path_guard = EnvVarGuard::set("PATH", Some(&path_value));
     let _default_model_guard =
-        EnvVarGuard::set_optional("OPENCODE_MODEL", Some("zai-coding-plan/glm-4.7"));
+        EnvVarGuard::set("OPENCODE_MODEL", Some("zai-coding-plan/glm-4.7"));
 
     let mut registry = CliRegistry::new();
     registry.discover_clis().await?;

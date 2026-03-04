@@ -39,5 +39,6 @@ regex = "1.10"
 which = "4.4"
 
 [dev-dependencies]
+protocol = { path = "../protocol", features = ["test-utils"] }
 tempfile = "3.8"
 mockall = "0.12"

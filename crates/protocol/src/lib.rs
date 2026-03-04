@@ -17,6 +17,9 @@ pub mod output;
 pub mod process;
 pub mod repository_scope;
 
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils;
+
 pub use agent_runner::*;
 pub use common::*;
 // Explicit re-exports for config helpers used across crates

@@ -3,7 +3,6 @@ use protocol::{
     required_api_keys_for_tool as protocol_required_api_keys_for_tool, tool_for_model_id,
 };
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct ModelStatusDtoCli {

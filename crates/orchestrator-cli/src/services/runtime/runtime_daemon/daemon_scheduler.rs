@@ -22,14 +22,10 @@ use std::time::Duration;
 use tokio::time::sleep;
 use uuid::Uuid;
 
-#[path = "daemon_agent_pool.rs"]
-pub(super) mod daemon_agent_pool;
 #[path = "daemon_scheduler_frontend_gate.rs"]
 mod frontend_phase_gate;
 #[path = "daemon_scheduler_git_ops.rs"]
 mod git_ops;
-#[path = "daemon_scheduler_phase_exec.rs"]
-mod phase_exec;
 #[path = "daemon_scheduler_failover.rs"]
 pub(crate) mod phase_failover;
 #[path = "daemon_scheduler_phase_targets.rs"]
@@ -38,9 +34,8 @@ pub(crate) mod phase_targets;
 mod project_tick_ops;
 
 pub(crate) use git_ops::MergeConflictContext;
-use phase_exec::{
-    PhaseExecutionMetadata, PhaseExecutionOutcome, PhaseExecutionRunResult, PhaseExecutionSignal,
-};
+use crate::services::runtime::workflow_executor::phase_executor as phase_exec;
+use phase_exec::{PhaseExecutionMetadata, PhaseExecutionOutcome, PhaseExecutionRunResult};
 use phase_failover::PhaseFailureClassifier;
 use phase_targets::PhaseTargetPlanner;
 

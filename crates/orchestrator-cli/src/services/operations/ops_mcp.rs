@@ -2314,20 +2314,6 @@ fn read_file_with_mtime(path: &Path) -> Result<(String, Option<u64>), std::io::E
     Ok((content, modified))
 }
 
-fn get_daemon_events_mtime(_project_root: &str) -> Result<(String, Option<u64>), std::io::Error> {
-    use protocol::Config;
-    let path = Config::global_config_dir().join("daemon-events.jsonl");
-    if !path.exists() {
-        return Ok((path.to_string_lossy().to_string(), None));
-    }
-    let modified = fs::metadata(&path)?
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_millis() as u64);
-    Ok((path.to_string_lossy().to_string(), modified))
-}
-
 pub(crate) async fn handle_mcp(command: McpCommand, project_root: &str) -> Result<()> {
     match command {
         McpCommand::Serve => {
@@ -3500,6 +3486,7 @@ fn parse_json(raw: &str) -> Option<Value> {
     serde_json::from_str(trimmed).ok()
 }
 
+#[cfg(test)]
 fn build_cli_error_payload(tool_name: &str, result: &CliExecutionResult) -> Value {
     let mut payload = json!({
         "tool": tool_name,

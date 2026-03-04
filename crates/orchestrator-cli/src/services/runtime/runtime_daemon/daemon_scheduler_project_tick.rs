@@ -1009,7 +1009,7 @@ mod tests {
                     workflow: workflow.clone(),
                     task: task.clone(),
                     phase_id: phase_id.clone(),
-                    spawned_at: std::time::Instant::now(),
+
                     run_result: Ok(PhaseExecutionRunResult {
                         outcome: PhaseExecutionOutcome::ManualPending {
                             instructions: "manual approval required".to_string(),
@@ -1303,7 +1303,7 @@ thinking...
                 workflow: workflow1.clone(),
                 task: task1.clone(),
                 phase_id: phase_id.clone(),
-                spawned_at: std::time::Instant::now(),
+
                 run_result: Ok(PhaseExecutionRunResult {
                     outcome: PhaseExecutionOutcome::Completed {
                         commit_message: None,
@@ -1497,7 +1497,7 @@ thinking...
                 workflow: workflow.clone(),
                 task: task.clone(),
                 phase_id: phase_id.clone(),
-                spawned_at: std::time::Instant::now(),
+
                 run_result: Ok(PhaseExecutionRunResult {
                     outcome: PhaseExecutionOutcome::Completed {
                         commit_message: None,

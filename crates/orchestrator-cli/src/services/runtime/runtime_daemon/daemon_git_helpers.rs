@@ -170,16 +170,6 @@ pub fn default_task_branch_name(task_id: &str) -> String {
     format!("ao/{}", protocol::sanitize_identifier(task_id, "task"))
 }
 
-pub fn ao_root_dir() -> Result<PathBuf> {
-    let home =
-        dirs::home_dir().ok_or_else(|| anyhow!("failed to resolve home directory for ~/.ao"))?;
-    Ok(home.join(".ao"))
-}
-
-pub fn repo_worktree_scope(project_root: &str) -> String {
-    protocol::repository_scope_for_path(Path::new(project_root))
-}
-
 pub fn repo_ao_root(project_root: &str) -> Result<PathBuf> {
     protocol::scoped_state_root(std::path::Path::new(project_root))
         .ok_or_else(|| anyhow!("failed to resolve scoped state root for {project_root}"))

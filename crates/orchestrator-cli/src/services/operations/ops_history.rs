@@ -5,29 +5,7 @@ use chrono::Utc;
 use orchestrator_core::{
     load_history_store, save_history_store, HistoryExecutionRecord, ServiceHub,
 };
-use serde_json::Value;
 use std::sync::Arc;
-
-pub(crate) fn write_history_execution_event(
-    project_root: &str,
-    execution_id: &str,
-    task_id: Option<&str>,
-    status: &str,
-    details: Value,
-) -> Result<()> {
-    let mut store = load_history_store(project_root)?;
-    let now = Utc::now().to_rfc3339();
-    store.entries.push(HistoryExecutionRecord {
-        execution_id: execution_id.to_string(),
-        task_id: task_id.map(|value| value.to_string()),
-        workflow_id: None,
-        status: status.to_string(),
-        started_at: Some(now.clone()),
-        completed_at: Some(now),
-        details,
-    });
-    save_history_store(project_root, &store)
-}
 
 async fn collect_execution_records(
     hub: Arc<dyn ServiceHub>,

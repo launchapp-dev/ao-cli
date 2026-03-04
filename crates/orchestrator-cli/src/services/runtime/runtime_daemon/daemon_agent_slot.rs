@@ -2,45 +2,16 @@ use super::*;
 use crate::services::runtime::workflow_executor::workflow_runner::{
     phase_execution_events_from_signals, AiRecoveryAction, AI_RECOVERY_MARKER,
 };
-use std::path::PathBuf;
-
-#[derive(Debug, Clone)]
-pub struct AgentSlot {
-    pub task_id: String,
-    pub workflow_id: String,
-    pub phase_id: String,
-    pub phase_attempt: u32,
-    pub execution_cwd: PathBuf,
-}
-
-impl AgentSlot {
-    pub fn from_scheduled_run(run: &ScheduledPhaseRun) -> Self {
-        Self {
-            task_id: run.task.id.clone(),
-            workflow_id: run.workflow.id.clone(),
-            phase_id: run.phase_id.clone(),
-            phase_attempt: run.phase_attempt,
-            execution_cwd: PathBuf::from(&run.execution_cwd),
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct AgentSlotResult {
-    pub task_id: String,
-    pub workflow_id: String,
-    pub phase_id: String,
     pub executed: usize,
     pub failed: usize,
     pub phase_events: Vec<PhaseExecutionEvent>,
 }
 
 impl AgentSlotResult {
-    fn empty(workflow_id: &str, task_id: &str, phase_id: &str) -> Self {
+    fn empty() -> Self {
         Self {
-            task_id: task_id.to_string(),
-            workflow_id: workflow_id.to_string(),
-            phase_id: phase_id.to_string(),
             executed: 0,
             failed: 0,
             phase_events: Vec::new(),
@@ -56,7 +27,7 @@ pub async fn process_agent_result(
     phase_id: String,
     run_result: std::result::Result<PhaseExecutionRunResult, String>,
 ) -> Result<AgentSlotResult> {
-    let mut result = AgentSlotResult::empty(&workflow.id, &workflow.task_id, &phase_id);
+    let mut result = AgentSlotResult::empty();
 
     match run_result {
         Ok(run) => {

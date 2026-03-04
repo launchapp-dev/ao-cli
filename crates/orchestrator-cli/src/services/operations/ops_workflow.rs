@@ -802,7 +802,7 @@ fn preview_phase_removal(project_root: &str, phase_id: &str) -> Result<Value> {
 
     let mut envelope = dry_run_envelope(
         "workflow.phases.remove",
-        serde_json::json!({ "phase_id": normalized_phase_id }),
+        serde_json::json!(&normalized_phase_id),
         "workflow.phases.remove",
         vec!["remove phase runtime definition".to_string()],
         &format!(
@@ -1036,7 +1036,7 @@ pub(crate) async fn handle_workflow(
                 return print_value(
                     dry_run_envelope(
                         "workflow.pause",
-                        serde_json::json!({ "workflow_id": workflow_id }),
+                        serde_json::json!(&workflow_id),
                         "workflow.pause",
                         vec!["pause workflow execution".to_string()],
                         &format!(
@@ -1062,7 +1062,7 @@ pub(crate) async fn handle_workflow(
                 return print_value(
                     dry_run_envelope(
                         "workflow.cancel",
-                        serde_json::json!({ "workflow_id": workflow_id }),
+                        serde_json::json!(&workflow_id),
                         "workflow.cancel",
                         vec!["cancel workflow execution".to_string()],
                         &format!(

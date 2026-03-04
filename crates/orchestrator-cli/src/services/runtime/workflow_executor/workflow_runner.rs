@@ -1,24 +1,8 @@
 use crate::shared::{collect_json_payload_lines, run_prompt_against_runner};
-use orchestrator_core::services::ServiceHub;
 use protocol::{default_primary_model_for_phase, tool_for_model_id};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::sync::Arc;
-
 use super::phase_executor::{PhaseExecutionMetadata, PhaseExecutionSignal};
-
-#[allow(dead_code)]
-pub(crate) struct WorkflowRunner {
-    pub(crate) hub: Arc<dyn ServiceHub>,
-    pub(crate) project_root: String,
-}
-
-#[allow(dead_code)]
-impl WorkflowRunner {
-    pub(crate) fn new(hub: Arc<dyn ServiceHub>, project_root: String) -> Self {
-        Self { hub, project_root }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct PhaseExecutionEvent {

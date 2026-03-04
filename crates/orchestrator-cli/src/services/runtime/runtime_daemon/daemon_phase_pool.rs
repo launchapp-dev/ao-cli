@@ -18,7 +18,6 @@ pub struct ReactivePhaseCompletion {
     pub task: orchestrator_core::OrchestratorTask,
     pub phase_id: String,
     pub run_result: std::result::Result<PhaseExecutionRunResult, String>,
-    pub spawned_at: std::time::Instant,
 }
 
 #[derive(Debug)]
@@ -316,7 +315,6 @@ pub async fn execute_running_workflow_phases_for_project(
                 "pool_size": pool_size,
             }),
         );
-        let spawned_at = std::time::Instant::now();
         tokio::spawn(async move {
             let run_result = run_workflow_phase_with_agent(
                 &project_root_owned,
@@ -345,7 +343,6 @@ pub async fn execute_running_workflow_phases_for_project(
                 task: scheduled.task,
                 phase_id: scheduled.phase_id,
                 run_result,
-                spawned_at,
             });
             let _ = wake_sender.send(project_root_owned);
         });

@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 use crate::types::{
     AgentHandoffRequestInput, AgentHandoffResult, ArchitectureGraph, Assignee, ChecklistItem,
-    CheckpointReason, CodebaseInsight, Complexity, ComplexityAssessment, ComplexityTier,
+    CheckpointReason, CodebaseInsight, Complexity, ComplexityAssessment,
     DaemonHealth, DaemonStatus, DependencyType, LogEntry, LogLevel, OrchestratorProject,
     OrchestratorTask, OrchestratorWorkflow, PhaseDecision, Priority, ProjectConfig,
     ProjectCreateInput, ProjectType, RequirementItem, RequirementPriorityExt, RequirementStatus,

@@ -190,13 +190,7 @@ pub(super) fn emit_daemon_event(record: &DaemonEventRecord, json: bool) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Mutex, OnceLock};
     use tempfile::TempDir;
-
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
 
     struct EnvVarGuard {
         key: &'static str,
@@ -249,7 +243,7 @@ mod tests {
 
     #[test]
     fn read_daemon_event_records_returns_ordered_tail_and_skips_invalid_lines() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let config_root = TempDir::new().expect("config temp dir");
         let _config_guard = EnvVarGuard::set(
             "AO_CONFIG_DIR",
@@ -286,7 +280,7 @@ mod tests {
 
     #[test]
     fn read_daemon_event_records_filters_by_project_root() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let config_root = TempDir::new().expect("config temp dir");
         let _config_guard = EnvVarGuard::set(
             "AO_CONFIG_DIR",
@@ -336,7 +330,7 @@ mod tests {
 
     #[test]
     fn poll_daemon_events_returns_metadata_and_count() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let config_root = TempDir::new().expect("config temp dir");
         let _config_guard = EnvVarGuard::set(
             "AO_CONFIG_DIR",

@@ -92,7 +92,8 @@
       "Bash(/usr/bin/grep:*)",
       "mcp__ao__ao_output_tail",
       "mcp__ao__ao_workflow_get",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(xxd:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

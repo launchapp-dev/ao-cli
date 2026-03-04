@@ -31,6 +31,11 @@ impl CliHarness {
         self.config_root.path()
     }
 
+    pub(crate) fn scoped_root(&self) -> PathBuf {
+        let scope = protocol::repository_scope_for_path(self.project_root.path());
+        self.config_root.path().join(".ao").join(scope)
+    }
+
     pub(crate) fn run_json_ok(&self, args: &[&str]) -> Result<Value> {
         let output = self.run_json_command(args)?;
 

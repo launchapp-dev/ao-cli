@@ -63,12 +63,11 @@ fn auth_failure_message(code: IpcAuthFailureCode) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::Mutex;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
+        crate::test_env_lock()
     }
 
     struct EnvVarGuard {

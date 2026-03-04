@@ -1,7 +1,7 @@
 use std::io::{self, IsTerminal, Write};
 use std::path::Path;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use orchestrator_core::{
     daemon_project_config_path, load_daemon_project_config, update_daemon_project_config,
     DaemonProjectConfig, DaemonProjectConfigPatch, DoctorCheckStatus, DoctorReport,
@@ -170,10 +170,10 @@ fn resolve_non_interactive_desired_config(args: &SetupArgs) -> Result<DesiredDae
         missing.push("--auto-commit-before-merge");
     }
     if !missing.is_empty() {
-        return Err(anyhow!(
+        return Err(crate::invalid_input_error(format!(
             "missing required non-interactive setup inputs: {}. rerun with explicit values or omit --non-interactive for guided setup",
             missing.join(", ")
-        ));
+        )));
     }
 
     Ok(DesiredDaemonConfig {
@@ -188,7 +188,7 @@ fn resolve_guided_desired_config(
     current: &DaemonProjectConfig,
 ) -> Result<DesiredDaemonConfig> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
-        return Err(anyhow!(
+        return Err(crate::invalid_input_error(
             "guided setup must be run in an interactive terminal; rerun with --non-interactive and explicit --auto-* values"
         ));
     }

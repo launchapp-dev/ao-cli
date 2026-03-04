@@ -2,15 +2,18 @@ use super::*;
 use crate::types::{ArchitectureEntity, RequirementPriority, RequirementStatus, WorkflowStatus};
 
 fn global_requirements_index_dir(project_root: &std::path::Path) -> std::path::PathBuf {
-    let home = dirs::home_dir().expect("home dir available");
-    home.join(".ao")
+    scoped_ao_root(project_root)
         .join("index")
-        .join(protocol::repository_scope_for_path(project_root))
         .join("requirements")
 }
 
+fn scoped_ao_root(project_root: &std::path::Path) -> std::path::PathBuf {
+    protocol::scoped_state_root(project_root)
+        .unwrap_or_else(|| project_root.join(".ao"))
+}
+
 fn assert_core_state_json_is_valid(project_root: &std::path::Path) {
-    let state_path = project_root.join(".ao").join("core-state.json");
+    let state_path = scoped_ao_root(project_root).join("core-state.json");
     let raw = std::fs::read_to_string(&state_path).expect("core-state should be readable");
     serde_json::from_str::<serde_json::Value>(&raw).expect("core-state should be valid json");
 }
@@ -80,7 +83,7 @@ fn file_hub_new_does_not_rewrite_existing_core_state_on_boot() {
     let temp = tempfile::tempdir().expect("tempdir");
     let _hub = file_hub(temp.path()).expect("create hub");
 
-    let state_path = temp.path().join(".ao").join("core-state.json");
+    let state_path = scoped_ao_root(temp.path()).join("core-state.json");
     let mut raw: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(&state_path).expect("core-state should be readable"),
     )
@@ -107,7 +110,7 @@ fn file_hub_new_bootstraps_ao_without_initializing_git_repository() {
     let temp = tempfile::tempdir().expect("tempdir");
     let _hub = file_hub(temp.path()).expect("create hub");
 
-    assert!(temp.path().join(".ao").join("core-state.json").exists());
+    assert!(scoped_ao_root(temp.path()).join("core-state.json").exists());
     assert!(!temp.path().join(".git").exists());
 
     let git_repo_status = std::process::Command::new("git")
@@ -152,21 +155,13 @@ async fn file_hub_project_create_bootstraps_base_configs_for_project_path() {
     .expect("create project");
 
     assert_eq!(created.path, project_path.display().to_string());
-    assert!(project_path.join(".ao").join("core-state.json").exists());
+    let scoped = scoped_ao_root(&project_path);
+    assert!(scoped.join("core-state.json").exists());
     assert!(project_path.join(".ao").join("config.json").exists());
-    assert!(project_path.join(".ao").join("resume-config.json").exists());
-    assert!(project_path
-        .join(".ao")
-        .join("state")
-        .join("workflow-config.v2.json")
-        .exists());
-    assert!(project_path
-        .join(".ao")
-        .join("state")
-        .join("state-machines.v1.json")
-        .exists());
-    assert!(project_path
-        .join(".ao")
+    assert!(scoped.join("resume-config.json").exists());
+    assert!(scoped.join("state").join("workflow-config.v2.json").exists());
+    assert!(scoped.join("state").join("state-machines.v1.json").exists());
+    assert!(scoped
         .join("state")
         .join("agent-runtime-config.v2.json")
         .exists());
@@ -224,8 +219,7 @@ async fn file_hub_bootstraps_workflow_config_v2_with_phase_catalog() {
     .expect("create project");
 
     assert_eq!(created.path, project_path.display().to_string());
-    let workflow_config_path = project_path
-        .join(".ao")
+    let workflow_config_path = scoped_ao_root(&project_path)
         .join("state")
         .join("workflow-config.v2.json");
     let config_content =
@@ -270,9 +264,7 @@ async fn file_hub_bootstraps_architecture_docs_file() {
     let temp = tempfile::tempdir().expect("tempdir");
     let _hub = file_hub(temp.path()).expect("create hub");
 
-    let architecture_path = temp
-        .path()
-        .join(".ao")
+    let architecture_path = scoped_ao_root(temp.path())
         .join("docs")
         .join("architecture.json");
     assert!(architecture_path.exists());
@@ -366,7 +358,7 @@ async fn file_hub_persists_tasks() {
 async fn file_hub_mutations_fail_closed_for_invalid_core_state_json() {
     let temp = tempfile::tempdir().expect("tempdir");
     let hub = file_hub(temp.path()).expect("create hub");
-    let state_path = temp.path().join(".ao").join("core-state.json");
+    let state_path = scoped_ao_root(temp.path()).join("core-state.json");
     std::fs::write(&state_path, "{not-valid-json").expect("write malformed state");
 
     let error = TaskServiceApi::create(
@@ -771,7 +763,8 @@ async fn file_hub_completion_remains_successful_when_auto_prune_errors() {
 #[tokio::test]
 async fn file_hub_uses_custom_pipeline_from_workflow_config_v2() {
     let temp = tempfile::tempdir().expect("tempdir");
-    let state_dir = temp.path().join(".ao").join("state");
+    ensure_test_config_env();
+    let state_dir = scoped_ao_root(temp.path()).join("state");
     std::fs::create_dir_all(&state_dir).expect("state dir should exist");
     std::fs::write(
         state_dir.join("workflow-config.v2.json"),
@@ -1816,12 +1809,9 @@ async fn file_hub_persists_planning_artifacts() {
         .await
         .expect("draft requirements");
 
-    let vision_path = temp
-        .path()
-        .join(".ao")
-        .join("docs")
-        .join("product-vision.md");
-    let vision_json_path = temp.path().join(".ao").join("docs").join("vision.json");
+    let scoped = scoped_ao_root(temp.path());
+    let vision_path = scoped.join("docs").join("product-vision.md");
+    let vision_json_path = scoped.join("docs").join("vision.json");
     assert!(vision_path.exists());
     assert!(vision_json_path.exists());
 }
@@ -2100,9 +2090,8 @@ async fn file_hub_writes_legacy_style_requirement_and_task_files() {
         .clone()
         .expect("relative path should be set");
 
-    let requirement_file_path = temp
-        .path()
-        .join(".ao")
+    let scoped = scoped_ao_root(temp.path());
+    let requirement_file_path = scoped
         .join("requirements")
         .join(requirement_relative_path);
     assert!(requirement_file_path.exists());
@@ -2122,9 +2111,7 @@ async fn file_hub_writes_legacy_style_requirement_and_task_files() {
     let requirement_index_path = global_requirements_index_dir(temp.path()).join("index.json");
     assert!(requirement_index_path.exists());
 
-    let task_file_path = temp
-        .path()
-        .join(".ao")
+    let task_file_path = scoped
         .join("tasks")
         .join(format!("{}.json", task_id));
     assert!(task_file_path.exists());

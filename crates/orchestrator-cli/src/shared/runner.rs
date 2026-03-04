@@ -148,11 +148,7 @@ pub(crate) fn runner_config_dir(project_root: &Path) -> PathBuf {
 }
 
 fn scoped_ao_root(project_root: &Path) -> Option<PathBuf> {
-    let home = dirs::home_dir()?;
-    Some(
-        home.join(".ao")
-            .join(protocol::repository_scope_for_path(project_root)),
-    )
+    protocol::scoped_state_root(project_root)
 }
 
 fn is_managed_worktree_for_project(candidate_cwd: &Path, project_root: &Path) -> bool {
@@ -816,10 +812,10 @@ pub(crate) fn event_matches_run(event: &AgentRunEvent, run_id: &RunId) -> bool {
 
 pub(crate) fn ensure_safe_run_id(run_id: &str) -> Result<()> {
     if run_id.trim().is_empty() {
-        anyhow::bail!("run_id is required");
+        return Err(crate::invalid_input_error("run_id is required"));
     }
     if run_id.contains('/') || run_id.contains('\\') || run_id.contains("..") {
-        anyhow::bail!("invalid run_id");
+        return Err(crate::invalid_input_error(format!("invalid run_id: {run_id}")));
     }
     Ok(())
 }
@@ -903,14 +899,8 @@ pub(crate) fn append_line(path: &Path, line: &str) -> Result<()> {
 mod tests {
     use super::*;
     use serde_json::Value;
-    use std::sync::{Mutex, OnceLock};
     use tempfile::TempDir;
     use tokio::io::{AsyncBufReadExt, BufReader};
-
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
 
     struct EnvVarGuard {
         key: &'static str,
@@ -949,7 +939,7 @@ mod tests {
 
     #[test]
     fn authenticate_runner_stream_uses_scoped_config_dir_token() {
-        let _lock = env_lock().lock().expect("env lock");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock");
         let global_dir = TempDir::new().expect("global temp dir");
         let scoped_dir = TempDir::new().expect("scoped temp dir");
         write_config(global_dir.path(), Some("global-token"));
@@ -993,7 +983,7 @@ mod tests {
 
     #[test]
     fn authenticate_runner_stream_fails_when_scoped_token_missing() {
-        let _lock = env_lock().lock().expect("env lock");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock");
         let scoped_dir = TempDir::new().expect("scoped temp dir");
         write_config(scoped_dir.path(), None);
         let _token_override = EnvVarGuard::set("AGENT_RUNNER_TOKEN", None);
@@ -1013,35 +1003,35 @@ mod tests {
 
     #[test]
     fn claude_bypass_permissions_is_disabled_by_default() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", None);
         assert!(!claude_bypass_permissions_enabled());
     }
 
     #[test]
     fn claude_bypass_permissions_respects_enable_toggle() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", Some("true"));
         assert!(claude_bypass_permissions_enabled());
     }
 
     #[test]
     fn claude_bypass_permissions_respects_disable_toggle() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", Some("false"));
         assert!(!claude_bypass_permissions_enabled());
     }
 
     #[test]
     fn claude_bypass_permissions_treats_empty_value_as_disabled() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", Some(""));
         assert!(!claude_bypass_permissions_enabled());
     }
 
     #[test]
     fn inject_claude_permission_mode_override_is_disabled_by_default() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", None);
         let mut contract = build_runtime_contract("claude", "claude-opus-4-1", "hello")
             .expect("runtime contract should build");
@@ -1061,7 +1051,7 @@ mod tests {
 
     #[test]
     fn inject_claude_permission_mode_override_respects_enable_toggle() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", Some("true"));
         let mut contract = build_runtime_contract("claude", "claude-opus-4-1", "hello")
             .expect("runtime contract should build");
@@ -1081,7 +1071,7 @@ mod tests {
 
     #[test]
     fn inject_claude_permission_mode_override_respects_disable_toggle() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", Some("false"));
         let mut contract = build_runtime_contract("claude", "claude-opus-4-1", "hello")
             .expect("runtime contract should build");
@@ -1101,7 +1091,7 @@ mod tests {
 
     #[test]
     fn inject_claude_permission_mode_override_treats_empty_toggle_as_disabled() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", Some(""));
         let mut contract = build_runtime_contract("claude", "claude-opus-4-1", "hello")
             .expect("runtime contract should build");

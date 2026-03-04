@@ -62,9 +62,7 @@ ao
 │   ├── create               Create task
 │   ├── update               Update task
 │   ├── delete               Delete task (confirmation)
-│   ├── assign               Assign generic assignee
-│   ├── assign-agent         Assign agent role
-│   ├── assign-human         Assign human user
+│   ├── assign               Assign task to a user or agent
 │   ├── checklist-add        Add checklist item
 │   ├── checklist-update     Toggle checklist item
 │   ├── dependency-add       Add dependency edge

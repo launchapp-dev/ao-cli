@@ -126,7 +126,7 @@ fn state_manager_prunes_to_keep_last_per_phase() {
     workflow.current_phase_index = 0;
     manager.save(&workflow).expect("save workflow");
 
-    for _ in 0..12 {
+    for _ in 0..3 {
         workflow = manager
             .save_checkpoint(&workflow, CheckpointReason::StatusChange)
             .expect("save requirements checkpoint");
@@ -134,27 +134,25 @@ fn state_manager_prunes_to_keep_last_per_phase() {
 
     workflow.current_phase = Some("implementation".to_string());
     workflow.current_phase_index = 1;
-    for _ in 0..3 {
-        workflow = manager
-            .save_checkpoint(&workflow, CheckpointReason::StatusChange)
-            .expect("save implementation checkpoint");
-    }
+    workflow = manager
+        .save_checkpoint(&workflow, CheckpointReason::StatusChange)
+        .expect("save implementation checkpoint");
 
     let result = manager
-        .prune_checkpoints(&workflow.id, 10, None, false)
+        .prune_checkpoints(&workflow.id, 2, None, false)
         .expect("prune checkpoints");
-    assert_eq!(result.pruned_count, 2);
-    assert_eq!(result.pruned_checkpoint_numbers, vec![1, 2]);
+    assert_eq!(result.pruned_count, 1);
+    assert_eq!(result.pruned_checkpoint_numbers, vec![1]);
     assert_eq!(
         result.pruned_by_phase.get("requirements"),
-        Some(&2),
-        "prune should remove oldest requirements checkpoints"
+        Some(&1),
+        "prune should remove oldest requirements checkpoint"
     );
 
     let checkpoints = manager
         .list_checkpoints(&workflow.id)
         .expect("list checkpoints");
-    assert_eq!(checkpoints, (3usize..=15usize).collect::<Vec<_>>());
+    assert_eq!(checkpoints, vec![2, 3, 4]);
 }
 
 #[test]
@@ -464,6 +462,7 @@ fn make_task(task_type: TaskType, priority: Priority) -> OrchestratorTask {
         deadline: None,
         paused: false,
         cancelled: false,
+        resolution: None,
         resource_requirements: ResourceRequirements::default(),
         consecutive_dispatch_failures: None,
         last_dispatch_failure_at: None,

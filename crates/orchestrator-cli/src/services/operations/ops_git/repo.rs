@@ -176,7 +176,7 @@ pub(super) fn handle_git_push(args: GitPushArgs, project_root: &str, json: bool)
         return print_value(
             dry_run_envelope(
                 "git.push",
-                &format!("{}/{}/{}", repo, remote, branch),
+                serde_json::json!({ "repo": repo, "remote": remote, "branch": branch }),
                 "git.push",
                 vec!["push branch updates to remote".to_string()],
                 &next_step,

@@ -195,13 +195,7 @@ mod tests {
     use super::bootstrap::bootstrap_from_vision_if_needed;
     use orchestrator_core::Priority;
     use orchestrator_core::ServiceHub;
-    use std::sync::{Mutex, OnceLock};
     use tempfile::TempDir;
-
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
 
     struct EnvVarGuard {
         key: &'static str,
@@ -281,7 +275,7 @@ mod tests {
 
     #[tokio::test]
     async fn run_ready_prefers_em_queue_and_marks_selected_entry_assigned() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let home = TempDir::new().expect("home temp dir");
         let _home_guard = EnvVarGuard::set("HOME", Some(home.path().to_string_lossy().as_ref()));
 
@@ -386,7 +380,7 @@ mod tests {
 
     #[tokio::test]
     async fn run_ready_dispatches_multiple_tasks_from_em_queue_before_fallback_picker() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let home = TempDir::new().expect("home temp dir");
         let _home_guard = EnvVarGuard::set("HOME", Some(home.path().to_string_lossy().as_ref()));
 
@@ -516,7 +510,7 @@ mod tests {
 
     #[tokio::test]
     async fn run_ready_falls_back_when_queue_has_no_dispatchable_entries() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let home = TempDir::new().expect("home temp dir");
         let _home_guard = EnvVarGuard::set("HOME", Some(home.path().to_string_lossy().as_ref()));
 
@@ -590,7 +584,7 @@ mod tests {
 
     #[tokio::test]
     async fn run_ready_falls_back_when_queue_state_is_invalid_json() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let home = TempDir::new().expect("home temp dir");
         let _home_guard = EnvVarGuard::set("HOME", Some(home.path().to_string_lossy().as_ref()));
 
@@ -640,7 +634,7 @@ mod tests {
 
     #[tokio::test]
     async fn sync_task_status_for_workflow_result_removes_assigned_queue_entries_on_completion() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let home = TempDir::new().expect("home temp dir");
         let _home_guard = EnvVarGuard::set("HOME", Some(home.path().to_string_lossy().as_ref()));
 
@@ -713,7 +707,7 @@ mod tests {
 
     #[tokio::test]
     async fn sync_task_status_for_workflow_result_removes_assigned_queue_entries_on_failure() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let home = TempDir::new().expect("home temp dir");
         let _home_guard = EnvVarGuard::set("HOME", Some(home.path().to_string_lossy().as_ref()));
 
@@ -783,7 +777,7 @@ mod tests {
 
     #[tokio::test]
     async fn reconcile_stale_in_progress_removes_assigned_queue_entries_for_failed_workflow() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let home = TempDir::new().expect("home temp dir");
         let _home_guard = EnvVarGuard::set("HOME", Some(home.path().to_string_lossy().as_ref()));
 
@@ -861,7 +855,7 @@ mod tests {
 
     #[tokio::test]
     async fn reconcile_stale_in_progress_removes_assigned_queue_entries_for_cancelled_workflow() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let home = TempDir::new().expect("home temp dir");
         let _home_guard = EnvVarGuard::set("HOME", Some(home.path().to_string_lossy().as_ref()));
 

@@ -784,16 +784,11 @@ mod tests {
     use super::*;
     use crate::services::runtime::runtime_daemon::{daemon_events_log_path, DaemonEventRecord};
     use std::path::PathBuf;
-    use std::sync::{Mutex, MutexGuard, OnceLock};
+    use std::sync::MutexGuard;
     use tempfile::TempDir;
 
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
-
     fn lock_env() -> MutexGuard<'static, ()> {
-        env_lock()
+        crate::shared::test_env_lock()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }

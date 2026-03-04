@@ -1200,10 +1200,9 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
 }
 
 pub fn agent_runtime_config_path(project_root: &Path) -> PathBuf {
-    project_root
-        .join(".ao")
-        .join("state")
-        .join(AGENT_RUNTIME_CONFIG_FILE_NAME)
+    let base = protocol::scoped_state_root(project_root)
+        .unwrap_or_else(|| project_root.join(".ao"));
+    base.join("state").join(AGENT_RUNTIME_CONFIG_FILE_NAME)
 }
 
 pub fn legacy_agent_runtime_config_path(project_root: &Path) -> PathBuf {

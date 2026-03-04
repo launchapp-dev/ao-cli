@@ -1220,14 +1220,8 @@ mod tests {
     use super::*;
     use std::io::{Read, Write};
     use std::net::TcpListener;
-    use std::sync::{Mutex, OnceLock};
     use std::thread;
     use tempfile::TempDir;
-
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
 
     struct EnvVarGuard {
         key: &'static str,
@@ -1451,7 +1445,7 @@ mod tests {
 
     #[tokio::test]
     async fn flush_budget_limits_processing_per_tick() {
-        let _guard = env_lock().lock().expect("env lock should be available");
+        let _guard = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let temp_home = TempDir::new().expect("temp home dir");
         let temp_project = TempDir::new().expect("temp project dir");
         let project_root = temp_project.path().to_string_lossy().to_string();
@@ -1514,7 +1508,7 @@ mod tests {
 
     #[tokio::test]
     async fn enqueue_retry_then_success_clears_outbox() {
-        let _guard = env_lock().lock().expect("env lock should be available");
+        let _guard = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let temp_home = TempDir::new().expect("temp home dir");
         let temp_project = TempDir::new().expect("temp project dir");
         let project_root = temp_project.path().to_string_lossy().to_string();
@@ -1569,7 +1563,7 @@ mod tests {
 
     #[tokio::test]
     async fn permanent_failure_moves_delivery_to_dead_letter() {
-        let _guard = env_lock().lock().expect("env lock should be available");
+        let _guard = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let temp_home = TempDir::new().expect("temp home dir");
         let temp_project = TempDir::new().expect("temp project dir");
         let project_root = temp_project.path().to_string_lossy().to_string();
@@ -1613,7 +1607,7 @@ mod tests {
 
     #[tokio::test]
     async fn missing_credentials_are_redacted_and_dead_lettered() {
-        let _guard = env_lock().lock().expect("env lock should be available");
+        let _guard = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let temp_home = TempDir::new().expect("temp home dir");
         let temp_project = TempDir::new().expect("temp project dir");
         let project_root = temp_project.path().to_string_lossy().to_string();
@@ -1652,7 +1646,7 @@ mod tests {
 
     #[test]
     fn enqueue_global_event_uses_runtime_project_root_and_context() {
-        let _guard = env_lock().lock().expect("env lock should be available");
+        let _guard = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let temp_home = TempDir::new().expect("temp home dir");
         let temp_project = TempDir::new().expect("temp project dir");
         let project_root = temp_project.path().to_string_lossy().to_string();
@@ -1699,7 +1693,7 @@ mod tests {
 
     #[tokio::test]
     async fn pre_exhausted_entries_are_dead_lettered_without_another_attempt() {
-        let _guard = env_lock().lock().expect("env lock should be available");
+        let _guard = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let temp_home = TempDir::new().expect("temp home dir");
         let temp_project = TempDir::new().expect("temp project dir");
         let project_root = temp_project.path().to_string_lossy().to_string();
@@ -1753,7 +1747,7 @@ mod tests {
 
     #[test]
     fn redact_error_message_masks_configured_secret_values() {
-        let _guard = env_lock().lock().expect("env lock should be available");
+        let _guard = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _url_guard = EnvVarGuard::set(
             "AO_NOTIFY_TEST_WEBHOOK_URL",
             Some("https://hooks.example.invalid/secret-hook-token"),

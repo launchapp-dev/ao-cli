@@ -50,7 +50,7 @@ pub fn sanitize_env() -> HashMap<String, String> {
 mod tests {
     use super::*;
     use std::ffi::{OsStr, OsString};
-    use std::sync::{Mutex, MutexGuard, OnceLock};
+    use std::sync::MutexGuard;
 
     struct EnvVarGuard {
         key: &'static str,
@@ -83,8 +83,7 @@ mod tests {
     }
 
     fn env_lock() -> MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
+        crate::test_env_lock()
             .lock()
             .expect("env lock should be available")
     }

@@ -26,7 +26,6 @@ pub(crate) enum TaskCommand {
     /// Delete a task (confirmation required).
     Delete(TaskDeleteArgs),
     /// Assign an assignee to a task.
-    #[command(alias = "assign-agent", alias = "assign-human")]
     Assign(TaskAssignArgs),
     /// Add a checklist item.
     ChecklistAdd(TaskChecklistAddArgs),
@@ -319,8 +318,6 @@ pub(crate) struct TaskAssignArgs {
     pub(crate) id: String,
     #[arg(
         long,
-        alias = "role",
-        alias = "user-id",
         value_name = "ASSIGNEE",
         help = "Assignee identifier (user id or agent role)."
     )]

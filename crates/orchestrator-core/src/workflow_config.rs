@@ -404,10 +404,9 @@ pub fn builtin_workflow_config() -> WorkflowConfig {
 }
 
 pub fn workflow_config_path(project_root: &Path) -> PathBuf {
-    project_root
-        .join(".ao")
-        .join("state")
-        .join(WORKFLOW_CONFIG_FILE_NAME)
+    let base = protocol::scoped_state_root(project_root)
+        .unwrap_or_else(|| project_root.join(".ao"));
+    base.join("state").join(WORKFLOW_CONFIG_FILE_NAME)
 }
 
 pub fn legacy_workflow_config_paths(project_root: &Path) -> [PathBuf; 2] {

@@ -301,7 +301,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_task_assign_with_aliases() {
+    fn parses_task_assign() {
         let cli = Cli::try_parse_from([
             "ao",
             "task",
@@ -326,17 +326,18 @@ mod tests {
             _ => panic!("expected task assign command"),
         }
 
-        // Test assign-agent alias and --role alias
         let cli = Cli::try_parse_from([
             "ao",
             "task",
-            "assign-agent",
+            "assign",
             "--id",
             "TASK-001",
-            "--role",
+            "--assignee",
+            "coder",
+            "--agent-role",
             "coder",
         ])
-        .expect("task assign-agent alias should parse");
+        .expect("task assign with --agent-role should parse");
 
         match cli.command {
             Command::Task {
@@ -344,30 +345,9 @@ mod tests {
             } => {
                 assert_eq!(args.id, "TASK-001");
                 assert_eq!(args.assignee, "coder");
+                assert_eq!(args.agent_role.as_deref(), Some("coder"));
             }
-            _ => panic!("expected task assign command via alias"),
-        }
-
-        // Test assign-human alias and --user-id alias
-        let cli = Cli::try_parse_from([
-            "ao",
-            "task",
-            "assign-human",
-            "--id",
-            "TASK-001",
-            "--user-id",
-            "bob",
-        ])
-        .expect("task assign-human alias should parse");
-
-        match cli.command {
-            Command::Task {
-                command: TaskCommand::Assign(args),
-            } => {
-                assert_eq!(args.id, "TASK-001");
-                assert_eq!(args.assignee, "bob");
-            }
-            _ => panic!("expected task assign command via alias"),
+            _ => panic!("expected task assign command with agent role"),
         }
     }
 

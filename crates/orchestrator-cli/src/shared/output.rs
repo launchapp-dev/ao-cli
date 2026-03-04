@@ -108,7 +108,7 @@ fn should_emit_help_hint(message: &str) -> bool {
 
 pub(crate) fn dry_run_envelope(
     operation: &str,
-    target: &str,
+    target: Value,
     action: &str,
     effects: Vec<String>,
     confirm_hint: &str,

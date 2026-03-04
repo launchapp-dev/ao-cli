@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::{CheckpointReason, OrchestratorWorkflow, WorkflowCheckpoint};
 
-pub const DEFAULT_CHECKPOINT_RETENTION_KEEP_LAST_PER_PHASE: usize = 10;
+pub const DEFAULT_CHECKPOINT_RETENTION_KEEP_LAST_PER_PHASE: usize = 3;
 const UNKNOWN_CHECKPOINT_PHASE_BUCKET: &str = "unknown";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,6 +126,15 @@ impl WorkflowStateManager {
         let json = serde_json::to_string_pretty(&workflow)?;
         write_atomic(&checkpoint_path, json)?;
         self.save(&workflow)?;
+
+        if workflow.checkpoint_metadata.checkpoint_count % 5 == 0 {
+            let _ = self.prune_checkpoints(
+                &workflow.id,
+                DEFAULT_CHECKPOINT_RETENTION_KEEP_LAST_PER_PHASE,
+                None,
+                false,
+            );
+        }
 
         Ok(workflow)
     }
@@ -324,7 +333,9 @@ impl WorkflowStateManager {
     }
 
     fn workflows_dir(&self) -> PathBuf {
-        self.project_root.join(".ao").join("workflow-state")
+        let base = protocol::scoped_state_root(&self.project_root)
+            .unwrap_or_else(|| self.project_root.join(".ao"));
+        base.join("workflow-state")
     }
 
     fn workflow_path(&self, workflow_id: &str) -> PathBuf {

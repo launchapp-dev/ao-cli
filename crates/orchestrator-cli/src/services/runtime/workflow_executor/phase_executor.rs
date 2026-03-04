@@ -376,7 +376,7 @@ pub(crate) fn build_phase_prompt(
     let phase_safety_rules = phase_safety_rules(&caps);
     let phase_decision_rule = if phase_decision_contract_for(project_root, phase_id).is_some() {
         format!(
-            "- Before finishing, emit one JSON line with your phase assessment:\n  {{\"kind\":\"phase_decision\",\"phase_id\":\"{phase_id}\",\"verdict\":\"advance|rework|fail\",\"confidence\":0.0-1.0,\"risk\":\"low|medium|high\",\"reason\":\"...\",\"evidence\":[{{\"kind\":\"...\",\"description\":\"...\"}}]}}\n- Set verdict to \"advance\" if work is complete and correct.\n- Set verdict to \"rework\" if issues remain that need another pass.\n- Set verdict to \"fail\" only if problems are unrecoverable.\n- Be honest about confidence. 0.5 = uncertain, 0.8+ = confident."
+            "- Before finishing, emit one JSON line with your phase assessment:\n  {{\"kind\":\"phase_decision\",\"phase_id\":\"{phase_id}\",\"verdict\":\"advance|rework|fail|skip\",\"confidence\":0.0-1.0,\"risk\":\"low|medium|high\",\"reason\":\"...\",\"evidence\":[{{\"kind\":\"...\",\"description\":\"...\"}}]}}\n- Set verdict to \"advance\" if work is complete and correct.\n- Set verdict to \"rework\" if issues remain that need another pass.\n- Set verdict to \"fail\" only if problems are unrecoverable.\n- Set verdict to \"skip\" to close the task without further work. Use with a reason from: \"already_done\", \"duplicate\", \"no_longer_valid\", \"out_of_scope\".\n- Be honest about confidence. 0.5 = uncertain, 0.8+ = confident."
         )
     } else {
         String::new()
@@ -718,6 +718,11 @@ pub(crate) async fn run_workflow_phase_attempt(
     let stream_normal = matches!(stream_level.as_str(), "1" | "normal");
     let stream_verbose = stream_level == "verbose";
     let stream_to_stderr = stream_normal || stream_verbose;
+    let use_colors = stream_to_stderr && {
+        use std::io::IsTerminal;
+        std::io::stderr().is_terminal()
+    };
+    let mut last_ended_with_newline = true;
     while let Some(line) = lines.next_line().await? {
         let line = line.trim();
         if line.is_empty() {
@@ -765,14 +770,12 @@ pub(crate) async fn run_workflow_phase_attempt(
                 }
                 if stream_to_stderr {
                     use std::io::Write as _;
-                    if stream_verbose {
-                        let _ = write!(std::io::stderr(), "{}", text);
-                    } else {
-                        let trimmed = text.trim_start();
-                        let is_json = trimmed.starts_with('{')
-                            && serde_json::from_str::<serde_json::Value>(trimmed).is_ok();
-                        if !is_json {
-                            let _ = write!(std::io::stderr(), "{}", text);
+                    if let Some(formatted) =
+                        format_output_chunk_for_display(&text, stream_verbose, use_colors)
+                    {
+                        if !formatted.is_empty() {
+                            let _ = write!(std::io::stderr(), "{}", formatted);
+                            last_ended_with_newline = formatted.ends_with('\n');
                         }
                     }
                 }
@@ -810,7 +813,12 @@ pub(crate) async fn run_workflow_phase_attempt(
                 }
                 if stream_verbose {
                     use std::io::Write as _;
-                    let _ = write!(std::io::stderr(), "[2m{}[0m", content);
+                    let (dim, reset) = if use_colors {
+                        ("\x1b[2m", "\x1b[0m")
+                    } else {
+                        ("", "")
+                    };
+                    let _ = write!(std::io::stderr(), "{dim}{content}{reset}");
                 }
             }
             AgentRunEvent::Error { error, .. } => {
@@ -857,6 +865,33 @@ pub(crate) async fn run_workflow_phase_attempt(
                     commit_message: pending_commit_message,
                     phase_decision: pending_phase_decision,
                 });
+            }
+            AgentRunEvent::ToolCall { tool_info, .. } => {
+                if stream_to_stderr && tool_info.tool_name != "phase_transition" {
+                    use std::io::Write as _;
+                    if !last_ended_with_newline {
+                        let _ = writeln!(std::io::stderr());
+                        last_ended_with_newline = true;
+                    }
+                    let formatted = format_tool_call_for_display(
+                        &tool_info.tool_name,
+                        &tool_info.parameters,
+                        use_colors,
+                    );
+                    let _ = write!(std::io::stderr(), "{}", formatted);
+                }
+            }
+            AgentRunEvent::Artifact { artifact_info, .. } => {
+                if stream_verbose {
+                    use std::io::Write as _;
+                    let (dim, reset) = if use_colors {
+                        ("\x1b[2m", "\x1b[0m")
+                    } else {
+                        ("", "")
+                    };
+                    let path = artifact_info.file_path.as_deref().unwrap_or("unknown");
+                    let _ = writeln!(std::io::stderr(), "{dim}  artifact: {path}{reset}");
+                }
             }
             _ => {}
         }
@@ -1942,6 +1977,174 @@ fn pipeline_phase_order_for_workflow(project_root: &str, workflow_id: &str) -> V
         .iter()
         .map(|phase| phase.phase_id.clone())
         .collect()
+}
+
+fn format_output_chunk_for_display(text: &str, verbose: bool, use_colors: bool) -> Option<String> {
+    let trimmed = text.trim_start();
+    if !trimmed.starts_with('{') {
+        return Some(text.to_string());
+    }
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+        return Some(text.to_string());
+    };
+    let obj = val.as_object()?;
+    let event_type = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    match event_type {
+        "assistant" => format_claude_assistant_message(&val, verbose, use_colors),
+        "tool_error" => {
+            let msg = obj
+                .get("error")
+                .and_then(|v| v.as_str())
+                .or_else(|| obj.get("message").and_then(|v| v.as_str()))
+                .unwrap_or("unknown error");
+            let (red, reset) = if use_colors {
+                ("\x1b[31m", "\x1b[0m")
+            } else {
+                ("", "")
+            };
+            Some(format!("{red}  error: {msg}{reset}\n"))
+        }
+        _ => None,
+    }
+}
+
+fn format_claude_assistant_message(
+    val: &serde_json::Value,
+    verbose: bool,
+    use_colors: bool,
+) -> Option<String> {
+    let content = val
+        .pointer("/message/content")
+        .and_then(|c| c.as_array())?;
+    let mut out = String::new();
+    for block in content {
+        let block_type = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        match block_type {
+            "text" => {
+                if let Some(t) = block.get("text").and_then(|v| v.as_str()) {
+                    if use_colors {
+                        out.push_str(&apply_terminal_markdown(t));
+                    } else {
+                        out.push_str(t);
+                    }
+                }
+            }
+            "thinking" => {
+                if verbose {
+                    if let Some(t) = block.get("thinking").and_then(|v| v.as_str()) {
+                        let (dim, reset) = if use_colors {
+                            ("\x1b[2m", "\x1b[0m")
+                        } else {
+                            ("", "")
+                        };
+                        out.push_str(&format!("{dim}{t}{reset}"));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    if out.is_empty() {
+        None
+    } else {
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+        Some(out)
+    }
+}
+
+fn apply_terminal_markdown(text: &str) -> String {
+    let mut result = String::with_capacity(text.len() + 64);
+    let mut in_code_block = false;
+    for line in text.split('\n') {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") {
+            in_code_block = !in_code_block;
+            if in_code_block {
+                result.push_str("\x1b[2m");
+                result.push_str(line);
+            } else {
+                result.push_str(line);
+                result.push_str("\x1b[0m");
+            }
+        } else if in_code_block {
+            result.push_str(line);
+        } else if trimmed.starts_with("# ") {
+            result.push_str("\x1b[1m");
+            result.push_str(line);
+            result.push_str("\x1b[0m");
+        } else if trimmed.starts_with("## ") || trimmed.starts_with("### ") {
+            result.push_str("\x1b[1m");
+            result.push_str(line);
+            result.push_str("\x1b[0m");
+        } else {
+            result.push_str(line);
+        }
+        result.push('\n');
+    }
+    if text.ends_with('\n') {
+        result
+    } else {
+        result.pop();
+        result
+    }
+}
+
+fn format_tool_call_for_display(
+    tool_name: &str,
+    parameters: &serde_json::Value,
+    use_colors: bool,
+) -> String {
+    let (cyan, dim, reset) = if use_colors {
+        ("\x1b[36m", "\x1b[2m", "\x1b[0m")
+    } else {
+        ("", "", "")
+    };
+    let detail = match tool_name {
+        "Read" | "Write" | "Edit" => parameters
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        "Bash" => {
+            let cmd = parameters
+                .get("command")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if cmd.len() > 60 {
+                format!("{}...", &cmd[..60])
+            } else {
+                cmd.to_string()
+            }
+        }
+        "Grep" | "Glob" => parameters
+            .get("pattern")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        name if name.starts_with("mcp__") => {
+            let compact = parameters.to_string();
+            if compact.len() > 80 {
+                format!("{}...", &compact[..80])
+            } else {
+                compact
+            }
+        }
+        _ => {
+            let compact = parameters.to_string();
+            if compact.len() > 80 {
+                format!("{}...", &compact[..80])
+            } else {
+                compact
+            }
+        }
+    };
+    if detail.is_empty() {
+        format!("{cyan}  → {tool_name}{reset}\n")
+    } else {
+        format!("{cyan}  → {tool_name}{reset} {dim}{detail}{reset}\n")
+    }
 }
 
 #[cfg(test)]

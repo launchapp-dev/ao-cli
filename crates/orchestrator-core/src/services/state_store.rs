@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -17,6 +18,14 @@ pub(super) struct CoreState {
     pub(super) requirements: HashMap<String, RequirementItem>,
     #[serde(default)]
     pub(super) architecture: ArchitectureGraph,
+    #[serde(skip)]
+    pub(super) dirty_tasks: HashSet<String>,
+    #[serde(skip)]
+    pub(super) dirty_requirements: HashSet<String>,
+    #[serde(skip)]
+    pub(super) all_tasks_dirty: bool,
+    #[serde(skip)]
+    pub(super) all_requirements_dirty: bool,
 }
 
 impl CoreState {

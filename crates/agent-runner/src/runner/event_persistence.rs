@@ -117,7 +117,7 @@ fn append_line(path: &Path, line: &str) -> Result<()> {
 mod tests {
     use super::*;
     use protocol::Timestamp;
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::Mutex;
 
     struct EnvVarGuard {
         key: &'static str,
@@ -146,8 +146,7 @@ mod tests {
     }
 
     fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
+        crate::test_env_lock()
     }
 
     fn test_root() -> PathBuf {

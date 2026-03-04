@@ -436,7 +436,7 @@ fn e2e_requirements_create_update_and_list() -> Result<()> {
         "second criterion should be appended"
     );
 
-    let requirements_docs = harness.project_root().join(".ao/docs/requirements.json");
+    let requirements_docs = harness.scoped_root().join("docs/requirements.json");
     assert!(
         requirements_docs.exists(),
         "requirements docs file should exist"
@@ -503,8 +503,7 @@ fn e2e_requirements_generated_docs_persist_metadata_and_prune_on_delete() -> Res
     ])?;
 
     let generated_path = harness
-        .project_root()
-        .join(".ao")
+        .scoped_root()
         .join("requirements")
         .join("generated")
         .join(format!("{requirement_id}.json"));
@@ -655,8 +654,7 @@ fn e2e_requirements_backfill_category_and_type_for_req_007_through_req_024() -> 
         );
 
         let generated_path = harness
-            .project_root()
-            .join(".ao")
+            .scoped_root()
             .join("requirements")
             .join("generated")
             .join(format!("{id}.json"));

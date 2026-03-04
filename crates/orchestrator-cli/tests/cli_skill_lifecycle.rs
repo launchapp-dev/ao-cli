@@ -81,7 +81,7 @@ fn skill_lifecycle_install_list_update_and_lock_determinism() -> Result<()> {
         "first install should write lock state"
     );
 
-    let state_dir = harness.project_root().join(".ao/state");
+    let state_dir = harness.scoped_root().join("state");
     let registry_path = state_dir.join("skills-registry.v1.json");
     let lock_path = state_dir.join("skills-lock.v1.json");
     assert!(
@@ -344,7 +344,7 @@ fn skill_update_cli_constraints_override_lock_pins() -> Result<()> {
 
     harness.run_json_ok(&["skill", "install", "--name", "fmt", "--version", "=1.0.0"])?;
 
-    let lock_path = harness.project_root().join(".ao/state/skills-lock.v1.json");
+    let lock_path = harness.scoped_root().join("state/skills-lock.v1.json");
     let lock_before = fs::read(&lock_path).context("failed to read lock bytes before updates")?;
 
     let no_override = harness.run_json_ok(&["skill", "update", "--name", "fmt"])?;
@@ -435,7 +435,7 @@ fn skill_lockfile_entries_are_sorted_by_name_then_source() -> Result<()> {
     harness.run_json_ok(&["skill", "install", "--name", "askill", "--source", "zeta"])?;
     harness.run_json_ok(&["skill", "install", "--name", "askill", "--source", "alpha"])?;
 
-    let lock_path = harness.project_root().join(".ao/state/skills-lock.v1.json");
+    let lock_path = harness.scoped_root().join("state/skills-lock.v1.json");
     let lock_json = read_json(&lock_path)?;
     let entries = lock_json
         .pointer("/entries")
@@ -486,8 +486,8 @@ fn skill_error_contract_maps_registry_unavailable_to_exit_code_5() -> Result<()>
     ])?;
 
     let registry_path = harness
-        .project_root()
-        .join(".ao/state/skills-registry.v1.json");
+        .scoped_root()
+        .join("state/skills-registry.v1.json");
     let mut registry_json = read_json(&registry_path)?;
     let registries = registry_json
         .get_mut("registries")

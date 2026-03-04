@@ -181,7 +181,8 @@ pub fn repo_worktree_scope(project_root: &str) -> String {
 }
 
 pub fn repo_ao_root(project_root: &str) -> Result<PathBuf> {
-    Ok(ao_root_dir()?.join(repo_worktree_scope(project_root)))
+    protocol::scoped_state_root(std::path::Path::new(project_root))
+        .ok_or_else(|| anyhow!("failed to resolve scoped state root for {project_root}"))
 }
 
 pub fn daemon_repo_runtime_root(project_root: &str) -> Result<PathBuf> {

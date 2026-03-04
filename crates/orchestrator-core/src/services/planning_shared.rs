@@ -655,6 +655,7 @@ Run `ao requirements draft`/`ao requirements refine` (or upsert explicit constra
                     deadline: None,
                     paused: false,
                     cancelled: false,
+                    resolution: None,
                     resource_requirements: Default::default(),
                     consecutive_dispatch_failures: None,
                     last_dispatch_failure_at: None,

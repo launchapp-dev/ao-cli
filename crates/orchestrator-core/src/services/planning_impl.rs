@@ -177,6 +177,7 @@ impl PlanningServiceApi for FileServiceHub {
                         input,
                         insight_for_drafting.as_ref(),
                     )?;
+                state.all_requirements_dirty = true;
                 let requirements =
                     planning_shared::requirements_by_ids_sorted(state, &appended_ids);
                 Ok((requirements, appended_count))
@@ -212,9 +213,11 @@ impl PlanningServiceApi for FileServiceHub {
     ) -> Result<Vec<RequirementItem>> {
         let (refined, snapshot) = self
             .mutate_persistent_state(|state| {
-                Ok(planning_shared::refine_requirements_and_record(
+                let refined = planning_shared::refine_requirements_and_record(
                     state, input,
-                ))
+                );
+                state.all_requirements_dirty = true;
+                Ok(refined)
             })
             .await?;
 
@@ -254,6 +257,7 @@ impl PlanningServiceApi for FileServiceHub {
                 state
                     .requirements
                     .insert(requirement.id.clone(), requirement.clone());
+                state.dirty_requirements.insert(requirement.id.clone());
                 state.logs.push(LogEntry {
                     timestamp: now,
                     level: LogLevel::Info,
@@ -277,6 +281,7 @@ impl PlanningServiceApi for FileServiceHub {
                 if state.requirements.remove(id).is_none() {
                     return Err(anyhow!("requirement not found: {id}"));
                 }
+                state.all_requirements_dirty = true;
                 state.logs.push(LogEntry {
                     timestamp: Utc::now(),
                     level: LogLevel::Info,
@@ -316,13 +321,16 @@ impl PlanningServiceApi for FileServiceHub {
 
         let (result, snapshot) = self
             .mutate_persistent_state(|state| {
-                planning_shared::execute_requirements_and_record(
+                let result = planning_shared::execute_requirements_and_record(
                     state,
                     input,
                     Some(self.project_root.as_path()),
                     Some(&manager),
                     Some(&loaded_state_machines.compiled),
-                )
+                )?;
+                state.all_requirements_dirty = true;
+                state.all_tasks_dirty = true;
+                Ok(result)
             })
             .await?;
 

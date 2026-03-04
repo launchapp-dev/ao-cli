@@ -261,7 +261,7 @@ mod tests {
         TaskCreateInput, TaskType, VisionDraftInput,
     };
     use protocol::{ModelRoutingComplexity, PhaseCapabilities};
-    use std::sync::{Arc, Mutex, OnceLock};
+    use std::sync::Arc;
     use tempfile::TempDir;
 
     async fn bootstrap_from_vision_if_needed(
@@ -299,11 +299,6 @@ mod tests {
         project_tick_ops::task_dispatch::run_ready_task_workflows_for_project(hub, project_root, max_tasks_per_tick)
             .await
             .map(|summary| summary.started)
-    }
-
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
     }
 
     struct EnvVarGuard {
@@ -412,7 +407,7 @@ mod tests {
 
     #[test]
     fn phase_tool_defaults_to_model_provider() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _allow = EnvVarGuard::set("AO_ALLOW_NON_EDITING_PHASE_TOOL", Some("true"));
         let _global = EnvVarGuard::set("AO_PHASE_TOOL", None);
         let _phase = EnvVarGuard::set("AO_PHASE_TOOL_RESEARCH", None);
@@ -440,7 +435,7 @@ mod tests {
 
     #[test]
     fn phase_tool_respects_phase_override_precedence() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _allow = EnvVarGuard::set("AO_ALLOW_NON_EDITING_PHASE_TOOL", Some("true"));
         let _global = EnvVarGuard::set("AO_PHASE_TOOL", Some("claude"));
         let _research = EnvVarGuard::set("AO_PHASE_TOOL_RESEARCH", Some("gemini"));
@@ -468,7 +463,7 @@ mod tests {
 
     #[test]
     fn resolve_phase_execution_target_falls_back_to_write_capable_tool() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _allow = EnvVarGuard::set("AO_ALLOW_NON_EDITING_PHASE_TOOL", None);
         let _fallback_model = EnvVarGuard::set("AO_PHASE_MODEL_FILE_EDIT", None);
         let _fallback_tool = EnvVarGuard::set("AO_PHASE_TOOL_FILE_EDIT", None);
@@ -491,7 +486,7 @@ mod tests {
 
     #[test]
     fn resolve_phase_execution_target_skips_write_enforcement_for_read_only_phase() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _allow = EnvVarGuard::set("AO_ALLOW_NON_EDITING_PHASE_TOOL", None);
         let _phase_model = EnvVarGuard::set("AO_PHASE_MODEL_UI_UX", Some("gemini-2.5-pro"));
         let _fallback_model = EnvVarGuard::set("AO_PHASE_MODEL_FILE_EDIT", None);
@@ -506,7 +501,7 @@ mod tests {
 
     #[test]
     fn resolve_phase_execution_target_prefers_runtime_overrides() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _allow = EnvVarGuard::set("AO_ALLOW_NON_EDITING_PHASE_TOOL", Some("true"));
         let impl_caps = PhaseCapabilities::defaults_for_phase("implementation");
         let (tool, model) = PhaseTargetPlanner::resolve_phase_execution_target(
@@ -522,7 +517,7 @@ mod tests {
 
     #[test]
     fn resolve_phase_execution_target_uses_complexity_for_review_model() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _allow = EnvVarGuard::set("AO_ALLOW_NON_EDITING_PHASE_TOOL", Some("true"));
         let _phase_model = EnvVarGuard::set("AO_PHASE_MODEL_CODE_REVIEW", None);
         let _global_model = EnvVarGuard::set("AO_PHASE_MODEL", None);
@@ -549,21 +544,21 @@ mod tests {
 
     #[test]
     fn bootstrap_max_requirements_defaults_to_uncapped() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _max_requirements = EnvVarGuard::set("AO_BOOTSTRAP_MAX_REQUIREMENTS", None);
         assert_eq!(bootstrap_max_requirements(), usize::MAX);
     }
 
     #[test]
     fn bootstrap_max_requirements_accepts_explicit_cap() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _max_requirements = EnvVarGuard::set("AO_BOOTSTRAP_MAX_REQUIREMENTS", Some("12"));
         assert_eq!(bootstrap_max_requirements(), 12);
     }
 
     #[test]
     fn phase_runner_attempts_defaults_and_clamps() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
 
         {
             let _attempts = EnvVarGuard::set("AO_PHASE_RUN_ATTEMPTS", None);
@@ -635,7 +630,7 @@ mod tests {
 
     #[test]
     fn build_phase_execution_targets_respects_fallback_models() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _allow = EnvVarGuard::set("AO_ALLOW_NON_EDITING_PHASE_TOOL", Some("true"));
         let _global_fallback = EnvVarGuard::set(
             "AO_PHASE_FALLBACK_MODELS",
@@ -766,7 +761,7 @@ mod tests {
 
     #[test]
     fn inject_codex_search_launch_flag_enabled_by_default() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _search = EnvVarGuard::set("AO_CODEX_WEB_SEARCH", None);
         let mut contract = build_runtime_contract("codex", "gpt-5.3-codex", "hello")
             .expect("runtime contract should build");
@@ -789,7 +784,7 @@ mod tests {
 
     #[test]
     fn inject_codex_search_launch_flag_respects_disable_toggle() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _search = EnvVarGuard::set("AO_CODEX_WEB_SEARCH", Some("false"));
         let mut contract = build_runtime_contract("codex", "gpt-5.3-codex", "hello")
             .expect("runtime contract should build");
@@ -805,7 +800,7 @@ mod tests {
 
     #[test]
     fn inject_codex_reasoning_effort_override() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _effort = EnvVarGuard::set("AO_CODEX_REASONING_EFFORT", Some("xhigh"));
         let mut contract = build_runtime_contract("codex", "gpt-5.3-codex", "hello")
             .expect("runtime contract should build");
@@ -823,7 +818,7 @@ mod tests {
 
     #[test]
     fn inject_codex_reasoning_effort_does_not_duplicate_existing_override() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _effort = EnvVarGuard::set("AO_CODEX_REASONING_EFFORT", Some("xhigh"));
         let mut contract = build_runtime_contract("codex", "gpt-5.3-codex", "hello")
             .expect("runtime contract should build");
@@ -845,7 +840,7 @@ mod tests {
 
     #[test]
     fn inject_codex_network_access_enabled_by_default() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _network = EnvVarGuard::set("AO_CODEX_NETWORK_ACCESS", None);
         let mut contract = build_runtime_contract("codex", "gpt-5.3-codex", "hello")
             .expect("runtime contract should build");
@@ -863,7 +858,7 @@ mod tests {
 
     #[test]
     fn inject_codex_network_access_respects_disable_toggle() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _network = EnvVarGuard::set("AO_CODEX_NETWORK_ACCESS", Some("false"));
         let mut contract = build_runtime_contract("codex", "gpt-5.3-codex", "hello")
             .expect("runtime contract should build");
@@ -880,7 +875,7 @@ mod tests {
 
     #[test]
     fn inject_cli_launch_overrides_disables_claude_bypass_permissions_by_default() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", None);
         let mut contract = build_runtime_contract("claude", "claude-opus-4-1", "hello")
             .expect("runtime contract should build");
@@ -898,7 +893,7 @@ mod tests {
 
     #[test]
     fn inject_cli_launch_overrides_respects_claude_bypass_enable_toggle() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", Some("true"));
         let mut contract = build_runtime_contract("claude", "claude-opus-4-1", "hello")
             .expect("runtime contract should build");
@@ -916,7 +911,7 @@ mod tests {
 
     #[test]
     fn inject_cli_launch_overrides_respects_claude_bypass_disable_toggle() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", Some("false"));
         let mut contract = build_runtime_contract("claude", "claude-opus-4-1", "hello")
             .expect("runtime contract should build");
@@ -934,7 +929,7 @@ mod tests {
 
     #[test]
     fn inject_cli_launch_overrides_treats_empty_claude_bypass_value_as_disabled() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", Some(""));
         let mut contract = build_runtime_contract("claude", "claude-opus-4-1", "hello")
             .expect("runtime contract should build");
@@ -952,7 +947,7 @@ mod tests {
 
     #[test]
     fn inject_cli_launch_overrides_applies_claude_extra_args_from_env() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _extra_args = EnvVarGuard::set(
             "AO_CLAUDE_EXTRA_ARGS_JSON",
             Some("[\"--max-turns\", \"2\"]"),
@@ -1064,7 +1059,7 @@ mod tests {
 
     #[tokio::test]
     async fn bootstrap_from_vision_materializes_requirements_and_tasks() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _max_requirements = EnvVarGuard::set("AO_BOOTSTRAP_MAX_REQUIREMENTS", Some("4"));
         let hub = Arc::new(InMemoryServiceHub::new());
         hub.planning()
@@ -1839,7 +1834,7 @@ mod tests {
 
     #[tokio::test]
     async fn project_tick_reports_requirement_lifecycle_transitions() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _skip_runner = EnvVarGuard::set("AO_SKIP_RUNNER_START", Some("1"));
 
         let temp = TempDir::new().expect("temp dir");

@@ -56,7 +56,10 @@ struct RequirementUpdateInputCli {
 pub(super) use orchestrator_core::{project_state_dir, read_json_or_default, write_json_pretty};
 
 fn core_state_path(project_root: &str) -> PathBuf {
-    Path::new(project_root).join(".ao").join("core-state.json")
+    let root = Path::new(project_root);
+    let base = protocol::scoped_state_root(root)
+        .unwrap_or_else(|| root.join(".ao"));
+    base.join("core-state.json")
 }
 
 fn load_core_state_value(project_root: &str) -> Result<Value> {
@@ -123,7 +126,10 @@ fn write_requirements_docs(
     project_root: &str,
     requirements: &HashMap<String, RequirementItem>,
 ) -> Result<()> {
-    let docs_dir = Path::new(project_root).join(".ao").join("docs");
+    let root = Path::new(project_root);
+    let base = protocol::scoped_state_root(root)
+        .unwrap_or_else(|| root.join(".ao"));
+    let docs_dir = base.join("docs");
     fs::create_dir_all(&docs_dir)?;
     let mut items: Vec<_> = requirements.values().cloned().collect();
     items.sort_by(|a, b| a.id.cmp(&b.id));
@@ -135,10 +141,10 @@ fn write_requirements_docs(
 }
 
 fn generated_requirements_dir(project_root: &str) -> PathBuf {
-    Path::new(project_root)
-        .join(".ao")
-        .join("requirements")
-        .join("generated")
+    let root = Path::new(project_root);
+    let base = protocol::scoped_state_root(root)
+        .unwrap_or_else(|| root.join(".ao"));
+    base.join("requirements").join("generated")
 }
 
 fn load_generated_requirement(path: &Path) -> Result<RequirementItem> {
@@ -548,6 +554,32 @@ mod tests {
     use super::*;
     use crate::{classify_cli_error_kind, CliErrorKind};
 
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: Option<&str>) -> Self {
+            let previous = std::env::var(key).ok();
+            match value {
+                Some(v) => std::env::set_var(key, v),
+                None => std::env::remove_var(key),
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(previous) = &self.previous {
+                std::env::set_var(self.key, previous);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
+
     fn test_requirement_item(id: &str) -> RequirementItem {
         let now = Utc::now();
         RequirementItem {
@@ -611,12 +643,13 @@ mod tests {
 
     #[test]
     fn load_requirements_map_falls_back_to_generated_docs_when_core_state_is_empty() {
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock");
         let temp = tempfile::tempdir().expect("tempdir");
-        let generated_dir = temp
-            .path()
-            .join(".ao")
-            .join("requirements")
-            .join("generated");
+        let _home = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
+        let project_root = temp.path().join("project");
+        std::fs::create_dir_all(&project_root).expect("create project dir");
+        let project_root = project_root.to_str().expect("project root str");
+        let generated_dir = generated_requirements_dir(project_root);
         fs::create_dir_all(&generated_dir).expect("create generated requirements dir");
 
         let now = Utc::now();
@@ -650,7 +683,7 @@ mod tests {
         .expect("write generated requirement");
 
         let requirements =
-            load_requirements_map_from_core_state(temp.path().to_str().expect("project root str"))
+            load_requirements_map_from_core_state(project_root)
                 .expect("load requirements from generated docs");
         let requirement = requirements
             .get("REQ-007")
@@ -672,8 +705,12 @@ mod tests {
 
     #[test]
     fn write_generated_requirement_docs_prunes_stale_requirement_files() {
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock");
         let temp = tempfile::tempdir().expect("tempdir");
-        let project_root = temp.path().to_str().expect("project root");
+        let _home = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
+        let project_root = temp.path().join("project");
+        std::fs::create_dir_all(&project_root).expect("create project dir");
+        let project_root = project_root.to_str().expect("project root");
         let generated_dir = generated_requirements_dir(project_root);
         fs::create_dir_all(&generated_dir).expect("create generated requirements dir");
 

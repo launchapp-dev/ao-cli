@@ -1240,6 +1240,36 @@ fn emit_phase_footer(phase_id: &str, duration: std::time::Duration, succeeded: b
     }
 }
 
+fn emit_phase_decision(decision: &orchestrator_core::PhaseDecision, _json: bool) {
+    use std::io::Write as _;
+    let color = use_ansi_colors();
+    let (dim, cyan, reset) = if color {
+        ("\x1b[2m", "\x1b[36m", "\x1b[0m")
+    } else {
+        ("", "", "")
+    };
+    let verdict = match decision.verdict {
+        orchestrator_core::PhaseDecisionVerdict::Advance => "advance",
+        orchestrator_core::PhaseDecisionVerdict::Rework => "rework",
+        orchestrator_core::PhaseDecisionVerdict::Fail => "fail",
+        orchestrator_core::PhaseDecisionVerdict::Skip => "skip",
+        orchestrator_core::PhaseDecisionVerdict::Unknown => "unknown",
+    };
+    let confidence_pct = (decision.confidence * 100.0) as u32;
+    let _ = writeln!(
+        std::io::stderr(),
+        "{cyan}  verdict: {verdict} ({confidence_pct}% confidence){reset}"
+    );
+    if !decision.reason.is_empty() {
+        let reason = if decision.reason.len() > 120 {
+            format!("{}...", &decision.reason[..120])
+        } else {
+            decision.reason.clone()
+        };
+        let _ = writeln!(std::io::stderr(), "{dim}  reason: {reason}{reset}");
+    }
+}
+
 fn emit_workflow_summary(
     results: &[serde_json::Value],
     total_duration: std::time::Duration,
@@ -1256,12 +1286,27 @@ fn emit_workflow_summary(
     for r in results {
         let pid = r["phase_id"].as_str().unwrap_or("?");
         let status = r["status"].as_str().unwrap_or("?");
-        let (icon, clr) = if status == "completed" {
-            ("ok", green)
-        } else {
-            ("FAIL", red)
+        let dur_secs = r["duration_secs"].as_u64().unwrap_or(0);
+        let dur_str = format_duration(std::time::Duration::from_secs(dur_secs));
+        let (icon, clr) = match status {
+            "completed" => ("ok", green),
+            "rework" => ("↻", dim),
+            _ => ("FAIL", red),
         };
-        let _ = writeln!(std::io::stderr(), "  {clr}{icon}{reset} {pid}: {dim}{status}{reset}");
+        let _ = writeln!(
+            std::io::stderr(),
+            "  {clr}{icon}{reset} {pid}: {dim}{status} ({dur_str}){reset}"
+        );
+        if status == "failed" {
+            if let Some(err) = r["error"].as_str() {
+                let err_short = if err.len() > 100 {
+                    format!("{}...", &err[..100])
+                } else {
+                    err.to_string()
+                };
+                let _ = writeln!(std::io::stderr(), "    {red}{err_short}{reset}");
+            }
+        }
     }
     let _ = writeln!(
         std::io::stderr(),
@@ -1393,6 +1438,43 @@ async fn handle_workflow_execute(
                     ..
                 } = result.outcome
                 {
+                    emit_phase_decision(decision, json);
+
+                    if decision.verdict == orchestrator_core::PhaseDecisionVerdict::Skip {
+                        let close_reason = decision.reason.trim().to_lowercase();
+                        let target_status = if close_reason.contains("already_done") {
+                            orchestrator_core::TaskStatus::Done
+                        } else {
+                            orchestrator_core::TaskStatus::Cancelled
+                        };
+
+                        if let Ok(mut task) = hub.tasks().get(&args.task_id).await {
+                            task.resolution = Some(decision.reason.clone());
+                            if target_status == orchestrator_core::TaskStatus::Cancelled {
+                                task.cancelled = true;
+                            }
+                            task.status = target_status;
+                            task.metadata.updated_by = "workflow:skip".to_string();
+                            let _ = hub.tasks().replace(task).await;
+                        }
+
+                        trace_workflow_execute(&format!(
+                            "phase {} skip -> closing task as {:?}: {}",
+                            phase_id, target_status, decision.reason
+                        ));
+                        emit_phase_footer(phase_id, phase_elapsed, true, json);
+                        results.push(serde_json::json!({
+                            "phase_id": phase_id,
+                            "status": "closed",
+                            "close_reason": decision.reason,
+                            "task_status": format!("{:?}", target_status).to_lowercase(),
+                            "duration_secs": phase_elapsed.as_secs(),
+                            "outcome": result.outcome,
+                            "metadata": result.metadata,
+                        }));
+                        break;
+                    }
+
                     if decision.verdict == orchestrator_core::PhaseDecisionVerdict::Rework {
                         if let Some(routing) = verdict_routing.get(phase_id.as_str()) {
                             if let Some(transition) = routing.get("rework") {
@@ -1473,17 +1555,21 @@ async fn handle_workflow_execute(
     let total_elapsed = workflow_start.elapsed();
     emit_workflow_summary(&results, total_elapsed, json);
 
-    print_value(
-        serde_json::json!({
-            "workflow_id": workflow.id,
-            "task_id": task.id,
-            "execution_cwd": execution_cwd,
-            "phases_requested": phases_to_run,
-            "total_duration_secs": total_elapsed.as_secs(),
-            "results": results,
-        }),
-        json,
-    )
+    if json {
+        print_value(
+            serde_json::json!({
+                "workflow_id": workflow.id,
+                "task_id": task.id,
+                "execution_cwd": execution_cwd,
+                "phases_requested": phases_to_run,
+                "total_duration_secs": total_elapsed.as_secs(),
+                "results": results,
+            }),
+            true,
+        )
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]

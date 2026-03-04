@@ -262,13 +262,7 @@ pub(crate) async fn handle_errors(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Mutex, OnceLock};
     use tempfile::TempDir;
-
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
 
     struct EnvVarGuard {
         key: &'static str,
@@ -315,7 +309,7 @@ mod tests {
 
     #[test]
     fn sync_errors_ingests_notification_lifecycle_events() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
 
         let config_root = TempDir::new().expect("config temp dir");
         let _config_guard = EnvVarGuard::set(

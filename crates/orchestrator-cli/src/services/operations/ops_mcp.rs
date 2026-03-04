@@ -3609,13 +3609,7 @@ mod tests {
     use crate::services::runtime::DaemonEventRecord;
     use chrono::{Duration, Utc};
     use std::collections::HashMap;
-    use std::sync::{Mutex, OnceLock};
     use tempfile::TempDir;
-
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
 
     struct EnvVarGuard {
         key: &'static str,
@@ -4803,7 +4797,7 @@ mod tests {
 
     #[test]
     fn build_daemon_events_poll_result_returns_non_null_structured_events() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let config_root = TempDir::new().expect("config temp dir");
         let _config_guard = EnvVarGuard::set(
             "AO_CONFIG_DIR",
@@ -4846,7 +4840,7 @@ mod tests {
 
     #[test]
     fn build_daemon_events_poll_result_filters_by_project_root() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let config_root = TempDir::new().expect("config temp dir");
         let _config_guard = EnvVarGuard::set(
             "AO_CONFIG_DIR",
@@ -4886,7 +4880,7 @@ mod tests {
 
     #[test]
     fn build_daemon_events_poll_result_blank_project_root_falls_back_to_default() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let config_root = TempDir::new().expect("config temp dir");
         let _config_guard = EnvVarGuard::set(
             "AO_CONFIG_DIR",
@@ -4993,7 +4987,7 @@ mod tests {
 
     #[test]
     fn build_output_tail_result_filters_out_events_for_other_runs() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let temp = TempDir::new().expect("tempdir should be created");
         let _home_guard = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
         let project_root = temp.path().join("project");
@@ -5051,7 +5045,7 @@ mod tests {
 
     #[test]
     fn build_output_tail_result_returns_empty_when_events_log_missing() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let temp = TempDir::new().expect("tempdir should be created");
         let _home_guard = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
         let project_root = temp.path().join("project");
@@ -5082,7 +5076,7 @@ mod tests {
 
     #[test]
     fn build_output_tail_result_skips_invalid_utf8_log_lines() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let temp = TempDir::new().expect("tempdir should be created");
         let _home_guard = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
         let project_root = temp.path().join("project");
@@ -5129,7 +5123,7 @@ mod tests {
 
     #[test]
     fn build_output_tail_result_defaults_to_output_and_thinking() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let temp = TempDir::new().expect("tempdir should be created");
         let _home_guard = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
         let project_root = temp.path().join("project");
@@ -5194,7 +5188,7 @@ mod tests {
 
     #[test]
     fn build_output_tail_result_normalizes_output_stream_types() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let temp = TempDir::new().expect("tempdir should be created");
         let _home_guard = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
         let project_root = temp.path().join("project");
@@ -5245,7 +5239,7 @@ mod tests {
 
     #[test]
     fn build_output_tail_result_applies_filter_and_limit_in_order() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let temp = TempDir::new().expect("tempdir should be created");
         let _home_guard = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
         let project_root = temp.path().join("project");
@@ -5294,7 +5288,7 @@ mod tests {
 
     #[test]
     fn build_output_tail_result_clamps_limit_to_minimum() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let temp = TempDir::new().expect("tempdir should be created");
         let _home_guard = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
         let project_root = temp.path().join("project");
@@ -5334,7 +5328,7 @@ mod tests {
 
     #[test]
     fn build_output_tail_result_resolves_task_to_running_workflow_run() {
-        let _lock = env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let temp = TempDir::new().expect("tempdir should be created");
         let _home_guard = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
         let project_root = temp.path().join("project");

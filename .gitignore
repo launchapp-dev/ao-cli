@@ -31,28 +31,6 @@ crates/orchestrator-web-server/web-ui/.smoke-artifacts/
 *.lock
 !Cargo.lock
 
-# AO runtime artifacts
-.ao/core-state.json
-.ao/state/
-.ao/logs/
-.ao/history.db
-.ao/history.db-journal
-.ao/history.db-shm
-.ao/history.db-wal
-.ao/daemon.lock
-.ao/artifacts/
-.ao/runner/
-.ao/runs/
-.ao/worktrees/
-.ao/workflow-state/
-.ao/reset-backups/
-.ao/model-evals/
-.ao/tasks-archive-*.tar.gz
-.ao/requirements/contracts/
-.ao/docs/requirements.json
-.ao/docs/tasks.json
-.ao/requirements/index.json
-.ao/tasks/index.json
-
-# Keep placeholders
-!.gitkeep
+# AO — everything except declarative workflow config
+.ao/*
+!.ao/workflows/

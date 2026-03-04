@@ -139,7 +139,10 @@ mod tests {
     #[test]
     fn resolve_phase_plan_errors_when_workflow_config_is_invalid() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let state_dir = temp.path().join(".ao").join("state");
+        let state_dir = crate::workflow_config::workflow_config_path(temp.path())
+            .parent()
+            .expect("config has parent")
+            .to_path_buf();
         std::fs::create_dir_all(&state_dir).expect("state dir");
         std::fs::write(
             state_dir.join(crate::WORKFLOW_CONFIG_FILE_NAME),

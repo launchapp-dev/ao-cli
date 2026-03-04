@@ -528,12 +528,14 @@ pub(super) fn create_task_in_state(
         deadline: None,
         paused: false,
         cancelled: false,
+        resolution: None,
         resource_requirements: Default::default(),
         consecutive_dispatch_failures: None,
         last_dispatch_failure_at: None,
         dispatch_history: Vec::new(),
     };
     state.tasks.insert(id, task.clone());
+    state.dirty_tasks.insert(task.id.clone());
     Ok(task)
 }
 
@@ -550,7 +552,9 @@ pub(super) fn update_task_in_state(
         .get_mut(id)
         .ok_or_else(|| anyhow!("task not found: {id}"))?;
     apply_task_update(task, input)?;
-    Ok(task.clone())
+    let result = task.clone();
+    state.dirty_tasks.insert(id.to_string());
+    Ok(result)
 }
 
 pub(super) fn replace_task_in_state(
@@ -560,6 +564,7 @@ pub(super) fn replace_task_in_state(
     task.metadata.updated_at = Utc::now();
     task.metadata.version = task.metadata.version.saturating_add(1);
     state.tasks.insert(task.id.clone(), task.clone());
+    state.dirty_tasks.insert(task.id.clone());
     Ok(task)
 }
 
@@ -571,6 +576,7 @@ pub(super) fn delete_task_in_state(
         .tasks
         .remove(id)
         .ok_or_else(|| anyhow!("task not found: {id}"))?;
+    state.all_tasks_dirty = true;
     Ok(())
 }
 
@@ -600,7 +606,9 @@ pub(super) fn assign_agent_in_state(
     let task = get_task_mut(state, id)?;
     task.assignee = Assignee::Agent { role, model };
     bump_task_version(task, updated_by);
-    Ok(task.clone())
+    let result = task.clone();
+    state.dirty_tasks.insert(id.to_string());
+    Ok(result)
 }
 
 pub(super) fn assign_human_in_state(
@@ -612,7 +620,9 @@ pub(super) fn assign_human_in_state(
     let task = get_task_mut(state, id)?;
     task.assignee = Assignee::Human { user_id };
     bump_task_version(task, updated_by);
-    Ok(task.clone())
+    let result = task.clone();
+    state.dirty_tasks.insert(id.to_string());
+    Ok(result)
 }
 
 pub(super) fn set_status_in_state(
@@ -624,7 +634,9 @@ pub(super) fn set_status_in_state(
     apply_task_status(task, status);
     task.metadata.updated_at = Utc::now();
     task.metadata.version = task.metadata.version.saturating_add(1);
-    Ok(task.clone())
+    let result = task.clone();
+    state.dirty_tasks.insert(id.to_string());
+    Ok(result)
 }
 
 pub(super) fn add_checklist_item_in_state(
@@ -642,7 +654,9 @@ pub(super) fn add_checklist_item_in_state(
         completed_at: None,
     });
     bump_task_version(task, updated_by);
-    Ok(task.clone())
+    let result = task.clone();
+    state.dirty_tasks.insert(id.to_string());
+    Ok(result)
 }
 
 pub(super) fn update_checklist_item_in_state(
@@ -661,7 +675,9 @@ pub(super) fn update_checklist_item_in_state(
     item.completed = completed;
     item.completed_at = if completed { Some(Utc::now()) } else { None };
     bump_task_version(task, updated_by);
-    Ok(task.clone())
+    let result = task.clone();
+    state.dirty_tasks.insert(id.to_string());
+    Ok(result)
 }
 
 pub(super) fn add_dependency_in_state(
@@ -684,7 +700,9 @@ pub(super) fn add_dependency_in_state(
         });
     }
     bump_task_version(task, updated_by);
-    Ok(task.clone())
+    let result = task.clone();
+    state.dirty_tasks.insert(id.to_string());
+    Ok(result)
 }
 
 pub(super) fn remove_dependency_in_state(
@@ -697,5 +715,7 @@ pub(super) fn remove_dependency_in_state(
     task.dependencies
         .retain(|dependency| dependency.task_id != dependency_id);
     bump_task_version(task, updated_by);
-    Ok(task.clone())
+    let result = task.clone();
+    state.dirty_tasks.insert(id.to_string());
+    Ok(result)
 }

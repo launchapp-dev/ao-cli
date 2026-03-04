@@ -228,7 +228,7 @@ pub(super) async fn handle_git_worktree(
                 return print_value(
                     dry_run_envelope(
                         "git.worktree.remove",
-                        &format!("{}/{}", repo, worktree_name),
+                        serde_json::json!({ "repo": repo, "worktree": worktree_name }),
                         "git.worktree.remove",
                         vec!["remove git worktree from repository".to_string()],
                         &git_confirmation_next_step("remove_worktree", &repo),
@@ -443,16 +443,18 @@ pub(super) async fn handle_git_worktree(
                     ]
                 };
 
-                return print_value(
-                    dry_run_envelope(
-                        "git.worktree.prune",
-                        &args.repo,
-                        "git.worktree.prune",
-                        planned_effects,
-                        &git_confirmation_next_step(PRUNE_WORKTREES_CONFIRMATION_OPERATION, &args.repo),
-                    ),
-                    json,
+                let mut envelope = dry_run_envelope(
+                    "git.worktree.prune",
+                    serde_json::json!({ "repo": args.repo }),
+                    "git.worktree.prune",
+                    planned_effects,
+                    &git_confirmation_next_step(PRUNE_WORKTREES_CONFIRMATION_OPERATION, &args.repo),
                 );
+                if let Some(obj) = envelope.as_object_mut() {
+                    obj.insert("candidate_count".to_string(), json!(candidate_reports.len()));
+                    obj.insert("candidates".to_string(), json!(candidate_reports));
+                }
+                return print_value(envelope, json);
             }
 
             if !candidates.is_empty() {
@@ -682,7 +684,7 @@ pub(super) async fn handle_git_worktree(
                 return print_value(
                     dry_run_envelope(
                         "git.worktree.push",
-                        &format!("{}/{}/{}/{}", repo, worktree_name, remote, branch_name),
+                        serde_json::json!({ "repo": repo, "worktree": worktree_name, "remote": remote, "branch": branch_name }),
                         "git.worktree.push",
                         vec!["push worktree branch updates to remote".to_string()],
                         &next_step,

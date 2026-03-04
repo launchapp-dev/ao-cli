@@ -93,6 +93,7 @@ mod tests {
             deadline: None,
             paused: false,
             cancelled: false,
+            resolution: None,
             resource_requirements: ResourceRequirements::default(),
             consecutive_dispatch_failures: None,
             last_dispatch_failure_at: None,

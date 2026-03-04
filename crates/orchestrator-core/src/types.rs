@@ -1215,6 +1215,8 @@ pub struct OrchestratorTask {
     pub paused: bool,
     #[serde(default)]
     pub cancelled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolution: Option<String>,
     #[serde(default)]
     pub resource_requirements: ResourceRequirements,
     #[serde(default, skip_serializing_if = "Option::is_none")]

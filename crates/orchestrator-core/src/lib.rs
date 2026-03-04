@@ -8,6 +8,7 @@ pub mod events;
 pub mod model_quality;
 pub mod runtime;
 pub mod runtime_contract;
+pub mod providers;
 pub mod services;
 pub mod state_machines;
 pub mod types;

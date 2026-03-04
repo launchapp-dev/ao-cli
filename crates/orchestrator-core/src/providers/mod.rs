@@ -20,19 +20,6 @@ pub trait TaskProvider: Send + Sync {
     async fn replace(&self, task: OrchestratorTask) -> Result<OrchestratorTask>;
     async fn delete(&self, id: &str) -> Result<()>;
     async fn assign(&self, id: &str, assignee: String) -> Result<OrchestratorTask>;
-    async fn assign_agent(
-        &self,
-        id: &str,
-        role: String,
-        model: Option<String>,
-        updated_by: String,
-    ) -> Result<OrchestratorTask>;
-    async fn assign_human(
-        &self,
-        id: &str,
-        user_id: String,
-        updated_by: String,
-    ) -> Result<OrchestratorTask>;
     async fn set_status(&self, id: &str, status: TaskStatus) -> Result<OrchestratorTask>;
     async fn add_checklist_item(
         &self,

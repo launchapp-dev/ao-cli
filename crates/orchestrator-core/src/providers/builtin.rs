@@ -68,25 +68,6 @@ impl TaskProvider for BuiltinTaskProvider {
         self.hub.assign(id, assignee).await
     }
 
-    async fn assign_agent(
-        &self,
-        id: &str,
-        role: String,
-        model: Option<String>,
-        updated_by: String,
-    ) -> Result<OrchestratorTask> {
-        self.hub.assign_agent(id, role, model, updated_by).await
-    }
-
-    async fn assign_human(
-        &self,
-        id: &str,
-        user_id: String,
-        updated_by: String,
-    ) -> Result<OrchestratorTask> {
-        self.hub.assign_human(id, user_id, updated_by).await
-    }
-
     async fn set_status(&self, id: &str, status: TaskStatus) -> Result<OrchestratorTask> {
         self.hub.set_status(id, status).await
     }
@@ -189,4 +170,3 @@ impl RequirementsProvider for BuiltinRequirementsProvider {
         self.hub.execute_requirements(input).await
     }
 }
-

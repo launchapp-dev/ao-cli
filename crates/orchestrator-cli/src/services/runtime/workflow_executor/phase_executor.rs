@@ -2219,7 +2219,7 @@ fn format_claude_assistant_message(
             "text" => {
                 if let Some(t) = block.get("text").and_then(|v| v.as_str()) {
                     if use_colors {
-                        out.push_str(&apply_terminal_markdown(t));
+                        out.push_str(&termimad::text(t).to_string());
                     } else {
                         out.push_str(t);
                     }
@@ -2250,42 +2250,6 @@ fn format_claude_assistant_message(
     }
 }
 
-fn apply_terminal_markdown(text: &str) -> String {
-    let mut result = String::with_capacity(text.len() + 64);
-    let mut in_code_block = false;
-    for line in text.split('\n') {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("```") {
-            in_code_block = !in_code_block;
-            if in_code_block {
-                result.push_str("\x1b[2m");
-                result.push_str(line);
-            } else {
-                result.push_str(line);
-                result.push_str("\x1b[0m");
-            }
-        } else if in_code_block {
-            result.push_str(line);
-        } else if trimmed.starts_with("# ") {
-            result.push_str("\x1b[1m");
-            result.push_str(line);
-            result.push_str("\x1b[0m");
-        } else if trimmed.starts_with("## ") || trimmed.starts_with("### ") {
-            result.push_str("\x1b[1m");
-            result.push_str(line);
-            result.push_str("\x1b[0m");
-        } else {
-            result.push_str(line);
-        }
-        result.push('\n');
-    }
-    if text.ends_with('\n') {
-        result
-    } else {
-        result.pop();
-        result
-    }
-}
 
 fn format_tool_call_for_display(
     tool_name: &str,

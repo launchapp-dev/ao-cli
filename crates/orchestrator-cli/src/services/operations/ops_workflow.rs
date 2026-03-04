@@ -5,7 +5,10 @@ use std::sync::Arc;
 use super::ops_common::project_state_dir;
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
-use orchestrator_core::{services::ServiceHub, WorkflowResumeManager, WorkflowRunInput};
+use orchestrator_core::{
+    ensure_workflow_config_compiled, services::ServiceHub, WorkflowResumeManager,
+    WorkflowRunInput,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
@@ -1384,6 +1387,7 @@ async fn handle_workflow_execute(
     let workflow_start = std::time::Instant::now();
 
     let verdict_routing = {
+        ensure_workflow_config_compiled(Path::new(project_root))?;
         let wf_config = orchestrator_core::load_workflow_config(Path::new(project_root))?;
         orchestrator_core::resolve_pipeline_verdict_routing(
             &wf_config,

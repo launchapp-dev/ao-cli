@@ -587,6 +587,60 @@ pub fn ensure_workflow_config_file(project_root: &Path) -> Result<()> {
     write_workflow_config(project_root, &builtin_workflow_config())
 }
 
+pub fn ensure_workflow_config_compiled(project_root: &Path) -> Result<()> {
+    let workflows_yaml = project_root.join(".ao").join("workflows.yaml");
+    let workflows_dir = yaml_workflows_dir(project_root);
+    let config_path = workflow_config_path(project_root);
+
+    let mut yaml_sources: Vec<PathBuf> = Vec::new();
+    if workflows_yaml.exists() {
+        yaml_sources.push(workflows_yaml);
+    }
+    if workflows_dir.is_dir() {
+        for entry in fs::read_dir(&workflows_dir)? {
+            let path = entry?.path();
+            if path
+                .extension()
+                .map(|ext| ext == "yaml" || ext == "yml")
+                .unwrap_or(false)
+            {
+                yaml_sources.push(path);
+            }
+        }
+    }
+
+    if yaml_sources.is_empty() {
+        return Ok(());
+    }
+
+    let need_recompile = if config_path.exists() {
+        let config_modified = fs::metadata(&config_path)
+            .with_context(|| format!("failed to stat {}", config_path.display()))?
+            .modified()?;
+        let mut should_recompile = false;
+        for path in &yaml_sources {
+            let yaml_modified = fs::metadata(path)
+                .with_context(|| format!("failed to stat {}", path.display()))?
+                .modified()?;
+            if yaml_modified > config_modified {
+                should_recompile = true;
+                break;
+            }
+        }
+        should_recompile
+    } else {
+        true
+    };
+
+    if !need_recompile {
+        return Ok(());
+    }
+
+    let config = compile_yaml_workflow_files(project_root)?
+        .ok_or_else(|| anyhow!("no YAML workflow files found in .ao/workflows/ or .ao/workflows.yaml"))?;
+    write_workflow_config(project_root, &config)
+}
+
 pub fn load_workflow_config(project_root: &Path) -> Result<WorkflowConfig> {
     Ok(load_workflow_config_with_metadata(project_root)?.config)
 }

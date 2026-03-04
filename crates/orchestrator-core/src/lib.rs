@@ -91,7 +91,8 @@ pub use workflow::{
 };
 pub use workflow_config::{
     builtin_workflow_config, compile_and_write_yaml_workflows, compile_yaml_workflow_files,
-    ensure_workflow_config_file, expand_pipeline_phases, legacy_workflow_config_paths,
+    ensure_workflow_config_compiled, ensure_workflow_config_file, expand_pipeline_phases,
+    legacy_workflow_config_paths,
     load_workflow_config, load_workflow_config_or_default, load_workflow_config_with_metadata,
     merge_yaml_into_config, parse_yaml_workflow_config, resolve_pipeline_phase_plan,
     resolve_pipeline_skip_guards, resolve_pipeline_verdict_routing,

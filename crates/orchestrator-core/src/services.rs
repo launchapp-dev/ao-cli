@@ -41,6 +41,7 @@ mod planning_utils;
 mod project_impl;
 mod project_shared;
 mod review_impl;
+mod phase_execution;
 mod runner_helpers;
 mod state_store;
 mod task_impl;
@@ -51,6 +52,7 @@ use planning_utils::*;
 use runner_helpers::*;
 use state_store::{load_core_state, load_core_state_for_mutation, CoreState};
 use task_shared::*;
+pub use phase_execution::{PhaseExecutionRequest, PhaseExecutionResult, PhaseExecutor, PhaseVerdict};
 pub use task_shared::task_matches_filter;
 pub use schedule_state::{
     load_schedule_state, save_schedule_state, ScheduleRunState, ScheduleState,

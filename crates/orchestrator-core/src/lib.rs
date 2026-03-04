@@ -53,8 +53,8 @@ pub use runtime_contract::{
 pub use services::{
     evaluate_task_priority_policy, plan_task_priority_rebalance, DaemonServiceApi, FileServiceHub,
     InMemoryServiceHub, load_schedule_state, save_schedule_state, PlanningServiceApi,
-    ProjectServiceApi, ReviewServiceApi, ScheduleRunState, ScheduleState, ServiceHub, TaskServiceApi,
-    WorkflowServiceApi,
+    PhaseExecutionRequest, PhaseExecutionResult, PhaseExecutor, PhaseVerdict, ProjectServiceApi,
+    ReviewServiceApi, ScheduleRunState, ScheduleState, ServiceHub, TaskServiceApi, WorkflowServiceApi,
 };
 pub use state_machines::{
     load_state_machines_for_project, state_machines_path, write_state_machines_document,

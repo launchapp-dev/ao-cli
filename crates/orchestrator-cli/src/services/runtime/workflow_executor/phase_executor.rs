@@ -3,6 +3,8 @@ use crate::shared::{
     runner_config_dir, write_json_line,
 };
 use anyhow::{anyhow, Context, Result};
+use async_trait::async_trait;
+use orchestrator_core::ServiceHub;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -35,6 +37,164 @@ const WORKFLOW_PHASE_PROMPT_TEMPLATE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/prompts/runtime/workflow_phase.prompt"
 ));
+
+#[derive(Default)]
+pub(crate) struct CliPhaseExecutor;
+
+#[async_trait]
+impl orchestrator_core::PhaseExecutor for CliPhaseExecutor {
+    async fn execute_phase(
+        &self,
+        request: orchestrator_core::PhaseExecutionRequest,
+    ) -> Result<orchestrator_core::PhaseExecutionResult> {
+        let hub = orchestrator_core::FileServiceHub::new(&request.project_root)?;
+        let task = hub.tasks().get(&request.task_id).await?;
+
+        let execution_cwd = if Path::new(&request.config_dir).is_dir() {
+            request.config_dir.clone()
+        } else {
+            request.project_root.clone()
+        };
+
+        let timeout_override = request.timeout;
+
+        let previous_timeout = if timeout_override.is_some() {
+            std::env::var_os("AO_PHASE_TIMEOUT_SECS")
+        } else {
+            None
+        };
+        if let Some(timeout_secs) = timeout_override {
+            std::env::set_var("AO_PHASE_TIMEOUT_SECS", timeout_secs.to_string());
+        }
+
+        let overrides = if request.tool_override.is_some() || request.model_override.is_some() {
+            Some(PhaseExecuteOverrides {
+                tool: request.tool_override,
+                model: request.model_override,
+            })
+        } else {
+            None
+        };
+
+        let run_result = run_workflow_phase(
+            &request.project_root,
+            &execution_cwd,
+            &request.pipeline_id,
+            &request.task_id,
+            &task.title,
+            &task.description,
+            Some(task.complexity),
+            &request.phase_id,
+            0,
+            overrides.as_ref(),
+        )
+        .await;
+
+        match previous_timeout {
+            Some(previous_timeout) => {
+                std::env::set_var("AO_PHASE_TIMEOUT_SECS", previous_timeout);
+            }
+            None => {
+                if timeout_override.is_some() {
+                    std::env::remove_var("AO_PHASE_TIMEOUT_SECS");
+                }
+            }
+        }
+
+        let run_result = run_result?;
+        let output_log = serde_json::to_string_pretty(&run_result)?;
+
+        let mut commit_message = None;
+        let (verdict, exit_code, error) = phase_execution_result_values(&request.phase_id, &run_result.outcome);
+
+        if let PhaseExecutionOutcome::Completed {
+            commit_message: resolved_commit,
+            phase_decision: Some(decision),
+        } = &run_result.outcome
+        {
+            commit_message = resolved_commit.clone().or_else(|| decision.commit_message.clone());
+        }
+
+        Ok(orchestrator_core::PhaseExecutionResult {
+            exit_code,
+            verdict,
+            output_log,
+            error,
+            commit_message,
+        })
+    }
+}
+
+fn phase_execution_result_values(
+    phase_id: &str,
+    outcome: &PhaseExecutionOutcome,
+) -> (orchestrator_core::PhaseVerdict, i32, Option<String>) {
+    match outcome {
+        PhaseExecutionOutcome::Completed {
+            phase_decision,
+            ..
+        } => match phase_decision {
+            Some(decision) => match decision.verdict {
+                orchestrator_core::PhaseDecisionVerdict::Advance => {
+                    (orchestrator_core::PhaseVerdict::Advance, 0, None)
+                }
+                orchestrator_core::PhaseDecisionVerdict::Rework => {
+                    (
+                        orchestrator_core::PhaseVerdict::Rework {
+                            target_phase: decision
+                                .target_phase
+                                .clone()
+                                .unwrap_or_else(|| phase_id.to_string()),
+                        },
+                        0,
+                        None,
+                    )
+                }
+                orchestrator_core::PhaseDecisionVerdict::Skip => {
+                    (orchestrator_core::PhaseVerdict::Skip, 0, None)
+                }
+                orchestrator_core::PhaseDecisionVerdict::Fail => {
+                    let reason = if decision.reason.trim().is_empty() {
+                        "phase verdict fail".to_string()
+                    } else {
+                        decision.reason.clone()
+                    };
+                    (
+                        orchestrator_core::PhaseVerdict::Failed { reason: reason.clone() },
+                        1,
+                        Some(reason),
+                    )
+                }
+                orchestrator_core::PhaseDecisionVerdict::Unknown => {
+                    let reason = "phase verdict unknown".to_string();
+                    (
+                        orchestrator_core::PhaseVerdict::Failed { reason: reason.clone() },
+                        1,
+                        Some(reason),
+                    )
+                }
+            },
+            None => (orchestrator_core::PhaseVerdict::Advance, 0, None),
+        },
+        PhaseExecutionOutcome::NeedsResearch { reason } => {
+            (
+                orchestrator_core::PhaseVerdict::Rework {
+                    target_phase: phase_id.to_string(),
+                },
+                0,
+                Some(reason.clone()),
+            )
+        }
+        PhaseExecutionOutcome::ManualPending { instructions, .. } => {
+            let reason = format!("manual review required: {instructions}");
+            (
+                orchestrator_core::PhaseVerdict::Failed { reason: reason.clone() },
+                1,
+                Some(reason),
+            )
+        }
+    }
+}
 
 fn load_agent_runtime_config(project_root: &str) -> orchestrator_core::AgentRuntimeConfig {
     orchestrator_core::load_agent_runtime_config_or_default(Path::new(project_root))

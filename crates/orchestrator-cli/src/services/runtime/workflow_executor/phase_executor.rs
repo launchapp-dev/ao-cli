@@ -1279,6 +1279,7 @@ struct CommandExecutionResult {
     stderr: String,
     duration_ms: u64,
     parsed_payload: Option<Value>,
+    failure_summary: Option<String>,
 }
 
 async fn run_workflow_phase_with_command(
@@ -1330,13 +1331,21 @@ async fn run_workflow_phase_with_command(
     let duration_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
 
     if !command.success_exit_codes.contains(&exit_code) {
-        return Err(anyhow!(
-            "phase '{}' command exited with code {} (expected one of {:?}); stderr: {}",
-            phase_id,
+        let failure_summary = format!(
+            "Command `{}` exited with code {} (expected one of {:?}).\n\nStderr:\n{}",
+            command.program,
             exit_code,
             command.success_exit_codes,
             stderr.trim()
-        ));
+        );
+        return Ok(CommandExecutionResult {
+            exit_code,
+            stdout,
+            stderr,
+            duration_ms,
+            parsed_payload: None,
+            failure_summary: Some(failure_summary),
+        });
     }
 
     let parsed_payload = if command.parse_json_output {
@@ -1357,6 +1366,7 @@ async fn run_workflow_phase_with_command(
         stderr,
         duration_ms,
         parsed_payload,
+        failure_summary: None,
     })
 }
 
@@ -1669,6 +1679,42 @@ pub(crate) async fn run_workflow_phase(
                     "parsed_payload": command_result.parsed_payload,
                 }),
             });
+
+            if let Some(failure_summary) = command_result.failure_summary {
+                let decision = orchestrator_core::PhaseDecision {
+                    kind: "phase_decision".to_string(),
+                    phase_id: phase_id.to_string(),
+                    verdict: orchestrator_core::PhaseDecisionVerdict::Rework,
+                    confidence: 1.0,
+                    risk: orchestrator_core::WorkflowDecisionRisk::Low,
+                    reason: failure_summary,
+                    evidence: vec![orchestrator_core::PhaseEvidence {
+                        kind: orchestrator_core::PhaseEvidenceKind::TestsFailed,
+                        description: format!(
+                            "Command `{}` exited with code {}",
+                            command.program, command_result.exit_code
+                        ),
+                        file_path: None,
+                        value: None,
+                    }],
+                    guardrail_violations: vec![],
+                    commit_message: None,
+                    target_phase: None,
+                };
+
+                let outcome = PhaseExecutionOutcome::Completed {
+                    commit_message: None,
+                    phase_decision: Some(decision),
+                };
+
+                persist_phase_output(project_root, workflow_id, phase_id, &outcome)?;
+
+                return Ok(PhaseExecutionRunResult {
+                    outcome,
+                    metadata,
+                    signals,
+                });
+            }
 
             if command.parse_json_output {
                 signals.push(PhaseExecutionSignal {

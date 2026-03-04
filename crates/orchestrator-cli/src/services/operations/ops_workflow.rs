@@ -800,16 +800,20 @@ fn preview_phase_removal(project_root: &str, phase_id: &str) -> Result<Value> {
         .cloned()
         .ok_or_else(|| anyhow!("phase '{}' does not exist", phase_id))?;
 
-    Ok(dry_run_envelope(
+    let mut envelope = dry_run_envelope(
         "workflow.phases.remove",
-        &normalized_phase_id,
+        serde_json::json!({ "phase_id": normalized_phase_id }),
         "workflow.phases.remove",
         vec!["remove phase runtime definition".to_string()],
         &format!(
             "rerun 'ao workflow phases remove --phase {} --confirm {}' to apply",
             phase_id, phase_id
         ),
-    ))
+    );
+    if let Some(obj) = envelope.as_object_mut() {
+        obj.insert("can_remove".to_string(), serde_json::json!(true));
+    }
+    Ok(envelope)
 }
 
 fn upsert_pipeline(
@@ -1032,7 +1036,7 @@ pub(crate) async fn handle_workflow(
                 return print_value(
                     dry_run_envelope(
                         "workflow.pause",
-                        &workflow_id,
+                        serde_json::json!({ "workflow_id": workflow_id }),
                         "workflow.pause",
                         vec!["pause workflow execution".to_string()],
                         &format!(
@@ -1058,7 +1062,7 @@ pub(crate) async fn handle_workflow(
                 return print_value(
                     dry_run_envelope(
                         "workflow.cancel",
-                        &workflow_id,
+                        serde_json::json!({ "workflow_id": workflow_id }),
                         "workflow.cancel",
                         vec!["cancel workflow execution".to_string()],
                         &format!(
@@ -1334,9 +1338,21 @@ async fn handle_workflow_execute(
     let total_phases = phases_to_run.len();
     let workflow_start = std::time::Instant::now();
 
+    let verdict_routing = {
+        let wf_config = orchestrator_core::load_workflow_config(Path::new(project_root))?;
+        orchestrator_core::resolve_pipeline_verdict_routing(
+            &wf_config,
+            workflow.pipeline_id.as_deref(),
+        )
+    };
+    let max_rework: u32 = 3;
+    let mut rework_counts: HashMap<String, u32> = HashMap::new();
+
     trace_workflow_execute(&format!("phases_to_run={:?}", phases_to_run));
 
-    for (phase_index, phase_id) in phases_to_run.iter().enumerate() {
+    let mut phase_idx: usize = 0;
+    while phase_idx < phases_to_run.len() {
+        let phase_id = &phases_to_run[phase_idx];
         let phase_attempt = workflow
             .phases
             .iter()
@@ -1345,7 +1361,7 @@ async fn handle_workflow_execute(
             .unwrap_or(0);
 
         trace_workflow_execute(&format!("=== PHASE {} (attempt {}) ===", phase_id, phase_attempt));
-        emit_phase_header(phase_id, phase_index, total_phases, json);
+        emit_phase_header(phase_id, phase_idx, total_phases, json);
         let phase_start = std::time::Instant::now();
 
         let phase_overrides = crate::services::runtime::PhaseExecuteOverrides {
@@ -1370,15 +1386,75 @@ async fn handle_workflow_execute(
 
         match run_result {
             Ok(result) => {
-                trace_workflow_execute(&format!("phase {} completed", phase_id));
-                emit_phase_footer(phase_id, phase_elapsed, true, json);
-                results.push(serde_json::json!({
-                    "phase_id": phase_id,
-                    "status": "completed",
-                    "duration_secs": phase_elapsed.as_secs(),
-                    "outcome": result.outcome,
-                    "metadata": result.metadata,
-                }));
+                let mut routed_back = false;
+
+                if let crate::services::runtime::PhaseExecutionOutcome::Completed {
+                    phase_decision: Some(ref decision),
+                    ..
+                } = result.outcome
+                {
+                    if decision.verdict == orchestrator_core::PhaseDecisionVerdict::Rework {
+                        if let Some(routing) = verdict_routing.get(phase_id.as_str()) {
+                            if let Some(transition) = routing.get("rework") {
+                                let count = rework_counts.entry(phase_id.clone()).or_insert(0);
+                                if *count < max_rework {
+                                    *count += 1;
+                                    trace_workflow_execute(&format!(
+                                        "phase {} rework #{} -> target {}",
+                                        phase_id, count, transition.target
+                                    ));
+                                    emit_phase_footer(phase_id, phase_elapsed, false, json);
+                                    results.push(serde_json::json!({
+                                        "phase_id": phase_id,
+                                        "status": "rework",
+                                        "rework_target": transition.target,
+                                        "rework_attempt": *count,
+                                        "duration_secs": phase_elapsed.as_secs(),
+                                        "outcome": result.outcome,
+                                        "metadata": result.metadata,
+                                    }));
+                                    if let Some(target_idx) = phases_to_run.iter().position(|p| p == &transition.target) {
+                                        phase_idx = target_idx;
+                                        routed_back = true;
+                                    } else {
+                                        trace_workflow_execute(&format!(
+                                            "rework target '{}' not found in phases; stopping",
+                                            transition.target
+                                        ));
+                                    }
+                                } else {
+                                    trace_workflow_execute(&format!(
+                                        "phase {} rework budget exhausted ({}/{}); stopping",
+                                        phase_id, count, max_rework
+                                    ));
+                                    emit_phase_footer(phase_id, phase_elapsed, false, json);
+                                    results.push(serde_json::json!({
+                                        "phase_id": phase_id,
+                                        "status": "failed",
+                                        "duration_secs": phase_elapsed.as_secs(),
+                                        "error": format!("rework budget exhausted after {} attempts", max_rework),
+                                        "outcome": result.outcome,
+                                        "metadata": result.metadata,
+                                    }));
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if !routed_back {
+                    trace_workflow_execute(&format!("phase {} completed", phase_id));
+                    emit_phase_footer(phase_id, phase_elapsed, true, json);
+                    results.push(serde_json::json!({
+                        "phase_id": phase_id,
+                        "status": "completed",
+                        "duration_secs": phase_elapsed.as_secs(),
+                        "outcome": result.outcome,
+                        "metadata": result.metadata,
+                    }));
+                    phase_idx += 1;
+                }
             }
             Err(err) => {
                 trace_workflow_execute(&format!("phase {} FAILED: {}", phase_id, err));

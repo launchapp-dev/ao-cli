@@ -66,8 +66,14 @@ pipelines:
     phases:
       - requirements
       - implementation
-      - unit-test
-      - lint
+      - unit-test:
+          on_verdict:
+            rework:
+              target: implementation
+      - lint:
+          on_verdict:
+            rework:
+              target: implementation
       - code-review:
           on_verdict:
             rework:

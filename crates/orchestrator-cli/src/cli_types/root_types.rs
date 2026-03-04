@@ -52,6 +52,11 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: WorkflowCommand,
     },
+    /// Manage workflow schedules.
+    Schedule {
+        #[command(subcommand)]
+        command: ScheduleCommand,
+    },
     /// Draft and refine project vision artifacts.
     Vision {
         #[command(subcommand)]

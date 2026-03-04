@@ -76,6 +76,10 @@ async fn run(cli: Cli) -> Result<()> {
                     )
                     .await
                 }
+                Command::Schedule { command } => {
+                    services::operations::handle_schedule(command, hub.clone(), &project_root, cli.json)
+                        .await
+                }
                 Command::Vision { command } => {
                     services::operations::handle_vision(
                         command,

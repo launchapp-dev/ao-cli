@@ -77,5 +77,6 @@ pub mod git;
 
 pub use builtin::{BuiltinRequirementsProvider, BuiltinTaskProvider};
 pub use git::{
-    CreatePrInput, GitHubProvider, GitProvider, MergeResult, PullRequestInfo, WorktreeInfo,
+    BuiltinGitProvider, CreatePrInput, GitHubProvider, GitProvider, MergeResult,
+    PullRequestInfo, WorktreeInfo,
 };

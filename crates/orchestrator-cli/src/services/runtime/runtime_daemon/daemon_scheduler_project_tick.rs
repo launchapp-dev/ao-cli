@@ -644,7 +644,7 @@ mod tests {
             .await
             .expect("fallback task should be created");
         hub.tasks()
-            .set_status(&fallback_task.id, TaskStatus::Ready, false, false)
+            .set_status(&fallback_task.id, TaskStatus::Ready, false)
             .await
             .expect("fallback task should be ready");
 
@@ -663,7 +663,7 @@ mod tests {
             .await
             .expect("queue task should be created");
         hub.tasks()
-            .set_status(&queue_task.id, TaskStatus::Ready, false, false)
+            .set_status(&queue_task.id, TaskStatus::Ready, false)
             .await
             .expect("queue task should be ready");
 
@@ -749,7 +749,7 @@ mod tests {
             .await
             .expect("first queue task should be created");
         hub.tasks()
-            .set_status(&queue_task_one.id, TaskStatus::Ready, false, false)
+            .set_status(&queue_task_one.id, TaskStatus::Ready, false)
             .await
             .expect("first queue task should be ready");
 
@@ -768,7 +768,7 @@ mod tests {
             .await
             .expect("second queue task should be created");
         hub.tasks()
-            .set_status(&queue_task_two.id, TaskStatus::Ready, false, false)
+            .set_status(&queue_task_two.id, TaskStatus::Ready, false)
             .await
             .expect("second queue task should be ready");
 
@@ -787,7 +787,7 @@ mod tests {
             .await
             .expect("fallback task should be created");
         hub.tasks()
-            .set_status(&fallback_task.id, TaskStatus::Ready, false, false)
+            .set_status(&fallback_task.id, TaskStatus::Ready, false)
             .await
             .expect("fallback task should be ready");
 

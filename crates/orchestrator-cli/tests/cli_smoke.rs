@@ -37,8 +37,8 @@ fn help_surfaces_command_descriptions_for_core_groups() -> Result<(), Box<dyn st
         "top-level help should describe vision command"
     );
     assert!(
-        top_level_stdout.contains("Generate or execute task plans from requirements"),
-        "top-level help should describe execute command"
+        top_level_stdout.contains("Run and control workflow execution"),
+        "top-level help should describe workflow command"
     );
     assert!(
         top_level_stdout.contains("Record and inspect review decisions and handoffs"),

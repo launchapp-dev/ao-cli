@@ -766,6 +766,7 @@ mod tests {
             &created.id,
             TaskStatus::InProgress,
             Path::new("/tmp/ao-task-assignee-test"),
+            false,
         )
         .await
         .expect("status update should succeed");
@@ -809,6 +810,7 @@ mod tests {
             &created.id,
             TaskStatus::InProgress,
             repo.path(),
+            false,
         )
         .await
         .expect("status update should succeed");
@@ -842,6 +844,7 @@ mod tests {
             &created.id,
             TaskStatus::Ready,
             Path::new("/tmp/ao-task-assignee-test"),
+            false,
         )
         .await
         .expect("status update should succeed");

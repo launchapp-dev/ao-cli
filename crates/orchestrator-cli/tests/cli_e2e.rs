@@ -1582,6 +1582,7 @@ fn e2e_git_worktree_prune_cleans_done_task_worktrees() -> Result<()> {
         .and_then(Value::as_str)
         .context("task create should return data.id")?
         .to_string();
+    harness.run_json_ok(&["task", "status", "--id", &task_id, "--status", "in-progress"])?;
     harness.run_json_ok(&["task", "status", "--id", &task_id, "--status", "done"])?;
 
     let task_token = task_id.to_ascii_lowercase();

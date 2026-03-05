@@ -1100,7 +1100,7 @@ mod tests {
             phase_timeout_secs: None,
             idle_timeout_secs: None,
             once: true,
-            legacy: false,
+            legacy: true,
         };
         handle_daemon_run(
             args,

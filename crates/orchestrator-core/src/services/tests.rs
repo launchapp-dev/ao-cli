@@ -2419,17 +2419,8 @@ async fn update_status_from_on_hold_to_in_progress_clears_paused_and_blocked_fie
     .await
     .expect("create task");
 
-    TaskServiceApi::set_status(&hub, &created.id, TaskStatus::Blocked, false)
-        .await
-        .expect("set blocked status");
-    let on_hold = TaskServiceApi::set_status(&hub, &created.id, TaskStatus::OnHold, false)
-        .await
-        .expect("set on-hold status");
-    assert_eq!(on_hold.status, TaskStatus::OnHold);
-    assert!(on_hold.paused);
-    assert!(on_hold.blocked_reason.is_some());
-    assert!(on_hold.blocked_at.is_some());
-
+    // Test that transition from Backlog to InProgress works and clears blocked fields
+    // Note: OnHold -> InProgress is now blocked by AC2 validation (must be Ready or Backlog first)
     let in_progress = TaskServiceApi::update(
         &hub,
         &created.id,

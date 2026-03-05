@@ -6,12 +6,13 @@ use super::ops_common::project_state_dir;
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use orchestrator_core::{
-    ensure_workflow_config_compiled, services::ServiceHub, WorkflowResumeManager,
-    WorkflowRunInput,
+    ensure_workflow_config_compiled, load_workflow_config, providers::BuiltinGitProvider, services::ServiceHub,
+    workflow_config::MergeStrategy, WorkflowResumeManager, WorkflowRunInput,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
+use tokio::process::Command;
 
 use crate::{
     dry_run_envelope, ensure_destructive_confirmation, not_found_error, parse_input_json_or,
@@ -1413,7 +1414,7 @@ async fn handle_workflow_execute(
 
     let verdict_routing = {
         ensure_workflow_config_compiled(Path::new(project_root))?;
-        let wf_config = orchestrator_core::load_workflow_config(Path::new(project_root))?;
+        let wf_config = load_workflow_config(Path::new(project_root))?;
         orchestrator_core::resolve_pipeline_verdict_routing(
             &wf_config,
             workflow.pipeline_id.as_deref(),
@@ -1421,11 +1422,15 @@ async fn handle_workflow_execute(
     };
     let rework_attempts = {
         ensure_workflow_config_compiled(Path::new(project_root))?;
-        let wf_config = orchestrator_core::load_workflow_config(Path::new(project_root))?;
+        let wf_config = load_workflow_config(Path::new(project_root))?;
         orchestrator_core::resolve_pipeline_rework_attempts(
             &wf_config,
             workflow.pipeline_id.as_deref(),
         )
+    };
+    let workflow_config = {
+        ensure_workflow_config_compiled(Path::new(project_root))?;
+        load_workflow_config(Path::new(project_root))?
     };
     let mut rework_counts: HashMap<String, u32> = HashMap::new();
     let mut rework_context: Option<String> = None;
@@ -1651,6 +1656,22 @@ async fn handle_workflow_execute(
     }
 
     let total_elapsed = workflow_start.elapsed();
+    let all_phases_completed = phase_idx >= phases_to_run.len();
+    let post_success = if all_phases_completed {
+        execute_workflow_post_success_actions(
+            project_root,
+            &task,
+            &workflow,
+            &workflow_config,
+            &execution_cwd,
+        )
+        .await
+    } else {
+        serde_json::json!({
+            "status": "skipped",
+            "reason": "workflow did not complete all phases",
+        })
+    };
     emit_workflow_summary(&results, total_elapsed, json);
 
     if json {
@@ -1662,11 +1683,464 @@ async fn handle_workflow_execute(
                 "phases_requested": phases_to_run,
                 "total_duration_secs": total_elapsed.as_secs(),
                 "results": results,
+                "post_success": post_success,
             }),
             true,
         )
     } else {
         Ok(())
+    }
+}
+
+async fn execute_workflow_post_success_actions(
+    project_root: &str,
+    task: &orchestrator_core::OrchestratorTask,
+    workflow: &orchestrator_core::OrchestratorWorkflow,
+    workflow_config: &orchestrator_core::WorkflowConfig,
+    execution_cwd: &str,
+) -> serde_json::Value {
+    let pipeline_id = workflow
+        .pipeline_id
+        .as_deref()
+        .unwrap_or(workflow_config.default_pipeline_id.as_str());
+    let pipeline = workflow_config
+        .pipelines
+        .iter()
+        .find(|pipeline| pipeline.id.eq_ignore_ascii_case(pipeline_id))
+        .or_else(|| {
+            workflow_config
+                .pipelines
+                .iter()
+                .find(|pipeline| pipeline.id.eq_ignore_ascii_case("standard"))
+        })
+        .or_else(|| {
+            workflow_config
+                .pipelines
+                .iter()
+                .find(|pipeline| pipeline.id.eq_ignore_ascii_case(&workflow_config.default_pipeline_id))
+        })
+        .cloned();
+
+    let Some(pipeline) = pipeline else {
+        return serde_json::json!({
+            "status": "skipped",
+            "reason": "pipeline configuration not found",
+        });
+    };
+
+    let Some(merge_cfg) = pipeline.post_success.and_then(|post_success| post_success.merge) else {
+        return serde_json::json!({
+            "status": "skipped",
+            "reason": "post_success.merge not configured",
+            "pipeline_id": pipeline.id,
+        });
+    };
+
+    let Some(source_branch) = resolve_workflow_source_branch(task, execution_cwd).await else {
+        return serde_json::json!({
+            "status": "skipped",
+            "reason": "unable to resolve source branch",
+            "pipeline_id": pipeline.id,
+            "target_branch": merge_cfg.target_branch,
+            "create_pr": merge_cfg.create_pr,
+            "auto_merge": merge_cfg.auto_merge,
+        });
+    };
+
+    let git_provider = Arc::new(BuiltinGitProvider::new(project_root));
+    let target_branch = merge_cfg.target_branch.clone();
+
+    let mut action_result = serde_json::json!({
+        "status": "skipped",
+        "pipeline_id": pipeline.id,
+        "target_branch": target_branch,
+        "strategy": merge_strategy_name(&merge_cfg.strategy),
+        "create_pr": merge_cfg.create_pr,
+        "auto_merge": merge_cfg.auto_merge,
+        "cleanup_worktree": merge_cfg.cleanup_worktree,
+        "actions": serde_json::json!({
+            "push": serde_json::json!({ "status": "skipped" }),
+            "create_pr": serde_json::json!({ "status": "skipped" }),
+            "merge": serde_json::json!({ "status": "skipped" }),
+            "cleanup_worktree": serde_json::json!({ "status": "skipped" }),
+        }),
+    });
+
+    if merge_cfg.create_pr {
+        if let Some(push_action) =
+            perform_push_with_fallback(&*git_provider, execution_cwd, "origin", &source_branch).await
+        {
+            action_result["actions"]["push"] = push_action.clone();
+        }
+
+        let title = if task.title.trim().is_empty() {
+            format!("[{}] Automated update", task.id)
+        } else {
+            format!("[{}] {}", task.id, task.title.trim())
+        };
+        let body = if task.description.trim().is_empty() {
+            format!("Automated update for task {}.", task.id)
+        } else {
+            format!("Automated update for task {}.\n\n{}", task.id, task.description.trim())
+        };
+        action_result["actions"]["create_pr"] = create_pull_request_via_gh(
+            task,
+            project_root,
+            &target_branch,
+            &source_branch,
+            &title,
+            &body,
+        )
+        .await;
+        action_result["status"] = action_result["actions"]["create_pr"]["status"].clone();
+        action_result["source_branch"] = serde_json::json!(source_branch);
+        if merge_cfg.cleanup_worktree {
+            action_result["actions"]["cleanup_worktree"] =
+                cleanup_worktree_with_fallback(&*git_provider, project_root, task).await;
+            if action_result["actions"]["cleanup_worktree"]["status"] == "completed" {
+                action_result["status"] = serde_json::json!("completed");
+            }
+        }
+        return action_result;
+    }
+
+    if merge_cfg.auto_merge {
+        action_result["actions"]["merge"] = perform_auto_merge_with_git(
+            project_root,
+            &source_branch,
+            &target_branch,
+            &merge_cfg.strategy,
+        )
+        .await;
+        action_result["status"] = action_result["actions"]["merge"]["status"].clone();
+    }
+
+    action_result["source_branch"] = serde_json::json!(source_branch);
+    if merge_cfg.cleanup_worktree {
+        action_result["actions"]["cleanup_worktree"] =
+            cleanup_worktree_with_fallback(&*git_provider, project_root, task).await;
+        if action_result["actions"]["cleanup_worktree"]["status"] == "completed"
+            && action_result["status"] == "skipped"
+        {
+            action_result["status"] = serde_json::json!("completed");
+        }
+    }
+    action_result
+}
+
+fn merge_strategy_name(strategy: &MergeStrategy) -> &'static str {
+    match strategy {
+        MergeStrategy::Squash => "squash",
+        MergeStrategy::Merge => "merge",
+        MergeStrategy::Rebase => "rebase",
+    }
+}
+
+async fn resolve_workflow_source_branch(
+    task: &orchestrator_core::OrchestratorTask,
+    execution_cwd: &str,
+) -> Option<String> {
+    if let Some(branch) = task
+        .branch_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|branch| !branch.is_empty())
+    {
+        return Some(branch.to_string());
+    }
+
+    if execution_cwd.is_empty() || !Path::new(execution_cwd).exists() {
+        return None;
+    }
+
+    let output = run_git_output(
+        "git",
+        execution_cwd,
+        &["branch", "--show-current"],
+    )
+    .await
+    .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if branch.is_empty() {
+        None
+    } else {
+        Some(branch)
+    }
+}
+
+fn command_summary(output: &std::process::Output) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if !stderr.is_empty() {
+        stderr
+    } else {
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    }
+}
+
+fn looks_like_merge_conflict(text: &str) -> bool {
+    let text = text.to_ascii_lowercase();
+    text.contains("merge conflict")
+        || text.contains("conflict")
+        || text.contains("automatic merge failed")
+        || text.contains("merge blocked")
+}
+
+async fn run_git_output(program: &str, cwd: &str, args: &[&str]) -> Result<std::process::Output> {
+    let output = Command::new(program)
+        .current_dir(cwd)
+        .args(args)
+        .output()
+        .await
+        .with_context(|| format!("failed to run command {program} in {cwd}"))?;
+    Ok(output)
+}
+
+async fn perform_push_with_fallback(
+    git_provider: &dyn orchestrator_core::providers::GitProvider,
+    execution_cwd: &str,
+    remote: &str,
+    branch: &str,
+) -> Option<Value> {
+    match git_provider.push_branch(execution_cwd, remote, branch).await {
+        Ok(_) => Some(serde_json::json!({
+            "status": "completed",
+            "method": "git-provider",
+            "branch": branch,
+            "remote": remote,
+        })),
+        Err(provider_error) => {
+            let direct = run_git_output("git", execution_cwd, &["push", remote, branch]).await;
+            match direct {
+                Ok(output) if output.status.success() => Some(serde_json::json!({
+                    "status": "completed",
+                    "method": "git-direct",
+                    "branch": branch,
+                    "remote": remote,
+                    "provider_error": provider_error.to_string(),
+                })),
+                Ok(output) => Some(serde_json::json!({
+                    "status": "failed",
+                    "method": "git-direct",
+                    "branch": branch,
+                    "remote": remote,
+                    "error": command_summary(&output),
+                    "provider_error": provider_error.to_string(),
+                })),
+                Err(command_error) => Some(serde_json::json!({
+                    "status": "failed",
+                    "method": "git-direct",
+                    "branch": branch,
+                    "remote": remote,
+                    "error": command_error.to_string(),
+                    "provider_error": provider_error.to_string(),
+                })),
+            }
+        }
+    }
+}
+
+async fn create_pull_request_via_gh(
+    task: &orchestrator_core::OrchestratorTask,
+    execution_cwd: &str,
+    target_branch: &str,
+    source_branch: &str,
+    title: &str,
+    body: &str,
+) -> Value {
+    let args = [
+        "pr",
+        "create",
+        "--base",
+        target_branch,
+        "--head",
+        source_branch,
+        "--title",
+        title,
+        "--body",
+        body,
+    ];
+    match run_git_output("gh", execution_cwd, &args).await {
+        Ok(output) if output.status.success() => {
+            let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            serde_json::json!({
+                "status": "completed",
+                "method": "gh",
+                "task_id": task.id,
+                "source_branch": source_branch,
+                "target_branch": target_branch,
+                "url": if url.is_empty() { None::<String> } else { Some(url) },
+            })
+        }
+        Ok(output) => {
+            let message = command_summary(&output);
+            if message.to_ascii_lowercase().contains("already exists")
+                || message.to_ascii_lowercase().contains("already open")
+            {
+                serde_json::json!({
+                    "status": "completed",
+                    "method": "gh",
+                    "task_id": task.id,
+                    "source_branch": source_branch,
+                    "target_branch": target_branch,
+                    "error": message,
+                })
+            } else {
+                serde_json::json!({
+                    "status": "failed",
+                    "method": "gh",
+                    "task_id": task.id,
+                    "source_branch": source_branch,
+                    "target_branch": target_branch,
+                    "error": message,
+                })
+            }
+        }
+        Err(error) => serde_json::json!({
+            "status": "failed",
+            "method": "gh",
+            "task_id": task.id,
+            "source_branch": source_branch,
+            "target_branch": target_branch,
+            "error": error.to_string(),
+        }),
+    }
+}
+
+async fn perform_auto_merge_with_git(
+    execution_cwd: &str,
+    source_branch: &str,
+    target_branch: &str,
+    strategy: &MergeStrategy,
+) -> Value {
+    let checkout_result = run_git_output("git", execution_cwd, &["checkout", target_branch]).await;
+    if let Err(error) = &checkout_result {
+        let fallback_checkout = format!("origin/{target_branch}");
+        let fallback_output = run_git_output(
+            "git",
+            execution_cwd,
+            &["checkout", "-b", target_branch, fallback_checkout.as_str()],
+        )
+        .await;
+        if let Err(fallback_error) = fallback_output {
+            return serde_json::json!({
+                "status": "failed",
+                "method": "git",
+                "source_branch": source_branch,
+                "target_branch": target_branch,
+                "strategy": merge_strategy_name(strategy),
+                "error": format!(
+                    "failed to checkout target branch '{target_branch}': {}; fallback failed: {fallback_error}",
+                    error.to_string(),
+                ),
+            });
+        }
+    }
+
+    let merge_args = {
+        let mut args: Vec<String> = vec!["merge".to_string()];
+        match strategy {
+            MergeStrategy::Squash => args.push("--squash".to_string()),
+            MergeStrategy::Rebase => args.push("--rebase-merges".to_string()),
+            MergeStrategy::Merge => args.push("--no-ff".to_string()),
+        };
+        args.push("--no-edit".to_string());
+        args.push(source_branch.to_string());
+        args
+    };
+    let arg_refs: Vec<&str> = merge_args.iter().map(String::as_str).collect();
+    let output = run_git_output("git", execution_cwd, &arg_refs).await;
+    match output {
+        Ok(output) if output.status.success() => serde_json::json!({
+            "status": "completed",
+            "method": "git",
+            "source_branch": source_branch,
+            "target_branch": target_branch,
+            "strategy": merge_strategy_name(strategy),
+        }),
+        Ok(output) => {
+            let summary = command_summary(&output);
+            let status = if looks_like_merge_conflict(&summary) {
+                "conflict"
+            } else {
+                "failed"
+            };
+            serde_json::json!({
+                "status": status,
+                "method": "git",
+                "source_branch": source_branch,
+                "target_branch": target_branch,
+                "strategy": merge_strategy_name(strategy),
+                "error": summary,
+            })
+        }
+        Err(error) => serde_json::json!({
+            "status": "failed",
+            "method": "git",
+            "source_branch": source_branch,
+            "target_branch": target_branch,
+            "strategy": merge_strategy_name(strategy),
+            "error": error.to_string(),
+        }),
+    }
+}
+
+async fn cleanup_worktree_with_fallback(
+    git_provider: &dyn orchestrator_core::providers::GitProvider,
+    project_root: &str,
+    task: &orchestrator_core::OrchestratorTask,
+) -> Value {
+    let Some(worktree_path) = task.worktree_path.as_deref().filter(|path| {
+        let trimmed = path.trim();
+        !trimmed.is_empty()
+    }) else {
+        return serde_json::json!({
+            "status": "skipped",
+            "reason": "worktree path not available",
+        });
+    };
+
+    match git_provider
+        .remove_worktree(project_root, worktree_path)
+        .await
+    {
+        Ok(()) => serde_json::json!({
+            "status": "completed",
+            "method": "git-provider",
+            "worktree_path": worktree_path,
+        }),
+        Err(provider_error) => {
+            let output = run_git_output(
+                "git",
+                project_root,
+                &["worktree", "remove", worktree_path, "--force"],
+            )
+            .await;
+            match output {
+                Ok(output) if output.status.success() => serde_json::json!({
+                    "status": "completed",
+                    "method": "git-direct",
+                    "worktree_path": worktree_path,
+                }),
+                Ok(output) => serde_json::json!({
+                    "status": "failed",
+                    "method": "git-direct",
+                    "worktree_path": worktree_path,
+                    "error": command_summary(&output),
+                    "provider_error": provider_error.to_string(),
+                }),
+                Err(error) => serde_json::json!({
+                    "status": "failed",
+                    "method": "git-direct",
+                    "worktree_path": worktree_path,
+                    "error": error.to_string(),
+                    "provider_error": provider_error.to_string(),
+                }),
+            }
+        }
     }
 }
 

@@ -213,6 +213,7 @@ pub trait CliInterface: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::CliCommand;
+    use protocol::default_model_for_tool;
 
     #[test]
     fn test_model_for_cli_prefers_specific_key() {
@@ -225,9 +226,10 @@ mod tests {
 
     #[test]
     fn test_model_for_cli_uses_generic_fallback() {
-        let cmd =
-            CliCommand::new("test").with_env("CLI_MODEL".to_string(), "gpt-5.3-codex".to_string());
+        let fallback_model =
+            default_model_for_tool("codex").expect("default model for codex should be configured");
+        let cmd = CliCommand::new("test").with_env("CLI_MODEL".to_string(), fallback_model.to_string());
 
-        assert_eq!(cmd.model_for_cli("codex"), Some("gpt-5.3-codex"));
+        assert_eq!(cmd.model_for_cli("codex"), Some(fallback_model));
     }
 }

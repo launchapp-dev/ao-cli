@@ -151,7 +151,8 @@ fn resolve_handoff_execution_target(
         })
         .unwrap_or_else(|| {
             protocol_default_model_for_tool(&tool)
-                .unwrap_or("gpt-5.3-codex")
+                .or_else(|| protocol_default_model_for_tool("codex"))
+                .expect("default model for tool should be configured")
                 .to_string()
         });
 

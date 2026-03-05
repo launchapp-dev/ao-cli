@@ -56,7 +56,7 @@ pub(crate) struct RequirementsDraftArgs {
     pub(crate) allow_heuristic_complexity: bool,
     #[arg(long, default_value = "codex")]
     pub(crate) tool: String,
-    #[arg(long, default_value = "gpt-5.3-codex")]
+    #[arg(long, default_value_t = protocol::default_model_for_tool("codex").expect("default model for codex should be configured").to_string())]
     pub(crate) model: String,
     #[arg(long)]
     pub(crate) timeout_secs: Option<u64>,
@@ -76,7 +76,7 @@ pub(crate) struct RequirementsRefineArgs {
     pub(crate) use_ai: bool,
     #[arg(long, default_value = "codex")]
     pub(crate) tool: String,
-    #[arg(long, default_value = "gpt-5.3-codex")]
+    #[arg(long, default_value_t = protocol::default_model_for_tool("codex").expect("default model for codex should be configured").to_string())]
     pub(crate) model: String,
     #[arg(long)]
     pub(crate) timeout_secs: Option<u64>,

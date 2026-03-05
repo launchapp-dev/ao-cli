@@ -2,6 +2,7 @@ use orchestrator_core::{
     CodebaseInsight, ComplexityAssessment, RequirementLinks, RequirementPriority,
     RequirementStatus, RequirementType, VisionDocument,
 };
+use protocol::default_model_for_tool;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,7 +24,9 @@ impl Default for VisionRefineInputPayload {
             focus: None,
             use_ai: true,
             tool: "codex".to_string(),
-            model: "gpt-5.3-codex".to_string(),
+            model: default_model_for_tool("codex")
+                .expect("default model for codex should be configured")
+                .to_string(),
             timeout_secs: Some(1200),
             start_runner: true,
             allow_heuristic_fallback: false,
@@ -148,7 +151,9 @@ impl Default for RequirementsDraftInputPayload {
             quality_repair_attempts: 2,
             allow_heuristic_complexity: false,
             tool: "codex".to_string(),
-            model: "gpt-5.3-codex".to_string(),
+            model: default_model_for_tool("codex")
+                .expect("default model for codex should be configured")
+                .to_string(),
             timeout_secs: Some(1800),
             start_runner: true,
         }
@@ -174,7 +179,9 @@ impl Default for RequirementsRefineInputPayload {
             focus: None,
             use_ai: true,
             tool: "codex".to_string(),
-            model: "gpt-5.3-codex".to_string(),
+            model: default_model_for_tool("codex")
+                .expect("default model for codex should be configured")
+                .to_string(),
             timeout_secs: Some(1200),
             start_runner: true,
         }

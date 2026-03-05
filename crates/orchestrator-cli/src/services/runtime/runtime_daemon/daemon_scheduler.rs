@@ -299,6 +299,11 @@ mod tests {
 
     use protocol::test_utils::EnvVarGuard;
 
+    fn default_codex_model() -> &'static str {
+        protocol::default_model_for_tool("codex")
+            .expect("default model for codex should be configured")
+    }
+
     fn init_git_repo(temp: &TempDir) {
         let init_main = ProcessCommand::new("git")
             .arg("init")
@@ -372,7 +377,7 @@ mod tests {
             "oai-runner"
         );
         assert_eq!(
-            PhaseTargetPlanner::tool_for_model_id("gpt-5.3-codex"),
+            PhaseTargetPlanner::tool_for_model_id(default_codex_model()),
             "codex"
         );
     }
@@ -396,7 +401,7 @@ mod tests {
         let impl_caps = PhaseCapabilities::defaults_for_phase("implementation");
         let (implementation_tool, _) = PhaseTargetPlanner::resolve_phase_execution_target(
             "implementation",
-            Some("gpt-5.3-codex"),
+            Some(default_codex_model()),
             None,
             None,
             &impl_caps,
@@ -416,7 +421,7 @@ mod tests {
         let research_caps = PhaseCapabilities::defaults_for_phase("research");
         let (research_tool, _) = PhaseTargetPlanner::resolve_phase_execution_target(
             "research",
-            Some("gpt-5.3-codex"),
+            Some(default_codex_model()),
             None,
             None,
             &research_caps,
@@ -424,7 +429,7 @@ mod tests {
         let impl_caps = PhaseCapabilities::defaults_for_phase("implementation");
         let (implementation_tool, _) = PhaseTargetPlanner::resolve_phase_execution_target(
             "implementation",
-            Some("gpt-5.3-codex"),
+            Some(default_codex_model()),
             None,
             None,
             &impl_caps,
@@ -478,13 +483,13 @@ mod tests {
         let impl_caps = PhaseCapabilities::defaults_for_phase("implementation");
         let (tool, model) = PhaseTargetPlanner::resolve_phase_execution_target(
             "implementation",
-            Some("gpt-5.3-codex"),
+            Some(default_codex_model()),
             Some("codex"),
             None,
             &impl_caps,
         );
         assert_eq!(tool, "codex");
-        assert_eq!(model, "gpt-5.3-codex");
+        assert_eq!(model, default_codex_model());
     }
 
     #[test]
@@ -623,7 +628,7 @@ mod tests {
             .iter()
             .map(|(_tool, model)| model.as_str())
             .collect();
-        assert!(models.contains(&"gpt-5.3-codex"));
+        assert!(models.contains(&default_codex_model()));
         assert!(models.contains(&"claude-sonnet-4-6"));
         assert!(models.contains(&"glm-4.5"));
         assert!(models.contains(&"minimax-m1"));
@@ -735,7 +740,8 @@ mod tests {
     fn inject_codex_search_launch_flag_enabled_by_default() {
         let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _search = EnvVarGuard::set("AO_CODEX_WEB_SEARCH", None);
-        let mut contract = build_runtime_contract("codex", "gpt-5.3-codex", "hello")
+        let mut contract =
+            build_runtime_contract("codex", default_codex_model(), "hello")
             .expect("runtime contract should build");
         inject_codex_search_launch_flag(&mut contract, "codex", None);
         let args = contract
@@ -758,7 +764,8 @@ mod tests {
     fn inject_codex_search_launch_flag_respects_disable_toggle() {
         let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _search = EnvVarGuard::set("AO_CODEX_WEB_SEARCH", Some("false"));
-        let mut contract = build_runtime_contract("codex", "gpt-5.3-codex", "hello")
+        let mut contract =
+            build_runtime_contract("codex", default_codex_model(), "hello")
             .expect("runtime contract should build");
         inject_codex_search_launch_flag(&mut contract, "codex", None);
         let args = contract
@@ -774,7 +781,8 @@ mod tests {
     fn inject_codex_reasoning_effort_override() {
         let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _effort = EnvVarGuard::set("AO_CODEX_REASONING_EFFORT", Some("xhigh"));
-        let mut contract = build_runtime_contract("codex", "gpt-5.3-codex", "hello")
+        let mut contract =
+            build_runtime_contract("codex", default_codex_model(), "hello")
             .expect("runtime contract should build");
         inject_codex_reasoning_effort(&mut contract, "codex", None);
         let args = contract
@@ -792,7 +800,8 @@ mod tests {
     fn inject_codex_reasoning_effort_does_not_duplicate_existing_override() {
         let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _effort = EnvVarGuard::set("AO_CODEX_REASONING_EFFORT", Some("xhigh"));
-        let mut contract = build_runtime_contract("codex", "gpt-5.3-codex", "hello")
+        let mut contract =
+            build_runtime_contract("codex", default_codex_model(), "hello")
             .expect("runtime contract should build");
         inject_codex_reasoning_effort(&mut contract, "codex", None);
         inject_codex_reasoning_effort(&mut contract, "codex", None);
@@ -814,7 +823,8 @@ mod tests {
     fn inject_codex_network_access_enabled_by_default() {
         let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _network = EnvVarGuard::set("AO_CODEX_NETWORK_ACCESS", None);
-        let mut contract = build_runtime_contract("codex", "gpt-5.3-codex", "hello")
+        let mut contract =
+            build_runtime_contract("codex", default_codex_model(), "hello")
             .expect("runtime contract should build");
         inject_codex_network_access(&mut contract, "codex", None);
         let args = contract
@@ -832,7 +842,8 @@ mod tests {
     fn inject_codex_network_access_respects_disable_toggle() {
         let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
         let _network = EnvVarGuard::set("AO_CODEX_NETWORK_ACCESS", Some("false"));
-        let mut contract = build_runtime_contract("codex", "gpt-5.3-codex", "hello")
+        let mut contract =
+            build_runtime_contract("codex", default_codex_model(), "hello")
             .expect("runtime contract should build");
         inject_codex_network_access(&mut contract, "codex", None);
         let args = contract
@@ -940,7 +951,7 @@ mod tests {
 
     #[test]
     fn inject_cli_launch_overrides_applies_codex_config_and_extra_args_from_phase_settings() {
-        let mut contract = build_runtime_contract("codex", "gpt-5.3-codex", "hello")
+        let mut contract = build_runtime_contract("codex", default_codex_model(), "hello")
             .expect("runtime contract should build");
         let runtime_settings = WorkflowPhaseRuntimeSettings {
             tool: None,
@@ -1008,7 +1019,7 @@ mod tests {
                     "implementation".to_string(),
                     WorkflowPhaseRuntimeSettings {
                         tool: Some("codex".to_string()),
-                        model: Some("gpt-5.3-codex".to_string()),
+                        model: Some(default_codex_model().to_string()),
                         fallback_models: Vec::new(),
                         reasoning_effort: Some("xhigh".to_string()),
                         web_search: Some(true),

@@ -29,7 +29,9 @@ mod tests {
         AgentRunArgs {
             run_id: None,
             tool: "codex".to_string(),
-            model: "gpt-5.3-codex".to_string(),
+            model: protocol::default_model_for_tool("codex")
+                .expect("default model for codex should be configured")
+                .to_string(),
             prompt: Some("test".to_string()),
             cwd: None,
             timeout_secs: None,
@@ -243,7 +245,12 @@ mod tests {
 
     #[test]
     fn build_runtime_contract_includes_rich_shape() {
-        let contract = build_runtime_contract("codex", "gpt-5.3-codex", "hello world")
+        let contract = build_runtime_contract(
+            "codex",
+            protocol::default_model_for_tool("codex")
+                .expect("default model for codex should be configured"),
+            "hello world",
+        )
             .expect("codex runtime contract should be generated");
 
         assert_eq!(

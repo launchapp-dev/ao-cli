@@ -342,11 +342,16 @@ pub fn build_runtime_contract(
 mod tests {
     use super::*;
 
+    fn default_codex_model() -> &'static str {
+        protocol::default_model_for_tool("codex")
+            .expect("default model for codex should be configured")
+    }
+
     #[test]
     fn build_runtime_contract_includes_rich_cli_shape() {
         let contract = build_runtime_contract(
             "codex",
-            "gpt-5.3-codex",
+            default_codex_model(),
             "Implement feature",
             None,
             None,
@@ -367,7 +372,7 @@ mod tests {
         );
         assert_eq!(
             contract.pointer("/model").and_then(Value::as_str),
-            Some("gpt-5.3-codex")
+            Some(default_codex_model())
         );
         assert_eq!(
             contract.pointer("/mcp/agent_id").and_then(Value::as_str),
@@ -449,7 +454,7 @@ mod tests {
 
     #[test]
     fn build_launch_contract_enforces_machine_output_for_supported_tools() {
-        let codex = build_cli_launch_contract("codex", "gpt-5.3-codex", "hello", None, None)
+        let codex = build_cli_launch_contract("codex", default_codex_model(), "hello", None, None)
             .expect("codex launch contract should build");
         let codex_args = codex
             .pointer("/args")

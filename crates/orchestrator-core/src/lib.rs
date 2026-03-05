@@ -95,7 +95,7 @@ pub use workflow_config::{
     legacy_workflow_config_paths,
     load_workflow_config, load_workflow_config_or_default, load_workflow_config_with_metadata,
     merge_yaml_into_config, parse_yaml_workflow_config, resolve_pipeline_phase_plan,
-    resolve_pipeline_skip_guards, resolve_pipeline_verdict_routing,
+    resolve_pipeline_skip_guards, resolve_pipeline_verdict_routing, resolve_pipeline_rework_attempts,
     validate_workflow_and_runtime_configs, validate_workflow_config, workflow_config_hash,
     workflow_config_path, write_workflow_config, yaml_workflows_dir, CompileYamlResult,
     LoadedWorkflowConfig, PhaseTransitionConfig, PhaseUiDefinition, PipelineDefinition,

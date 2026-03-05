@@ -1320,6 +1320,29 @@ fn emit_workflow_summary(
     );
 }
 
+fn phase_rework_context(
+    outcome: &crate::services::runtime::PhaseExecutionOutcome,
+) -> Option<String> {
+    match outcome {
+        crate::services::runtime::PhaseExecutionOutcome::Completed {
+            phase_decision: Some(decision),
+            ..
+        } if matches!(decision.verdict, orchestrator_core::PhaseDecisionVerdict::Rework) => {
+            Some(decision.reason.clone())
+        }
+        _ => None,
+    }
+}
+
+fn has_matching_phase(phases: &[String], target: &str) -> Option<usize> {
+    phases
+        .iter()
+        .position(|phase| phase.eq_ignore_ascii_case(target))
+}
+
+const DEFAULT_PHASE_REWORK_ATTEMPTS: u32 = 3;
+const DEFAULT_REWORK_TARGET_PHASE: &str = "implementation";
+
 async fn handle_workflow_execute(
     args: WorkflowExecuteArgs,
     hub: Arc<dyn ServiceHub>,
@@ -1396,8 +1419,16 @@ async fn handle_workflow_execute(
             workflow.pipeline_id.as_deref(),
         )
     };
-    let max_rework: u32 = 3;
+    let rework_attempts = {
+        ensure_workflow_config_compiled(Path::new(project_root))?;
+        let wf_config = orchestrator_core::load_workflow_config(Path::new(project_root))?;
+        orchestrator_core::resolve_pipeline_rework_attempts(
+            &wf_config,
+            workflow.pipeline_id.as_deref(),
+        )
+    };
     let mut rework_counts: HashMap<String, u32> = HashMap::new();
+    let mut rework_context: Option<String> = None;
 
     trace_workflow_execute(&format!("phases_to_run={:?}", phases_to_run));
 
@@ -1418,6 +1449,7 @@ async fn handle_workflow_execute(
         let phase_overrides = crate::services::runtime::PhaseExecuteOverrides {
             tool: args.tool.clone(),
             model: args.model.clone(),
+            rework_context: rework_context.take(),
         };
         let run_result = crate::services::runtime::run_workflow_phase(
             project_root,
@@ -1488,51 +1520,99 @@ async fn handle_workflow_execute(
                     }
 
                     if decision.verdict == orchestrator_core::PhaseDecisionVerdict::Rework {
-                        if let Some(routing) = verdict_routing.get(phase_id.as_str()) {
-                            if let Some(transition) = routing.get("rework") {
-                                let count = rework_counts.entry(phase_id.clone()).or_insert(0);
-                                if *count < max_rework {
-                                    *count += 1;
-                                    trace_workflow_execute(&format!(
-                                        "phase {} rework #{} -> target {}",
-                                        phase_id, count, transition.target
-                                    ));
-                                    emit_phase_footer(phase_id, phase_elapsed, false, json);
-                                    results.push(serde_json::json!({
-                                        "phase_id": phase_id,
-                                        "status": "rework",
-                                        "rework_target": transition.target,
-                                        "rework_attempt": *count,
-                                        "duration_secs": phase_elapsed.as_secs(),
-                                        "outcome": result.outcome,
-                                        "metadata": result.metadata,
-                                    }));
-                                    if let Some(target_idx) = phases_to_run.iter().position(|p| p == &transition.target) {
-                                        phase_idx = target_idx;
-                                        routed_back = true;
-                                    } else {
-                                        trace_workflow_execute(&format!(
-                                            "rework target '{}' not found in phases; stopping",
-                                            transition.target
-                                        ));
-                                    }
-                                } else {
-                                    trace_workflow_execute(&format!(
-                                        "phase {} rework budget exhausted ({}/{}); stopping",
-                                        phase_id, count, max_rework
-                                    ));
-                                    emit_phase_footer(phase_id, phase_elapsed, false, json);
-                                    results.push(serde_json::json!({
-                                        "phase_id": phase_id,
-                                        "status": "failed",
-                                        "duration_secs": phase_elapsed.as_secs(),
-                                        "error": format!("rework budget exhausted after {} attempts", max_rework),
-                                        "outcome": result.outcome,
-                                        "metadata": result.metadata,
-                                    }));
-                                    break;
-                                }
+                        let target = verdict_routing
+                            .get(phase_id.as_str())
+                            .and_then(|routing| routing.get("rework"))
+                            .map(|transition| transition.target.clone())
+                            .or_else(|| {
+                                has_matching_phase(&phases_to_run, DEFAULT_REWORK_TARGET_PHASE)
+                                    .and_then(|idx| phases_to_run.get(idx).cloned())
+                            });
+                        let count = rework_counts.entry(phase_id.clone()).or_insert(0);
+                        let max_attempts = *rework_attempts
+                            .get(phase_id)
+                            .unwrap_or(&DEFAULT_PHASE_REWORK_ATTEMPTS);
+                        let maybe_context = phase_rework_context(&result.outcome);
+                        let _ = crate::services::runtime::persist_phase_output(
+                            project_root,
+                            &workflow.id,
+                            phase_id,
+                            &result.outcome,
+                        );
+
+                        if target.is_none() {
+                            trace_workflow_execute(&format!(
+                                "phase {} has no rework target configured or default '{}' phase missing; stopping",
+                                phase_id, DEFAULT_REWORK_TARGET_PHASE
+                            ));
+                            emit_phase_footer(phase_id, phase_elapsed, false, json);
+                            results.push(serde_json::json!({
+                                "phase_id": phase_id,
+                                "status": "failed",
+                                "duration_secs": phase_elapsed.as_secs(),
+                                "error": format!("rework target for phase '{}' not configured", phase_id),
+                                "outcome": result.outcome,
+                                "metadata": result.metadata,
+                            }));
+                            break;
+                        }
+
+                        if *count < max_attempts {
+                            *count += 1;
+                            let target = target.expect("rework target");
+                            trace_workflow_execute(&format!(
+                                "phase {} rework #{} -> target {}",
+                                phase_id, count, target
+                            ));
+                            emit_phase_footer(phase_id, phase_elapsed, false, json);
+                            results.push(serde_json::json!({
+                                "phase_id": phase_id,
+                                "status": "rework",
+                                "rework_target": target,
+                                "rework_attempt": *count,
+                                "duration_secs": phase_elapsed.as_secs(),
+                                "outcome": result.outcome,
+                                "metadata": result.metadata,
+                            }));
+
+                            rework_context = maybe_context;
+                            if let Some(target_idx) = phases_to_run.iter().position(|p| p.eq_ignore_ascii_case(&target)) {
+                                phase_idx = target_idx;
+                                routed_back = true;
+                            } else {
+                                trace_workflow_execute(&format!(
+                                    "rework target '{}' not found in phases; stopping",
+                                    target
+                                ));
+                                emit_phase_footer(phase_id, phase_elapsed, false, json);
+                                results.push(serde_json::json!({
+                                    "phase_id": phase_id,
+                                    "status": "failed",
+                                    "duration_secs": phase_elapsed.as_secs(),
+                                    "error": format!("rework target '{}' not found in phases", target),
+                                    "outcome": result.outcome,
+                                    "metadata": result.metadata,
+                                }));
+                                break;
                             }
+                        } else {
+                            trace_workflow_execute(&format!(
+                                "phase {} rework budget exhausted ({}/{}); stopping",
+                                phase_id, count, max_attempts
+                            ));
+                            emit_phase_footer(phase_id, phase_elapsed, false, json);
+                            results.push(serde_json::json!({
+                                "phase_id": phase_id,
+                                "status": "failed",
+                                "duration_secs": phase_elapsed.as_secs(),
+                                "error": format!(
+                                    "rework budget exhausted after {} attempts",
+                                    max_attempts
+                                ),
+                                "outcome": result.outcome,
+                                "metadata": result.metadata,
+                            }));
+                            break;
                         }
                     }
                 }

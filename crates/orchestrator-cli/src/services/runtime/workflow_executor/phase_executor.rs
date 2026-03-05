@@ -31,6 +31,7 @@ use crate::services::runtime::runtime_daemon::daemon_scheduler::runtime_support:
 pub(crate) struct PhaseExecuteOverrides {
     pub(crate) tool: Option<String>,
     pub(crate) model: Option<String>,
+    pub(crate) rework_context: Option<String>,
 }
 
 const WORKFLOW_PHASE_PROMPT_TEMPLATE: &str = include_str!(concat!(
@@ -71,6 +72,7 @@ impl orchestrator_core::PhaseExecutor for CliPhaseExecutor {
             Some(PhaseExecuteOverrides {
                 tool: request.tool_override,
                 model: request.model_override,
+                rework_context: None,
             })
         } else {
             None
@@ -507,6 +509,7 @@ pub(crate) fn build_phase_prompt(
     task_title: &str,
     task_description: &str,
     phase_id: &str,
+    rework_context: Option<&str>,
 ) -> String {
     let caps = load_phase_capabilities(project_root, phase_id);
     let phase_action_rule = if caps.writes_files {
@@ -545,6 +548,12 @@ pub(crate) fn build_phase_prompt(
     let phase_order = pipeline_phase_order_for_workflow(project_root, workflow_id);
     let prior_outputs = load_prior_phase_outputs(project_root, workflow_id, phase_id, &phase_order);
     let prior_phase_context = format_prior_phase_outputs(&prior_outputs);
+    let rework_context = rework_context.map(str::trim).filter(|value| !value.is_empty());
+    let mut prior_context = prior_phase_context;
+    if let Some(context) = rework_context {
+        prior_context.push_str("\n\nFailure context:\n");
+        prior_context.push_str(context);
+    }
 
     let phase_prompt = WORKFLOW_PHASE_PROMPT_TEMPLATE
         .replace("__PROJECT_ROOT__", project_root)
@@ -562,7 +571,7 @@ pub(crate) fn build_phase_prompt(
             "__IMPLEMENTATION_COMMIT_RULE__",
             implementation_commit_rule.as_str(),
         )
-        .replace("__PRIOR_PHASE_OUTPUTS__", &prior_phase_context);
+        .replace("__PRIOR_PHASE_OUTPUTS__", &prior_context);
 
     if let Some(system_prompt) = phase_system_prompt_for(project_root, phase_id) {
         if !system_prompt.trim().is_empty() {
@@ -1078,6 +1087,7 @@ pub(crate) async fn run_workflow_phase_with_agent(
     task_complexity: Option<orchestrator_core::Complexity>,
     phase_id: &str,
     phase_runtime_settings: Option<&WorkflowPhaseRuntimeSettings>,
+    overrides: Option<&PhaseExecuteOverrides>,
 ) -> Result<PhaseExecutionOutcome> {
     let caps = load_phase_capabilities(project_root, phase_id);
     let routing_complexity = routing_complexity(task_complexity);
@@ -1112,6 +1122,7 @@ pub(crate) async fn run_workflow_phase_with_agent(
         task_title,
         task_description,
         phase_id,
+        overrides.and_then(|o| o.rework_context.as_deref()),
     );
     let max_attempts = phase_runtime_settings
         .and_then(|settings| settings.max_attempts)
@@ -1526,13 +1537,20 @@ async fn run_workflow_phase_with_command(
     let duration_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
 
     if !command.success_exit_codes.contains(&exit_code) {
-        let failure_summary = format!(
-            "Command `{}` exited with code {} (expected one of {:?}).\n\nStderr:\n{}",
+        let mut failure_summary = format!(
+            "Command `{}` exited with code {} (expected one of {:?}).",
             command.program,
             exit_code,
-            command.success_exit_codes,
-            stderr.trim()
+            command.success_exit_codes
         );
+        if !stdout.trim().is_empty() {
+            failure_summary.push_str("\n\nStdout:\n");
+            failure_summary.push_str(stdout.trim());
+        }
+        if !stderr.trim().is_empty() {
+            failure_summary.push_str("\n\nStderr:\n");
+            failure_summary.push_str(stderr.trim());
+        }
         return Ok(CommandExecutionResult {
             exit_code,
             stdout,
@@ -1769,6 +1787,7 @@ pub(crate) async fn run_workflow_phase(
                 task_complexity,
                 phase_id,
                 runtime_settings.as_ref(),
+                overrides,
             )
             .await?;
 

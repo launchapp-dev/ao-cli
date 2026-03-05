@@ -42,9 +42,15 @@ pub struct PhaseTransitionConfig {
     pub guard: Option<String>,
 }
 
+fn default_max_rework_attempts() -> u32 {
+    3
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PipelinePhaseConfig {
     pub id: String,
+    #[serde(default = "default_max_rework_attempts")]
+    pub max_rework_attempts: u32,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub on_verdict: HashMap<String, PhaseTransitionConfig>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -84,6 +90,13 @@ impl PipelinePhaseEntry {
                     Some(&config.on_verdict)
                 }
             }
+        }
+    }
+
+    pub fn max_rework_attempts(&self) -> Option<u32> {
+        match self {
+            PipelinePhaseEntry::Simple(_) | PipelinePhaseEntry::SubPipeline(_) => None,
+            PipelinePhaseEntry::Rich(config) => Some(config.max_rework_attempts),
         }
     }
 
@@ -833,6 +846,35 @@ pub fn resolve_pipeline_verdict_routing(
     routing
 }
 
+pub fn resolve_pipeline_rework_attempts(
+    config: &WorkflowConfig,
+    pipeline_id: Option<&str>,
+) -> HashMap<String, u32> {
+    let requested = pipeline_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(config.default_pipeline_id.trim());
+
+    if requested.is_empty() {
+        return HashMap::new();
+    }
+
+    let expanded = match expand_pipeline_phases(&config.pipelines, requested) {
+        Ok(phases) => phases,
+        Err(_) => return HashMap::new(),
+    };
+
+    let mut limits = HashMap::new();
+    for entry in &expanded {
+        if let Some(max_rework_attempts) = entry.max_rework_attempts()
+            .filter(|value| *value != default_max_rework_attempts())
+        {
+            limits.insert(entry.phase_id().to_owned(), max_rework_attempts);
+        }
+    }
+    limits
+}
+
 pub fn resolve_pipeline_skip_guards(
     config: &WorkflowConfig,
     pipeline_id: Option<&str>,
@@ -1073,8 +1115,17 @@ pub fn validate_workflow_config(config: &WorkflowConfig) -> Result<()> {
                     .collect();
 
                 for entry in &expanded {
+                    let phase_id = entry.phase_id().trim();
+                    if let Some(max_rework_attempts) = entry.max_rework_attempts() {
+                        if max_rework_attempts == 0 {
+                            errors.push(format!(
+                                "pipeline '{}' phase '{}' max_rework_attempts must be greater than 0",
+                                pipeline_id, phase_id
+                            ));
+                        }
+                    }
+
                     if let Some(verdicts) = entry.on_verdict() {
-                        let phase_id = entry.phase_id().trim();
                         for (verdict_key, transition) in verdicts {
                             let target = transition.target.trim();
                             if target.is_empty() {
@@ -1419,6 +1470,8 @@ fn merge_strategy_is_valid(strategy: &MergeStrategy) -> bool {
 
 #[derive(Debug, Clone, Deserialize)]
 struct YamlPhaseRichConfig {
+    #[serde(default = "default_max_rework_attempts")]
+    max_rework_attempts: u32,
     #[serde(default)]
     skip_if: Vec<String>,
     #[serde(default)]
@@ -1683,6 +1736,7 @@ fn yaml_phase_entry_to_pipeline_phase_entry(entry: YamlPhaseEntry) -> Result<Pip
             let (id, config) = map.into_iter().next().unwrap();
             Ok(PipelinePhaseEntry::Rich(PipelinePhaseConfig {
                 id,
+                max_rework_attempts: config.max_rework_attempts,
                 on_verdict: config.on_verdict,
                 skip_if: config.skip_if,
             }))
@@ -2062,6 +2116,7 @@ mod tests {
         );
         standard_pipeline.phases[0] = PipelinePhaseEntry::Rich(PipelinePhaseConfig {
             id: "requirements".to_string(),
+            max_rework_attempts: 3,
             on_verdict,
             skip_if: Vec::new(),
         });
@@ -2073,6 +2128,31 @@ mod tests {
             message.contains("targets unknown phase 'nonexistent-phase'"),
             "error should mention the unknown target phase: {}",
             message
+        );
+    }
+
+    #[test]
+    fn validation_rejects_zero_max_rework_attempts() {
+        let mut config = builtin_workflow_config();
+        let standard_pipeline = config
+            .pipelines
+            .iter_mut()
+            .find(|p| p.id == "standard")
+            .expect("standard pipeline");
+
+        standard_pipeline.phases[1] = PipelinePhaseEntry::Rich(PipelinePhaseConfig {
+            id: "implementation".to_string(),
+            max_rework_attempts: 0,
+            on_verdict: HashMap::new(),
+            skip_if: Vec::new(),
+        });
+
+        let err = validate_workflow_config(&config)
+            .expect_err("zero max_rework_attempts should fail validation");
+        let message = err.to_string();
+        assert!(
+            message.contains("max_rework_attempts must be greater than 0"),
+            "error should mention max_rework_attempts: {message}"
         );
     }
 
@@ -2099,9 +2179,33 @@ mod tests {
         }"#;
         let entry: PipelinePhaseEntry = serde_json::from_str(json).expect("deserialize rich entry");
         assert_eq!(entry.phase_id(), "code-review");
+        assert_eq!(entry.max_rework_attempts().unwrap_or_default(), 3);
         let verdicts = entry.on_verdict().expect("should have on_verdict");
         assert!(verdicts.contains_key("rework"));
         assert_eq!(verdicts["rework"].target, "implementation");
+    }
+
+    #[test]
+    fn serde_deserializes_rich_phase_config_with_custom_max_rework_attempts() {
+        let json = r#"{
+            "id": "testing",
+            "max_rework_attempts": 1,
+            "on_verdict": {
+                "rework": { "target": "implementation" }
+            }
+        }"#;
+        let entry: PipelinePhaseEntry = serde_json::from_str(json).expect("deserialize rich entry");
+        assert_eq!(entry.phase_id(), "testing");
+        assert_eq!(entry.max_rework_attempts().unwrap_or_default(), 1);
+        let verdicts = entry.on_verdict().expect("should have on_verdict");
+        assert_eq!(verdicts["rework"].target, "implementation");
+    }
+
+    #[test]
+    fn resolve_pipeline_rework_attempts_uses_defaults() {
+        let config = builtin_workflow_config();
+        let attempts = resolve_pipeline_rework_attempts(&config, Some("standard"));
+        assert!(attempts.is_empty());
     }
 
     #[test]
@@ -2193,6 +2297,7 @@ mod tests {
             "requirements".to_string().into(),
             PipelinePhaseEntry::Rich(PipelinePhaseConfig {
                 id: "testing".to_string(),
+                max_rework_attempts: 3,
                 on_verdict: HashMap::new(),
                 skip_if: vec!["task_type == 'docs'".to_string()],
             }),
@@ -2285,6 +2390,34 @@ pipelines:
             .on_verdict()
             .expect("should have on_verdict");
         assert_eq!(verdicts["rework"].target, "implementation");
+        assert_eq!(
+            standard.phases[2].max_rework_attempts().expect("has attempts"),
+            3
+        );
+    }
+
+    #[test]
+    fn yaml_parses_rich_phase_with_custom_max_rework_attempts() {
+        let yaml = r#"
+pipelines:
+  - id: standard
+    name: Standard
+    phases:
+      - requirements
+      - testing:
+          max_rework_attempts: 1
+          on_verdict:
+            rework:
+              target: implementation
+      - implementation
+"#;
+        let config = parse_yaml_workflow_config(yaml).expect("should parse YAML with custom max_rework_attempts");
+        let standard = config
+            .pipelines
+            .iter()
+            .find(|p| p.id == "standard")
+            .expect("should have standard pipeline");
+        assert_eq!(standard.phases[1].max_rework_attempts().expect("has attempts"), 1);
     }
 
     #[test]
@@ -2734,6 +2867,7 @@ pipelines:
                 "review",
                 vec![PipelinePhaseEntry::Rich(PipelinePhaseConfig {
                     id: "code-review".into(),
+                    max_rework_attempts: 3,
                     on_verdict: on_verdict.clone(),
                     skip_if: vec!["task_type == 'docs'".into()],
                 })],

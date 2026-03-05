@@ -332,7 +332,7 @@ async fn handle_key_status_picker(
                 let task_svc = hub.tasks();
                 let tx = app.event_tx.clone();
                 tokio::spawn(async move {
-                    match task_svc.set_status(&task.id, new_status).await {
+                    match task_svc.set_status(&task.id, new_status, true).await {
                         Ok(_) => match task_svc.list_prioritized().await {
                             Ok(tasks) => {
                                 let snapshots: Vec<TaskSnapshot> = tasks

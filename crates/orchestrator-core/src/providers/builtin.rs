@@ -67,8 +67,8 @@ impl TaskProvider for BuiltinTaskProvider {
         self.hub.assign(id, assignee).await
     }
 
-    async fn set_status(&self, id: &str, status: TaskStatus) -> Result<OrchestratorTask> {
-        self.hub.set_status(id, status).await
+    async fn set_status(&self, id: &str, status: TaskStatus, validate: bool) -> Result<OrchestratorTask> {
+        self.hub.set_status(id, status, validate).await
     }
 
     async fn add_checklist_item(

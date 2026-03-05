@@ -1258,13 +1258,13 @@ async fn task_priority_policy_reports_active_high_budget_overflow() {
     )
     .await
     .expect("create terminal high task");
-    TaskServiceApi::set_status(&hub, &first.id, TaskStatus::Ready)
+    TaskServiceApi::set_status(&hub, &first.id, TaskStatus::Ready, false)
         .await
         .expect("set first status");
-    TaskServiceApi::set_status(&hub, &second.id, TaskStatus::InProgress)
+    TaskServiceApi::set_status(&hub, &second.id, TaskStatus::InProgress, false)
         .await
         .expect("set second status");
-    TaskServiceApi::set_status(&hub, &done.id, TaskStatus::Done)
+    TaskServiceApi::set_status(&hub, &done.id, TaskStatus::Done, false)
         .await
         .expect("set terminal status");
 
@@ -1296,7 +1296,7 @@ async fn task_priority_rebalance_plan_is_deterministic_and_budget_compliant() {
     )
     .await
     .expect("create blocked task");
-    TaskServiceApi::set_status(&hub, &blocked.id, TaskStatus::Blocked)
+    TaskServiceApi::set_status(&hub, &blocked.id, TaskStatus::Blocked, false)
         .await
         .expect("set blocked status");
 
@@ -1315,7 +1315,7 @@ async fn task_priority_rebalance_plan_is_deterministic_and_budget_compliant() {
     )
     .await
     .expect("create essential task");
-    TaskServiceApi::set_status(&hub, &essential.id, TaskStatus::Ready)
+    TaskServiceApi::set_status(&hub, &essential.id, TaskStatus::Ready, false)
         .await
         .expect("set essential status");
 
@@ -1334,7 +1334,7 @@ async fn task_priority_rebalance_plan_is_deterministic_and_budget_compliant() {
     )
     .await
     .expect("create early task");
-    TaskServiceApi::set_status(&hub, &early.id, TaskStatus::InProgress)
+    TaskServiceApi::set_status(&hub, &early.id, TaskStatus::InProgress, false)
         .await
         .expect("set early status");
     let mut early_with_deadline = TaskServiceApi::get(&hub, &early.id)
@@ -1360,7 +1360,7 @@ async fn task_priority_rebalance_plan_is_deterministic_and_budget_compliant() {
     )
     .await
     .expect("create late task");
-    TaskServiceApi::set_status(&hub, &late.id, TaskStatus::InProgress)
+    TaskServiceApi::set_status(&hub, &late.id, TaskStatus::InProgress, false)
         .await
         .expect("set late status");
     let mut late_with_deadline = TaskServiceApi::get(&hub, &late.id)
@@ -1386,7 +1386,7 @@ async fn task_priority_rebalance_plan_is_deterministic_and_budget_compliant() {
     )
     .await
     .expect("create nice-to-have task");
-    TaskServiceApi::set_status(&hub, &nice_to_have.id, TaskStatus::InProgress)
+    TaskServiceApi::set_status(&hub, &nice_to_have.id, TaskStatus::InProgress, false)
         .await
         .expect("set nice-to-have status");
 
@@ -1405,7 +1405,7 @@ async fn task_priority_rebalance_plan_is_deterministic_and_budget_compliant() {
     )
     .await
     .expect("create low task");
-    TaskServiceApi::set_status(&hub, &low_existing.id, TaskStatus::Backlog)
+    TaskServiceApi::set_status(&hub, &low_existing.id, TaskStatus::Backlog, false)
         .await
         .expect("set low status");
 
@@ -1469,7 +1469,7 @@ async fn task_priority_rebalance_rejects_conflicting_override_task_ids() {
     )
     .await
     .expect("create task");
-    TaskServiceApi::set_status(&hub, &task.id, TaskStatus::Ready)
+    TaskServiceApi::set_status(&hub, &task.id, TaskStatus::Ready, false)
         .await
         .expect("set status");
 
@@ -2387,14 +2387,14 @@ async fn set_status_from_blocked_to_ready_clears_paused_and_blocked_fields() {
     .await
     .expect("create task");
 
-    let blocked = TaskServiceApi::set_status(&hub, &created.id, TaskStatus::Blocked)
+    let blocked = TaskServiceApi::set_status(&hub, &created.id, TaskStatus::Blocked, false)
         .await
         .expect("set blocked status");
     assert!(blocked.paused);
     assert!(blocked.blocked_reason.is_some());
     assert!(blocked.blocked_at.is_some());
 
-    let ready = TaskServiceApi::set_status(&hub, &created.id, TaskStatus::Ready)
+    let ready = TaskServiceApi::set_status(&hub, &created.id, TaskStatus::Ready, false)
         .await
         .expect("set ready status");
     assert_unblocked_task_state(&ready, TaskStatus::Ready);
@@ -2419,10 +2419,10 @@ async fn update_status_from_on_hold_to_in_progress_clears_paused_and_blocked_fie
     .await
     .expect("create task");
 
-    TaskServiceApi::set_status(&hub, &created.id, TaskStatus::Blocked)
+    TaskServiceApi::set_status(&hub, &created.id, TaskStatus::Blocked, false)
         .await
         .expect("set blocked status");
-    let on_hold = TaskServiceApi::set_status(&hub, &created.id, TaskStatus::OnHold)
+    let on_hold = TaskServiceApi::set_status(&hub, &created.id, TaskStatus::OnHold, false)
         .await
         .expect("set on-hold status");
     assert_eq!(on_hold.status, TaskStatus::OnHold);

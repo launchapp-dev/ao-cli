@@ -167,7 +167,7 @@ impl WebApiService {
     pub async fn tasks_status(&self, id: &str, body: Value) -> Result<Value, WebApiError> {
         let request: TaskStatusRequest = parse_json_body(body)?;
         let status = parse_task_status(&request.status)?;
-        let task = self.context.hub.tasks().set_status(id, status).await?;
+        let task = self.context.hub.tasks().set_status(id, status, true).await?;
         self.publish_event(
             "task-status",
             json!({ "task_id": task.id, "status": task.status }),

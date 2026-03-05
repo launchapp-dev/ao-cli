@@ -67,6 +67,11 @@ async fn run(cli: Cli) -> Result<()> {
                     services::runtime::handle_task(command, hub.clone(), &project_root, cli.json)
                         .await
                 }
+                Command::TaskControl { command } => {
+                    eprintln!("warning: `task-control` is deprecated; use `task` instead");
+                    services::runtime::handle_task(command, hub.clone(), &project_root, cli.json)
+                        .await
+                }
                 Command::Workflow { command } => {
                     services::operations::handle_workflow(
                         command,

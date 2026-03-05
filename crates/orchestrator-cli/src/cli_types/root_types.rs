@@ -78,7 +78,8 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: ArchitectureCommand,
     },
-    /// Generate or execute task plans from requirements.
+    /// Deprecated alias for `workflow execute`.
+    #[command(hide = true)]
     Execute {
         #[command(subcommand)]
         command: ExecuteCommand,

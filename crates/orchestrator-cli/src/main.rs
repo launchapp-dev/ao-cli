@@ -108,8 +108,10 @@ async fn run(cli: Cli) -> Result<()> {
                         .await
                 }
                 Command::Execute { command } => {
-                    services::operations::handle_execute(
-                        command,
+                    eprintln!("warning: `execute` is deprecated; use `workflow execute` instead");
+                    let workflow_command = build_workflow_execute_command(command)?;
+                    services::operations::handle_workflow(
+                        workflow_command,
                         hub.clone(),
                         &project_root,
                         cli.json,
@@ -200,4 +202,42 @@ struct VersionInfo {
     name: &'static str,
     binary: &'static str,
     version: &'static str,
+}
+
+fn build_workflow_execute_command(command: ExecuteCommand) -> Result<WorkflowCommand> {
+    let (requirement_ids, pipeline_id, input_json) = match command {
+        ExecuteCommand::Plan(args) => (args.requirement_ids, args.pipeline_id, args.input_json),
+        ExecuteCommand::Run(args) => (args.requirement_ids, args.pipeline_id, args.input_json),
+    };
+
+    let mut task_ids = requirement_ids
+        .into_iter()
+        .filter(|id| !id.trim().is_empty())
+        .collect::<Vec<_>>();
+
+    if task_ids.is_empty() {
+        return Err(anyhow::anyhow!(
+            "missing --id value for deprecated `execute` command; pass a task id to delegate to `workflow execute`"
+        ));
+    }
+
+    if task_ids.len() > 1 {
+        return Err(anyhow::anyhow!(
+            "deprecated `execute` supports only a single --id when delegating to `workflow execute`"
+        ));
+    }
+
+    let task_id = task_ids.remove(0);
+
+    Ok(WorkflowCommand::Execute(WorkflowExecuteArgs {
+        task_id,
+        pipeline_id,
+        phase: None,
+        model: None,
+        tool: None,
+        phase_timeout_secs: None,
+        input_json,
+        quiet: false,
+        verbose: false,
+    }))
 }

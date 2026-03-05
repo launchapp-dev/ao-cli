@@ -943,10 +943,7 @@ mod tests {
 
         let mut workflow = primary_hub
             .workflows()
-            .run(orchestrator_core::WorkflowRunInput {
-                task_id: task.id.clone(),
-                pipeline_id: None,
-            })
+            .run(orchestrator_core::WorkflowRunInput::for_task(task.id.clone(), None))
             .await
             .expect("workflow should run");
         for _ in 0..12 {

@@ -743,10 +743,7 @@ Run `ao requirements draft`/`ao requirements refine` (or upsert explicit constra
             let workflow_id = Uuid::new_v4().to_string();
             let workflow = executor.bootstrap(
                 workflow_id.clone(),
-                WorkflowRunInput {
-                    task_id: task_id.clone(),
-                    pipeline_id: Some(pipeline_id),
-                },
+                WorkflowRunInput::for_task(task_id.clone(), Some(pipeline_id)),
             );
 
             if let Some(manager) = workflow_manager {

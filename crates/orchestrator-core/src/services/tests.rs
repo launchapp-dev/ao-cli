@@ -652,10 +652,7 @@ async fn file_hub_persists_workflows_with_machine_state() {
     let hub = file_hub(temp.path()).expect("create hub");
     let workflow = WorkflowServiceApi::run(
         &hub,
-        WorkflowRunInput {
-            task_id: "TASK-1".to_string(),
-            pipeline_id: Some("standard".to_string()),
-        },
+        WorkflowRunInput::for_task("TASK-1".to_string(), Some("standard".to_string())),
     )
     .await
     .expect("run workflow");
@@ -693,10 +690,7 @@ async fn file_hub_auto_prunes_checkpoints_on_completion_when_enabled() {
 
     let mut workflow = WorkflowServiceApi::run(
         &hub,
-        WorkflowRunInput {
-            task_id: "TASK-prune".to_string(),
-            pipeline_id: Some("standard".to_string()),
-        },
+        WorkflowRunInput::for_task("TASK-prune".to_string(), Some("standard".to_string())),
     )
     .await
     .expect("run workflow");
@@ -735,10 +729,7 @@ async fn file_hub_completion_remains_successful_when_auto_prune_errors() {
 
     let mut workflow = WorkflowServiceApi::run(
         &hub,
-        WorkflowRunInput {
-            task_id: "TASK-prune-error".to_string(),
-            pipeline_id: Some("standard".to_string()),
-        },
+        WorkflowRunInput::for_task("TASK-prune-error".to_string(), Some("standard".to_string())),
     )
     .await
     .expect("run workflow");
@@ -929,10 +920,7 @@ async fn file_hub_uses_custom_pipeline_from_workflow_config_v2() {
     let hub = file_hub(temp.path()).expect("create hub");
     let workflow = WorkflowServiceApi::run(
         &hub,
-        WorkflowRunInput {
-            task_id: "TASK-1".to_string(),
-            pipeline_id: Some("xhigh-dev".to_string()),
-        },
+        WorkflowRunInput::for_task("TASK-1".to_string(), Some("xhigh-dev".to_string())),
     )
     .await
     .expect("run workflow");
@@ -961,10 +949,7 @@ async fn file_hub_errors_when_requested_pipeline_is_missing_from_config() {
 
     let err = WorkflowServiceApi::run(
         &hub,
-        WorkflowRunInput {
-            task_id: "TASK-1".to_string(),
-            pipeline_id: Some("missing-pipeline".to_string()),
-        },
+        WorkflowRunInput::for_task("TASK-1".to_string(), Some("missing-pipeline".to_string())),
     )
     .await
     .expect_err("unknown pipeline should fail when workflow config exists");
@@ -990,6 +975,7 @@ async fn planning_execute_starts_workflows_with_config_phase_plan() {
             "implementation".to_string().into(),
         ],
         post_success: None,
+        variables: Vec::new(),
     });
     crate::write_workflow_config(temp.path(), &workflow_config).expect("write config");
 
@@ -1578,10 +1564,7 @@ async fn workflow_service_exposes_decisions_and_checkpoints() {
     let hub = file_hub(temp.path()).expect("create hub");
     let workflow = WorkflowServiceApi::run(
         &hub,
-        WorkflowRunInput {
-            task_id: "TASK-123".to_string(),
-            pipeline_id: Some("standard".to_string()),
-        },
+        WorkflowRunInput::for_task("TASK-123".to_string(), Some("standard".to_string())),
     )
     .await
     .expect("run workflow");

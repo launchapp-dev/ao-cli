@@ -53,10 +53,7 @@ impl WebApiService {
             .context
             .hub
             .workflows()
-            .run(WorkflowRunInput {
-                task_id: request.task_id,
-                pipeline_id: request.pipeline_id,
-            })
+            .run(WorkflowRunInput::for_task(request.task_id, request.pipeline_id))
             .await?;
         self.publish_event(
             "workflow-run",

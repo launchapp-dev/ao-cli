@@ -119,6 +119,17 @@ impl From<String> for PipelinePhaseEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PipelineVariable {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PipelineDefinition {
     pub id: String,
     pub name: String,
@@ -128,6 +139,8 @@ pub struct PipelineDefinition {
     pub phases: Vec<PipelinePhaseEntry>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub post_success: Option<PostSuccessConfig>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub variables: Vec<PipelineVariable>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -240,6 +253,43 @@ fn expand_pipeline_phases_inner(
 
     visited.remove(&normalized);
     Ok(expanded)
+}
+
+pub fn resolve_pipeline_variables(
+    definitions: &[PipelineVariable],
+    cli_vars: &HashMap<String, String>,
+) -> Result<HashMap<String, String>> {
+    let mut resolved = HashMap::new();
+    let mut missing: Vec<String> = Vec::new();
+
+    for var in definitions {
+        if let Some(value) = cli_vars.get(&var.name) {
+            resolved.insert(var.name.clone(), value.clone());
+        } else if let Some(ref default) = var.default {
+            resolved.insert(var.name.clone(), default.clone());
+        } else if var.required {
+            missing.push(var.name.clone());
+        }
+    }
+
+    if !missing.is_empty() {
+        missing.sort();
+        return Err(anyhow!(
+            "missing required pipeline variable(s): {}",
+            missing.join(", ")
+        ));
+    }
+
+    Ok(resolved)
+}
+
+pub fn expand_variables(text: &str, vars: &HashMap<String, String>) -> String {
+    let mut result = text.to_string();
+    for (key, value) in vars {
+        let pattern = format!("{{{{{}}}}}", key);
+        result = result.replace(&pattern, value);
+    }
+    result
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -598,6 +648,7 @@ pub fn builtin_workflow_config() -> WorkflowConfig {
                         "testing".to_string().into(),
                     ],
                     post_success: None,
+                    variables: Vec::new(),
                 },
                 PipelineDefinition {
                     id: "ui-ux-standard".to_string(),
@@ -615,6 +666,7 @@ pub fn builtin_workflow_config() -> WorkflowConfig {
                         "testing".to_string().into(),
                     ],
                     post_success: None,
+                    variables: Vec::new(),
                 },
             ],
             phase_definitions: BTreeMap::new(),
@@ -1503,6 +1555,8 @@ struct YamlPipelineDefinition {
     phases: Vec<YamlPhaseEntry>,
     #[serde(default)]
     post_success: Option<YamlPostSuccessConfig>,
+    #[serde(default)]
+    variables: Vec<PipelineVariable>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1560,6 +1614,8 @@ struct YamlPhaseDefinition {
     manual: Option<YamlManualDefinition>,
     #[serde(default)]
     directive: Option<String>,
+    #[serde(default)]
+    system_prompt: Option<String>,
 }
 
 fn parse_cwd_mode(value: &str) -> Result<CommandCwdMode> {
@@ -1672,6 +1728,7 @@ fn yaml_phase_to_execution_definition(
         retry: None,
         command,
         manual,
+        system_prompt: yaml.system_prompt,
     })
 }
 
@@ -1763,6 +1820,7 @@ fn yaml_pipeline_to_pipeline_definition(
         description: yaml.description.unwrap_or_default(),
         phases,
         post_success,
+        variables: yaml.variables,
     })
 }
 
@@ -2726,6 +2784,7 @@ pipelines:
             description: String::new(),
             phases,
             post_success: None,
+            variables: Vec::new(),
         }
     }
 
@@ -2976,6 +3035,7 @@ pipelines:
                 PipelinePhaseEntry::Simple("testing".into()),
             ],
             post_success: None,
+            variables: Vec::new(),
         });
 
         let standard = config
@@ -3061,6 +3121,7 @@ pipelines:
                     pipeline: "review".into(),
                 })],
                 post_success: None,
+                variables: Vec::new(),
             },
             PipelineDefinition {
                 id: "review".into(),
@@ -3070,6 +3131,7 @@ pipelines:
                     pipeline: "standard".into(),
                 })],
                 post_success: None,
+                variables: Vec::new(),
             },
         ];
 
@@ -3723,6 +3785,7 @@ pipelines:
                     expected_schema: None,
                 }),
                 manual: None,
+                system_prompt: None,
             },
         );
         let err = validate_workflow_config(&config)
@@ -4030,5 +4093,206 @@ pipelines:
             !obj.contains_key("daemon"),
             "empty daemon should not be serialized"
         );
+    }
+
+    #[test]
+    fn pipeline_variables_parse_from_yaml() {
+        let yaml = r#"
+pipelines:
+  - id: docs
+    name: Documentation
+    variables:
+      - name: AUDIENCE
+        description: Target audience
+        required: true
+      - name: FORMAT
+        default: markdown
+    phases:
+      - implementation
+"#;
+        let config = parse_yaml_workflow_config(yaml).expect("parse yaml");
+        let pipeline = config.pipelines.iter().find(|p| p.id == "docs").expect("docs pipeline");
+        assert_eq!(pipeline.variables.len(), 2);
+        assert_eq!(pipeline.variables[0].name, "AUDIENCE");
+        assert_eq!(pipeline.variables[0].description.as_deref(), Some("Target audience"));
+        assert!(pipeline.variables[0].required);
+        assert!(pipeline.variables[0].default.is_none());
+        assert_eq!(pipeline.variables[1].name, "FORMAT");
+        assert!(!pipeline.variables[1].required);
+        assert_eq!(pipeline.variables[1].default.as_deref(), Some("markdown"));
+    }
+
+    #[test]
+    fn pipeline_variables_parse_from_json() {
+        let json = serde_json::json!({
+            "id": "docs",
+            "name": "Documentation",
+            "phases": ["implementation"],
+            "variables": [
+                { "name": "AUDIENCE", "required": true, "description": "Target audience" },
+                { "name": "FORMAT", "default": "markdown" }
+            ]
+        });
+        let pipeline: PipelineDefinition = serde_json::from_value(json).expect("parse json");
+        assert_eq!(pipeline.variables.len(), 2);
+        assert_eq!(pipeline.variables[0].name, "AUDIENCE");
+        assert!(pipeline.variables[0].required);
+        assert_eq!(pipeline.variables[1].name, "FORMAT");
+        assert_eq!(pipeline.variables[1].default.as_deref(), Some("markdown"));
+    }
+
+    #[test]
+    fn pipeline_variables_empty_when_omitted() {
+        let json = serde_json::json!({
+            "id": "simple",
+            "name": "Simple",
+            "phases": ["implementation"]
+        });
+        let pipeline: PipelineDefinition = serde_json::from_value(json).expect("parse json");
+        assert!(pipeline.variables.is_empty());
+    }
+
+    #[test]
+    fn resolve_variables_required_without_default_errors() {
+        let definitions = vec![
+            PipelineVariable {
+                name: "REQUIRED_VAR".to_string(),
+                description: None,
+                required: true,
+                default: None,
+            },
+        ];
+        let cli_vars = HashMap::new();
+        let err = resolve_pipeline_variables(&definitions, &cli_vars)
+            .expect_err("should error on missing required var");
+        assert!(err.to_string().contains("REQUIRED_VAR"));
+    }
+
+    #[test]
+    fn resolve_variables_required_multiple_missing() {
+        let definitions = vec![
+            PipelineVariable {
+                name: "VAR_B".to_string(),
+                description: None,
+                required: true,
+                default: None,
+            },
+            PipelineVariable {
+                name: "VAR_A".to_string(),
+                description: None,
+                required: true,
+                default: None,
+            },
+        ];
+        let cli_vars = HashMap::new();
+        let err = resolve_pipeline_variables(&definitions, &cli_vars)
+            .expect_err("should error on missing required vars");
+        let msg = err.to_string();
+        assert!(msg.contains("VAR_A"));
+        assert!(msg.contains("VAR_B"));
+    }
+
+    #[test]
+    fn resolve_variables_default_used_when_not_provided() {
+        let definitions = vec![
+            PipelineVariable {
+                name: "FORMAT".to_string(),
+                description: None,
+                required: false,
+                default: Some("markdown".to_string()),
+            },
+        ];
+        let cli_vars = HashMap::new();
+        let resolved = resolve_pipeline_variables(&definitions, &cli_vars).expect("should resolve");
+        assert_eq!(resolved.get("FORMAT").map(String::as_str), Some("markdown"));
+    }
+
+    #[test]
+    fn resolve_variables_cli_overrides_default() {
+        let definitions = vec![
+            PipelineVariable {
+                name: "FORMAT".to_string(),
+                description: None,
+                required: false,
+                default: Some("markdown".to_string()),
+            },
+        ];
+        let mut cli_vars = HashMap::new();
+        cli_vars.insert("FORMAT".to_string(), "html".to_string());
+        let resolved = resolve_pipeline_variables(&definitions, &cli_vars).expect("should resolve");
+        assert_eq!(resolved.get("FORMAT").map(String::as_str), Some("html"));
+    }
+
+    #[test]
+    fn resolve_variables_optional_without_default_omitted() {
+        let definitions = vec![
+            PipelineVariable {
+                name: "OPTIONAL".to_string(),
+                description: None,
+                required: false,
+                default: None,
+            },
+        ];
+        let cli_vars = HashMap::new();
+        let resolved = resolve_pipeline_variables(&definitions, &cli_vars).expect("should resolve");
+        assert!(!resolved.contains_key("OPTIONAL"));
+    }
+
+    #[test]
+    fn resolve_variables_unknown_cli_vars_ignored() {
+        let definitions = vec![
+            PipelineVariable {
+                name: "KNOWN".to_string(),
+                description: None,
+                required: true,
+                default: None,
+            },
+        ];
+        let mut cli_vars = HashMap::new();
+        cli_vars.insert("KNOWN".to_string(), "value".to_string());
+        cli_vars.insert("UNKNOWN".to_string(), "extra".to_string());
+        let resolved = resolve_pipeline_variables(&definitions, &cli_vars).expect("should resolve");
+        assert_eq!(resolved.get("KNOWN").map(String::as_str), Some("value"));
+    }
+
+    #[test]
+    fn expand_variables_replaces_patterns() {
+        let mut vars = HashMap::new();
+        vars.insert("AUDIENCE".to_string(), "developers".to_string());
+        vars.insert("FORMAT".to_string(), "markdown".to_string());
+        let text = "Write for {{AUDIENCE}} in {{FORMAT}} format.";
+        let result = expand_variables(text, &vars);
+        assert_eq!(result, "Write for developers in markdown format.");
+    }
+
+    #[test]
+    fn expand_variables_leaves_unknown_patterns() {
+        let vars = HashMap::new();
+        let text = "Hello {{UNKNOWN}} world";
+        let result = expand_variables(text, &vars);
+        assert_eq!(result, "Hello {{UNKNOWN}} world");
+    }
+
+    #[test]
+    fn expand_variables_empty_vars_noop() {
+        let vars = HashMap::new();
+        let text = "No variables here";
+        let result = expand_variables(text, &vars);
+        assert_eq!(result, "No variables here");
+    }
+
+    #[test]
+    fn pipeline_variables_not_serialized_when_empty() {
+        let pipeline = PipelineDefinition {
+            id: "test".to_string(),
+            name: "Test".to_string(),
+            description: String::new(),
+            phases: Vec::new(),
+            post_success: None,
+            variables: Vec::new(),
+        };
+        let json = serde_json::to_value(&pipeline).expect("serialize");
+        let obj = json.as_object().expect("json object");
+        assert!(!obj.contains_key("variables"), "empty variables should not be serialized");
     }
 }

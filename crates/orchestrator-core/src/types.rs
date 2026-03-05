@@ -1474,11 +1474,66 @@ const fn default_high_priority_budget_percent() -> u8 {
     DEFAULT_HIGH_PRIORITY_BUDGET_PERCENT
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorkflowSubject {
+    Task { id: String },
+    Requirement { id: String },
+    Custom { title: String, description: String },
+}
+
+impl WorkflowSubject {
+    pub fn id(&self) -> &str {
+        match self {
+            Self::Task { id } | Self::Requirement { id } => id,
+            Self::Custom { title, .. } => title,
+        }
+    }
+
+    pub fn subject_type(&self) -> &str {
+        match self {
+            Self::Task { .. } => "task",
+            Self::Requirement { .. } => "requirement",
+            Self::Custom { .. } => "custom",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowRunInput {
     pub task_id: String,
     #[serde(default)]
     pub pipeline_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requirement_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+impl WorkflowRunInput {
+    pub fn for_task(task_id: String, pipeline_id: Option<String>) -> Self {
+        Self {
+            task_id,
+            pipeline_id,
+            requirement_id: None,
+            title: None,
+            description: None,
+        }
+    }
+
+    pub fn subject(&self) -> WorkflowSubject {
+        if let Some(req_id) = &self.requirement_id {
+            WorkflowSubject::Requirement { id: req_id.clone() }
+        } else if !self.task_id.is_empty() {
+            WorkflowSubject::Task { id: self.task_id.clone() }
+        } else {
+            WorkflowSubject::Custom {
+                title: self.title.clone().unwrap_or_default(),
+                description: self.description.clone().unwrap_or_default(),
+            }
+        }
+    }
 }
 
 #[cfg(test)]

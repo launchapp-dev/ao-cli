@@ -22,6 +22,8 @@ pub(crate) struct WorkflowPhaseRuntimeSettings {
     pub(crate) extra_args: Vec<String>,
     #[serde(default)]
     pub(crate) codex_config_overrides: Vec<String>,
+    #[serde(default)]
+    pub(crate) max_continuations: Option<usize>,
 }
 
 #[cfg(test)]
@@ -134,6 +136,12 @@ pub(crate) fn phase_runner_attempts() -> usize {
     parse_env_usize("AO_PHASE_RUN_ATTEMPTS")
         .unwrap_or(3)
         .clamp(1, 10)
+}
+
+pub(crate) fn phase_max_continuations() -> usize {
+    parse_env_usize("AO_PHASE_MAX_CONTINUATIONS")
+        .unwrap_or(3)
+        .clamp(0, 10)
 }
 
 pub(super) fn bootstrap_max_requirements() -> usize {

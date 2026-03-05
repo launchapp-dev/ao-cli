@@ -190,7 +190,12 @@ pub fn build_cli_launch_contract(
             ];
             if matches!(resume_mode, CliSessionResumeMode::NativeId) {
                 if let Some(session_id) = resume_id.clone() {
-                    args.push("--session-id".to_string());
+                    let is_reused = resume_plan.map(|p| p.reused).unwrap_or(false);
+                    if is_reused {
+                        args.push("--resume".to_string());
+                    } else {
+                        args.push("--session-id".to_string());
+                    }
                     args.push(session_id);
                 }
             }
@@ -202,30 +207,28 @@ pub fn build_cli_launch_contract(
             args
         }
         "codex" => {
-            // Use the stable cross-version exec shape. Older/newer codex CLIs diverge on
-            // top-level flags, but both support `exec --full-auto --skip-git-repo-check`.
-            let mut args = vec![
-                "exec".to_string(),
-                "--json".to_string(),
-                "--full-auto".to_string(),
-                // Ensure workflow agents can reach external package registries/docs when needed.
-                "-c".to_string(),
-                "sandbox_workspace_write.network_access=true".to_string(),
-                "--skip-git-repo-check".to_string(),
-            ];
+            let is_reused = resume_plan.map(|p| p.reused).unwrap_or(false);
+            let mut args = vec!["exec".to_string()];
+            if is_reused && matches!(resume_mode, CliSessionResumeMode::NativeId) {
+                args.push("resume".to_string());
+                args.push("--last".to_string());
+            }
+            args.push("--json".to_string());
+            args.push("--full-auto".to_string());
+            args.push("-c".to_string());
+            args.push("sandbox_workspace_write.network_access=true".to_string());
+            args.push("--skip-git-repo-check".to_string());
             if has_specific_model {
                 args.push("--model".to_string());
                 args.push(model_id.to_string());
             }
-            // Native session resume support differs across codex CLI versions; keep
-            // launch compatibility by always sending a fresh prompt.
-            let _ = (resume_mode, resume_id);
             args.push(prompt.to_string());
             args
         }
         "gemini" => {
             let mut args = Vec::new();
-            if matches!(resume_mode, CliSessionResumeMode::NativeId) {
+            let is_reused = resume_plan.map(|p| p.reused).unwrap_or(false);
+            if is_reused && matches!(resume_mode, CliSessionResumeMode::NativeId) {
                 if let Some(session_id) = resume_id.clone() {
                     args.push("--resume".to_string());
                     args.push(session_id);

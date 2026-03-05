@@ -239,5 +239,6 @@ fn build_workflow_execute_command(command: ExecuteCommand) -> Result<WorkflowCom
         input_json,
         quiet: false,
         verbose: false,
+        vars: Vec::new(),
     }))
 }

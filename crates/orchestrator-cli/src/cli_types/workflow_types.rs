@@ -180,6 +180,8 @@ pub(crate) struct WorkflowRunArgs {
     pub(crate) pipeline_id: Option<String>,
     #[arg(long, value_name = "JSON", help = INPUT_JSON_PRECEDENCE_HELP)]
     pub(crate) input_json: Option<String>,
+    #[arg(long = "var", value_name = "KEY=VALUE", help = "Pipeline variable in KEY=VALUE format. Repeat for multiple variables.")]
+    pub(crate) vars: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -202,6 +204,8 @@ pub(crate) struct WorkflowExecuteArgs {
     pub(crate) quiet: bool,
     #[arg(long, default_value_t = false, help = "Show all agent output including thinking blocks and raw JSON.")]
     pub(crate) verbose: bool,
+    #[arg(long = "var", value_name = "KEY=VALUE", help = "Pipeline variable in KEY=VALUE format. Repeat for multiple variables.")]
+    pub(crate) vars: Vec<String>,
 }
 
 #[derive(Debug, Args)]

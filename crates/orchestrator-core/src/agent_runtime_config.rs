@@ -141,6 +141,8 @@ pub struct AgentRuntimeOverrides {
     pub extra_args: Vec<String>,
     #[serde(default)]
     pub codex_config_overrides: Vec<String>,
+    #[serde(default)]
+    pub max_continuations: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
@@ -272,6 +274,8 @@ pub struct AgentProfile {
     pub extra_args: Vec<String>,
     #[serde(default)]
     pub codex_config_overrides: Vec<String>,
+    #[serde(default)]
+    pub max_continuations: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -311,6 +315,8 @@ pub struct PhaseExecutionDefinition {
     pub agent_id: Option<String>,
     #[serde(default)]
     pub directive: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_prompt: Option<String>,
     #[serde(default)]
     pub runtime: Option<AgentRuntimeOverrides>,
     #[serde(default)]
@@ -474,6 +480,14 @@ impl AgentRuntimeConfig {
     }
 
     pub fn phase_system_prompt(&self, phase_id: &str) -> Option<&str> {
+        if let Some(prompt) = self
+            .phase_execution(phase_id)
+            .and_then(|def| def.system_prompt.as_deref())
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+        {
+            return Some(prompt);
+        }
         self.phase_agent_profile(phase_id)
             .map(|profile| profile.system_prompt.trim())
             .filter(|value| !value.is_empty())
@@ -582,6 +596,16 @@ impl AgentRuntimeConfig {
             .or_else(|| {
                 self.phase_agent_profile(phase_id)
                     .and_then(|profile| profile.max_attempts)
+            })
+    }
+
+    pub fn phase_max_continuations(&self, phase_id: &str) -> Option<usize> {
+        self.phase_execution(phase_id)
+            .and_then(|definition| definition.runtime.as_ref())
+            .and_then(|runtime| runtime.max_continuations)
+            .or_else(|| {
+                self.phase_agent_profile(phase_id)
+                    .and_then(|profile| profile.max_continuations)
             })
     }
 
@@ -799,6 +823,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     max_attempts: None,
                     extra_args: vec![],
                     codex_config_overrides: vec![],
+                    max_continuations: None,
                     mcp_server_configs: None,
                     structured_capabilities: None,
                     project_overrides: None,
@@ -829,6 +854,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     max_attempts: None,
                     extra_args: vec![],
                     codex_config_overrides: vec![],
+                    max_continuations: None,
                     mcp_server_configs: None,
                     structured_capabilities: None,
                     project_overrides: None,
@@ -880,6 +906,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     max_attempts: None,
                     extra_args: vec![],
                     codex_config_overrides: vec![],
+                    max_continuations: None,
                     mcp_server_configs: None,
                     structured_capabilities: None,
                     project_overrides: None,
@@ -933,6 +960,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     max_attempts: None,
                     extra_args: vec![],
                     codex_config_overrides: vec![],
+                    max_continuations: None,
                     mcp_server_configs: None,
                     structured_capabilities: None,
                     project_overrides: None,
@@ -963,6 +991,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     max_attempts: None,
                     extra_args: vec![],
                     codex_config_overrides: vec![],
+                    max_continuations: None,
                     mcp_server_configs: None,
                     structured_capabilities: None,
                     project_overrides: None,
@@ -979,6 +1008,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                         "Execute the current workflow phase with production-quality output."
                             .to_string(),
                     ),
+                    system_prompt: None,
                     runtime: None,
                     capabilities: None,
                     output_contract: None,
@@ -995,6 +1025,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     mode: PhaseExecutionMode::Agent,
                     agent_id: Some("po".to_string()),
                     directive: Some("Clarify implementation scope, constraints, and acceptance criteria. Update docs and implementation notes as needed.".to_string()),
+                    system_prompt: None,
                     runtime: None,
                     capabilities: None,
                     output_contract: None,
@@ -1019,6 +1050,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                         "Gather external and codebase evidence needed to de-risk the next implementation step. Treat greenfield repositories as valid and provide assumptions/plan artifacts when source is sparse. Keep discovery targeted to first-party code and active requirement/task docs; avoid broad scans of dependency or workflow checkpoint directories. Only emit research_required for true external blockers."
                             .to_string(),
                     ),
+                    system_prompt: None,
                     runtime: Some(AgentRuntimeOverrides {
                         web_search: Some(true),
                         timeout_secs: Some(900),
@@ -1039,6 +1071,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     mode: PhaseExecutionMode::Agent,
                     agent_id: Some("default".to_string()),
                     directive: Some("Produce a UX brief from requirements and user flows. Identify key screens, interactions, and accessibility constraints.".to_string()),
+                    system_prompt: None,
                     runtime: None,
                     capabilities: None,
                     output_contract: None,
@@ -1055,6 +1088,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     mode: PhaseExecutionMode::Agent,
                     agent_id: Some("default".to_string()),
                     directive: Some("Create concrete UI mockups/wireframes in the repository under mockups/. Prefer production-like React-oriented layouts and realistic states.".to_string()),
+                    system_prompt: None,
                     runtime: None,
                     capabilities: None,
                     output_contract: None,
@@ -1071,6 +1105,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     mode: PhaseExecutionMode::Agent,
                     agent_id: Some("default".to_string()),
                     directive: Some("Review mockups against linked requirements. Resolve mismatches, improve usability, and ensure acceptance criteria traceability.".to_string()),
+                    system_prompt: None,
                     runtime: None,
                     capabilities: None,
                     output_contract: None,
@@ -1090,6 +1125,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                         "Implement production-quality code for this task. Keep changes focused and executable."
                             .to_string(),
                     ),
+                    system_prompt: None,
                     runtime: None,
                     capabilities: None,
                     output_contract: Some(implementation_output_contract.clone()),
@@ -1119,6 +1155,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     mode: PhaseExecutionMode::Agent,
                     agent_id: Some("swe".to_string()),
                     directive: Some("Perform a rigorous code review pass. Fix defects, tighten edge cases, and improve maintainability.".to_string()),
+                    system_prompt: None,
                     runtime: None,
                     capabilities: None,
                     output_contract: None,
@@ -1140,6 +1177,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     mode: PhaseExecutionMode::Agent,
                     agent_id: Some("swe".to_string()),
                     directive: Some("Add or update tests and validate behavior. Ensure failures are addressed before finishing.".to_string()),
+                    system_prompt: None,
                     runtime: None,
                     capabilities: None,
                     output_contract: None,
@@ -1899,6 +1937,7 @@ mod tests {
             mode: PhaseExecutionMode::Command,
             agent_id: None,
             directive: Some("Run cargo test".to_string()),
+            system_prompt: None,
             runtime: None,
             capabilities: None,
             output_contract: None,
@@ -1942,6 +1981,7 @@ mod tests {
                 mode: PhaseExecutionMode::Command,
                 agent_id: None,
                 directive: Some("Run linter".to_string()),
+                system_prompt: None,
                 runtime: None,
                 capabilities: None,
                 output_contract: None,
@@ -1974,6 +2014,7 @@ mod tests {
                 mode: PhaseExecutionMode::Command,
                 agent_id: None,
                 directive: None,
+                system_prompt: None,
                 runtime: None,
                 capabilities: None,
                 output_contract: None,
@@ -1996,6 +2037,7 @@ mod tests {
                 mode: PhaseExecutionMode::Command,
                 agent_id: None,
                 directive: None,
+                system_prompt: None,
                 runtime: None,
                 capabilities: None,
                 output_contract: None,
@@ -2029,6 +2071,7 @@ mod tests {
                 mode: PhaseExecutionMode::Command,
                 agent_id: Some("swe".to_string()),
                 directive: None,
+                system_prompt: None,
                 runtime: None,
                 capabilities: None,
                 output_contract: None,
@@ -2062,6 +2105,7 @@ mod tests {
                 mode: PhaseExecutionMode::Command,
                 agent_id: None,
                 directive: None,
+                system_prompt: None,
                 runtime: None,
                 capabilities: None,
                 output_contract: None,
@@ -2097,6 +2141,7 @@ mod tests {
                 mode: PhaseExecutionMode::Command,
                 agent_id: None,
                 directive: None,
+                system_prompt: None,
                 runtime: None,
                 capabilities: None,
                 output_contract: None,
@@ -2130,6 +2175,7 @@ mod tests {
                 mode: PhaseExecutionMode::Command,
                 agent_id: None,
                 directive: None,
+                system_prompt: None,
                 runtime: None,
                 capabilities: None,
                 output_contract: None,
@@ -2166,6 +2212,7 @@ mod tests {
                 mode: PhaseExecutionMode::Command,
                 agent_id: None,
                 directive: Some("Run linter".to_string()),
+                system_prompt: None,
                 runtime: None,
                 capabilities: None,
                 output_contract: None,
@@ -2202,6 +2249,7 @@ mod tests {
             mode: PhaseExecutionMode::Command,
             agent_id: None,
             directive: None,
+            system_prompt: None,
             runtime: None,
             capabilities: None,
             output_contract: None,
@@ -2292,6 +2340,7 @@ mod tests {
                 mode: PhaseExecutionMode::Command,
                 agent_id: None,
                 directive: None,
+                system_prompt: None,
                 runtime: None,
                 capabilities: None,
                 output_contract: None,
@@ -2327,6 +2376,7 @@ mod tests {
                 mode: PhaseExecutionMode::Command,
                 agent_id: None,
                 directive: None,
+                system_prompt: None,
                 runtime: None,
                 capabilities: None,
                 output_contract: None,
@@ -2663,5 +2713,145 @@ mod tests {
         assert!(glob_match("*.*", "a.b"));
         assert!(glob_match("task.*", "task.list"));
         assert!(glob_match("task.*", "task.list.nested"));
+    }
+
+    fn make_agent_profile_with_system_prompt(prompt: &str) -> AgentProfile {
+        serde_json::from_value(serde_json::json!({
+            "system_prompt": prompt
+        })).expect("deserialize agent profile")
+    }
+
+    #[test]
+    fn phase_system_prompt_override_takes_precedence_over_agent_profile() {
+        let mut config = builtin_agent_runtime_config();
+        config.agents.insert(
+            "test-agent".to_string(),
+            make_agent_profile_with_system_prompt("Agent profile prompt"),
+        );
+        config.phases.insert(
+            "custom-phase".to_string(),
+            PhaseExecutionDefinition {
+                mode: PhaseExecutionMode::Agent,
+                agent_id: Some("test-agent".to_string()),
+                directive: Some("Do the thing".to_string()),
+                system_prompt: Some("Phase-level prompt override".to_string()),
+                runtime: None,
+                capabilities: None,
+                output_contract: None,
+                output_json_schema: None,
+                decision_contract: None,
+                retry: None,
+                command: None,
+                manual: None,
+            },
+        );
+        assert_eq!(
+            config.phase_system_prompt("custom-phase"),
+            Some("Phase-level prompt override")
+        );
+    }
+
+    #[test]
+    fn phase_system_prompt_falls_back_to_agent_profile() {
+        let mut config = builtin_agent_runtime_config();
+        config.agents.insert(
+            "test-agent".to_string(),
+            make_agent_profile_with_system_prompt("Agent profile prompt"),
+        );
+        config.phases.insert(
+            "custom-phase".to_string(),
+            PhaseExecutionDefinition {
+                mode: PhaseExecutionMode::Agent,
+                agent_id: Some("test-agent".to_string()),
+                directive: Some("Do the thing".to_string()),
+                system_prompt: None,
+                runtime: None,
+                capabilities: None,
+                output_contract: None,
+                output_json_schema: None,
+                decision_contract: None,
+                retry: None,
+                command: None,
+                manual: None,
+            },
+        );
+        assert_eq!(
+            config.phase_system_prompt("custom-phase"),
+            Some("Agent profile prompt")
+        );
+    }
+
+    #[test]
+    fn phase_system_prompt_ignores_empty_override() {
+        let mut config = builtin_agent_runtime_config();
+        config.agents.insert(
+            "test-agent".to_string(),
+            make_agent_profile_with_system_prompt("Agent profile prompt"),
+        );
+        config.phases.insert(
+            "custom-phase".to_string(),
+            PhaseExecutionDefinition {
+                mode: PhaseExecutionMode::Agent,
+                agent_id: Some("test-agent".to_string()),
+                directive: None,
+                system_prompt: Some("   ".to_string()),
+                runtime: None,
+                capabilities: None,
+                output_contract: None,
+                output_json_schema: None,
+                decision_contract: None,
+                retry: None,
+                command: None,
+                manual: None,
+            },
+        );
+        assert_eq!(
+            config.phase_system_prompt("custom-phase"),
+            Some("Agent profile prompt")
+        );
+    }
+
+    #[test]
+    fn phase_system_prompt_deserializes_with_and_without_field() {
+        let with_prompt: PhaseExecutionDefinition = serde_json::from_str(r#"{
+            "mode": "agent",
+            "agent_id": "default",
+            "system_prompt": "Custom prompt from JSON"
+        }"#).expect("deserialize with system_prompt");
+        assert_eq!(with_prompt.system_prompt.as_deref(), Some("Custom prompt from JSON"));
+
+        let without_prompt: PhaseExecutionDefinition = serde_json::from_str(r#"{
+            "mode": "agent",
+            "agent_id": "default"
+        }"#).expect("deserialize without system_prompt");
+        assert!(without_prompt.system_prompt.is_none());
+    }
+
+    #[test]
+    fn phase_system_prompt_skips_serialization_when_none() {
+        let definition = PhaseExecutionDefinition {
+            mode: PhaseExecutionMode::Agent,
+            agent_id: Some("default".to_string()),
+            directive: None,
+            system_prompt: None,
+            runtime: None,
+            capabilities: None,
+            output_contract: None,
+            output_json_schema: None,
+            decision_contract: None,
+            retry: None,
+            command: None,
+            manual: None,
+        };
+        let json = serde_json::to_string(&definition).expect("serialize");
+        assert!(!json.contains("system_prompt"));
+
+        let with_prompt = PhaseExecutionDefinition {
+            system_prompt: Some("My custom prompt".to_string()),
+            ..definition
+        };
+        let json = serde_json::to_string(&with_prompt).expect("serialize");
+        assert!(json.contains("system_prompt"));
+        assert!(json.contains("My custom prompt"));
     }
 }

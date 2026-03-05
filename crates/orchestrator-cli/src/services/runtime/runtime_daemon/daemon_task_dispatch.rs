@@ -755,10 +755,7 @@ pub async fn run_ready_task_workflows_for_project(
     for (task, selection_source) in selected_for_start {
         let workflow = hub
             .workflows()
-            .run(WorkflowRunInput {
-                task_id: task.id.clone(),
-                pipeline_id: Some(pipeline_for_task(&task)),
-            })
+            .run(WorkflowRunInput::for_task(task.id.clone(), Some(pipeline_for_task(&task))))
             .await?;
         if selection_source == TaskSelectionSource::EmQueue {
             if let Err(error) =

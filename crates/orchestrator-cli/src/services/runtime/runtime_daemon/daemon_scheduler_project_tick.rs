@@ -590,10 +590,7 @@ mod tests {
             .expect("task should be created");
         let workflow = hub
             .workflows()
-            .run(WorkflowRunInput {
-                task_id: task.id.clone(),
-                pipeline_id: None,
-            })
+            .run(WorkflowRunInput::for_task(task.id.clone(), None))
             .await
             .expect("workflow should start");
 
@@ -1009,10 +1006,7 @@ mod tests {
 
         let workflow = hub
             .workflows()
-            .run(WorkflowRunInput {
-                task_id: task.id.clone(),
-                pipeline_id: None,
-            })
+            .run(WorkflowRunInput::for_task(task.id.clone(), None))
             .await
             .expect("workflow should start");
 
@@ -1082,10 +1076,7 @@ mod tests {
 
         let workflow = hub
             .workflows()
-            .run(WorkflowRunInput {
-                task_id: task.id.clone(),
-                pipeline_id: None,
-            })
+            .run(WorkflowRunInput::for_task(task.id.clone(), None))
             .await
             .expect("workflow should start");
 
@@ -1153,10 +1144,7 @@ mod tests {
 
         let workflow = hub
             .workflows()
-            .run(WorkflowRunInput {
-                task_id: task.id.clone(),
-                pipeline_id: None,
-            })
+            .run(WorkflowRunInput::for_task(task.id.clone(), None))
             .await
             .expect("workflow should start");
 
@@ -1231,10 +1219,7 @@ mod tests {
 
         let workflow = hub
             .workflows()
-            .run(WorkflowRunInput {
-                task_id: task.id.clone(),
-                pipeline_id: None,
-            })
+            .run(WorkflowRunInput::for_task(task.id.clone(), None))
             .await
             .expect("workflow should start");
 
@@ -1360,10 +1345,7 @@ mod tests {
             .expect("task should be created");
         let workflow = hub
             .workflows()
-            .run(WorkflowRunInput {
-                task_id: task.id.clone(),
-                pipeline_id: None,
-            })
+            .run(WorkflowRunInput::for_task(task.id.clone(), None))
             .await
             .expect("workflow should start");
         let phase_id = workflow
@@ -1534,10 +1516,7 @@ thinking...
                 .expect("task should be created");
             let workflow = hub
                 .workflows()
-                .run(WorkflowRunInput {
-                    task_id: task.id.clone(),
-                    pipeline_id: None,
-                })
+                .run(WorkflowRunInput::for_task(task.id.clone(), None))
                 .await
                 .expect("workflow should start");
 
@@ -1562,10 +1541,7 @@ thinking...
             .expect("task should be created");
         let _extra_workflow = hub
             .workflows()
-            .run(WorkflowRunInput {
-                task_id: extra_task.id.clone(),
-                pipeline_id: None,
-            })
+            .run(WorkflowRunInput::for_task(extra_task.id.clone(), None))
             .await
             .expect("workflow should start");
 
@@ -1606,10 +1582,7 @@ thinking...
             .expect("task should be created");
         let workflow1 = hub
             .workflows()
-            .run(WorkflowRunInput {
-                task_id: task1.id.clone(),
-                pipeline_id: None,
-            })
+            .run(WorkflowRunInput::for_task(task1.id.clone(), None))
             .await
             .expect("workflow should start");
 
@@ -1629,10 +1602,7 @@ thinking...
             .expect("task should be created");
         let workflow2 = hub
             .workflows()
-            .run(WorkflowRunInput {
-                task_id: task2.id.clone(),
-                pipeline_id: None,
-            })
+            .run(WorkflowRunInput::for_task(task2.id.clone(), None))
             .await
             .expect("workflow should start");
 
@@ -1652,10 +1622,7 @@ thinking...
             .expect("task should be created");
         let _workflow3 = hub
             .workflows()
-            .run(WorkflowRunInput {
-                task_id: task3.id.clone(),
-                pipeline_id: None,
-            })
+            .run(WorkflowRunInput::for_task(task3.id.clone(), None))
             .await
             .expect("workflow should start");
 
@@ -1795,10 +1762,7 @@ thinking...
             .expect("task should be created");
         let _workflow = hub
             .workflows()
-            .run(WorkflowRunInput {
-                task_id: task.id.clone(),
-                pipeline_id: None,
-            })
+            .run(WorkflowRunInput::for_task(task.id.clone(), None))
             .await
             .expect("workflow should start");
 
@@ -1844,10 +1808,7 @@ thinking...
             .expect("task should be created");
         let workflow = hub
             .workflows()
-            .run(WorkflowRunInput {
-                task_id: task.id.clone(),
-                pipeline_id: None,
-            })
+            .run(WorkflowRunInput::for_task(task.id.clone(), None))
             .await
             .expect("workflow should start");
 

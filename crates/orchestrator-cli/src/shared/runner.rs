@@ -401,6 +401,15 @@ pub(crate) fn build_agent_context(args: &AgentRunArgs, project_root: &str) -> Re
 }
 
 pub(crate) fn build_runtime_contract(tool: &str, model: &str, prompt: &str) -> Option<Value> {
+    build_runtime_contract_with_resume(tool, model, prompt, None)
+}
+
+pub(crate) fn build_runtime_contract_with_resume(
+    tool: &str,
+    model: &str,
+    prompt: &str,
+    resume_plan: Option<&orchestrator_core::runtime_contract::CliSessionResumePlan>,
+) -> Option<Value> {
     let mcp_endpoint = std::env::var("AO_MCP_ENDPOINT")
         .ok()
         .or_else(|| std::env::var("MCP_ENDPOINT").ok())
@@ -411,7 +420,7 @@ pub(crate) fn build_runtime_contract(tool: &str, model: &str, prompt: &str) -> O
         tool,
         model,
         prompt,
-        None,
+        resume_plan,
         None,
         mcp_endpoint.as_deref(),
         mcp_agent_id.as_deref(),
@@ -1061,5 +1070,145 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(!args.contains(&"--permission-mode"));
         assert!(!args.contains(&"bypassPermissions"));
+    }
+
+    #[test]
+    fn build_runtime_contract_with_resume_injects_claude_session_id() {
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock");
+        let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", None);
+        let plan = orchestrator_core::runtime_contract::CliSessionResumePlan {
+            mode: orchestrator_core::runtime_contract::CliSessionResumeMode::NativeId,
+            session_key: "wf:test-wf:implementation".to_string(),
+            session_id: Some("session-abc-123".to_string()),
+            summary_seed: None,
+            reused: false,
+            phase_thread_isolated: true,
+        };
+        let contract =
+            build_runtime_contract_with_resume("claude", "claude-sonnet-4-6", "hello", Some(&plan))
+                .expect("runtime contract should build");
+        let args = contract
+            .pointer("/cli/launch/args")
+            .and_then(Value::as_array)
+            .expect("launch args should be present")
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>();
+        assert!(
+            args.contains(&"--session-id"),
+            "claude contract should include --session-id flag"
+        );
+        assert!(
+            args.contains(&"session-abc-123"),
+            "claude contract should include session id value"
+        );
+        let session = contract.pointer("/cli/session");
+        assert!(session.is_some(), "session metadata should be present");
+        assert_eq!(
+            session
+                .and_then(|s| s.get("session_key"))
+                .and_then(Value::as_str),
+            Some("wf:test-wf:implementation")
+        );
+        assert_eq!(
+            session
+                .and_then(|s| s.get("reused"))
+                .and_then(Value::as_bool),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn build_runtime_contract_with_resume_injects_gemini_resume_flag() {
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock");
+        let plan = orchestrator_core::runtime_contract::CliSessionResumePlan {
+            mode: orchestrator_core::runtime_contract::CliSessionResumeMode::NativeId,
+            session_key: "wf:test-wf:research".to_string(),
+            session_id: Some("session-def-456".to_string()),
+            summary_seed: None,
+            reused: true,
+            phase_thread_isolated: true,
+        };
+        let contract =
+            build_runtime_contract_with_resume("gemini", "gemini-2.5-pro", "hello", Some(&plan))
+                .expect("runtime contract should build");
+        let args = contract
+            .pointer("/cli/launch/args")
+            .and_then(Value::as_array)
+            .expect("launch args should be present")
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>();
+        assert!(
+            args.contains(&"--resume"),
+            "gemini contract should include --resume flag"
+        );
+        assert!(
+            args.contains(&"session-def-456"),
+            "gemini contract should include session id value"
+        );
+    }
+
+    #[test]
+    fn build_runtime_contract_with_resume_codex_uses_exec_resume_last() {
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock");
+        let plan = orchestrator_core::runtime_contract::CliSessionResumePlan {
+            mode: orchestrator_core::runtime_contract::CliSessionResumeMode::NativeId,
+            session_key: "wf:test-wf:implementation".to_string(),
+            session_id: Some("session-ghi-789".to_string()),
+            summary_seed: None,
+            reused: true,
+            phase_thread_isolated: true,
+        };
+        let contract = build_runtime_contract_with_resume(
+            "codex",
+            protocol::default_model_for_tool("codex").unwrap_or("gpt-4.1"),
+            "hello",
+            Some(&plan),
+        )
+        .expect("runtime contract should build");
+        let args = contract
+            .pointer("/cli/launch/args")
+            .and_then(Value::as_array)
+            .expect("launch args should be present")
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>();
+        assert!(
+            args.contains(&"resume"),
+            "codex reused contract should include resume subcommand"
+        );
+        assert!(
+            args.contains(&"--last"),
+            "codex reused contract should include --last flag"
+        );
+        assert!(
+            !args.contains(&"--session-id"),
+            "codex contract should NOT include --session-id"
+        );
+    }
+
+    #[test]
+    fn build_runtime_contract_without_resume_has_no_session_metadata() {
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock");
+        let contract =
+            build_runtime_contract("claude", "claude-sonnet-4-6", "hello")
+                .expect("runtime contract should build");
+        let session = contract.pointer("/cli/session");
+        assert!(
+            session.is_none(),
+            "contract without resume plan should have no session metadata"
+        );
+        let args = contract
+            .pointer("/cli/launch/args")
+            .and_then(Value::as_array)
+            .expect("launch args should be present")
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>();
+        assert!(
+            !args.contains(&"--session-id"),
+            "contract without resume should not include --session-id"
+        );
     }
 }

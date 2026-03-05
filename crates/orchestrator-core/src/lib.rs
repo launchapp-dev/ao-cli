@@ -80,7 +80,7 @@ pub use types::{
     TaskUpdateInput, VisionDocument, VisionDraftInput, WorkflowCheckpoint,
     WorkflowCheckpointMetadata, WorkflowDecisionAction, WorkflowDecisionRecord,
     WorkflowDecisionRisk, WorkflowDecisionSource, WorkflowMachineEvent, WorkflowMachineState,
-    WorkflowMetadata, WorkflowPhaseExecution, WorkflowPhaseStatus, WorkflowRunInput,
+    WorkflowMetadata, WorkflowPhaseExecution, WorkflowPhaseStatus, WorkflowRunInput, WorkflowSubject,
     WorkflowStatus, DEFAULT_HIGH_PRIORITY_BUDGET_PERCENT,
 };
 pub use workflow::{
@@ -99,7 +99,8 @@ pub use workflow_config::{
     validate_workflow_and_runtime_configs, validate_workflow_config, workflow_config_hash,
     workflow_config_path, write_workflow_config, yaml_workflows_dir, CompileYamlResult,
     LoadedWorkflowConfig, PhaseTransitionConfig, PhaseUiDefinition, PipelineDefinition,
-    PipelinePhaseConfig, PipelinePhaseEntry, SubPipelineRef, WorkflowCheckpointRetentionConfig,
+    PipelinePhaseConfig, PipelinePhaseEntry, PipelineVariable, SubPipelineRef,
+    resolve_pipeline_variables, expand_variables, WorkflowCheckpointRetentionConfig,
     WorkflowConfig, WorkflowConfigMetadata, WorkflowConfigSource, WorkflowSchedule,
     WORKFLOW_CONFIG_FILE_NAME,
     WORKFLOW_CONFIG_SCHEMA_ID, WORKFLOW_CONFIG_VERSION, YAML_WORKFLOWS_DIR,

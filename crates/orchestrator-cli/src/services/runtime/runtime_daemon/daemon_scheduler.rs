@@ -123,6 +123,11 @@ fn phase_runner_attempts() -> usize {
     runtime_support::phase_runner_attempts()
 }
 
+#[cfg(test)]
+fn phase_max_continuations() -> usize {
+    runtime_support::phase_max_continuations()
+}
+
 fn bootstrap_max_requirements() -> usize {
     runtime_support::bootstrap_max_requirements()
 }
@@ -184,6 +189,7 @@ fn build_phase_prompt(
         task_description,
         phase_id,
         None,
+        None,
     )
 }
 
@@ -201,9 +207,9 @@ async fn run_workflow_phase_with_agent(
     project_root: &str,
     execution_cwd: &str,
     workflow_id: &str,
-    task_id: &str,
-    task_title: &str,
-    task_description: &str,
+    subject_id: &str,
+    subject_title: &str,
+    subject_description: &str,
     task_complexity: Option<orchestrator_core::Complexity>,
     phase_id: &str,
     phase_attempt: u32,
@@ -212,12 +218,13 @@ async fn run_workflow_phase_with_agent(
         project_root,
         execution_cwd,
         workflow_id,
-        task_id,
-        task_title,
-        task_description,
+        subject_id,
+        subject_title,
+        subject_description,
         task_complexity,
         phase_id,
         phase_attempt,
+        None,
         None,
     )
     .await
@@ -245,6 +252,7 @@ async fn run_workflow_phase_with_agent_legacy(
         task_complexity,
         phase_id,
         phase_runtime_settings,
+        None,
         None,
     )
     .await
@@ -557,6 +565,31 @@ mod tests {
         {
             let _attempts = EnvVarGuard::set("AO_PHASE_RUN_ATTEMPTS", Some("99"));
             assert_eq!(phase_runner_attempts(), 10);
+        }
+    }
+
+    #[test]
+    fn phase_max_continuations_defaults_and_clamps() {
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+
+        {
+            let _env = EnvVarGuard::set("AO_PHASE_MAX_CONTINUATIONS", None);
+            assert_eq!(phase_max_continuations(), 3);
+        }
+
+        {
+            let _env = EnvVarGuard::set("AO_PHASE_MAX_CONTINUATIONS", Some("0"));
+            assert_eq!(phase_max_continuations(), 0);
+        }
+
+        {
+            let _env = EnvVarGuard::set("AO_PHASE_MAX_CONTINUATIONS", Some("5"));
+            assert_eq!(phase_max_continuations(), 5);
+        }
+
+        {
+            let _env = EnvVarGuard::set("AO_PHASE_MAX_CONTINUATIONS", Some("99"));
+            assert_eq!(phase_max_continuations(), 10);
         }
     }
 
@@ -969,6 +1002,7 @@ mod tests {
                 "sandbox_workspace_write.network_access=false".to_string(),
                 "model_reasoning_effort=\"high\"".to_string(),
             ],
+            max_continuations: None,
         };
         inject_cli_launch_overrides(&mut contract, "codex", Some(&runtime_settings));
         let args = contract
@@ -998,6 +1032,7 @@ mod tests {
             max_attempts: None,
             extra_args: vec!["--experimental-foo".to_string(), "on".to_string()],
             codex_config_overrides: vec![],
+            max_continuations: None,
         };
         inject_cli_launch_overrides(&mut contract, "gemini", Some(&runtime_settings));
         let args = contract
@@ -1030,6 +1065,7 @@ mod tests {
                         max_attempts: None,
                         extra_args: vec![],
                         codex_config_overrides: vec![],
+                        max_continuations: None,
                     },
                 )]),
             }],
@@ -1326,10 +1362,7 @@ mod tests {
 
         let workflow = hub
             .workflows()
-            .run(WorkflowRunInput {
-                task_id: task.id.clone(),
-                pipeline_id: None,
-            })
+            .run(WorkflowRunInput::for_task(task.id.clone(), None))
             .await
             .expect("workflow should start");
 
@@ -1392,10 +1425,7 @@ mod tests {
 
         let workflow = hub
             .workflows()
-            .run(WorkflowRunInput {
-                task_id: task.id.clone(),
-                pipeline_id: None,
-            })
+            .run(WorkflowRunInput::for_task(task.id.clone(), None))
             .await
             .expect("workflow should start");
 
@@ -1476,10 +1506,7 @@ mod tests {
 
         let workflow = hub
             .workflows()
-            .run(WorkflowRunInput {
-                task_id: task.id.clone(),
-                pipeline_id: None,
-            })
+            .run(WorkflowRunInput::for_task(task.id.clone(), None))
             .await
             .expect("workflow should start");
 
@@ -1534,10 +1561,7 @@ mod tests {
 
         let workflow = hub
             .workflows()
-            .run(WorkflowRunInput {
-                task_id: task.id.clone(),
-                pipeline_id: None,
-            })
+            .run(WorkflowRunInput::for_task(task.id.clone(), None))
             .await
             .expect("workflow should start");
 
@@ -1739,10 +1763,7 @@ mod tests {
 
         let workflow = hub
             .workflows()
-            .run(WorkflowRunInput {
-                task_id: task.id.clone(),
-                pipeline_id: None,
-            })
+            .run(WorkflowRunInput::for_task(task.id.clone(), None))
             .await
             .expect("workflow should start");
         let mut state = workflow;

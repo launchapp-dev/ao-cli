@@ -506,6 +506,7 @@ fn migrate_v1_to_v2(project_root: &str) -> Result<Value> {
                 .map(|phase| orchestrator_core::PipelinePhaseEntry::Simple(phase.to_owned()))
                 .collect(),
             post_success: None,
+            variables: Vec::new(),
         })
         .collect();
 
@@ -557,6 +558,7 @@ fn migrate_v1_to_v2(project_root: &str) -> Result<Value> {
                         max_attempts: profile.max_attempts,
                         extra_args: profile.extra_args.clone(),
                         codex_config_overrides: profile.codex_config_overrides.clone(),
+                        max_continuations: None,
                         mcp_server_configs: None,
                         structured_capabilities: None,
                         project_overrides: None,
@@ -599,6 +601,7 @@ fn migrate_v1_to_v2(project_root: &str) -> Result<Value> {
             retry: None,
             command: None,
             manual: None,
+            system_prompt: None,
         },
     );
 
@@ -621,6 +624,7 @@ fn migrate_v1_to_v2(project_root: &str) -> Result<Value> {
                 max_attempts: settings.max_attempts,
                 extra_args: settings.extra_args.clone(),
                 codex_config_overrides: settings.codex_config_overrides.clone(),
+                max_continuations: None,
             }
         });
 
@@ -663,6 +667,7 @@ fn migrate_v1_to_v2(project_root: &str) -> Result<Value> {
                 retry: None,
                 command: None,
                 manual: None,
+                system_prompt: None,
             },
         );
     }
@@ -1008,10 +1013,7 @@ pub(crate) async fn handle_workflow(
         },
         WorkflowCommand::Run(args) => {
             let input = parse_input_json_or(args.input_json, || {
-                Ok(WorkflowRunInput {
-                    task_id: args.task_id,
-                    pipeline_id: args.pipeline_id,
-                })
+                Ok(WorkflowRunInput::for_task(args.task_id, args.pipeline_id))
             })?;
             print_value(workflows.run(input).await?, json)
         }
@@ -1182,6 +1184,7 @@ pub(crate) async fn handle_workflow(
                         .map(orchestrator_core::PipelinePhaseEntry::Simple)
                         .collect(),
                     post_success: None,
+                    variables: Vec::new(),
                 })
             })?;
             print_value(upsert_pipeline(project_root, pipeline)?, json)
@@ -1368,10 +1371,7 @@ async fn handle_workflow_execute(
         .await
         .with_context(|| format!("task '{}' not found", args.task_id))?;
 
-    let input = WorkflowRunInput {
-        task_id: args.task_id.clone(),
-        pipeline_id: args.pipeline_id,
-    };
+    let input = WorkflowRunInput::for_task(args.task_id.clone(), args.pipeline_id);
     let workflow = workflows.run(input).await.or_else(|_| {
         let all = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(workflows.list())
@@ -1467,6 +1467,7 @@ async fn handle_workflow_execute(
             phase_id,
             phase_attempt,
             Some(&phase_overrides),
+            None,
         )
         .await;
 

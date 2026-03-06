@@ -13,7 +13,7 @@ pub mod workflow {
 }
 
 pub mod types {
-    pub use protocol::{PhaseEvidenceKind, WorkflowDecisionRisk};
+    pub use protocol::orchestrator::{PhaseEvidenceKind, WorkflowDecisionRisk};
 }
 
 pub use agent_runtime_config::*;

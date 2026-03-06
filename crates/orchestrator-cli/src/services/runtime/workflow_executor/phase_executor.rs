@@ -431,11 +431,26 @@ fn inject_default_stdio_mcp(runtime_contract: &mut Value, project_root: &str) {
 }
 
 fn inject_agent_tool_policy(runtime_contract: &mut Value, project_root: &str, phase_id: &str) {
-    let config = load_agent_runtime_config(project_root);
-    let Some(profile) = config.phase_agent_profile(phase_id) else {
+    let agent_id = phase_agent_id_for(project_root, phase_id);
+
+    let wf_config =
+        orchestrator_core::load_workflow_config_or_default(Path::new(project_root));
+    let wf_profile = agent_id
+        .as_deref()
+        .and_then(|id| wf_config.config.agent_profiles.get(id));
+
+    let rt_config = load_agent_runtime_config(project_root);
+    let rt_profile = agent_id
+        .as_deref()
+        .and_then(|id| rt_config.agent_profile(id));
+
+    let policy = wf_profile
+        .map(|p| &p.tool_policy)
+        .or_else(|| rt_profile.map(|p| &p.tool_policy));
+
+    let Some(policy) = policy else {
         return;
     };
-    let policy = &profile.tool_policy;
     if policy.allow.is_empty() && policy.deny.is_empty() {
         return;
     }
@@ -2997,6 +3012,65 @@ mod tests {
         assert!(
             !servers.contains_key("swe-only-server"),
             "server for non-overridden agent should be filtered out"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn inject_agent_tool_policy_respects_workflow_agent_override() {
+        let tmp = std::env::temp_dir()
+            .join(format!("ao-test-tool-policy-override-{}", Uuid::new_v4()));
+        let project_root = tmp.to_str().unwrap();
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let mut config = orchestrator_core::builtin_workflow_config();
+        let profile: orchestrator_core::AgentProfile =
+            serde_json::from_value(serde_json::json!({
+                "tool_policy": {
+                    "allow": ["Read", "Grep"],
+                    "deny": ["Write"]
+                }
+            })).unwrap();
+        config
+            .agent_profiles
+            .insert("restricted-agent".to_string(), profile);
+        config.phase_definitions.insert(
+            "research".to_string(),
+            orchestrator_core::PhaseExecutionDefinition {
+                mode: orchestrator_core::PhaseExecutionMode::Agent,
+                agent_id: Some("restricted-agent".to_string()),
+                directive: None,
+                system_prompt: None,
+                runtime: None,
+                capabilities: None,
+                output_contract: None,
+                output_json_schema: None,
+                decision_contract: None,
+                retry: None,
+                command: None,
+                manual: None,
+            },
+        );
+        orchestrator_core::write_workflow_config(Path::new(project_root), &config).unwrap();
+
+        let mut contract = serde_json::json!({
+            "mcp": { "stdio": { "command": "ao" } }
+        });
+        inject_agent_tool_policy(&mut contract, project_root, "research");
+
+        let policy = contract
+            .pointer("/mcp/tool_policy")
+            .expect("tool_policy should be injected");
+        assert_eq!(
+            policy["allow"],
+            serde_json::json!(["Read", "Grep"]),
+            "allow list should come from workflow agent profile"
+        );
+        assert_eq!(
+            policy["deny"],
+            serde_json::json!(["Write"]),
+            "deny list should come from workflow agent profile"
         );
 
         let _ = std::fs::remove_dir_all(&tmp);

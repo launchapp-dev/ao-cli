@@ -1,11 +1,12 @@
 use super::*;
+use orchestrator_providers::PlanningServiceApi as ProviderPlanningServiceApi;
 
 #[async_trait]
 impl PlanningServiceApi for InMemoryServiceHub {
     fn requirements_provider(&self) -> Arc<dyn RequirementsProvider> {
-        Arc::new(crate::providers::BuiltinRequirementsProvider::new(Arc::new(
-            self.clone(),
-        )))
+        Arc::new(crate::providers::BuiltinRequirementsProvider::new(
+            Arc::new(self.clone()),
+        ))
     }
 
     async fn draft_vision(&self, input: VisionDraftInput) -> Result<VisionDocument> {
@@ -126,9 +127,9 @@ impl PlanningServiceApi for InMemoryServiceHub {
 #[async_trait]
 impl PlanningServiceApi for FileServiceHub {
     fn requirements_provider(&self) -> Arc<dyn RequirementsProvider> {
-        Arc::new(crate::providers::BuiltinRequirementsProvider::new(Arc::new(
-            self.clone(),
-        )))
+        Arc::new(crate::providers::BuiltinRequirementsProvider::new(
+            Arc::new(self.clone()),
+        ))
     }
 
     async fn draft_vision(&self, input: VisionDraftInput) -> Result<VisionDocument> {
@@ -225,9 +226,7 @@ impl PlanningServiceApi for FileServiceHub {
     ) -> Result<Vec<RequirementItem>> {
         let (refined, snapshot) = self
             .mutate_persistent_state(|state| {
-                let refined = planning_shared::refine_requirements_and_record(
-                    state, input,
-                );
+                let refined = planning_shared::refine_requirements_and_record(state, input);
                 state.all_requirements_dirty = true;
                 Ok(refined)
             })
@@ -352,5 +351,85 @@ impl PlanningServiceApi for FileServiceHub {
             &snapshot.requirements,
         )?;
         Ok(result)
+    }
+}
+
+#[async_trait]
+impl ProviderPlanningServiceApi for InMemoryServiceHub {
+    async fn draft_requirements(
+        &self,
+        input: RequirementsDraftInput,
+    ) -> Result<RequirementsDraftResult> {
+        PlanningServiceApi::draft_requirements(self, input).await
+    }
+
+    async fn list_requirements(&self) -> Result<Vec<RequirementItem>> {
+        PlanningServiceApi::list_requirements(self).await
+    }
+
+    async fn get_requirement(&self, id: &str) -> Result<RequirementItem> {
+        PlanningServiceApi::get_requirement(self, id).await
+    }
+
+    async fn refine_requirements(
+        &self,
+        input: RequirementsRefineInput,
+    ) -> Result<Vec<RequirementItem>> {
+        PlanningServiceApi::refine_requirements(self, input).await
+    }
+
+    async fn upsert_requirement(&self, requirement: RequirementItem) -> Result<RequirementItem> {
+        PlanningServiceApi::upsert_requirement(self, requirement).await
+    }
+
+    async fn delete_requirement(&self, id: &str) -> Result<()> {
+        PlanningServiceApi::delete_requirement(self, id).await
+    }
+
+    async fn execute_requirements(
+        &self,
+        input: RequirementsExecutionInput,
+    ) -> Result<RequirementsExecutionResult> {
+        PlanningServiceApi::execute_requirements(self, input).await
+    }
+}
+
+#[async_trait]
+impl ProviderPlanningServiceApi for FileServiceHub {
+    async fn draft_requirements(
+        &self,
+        input: RequirementsDraftInput,
+    ) -> Result<RequirementsDraftResult> {
+        PlanningServiceApi::draft_requirements(self, input).await
+    }
+
+    async fn list_requirements(&self) -> Result<Vec<RequirementItem>> {
+        PlanningServiceApi::list_requirements(self).await
+    }
+
+    async fn get_requirement(&self, id: &str) -> Result<RequirementItem> {
+        PlanningServiceApi::get_requirement(self, id).await
+    }
+
+    async fn refine_requirements(
+        &self,
+        input: RequirementsRefineInput,
+    ) -> Result<Vec<RequirementItem>> {
+        PlanningServiceApi::refine_requirements(self, input).await
+    }
+
+    async fn upsert_requirement(&self, requirement: RequirementItem) -> Result<RequirementItem> {
+        PlanningServiceApi::upsert_requirement(self, requirement).await
+    }
+
+    async fn delete_requirement(&self, id: &str) -> Result<()> {
+        PlanningServiceApi::delete_requirement(self, id).await
+    }
+
+    async fn execute_requirements(
+        &self,
+        input: RequirementsExecutionInput,
+    ) -> Result<RequirementsExecutionResult> {
+        PlanningServiceApi::execute_requirements(self, input).await
     }
 }

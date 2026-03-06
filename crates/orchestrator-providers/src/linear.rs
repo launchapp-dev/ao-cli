@@ -5,16 +5,16 @@ use std::str::FromStr;
 use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use chrono::Utc;
+use protocol::orchestrator::{
+    Assignee, Complexity, DependencyType, DispatchHistoryEntry, OrchestratorTask, Priority,
+    ResourceRequirements, RiskLevel, Scope, TaskCreateInput, TaskFilter, TaskMetadata,
+    TaskStatistics, TaskStatus, TaskType, TaskUpdateInput, WorkflowMetadata,
+};
 use reqwest::Client;
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{json, Map, Value};
 
-use crate::providers::TaskProvider;
-use crate::types::{
-    Assignee, DependencyType, DispatchHistoryEntry, OrchestratorTask, Priority, ResourceRequirements,
-    RiskLevel, Scope, TaskCreateInput, TaskFilter, TaskMetadata, TaskStatistics, TaskStatus,
-    TaskType, TaskUpdateInput, WorkflowMetadata, Complexity,
-};
+use crate::TaskProvider;
 
 const LINEAR_GRAPHQL_URL: &str = "https://api.linear.app/graphql";
 
@@ -90,7 +90,9 @@ impl LinearTaskProvider {
             .assignee
             .and_then(|assignee| assignee.name)
             .filter(|value| !value.is_empty())
-            .map_or(Assignee::Unassigned, |name| Assignee::Human { user_id: name });
+            .map_or(Assignee::Unassigned, |name| Assignee::Human {
+                user_id: name,
+            });
 
         OrchestratorTask {
             id: issue.id,
@@ -148,7 +150,10 @@ impl LinearTaskProvider {
         variables: Option<Value>,
     ) -> Result<T> {
         let api_key = env::var(&self.config.api_key_env).with_context(|| {
-            format!("Linear API key env var missing: {}", self.config.api_key_env)
+            format!(
+                "Linear API key env var missing: {}",
+                self.config.api_key_env
+            )
         })?;
 
         let request_body = variables.map_or_else(
@@ -275,7 +280,10 @@ impl TaskProvider for LinearTaskProvider {
         "#;
 
         let response: GraphqlEnvelope<LinearIssuesResponse> = self
-            .execute_graphql(query, Some(json!({ "teamId": self.config.team_id.clone() })))
+            .execute_graphql(
+                query,
+                Some(json!({ "teamId": self.config.team_id.clone() })),
+            )
             .await?;
 
         let tasks = response
@@ -405,7 +413,13 @@ impl TaskProvider for LinearTaskProvider {
         self.get(&response.data.issue_update.issue.id).await
     }
 
-    async fn set_status(&self, id: &str, status: TaskStatus) -> Result<OrchestratorTask> {
+    async fn set_status(
+        &self,
+        id: &str,
+        status: TaskStatus,
+        validate: bool,
+    ) -> Result<OrchestratorTask> {
+        let _ = validate;
         let mapped_status = self.map_status_id(&status)?;
         let response: GraphqlEnvelope<LinearIssueUpdateResponse> = self
             .execute_graphql(

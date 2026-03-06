@@ -5,8 +5,8 @@ use anyhow::{anyhow, Context, Result};
 use reqwest::Client;
 use serde_json::Value;
 
-use crate::providers::git::{
-    BuiltinGitProvider, CreatePrInput, GitProvider, MergeResult, PullRequestInfo,
+use crate::{
+    BuiltinGitProvider, CreatePrInput, GitProvider, MergeResult, PullRequestInfo, WorktreeInfo,
 };
 
 #[cfg(feature = "gitlab")]
@@ -87,9 +87,7 @@ impl GitLabGitProvider {
             .send()
             .await
             .context("failed to fetch merge requests from GitLab")?;
-        let response = self
-            .ensure_success(response, "fetch merge request")
-            .await?;
+        let response = self.ensure_success(response, "fetch merge request").await?;
 
         let requests: Vec<Value> = response
             .json()
@@ -128,7 +126,7 @@ impl GitProvider for GitLabGitProvider {
         worktree_path: &str,
         branch_name: &str,
         base_ref: Option<&str>,
-    ) -> Result<crate::providers::WorktreeInfo> {
+    ) -> Result<WorktreeInfo> {
         let builtin = BuiltinGitProvider::new(project_root);
         builtin
             .create_worktree(project_root, worktree_path, branch_name, base_ref)
@@ -152,9 +150,7 @@ impl GitProvider for GitLabGitProvider {
         branch_name: &str,
     ) -> Result<Option<bool>> {
         let builtin = BuiltinGitProvider::new(project_root);
-        builtin
-            .is_branch_merged(project_root, branch_name)
-            .await
+        builtin.is_branch_merged(project_root, branch_name).await
     }
 
     async fn merge_branch(

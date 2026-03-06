@@ -10,6 +10,7 @@ members = [
   "crates/orchestrator-web-server",
   "crates/oai-runner",
   "crates/workflow-runner",
+  "crates/orchestrator-providers",
 ]
 default-members = [
   "crates/orchestrator-cli",
@@ -23,6 +24,7 @@ resolver = "2"
 protocol = { path = "crates/protocol" }
 llm-cli-wrapper = { path = "crates/llm-cli-wrapper" }
 orchestrator-core = { path = "crates/orchestrator-core" }
+orchestrator-providers = { path = "crates/orchestrator-providers" }
 orchestrator-web-contracts = { path = "crates/orchestrator-web-contracts" }
 orchestrator-web-api = { path = "crates/orchestrator-web-api" }
 orchestrator-web-server = { path = "crates/orchestrator-web-server" }

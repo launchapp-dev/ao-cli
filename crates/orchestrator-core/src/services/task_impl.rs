@@ -1,9 +1,12 @@
 use super::*;
+use orchestrator_providers::TaskServiceApi as ProviderTaskServiceApi;
 
 #[async_trait]
 impl TaskServiceApi for InMemoryServiceHub {
     fn task_provider(&self) -> Arc<dyn TaskProvider> {
-        Arc::new(crate::providers::BuiltinTaskProvider::new(Arc::new(self.clone())))
+        Arc::new(crate::providers::BuiltinTaskProvider::new(Arc::new(
+            self.clone(),
+        )))
     }
 
     async fn list(&self) -> Result<Vec<OrchestratorTask>> {
@@ -25,8 +28,7 @@ impl TaskServiceApi for InMemoryServiceHub {
     }
 
     async fn next_task(&self) -> Result<Option<OrchestratorTask>> {
-        Ok(self
-            .list_prioritized()
+        Ok(TaskServiceApi::list_prioritized(self)
             .await?
             .into_iter()
             .find(|task| matches!(task.status, TaskStatus::Ready | TaskStatus::Backlog)))
@@ -86,7 +88,12 @@ impl TaskServiceApi for InMemoryServiceHub {
         assign_human_in_state(&mut *self.state.write().await, id, user_id, updated_by)
     }
 
-    async fn set_status(&self, id: &str, status: TaskStatus, validate: bool) -> Result<OrchestratorTask> {
+    async fn set_status(
+        &self,
+        id: &str,
+        status: TaskStatus,
+        validate: bool,
+    ) -> Result<OrchestratorTask> {
         set_status_in_state(&mut *self.state.write().await, id, status, validate)
     }
 
@@ -137,14 +144,21 @@ impl TaskServiceApi for InMemoryServiceHub {
         dependency_id: &str,
         updated_by: String,
     ) -> Result<OrchestratorTask> {
-        remove_dependency_in_state(&mut *self.state.write().await, id, dependency_id, updated_by)
+        remove_dependency_in_state(
+            &mut *self.state.write().await,
+            id,
+            dependency_id,
+            updated_by,
+        )
     }
 }
 
 #[async_trait]
 impl TaskServiceApi for FileServiceHub {
     fn task_provider(&self) -> Arc<dyn TaskProvider> {
-        Arc::new(crate::providers::BuiltinTaskProvider::new(Arc::new(self.clone())))
+        Arc::new(crate::providers::BuiltinTaskProvider::new(Arc::new(
+            self.clone(),
+        )))
     }
 
     async fn list(&self) -> Result<Vec<OrchestratorTask>> {
@@ -166,8 +180,7 @@ impl TaskServiceApi for FileServiceHub {
     }
 
     async fn next_task(&self) -> Result<Option<OrchestratorTask>> {
-        Ok(self
-            .list_prioritized()
+        Ok(TaskServiceApi::list_prioritized(self)
             .await?
             .into_iter()
             .find(|task| matches!(task.status, TaskStatus::Ready | TaskStatus::Backlog)))
@@ -241,14 +254,17 @@ impl TaskServiceApi for FileServiceHub {
         updated_by: String,
     ) -> Result<OrchestratorTask> {
         let (task, _) = self
-            .mutate_persistent_state(|state| {
-                assign_human_in_state(state, id, user_id, updated_by)
-            })
+            .mutate_persistent_state(|state| assign_human_in_state(state, id, user_id, updated_by))
             .await?;
         Ok(task)
     }
 
-    async fn set_status(&self, id: &str, status: TaskStatus, validate: bool) -> Result<OrchestratorTask> {
+    async fn set_status(
+        &self,
+        id: &str,
+        status: TaskStatus,
+        validate: bool,
+    ) -> Result<OrchestratorTask> {
         let (task, _) = self
             .mutate_persistent_state(|state| set_status_in_state(state, id, status, validate))
             .await?;
@@ -311,5 +327,193 @@ impl TaskServiceApi for FileServiceHub {
             })
             .await?;
         Ok(task)
+    }
+}
+
+#[async_trait]
+impl ProviderTaskServiceApi for InMemoryServiceHub {
+    async fn list(&self) -> Result<Vec<OrchestratorTask>> {
+        TaskServiceApi::list(self).await
+    }
+
+    async fn list_filtered(&self, filter: TaskFilter) -> Result<Vec<OrchestratorTask>> {
+        TaskServiceApi::list_filtered(self, filter).await
+    }
+
+    async fn list_prioritized(&self) -> Result<Vec<OrchestratorTask>> {
+        TaskServiceApi::list_prioritized(self).await
+    }
+
+    async fn next_task(&self) -> Result<Option<OrchestratorTask>> {
+        TaskServiceApi::next_task(self).await
+    }
+
+    async fn statistics(&self) -> Result<TaskStatistics> {
+        TaskServiceApi::statistics(self).await
+    }
+
+    async fn get(&self, id: &str) -> Result<OrchestratorTask> {
+        TaskServiceApi::get(self, id).await
+    }
+
+    async fn create(&self, input: TaskCreateInput) -> Result<OrchestratorTask> {
+        TaskServiceApi::create(self, input).await
+    }
+
+    async fn update(&self, id: &str, input: TaskUpdateInput) -> Result<OrchestratorTask> {
+        TaskServiceApi::update(self, id, input).await
+    }
+
+    async fn replace(&self, task: OrchestratorTask) -> Result<OrchestratorTask> {
+        TaskServiceApi::replace(self, task).await
+    }
+
+    async fn delete(&self, id: &str) -> Result<()> {
+        TaskServiceApi::delete(self, id).await
+    }
+
+    async fn assign(&self, id: &str, assignee: String) -> Result<OrchestratorTask> {
+        TaskServiceApi::assign(self, id, assignee).await
+    }
+
+    async fn set_status(
+        &self,
+        id: &str,
+        status: TaskStatus,
+        validate: bool,
+    ) -> Result<OrchestratorTask> {
+        TaskServiceApi::set_status(self, id, status, validate).await
+    }
+
+    async fn add_checklist_item(
+        &self,
+        id: &str,
+        description: String,
+        updated_by: String,
+    ) -> Result<OrchestratorTask> {
+        TaskServiceApi::add_checklist_item(self, id, description, updated_by).await
+    }
+
+    async fn update_checklist_item(
+        &self,
+        id: &str,
+        item_id: &str,
+        completed: bool,
+        updated_by: String,
+    ) -> Result<OrchestratorTask> {
+        TaskServiceApi::update_checklist_item(self, id, item_id, completed, updated_by).await
+    }
+
+    async fn add_dependency(
+        &self,
+        id: &str,
+        dependency_id: &str,
+        dependency_type: DependencyType,
+        updated_by: String,
+    ) -> Result<OrchestratorTask> {
+        TaskServiceApi::add_dependency(self, id, dependency_id, dependency_type, updated_by).await
+    }
+
+    async fn remove_dependency(
+        &self,
+        id: &str,
+        dependency_id: &str,
+        updated_by: String,
+    ) -> Result<OrchestratorTask> {
+        TaskServiceApi::remove_dependency(self, id, dependency_id, updated_by).await
+    }
+}
+
+#[async_trait]
+impl ProviderTaskServiceApi for FileServiceHub {
+    async fn list(&self) -> Result<Vec<OrchestratorTask>> {
+        TaskServiceApi::list(self).await
+    }
+
+    async fn list_filtered(&self, filter: TaskFilter) -> Result<Vec<OrchestratorTask>> {
+        TaskServiceApi::list_filtered(self, filter).await
+    }
+
+    async fn list_prioritized(&self) -> Result<Vec<OrchestratorTask>> {
+        TaskServiceApi::list_prioritized(self).await
+    }
+
+    async fn next_task(&self) -> Result<Option<OrchestratorTask>> {
+        TaskServiceApi::next_task(self).await
+    }
+
+    async fn statistics(&self) -> Result<TaskStatistics> {
+        TaskServiceApi::statistics(self).await
+    }
+
+    async fn get(&self, id: &str) -> Result<OrchestratorTask> {
+        TaskServiceApi::get(self, id).await
+    }
+
+    async fn create(&self, input: TaskCreateInput) -> Result<OrchestratorTask> {
+        TaskServiceApi::create(self, input).await
+    }
+
+    async fn update(&self, id: &str, input: TaskUpdateInput) -> Result<OrchestratorTask> {
+        TaskServiceApi::update(self, id, input).await
+    }
+
+    async fn replace(&self, task: OrchestratorTask) -> Result<OrchestratorTask> {
+        TaskServiceApi::replace(self, task).await
+    }
+
+    async fn delete(&self, id: &str) -> Result<()> {
+        TaskServiceApi::delete(self, id).await
+    }
+
+    async fn assign(&self, id: &str, assignee: String) -> Result<OrchestratorTask> {
+        TaskServiceApi::assign(self, id, assignee).await
+    }
+
+    async fn set_status(
+        &self,
+        id: &str,
+        status: TaskStatus,
+        validate: bool,
+    ) -> Result<OrchestratorTask> {
+        TaskServiceApi::set_status(self, id, status, validate).await
+    }
+
+    async fn add_checklist_item(
+        &self,
+        id: &str,
+        description: String,
+        updated_by: String,
+    ) -> Result<OrchestratorTask> {
+        TaskServiceApi::add_checklist_item(self, id, description, updated_by).await
+    }
+
+    async fn update_checklist_item(
+        &self,
+        id: &str,
+        item_id: &str,
+        completed: bool,
+        updated_by: String,
+    ) -> Result<OrchestratorTask> {
+        TaskServiceApi::update_checklist_item(self, id, item_id, completed, updated_by).await
+    }
+
+    async fn add_dependency(
+        &self,
+        id: &str,
+        dependency_id: &str,
+        dependency_type: DependencyType,
+        updated_by: String,
+    ) -> Result<OrchestratorTask> {
+        TaskServiceApi::add_dependency(self, id, dependency_id, dependency_type, updated_by).await
+    }
+
+    async fn remove_dependency(
+        &self,
+        id: &str,
+        dependency_id: &str,
+        updated_by: String,
+    ) -> Result<OrchestratorTask> {
+        TaskServiceApi::remove_dependency(self, id, dependency_id, updated_by).await
     }
 }

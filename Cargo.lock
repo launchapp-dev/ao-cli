@@ -2315,8 +2315,8 @@ dependencies = [
  "fs2",
  "libc",
  "llm-cli-wrapper",
+ "orchestrator-providers",
  "protocol",
- "reqwest 0.12.28",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -2325,6 +2325,20 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "orchestrator-providers"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "protocol",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

@@ -5,14 +5,14 @@ use std::str::FromStr;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use protocol::orchestrator::{
+    Assignee, DependencyType, OrchestratorTask, Priority, TaskCreateInput, TaskFilter,
+    TaskMetadata, TaskStatistics, TaskStatus, TaskType, TaskUpdateInput,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::providers::TaskProvider;
-use crate::types::{
-    Assignee, DependencyType, OrchestratorTask, Priority, TaskCreateInput, TaskFilter,
-    TaskStatus, TaskStatistics, TaskType, TaskUpdateInput,
-};
+use crate::TaskProvider;
 
 #[derive(Debug, Clone)]
 pub struct JiraConfig {
@@ -84,9 +84,7 @@ impl JiraTaskProvider {
                 .text()
                 .await
                 .unwrap_or_else(|_| "<unable to read error body>".to_string());
-            return Err(anyhow!(
-                "{operation} failed with status {status}: {body}"
-            ));
+            return Err(anyhow!("{operation} failed with status {status}: {body}"));
         }
 
         response
@@ -111,9 +109,7 @@ impl JiraTaskProvider {
                 .text()
                 .await
                 .unwrap_or_else(|_| "<unable to read error body>".to_string());
-            return Err(anyhow!(
-                "{operation} failed with status {status}: {body}"
-            ));
+            return Err(anyhow!("{operation} failed with status {status}: {body}"));
         }
         Ok(())
     }
@@ -183,7 +179,10 @@ impl JiraTaskProvider {
             })
             .or_else(|| {
                 fields.reporter.as_ref().and_then(|reporter| {
-                    reporter.email_address.clone().or_else(|| reporter.display_name.clone())
+                    reporter
+                        .email_address
+                        .clone()
+                        .or_else(|| reporter.display_name.clone())
                 })
             })
             .unwrap_or_else(|| "jira".to_string());
@@ -217,7 +216,7 @@ impl JiraTaskProvider {
             workflow_metadata: Default::default(),
             worktree_path: None,
             branch_name: None,
-            metadata: crate::types::TaskMetadata {
+            metadata: TaskMetadata {
                 created_at,
                 updated_at,
                 created_by: created_by.clone(),
@@ -260,13 +259,8 @@ impl JiraTaskProvider {
         })
     }
 
-    async fn resolve_transition_id(
-        &self,
-        issue_id: &str,
-        target: &str,
-    ) -> Result<Option<String>> {
-        let request = self
-            .authorized_get(&format!("{}/transitions", self.issue_url(issue_id)))?;
+    async fn resolve_transition_id(&self, issue_id: &str, target: &str) -> Result<Option<String>> {
+        let request = self.authorized_get(&format!("{}/transitions", self.issue_url(issue_id)))?;
         let request = request.query(&[("expand", "transitions.names")]);
         let response: JiraTransitionsResponse = self
             .send_and_decode(request, "list issue transitions")
@@ -286,7 +280,9 @@ impl JiraTaskProvider {
     }
 
     async fn unsupported<T>(&self, operation: &str) -> Result<T> {
-        Err(anyhow!("Jira provider does not support operation: {operation}"))
+        Err(anyhow!(
+            "Jira provider does not support operation: {operation}"
+        ))
     }
 
     fn filter_task(task: &OrchestratorTask, filter: &TaskFilter) -> bool {
@@ -361,16 +357,14 @@ impl TaskProvider for JiraTaskProvider {
         query.insert("jql", format!("project={}", self.config.project_key));
         query.insert(
             "fields",
-            "summary,description,status,assignee,labels,priority,created,updated,creator,reporter".to_string(),
+            "summary,description,status,assignee,labels,priority,created,updated,creator,reporter"
+                .to_string(),
         );
 
-        let request = self
-            .authorized_get(&self.search_url())?
-            .query(&query);
+        let request = self.authorized_get(&self.search_url())?.query(&query);
 
-        let response: JiraSearchResponse = self
-            .send_and_decode(request, "list jira issues")
-            .await?;
+        let response: JiraSearchResponse =
+            self.send_and_decode(request, "list jira issues").await?;
 
         Ok(response
             .issues
@@ -424,8 +418,12 @@ impl TaskProvider for JiraTaskProvider {
 
         for task in tasks.iter() {
             *by_status.entry(task.status.to_string()).or_insert(0) += 1;
-            *by_priority.entry(task.priority.as_str().to_string()).or_insert(0) += 1;
-            *by_type.entry(task.task_type.as_str().to_string()).or_insert(0) += 1;
+            *by_priority
+                .entry(task.priority.as_str().to_string())
+                .or_insert(0) += 1;
+            *by_type
+                .entry(task.task_type.as_str().to_string())
+                .or_insert(0) += 1;
 
             if task.status == TaskStatus::InProgress {
                 in_progress += 1;
@@ -457,9 +455,7 @@ impl TaskProvider for JiraTaskProvider {
                 .to_string(),
         );
 
-        let request = self
-            .authorized_get(&self.issue_url(id))?
-            .query(&query);
+        let request = self.authorized_get(&self.issue_url(id))?.query(&query);
 
         let issue: JiraIssue = self.send_and_decode(request, "get jira issue").await?;
         Ok(self.map_to_task(issue))
@@ -484,15 +480,15 @@ impl TaskProvider for JiraTaskProvider {
                     } else {
                         Some(input.tags.clone())
                     },
-                    priority: input.priority.map(priority_to_jira_name).map(|name| JiraPriorityRef {
-                        name,
-                    }),
+                    priority: input
+                        .priority
+                        .map(priority_to_jira_name)
+                        .map(|name| JiraPriorityRef { name }),
                 },
             });
 
-        let created: JiraCreateResponse = self
-            .send_and_decode(request, "create jira issue")
-            .await?;
+        let created: JiraCreateResponse =
+            self.send_and_decode(request, "create jira issue").await?;
         self.get(&created.key).await
     }
 
@@ -511,15 +507,17 @@ impl TaskProvider for JiraTaskProvider {
                     .as_ref()
                     .map(|description| self.build_description_field(description)),
                 assignee: None,
-                priority: input.priority.map(priority_to_jira_name).map(|name| JiraPriorityRef {
-                    name,
-                }),
+                priority: input
+                    .priority
+                    .map(priority_to_jira_name)
+                    .map(|name| JiraPriorityRef { name }),
                 labels: input.tags,
             };
             let request = request.json(&JiraUpdateRequest {
                 fields: update_fields,
             });
-            self.send_and_expect_empty(request, "update jira issue").await?;
+            self.send_and_expect_empty(request, "update jira issue")
+                .await?;
         }
 
         if let Some(assignee) = input.assignee {
@@ -539,7 +537,8 @@ impl TaskProvider for JiraTaskProvider {
 
     async fn delete(&self, id: &str) -> Result<()> {
         let request = self.authorized_delete(&self.issue_url(id))?;
-        self.send_and_expect_empty(request, "delete jira issue").await
+        self.send_and_expect_empty(request, "delete jira issue")
+            .await
     }
 
     async fn assign(&self, id: &str, assignee: String) -> Result<OrchestratorTask> {
@@ -547,11 +546,18 @@ impl TaskProvider for JiraTaskProvider {
         let request = request.json(&json!({
             "accountId": assignee,
         }));
-        self.send_and_expect_empty(request, "assign jira issue").await?;
+        self.send_and_expect_empty(request, "assign jira issue")
+            .await?;
         self.get(id).await
     }
 
-    async fn set_status(&self, id: &str, status: TaskStatus) -> Result<OrchestratorTask> {
+    async fn set_status(
+        &self,
+        id: &str,
+        status: TaskStatus,
+        validate: bool,
+    ) -> Result<OrchestratorTask> {
+        let _ = validate;
         let target_status = self.status_name_to_jira_status(status);
         let transition_id = self
             .resolve_transition_id(id, &target_status)
@@ -565,7 +571,8 @@ impl TaskProvider for JiraTaskProvider {
             }
         }));
 
-        self.send_and_expect_empty(request, "set jira issue status").await?;
+        self.send_and_expect_empty(request, "set jira issue status")
+            .await?;
         self.get(id).await
     }
 

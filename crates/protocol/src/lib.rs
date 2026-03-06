@@ -13,6 +13,7 @@ pub mod daemon;
 pub mod error_classification;
 pub mod errors;
 pub mod model_routing;
+pub mod orchestrator;
 pub mod output;
 pub mod process;
 pub mod repository_scope;

@@ -1,5 +1,5 @@
-use async_trait::async_trait;
 use anyhow::Result;
+use async_trait::async_trait;
 use std::path::{Path, PathBuf};
 use tokio::process::Command;
 
@@ -195,7 +195,11 @@ impl GitProvider for BuiltinGitProvider {
     }
 
     async fn remove_worktree(&self, _project_root: &str, worktree_path: &str) -> Result<()> {
-        let args = vec!["worktree".to_string(), "remove".to_string(), worktree_path.to_string()];
+        let args = vec![
+            "worktree".to_string(),
+            "remove".to_string(),
+            worktree_path.to_string(),
+        ];
         let output = self.run_git(&args, None).await?;
 
         if !output.status.success() {
@@ -206,7 +210,12 @@ impl GitProvider for BuiltinGitProvider {
     }
 
     async fn push_branch(&self, _cwd: &str, _remote: &str, branch: &str) -> Result<()> {
-        let args = vec!["push".to_string(), "-u".to_string(), "origin".to_string(), branch.to_string()];
+        let args = vec![
+            "push".to_string(),
+            "-u".to_string(),
+            "origin".to_string(),
+            branch.to_string(),
+        ];
         let output = self.run_git(&args, None).await?;
 
         if !output.status.success() {
@@ -221,7 +230,11 @@ impl GitProvider for BuiltinGitProvider {
         _project_root: &str,
         branch_name: &str,
     ) -> Result<Option<bool>> {
-        let args = vec!["branch".to_string(), "--merged".to_string(), "main".to_string()];
+        let args = vec![
+            "branch".to_string(),
+            "--merged".to_string(),
+            "main".to_string(),
+        ];
         let output = self.run_git(&args, None).await?;
 
         if !output.status.success() {
@@ -286,7 +299,11 @@ impl GitProvider for BuiltinGitProvider {
         Ok(PullRequestInfo {
             id: None,
             number: None,
-            url: if stdout.is_empty() { None } else { Some(stdout) },
+            url: if stdout.is_empty() {
+                None
+            } else {
+                Some(stdout)
+            },
         })
     }
 

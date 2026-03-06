@@ -1,28 +1,34 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-
-use crate::providers::{RequirementsProvider, TaskProvider};
-use crate::services::{PlanningServiceApi, TaskServiceApi};
-use crate::types::{
-    DependencyType, OrchestratorTask, RequirementItem, RequirementsDraftInput, RequirementsDraftResult,
-    RequirementsExecutionInput, RequirementsExecutionResult, RequirementsRefineInput, TaskCreateInput,
-    TaskFilter, TaskStatistics, TaskStatus, TaskUpdateInput,
+use protocol::orchestrator::{
+    DependencyType, OrchestratorTask, RequirementItem, RequirementsDraftInput,
+    RequirementsDraftResult, RequirementsExecutionInput, RequirementsExecutionResult,
+    RequirementsRefineInput, TaskCreateInput, TaskFilter, TaskStatistics, TaskStatus,
+    TaskUpdateInput,
 };
 
+use crate::{PlanningServiceApi, RequirementsProvider, TaskProvider, TaskServiceApi};
+
 #[derive(Clone)]
-pub struct BuiltinTaskProvider {
-    hub: Arc<dyn TaskServiceApi>,
+pub struct BuiltinTaskProvider<T> {
+    hub: Arc<T>,
 }
 
-impl BuiltinTaskProvider {
-    pub fn new(hub: Arc<dyn TaskServiceApi>) -> Self {
+impl<T> BuiltinTaskProvider<T>
+where
+    T: TaskServiceApi,
+{
+    pub fn new(hub: Arc<T>) -> Self {
         Self { hub }
     }
 }
 
 #[async_trait::async_trait]
-impl TaskProvider for BuiltinTaskProvider {
+impl<T> TaskProvider for BuiltinTaskProvider<T>
+where
+    T: TaskServiceApi,
+{
     async fn list(&self) -> Result<Vec<OrchestratorTask>> {
         self.hub.list().await
     }
@@ -67,7 +73,12 @@ impl TaskProvider for BuiltinTaskProvider {
         self.hub.assign(id, assignee).await
     }
 
-    async fn set_status(&self, id: &str, status: TaskStatus, validate: bool) -> Result<OrchestratorTask> {
+    async fn set_status(
+        &self,
+        id: &str,
+        status: TaskStatus,
+        validate: bool,
+    ) -> Result<OrchestratorTask> {
         self.hub.set_status(id, status, validate).await
     }
 
@@ -77,7 +88,9 @@ impl TaskProvider for BuiltinTaskProvider {
         description: String,
         updated_by: String,
     ) -> Result<OrchestratorTask> {
-        self.hub.add_checklist_item(id, description, updated_by).await
+        self.hub
+            .add_checklist_item(id, description, updated_by)
+            .await
     }
 
     async fn update_checklist_item(
@@ -117,18 +130,24 @@ impl TaskProvider for BuiltinTaskProvider {
 }
 
 #[derive(Clone)]
-pub struct BuiltinRequirementsProvider {
-    hub: Arc<dyn PlanningServiceApi>,
+pub struct BuiltinRequirementsProvider<T> {
+    hub: Arc<T>,
 }
 
-impl BuiltinRequirementsProvider {
-    pub fn new(hub: Arc<dyn PlanningServiceApi>) -> Self {
+impl<T> BuiltinRequirementsProvider<T>
+where
+    T: PlanningServiceApi,
+{
+    pub fn new(hub: Arc<T>) -> Self {
         Self { hub }
     }
 }
 
 #[async_trait::async_trait]
-impl RequirementsProvider for BuiltinRequirementsProvider {
+impl<T> RequirementsProvider for BuiltinRequirementsProvider<T>
+where
+    T: PlanningServiceApi,
+{
     async fn draft_requirements(
         &self,
         input: RequirementsDraftInput,
@@ -151,10 +170,7 @@ impl RequirementsProvider for BuiltinRequirementsProvider {
         self.hub.refine_requirements(input).await
     }
 
-    async fn upsert_requirement(
-        &self,
-        requirement: RequirementItem,
-    ) -> Result<RequirementItem> {
+    async fn upsert_requirement(&self, requirement: RequirementItem) -> Result<RequirementItem> {
         self.hub.upsert_requirement(requirement).await
     }
 

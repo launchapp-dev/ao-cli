@@ -14,7 +14,7 @@ use super::daemon_events::{emit_daemon_event, next_daemon_event};
 use super::daemon_notifications::{DaemonNotificationRuntime, NotificationLifecycleEvent};
 use super::daemon_scheduler::{
     clear_running_workflow_phase_pool, drain_running_workflow_phases_for_project,
-    has_running_workflow_phase_pool_activity, is_pool_draining, project_tick,
+    has_running_workflow_phase_pool_activity, is_pool_draining,
     pause_running_workflow_phase_spawns, slim_project_tick,
     recover_orphaned_running_workflows_on_startup, resume_running_workflow_phase_spawns,
     set_pool_draining, subscribe_phase_completion_wake,
@@ -511,19 +511,6 @@ pub(super) async fn handle_daemon_run(
         let mut process_manager = ProcessManager::new();
         let mut completion_wake_rx = subscribe_phase_completion_wake();
         let mut sigterm_stream = SigtermStream::new()?;
-        if args.legacy {
-            emit_daemon_event_with_notifications(
-                &mut seq,
-                "log",
-                Some(primary_root.clone()),
-                serde_json::json!({
-                    "level": "warning",
-                    "message": "Legacy daemon mode is deprecated",
-                }),
-                json,
-                notification_runtime.as_mut(),
-            )?;
-        }
         loop {
             let externally_paused = super::load_daemon_runtime_state(project_root)
                 .map(|state| state.runtime_paused)
@@ -536,11 +523,8 @@ pub(super) async fn handle_daemon_run(
             } else if !is_pool_draining(project_root) {
                 resume_running_workflow_phase_spawns(project_root);
             }
-            let tick_result = if args.legacy {
-                project_tick(project_root, &args).await
-            } else {
-                slim_project_tick(project_root, &args, &mut process_manager).await
-            };
+            let tick_result =
+                slim_project_tick(project_root, &args, &mut process_manager).await;
             match tick_result {
                 Ok(summary) => {
                     if summary.started_daemon {
@@ -853,7 +837,6 @@ mod tests {
             phase_timeout_secs: None,
             idle_timeout_secs: None,
             once: true,
-            legacy: false,
         };
         handle_daemon_run(
             args,
@@ -985,7 +968,6 @@ mod tests {
             phase_timeout_secs: None,
             idle_timeout_secs: None,
             once: true,
-            legacy: false,
         };
         handle_daemon_run(
             args,
@@ -1055,6 +1037,19 @@ mod tests {
         let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
         let _skip_runner = EnvVarGuard::set("AO_SKIP_RUNNER_START", Some("1"));
 
+        let test_bin_dir = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+            .expect("test binary directory");
+        let release_bin_dir = test_bin_dir.parent().unwrap_or(&test_bin_dir);
+        let path_with_bin_dir = format!(
+            "{}:{}:{}",
+            release_bin_dir.display(),
+            test_bin_dir.display(),
+            std::env::var("PATH").unwrap_or_default()
+        );
+        let _path_guard = EnvVarGuard::set("PATH", Some(&path_with_bin_dir));
+
         let primary = TempDir::new().expect("primary project dir");
         let primary_root = primary.path().to_string_lossy().to_string();
         let primary_hub = Arc::new(FileServiceHub::new(&primary_root).expect("primary hub"));
@@ -1097,7 +1092,6 @@ mod tests {
             phase_timeout_secs: None,
             idle_timeout_secs: None,
             once: true,
-            legacy: true,
         };
         handle_daemon_run(
             args,
@@ -1223,7 +1217,6 @@ mod tests {
             phase_timeout_secs: None,
             idle_timeout_secs: None,
             once: true,
-            legacy: false,
         };
         handle_daemon_run(
             args,

@@ -1793,14 +1793,12 @@ async fn execute_workflow_post_success_actions(
             &body,
         )
         .await;
-        action_result["status"] = action_result["actions"]["create_pr"]["status"].clone();
+        let pr_status = action_result["actions"]["create_pr"]["status"].clone();
+        action_result["status"] = pr_status.clone();
         action_result["source_branch"] = serde_json::json!(source_branch);
         if merge_cfg.cleanup_worktree {
             action_result["actions"]["cleanup_worktree"] =
                 cleanup_worktree_with_fallback(&*git_provider, project_root, task).await;
-            if action_result["actions"]["cleanup_worktree"]["status"] == "completed" {
-                action_result["status"] = serde_json::json!("completed");
-            }
         }
         return action_result;
     }
@@ -2011,42 +2009,152 @@ async fn create_pull_request_via_gh(
     }
 }
 
+async fn checkout_target_branch(execution_cwd: &str, target_branch: &str) -> Result<()> {
+    let checkout_output = run_git_output("git", execution_cwd, &["checkout", target_branch]).await;
+    match checkout_output {
+        Ok(output) if output.status.success() => return Ok(()),
+        Ok(output) => {
+            let primary_error = command_summary(&output);
+            let fallback_ref = format!("origin/{target_branch}");
+            let fallback = run_git_output(
+                "git",
+                execution_cwd,
+                &["checkout", "-b", target_branch, fallback_ref.as_str()],
+            )
+            .await;
+            match fallback {
+                Ok(fb_output) if fb_output.status.success() => Ok(()),
+                Ok(fb_output) => anyhow::bail!(
+                    "failed to checkout target branch '{target_branch}': {primary_error}; fallback failed: {}",
+                    command_summary(&fb_output),
+                ),
+                Err(fb_err) => anyhow::bail!(
+                    "failed to checkout target branch '{target_branch}': {primary_error}; fallback failed: {fb_err}",
+                ),
+            }
+        }
+        Err(error) => {
+            let fallback_ref = format!("origin/{target_branch}");
+            let fallback = run_git_output(
+                "git",
+                execution_cwd,
+                &["checkout", "-b", target_branch, fallback_ref.as_str()],
+            )
+            .await;
+            match fallback {
+                Ok(fb_output) if fb_output.status.success() => Ok(()),
+                Ok(fb_output) => anyhow::bail!(
+                    "failed to checkout target branch '{target_branch}': {error}; fallback failed: {}",
+                    command_summary(&fb_output),
+                ),
+                Err(fb_err) => anyhow::bail!(
+                    "failed to checkout target branch '{target_branch}': {error}; fallback failed: {fb_err}",
+                ),
+            }
+        }
+    }
+}
+
+async fn perform_rebase_strategy(
+    execution_cwd: &str,
+    source_branch: &str,
+    target_branch: &str,
+) -> Value {
+    let rebase_output = run_git_output(
+        "git",
+        execution_cwd,
+        &["rebase", target_branch, source_branch],
+    )
+    .await;
+    match rebase_output {
+        Ok(output) if output.status.success() => {
+            let ff_merge = run_git_output(
+                "git",
+                execution_cwd,
+                &["merge", "--ff-only", source_branch],
+            )
+            .await;
+            match ff_merge {
+                Ok(merge_out) if merge_out.status.success() => serde_json::json!({
+                    "status": "completed",
+                    "method": "git",
+                    "source_branch": source_branch,
+                    "target_branch": target_branch,
+                    "strategy": "rebase",
+                }),
+                Ok(merge_out) => serde_json::json!({
+                    "status": "failed",
+                    "method": "git",
+                    "source_branch": source_branch,
+                    "target_branch": target_branch,
+                    "strategy": "rebase",
+                    "error": format!("rebase succeeded but ff-merge failed: {}", command_summary(&merge_out)),
+                }),
+                Err(err) => serde_json::json!({
+                    "status": "failed",
+                    "method": "git",
+                    "source_branch": source_branch,
+                    "target_branch": target_branch,
+                    "strategy": "rebase",
+                    "error": format!("rebase succeeded but ff-merge failed: {err}"),
+                }),
+            }
+        }
+        Ok(output) => {
+            let _ = run_git_output("git", execution_cwd, &["rebase", "--abort"]).await;
+            let summary = command_summary(&output);
+            let status = if looks_like_merge_conflict(&summary) {
+                "conflict"
+            } else {
+                "failed"
+            };
+            serde_json::json!({
+                "status": status,
+                "method": "git",
+                "source_branch": source_branch,
+                "target_branch": target_branch,
+                "strategy": "rebase",
+                "error": summary,
+            })
+        }
+        Err(error) => serde_json::json!({
+            "status": "failed",
+            "method": "git",
+            "source_branch": source_branch,
+            "target_branch": target_branch,
+            "strategy": "rebase",
+            "error": error.to_string(),
+        }),
+    }
+}
+
 async fn perform_auto_merge_with_git(
     execution_cwd: &str,
     source_branch: &str,
     target_branch: &str,
     strategy: &MergeStrategy,
 ) -> Value {
-    let checkout_result = run_git_output("git", execution_cwd, &["checkout", target_branch]).await;
-    if let Err(error) = &checkout_result {
-        let fallback_checkout = format!("origin/{target_branch}");
-        let fallback_output = run_git_output(
-            "git",
-            execution_cwd,
-            &["checkout", "-b", target_branch, fallback_checkout.as_str()],
-        )
-        .await;
-        if let Err(fallback_error) = fallback_output {
-            return serde_json::json!({
-                "status": "failed",
-                "method": "git",
-                "source_branch": source_branch,
-                "target_branch": target_branch,
-                "strategy": merge_strategy_name(strategy),
-                "error": format!(
-                    "failed to checkout target branch '{target_branch}': {}; fallback failed: {fallback_error}",
-                    error.to_string(),
-                ),
-            });
-        }
+    if let Err(error) = checkout_target_branch(execution_cwd, target_branch).await {
+        return serde_json::json!({
+            "status": "failed",
+            "method": "git",
+            "source_branch": source_branch,
+            "target_branch": target_branch,
+            "strategy": merge_strategy_name(strategy),
+            "error": error.to_string(),
+        });
+    }
+
+    if matches!(strategy, MergeStrategy::Rebase) {
+        return perform_rebase_strategy(execution_cwd, source_branch, target_branch).await;
     }
 
     let merge_args = {
         let mut args: Vec<String> = vec!["merge".to_string()];
         match strategy {
             MergeStrategy::Squash => args.push("--squash".to_string()),
-            MergeStrategy::Rebase => args.push("--rebase-merges".to_string()),
             MergeStrategy::Merge => args.push("--no-ff".to_string()),
+            MergeStrategy::Rebase => unreachable!(),
         };
         args.push("--no-edit".to_string());
         args.push(source_branch.to_string());

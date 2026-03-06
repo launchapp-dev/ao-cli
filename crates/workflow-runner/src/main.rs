@@ -1,14 +1,9 @@
-use std::path::Path;
 use std::process::ExitCode;
 
-use anyhow::{anyhow, Context, Result};
-use async_trait::async_trait;
+use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
-use orchestrator_core::{
-    load_workflow_config, resolve_pipeline_phase_plan, PhaseExecutionRequest, PhaseExecutionResult,
-    PhaseExecutor, PhaseVerdict,
-};
 use serde::Serialize;
+use tokio::process::Command as TokioCommand;
 
 #[derive(Parser)]
 #[command(name = "ao-workflow-runner", about = "Standalone workflow phase runner")]
@@ -47,89 +42,28 @@ struct WorkflowExecuteArgs {
 }
 
 #[derive(Debug, Serialize)]
-struct PhaseReport {
+struct RunnerEvent {
+    event: &'static str,
     task_id: String,
-    pipeline_id: String,
-    phase_id: String,
-    exit_code: i32,
-    verdict: String,
-    error: Option<String>,
-    commit_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pipeline: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    exit_code: Option<i32>,
 }
 
-impl PhaseReport {
-    fn new(task_id: String, pipeline_id: String, phase_id: String, result: &PhaseExecutionResult) -> Self {
-        let verdict = match &result.verdict {
-            PhaseVerdict::Advance => "advance",
-            PhaseVerdict::Rework { target_phase } => {
-                return Self {
-                    task_id,
-                    pipeline_id,
-                    phase_id,
-                    exit_code: result.exit_code,
-                    verdict: format!("rework:{target_phase}"),
-                    error: result.error.clone(),
-                    commit_message: result.commit_message.clone(),
-                };
+fn resolve_ao_binary() -> String {
+    if let Ok(path) = std::env::var("AO_BIN") {
+        return path;
+    }
+    if let Ok(current) = std::env::current_exe() {
+        if let Some(dir) = current.parent() {
+            let candidate = dir.join("ao");
+            if candidate.is_file() {
+                return candidate.to_string_lossy().to_string();
             }
-            PhaseVerdict::Skip => "skip",
-            PhaseVerdict::Failed { .. } => "failed",
-        }
-        .to_string();
-
-        Self {
-            task_id,
-            pipeline_id,
-            phase_id,
-            exit_code: result.exit_code,
-            verdict,
-            error: result.error.clone(),
-            commit_message: result.commit_message.clone(),
         }
     }
-}
-
-#[derive(Debug, Default)]
-struct StubPhaseExecutor;
-
-#[async_trait]
-impl PhaseExecutor for StubPhaseExecutor {
-    async fn execute_phase(
-        &self,
-        request: PhaseExecutionRequest,
-    ) -> Result<PhaseExecutionResult> {
-        let payload = serde_json::json!({
-            "task_id": request.task_id.clone(),
-            "phase_id": request.phase_id.clone(),
-            "pipeline_id": request.pipeline_id.clone(),
-            "project_root": request.project_root,
-            "config_dir": request.config_dir,
-            "model_override": request.model_override,
-            "tool_override": request.tool_override,
-            "timeout": request.timeout,
-        });
-        println!(
-            "ao-workflow-runner stub: task='{}' phase='{}' pipeline='{}' model={:?} tool={:?} timeout={:?}",
-            payload["task_id"],
-            payload["phase_id"],
-            payload["pipeline_id"],
-            payload["model_override"],
-            payload["tool_override"],
-            payload["timeout"]
-        );
-
-        let output_log = serde_json::to_string_pretty(&payload)?;
-        Ok(PhaseExecutionResult {
-            exit_code: 0,
-            verdict: PhaseVerdict::Advance,
-            output_log,
-            error: None,
-            commit_message: Some(format!(
-                "stub executor: no-op for phase {}",
-                payload["phase_id"]
-            )),
-        })
-    }
+    "ao".to_string()
 }
 
 #[tokio::main]
@@ -148,67 +82,60 @@ async fn main() -> ExitCode {
 }
 
 async fn run_execute(args: WorkflowExecuteArgs) -> Result<u8> {
-    let workflow_config = load_workflow_config(Path::new(&args.project_root))
-        .with_context(|| format!("failed to load workflow config from {}", args.project_root))?;
+    let startup = RunnerEvent {
+        event: "runner_start",
+        task_id: args.task_id.clone(),
+        pipeline: args.pipeline.clone(),
+        exit_code: None,
+    };
+    eprintln!("{}", serde_json::to_string(&startup).unwrap_or_default());
 
-    let pipeline_id = args
-        .pipeline
-        .clone()
-        .unwrap_or_else(|| workflow_config.default_pipeline_id.trim().to_string());
+    let ao_bin = resolve_ao_binary();
+    let mut command = TokioCommand::new(&ao_bin);
+    command
+        .arg("--project-root")
+        .arg(&args.project_root)
+        .arg("workflow")
+        .arg("execute")
+        .arg("--task-id")
+        .arg(&args.task_id)
+        .arg("--quiet");
 
-    let phase_ids = resolve_pipeline_phase_plan(&workflow_config, args.pipeline.as_deref()).ok_or_else(
-        || {
-            anyhow!(
-                "pipeline '{}' is not found or has no executable phases",
-                pipeline_id
-            )
-        },
-    )?;
-
-    let config_dir = args.config_path.clone().unwrap_or_else(|| args.project_root.clone());
-    let executor = StubPhaseExecutor::default();
-    let mut reports = Vec::new();
-
-    for phase_id in phase_ids {
-        let request = PhaseExecutionRequest {
-            task_id: args.task_id.clone(),
-            phase_id: phase_id.clone(),
-            pipeline_id: pipeline_id.clone(),
-            project_root: args.project_root.clone(),
-            config_dir: config_dir.clone(),
-            model_override: args.model.clone(),
-            tool_override: args.tool.clone(),
-            timeout: args.phase_timeout_secs,
-        };
-
-        let result = executor
-            .execute_phase(request)
-            .await
-            .with_context(|| format!("failed to execute phase '{}'", phase_id))?;
-
-        let report = PhaseReport::new(args.task_id.clone(), pipeline_id.clone(), phase_id.clone(), &result);
-        println!("{}", serde_json::to_string_pretty(&report)?);
-        reports.push(report);
-
-        if result.exit_code != 0 {
-            return Ok(clamp_exit_code(result.exit_code));
-        }
-
-        if let PhaseVerdict::Failed { reason } = result.verdict {
-            eprintln!("phase '{}' failed: {reason}", phase_id);
-            return Ok(clamp_exit_code(result.exit_code.max(1)));
-        }
+    if let Some(ref pipeline) = args.pipeline {
+        command.arg("--pipeline-id").arg(pipeline);
+    }
+    if let Some(ref model) = args.model {
+        command.arg("--model").arg(model);
+    }
+    if let Some(ref tool) = args.tool {
+        command.arg("--tool").arg(tool);
+    }
+    if let Some(timeout) = args.phase_timeout_secs {
+        command.arg("--phase-timeout-secs").arg(timeout.to_string());
     }
 
-    let summary = serde_json::json!({
-        "status": "completed",
-        "task_id": args.task_id,
-        "pipeline_id": pipeline_id,
-        "phases": reports,
-    });
-    println!("{}", serde_json::to_string_pretty(&summary)?);
+    command.stdout(std::process::Stdio::inherit());
+    command.stderr(std::process::Stdio::inherit());
 
-    Ok(0)
+    let status = command
+        .status()
+        .await
+        .with_context(|| format!("failed to spawn ao binary at '{ao_bin}'"))?;
+
+    let exit_code = status.code().unwrap_or(1);
+
+    let completion = RunnerEvent {
+        event: "runner_complete",
+        task_id: args.task_id,
+        pipeline: args.pipeline,
+        exit_code: Some(exit_code),
+    };
+    eprintln!(
+        "{}",
+        serde_json::to_string(&completion).unwrap_or_default()
+    );
+
+    Ok(clamp_exit_code(exit_code))
 }
 
 fn clamp_exit_code(code: i32) -> u8 {
@@ -221,5 +148,85 @@ fn clamp_exit_code(code: i32) -> u8 {
                 u8::MAX
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clamp_exit_code_zero() {
+        assert_eq!(clamp_exit_code(0), 0);
+    }
+
+    #[test]
+    fn clamp_exit_code_normal() {
+        assert_eq!(clamp_exit_code(1), 1);
+        assert_eq!(clamp_exit_code(42), 42);
+        assert_eq!(clamp_exit_code(255), 255);
+    }
+
+    #[test]
+    fn clamp_exit_code_negative() {
+        assert_eq!(clamp_exit_code(-1), 1);
+        assert_eq!(clamp_exit_code(-128), 1);
+    }
+
+    #[test]
+    fn clamp_exit_code_overflow() {
+        assert_eq!(clamp_exit_code(256), u8::MAX);
+        assert_eq!(clamp_exit_code(i32::MAX), u8::MAX);
+    }
+
+    #[test]
+    fn resolve_ao_binary_respects_env() {
+        std::env::set_var("AO_BIN", "/custom/path/ao");
+        let result = resolve_ao_binary();
+        std::env::remove_var("AO_BIN");
+        assert_eq!(result, "/custom/path/ao");
+    }
+
+    #[test]
+    fn resolve_ao_binary_falls_back_to_path() {
+        std::env::remove_var("AO_BIN");
+        let result = resolve_ao_binary();
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn source_contains_no_stub_executor() {
+        let source = include_str!("main.rs");
+        let marker = format!("{}PhaseExecutor", "Stub");
+        let count = source.matches(&marker).count();
+        assert_eq!(
+            count, 0,
+            "workflow-runner must not contain {marker} (found {count} occurrences)"
+        );
+    }
+
+    #[test]
+    fn runner_event_serialization() {
+        let event = RunnerEvent {
+            event: "runner_start",
+            task_id: "TASK-001".to_string(),
+            pipeline: Some("default".to_string()),
+            exit_code: None,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("runner_start"));
+        assert!(json.contains("TASK-001"));
+        assert!(!json.contains("exit_code"));
+
+        let complete = RunnerEvent {
+            event: "runner_complete",
+            task_id: "TASK-001".to_string(),
+            pipeline: None,
+            exit_code: Some(0),
+        };
+        let json = serde_json::to_string(&complete).unwrap();
+        assert!(json.contains("runner_complete"));
+        assert!(json.contains("\"exit_code\":0"));
+        assert!(!json.contains("pipeline"));
     }
 }

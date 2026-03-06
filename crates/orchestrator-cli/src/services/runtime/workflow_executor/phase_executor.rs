@@ -492,6 +492,60 @@ fn inject_project_mcp_servers(
     }
 }
 
+fn inject_workflow_mcp_servers(
+    runtime_contract: &mut Value,
+    project_root: &str,
+    phase_id: &str,
+) {
+    let config = orchestrator_core::load_workflow_config_or_default(Path::new(project_root));
+    if config.config.mcp_servers.is_empty() {
+        return;
+    }
+    let agent_id = load_agent_runtime_config(project_root)
+        .phase_agent_id(phase_id)
+        .map(ToOwned::to_owned);
+    let allowed_servers: Option<&[String]> = agent_id
+        .as_deref()
+        .and_then(|id| config.config.agent_profiles.get(id))
+        .map(|profile| profile.mcp_servers.as_slice())
+        .filter(|servers| !servers.is_empty());
+
+    let existing = runtime_contract
+        .pointer("/mcp/additional_servers")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    let mut servers = existing;
+
+    for (name, definition) in &config.config.mcp_servers {
+        if let Some(allowed) = allowed_servers {
+            if !allowed.iter().any(|a| a == name) {
+                continue;
+            }
+        }
+        servers.insert(
+            name.clone(),
+            serde_json::json!({
+                "command": definition.command,
+                "args": definition.args,
+                "env": definition.env,
+            }),
+        );
+    }
+    if servers.is_empty() {
+        return;
+    }
+    if let Some(mcp) = runtime_contract
+        .get_mut("mcp")
+        .and_then(Value::as_object_mut)
+    {
+        mcp.insert(
+            "additional_servers".to_string(),
+            Value::Object(servers),
+        );
+    }
+}
+
 fn phase_decision_contract_for(
     project_root: &str,
     phase_id: &str,
@@ -886,6 +940,11 @@ pub(crate) async fn run_workflow_phase_attempt(
     request: &AgentRunRequest,
     parse_research_signal: bool,
 ) -> Result<PhaseExecutionOutcome> {
+    let tool_id = request
+        .context
+        .get("tool")
+        .and_then(|v| v.as_str())
+        .unwrap_or("codex");
     let parse_commit_message = phase_requires_commit_message_with_config(project_root, phase_id);
     let expected_result_kind = phase_result_kind_for(project_root, phase_id);
     let config_dir = runner_config_dir(Path::new(project_root));
@@ -962,7 +1021,7 @@ pub(crate) async fn run_workflow_phase_attempt(
                 if stream_to_stderr {
                     use std::io::Write as _;
                     if let Some(formatted) =
-                        format_output_chunk_for_display(&text, stream_verbose, use_colors)
+                        format_output_chunk_for_display(&text, stream_verbose, use_colors, tool_id)
                     {
                         if !formatted.is_empty() {
                             let _ = write!(std::io::stderr(), "{}", formatted);
@@ -1247,6 +1306,7 @@ pub(crate) async fn run_workflow_phase_with_agent(
                 inject_default_stdio_mcp(&mut runtime_contract, project_root);
                 inject_agent_tool_policy(&mut runtime_contract, project_root, phase_id);
                 inject_project_mcp_servers(&mut runtime_contract, project_root, phase_id);
+                inject_workflow_mcp_servers(&mut runtime_contract, project_root, phase_id);
                 context
                     .as_object_mut()
                     .expect("json object")
@@ -2308,78 +2368,46 @@ fn pipeline_phase_order_for_workflow(project_root: &str, workflow_id: &str) -> V
         .collect()
 }
 
-fn format_output_chunk_for_display(text: &str, verbose: bool, use_colors: bool) -> Option<String> {
+fn format_output_chunk_for_display(text: &str, _verbose: bool, use_colors: bool, tool: &str) -> Option<String> {
+    use cli_wrapper::{NormalizedTextEvent, extract_text_from_line};
+
     let trimmed = text.trim_start();
     if !trimmed.starts_with('{') {
         return Some(text.to_string());
     }
-    let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) else {
-        return Some(text.to_string());
-    };
-    let obj = val.as_object()?;
-    let event_type = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
-    match event_type {
-        "assistant" => format_claude_assistant_message(&val, verbose, use_colors),
-        "tool_error" => {
-            let msg = obj
-                .get("error")
-                .and_then(|v| v.as_str())
-                .or_else(|| obj.get("message").and_then(|v| v.as_str()))
-                .unwrap_or("unknown error");
-            let (red, reset) = if use_colors {
-                ("\x1b[31m", "\x1b[0m")
-            } else {
-                ("", "")
-            };
-            Some(format!("{red}  error: {msg}{reset}\n"))
-        }
-        _ => None,
-    }
-}
 
-fn format_claude_assistant_message(
-    val: &serde_json::Value,
-    verbose: bool,
-    use_colors: bool,
-) -> Option<String> {
-    let content = val
-        .pointer("/message/content")
-        .and_then(|c| c.as_array())?;
-    let mut out = String::new();
-    for block in content {
-        let block_type = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
-        match block_type {
-            "text" => {
-                if let Some(t) = block.get("text").and_then(|v| v.as_str()) {
-                    if use_colors {
-                        out.push_str(&termimad::text(t).to_string());
-                    } else {
-                        out.push_str(t);
-                    }
-                }
+    if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        if let Some(obj) = val.as_object() {
+            let event_type = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            if event_type == "tool_error" {
+                let msg = obj
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| obj.get("message").and_then(|v| v.as_str()))
+                    .unwrap_or("unknown error");
+                let (red, reset) = if use_colors {
+                    ("\x1b[31m", "\x1b[0m")
+                } else {
+                    ("", "")
+                };
+                return Some(format!("{red}  error: {msg}{reset}\n"));
             }
-            "thinking" => {
-                if verbose {
-                    if let Some(t) = block.get("thinking").and_then(|v| v.as_str()) {
-                        let (dim, reset) = if use_colors {
-                            ("\x1b[2m", "\x1b[0m")
-                        } else {
-                            ("", "")
-                        };
-                        out.push_str(&format!("{dim}{t}{reset}"));
-                    }
-                }
-            }
-            _ => {}
         }
     }
-    if out.is_empty() {
-        None
-    } else {
-        if !out.ends_with('\n') {
-            out.push('\n');
+
+    match extract_text_from_line(text, tool) {
+        NormalizedTextEvent::TextChunk { text: t } | NormalizedTextEvent::FinalResult { text: t } => {
+            let mut out = if use_colors {
+                termimad::text(&t).to_string()
+            } else {
+                t
+            };
+            if !out.ends_with('\n') {
+                out.push('\n');
+            }
+            Some(out)
         }
-        Some(out)
+        NormalizedTextEvent::Ignored => None,
     }
 }
 
@@ -2644,6 +2672,160 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(&output_file).unwrap()).unwrap();
         assert_eq!(loaded.verdict.as_deref(), Some("rework"));
         assert!(loaded.reason.as_deref().unwrap().contains("Need API docs"));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn inject_workflow_mcp_servers_adds_servers_to_runtime_contract() {
+        let tmp = std::env::temp_dir().join(format!("ao-test-wf-mcp-{}", Uuid::new_v4()));
+        let project_root = tmp.to_str().unwrap();
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let mut config = orchestrator_core::builtin_workflow_config();
+        config.mcp_servers.insert(
+            "custom-server".to_string(),
+            orchestrator_core::workflow_config::McpServerDefinition {
+                command: "npx".to_string(),
+                args: vec!["-y".to_string(), "custom-mcp".to_string()],
+                transport: None,
+                config: Default::default(),
+                tools: vec![],
+                env: [("API_KEY".to_string(), "test".to_string())]
+                    .into_iter()
+                    .collect(),
+            },
+        );
+        orchestrator_core::write_workflow_config(Path::new(project_root), &config).unwrap();
+
+        let mut contract = serde_json::json!({
+            "mcp": {
+                "stdio": { "command": "ao" }
+            }
+        });
+        inject_workflow_mcp_servers(&mut contract, project_root, "implementation");
+
+        let servers = contract
+            .pointer("/mcp/additional_servers")
+            .and_then(Value::as_object)
+            .expect("additional_servers should exist");
+        assert!(
+            servers.contains_key("custom-server"),
+            "workflow mcp_servers should be injected"
+        );
+        let custom = &servers["custom-server"];
+        assert_eq!(custom["command"], "npx");
+        assert_eq!(custom["args"], serde_json::json!(vec!["-y", "custom-mcp"]));
+        assert_eq!(custom["env"]["API_KEY"], "test");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn inject_workflow_mcp_servers_merges_with_existing_project_servers() {
+        let tmp = std::env::temp_dir().join(format!("ao-test-wf-mcp-merge-{}", Uuid::new_v4()));
+        let project_root = tmp.to_str().unwrap();
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let mut config = orchestrator_core::builtin_workflow_config();
+        config.mcp_servers.insert(
+            "workflow-server".to_string(),
+            orchestrator_core::workflow_config::McpServerDefinition {
+                command: "wf-tool".to_string(),
+                args: vec![],
+                transport: None,
+                config: Default::default(),
+                tools: vec![],
+                env: Default::default(),
+            },
+        );
+        orchestrator_core::write_workflow_config(Path::new(project_root), &config).unwrap();
+
+        let mut contract = serde_json::json!({
+            "mcp": {
+                "stdio": { "command": "ao" },
+                "additional_servers": {
+                    "project-server": { "command": "proj-tool", "args": [], "env": {} }
+                }
+            }
+        });
+        inject_workflow_mcp_servers(&mut contract, project_root, "implementation");
+
+        let servers = contract
+            .pointer("/mcp/additional_servers")
+            .and_then(Value::as_object)
+            .expect("additional_servers should exist");
+        assert!(
+            servers.contains_key("project-server"),
+            "existing project servers should be preserved"
+        );
+        assert!(
+            servers.contains_key("workflow-server"),
+            "workflow servers should be merged in"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn inject_workflow_mcp_servers_filters_by_agent_profile() {
+        let tmp =
+            std::env::temp_dir().join(format!("ao-test-wf-mcp-filter-{}", Uuid::new_v4()));
+        let project_root = tmp.to_str().unwrap();
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let mut config = orchestrator_core::builtin_workflow_config();
+        config.mcp_servers.insert(
+            "allowed-server".to_string(),
+            orchestrator_core::workflow_config::McpServerDefinition {
+                command: "allowed".to_string(),
+                args: vec![],
+                transport: None,
+                config: Default::default(),
+                tools: vec![],
+                env: Default::default(),
+            },
+        );
+        config.mcp_servers.insert(
+            "blocked-server".to_string(),
+            orchestrator_core::workflow_config::McpServerDefinition {
+                command: "blocked".to_string(),
+                args: vec![],
+                transport: None,
+                config: Default::default(),
+                tools: vec![],
+                env: Default::default(),
+            },
+        );
+        let agent_id = load_agent_runtime_config(project_root)
+            .phase_agent_id("implementation")
+            .unwrap_or("swe")
+            .to_owned();
+        let mut profile: orchestrator_core::AgentProfile =
+            serde_json::from_value(serde_json::json!({})).unwrap();
+        profile.mcp_servers = vec!["allowed-server".to_string()];
+        config.agent_profiles.insert(agent_id, profile);
+        orchestrator_core::write_workflow_config(Path::new(project_root), &config).unwrap();
+
+        let mut contract = serde_json::json!({
+            "mcp": {
+                "stdio": { "command": "ao" }
+            }
+        });
+        inject_workflow_mcp_servers(&mut contract, project_root, "implementation");
+
+        let servers = contract
+            .pointer("/mcp/additional_servers")
+            .and_then(Value::as_object)
+            .expect("additional_servers should exist");
+        assert!(
+            servers.contains_key("allowed-server"),
+            "server listed in agent profile should be injected"
+        );
+        assert!(
+            !servers.contains_key("blocked-server"),
+            "server not listed in agent profile should be filtered out"
+        );
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

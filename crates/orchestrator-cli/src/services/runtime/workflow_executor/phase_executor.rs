@@ -266,6 +266,14 @@ pub(crate) struct PhaseExecutionRunResult {
 }
 
 fn phase_agent_id_for(project_root: &str, phase_id: &str) -> Option<String> {
+    let workflow_override = orchestrator_core::load_workflow_config_or_default(Path::new(project_root))
+        .config
+        .phase_definitions
+        .get(phase_id)
+        .and_then(|def| def.agent_id.clone());
+    if workflow_override.is_some() {
+        return workflow_override;
+    }
     load_agent_runtime_config(project_root)
         .phase_agent_id(phase_id)
         .map(ToOwned::to_owned)
@@ -457,9 +465,7 @@ fn inject_project_mcp_servers(
     if project_config.mcp_servers.is_empty() {
         return;
     }
-    let agent_id = load_agent_runtime_config(project_root)
-        .phase_agent_id(phase_id)
-        .map(ToOwned::to_owned);
+    let agent_id = phase_agent_id_for(project_root, phase_id);
     let mut servers = serde_json::Map::new();
     for (name, entry) in &project_config.mcp_servers {
         let assigned = entry.assign_to.is_empty()
@@ -501,16 +507,14 @@ fn inject_workflow_mcp_servers(
     if config.config.mcp_servers.is_empty() {
         return;
     }
-    let agent_runtime_config = load_agent_runtime_config(project_root);
-    let agent_id = agent_runtime_config
-        .phase_agent_id(phase_id)
-        .map(ToOwned::to_owned);
+    let agent_id = phase_agent_id_for(project_root, phase_id);
     let workflow_profile_servers: Option<&[String]> = agent_id
         .as_deref()
         .and_then(|id| config.config.agent_profiles.get(id))
         .map(|profile| profile.mcp_servers.as_slice())
         .filter(|servers| !servers.is_empty());
     let runtime_profile_servers: Option<Vec<String>> = if workflow_profile_servers.is_none() {
+        let agent_runtime_config = load_agent_runtime_config(project_root);
         agent_id
             .as_deref()
             .and_then(|id| agent_runtime_config.agent_profile(id))
@@ -2904,6 +2908,96 @@ mod tests {
                 runtime_allowed
             );
         }
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn inject_workflow_mcp_servers_respects_phase_definition_agent_id_override() {
+        let tmp = std::env::temp_dir()
+            .join(format!("ao-test-wf-mcp-phase-override-{}", Uuid::new_v4()));
+        let project_root = tmp.to_str().unwrap();
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let mut config = orchestrator_core::builtin_workflow_config();
+        config.mcp_servers.insert(
+            "research-only-server".to_string(),
+            orchestrator_core::workflow_config::McpServerDefinition {
+                command: "research-tool".to_string(),
+                args: vec![],
+                transport: None,
+                config: Default::default(),
+                tools: vec![],
+                env: Default::default(),
+            },
+        );
+        config.mcp_servers.insert(
+            "swe-only-server".to_string(),
+            orchestrator_core::workflow_config::McpServerDefinition {
+                command: "swe-tool".to_string(),
+                args: vec![],
+                transport: None,
+                config: Default::default(),
+                tools: vec![],
+                env: Default::default(),
+            },
+        );
+        let mut researcher_profile: orchestrator_core::AgentProfile =
+            serde_json::from_value(serde_json::json!({})).unwrap();
+        researcher_profile.mcp_servers = vec!["research-only-server".to_string()];
+        config
+            .agent_profiles
+            .insert("custom-researcher".to_string(), researcher_profile);
+        let mut swe_profile: orchestrator_core::AgentProfile =
+            serde_json::from_value(serde_json::json!({})).unwrap();
+        swe_profile.mcp_servers = vec!["swe-only-server".to_string()];
+        config
+            .agent_profiles
+            .insert("custom-swe".to_string(), swe_profile);
+
+        config.phase_definitions.insert(
+            "implementation".to_string(),
+            orchestrator_core::PhaseExecutionDefinition {
+                mode: orchestrator_core::PhaseExecutionMode::Agent,
+                agent_id: Some("custom-researcher".to_string()),
+                directive: None,
+                system_prompt: None,
+                runtime: None,
+                capabilities: None,
+                output_contract: None,
+                output_json_schema: None,
+                decision_contract: None,
+                retry: None,
+                command: None,
+                manual: None,
+            },
+        );
+        orchestrator_core::write_workflow_config(Path::new(project_root), &config).unwrap();
+
+        let resolved = phase_agent_id_for(project_root, "implementation");
+        assert_eq!(
+            resolved.as_deref(),
+            Some("custom-researcher"),
+            "phase_agent_id_for should use workflow phase_definition agent_id override"
+        );
+
+        let mut contract = serde_json::json!({
+            "mcp": { "stdio": { "command": "ao" } }
+        });
+        inject_workflow_mcp_servers(&mut contract, project_root, "implementation");
+
+        let servers = contract
+            .pointer("/mcp/additional_servers")
+            .and_then(Value::as_object)
+            .expect("additional_servers should exist");
+        assert!(
+            servers.contains_key("research-only-server"),
+            "server allowed by overridden agent should be injected"
+        );
+        assert!(
+            !servers.contains_key("swe-only-server"),
+            "server for non-overridden agent should be filtered out"
+        );
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

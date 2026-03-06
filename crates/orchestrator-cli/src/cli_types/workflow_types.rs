@@ -171,7 +171,25 @@ pub(crate) struct WorkflowRunArgs {
         value_name = "TASK_ID",
         help = "Task id to run the workflow for."
     )]
-    pub(crate) task_id: String,
+    pub(crate) task_id: Option<String>,
+    #[arg(
+        long,
+        value_name = "REQ_ID",
+        help = "Requirement id to run the workflow for (alternative to --task-id)."
+    )]
+    pub(crate) requirement_id: Option<String>,
+    #[arg(
+        long,
+        value_name = "TITLE",
+        help = "Custom workflow title (alternative to --task-id / --requirement-id)."
+    )]
+    pub(crate) title: Option<String>,
+    #[arg(
+        long,
+        value_name = "TEXT",
+        help = "Custom workflow description (used with --title)."
+    )]
+    pub(crate) description: Option<String>,
     #[arg(
         long,
         value_name = "PIPELINE_ID",
@@ -187,7 +205,13 @@ pub(crate) struct WorkflowRunArgs {
 #[derive(Debug, Args)]
 pub(crate) struct WorkflowExecuteArgs {
     #[arg(long, value_name = "TASK_ID", help = "Task id to execute the workflow for.")]
-    pub(crate) task_id: String,
+    pub(crate) task_id: Option<String>,
+    #[arg(long, value_name = "REQ_ID", help = "Requirement id to execute the workflow for (alternative to --task-id).")]
+    pub(crate) requirement_id: Option<String>,
+    #[arg(long, value_name = "TITLE", help = "Custom workflow title (alternative to --task-id / --requirement-id).")]
+    pub(crate) title: Option<String>,
+    #[arg(long, value_name = "TEXT", help = "Custom workflow description (used with --title).")]
+    pub(crate) description: Option<String>,
     #[arg(long, value_name = "PIPELINE_ID", help = "Optional pipeline id override.")]
     pub(crate) pipeline_id: Option<String>,
     #[arg(long, value_name = "PHASE_ID", help = "Run only this specific phase instead of the full workflow.")]

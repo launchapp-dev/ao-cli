@@ -130,20 +130,109 @@ fn process_due_schedules(project_root: &str, now: chrono::DateTime<chrono::Utc>)
         return;
     }
 
-    for schedule_id in due {
+    let schedule_lookup: std::collections::HashMap<&str, &orchestrator_core::workflow_config::WorkflowSchedule> =
+        config.config.schedules.iter().map(|s| (s.id.as_str(), s)).collect();
+
+    for schedule_id in &due {
+        let mut status = "evaluated".to_string();
+
+        if let Some(schedule) = schedule_lookup.get(schedule_id.as_str()) {
+            if let Some(ref pipeline_id) = schedule.pipeline {
+                match spawn_schedule_pipeline(project_root, schedule_id, pipeline_id) {
+                    Ok(()) => {
+                        status = "dispatched".to_string();
+                    }
+                    Err(err) => {
+                        status = format!("failed: {err}");
+                        eprintln!(
+                            "{}: schedule '{}' pipeline '{}' dispatch failed: {}",
+                            protocol::ACTOR_DAEMON, schedule_id, pipeline_id, err
+                        );
+                    }
+                }
+            } else if let Some(ref command) = schedule.command {
+                match spawn_schedule_command(project_root, schedule_id, command) {
+                    Ok(()) => {
+                        status = "dispatched".to_string();
+                    }
+                    Err(err) => {
+                        status = format!("failed: {err}");
+                        eprintln!(
+                            "{}: schedule '{}' command dispatch failed: {}",
+                            protocol::ACTOR_DAEMON, schedule_id, err
+                        );
+                    }
+                }
+            }
+        }
+
         let entry = state
             .schedules
-            .entry(schedule_id)
+            .entry(schedule_id.clone())
             .or_insert_with(orchestrator_core::ScheduleRunState::default);
         entry.last_run = Some(now);
-        entry.last_status = "evaluated".to_string();
+        entry.last_status = status;
         entry.run_count = entry.run_count.saturating_add(1);
     }
     let _ = orchestrator_core::save_schedule_state(std::path::Path::new(project_root), &state);
 }
 
+fn spawn_schedule_pipeline(
+    project_root: &str,
+    schedule_id: &str,
+    pipeline_id: &str,
+) -> Result<()> {
+    use std::process::{Command as StdCommand, Stdio};
+
+    let ao_bin = std::env::var("AO_BIN").unwrap_or_else(|_| "ao".to_string());
+    StdCommand::new(&ao_bin)
+        .arg("--project-root")
+        .arg(project_root)
+        .arg("workflow")
+        .arg("execute")
+        .arg("--task-id")
+        .arg(format!("schedule:{schedule_id}"))
+        .arg("--pipeline-id")
+        .arg(pipeline_id)
+        .arg("--quiet")
+        .stdout(Stdio::null())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .with_context(|| format!("failed to spawn schedule pipeline '{pipeline_id}'"))?;
+
+    eprintln!(
+        "{}: schedule '{}' fired pipeline '{}'",
+        protocol::ACTOR_DAEMON, schedule_id, pipeline_id
+    );
+    Ok(())
+}
+
+fn spawn_schedule_command(
+    project_root: &str,
+    schedule_id: &str,
+    command: &str,
+) -> Result<()> {
+    use std::process::{Command as StdCommand, Stdio};
+
+    StdCommand::new("sh")
+        .arg("-c")
+        .arg(command)
+        .current_dir(project_root)
+        .stdout(Stdio::null())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .with_context(|| format!("failed to spawn schedule command for '{schedule_id}'"))?;
+
+    eprintln!(
+        "{}: schedule '{}' fired command: {}",
+        protocol::ACTOR_DAEMON, schedule_id, command
+    );
+    Ok(())
+}
+
 pub(super) async fn project_tick(root: &str, args: &DaemonRunArgs) -> Result<ProjectTickSummary> {
     let root = canonicalize_lossy(root);
+    let _ = orchestrator_core::ensure_workflow_config_compiled(Path::new(&root));
     process_due_schedules(&root, Utc::now());
     let hub = Arc::new(FileServiceHub::new(&root)?);
     let _ = git_ops::flush_git_integration_outbox(&root);
@@ -302,6 +391,7 @@ pub(super) async fn slim_daemon_tick(
     process_manager: &mut ProcessManager,
 ) -> Result<ProjectTickSummary> {
     let root = canonicalize_lossy(root);
+    let _ = orchestrator_core::ensure_workflow_config_compiled(Path::new(&root));
     process_due_schedules(&root, Utc::now());
     let hub = Arc::new(FileServiceHub::new(&root)?);
     let _ = git_ops::flush_git_integration_outbox(&root);
@@ -352,6 +442,17 @@ pub(super) async fn slim_daemon_tick(
     let mut failed_workflow_phases = 0usize;
 
     while let Some(completed) = completed_processes.pop() {
+        for event in &completed.events {
+            eprintln!(
+                "{}: runner event: {} task={} pipeline={:?} exit={:?}",
+                protocol::ACTOR_DAEMON,
+                event.event,
+                event.task_id,
+                event.pipeline,
+                event.exit_code,
+            );
+        }
+
         if completed.success {
             remove_terminal_em_work_queue_entry_non_fatal(&root, &completed.task_id, None);
             let _ = hub

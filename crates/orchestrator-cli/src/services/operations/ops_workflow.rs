@@ -149,6 +149,38 @@ fn legacy_agent_runtime_path(project_root: &str) -> PathBuf {
     ))
 }
 
+fn resolve_workflow_run_input(
+    task_id: Option<String>,
+    requirement_id: Option<String>,
+    title: Option<String>,
+    description: Option<String>,
+    pipeline_id: Option<String>,
+) -> Result<WorkflowRunInput> {
+    match (task_id, requirement_id, title) {
+        (Some(tid), None, None) => Ok(WorkflowRunInput::for_task(tid, pipeline_id)),
+        (None, Some(rid), None) => Ok(WorkflowRunInput {
+            task_id: String::new(),
+            pipeline_id,
+            requirement_id: Some(rid),
+            title: None,
+            description,
+        }),
+        (None, None, Some(t)) => Ok(WorkflowRunInput {
+            task_id: String::new(),
+            pipeline_id,
+            requirement_id: None,
+            title: Some(t),
+            description,
+        }),
+        (None, None, None) => Err(anyhow!(
+            "one of --task-id, --requirement-id, or --title must be provided"
+        )),
+        _ => Err(anyhow!(
+            "--task-id, --requirement-id, and --title are mutually exclusive"
+        )),
+    }
+}
+
 fn emit_daemon_event(project_root: &str, event_type: &str, data: Value) -> Result<()> {
     let path = protocol::Config::global_config_dir().join("daemon-events.jsonl");
     if let Some(parent) = path.parent() {
@@ -1013,7 +1045,13 @@ pub(crate) async fn handle_workflow(
         },
         WorkflowCommand::Run(args) => {
             let input = parse_input_json_or(args.input_json, || {
-                Ok(WorkflowRunInput::for_task(args.task_id, args.pipeline_id))
+                resolve_workflow_run_input(
+                    args.task_id,
+                    args.requirement_id,
+                    args.title,
+                    args.description,
+                    args.pipeline_id,
+                )
             })?;
             print_value(workflows.run(input).await?, json)
         }
@@ -1361,29 +1399,45 @@ async fn handle_workflow_execute(
         "normal"
     };
     std::env::set_var("AO_STREAM_PHASE_OUTPUT", stream_level);
-    trace_workflow_execute(&format!("START task_id={} pipeline={:?}", args.task_id, args.pipeline_id));
+
+    let input = resolve_workflow_run_input(
+        args.task_id.clone(),
+        args.requirement_id.clone(),
+        args.title.clone(),
+        args.description.clone(),
+        args.pipeline_id,
+    )?;
+    let subject = input.subject();
+
+    trace_workflow_execute(&format!("START subject={:?} pipeline={:?}", subject.id(), input.pipeline_id));
 
     let tasks = hub.tasks();
     let workflows = hub.workflows();
 
-    let task = tasks
-        .get(&args.task_id)
-        .await
-        .with_context(|| format!("task '{}' not found", args.task_id))?;
+    let task = if let orchestrator_core::WorkflowSubject::Task { ref id } = subject {
+        Some(
+            tasks
+                .get(id)
+                .await
+                .with_context(|| format!("task '{}' not found", id))?,
+        )
+    } else {
+        None
+    };
 
-    let input = WorkflowRunInput::for_task(args.task_id.clone(), args.pipeline_id);
+    let subject_id = subject.id().to_string();
     let workflow = workflows.run(input).await.or_else(|_| {
         let all = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(workflows.list())
         })?;
         all.into_iter()
-            .find(|w| w.task_id == args.task_id)
-            .ok_or_else(|| anyhow!("no workflow found for task '{}'", args.task_id))
+            .find(|w| w.task_id == subject_id)
+            .ok_or_else(|| anyhow!("no workflow found for subject '{}'", subject_id))
     })?;
 
     let execution_cwd = task
-        .worktree_path
-        .as_deref()
+        .as_ref()
+        .and_then(|t| t.worktree_path.as_deref())
         .filter(|p| !p.is_empty() && Path::new(p).exists())
         .unwrap_or(project_root)
         .to_string();
@@ -1407,7 +1461,15 @@ async fn handle_workflow_execute(
         eprintln!("warning: failed to auto-start runner for workflow execute: {err}");
     }
 
-    let task_complexity = Some(task.complexity);
+    let (subject_id_str, subject_title, subject_description) = match &task {
+        Some(t) => (t.id.clone(), t.title.clone(), t.description.clone()),
+        None => (
+            subject_id.clone(),
+            args.title.clone().unwrap_or_else(|| subject_id.clone()),
+            args.description.clone().unwrap_or_default(),
+        ),
+    };
+    let task_complexity = task.as_ref().map(|t| t.complexity);
     let mut results = Vec::new();
     let total_phases = phases_to_run.len();
     let workflow_start = std::time::Instant::now();
@@ -1460,9 +1522,9 @@ async fn handle_workflow_execute(
             project_root,
             &execution_cwd,
             &workflow.id,
-            &task.id,
-            &task.title,
-            &task.description,
+            &subject_id_str,
+            &subject_title,
+            &subject_description,
             task_complexity,
             phase_id,
             phase_attempt,
@@ -1492,7 +1554,7 @@ async fn handle_workflow_execute(
                             orchestrator_core::TaskStatus::Cancelled
                         };
 
-                        if let Ok(mut task) = hub.tasks().get(&args.task_id).await {
+                        if let Ok(mut task) = hub.tasks().get(&subject_id_str).await {
                             task.resolution = Some(decision.reason.clone());
                             if target_status == orchestrator_core::TaskStatus::Cancelled {
                                 task.cancelled = true;
@@ -1659,14 +1721,21 @@ async fn handle_workflow_execute(
     let total_elapsed = workflow_start.elapsed();
     let all_phases_completed = phase_idx >= phases_to_run.len();
     let post_success = if all_phases_completed {
-        execute_workflow_post_success_actions(
-            project_root,
-            &task,
-            &workflow,
-            &workflow_config,
-            &execution_cwd,
-        )
-        .await
+        if let Some(ref t) = task {
+            execute_workflow_post_success_actions(
+                project_root,
+                t,
+                &workflow,
+                &workflow_config,
+                &execution_cwd,
+            )
+            .await
+        } else {
+            serde_json::json!({
+                "status": "skipped",
+                "reason": "post-success actions require a task subject",
+            })
+        }
     } else {
         serde_json::json!({
             "status": "skipped",
@@ -1679,7 +1748,7 @@ async fn handle_workflow_execute(
         print_value(
             serde_json::json!({
                 "workflow_id": workflow.id,
-                "task_id": task.id,
+                "task_id": subject_id_str,
                 "execution_cwd": execution_cwd,
                 "phases_requested": phases_to_run,
                 "total_duration_secs": total_elapsed.as_secs(),

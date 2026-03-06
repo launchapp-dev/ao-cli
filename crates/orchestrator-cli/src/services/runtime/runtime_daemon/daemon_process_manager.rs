@@ -5,11 +5,23 @@ use chrono::{DateTime, Utc};
 use std::process::Stdio;
 use tokio::process::{Child, Command};
 
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct RunnerEvent {
+    pub event: String,
+    #[serde(default)]
+    pub task_id: String,
+    #[serde(default)]
+    pub pipeline: Option<String>,
+    #[serde(default)]
+    pub exit_code: Option<i32>,
+}
+
 #[derive(Debug, Clone)]
 pub struct WorkflowProcess {
     pub task_id: String,
     pub child: Arc<Mutex<Child>>,
     pub started_at: DateTime<Utc>,
+    pub stderr_lines: Arc<Mutex<Vec<String>>>,
 }
 
 #[derive(Debug)]
@@ -20,6 +32,7 @@ pub struct CompletedProcess {
     pub exit_code: Option<i32>,
     pub success: bool,
     pub failure_reason: Option<String>,
+    pub events: Vec<RunnerEvent>,
 }
 
 #[derive(Default)]
@@ -50,13 +63,30 @@ impl ProcessManager {
             .arg("--project-root")
             .arg(project_root)
             .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .stderr(Stdio::piped());
 
-        let child = command.spawn().context("failed to spawn ao-workflow-runner")?;
+        let mut child = command.spawn().context("failed to spawn ao-workflow-runner")?;
+
+        let stderr_lines: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        if let Some(stderr) = child.stderr.take() {
+            let lines = stderr_lines.clone();
+            tokio::spawn(async move {
+                use tokio::io::{AsyncBufReadExt, BufReader};
+                let reader = BufReader::new(stderr);
+                let mut line_stream = reader.lines();
+                while let Ok(Some(line)) = line_stream.next_line().await {
+                    if let Ok(mut buf) = lines.lock() {
+                        buf.push(line);
+                    }
+                }
+            });
+        }
+
         let process = WorkflowProcess {
             task_id: task_id.to_string(),
             child: Arc::new(Mutex::new(child)),
             started_at: Utc::now(),
+            stderr_lines,
         };
 
         self.processes.push(process.clone());
@@ -84,6 +114,7 @@ impl ProcessManager {
                                 "failed to lock workflow process handle: {}",
                                 error
                             )),
+                            events: Vec::new(),
                         });
                         continue;
                     }
@@ -107,6 +138,8 @@ impl ProcessManager {
                         )
                     };
 
+                    let events = parse_runner_events(&process.stderr_lines);
+
                     completed.push(CompletedProcess {
                         task_id: process.task_id,
                         started_at: process.started_at,
@@ -114,6 +147,7 @@ impl ProcessManager {
                         exit_code,
                         success,
                         failure_reason,
+                        events,
                     });
                 }
                 Ok(None) => {
@@ -127,6 +161,7 @@ impl ProcessManager {
                         exit_code: None,
                         success: false,
                         failure_reason: Some(format!("failed to probe workflow process status: {}", error)),
+                        events: Vec::new(),
                     });
                 }
             }
@@ -139,6 +174,17 @@ impl ProcessManager {
     pub fn active_count(&self) -> usize {
         self.processes.len()
     }
+}
+
+fn parse_runner_events(stderr_lines: &Arc<Mutex<Vec<String>>>) -> Vec<RunnerEvent> {
+    let lines = match stderr_lines.lock() {
+        Ok(guard) => guard.clone(),
+        Err(_) => return Vec::new(),
+    };
+    lines
+        .iter()
+        .filter_map(|line| serde_json::from_str::<RunnerEvent>(line).ok())
+        .collect()
 }
 
 #[cfg(test)]

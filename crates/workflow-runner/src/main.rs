@@ -20,7 +20,16 @@ enum WorkflowRunnerCommand {
 #[derive(Args)]
 struct WorkflowExecuteArgs {
     #[arg(long)]
-    task_id: String,
+    task_id: Option<String>,
+
+    #[arg(long)]
+    requirement_id: Option<String>,
+
+    #[arg(long)]
+    title: Option<String>,
+
+    #[arg(long)]
+    description: Option<String>,
 
     #[arg(long)]
     pipeline: Option<String>,
@@ -82,9 +91,16 @@ async fn main() -> ExitCode {
 }
 
 async fn run_execute(args: WorkflowExecuteArgs) -> Result<u8> {
+    let subject_id = args
+        .task_id
+        .clone()
+        .or_else(|| args.requirement_id.clone())
+        .or_else(|| args.title.clone())
+        .unwrap_or_else(|| "unknown".to_string());
+
     let startup = RunnerEvent {
         event: "runner_start",
-        task_id: args.task_id.clone(),
+        task_id: subject_id.clone(),
         pipeline: args.pipeline.clone(),
         exit_code: None,
     };
@@ -97,10 +113,20 @@ async fn run_execute(args: WorkflowExecuteArgs) -> Result<u8> {
         .arg(&args.project_root)
         .arg("workflow")
         .arg("execute")
-        .arg("--task-id")
-        .arg(&args.task_id)
         .arg("--quiet");
 
+    if let Some(ref task_id) = args.task_id {
+        command.arg("--task-id").arg(task_id);
+    }
+    if let Some(ref requirement_id) = args.requirement_id {
+        command.arg("--requirement-id").arg(requirement_id);
+    }
+    if let Some(ref title) = args.title {
+        command.arg("--title").arg(title);
+    }
+    if let Some(ref description) = args.description {
+        command.arg("--description").arg(description);
+    }
     if let Some(ref pipeline) = args.pipeline {
         command.arg("--pipeline-id").arg(pipeline);
     }
@@ -126,7 +152,7 @@ async fn run_execute(args: WorkflowExecuteArgs) -> Result<u8> {
 
     let completion = RunnerEvent {
         event: "runner_complete",
-        task_id: args.task_id,
+        task_id: subject_id,
         pipeline: args.pipeline,
         exit_code: Some(exit_code),
     };

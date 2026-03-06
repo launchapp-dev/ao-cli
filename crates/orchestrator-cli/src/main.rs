@@ -230,7 +230,10 @@ fn build_workflow_execute_command(command: ExecuteCommand) -> Result<WorkflowCom
     let task_id = task_ids.remove(0);
 
     Ok(WorkflowCommand::Execute(WorkflowExecuteArgs {
-        task_id,
+        task_id: Some(task_id),
+        requirement_id: None,
+        title: None,
+        description: None,
         pipeline_id,
         phase: None,
         model: None,

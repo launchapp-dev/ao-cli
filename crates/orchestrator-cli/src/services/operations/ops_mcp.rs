@@ -157,7 +157,14 @@ struct RequirementGetInput {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 struct WorkflowRunInput {
-    task_id: String,
+    #[serde(default)]
+    task_id: Option<String>,
+    #[serde(default)]
+    requirement_id: Option<String>,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
     #[serde(default)]
     pipeline_id: Option<String>,
     #[serde(default)]
@@ -1071,9 +1078,11 @@ impl AoMcpServer {
         let mut args = vec![
             "workflow".to_string(),
             "run".to_string(),
-            "--task-id".to_string(),
-            input.task_id,
         ];
+        push_opt(&mut args, "--task-id", input.task_id);
+        push_opt(&mut args, "--requirement-id", input.requirement_id);
+        push_opt(&mut args, "--title", input.title);
+        push_opt(&mut args, "--description", input.description);
         push_opt(&mut args, "--pipeline-id", input.pipeline_id);
         push_opt(&mut args, "--input-json", input.input_json);
         self.run_tool("ao.workflow.run", args, input.project_root)

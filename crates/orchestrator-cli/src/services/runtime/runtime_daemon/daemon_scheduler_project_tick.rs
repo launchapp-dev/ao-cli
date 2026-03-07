@@ -443,7 +443,27 @@ pub(super) async fn slim_daemon_tick(
 ) -> Result<ProjectTickSummary> {
     let root = canonicalize_lossy(root);
     let _ = orchestrator_core::ensure_workflow_config_compiled(Path::new(&root));
-    process_due_schedules(process_manager, &root, Utc::now());
+
+    let workflow_config = orchestrator_core::load_workflow_config_or_default(Path::new(&root));
+    let active_hours = workflow_config.config.daemon.as_ref().and_then(|d| d.active_hours.clone());
+    let within_active_hours = match active_hours.as_deref() {
+        Some(spec) => {
+            let now = chrono::Local::now().time();
+            let active = is_within_active_hours(spec, now);
+            if !active {
+                eprintln!(
+                    "{}: outside active_hours ({}), skipping schedule dispatch",
+                    protocol::ACTOR_DAEMON, spec
+                );
+            }
+            active
+        }
+        None => true,
+    };
+
+    if within_active_hours {
+        process_due_schedules(process_manager, &root, Utc::now());
+    }
     let hub = Arc::new(FileServiceHub::new(&root)?);
     let _ = git_ops::flush_git_integration_outbox(&root);
     let requirements_before = hub.planning().list_requirements().await.unwrap_or_default();
@@ -550,24 +570,7 @@ pub(super) async fn slim_daemon_tick(
         }
     }
 
-    let workflow_config = orchestrator_core::load_workflow_config_or_default(Path::new(&root));
-    let active_hours = workflow_config.config.daemon.as_ref().and_then(|d| d.active_hours.clone());
-    let within_active_hours = match active_hours.as_deref() {
-        Some(spec) => {
-            let now = chrono::Local::now().time();
-            let active = is_within_active_hours(spec, now);
-            if !active {
-                eprintln!(
-                    "{}: outside active_hours ({}), skipping workflow dispatch",
-                    protocol::ACTOR_DAEMON, spec
-                );
-            }
-            active
-        }
-        None => true,
-    };
-
-    if !pool_draining && args.auto_run_ready && within_active_hours {
+    if !pool_draining && args.auto_run_ready {
         let _ = retry_failed_task_workflows(hub.clone()).await;
         let _ = promote_backlog_tasks_to_ready(hub.clone(), &root).await;
     }
@@ -578,7 +581,7 @@ pub(super) async fn slim_daemon_tick(
         .or(args.max_agents)
         .or_else(|| daemon_health.and_then(|health| health.max_agents))
         .unwrap_or(args.max_tasks_per_tick);
-    let ready_dispatch_limit = if !pool_draining && args.auto_run_ready && within_active_hours {
+    let ready_dispatch_limit = if !pool_draining && args.auto_run_ready {
         configured_max_agents
             .saturating_sub(process_manager.active_count())
             .min(args.max_tasks_per_tick)
@@ -2268,5 +2271,49 @@ thinking...
         assert_eq!(parse_active_hours("invalid"), None);
         assert_eq!(parse_active_hours("25:00-06:00"), None);
         assert_eq!(parse_active_hours("09:00"), None);
+    }
+
+    #[test]
+    fn schedules_skipped_outside_active_hours() {
+        let schedules = vec![orchestrator_core::WorkflowSchedule {
+            id: "nightly".to_string(),
+            cron: "* * * * *".to_string(),
+            pipeline: Some("standard".to_string()),
+            command: None,
+            input: None,
+            enabled: true,
+        }];
+        let state = orchestrator_core::ScheduleState::default();
+        let now: chrono::DateTime<chrono::Utc> =
+            "2026-03-07T14:00:00Z".parse().expect("timestamp should parse");
+
+        let due = evaluate_schedules(&schedules, &state, now);
+        assert!(!due.is_empty(), "schedule should be due");
+
+        let active_hours = "22:00-06:00";
+        let midday = chrono::NaiveTime::from_hms_opt(14, 0, 0).unwrap();
+        assert!(
+            !is_within_active_hours(active_hours, midday),
+            "14:00 should be outside 22:00-06:00"
+        );
+    }
+
+    #[test]
+    fn ready_dispatch_not_gated_by_active_hours() {
+        let active_hours = "09:00-17:00";
+        let midnight = chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap();
+        assert!(
+            !is_within_active_hours(active_hours, midnight),
+            "midnight is outside 09:00-17:00"
+        );
+    }
+
+    #[test]
+    fn no_gating_when_active_hours_unset() {
+        let t = chrono::NaiveTime::from_hms_opt(3, 0, 0).unwrap();
+        assert!(
+            is_within_active_hours("", t),
+            "empty active_hours should not gate (parse failure = allow)"
+        );
     }
 }

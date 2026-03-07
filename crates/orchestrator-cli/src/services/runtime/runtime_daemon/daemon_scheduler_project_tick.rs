@@ -80,26 +80,13 @@ pub(super) async fn project_tick(
     }
     let hub = Arc::new(FileServiceHub::new(&root)?);
     let _ = git_ops::flush_git_integration_outbox(&root);
-    let requirements_before = hub.planning().list_requirements().await.unwrap_or_default();
-    let tasks_before = hub.tasks().list().await.unwrap_or_default();
-    let daemon = hub.daemon();
-    let status = daemon.status().await?;
-    let mut started_daemon = false;
-    if !matches!(
-        status,
-        orchestrator_core::DaemonStatus::Running | orchestrator_core::DaemonStatus::Paused
-    ) {
-        daemon.start().await?;
-        started_daemon = true;
-    }
-
-    let daemon_health = daemon.health().await.ok();
+    let snapshot = ProjectTickSnapshot::capture(hub.clone()).await?;
     let preparation = ProjectTickPreparation::for_project_tick(
         args,
         active_hours,
         chrono::Local::now().time(),
         pool_draining,
-        daemon_health.as_ref(),
+        snapshot.daemon_health.as_ref(),
     );
     let mut executor = FullProjectTickExecutor {
         hub: hub.clone(),
@@ -109,24 +96,9 @@ pub(super) async fn project_tick(
     let execution_outcome =
         execute_project_tick_script(&preparation.tick_script, &mut executor).await?;
 
-    let health = serde_json::to_value(daemon.health().await?)?;
-    let summary_input = ProjectTickSummaryInput {
-        project_root: root,
-        started_daemon,
-        health,
-        requirements_before,
-        tasks_before,
-        resumed_workflows: execution_outcome.resumed_workflows,
-        cleaned_stale_workflows: execution_outcome.cleaned_stale_workflows,
-        reconciled_stale_tasks: execution_outcome.reconciled_stale_tasks,
-        reconciled_dependency_tasks: execution_outcome.reconciled_dependency_tasks,
-        reconciled_merge_tasks: execution_outcome.reconciled_merge_tasks,
-        ready_started_count: execution_outcome.ready_workflow_starts.started,
-        ready_started_workflows: execution_outcome.ready_workflow_starts.started_workflows,
-        executed_workflow_phases: execution_outcome.executed_workflow_phases,
-        failed_workflow_phases: execution_outcome.failed_workflow_phases,
-        phase_execution_events: execution_outcome.phase_execution_events,
-    };
+    let health = serde_json::to_value(hub.daemon().health().await?)?;
+    let summary_input =
+        snapshot.into_summary_input(root, health, execution_outcome, true);
     TickSummaryBuilder::build(hub.clone(), args, summary_input).await
 }
 
@@ -171,26 +143,13 @@ pub(super) async fn slim_daemon_tick(
     }
     let hub = Arc::new(FileServiceHub::new(&root)?);
     let _ = git_ops::flush_git_integration_outbox(&root);
-    let requirements_before = hub.planning().list_requirements().await.unwrap_or_default();
-    let tasks_before = hub.tasks().list().await.unwrap_or_default();
-    let daemon = hub.daemon();
-    let status = daemon.status().await?;
-    let mut started_daemon = false;
-    if !matches!(
-        status,
-        orchestrator_core::DaemonStatus::Running | orchestrator_core::DaemonStatus::Paused
-    ) {
-        daemon.start().await?;
-        started_daemon = true;
-    }
-
-    let daemon_health = daemon.health().await.ok();
+    let snapshot = ProjectTickSnapshot::capture(hub.clone()).await?;
     let preparation = ProjectTickPreparation::for_slim_tick(
         args,
         active_hours.as_deref(),
         chrono::Local::now().time(),
         pool_draining,
-        daemon_health.as_ref().and_then(|health| health.max_agents),
+        snapshot.daemon_health.as_ref().and_then(|health| health.max_agents),
         process_manager.active_count(),
     );
     let mut executor = SlimProjectTickExecutor {
@@ -202,24 +161,9 @@ pub(super) async fn slim_daemon_tick(
     let execution_outcome =
         execute_project_tick_script(&preparation.tick_script, &mut executor).await?;
 
-    let health = serde_json::to_value(daemon.health().await?)?;
-    let summary_input = ProjectTickSummaryInput {
-        project_root: root,
-        started_daemon,
-        health,
-        requirements_before,
-        tasks_before,
-        resumed_workflows: execution_outcome.resumed_workflows,
-        cleaned_stale_workflows: execution_outcome.cleaned_stale_workflows,
-        reconciled_stale_tasks: execution_outcome.reconciled_stale_tasks,
-        reconciled_dependency_tasks: execution_outcome.reconciled_dependency_tasks,
-        reconciled_merge_tasks: execution_outcome.reconciled_merge_tasks,
-        ready_started_count: execution_outcome.ready_workflow_starts.started,
-        ready_started_workflows: execution_outcome.ready_workflow_starts.started_workflows,
-        executed_workflow_phases: execution_outcome.executed_workflow_phases,
-        failed_workflow_phases: execution_outcome.failed_workflow_phases,
-        phase_execution_events: Vec::new(),
-    };
+    let health = serde_json::to_value(hub.daemon().health().await?)?;
+    let summary_input =
+        snapshot.into_summary_input(root, health, execution_outcome, false);
     TickSummaryBuilder::build(hub.clone(), args, summary_input).await
 }
 

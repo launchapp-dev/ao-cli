@@ -12,7 +12,7 @@ use orchestrator_core::{
 };
 pub(super) use orchestrator_daemon_runtime::{
     execute_project_tick_script, DaemonRuntimeOptions, ProjectTickAction, ProjectTickActionEffect,
-    ProjectTickActionExecutor, ProjectTickPreparation, ProjectTickSummary, ProjectTickSummaryInput,
+    ProjectTickActionExecutor, ProjectTickPreparation, ProjectTickSnapshot, ProjectTickSummary,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

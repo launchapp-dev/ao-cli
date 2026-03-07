@@ -63,9 +63,7 @@ pub fn load_post_success_git_config(project_root: &str) -> PostSuccessGitConfig 
     cfg
 }
 
-pub fn resolve_task_source_branch(
-    task: &orchestrator_core::OrchestratorTask,
-) -> Option<String> {
+pub fn resolve_task_source_branch(task: &orchestrator_core::OrchestratorTask) -> Option<String> {
     if let Some(branch_name) = task
         .branch_name
         .as_deref()
@@ -173,10 +171,6 @@ pub fn default_task_branch_name(task_id: &str) -> String {
 pub fn repo_ao_root(project_root: &str) -> Result<PathBuf> {
     protocol::scoped_state_root(std::path::Path::new(project_root))
         .ok_or_else(|| anyhow!("failed to resolve scoped state root for {project_root}"))
-}
-
-pub fn daemon_repo_runtime_root(project_root: &str) -> Result<PathBuf> {
-    repo_ao_root(project_root)
 }
 
 pub fn repo_worktrees_root(project_root: &str) -> Result<PathBuf> {
@@ -293,10 +287,7 @@ pub fn git_is_ancestor(
     })
 }
 
-pub fn is_branch_merged(
-    project_root: &str,
-    branch_name: &str,
-) -> Result<Option<bool>> {
+pub fn is_branch_merged(project_root: &str, branch_name: &str) -> Result<Option<bool>> {
     let branch_name = branch_name.trim();
     if branch_name.is_empty() {
         return Ok(Some(true));

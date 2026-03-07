@@ -16,8 +16,6 @@ pub(super) mod bootstrap;
 #[allow(dead_code)]
 #[path = "daemon_agent_slot.rs"]
 pub(super) mod agent_slot;
-#[path = "daemon_schedule_dispatch.rs"]
-pub(super) mod schedule_dispatch;
 #[path = "daemon_tick_executor.rs"]
 mod tick_executor;
 

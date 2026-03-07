@@ -1,3 +1,5 @@
+#[cfg(test)]
+use super::phase_pool::with_reactive_phase_pool_state_mut;
 use super::*;
 
 pub async fn set_task_blocked_with_reason(
@@ -271,6 +273,7 @@ pub async fn resume_interrupted_workflows_for_project(
     Ok((cleaned, resumed))
 }
 
+#[cfg(test)]
 pub async fn recover_orphaned_running_workflows(
     hub: Arc<dyn ServiceHub>,
     project_root: &str,

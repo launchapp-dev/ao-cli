@@ -6,9 +6,9 @@ use crate::shared::{ensure_ai_generated_tasks_for_requirements, requirement_has_
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use orchestrator_core::{
-    services::ServiceHub, DependencyType, RequirementItem, RequirementStatus, RequirementsDraftInput,
-    RequirementsExecutionInput, RequirementsRefineInput, TaskCreateInput, TaskStatus, TaskType,
-    WorkflowResumeManager, WorkflowRunInput, WorkflowStatus, FileServiceHub,
+    services::ServiceHub, DependencyType, FileServiceHub, RequirementItem, RequirementStatus,
+    RequirementsDraftInput, RequirementsExecutionInput, RequirementsRefineInput, TaskCreateInput,
+    TaskStatus, TaskType, WorkflowResumeManager, WorkflowRunInput, WorkflowStatus,
 };
 pub(super) use orchestrator_daemon_runtime::{
     run_project_tick, DaemonRuntimeOptions, ProjectTickDriver, ProjectTickOperations,
@@ -1961,10 +1961,6 @@ fn is_merge_gate_block(task: &orchestrator_core::OrchestratorTask) -> bool {
         .as_deref()
         .map(|reason| reason.starts_with(MERGE_GATE_PREFIX))
         .unwrap_or(false)
-}
-
-pub(super) fn clear_running_workflow_phase_pool(project_root: &str) {
-    project_tick_ops::phase_pool::clear_running_workflow_phase_pool(project_root);
 }
 
 #[cfg(test)]

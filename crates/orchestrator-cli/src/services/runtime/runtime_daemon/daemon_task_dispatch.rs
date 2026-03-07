@@ -5,6 +5,7 @@ pub use orchestrator_daemon_runtime::{
     EmWorkQueueEntryStatus, EmWorkQueueState, ReadyTaskWorkflowStart,
     ReadyTaskWorkflowStartSummary, TaskSelectionSource,
 };
+use workflow_runner::executor::attempt_ai_merge_conflict_recovery;
 
 const EM_WORK_QUEUE_STATE_FILE: &str = "em-work-queue.json";
 const MAX_DISPATCH_RETRIES: u32 = 3;

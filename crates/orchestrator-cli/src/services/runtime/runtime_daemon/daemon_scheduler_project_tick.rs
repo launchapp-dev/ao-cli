@@ -4,6 +4,7 @@ use crate::services::runtime::runtime_daemon::daemon_process_manager::ProcessMan
 #[path = "daemon_task_dispatch.rs"]
 pub(super) mod task_dispatch;
 
+#[cfg(test)]
 #[allow(dead_code)]
 #[path = "daemon_phase_pool.rs"]
 pub(super) mod phase_pool;
@@ -30,7 +31,6 @@ mod tick_executor;
 use agent_slot::*;
 use bootstrap::*;
 use completion_reconciliation::CompletionReconciler;
-use phase_pool::*;
 use reconciliation::*;
 use schedule_dispatch::ScheduleDispatch;
 use task_dispatch::*;
@@ -85,7 +85,9 @@ pub(super) async fn slim_daemon_tick(
 mod tests {
     use super::phase_pool::{
         clear_running_workflow_phase_pool, drain_running_workflow_phases_for_project,
-        pause_running_workflow_phase_spawns, resume_running_workflow_phase_spawns,
+        execute_running_workflow_phases_for_project, pause_running_workflow_phase_spawns,
+        resume_running_workflow_phase_spawns, with_reactive_phase_pool_state_mut,
+        ReactivePhaseCompletion,
     };
     use super::reconciliation::reconcile_stale_in_progress_tasks_for_project;
     use super::task_dispatch::run_ready_task_workflows_for_project;
@@ -93,6 +95,7 @@ mod tests {
     use orchestrator_core::Priority;
     use orchestrator_core::ServiceHub;
     use tempfile::TempDir;
+    use workflow_runner::executor::parse_merge_conflict_recovery_response;
 
     use protocol::test_utils::EnvVarGuard;
 

@@ -1,70 +1,9 @@
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
+pub use orchestrator_daemon_runtime::{CompletedProcess, RunnerEvent, WorkflowSubjectArgs};
 use std::process::Stdio;
 use tokio::process::{Child, Command};
-
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct RunnerEvent {
-    pub event: String,
-    #[serde(default)]
-    pub task_id: String,
-    #[serde(default)]
-    pub pipeline: Option<String>,
-    #[serde(default)]
-    pub exit_code: Option<i32>,
-}
-
-#[derive(Debug, Clone)]
-pub enum WorkflowSubjectArgs {
-    Task { task_id: String },
-    Requirement { requirement_id: String },
-    Custom { title: String, description: Option<String>, input_json: Option<String> },
-}
-
-impl WorkflowSubjectArgs {
-    pub fn subject_id(&self) -> &str {
-        match self {
-            Self::Task { task_id } => task_id,
-            Self::Requirement { requirement_id } => requirement_id,
-            Self::Custom { title, .. } => title,
-        }
-    }
-
-    pub fn schedule_id(&self) -> Option<&str> {
-        match self {
-            Self::Custom { title, .. } => title.strip_prefix("schedule:"),
-            _ => None,
-        }
-    }
-
-    pub fn build_runner_command(&self, pipeline_id: &str, project_root: &str) -> std::process::Command {
-        let mut cmd = std::process::Command::new("ao-workflow-runner");
-        cmd.arg("execute");
-
-        match self {
-            Self::Task { task_id } => {
-                cmd.arg("--task-id").arg(task_id);
-            }
-            Self::Requirement { requirement_id } => {
-                cmd.arg("--requirement-id").arg(requirement_id);
-            }
-            Self::Custom { title, description, input_json } => {
-                cmd.arg("--title").arg(title);
-                if let Some(desc) = description {
-                    cmd.arg("--description").arg(desc);
-                }
-                if let Some(json) = input_json {
-                    cmd.env("AO_SCHEDULE_INPUT", json);
-                }
-            }
-        }
-
-        cmd.arg("--pipeline").arg(pipeline_id)
-            .arg("--project-root").arg(project_root);
-        cmd
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct WorkflowProcess {
@@ -73,17 +12,6 @@ pub struct WorkflowProcess {
     pub schedule_id: Option<String>,
     pub child: Arc<Mutex<Child>>,
     pub stderr_lines: Arc<Mutex<Vec<String>>>,
-}
-
-#[derive(Debug)]
-pub struct CompletedProcess {
-    pub subject_id: String,
-    pub task_id: Option<String>,
-    pub schedule_id: Option<String>,
-    pub exit_code: Option<i32>,
-    pub success: bool,
-    pub failure_reason: Option<String>,
-    pub events: Vec<RunnerEvent>,
 }
 
 #[derive(Default)]
@@ -108,7 +36,9 @@ impl ProcessManager {
         let mut command = Command::from(std_cmd);
         command.stdout(Stdio::null()).stderr(Stdio::piped());
 
-        let mut child = command.spawn().context("failed to spawn ao-workflow-runner")?;
+        let mut child = command
+            .spawn()
+            .context("failed to spawn ao-workflow-runner")?;
 
         let stderr_lines: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         if let Some(stderr) = child.stderr.take() {
@@ -209,7 +139,10 @@ impl ProcessManager {
                         schedule_id: process.schedule_id,
                         exit_code: None,
                         success: false,
-                        failure_reason: Some(format!("failed to probe workflow process status: {}", error)),
+                        failure_reason: Some(format!(
+                            "failed to probe workflow process status: {}",
+                            error
+                        )),
                         events: Vec::new(),
                     });
                 }
@@ -255,7 +188,9 @@ mod tests {
 
     #[tokio::test]
     async fn spawn_workflow_runner_tracks_active_processes() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
 
         let temp_dir = TempDir::new().expect("temp directory should be created");
         let runner_path = {
@@ -290,11 +225,16 @@ mod tests {
         let _path_guard = EnvVarGuard::set("PATH", Some(candidate_path.as_ref()));
 
         let mut manager = ProcessManager::new();
-        let subject = WorkflowSubjectArgs::Task { task_id: "task-123".to_string() };
-        let process =
-            manager
-                .spawn_workflow_runner(&subject, "standard", temp_dir.path().to_string_lossy().as_ref())
-                .expect("mock runner should be discovered from PATH and spawned");
+        let subject = WorkflowSubjectArgs::Task {
+            task_id: "task-123".to_string(),
+        };
+        let process = manager
+            .spawn_workflow_runner(
+                &subject,
+                "standard",
+                temp_dir.path().to_string_lossy().as_ref(),
+            )
+            .expect("mock runner should be discovered from PATH and spawned");
         assert_eq!(process.subject_id, "task-123");
         assert_eq!(process.task_id.as_deref(), Some("task-123"));
         assert_eq!(manager.active_count(), 1);
@@ -305,11 +245,15 @@ mod tests {
 
     #[test]
     fn subject_id_returns_correct_value_for_each_variant() {
-        let task = WorkflowSubjectArgs::Task { task_id: "TASK-1".into() };
+        let task = WorkflowSubjectArgs::Task {
+            task_id: "TASK-1".into(),
+        };
         assert_eq!(task.subject_id(), "TASK-1");
         assert!(task.schedule_id().is_none());
 
-        let req = WorkflowSubjectArgs::Requirement { requirement_id: "REQ-1".into() };
+        let req = WorkflowSubjectArgs::Requirement {
+            requirement_id: "REQ-1".into(),
+        };
         assert_eq!(req.subject_id(), "REQ-1");
         assert!(req.schedule_id().is_none());
 
@@ -324,7 +268,9 @@ mod tests {
 
     #[tokio::test]
     async fn spawn_custom_subject_tracks_schedule_id() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
 
         let temp_dir = TempDir::new().expect("temp directory should be created");
         let runner_path = {
@@ -365,7 +311,11 @@ mod tests {
             input_json: Some(r#"{"timeout":300}"#.into()),
         };
         let process = manager
-            .spawn_workflow_runner(&subject, "standard", temp_dir.path().to_string_lossy().as_ref())
+            .spawn_workflow_runner(
+                &subject,
+                "standard",
+                temp_dir.path().to_string_lossy().as_ref(),
+            )
             .expect("mock runner should be spawned for custom subject");
         assert_eq!(process.subject_id, "schedule:nightly");
         assert!(process.task_id.is_none());

@@ -1,11 +1,10 @@
 use std::sync::Arc;
 
-use orchestrator_core::{services::ServiceHub, TaskStatus};
+use orchestrator_core::services::ServiceHub;
 
-use crate::{
-    build_completion_reconciliation_plan, remove_terminal_em_work_queue_entry_non_fatal,
-    set_task_blocked_with_reason, CompletedProcess, ScheduleDispatch,
-};
+use crate::project_schedule_execution_fact::project_schedule_execution_fact;
+use crate::project_task_execution_fact::project_task_execution_fact;
+use crate::{build_completion_reconciliation_plan, CompletedProcess};
 
 pub async fn reconcile_completed_processes(
     hub: Arc<dyn ServiceHub>,
@@ -26,28 +25,8 @@ pub async fn reconcile_completed_processes(
             );
         }
 
-        if let Some(task_id) = fact.task_id.clone() {
-            if fact.success {
-                remove_terminal_em_work_queue_entry_non_fatal(root, &task_id, None);
-                let _ = hub
-                    .tasks()
-                    .set_status(&task_id, TaskStatus::Done, false)
-                    .await;
-            } else if let Some(reason) = fact.failure_reason.clone() {
-                if let Ok(task) = hub.tasks().get(&task_id).await {
-                    let _ = set_task_blocked_with_reason(hub.clone(), &task, reason, None).await;
-                } else {
-                    let _ = hub
-                        .tasks()
-                        .set_status(&task_id, TaskStatus::Blocked, false)
-                        .await;
-                }
-            } else {
-                let _ = hub
-                    .tasks()
-                    .set_status(&task_id, TaskStatus::Blocked, false)
-                    .await;
-            }
+        if fact.task_id.is_some() {
+            project_task_execution_fact(hub.clone(), root, &fact).await;
         } else {
             eprintln!(
                 "{}: workflow runner {} for subject '{}' (exit={:?})",
@@ -58,9 +37,7 @@ pub async fn reconcile_completed_processes(
             );
         }
 
-        if let Some(schedule_id) = fact.schedule_id.as_deref() {
-            ScheduleDispatch::update_completion_state(root, schedule_id, fact.completion_status());
-        }
+        project_schedule_execution_fact(root, &fact);
     }
 
     (plan.executed_workflow_phases, plan.failed_workflow_phases)

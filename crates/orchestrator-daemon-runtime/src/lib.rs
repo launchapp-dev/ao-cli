@@ -18,6 +18,8 @@ mod hook_backed_project_tick_driver;
 mod hook_backed_project_tick_operations;
 mod notification_runtime;
 mod process_manager;
+mod project_schedule_execution_fact;
+mod project_task_execution_fact;
 mod project_tick_action;
 mod project_tick_action_effect;
 mod project_tick_action_executor;

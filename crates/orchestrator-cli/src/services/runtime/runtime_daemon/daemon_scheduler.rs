@@ -1565,52 +1565,6 @@ mod tests {
         assert_eq!(task_state.status, TaskStatus::InProgress);
     }
 
-    #[tokio::test]
-    async fn ensure_task_execution_cwd_provisions_worktree_and_updates_task_metadata() {
-        let temp = TempDir::new().expect("temp dir");
-        init_git_repo(&temp);
-        let project_root = temp.path().to_string_lossy().to_string();
-        let hub = Arc::new(FileServiceHub::new(&project_root).expect("file service hub"));
-
-        let task = hub
-            .tasks()
-            .create(TaskCreateInput {
-                title: "worktree task".to_string(),
-                description: "needs isolated execution cwd".to_string(),
-                task_type: Some(TaskType::Feature),
-                priority: Some(Priority::High),
-                created_by: Some("test".to_string()),
-                tags: Vec::new(),
-                linked_requirements: Vec::new(),
-                linked_architecture_entities: Vec::new(),
-            })
-            .await
-            .expect("task should be created");
-
-        let execution_cwd = git_ops::ensure_task_execution_cwd(
-            hub.clone() as Arc<dyn ServiceHub>,
-            &project_root,
-            &task,
-        )
-        .await
-        .expect("execution cwd should be provisioned");
-
-        assert!(execution_cwd.contains("/.ao/"));
-        assert!(execution_cwd.contains("/worktrees/"));
-        assert!(Path::new(&execution_cwd).exists());
-
-        let updated = hub.tasks().get(&task.id).await.expect("task should load");
-        assert_eq!(
-            updated.worktree_path.as_deref(),
-            Some(execution_cwd.as_str())
-        );
-        assert!(updated
-            .branch_name
-            .as_deref()
-            .map(|value| !value.trim().is_empty())
-            .unwrap_or(false));
-    }
-
     #[test]
     fn is_branch_merged_reports_false_for_unmerged_feature_branch() {
         let temp = TempDir::new().expect("temp dir");

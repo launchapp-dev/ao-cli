@@ -18,7 +18,8 @@ use orchestrator_core::{
 };
 
 use crate::executor::{
-    persist_phase_output, run_workflow_phase, PhaseExecuteOverrides, PhaseExecutionOutcome,
+    ensure_execution_cwd, persist_phase_output, run_workflow_phase, PhaseExecuteOverrides,
+    PhaseExecutionOutcome,
 };
 
 pub enum PhaseEvent<'a> {
@@ -89,7 +90,7 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
         ),
     };
 
-    let task = if let WorkflowSubject::Task { ref id } = subject {
+    let mut task = if let WorkflowSubject::Task { ref id } = subject {
         Some(
             hub.tasks()
                 .get(id)
@@ -113,21 +114,23 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
             .ok_or_else(|| anyhow!("no workflow found for subject '{}'", subject_id))
     })?;
 
-    let execution_cwd = task
-        .as_ref()
-        .and_then(|t| t.worktree_path.as_deref())
-        .filter(|p| !p.is_empty() && Path::new(p).exists())
-        .unwrap_or(&params.project_root)
-        .to_string();
+    let execution_cwd = ensure_execution_cwd(hub.clone(), &params.project_root, task.as_ref())
+        .await
+        .context("failed to resolve execution cwd")?;
+
+    if let Some(task_id) = task.as_ref().map(|t| t.id.clone()) {
+        task = Some(
+            hub.tasks()
+                .get(&task_id)
+                .await
+                .with_context(|| format!("task '{}' not found after cwd preparation", task_id))?,
+        );
+    }
 
     let phases_to_run: Vec<String> = if let Some(ref phase_filter) = params.phase_filter {
         vec![phase_filter.clone()]
     } else {
-        workflow
-            .phases
-            .iter()
-            .map(|p| p.phase_id.clone())
-            .collect()
+        workflow.phases.iter().map(|p| p.phase_id.clone()).collect()
     };
 
     if phases_to_run.is_empty() {
@@ -142,10 +145,7 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
         Some(t) => (t.id.clone(), t.title.clone(), t.description.clone()),
         None => (
             subject_id.clone(),
-            params
-                .title
-                .clone()
-                .unwrap_or_else(|| subject_id.clone()),
+            params.title.clone().unwrap_or_else(|| subject_id.clone()),
             params.description.clone().unwrap_or_default(),
         ),
     };
@@ -153,14 +153,10 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
 
     ensure_workflow_config_compiled(Path::new(&params.project_root))?;
     let workflow_config = load_workflow_config(Path::new(&params.project_root))?;
-    let verdict_routing = resolve_pipeline_verdict_routing(
-        &workflow_config,
-        workflow.pipeline_id.as_deref(),
-    );
-    let rework_attempts = resolve_pipeline_rework_attempts(
-        &workflow_config,
-        workflow.pipeline_id.as_deref(),
-    );
+    let verdict_routing =
+        resolve_pipeline_verdict_routing(&workflow_config, workflow.pipeline_id.as_deref());
+    let rework_attempts =
+        resolve_pipeline_rework_attempts(&workflow_config, workflow.pipeline_id.as_deref());
 
     let mut rework_counts: HashMap<String, u32> = HashMap::new();
     let mut rework_context: Option<String> = None;
@@ -222,10 +218,7 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
                     ..
                 } = result.outcome
                 {
-                    emit(PhaseEvent::Decision {
-                        phase_id,
-                        decision,
-                    });
+                    emit(PhaseEvent::Decision { phase_id, decision });
 
                     if decision.verdict == PhaseDecisionVerdict::Skip {
                         let close_reason = decision.reason.trim().to_lowercase();
@@ -438,11 +431,7 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
 }
 
 fn resolve_input(params: &WorkflowExecuteParams) -> Result<WorkflowRunInput> {
-    match (
-        &params.task_id,
-        &params.requirement_id,
-        &params.title,
-    ) {
+    match (&params.task_id, &params.requirement_id, &params.title) {
         (Some(task_id), _, _) => Ok(WorkflowRunInput::for_task(
             task_id.clone(),
             params.pipeline_id.clone(),
@@ -502,10 +491,9 @@ async fn execute_post_success_actions(
                 .find(|p| p.id.eq_ignore_ascii_case("standard"))
         })
         .or_else(|| {
-            workflow_config
-                .pipelines
-                .iter()
-                .find(|p| p.id.eq_ignore_ascii_case(&workflow_config.default_pipeline_id))
+            workflow_config.pipelines.iter().find(|p| {
+                p.id.eq_ignore_ascii_case(&workflow_config.default_pipeline_id)
+            })
         })
         .cloned();
 
@@ -619,10 +607,7 @@ async fn execute_post_success_actions(
     action_result
 }
 
-async fn resolve_source_branch(
-    task: &OrchestratorTask,
-    execution_cwd: &str,
-) -> Option<String> {
+async fn resolve_source_branch(task: &OrchestratorTask, execution_cwd: &str) -> Option<String> {
     if let Some(branch) = task
         .branch_name
         .as_deref()
@@ -643,9 +628,7 @@ async fn resolve_source_branch(
         return None;
     }
 
-    let branch = String::from_utf8_lossy(&output.stdout)
-        .trim()
-        .to_string();
+    let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if branch.is_empty() {
         None
     } else {
@@ -678,11 +661,7 @@ fn looks_like_merge_conflict(text: &str) -> bool {
         || text.contains("merge blocked")
 }
 
-async fn run_git_output(
-    program: &str,
-    cwd: &str,
-    args: &[&str],
-) -> Result<std::process::Output> {
+async fn run_git_output(program: &str, cwd: &str, args: &[&str]) -> Result<std::process::Output> {
     Command::new(program)
         .current_dir(cwd)
         .args(args)
@@ -747,8 +726,16 @@ async fn create_pull_request_via_gh(
     body: &str,
 ) -> Value {
     let args = [
-        "pr", "create", "--base", target_branch, "--head", source_branch, "--title", title,
-        "--body", body,
+        "pr",
+        "create",
+        "--base",
+        target_branch,
+        "--head",
+        source_branch,
+        "--title",
+        title,
+        "--body",
+        body,
     ];
     match run_git_output("gh", execution_cwd, &args).await {
         Ok(output) if output.status.success() => {
@@ -856,12 +843,8 @@ async fn perform_rebase_strategy(
     .await;
     match rebase_output {
         Ok(output) if output.status.success() => {
-            let ff_merge = run_git_output(
-                "git",
-                execution_cwd,
-                &["merge", "--ff-only", source_branch],
-            )
-            .await;
+            let ff_merge =
+                run_git_output("git", execution_cwd, &["merge", "--ff-only", source_branch]).await;
             match ff_merge {
                 Ok(merge_out) if merge_out.status.success() => serde_json::json!({
                     "status": "completed",

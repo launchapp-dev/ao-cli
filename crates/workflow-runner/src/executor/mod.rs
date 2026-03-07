@@ -1,3 +1,4 @@
+pub mod ensure_execution_cwd;
 pub mod phase_executor;
 pub mod phase_git;
 pub mod phase_output;
@@ -6,6 +7,7 @@ pub mod runtime_contract_builder;
 pub mod workflow_merge_recovery;
 pub mod workflow_runner;
 
+pub use ensure_execution_cwd::*;
 pub use phase_executor::*;
 pub use phase_git::*;
 pub use phase_output::*;

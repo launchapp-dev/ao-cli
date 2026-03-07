@@ -367,13 +367,22 @@ fn apply_claude_native_mcp_lockdown(
     let mut mcp_servers = serde_json::Map::new();
     mcp_servers.insert(agent_id.to_string(), primary);
     for server in additional_servers {
-        mcp_servers.insert(
-            server.name.clone(),
-            serde_json::json!({
-                "command": server.command,
-                "args": server.args
-            }),
+        let mut config = serde_json::Map::new();
+        config.insert(
+            "command".to_string(),
+            serde_json::Value::String(server.command.clone()),
         );
+        config.insert(
+            "args".to_string(),
+            serde_json::to_value(&server.args).expect("server args should serialize"),
+        );
+        if !server.env.is_empty() {
+            config.insert(
+                "env".to_string(),
+                serde_json::to_value(&server.env).expect("server env should serialize"),
+            );
+        }
+        mcp_servers.insert(server.name.clone(), serde_json::Value::Object(config));
     }
     let config = serde_json::json!({ "mcpServers": mcp_servers }).to_string();
     ensure_flag(args, "--strict-mcp-config", 0);
@@ -438,6 +447,13 @@ fn apply_codex_native_mcp_lockdown(
                 .join(", ")
         );
         ensure_codex_config_override(args, &format!("{sbase}.args"), &toml_args);
+        for (key, value) in &server.env {
+            ensure_codex_config_override(
+                args,
+                &format!("{sbase}.env.{key}"),
+                &toml_string(value),
+            );
+        }
         ensure_codex_config_override(args, &format!("{sbase}.enabled"), "true");
     }
 }
@@ -474,14 +490,26 @@ fn apply_gemini_native_mcp_lockdown(
     let mut mcp_servers = serde_json::Map::new();
     mcp_servers.insert(agent_id.to_string(), primary);
     for server in additional_servers {
-        mcp_servers.insert(
-            server.name.clone(),
-            serde_json::json!({
-                "type": "stdio",
-                "command": server.command,
-                "args": server.args,
-            }),
+        let mut config = serde_json::Map::new();
+        config.insert(
+            "type".to_string(),
+            serde_json::Value::String("stdio".to_string()),
         );
+        config.insert(
+            "command".to_string(),
+            serde_json::Value::String(server.command.clone()),
+        );
+        config.insert(
+            "args".to_string(),
+            serde_json::to_value(&server.args).expect("server args should serialize"),
+        );
+        if !server.env.is_empty() {
+            config.insert(
+                "env".to_string(),
+                serde_json::to_value(&server.env).expect("server env should serialize"),
+            );
+        }
+        mcp_servers.insert(server.name.clone(), serde_json::Value::Object(config));
     }
     let settings = serde_json::json!({
         "tools": {
@@ -531,14 +559,23 @@ fn apply_opencode_native_mcp_lockdown(
         let mut command_with_args = Vec::with_capacity(server.args.len() + 1);
         command_with_args.push(server.command.clone());
         command_with_args.extend(server.args.iter().cloned());
-        mcp_entries.insert(
-            server.name.clone(),
-            serde_json::json!({
-                "type": "local",
-                "command": command_with_args,
-                "enabled": true
-            }),
+        let mut config = serde_json::Map::new();
+        config.insert(
+            "type".to_string(),
+            serde_json::Value::String("local".to_string()),
         );
+        config.insert(
+            "command".to_string(),
+            serde_json::to_value(command_with_args).expect("server command should serialize"),
+        );
+        config.insert("enabled".to_string(), serde_json::Value::Bool(true));
+        if !server.env.is_empty() {
+            config.insert(
+                "env".to_string(),
+                serde_json::to_value(&server.env).expect("server env should serialize"),
+            );
+        }
+        mcp_entries.insert(server.name.clone(), serde_json::Value::Object(config));
     }
     let config = serde_json::json!({ "mcp": mcp_entries });
     env.insert("OPENCODE_CONFIG_CONTENT".to_string(), config.to_string());
@@ -1740,7 +1777,7 @@ mod tests {
             name: "my-db".to_string(),
             command: "/usr/local/bin/db-mcp".to_string(),
             args: vec!["--port".to_string(), "5432".to_string()],
-            env: HashMap::new(),
+            env: HashMap::from([("DB_HOST".to_string(), "localhost".to_string())]),
         }];
         apply_claude_native_mcp_lockdown(
             &mut args,
@@ -1763,6 +1800,12 @@ mod tests {
                 .pointer("/mcpServers/my-db/command")
                 .and_then(serde_json::Value::as_str),
             Some("/usr/local/bin/db-mcp")
+        );
+        assert_eq!(
+            config_json
+                .pointer("/mcpServers/my-db/env/DB_HOST")
+                .and_then(serde_json::Value::as_str),
+            Some("localhost")
         );
     }
 }

@@ -68,10 +68,6 @@ pub fn plan_ready_task_dispatch(
         }
     }
 
-    if !plan.ordered_starts.is_empty() {
-        return plan;
-    }
-
     for task in tasks {
         if !seen_task_ids.insert(task.id.clone()) {
             continue;
@@ -159,10 +155,16 @@ mod tests {
         assert_eq!(plan.completed_task_ids, Vec::<String>::new());
         assert_eq!(
             plan.ordered_starts,
-            vec![PlannedReadyTaskStart {
-                task_id: "TASK-1".to_string(),
-                selection_source: TaskSelectionSource::EmQueue,
-            }]
+            vec![
+                PlannedReadyTaskStart {
+                    task_id: "TASK-1".to_string(),
+                    selection_source: TaskSelectionSource::EmQueue,
+                },
+                PlannedReadyTaskStart {
+                    task_id: "TASK-2".to_string(),
+                    selection_source: TaskSelectionSource::FallbackPicker,
+                },
+            ]
         );
     }
 
@@ -199,6 +201,29 @@ mod tests {
 
         assert_eq!(plan.ordered_starts, Vec::<PlannedReadyTaskStart>::new());
         assert_eq!(plan.completed_task_ids, vec!["TASK-9".to_string()]);
+    }
+
+    #[test]
+    fn queue_entries_do_not_duplicate_fallback_candidates() {
+        let queued = task("TASK-1", TaskStatus::Ready);
+        let queue = EmWorkQueueState {
+            entries: vec![EmWorkQueueEntry {
+                task_id: "TASK-1".to_string(),
+                status: EmWorkQueueEntryStatus::Pending,
+                workflow_id: None,
+                assigned_at: None,
+            }],
+        };
+
+        let plan = plan_ready_task_dispatch(&[queued], &[], Some(&queue));
+
+        assert_eq!(
+            plan.ordered_starts,
+            vec![PlannedReadyTaskStart {
+                task_id: "TASK-1".to_string(),
+                selection_source: TaskSelectionSource::EmQueue,
+            }]
+        );
     }
 
     fn task(id: &str, status: TaskStatus) -> OrchestratorTask {

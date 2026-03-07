@@ -3,7 +3,7 @@ use orchestrator_core::WorkflowSubject;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SubjectDispatch {
     pub subject: WorkflowSubject,
     pub pipeline_id: String,
@@ -17,13 +17,22 @@ pub struct SubjectDispatch {
 
 impl SubjectDispatch {
     pub fn for_task(task_id: impl Into<String>, pipeline_id: impl Into<String>) -> Self {
+        Self::for_task_with_metadata(task_id, pipeline_id, "ready-queue", Utc::now())
+    }
+
+    pub fn for_task_with_metadata(
+        task_id: impl Into<String>,
+        pipeline_id: impl Into<String>,
+        trigger_source: impl Into<String>,
+        requested_at: DateTime<Utc>,
+    ) -> Self {
         Self {
             subject: WorkflowSubject::Task { id: task_id.into() },
             pipeline_id: pipeline_id.into(),
             input: None,
             priority: None,
-            trigger_source: "ready-queue".to_string(),
-            requested_at: Utc::now(),
+            trigger_source: trigger_source.into(),
+            requested_at,
         }
     }
 

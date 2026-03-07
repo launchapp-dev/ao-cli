@@ -1,21 +1,13 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use orchestrator_core::{services::ServiceHub, TaskStatus, UI_UX_PIPELINE_ID};
+use orchestrator_core::{services::ServiceHub, TaskStatus};
 
 use crate::{
     active_workflow_task_ids, dependency_blocked_reason, dependency_gate_issues_for_task,
-    set_task_blocked_with_reason, should_skip_dispatch, ProcessManager, ReadyTaskWorkflowStart,
-    ReadyTaskWorkflowStartSummary, SubjectDispatch, TaskSelectionSource,
+    pipeline_for_task, set_task_blocked_with_reason, should_skip_dispatch, ProcessManager,
+    ReadyTaskWorkflowStart, ReadyTaskWorkflowStartSummary, SubjectDispatch, TaskSelectionSource,
 };
-
-fn pipeline_for_task(task: &orchestrator_core::OrchestratorTask) -> String {
-    if task.is_frontend_related() {
-        UI_UX_PIPELINE_ID.to_string()
-    } else {
-        orchestrator_core::STANDARD_PIPELINE_ID.to_string()
-    }
-}
 
 pub async fn dispatch_ready_tasks_via_runner(
     hub: Arc<dyn ServiceHub>,

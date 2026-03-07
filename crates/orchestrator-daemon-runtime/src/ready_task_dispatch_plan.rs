@@ -1,19 +1,27 @@
 use std::collections::{HashMap, HashSet};
 
+use chrono::{DateTime, Utc};
 use orchestrator_core::{OrchestratorTask, OrchestratorWorkflow, TaskStatus};
 
 use crate::{
-    active_workflow_task_ids, is_terminally_completed_workflow, should_skip_dispatch,
-    EmWorkQueueEntryStatus, EmWorkQueueState, TaskSelectionSource,
+    active_workflow_task_ids, is_terminally_completed_workflow, pipeline_for_task,
+    should_skip_dispatch, EmWorkQueueEntryStatus, EmWorkQueueState, SubjectDispatch,
+    TaskSelectionSource,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PlannedReadyTaskStart {
-    pub task_id: String,
+    pub dispatch: SubjectDispatch,
     pub selection_source: TaskSelectionSource,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+impl PlannedReadyTaskStart {
+    pub fn task_id(&self) -> Option<&str> {
+        self.dispatch.task_id()
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ReadyTaskDispatchPlan {
     pub ordered_starts: Vec<PlannedReadyTaskStart>,
     pub completed_task_ids: Vec<String>,
@@ -23,6 +31,7 @@ pub fn plan_ready_task_dispatch(
     tasks: &[OrchestratorTask],
     workflows: &[OrchestratorWorkflow],
     em_queue_state: Option<&EmWorkQueueState>,
+    requested_at: DateTime<Utc>,
 ) -> ReadyTaskDispatchPlan {
     let active_task_ids = active_workflow_task_ids(workflows);
     let completed_task_ids: HashSet<String> = workflows
@@ -62,7 +71,12 @@ pub fn plan_ready_task_dispatch(
             }
 
             plan.ordered_starts.push(PlannedReadyTaskStart {
-                task_id: task.id.clone(),
+                dispatch: SubjectDispatch::for_task_with_metadata(
+                    task.id.clone(),
+                    pipeline_for_task(task),
+                    "em-queue",
+                    requested_at,
+                ),
                 selection_source: TaskSelectionSource::EmQueue,
             });
         }
@@ -85,7 +99,12 @@ pub fn plan_ready_task_dispatch(
         }
 
         plan.ordered_starts.push(PlannedReadyTaskStart {
-            task_id: task.id.clone(),
+            dispatch: SubjectDispatch::for_task_with_metadata(
+                task.id.clone(),
+                pipeline_for_task(task),
+                "fallback-picker",
+                requested_at,
+            ),
             selection_source: TaskSelectionSource::FallbackPicker,
         });
     }
@@ -126,7 +145,7 @@ fn should_include_completed_task(
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    use chrono::{TimeZone, Utc};
     use orchestrator_core::{
         Assignee, Complexity, OrchestratorTask, OrchestratorWorkflow, Priority,
         ResourceRequirements, TaskMetadata, TaskStatus, TaskType, WorkflowCheckpointMetadata,
@@ -141,6 +160,7 @@ mod tests {
     fn queue_entries_take_priority_over_fallback_candidates() {
         let queued = task("TASK-1", TaskStatus::Ready);
         let fallback = task("TASK-2", TaskStatus::Ready);
+        let now = Utc.with_ymd_and_hms(2026, 3, 7, 12, 0, 0).unwrap();
         let queue = EmWorkQueueState {
             entries: vec![EmWorkQueueEntry {
                 task_id: "TASK-1".to_string(),
@@ -150,18 +170,28 @@ mod tests {
             }],
         };
 
-        let plan = plan_ready_task_dispatch(&[queued, fallback], &[], Some(&queue));
+        let plan = plan_ready_task_dispatch(&[queued, fallback], &[], Some(&queue), now);
 
         assert_eq!(plan.completed_task_ids, Vec::<String>::new());
         assert_eq!(
             plan.ordered_starts,
             vec![
                 PlannedReadyTaskStart {
-                    task_id: "TASK-1".to_string(),
+                    dispatch: SubjectDispatch::for_task_with_metadata(
+                        "TASK-1",
+                        orchestrator_core::STANDARD_PIPELINE_ID,
+                        "em-queue",
+                        now,
+                    ),
                     selection_source: TaskSelectionSource::EmQueue,
                 },
                 PlannedReadyTaskStart {
-                    task_id: "TASK-2".to_string(),
+                    dispatch: SubjectDispatch::for_task_with_metadata(
+                        "TASK-2",
+                        orchestrator_core::STANDARD_PIPELINE_ID,
+                        "fallback-picker",
+                        now,
+                    ),
                     selection_source: TaskSelectionSource::FallbackPicker,
                 },
             ]
@@ -172,6 +202,7 @@ mod tests {
     fn falls_back_to_prioritized_tasks_when_queue_yields_no_starts() {
         let queued = task("TASK-1", TaskStatus::Blocked);
         let fallback = task("TASK-2", TaskStatus::Ready);
+        let now = Utc.with_ymd_and_hms(2026, 3, 7, 12, 0, 0).unwrap();
         let queue = EmWorkQueueState {
             entries: vec![EmWorkQueueEntry {
                 task_id: "TASK-1".to_string(),
@@ -181,12 +212,17 @@ mod tests {
             }],
         };
 
-        let plan = plan_ready_task_dispatch(&[queued, fallback], &[], Some(&queue));
+        let plan = plan_ready_task_dispatch(&[queued, fallback], &[], Some(&queue), now);
 
         assert_eq!(
             plan.ordered_starts,
             vec![PlannedReadyTaskStart {
-                task_id: "TASK-2".to_string(),
+                dispatch: SubjectDispatch::for_task_with_metadata(
+                    "TASK-2",
+                    orchestrator_core::STANDARD_PIPELINE_ID,
+                    "fallback-picker",
+                    now,
+                ),
                 selection_source: TaskSelectionSource::FallbackPicker,
             }]
         );
@@ -196,8 +232,9 @@ mod tests {
     fn records_completed_tasks_instead_of_restarting_them() {
         let done_candidate = task("TASK-9", TaskStatus::Ready);
         let workflows = vec![completed_workflow("wf-1", "TASK-9")];
+        let now = Utc.with_ymd_and_hms(2026, 3, 7, 12, 0, 0).unwrap();
 
-        let plan = plan_ready_task_dispatch(&[done_candidate], &workflows, None);
+        let plan = plan_ready_task_dispatch(&[done_candidate], &workflows, None, now);
 
         assert_eq!(plan.ordered_starts, Vec::<PlannedReadyTaskStart>::new());
         assert_eq!(plan.completed_task_ids, vec!["TASK-9".to_string()]);
@@ -206,6 +243,7 @@ mod tests {
     #[test]
     fn queue_entries_do_not_duplicate_fallback_candidates() {
         let queued = task("TASK-1", TaskStatus::Ready);
+        let now = Utc.with_ymd_and_hms(2026, 3, 7, 12, 0, 0).unwrap();
         let queue = EmWorkQueueState {
             entries: vec![EmWorkQueueEntry {
                 task_id: "TASK-1".to_string(),
@@ -215,12 +253,17 @@ mod tests {
             }],
         };
 
-        let plan = plan_ready_task_dispatch(&[queued], &[], Some(&queue));
+        let plan = plan_ready_task_dispatch(&[queued], &[], Some(&queue), now);
 
         assert_eq!(
             plan.ordered_starts,
             vec![PlannedReadyTaskStart {
-                task_id: "TASK-1".to_string(),
+                dispatch: SubjectDispatch::for_task_with_metadata(
+                    "TASK-1",
+                    orchestrator_core::STANDARD_PIPELINE_ID,
+                    "em-queue",
+                    now,
+                ),
                 selection_source: TaskSelectionSource::EmQueue,
             }]
         );

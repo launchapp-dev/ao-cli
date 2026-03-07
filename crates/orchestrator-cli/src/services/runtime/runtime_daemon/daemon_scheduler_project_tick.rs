@@ -30,14 +30,6 @@ pub(crate) use tick_executor::slim_project_tick_driver;
 use tick_executor::FullProjectTickDriver;
 use tick_executor::SlimProjectTickDriver;
 
-fn pipeline_for_task(task: &orchestrator_core::OrchestratorTask) -> String {
-    if task.is_frontend_related() {
-        orchestrator_core::UI_UX_PIPELINE_ID.to_string()
-    } else {
-        orchestrator_core::STANDARD_PIPELINE_ID.to_string()
-    }
-}
-
 #[cfg(test)]
 pub(super) async fn project_tick(
     root: &str,

@@ -109,8 +109,8 @@ pub use ready_task_dispatch_plan::{
 };
 pub use ready_task_dispatch_support::{
     active_workflow_task_ids, is_terminally_completed_workflow, ready_task_dispatch_limit,
-    ready_task_dispatch_limit_for_options, routing_complexity_for_task, should_skip_dispatch,
-    workflow_current_phase_id,
+    ready_task_dispatch_limit_for_options, routing_complexity_for_task, pipeline_for_task,
+    should_skip_dispatch, workflow_current_phase_id,
 };
 pub use ready_task_workflow_start::ReadyTaskWorkflowStart;
 pub use ready_task_workflow_start_summary::ReadyTaskWorkflowStartSummary;

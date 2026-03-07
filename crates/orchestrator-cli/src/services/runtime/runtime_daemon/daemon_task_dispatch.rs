@@ -429,7 +429,7 @@ pub async fn run_ready_task_workflows_for_project(
             None
         }
     };
-    let plan = plan_ready_task_dispatch(&candidates, &workflows, queue_state.as_ref());
+    let plan = plan_ready_task_dispatch(&candidates, &workflows, queue_state.as_ref(), chrono::Utc::now());
 
     for task_id in &plan.completed_task_ids {
         let _ = hub
@@ -444,7 +444,10 @@ pub async fn run_ready_task_workflows_for_project(
             break;
         }
 
-        let Some(task) = task_lookup.get(planned_start.task_id.as_str()).cloned() else {
+        let Some(task_id) = planned_start.task_id() else {
+            continue;
+        };
+        let Some(task) = task_lookup.get(task_id).cloned() else {
             continue;
         };
         let dependency_issues =
@@ -459,7 +462,7 @@ pub async fn run_ready_task_workflows_for_project(
             .workflows()
             .run(WorkflowRunInput::for_task(
                 task.id.clone(),
-                Some(pipeline_for_task(&task)),
+                Some(planned_start.dispatch.pipeline_id.clone()),
             ))
             .await?;
         if planned_start.selection_source == TaskSelectionSource::EmQueue {

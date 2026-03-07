@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use chrono::Utc;
 use orchestrator_core::{
     Complexity, DaemonHealth, OrchestratorTask, OrchestratorWorkflow, WorkflowStatus,
+    STANDARD_PIPELINE_ID, UI_UX_PIPELINE_ID,
 };
 
 use crate::DaemonRuntimeOptions;
@@ -102,6 +103,14 @@ pub fn routing_complexity_for_task(
         Complexity::Low => Some(protocol::ModelRoutingComplexity::Low),
         Complexity::Medium => Some(protocol::ModelRoutingComplexity::Medium),
         Complexity::High => Some(protocol::ModelRoutingComplexity::High),
+    }
+}
+
+pub fn pipeline_for_task(task: &OrchestratorTask) -> String {
+    if task.is_frontend_related() {
+        UI_UX_PIPELINE_ID.to_string()
+    } else {
+        STANDARD_PIPELINE_ID.to_string()
     }
 }
 

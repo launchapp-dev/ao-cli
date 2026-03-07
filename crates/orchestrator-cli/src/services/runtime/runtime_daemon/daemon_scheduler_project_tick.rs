@@ -133,7 +133,10 @@ pub(super) async fn project_tick(
 
     let ready_dispatch_limit = if !pool_draining && args.auto_run_ready {
         match daemon.health().await {
-            Ok(health) => ready_task_dispatch_limit(args.max_tasks_per_tick, &health),
+            Ok(health) => orchestrator_daemon_runtime::ready_task_dispatch_limit(
+                args.max_tasks_per_tick,
+                &health,
+            ),
             Err(_) => args.max_tasks_per_tick,
         }
     } else {
@@ -1115,7 +1118,10 @@ mod tests {
             total_agents_completed: None,
             total_agents_failed: None,
         };
-        assert_eq!(ready_task_dispatch_limit(4, &uncapped), 4);
+        assert_eq!(
+            orchestrator_daemon_runtime::ready_task_dispatch_limit(4, &uncapped),
+            4
+        );
 
         let capped = orchestrator_core::DaemonHealth {
             healthy: true,
@@ -1134,8 +1140,14 @@ mod tests {
             total_agents_completed: None,
             total_agents_failed: None,
         };
-        assert_eq!(ready_task_dispatch_limit(10, &capped), 2);
-        assert_eq!(ready_task_dispatch_limit(1, &capped), 1);
+        assert_eq!(
+            orchestrator_daemon_runtime::ready_task_dispatch_limit(10, &capped),
+            2
+        );
+        assert_eq!(
+            orchestrator_daemon_runtime::ready_task_dispatch_limit(1, &capped),
+            1
+        );
 
         let saturated = orchestrator_core::DaemonHealth {
             healthy: true,
@@ -1154,7 +1166,10 @@ mod tests {
             total_agents_completed: None,
             total_agents_failed: None,
         };
-        assert_eq!(ready_task_dispatch_limit(3, &saturated), 0);
+        assert_eq!(
+            orchestrator_daemon_runtime::ready_task_dispatch_limit(3, &saturated),
+            0
+        );
     }
 
     #[tokio::test]

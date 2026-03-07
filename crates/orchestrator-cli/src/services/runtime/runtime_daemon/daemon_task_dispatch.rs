@@ -1,11 +1,12 @@
 use super::*;
 pub use orchestrator_daemon_runtime::{
-    ReadyTaskWorkflowStart, ReadyTaskWorkflowStartSummary, TaskSelectionSource,
+    active_workflow_task_ids, is_terminally_completed_workflow, routing_complexity_for_task,
+    should_skip_dispatch, workflow_current_phase_id, ReadyTaskWorkflowStart,
+    ReadyTaskWorkflowStartSummary, TaskSelectionSource,
 };
 
 const EM_WORK_QUEUE_STATE_FILE: &str = "em-work-queue.json";
 const MAX_DISPATCH_RETRIES: u32 = 3;
-const MIN_RETRY_DELAY_SECS: i64 = 60;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -182,52 +183,6 @@ pub fn remove_terminal_em_work_queue_entry_non_fatal(
     }
 }
 
-pub fn ready_task_dispatch_limit(
-    max_tasks_per_tick: usize,
-    health: &orchestrator_core::DaemonHealth,
-) -> usize {
-    if max_tasks_per_tick == 0 {
-        return 0;
-    }
-    match health.max_agents {
-        Some(max_agents) => {
-            let available_agent_slots = max_agents.saturating_sub(health.active_agents);
-            max_tasks_per_tick.min(available_agent_slots)
-        }
-        None => max_tasks_per_tick,
-    }
-}
-
-pub fn normalize_optional_id(value: Option<&str>) -> Option<String> {
-    value
-        .map(str::trim)
-        .filter(|candidate| !candidate.is_empty())
-        .map(|candidate| candidate.to_string())
-}
-
-pub fn is_terminally_completed_workflow(
-    workflow: &orchestrator_core::OrchestratorWorkflow,
-) -> bool {
-    workflow.status == WorkflowStatus::Completed
-        && workflow.machine_state == orchestrator_core::WorkflowMachineState::Completed
-        && workflow.completed_at.is_some()
-}
-
-pub fn active_workflow_task_ids(
-    workflows: &[orchestrator_core::OrchestratorWorkflow],
-) -> HashSet<String> {
-    workflows
-        .iter()
-        .filter(|workflow| {
-            matches!(
-                workflow.status,
-                WorkflowStatus::Running | WorkflowStatus::Paused | WorkflowStatus::Pending
-            ) && workflow.machine_state != orchestrator_core::WorkflowMachineState::MergeConflict
-        })
-        .map(|workflow| workflow.task_id.clone())
-        .collect()
-}
-
 fn resolve_workflow_pipeline_definition<'a>(
     config: &'a orchestrator_core::WorkflowConfig,
     pipeline_id: &str,
@@ -295,32 +250,6 @@ fn effective_post_success_git_config(
         cfg.auto_merge_target_branch = target_branch.to_string();
     }
     cfg
-}
-
-pub fn workflow_current_phase_id(
-    workflow: &orchestrator_core::OrchestratorWorkflow,
-) -> Option<String> {
-    workflow
-        .current_phase
-        .as_deref()
-        .map(str::to_string)
-        .or_else(|| {
-            workflow
-                .phases
-                .get(workflow.current_phase_index)
-                .map(|phase| phase.phase_id.clone())
-        })
-        .and_then(|phase_id| normalize_optional_id(Some(phase_id.as_str())))
-}
-
-pub fn routing_complexity_for_task(
-    task: &orchestrator_core::OrchestratorTask,
-) -> Option<protocol::ModelRoutingComplexity> {
-    match task.complexity {
-        orchestrator_core::Complexity::Low => Some(protocol::ModelRoutingComplexity::Low),
-        orchestrator_core::Complexity::Medium => Some(protocol::ModelRoutingComplexity::Medium),
-        orchestrator_core::Complexity::High => Some(protocol::ModelRoutingComplexity::High),
-    }
 }
 
 pub fn daemon_agent_assignee_for_workflow_start(
@@ -638,23 +567,6 @@ pub async fn sync_task_status_for_workflow_result(
                 .await;
         }
     }
-}
-
-pub(super) fn should_skip_dispatch(task: &orchestrator_core::OrchestratorTask) -> bool {
-    if let Some(count) = task.consecutive_dispatch_failures {
-        if count >= MAX_DISPATCH_RETRIES {
-            return true;
-        }
-    }
-    if let Some(ref last_failure) = task.last_dispatch_failure_at {
-        if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(last_failure) {
-            let elapsed = Utc::now().signed_duration_since(parsed.with_timezone(&Utc));
-            if elapsed.num_seconds() < MIN_RETRY_DELAY_SECS {
-                return true;
-            }
-        }
-    }
-    false
 }
 
 pub async fn run_ready_task_workflows_for_project(

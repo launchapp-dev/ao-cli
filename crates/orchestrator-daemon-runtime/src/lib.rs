@@ -3,6 +3,7 @@ mod collect_task_state_transitions;
 mod completed_process;
 mod daemon_runtime_options;
 mod project_tick_summary;
+mod ready_task_dispatch_support;
 mod ready_task_workflow_start;
 mod ready_task_workflow_start_summary;
 mod requirement_lifecycle_transition;
@@ -18,6 +19,10 @@ pub use collect_task_state_transitions::collect_task_state_transitions;
 pub use completed_process::CompletedProcess;
 pub use daemon_runtime_options::DaemonRuntimeOptions;
 pub use project_tick_summary::ProjectTickSummary;
+pub use ready_task_dispatch_support::{
+    active_workflow_task_ids, is_terminally_completed_workflow, ready_task_dispatch_limit,
+    routing_complexity_for_task, should_skip_dispatch, workflow_current_phase_id,
+};
 pub use ready_task_workflow_start::ReadyTaskWorkflowStart;
 pub use ready_task_workflow_start_summary::ReadyTaskWorkflowStartSummary;
 pub use requirement_lifecycle_transition::RequirementLifecycleTransition;

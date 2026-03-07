@@ -2,8 +2,9 @@ use super::*;
 #[cfg(test)]
 use orchestrator_daemon_runtime::{default_full_project_tick_driver, DefaultFullProjectTickDriver};
 use orchestrator_daemon_runtime::{
-    default_slim_project_tick_driver, dispatch_ready_tasks_via_runner, CompletedProcess,
-    DefaultProjectTickServices, DefaultSlimProjectTickDriver, ProcessManager,
+    default_slim_project_tick_driver, dispatch_ready_tasks_via_runner,
+    reconcile_completed_processes, CompletedProcess, DefaultProjectTickServices,
+    DefaultSlimProjectTickDriver, ProcessManager,
 };
 
 pub(crate) struct CliProjectTickServices;
@@ -83,7 +84,7 @@ impl DefaultProjectTickServices for CliProjectTickServices {
         root: &str,
         completed_processes: Vec<CompletedProcess>,
     ) -> Result<(usize, usize)> {
-        Ok(CompletionReconciler::reconcile(hub, root, completed_processes).await)
+        Ok(reconcile_completed_processes(hub, root, completed_processes).await)
     }
 
     async fn retry_failed_task_workflows(

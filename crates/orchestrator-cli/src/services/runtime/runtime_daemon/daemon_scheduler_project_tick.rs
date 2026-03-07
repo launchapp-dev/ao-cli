@@ -16,15 +16,12 @@ pub(super) mod bootstrap;
 #[allow(dead_code)]
 #[path = "daemon_agent_slot.rs"]
 pub(super) mod agent_slot;
-#[path = "daemon_completion_reconciliation.rs"]
-pub(super) mod completion_reconciliation;
 #[path = "daemon_schedule_dispatch.rs"]
 pub(super) mod schedule_dispatch;
 #[path = "daemon_tick_executor.rs"]
 mod tick_executor;
 
 use bootstrap::*;
-use completion_reconciliation::CompletionReconciler;
 use reconciliation::*;
 use task_dispatch::*;
 use task_lifecycle::*;

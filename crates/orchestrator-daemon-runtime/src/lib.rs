@@ -12,6 +12,7 @@ mod daemon_runtime_state;
 mod default_daemon_run_host;
 mod default_project_tick_driver;
 mod em_work_queue_state;
+mod em_work_queue_store;
 mod execute_project_tick_script;
 mod hook_backed_project_tick_driver;
 mod hook_backed_project_tick_operations;
@@ -38,6 +39,7 @@ mod ready_task_dispatch_plan;
 mod ready_task_dispatch_support;
 mod ready_task_workflow_start;
 mod ready_task_workflow_start_summary;
+mod reconcile_completed_processes;
 mod requirement_lifecycle_transition;
 mod run_daemon;
 mod run_project_tick;
@@ -70,6 +72,10 @@ pub use default_project_tick_driver::{
     DefaultFullProjectTickDriver, DefaultProjectTickServices, DefaultSlimProjectTickDriver,
 };
 pub use em_work_queue_state::{EmWorkQueueEntry, EmWorkQueueEntryStatus, EmWorkQueueState};
+pub use em_work_queue_store::{
+    em_work_queue_state_path, load_em_work_queue_state, mark_em_work_queue_entry_assigned,
+    remove_terminal_em_work_queue_entry_non_fatal, save_em_work_queue_state,
+};
 pub use execute_project_tick_script::execute_project_tick_script;
 pub use hook_backed_project_tick_driver::HookBackedProjectTickDriver;
 pub use hook_backed_project_tick_operations::HookBackedProjectTickOperations;
@@ -107,6 +113,7 @@ pub use ready_task_dispatch_support::{
 };
 pub use ready_task_workflow_start::ReadyTaskWorkflowStart;
 pub use ready_task_workflow_start_summary::ReadyTaskWorkflowStartSummary;
+pub use reconcile_completed_processes::reconcile_completed_processes;
 pub use requirement_lifecycle_transition::RequirementLifecycleTransition;
 pub use run_daemon::run_daemon;
 pub use run_project_tick::{run_project_tick, run_project_tick_at};

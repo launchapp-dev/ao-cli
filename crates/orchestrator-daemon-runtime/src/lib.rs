@@ -1,6 +1,7 @@
 mod collect_requirement_lifecycle_transitions;
 mod collect_task_state_transitions;
 mod completed_process;
+mod completion_reconciliation_plan;
 mod daemon_runtime_options;
 mod project_tick_summary;
 mod ready_task_dispatch_support;
@@ -17,6 +18,10 @@ mod workflow_subject_args;
 pub use collect_requirement_lifecycle_transitions::collect_requirement_lifecycle_transitions;
 pub use collect_task_state_transitions::collect_task_state_transitions;
 pub use completed_process::CompletedProcess;
+pub use completion_reconciliation_plan::{
+    build_completion_reconciliation_plan, CompletedProcessDisposition,
+    CompletionReconciliationPlan, ScheduleCompletionUpdate, TaskCompletionAction,
+};
 pub use daemon_runtime_options::DaemonRuntimeOptions;
 pub use project_tick_summary::ProjectTickSummary;
 pub use ready_task_dispatch_support::{

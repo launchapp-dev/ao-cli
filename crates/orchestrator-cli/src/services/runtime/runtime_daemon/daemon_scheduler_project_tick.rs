@@ -1,6 +1,6 @@
 use super::*;
 use crate::services::runtime::runtime_daemon::daemon_process_manager::{
-    CompletedProcess, ProcessManager, WorkflowSubjectArgs,
+    ProcessManager, WorkflowSubjectArgs,
 };
 
 #[path = "daemon_task_dispatch.rs"]
@@ -45,15 +45,6 @@ fn pipeline_for_task(task: &orchestrator_core::OrchestratorTask) -> String {
     } else {
         orchestrator_core::STANDARD_PIPELINE_ID.to_string()
     }
-}
-
-fn completion_reason(completion: &CompletedProcess) -> String {
-    completion.failure_reason.clone().unwrap_or_else(|| {
-        format!(
-            "workflow runner exited with status {:?}",
-            completion.exit_code
-        )
-    })
 }
 
 #[cfg(test)]

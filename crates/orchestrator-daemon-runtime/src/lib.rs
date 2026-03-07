@@ -1,3 +1,4 @@
+mod build_runner_command_from_dispatch;
 mod collect_requirement_lifecycle_transitions;
 mod collect_task_state_transitions;
 mod completed_process;
@@ -14,6 +15,7 @@ mod default_project_tick_driver;
 mod em_work_queue_state;
 mod em_work_queue_store;
 mod execute_project_tick_script;
+mod git_ops;
 mod hook_backed_project_tick_driver;
 mod hook_backed_project_tick_operations;
 mod notification_runtime;
@@ -48,7 +50,6 @@ mod run_project_tick;
 mod runner_event;
 mod runner_ready_dispatch;
 mod schedule_dispatch;
-mod subject_dispatch;
 mod subject_execution_fact;
 mod task_blocking;
 mod task_lifecycle_support;
@@ -62,6 +63,7 @@ pub use completed_process::CompletedProcess;
 pub use completion_reconciliation_plan::{
     build_completion_reconciliation_plan, CompletionReconciliationPlan,
 };
+pub use build_runner_command_from_dispatch::build_runner_command_from_dispatch;
 pub use daemon_event_log::DaemonEventLog;
 pub use daemon_events_poll_response::DaemonEventsPollResponse;
 pub use daemon_run_event::DaemonRunEvent;
@@ -80,6 +82,7 @@ pub use em_work_queue_store::{
     remove_terminal_em_work_queue_entry_non_fatal, save_em_work_queue_state,
 };
 pub use execute_project_tick_script::execute_project_tick_script;
+pub use git_ops::*;
 pub use hook_backed_project_tick_driver::HookBackedProjectTickDriver;
 pub use hook_backed_project_tick_operations::HookBackedProjectTickOperations;
 pub use notification_runtime::{
@@ -123,7 +126,7 @@ pub use run_project_tick::{run_project_tick, run_project_tick_at};
 pub use runner_event::RunnerEvent;
 pub use runner_ready_dispatch::dispatch_ready_tasks_via_runner;
 pub use schedule_dispatch::ScheduleDispatch;
-pub use subject_dispatch::SubjectDispatch;
+pub use protocol::SubjectDispatch;
 pub use subject_execution_fact::SubjectExecutionFact;
 pub use task_blocking::{
     dependency_blocked_reason, dependency_gate_issues_for_task, is_dependency_gate_block,

@@ -1,4 +1,14 @@
-use super::*;
+use anyhow::{anyhow, Context, Result};
+use chrono::Utc;
+use orchestrator_core::{services::ServiceHub, TaskStatus};
+#[cfg(test)]
+use orchestrator_core::{FileServiceHub, TaskCreateInput, TaskType};
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::{Command as ProcessCommand, Stdio};
+use std::sync::Arc;
+use uuid::Uuid;
 
 #[path = "daemon_git_helpers.rs"]
 mod git_helpers;
@@ -17,21 +27,25 @@ mod git_integration;
 #[path = "daemon_git_runtime_refresh.rs"]
 mod git_runtime_refresh;
 
-pub(super) use git_helpers::*;
-pub(super) use git_worktree::*;
-pub(super) use git_merge::*;
-pub(super) use git_integration::*;
-pub(super) use git_runtime_refresh::*;
-
-pub(crate) use git_merge::MergeConflictContext;
+pub use git_helpers::*;
+pub use git_integration::*;
+pub use git_merge::*;
+pub use git_runtime_refresh::*;
+pub use git_worktree::*;
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use orchestrator_core::InMemoryServiceHub;
+    use std::sync::{Mutex, OnceLock};
     use tempfile::TempDir;
 
     use protocol::test_utils::EnvVarGuard;
+
+    fn test_env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     fn reset_runtime_binary_refresh_hooks() {
         with_runtime_binary_refresh_test_hooks(|hooks| {
@@ -183,7 +197,9 @@ mod tests {
 
     #[tokio::test]
     async fn auto_prune_completed_task_worktrees_after_merge_prunes_terminal_tasks() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let home = TempDir::new().expect("temp home");
         let home_path = home.path().to_string_lossy().to_string();
         let _home = EnvVarGuard::set("HOME", Some(home_path.as_str()));
@@ -263,7 +279,9 @@ mod tests {
 
     #[tokio::test]
     async fn auto_prune_completed_task_worktrees_after_merge_skips_when_disabled() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let home = TempDir::new().expect("temp home");
         let home_path = home.path().to_string_lossy().to_string();
         let _home = EnvVarGuard::set("HOME", Some(home_path.as_str()));
@@ -308,7 +326,9 @@ mod tests {
 
     #[tokio::test]
     async fn auto_prune_completed_task_worktrees_after_merge_skips_paths_outside_managed_root() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let home = TempDir::new().expect("temp home");
         let home_path = home.path().to_string_lossy().to_string();
         let _home = EnvVarGuard::set("HOME", Some(home_path.as_str()));
@@ -418,7 +438,9 @@ mod tests {
 
     #[tokio::test]
     async fn runtime_binary_refresh_noops_when_main_head_unchanged() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         reset_runtime_binary_refresh_hooks();
 
         let home = TempDir::new().expect("temp home");
@@ -459,7 +481,9 @@ mod tests {
 
     #[tokio::test]
     async fn runtime_binary_refresh_defers_when_active_agents_are_present() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         reset_runtime_binary_refresh_hooks();
 
         let home = TempDir::new().expect("temp home");
@@ -495,7 +519,9 @@ mod tests {
 
     #[tokio::test]
     async fn runtime_binary_refresh_applies_tick_backoff_after_build_failure() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         reset_runtime_binary_refresh_hooks();
 
         let home = TempDir::new().expect("temp home");
@@ -545,7 +571,9 @@ mod tests {
 
     #[tokio::test]
     async fn runtime_binary_refresh_applies_tick_backoff_after_runner_refresh_failure() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         reset_runtime_binary_refresh_hooks();
 
         let home = TempDir::new().expect("temp home");
@@ -595,7 +623,9 @@ mod tests {
 
     #[tokio::test]
     async fn runtime_binary_refresh_post_merge_trigger_bypasses_tick_backoff() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         reset_runtime_binary_refresh_hooks();
 
         let home = TempDir::new().expect("temp home");

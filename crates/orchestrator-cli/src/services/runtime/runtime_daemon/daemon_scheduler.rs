@@ -1,8 +1,9 @@
 use super::canonicalize_lossy;
 use crate::cli_types::DaemonRunArgs;
 use crate::shared::{ensure_ai_generated_tasks_for_requirements, requirement_has_active_tasks};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use chrono::Utc;
+use orchestrator_daemon_runtime as git_ops;
 #[cfg(test)]
 use orchestrator_core::DependencyType;
 use orchestrator_core::{
@@ -19,15 +20,15 @@ pub(super) use orchestrator_daemon_runtime::{
 pub(crate) use project_tick_ops::slim_project_tick_driver;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+#[cfg(test)]
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command as ProcessCommand, Stdio};
+#[cfg(test)]
+use std::process::Command as ProcessCommand;
 use std::sync::Arc;
 use uuid::Uuid;
 #[path = "daemon_scheduler_frontend_gate.rs"]
 mod frontend_phase_gate;
-#[path = "daemon_scheduler_git_ops.rs"]
-mod git_ops;
 #[cfg(test)]
 #[path = "daemon_scheduler_mock_runner_tests.rs"]
 mod mock_runner_tests;

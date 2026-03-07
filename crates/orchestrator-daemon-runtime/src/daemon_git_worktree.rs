@@ -1,6 +1,6 @@
 //! DEPRECATED: Will be replaced by GitProvider trait. See providers/git.rs
 use super::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
 pub struct GitWorktreeEntry {
@@ -83,10 +83,7 @@ fn normalize_path_for_match(path: &str) -> String {
     candidate.to_string_lossy().to_string()
 }
 
-pub fn infer_task_id_from_worktree(
-    branch: Option<&str>,
-    worktree_name: &str,
-) -> Option<String> {
+pub fn infer_task_id_from_worktree(branch: Option<&str>, worktree_name: &str) -> Option<String> {
     let token_to_task_id = |token: &str| -> Option<String> {
         let suffix = token.trim().strip_prefix("task-")?;
         if suffix.is_empty() {

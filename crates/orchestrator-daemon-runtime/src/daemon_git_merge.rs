@@ -12,7 +12,10 @@ pub enum PostMergeOutcome {
 }
 
 fn merge_queue_branch_name(task_id: &str) -> String {
-    format!("ao/merge-queue/{}", protocol::sanitize_identifier(task_id, "task"))
+    format!(
+        "ao/merge-queue/{}",
+        protocol::sanitize_identifier(task_id, "task")
+    )
 }
 
 fn pull_request_title(task: &orchestrator_core::OrchestratorTask) -> String {

@@ -59,19 +59,23 @@ pub(super) async fn project_tick(
     let _ = orchestrator_core::ensure_workflow_config_compiled(Path::new(&root));
     let mut schedule_pm = ProcessManager::new();
     let wf_config = orchestrator_core::load_workflow_config_or_default(Path::new(&root));
+    let active_hours = wf_config
+        .config
+        .daemon
+        .as_ref()
+        .and_then(|daemon| daemon.active_hours.as_deref());
     let pool_draining = phase_pool::is_pool_draining(&root);
-    let schedule_plan = ProjectTickPlan::for_project_tick(
+    let initial_preparation = ProjectTickPreparation::for_project_tick(
         args,
-        wf_config
-            .config
-            .daemon
-            .as_ref()
-            .and_then(|daemon| daemon.active_hours.as_deref()),
+        active_hours,
         chrono::Local::now().time(),
         pool_draining,
         None,
     );
-    if schedule_plan.should_process_due_schedules {
+    if initial_preparation
+        .schedule_plan
+        .should_process_due_schedules
+    {
         ScheduleDispatch::process_due_schedules(&mut schedule_pm, &root, Utc::now());
     }
     let hub = Arc::new(FileServiceHub::new(&root)?);
@@ -90,24 +94,20 @@ pub(super) async fn project_tick(
     }
 
     let daemon_health = daemon.health().await.ok();
-    let tick_plan = ProjectTickPlan::for_project_tick(
+    let preparation = ProjectTickPreparation::for_project_tick(
         args,
-        wf_config
-            .config
-            .daemon
-            .as_ref()
-            .and_then(|daemon| daemon.active_hours.as_deref()),
+        active_hours,
         chrono::Local::now().time(),
         pool_draining,
         daemon_health.as_ref(),
     );
-    let tick_script = ProjectTickScript::build(ProjectTickMode::Full, args, &tick_plan);
     let mut executor = FullProjectTickExecutor {
         hub: hub.clone(),
         root: &root,
         args,
     };
-    let execution_outcome = execute_project_tick_script(&tick_script, &mut executor).await?;
+    let execution_outcome =
+        execute_project_tick_script(&preparation.tick_script, &mut executor).await?;
 
     let health = serde_json::to_value(daemon.health().await?)?;
     TickSummaryBuilder::build(
@@ -147,7 +147,7 @@ pub(super) async fn slim_daemon_tick(
         .as_ref()
         .and_then(|d| d.active_hours.clone());
     let pool_draining = phase_pool::is_pool_draining(&root);
-    let schedule_plan = ProjectTickPlan::for_slim_tick(
+    let initial_preparation = ProjectTickPreparation::for_slim_tick(
         args,
         active_hours.as_deref(),
         chrono::Local::now().time(),
@@ -155,7 +155,7 @@ pub(super) async fn slim_daemon_tick(
         None,
         0,
     );
-    if !schedule_plan.within_active_hours {
+    if !initial_preparation.schedule_plan.within_active_hours {
         if let Some(spec) = active_hours.as_deref() {
             eprintln!(
                 "{}: outside active_hours ({}), skipping schedule dispatch",
@@ -165,7 +165,10 @@ pub(super) async fn slim_daemon_tick(
         }
     }
 
-    if schedule_plan.should_process_due_schedules {
+    if initial_preparation
+        .schedule_plan
+        .should_process_due_schedules
+    {
         ScheduleDispatch::process_due_schedules(process_manager, &root, Utc::now());
     }
     let hub = Arc::new(FileServiceHub::new(&root)?);
@@ -184,7 +187,7 @@ pub(super) async fn slim_daemon_tick(
     }
 
     let daemon_health = daemon.health().await.ok();
-    let tick_plan = ProjectTickPlan::for_slim_tick(
+    let preparation = ProjectTickPreparation::for_slim_tick(
         args,
         active_hours.as_deref(),
         chrono::Local::now().time(),
@@ -192,14 +195,14 @@ pub(super) async fn slim_daemon_tick(
         daemon_health.as_ref().and_then(|health| health.max_agents),
         process_manager.active_count(),
     );
-    let tick_script = ProjectTickScript::build(ProjectTickMode::Slim, args, &tick_plan);
     let mut executor = SlimProjectTickExecutor {
         hub: hub.clone(),
         root: &root,
         args,
         process_manager,
     };
-    let execution_outcome = execute_project_tick_script(&tick_script, &mut executor).await?;
+    let execution_outcome =
+        execute_project_tick_script(&preparation.tick_script, &mut executor).await?;
 
     let health = serde_json::to_value(daemon.health().await?)?;
     TickSummaryBuilder::build(

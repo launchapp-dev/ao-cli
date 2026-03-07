@@ -12,14 +12,12 @@ use tokio::time::sleep;
 
 use super::daemon_events::{emit_daemon_event, next_daemon_event};
 use super::daemon_notifications::{DaemonNotificationRuntime, NotificationLifecycleEvent};
-use super::daemon_scheduler::{
-    slim_project_tick, recover_orphaned_running_workflows_on_startup,
-};
+use super::daemon_scheduler::{recover_orphaned_running_workflows_on_startup, slim_project_tick};
 use super::{
     canonicalize_lossy, get_daemon_pid, is_shutdown_requested, set_daemon_pid, set_runtime_paused,
     set_shutdown_requested,
 };
-use super::daemon_process_manager::ProcessManager;
+use orchestrator_daemon_runtime::ProcessManager;
 
 struct DaemonRunGuard {
     project_root: String,
@@ -303,8 +301,7 @@ impl SigtermStream {
     fn new() -> Result<Self> {
         #[cfg(unix)]
         {
-            let inner =
-                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+            let inner = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
             Ok(Self { inner })
         }
         #[cfg(not(unix))]
@@ -468,8 +465,9 @@ pub(super) async fn handle_daemon_run(
             }
         }
 
-        match orchestrator_core::compile_and_write_yaml_workflows(std::path::Path::new(project_root))
-        {
+        match orchestrator_core::compile_and_write_yaml_workflows(std::path::Path::new(
+            project_root,
+        )) {
             Ok(Some(result)) => {
                 let source_count = result.source_files.len();
                 emit_daemon_event_with_notifications(
@@ -566,8 +564,7 @@ pub(super) async fn handle_daemon_run(
                 break;
             }
 
-            let shutdown = is_shutdown_requested(project_root)
-                .unwrap_or((false, None));
+            let shutdown = is_shutdown_requested(project_root).unwrap_or((false, None));
             if shutdown.0 {
                 emit_daemon_event_with_notifications(
                     &mut seq,
@@ -808,7 +805,10 @@ mod tests {
 
         let mut workflow = primary_hub
             .workflows()
-            .run(orchestrator_core::WorkflowRunInput::for_task(task.id.clone(), None))
+            .run(orchestrator_core::WorkflowRunInput::for_task(
+                task.id.clone(),
+                None,
+            ))
             .await
             .expect("workflow should run");
         for _ in 0..12 {

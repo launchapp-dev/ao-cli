@@ -1,5 +1,5 @@
 use super::*;
-use crate::services::runtime::runtime_daemon::daemon_process_manager::ProcessManager;
+use orchestrator_daemon_runtime::ProcessManager;
 
 #[path = "daemon_task_dispatch.rs"]
 pub(super) mod task_dispatch;

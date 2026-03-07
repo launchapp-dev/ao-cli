@@ -17,7 +17,6 @@ use crate::{
 
 mod daemon_events;
 mod daemon_notifications;
-pub mod daemon_process_manager;
 mod daemon_run;
 pub(crate) mod daemon_scheduler;
 
@@ -29,9 +28,7 @@ use daemon_notifications::{
 };
 use daemon_run::handle_daemon_run;
 
-pub(crate) use daemon_events::{
-    daemon_events_log_path, poll_daemon_events, DaemonEventRecord,
-};
+pub(crate) use daemon_events::{daemon_events_log_path, poll_daemon_events, DaemonEventRecord};
 
 use protocol::{is_process_alive, terminate_process};
 

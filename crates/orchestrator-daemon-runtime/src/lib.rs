@@ -7,6 +7,7 @@ mod em_work_queue_state;
 mod execute_project_tick_script;
 mod hook_backed_project_tick_driver;
 mod hook_backed_project_tick_operations;
+mod process_manager;
 mod project_tick_action;
 mod project_tick_action_effect;
 mod project_tick_action_executor;
@@ -49,6 +50,7 @@ pub use em_work_queue_state::{EmWorkQueueEntry, EmWorkQueueEntryStatus, EmWorkQu
 pub use execute_project_tick_script::execute_project_tick_script;
 pub use hook_backed_project_tick_driver::HookBackedProjectTickDriver;
 pub use hook_backed_project_tick_operations::HookBackedProjectTickOperations;
+pub use process_manager::ProcessManager;
 pub use project_tick_action::ProjectTickAction;
 pub use project_tick_action_effect::ProjectTickActionEffect;
 pub use project_tick_action_executor::ProjectTickActionExecutor;

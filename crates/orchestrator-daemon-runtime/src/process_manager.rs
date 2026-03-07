@@ -1,17 +1,19 @@
+use std::collections::HashSet;
+use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
-pub use orchestrator_daemon_runtime::{CompletedProcess, RunnerEvent, WorkflowSubjectArgs};
-use std::process::Stdio;
 use tokio::process::{Child, Command};
 
+use crate::{CompletedProcess, RunnerEvent, WorkflowSubjectArgs};
+
 #[derive(Debug, Clone)]
-pub struct WorkflowProcess {
-    pub subject_id: String,
-    pub task_id: Option<String>,
-    pub schedule_id: Option<String>,
-    pub child: Arc<Mutex<Child>>,
-    pub stderr_lines: Arc<Mutex<Vec<String>>>,
+struct WorkflowProcess {
+    subject_id: String,
+    task_id: Option<String>,
+    schedule_id: Option<String>,
+    child: Arc<Mutex<Child>>,
+    stderr_lines: Arc<Mutex<Vec<String>>>,
 }
 
 #[derive(Default)]
@@ -31,7 +33,7 @@ impl ProcessManager {
         subject: &WorkflowSubjectArgs,
         pipeline_id: &str,
         project_root: &str,
-    ) -> Result<WorkflowProcess> {
+    ) -> Result<()> {
         let std_cmd = subject.build_runner_command(pipeline_id, project_root);
         let mut command = Command::from(std_cmd);
         command.stdout(Stdio::null()).stderr(Stdio::piped());
@@ -61,17 +63,15 @@ impl ProcessManager {
         };
         let schedule_id = subject.schedule_id().map(String::from);
 
-        let process = WorkflowProcess {
+        self.processes.push(WorkflowProcess {
             subject_id: subject.subject_id().to_string(),
             task_id,
             schedule_id,
             child: Arc::new(Mutex::new(child)),
             stderr_lines,
-        };
+        });
 
-        self.processes.push(process.clone());
-
-        Ok(process)
+        Ok(())
     }
 
     pub fn check_running(&mut self) -> Vec<CompletedProcess> {
@@ -117,8 +117,6 @@ impl ProcessManager {
                         )
                     };
 
-                    let events = parse_runner_events(&process.stderr_lines);
-
                     completed.push(CompletedProcess {
                         subject_id: process.subject_id,
                         task_id: process.task_id,
@@ -126,12 +124,10 @@ impl ProcessManager {
                         exit_code,
                         success,
                         failure_reason,
-                        events,
+                        events: parse_runner_events(&process.stderr_lines),
                     });
                 }
-                Ok(None) => {
-                    active.push(process);
-                }
+                Ok(None) => active.push(process),
                 Err(error) => {
                     completed.push(CompletedProcess {
                         subject_id: process.subject_id,
@@ -157,7 +153,7 @@ impl ProcessManager {
         self.processes.len()
     }
 
-    pub fn active_subject_ids(&self) -> std::collections::HashSet<String> {
+    pub fn active_subject_ids(&self) -> HashSet<String> {
         self.processes
             .iter()
             .map(|process| process.subject_id.clone())
@@ -179,13 +175,43 @@ fn parse_runner_events(stderr_lines: &Arc<Mutex<Vec<String>>>) -> Vec<RunnerEven
 #[cfg(test)]
 mod tests {
     use super::*;
-    use protocol::test_utils::EnvVarGuard;
     use std::env;
     use std::fs;
+    use std::sync::{Mutex, OnceLock};
     use tempfile::TempDir;
 
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
+
+    fn test_env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    struct EnvVarGuard {
+        key: &'static str,
+        original: Option<String>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: Option<&str>) -> Self {
+            let original = env::var(key).ok();
+            match value {
+                Some(value) => env::set_var(key, value),
+                None => env::remove_var(key),
+            }
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match self.original.as_deref() {
+                Some(value) => env::set_var(self.key, value),
+                None => env::remove_var(self.key),
+            }
+        }
+    }
 
     #[test]
     fn new_process_manager_starts_empty() {
@@ -195,7 +221,7 @@ mod tests {
 
     #[tokio::test]
     async fn spawn_workflow_runner_tracks_active_processes() {
-        let _lock = crate::shared::test_env_lock()
+        let _lock = test_env_lock()
             .lock()
             .expect("env lock should be available");
 
@@ -235,19 +261,15 @@ mod tests {
         let subject = WorkflowSubjectArgs::Task {
             task_id: "task-123".to_string(),
         };
-        let process = manager
+        manager
             .spawn_workflow_runner(
                 &subject,
                 "standard",
                 temp_dir.path().to_string_lossy().as_ref(),
             )
             .expect("mock runner should be discovered from PATH and spawned");
-        assert_eq!(process.subject_id, "task-123");
-        assert_eq!(process.task_id.as_deref(), Some("task-123"));
         assert_eq!(manager.active_count(), 1);
         let _ = manager.check_running();
-
-        drop(process);
     }
 
     #[test]
@@ -258,41 +280,30 @@ mod tests {
         assert_eq!(task.subject_id(), "TASK-1");
         assert!(task.schedule_id().is_none());
 
-        let req = WorkflowSubjectArgs::Requirement {
+        let requirement = WorkflowSubjectArgs::Requirement {
             requirement_id: "REQ-1".into(),
         };
-        assert_eq!(req.subject_id(), "REQ-1");
-        assert!(req.schedule_id().is_none());
+        assert_eq!(requirement.subject_id(), "REQ-1");
+        assert!(requirement.schedule_id().is_none());
 
         let custom = WorkflowSubjectArgs::Custom {
-            title: "schedule:daily-review".into(),
-            description: Some("desc".into()),
-            input_json: Some(r#"{"key":"val"}"#.into()),
+            title: "schedule:nightly".into(),
+            description: Some("nightly run".into()),
+            input_json: Some("{\"key\":\"value\"}".into()),
         };
-        assert_eq!(custom.subject_id(), "schedule:daily-review");
-        assert_eq!(custom.schedule_id(), Some("daily-review"));
+        assert_eq!(custom.subject_id(), "schedule:nightly");
+        assert_eq!(custom.schedule_id(), Some("nightly"));
     }
 
     #[tokio::test]
-    async fn spawn_custom_subject_tracks_schedule_id() {
-        let _lock = crate::shared::test_env_lock()
+    async fn custom_subject_tracks_schedule_id_and_parses_events() {
+        let _lock = test_env_lock()
             .lock()
             .expect("env lock should be available");
 
         let temp_dir = TempDir::new().expect("temp directory should be created");
-        let runner_path = {
-            #[cfg(unix)]
-            let path = temp_dir.path().join("ao-workflow-runner");
-            #[cfg(not(unix))]
-            let path = temp_dir.path().join("ao-workflow-runner.exe");
-            path
-        };
-
-        #[cfg(unix)]
-        let runner_payload = "#!/bin/sh\nexit 0\n";
-        #[cfg(not(unix))]
-        let runner_payload = "@echo off\r\nexit /B 0\r\n";
-
+        let runner_path = temp_dir.path().join("ao-workflow-runner");
+        let runner_payload = "#!/bin/sh\nprintf '%s\\n' '{\"event\":\"runner_start\"}' >&2\nprintf '%s\\n' '{\"event\":\"runner_complete\",\"exit_code\":0}' >&2\nexit 0\n";
         fs::write(&runner_path, runner_payload).expect("mock runner should be written");
         #[cfg(unix)]
         {
@@ -313,21 +324,32 @@ mod tests {
 
         let mut manager = ProcessManager::new();
         let subject = WorkflowSubjectArgs::Custom {
-            title: "schedule:nightly".into(),
-            description: Some("Nightly run".into()),
-            input_json: Some(r#"{"timeout":300}"#.into()),
+            title: "schedule:nightly".to_string(),
+            description: Some("nightly run".to_string()),
+            input_json: None,
         };
-        let process = manager
+        manager
             .spawn_workflow_runner(
                 &subject,
                 "standard",
                 temp_dir.path().to_string_lossy().as_ref(),
             )
-            .expect("mock runner should be spawned for custom subject");
-        assert_eq!(process.subject_id, "schedule:nightly");
-        assert!(process.task_id.is_none());
-        assert_eq!(process.schedule_id.as_deref(), Some("nightly"));
-        assert_eq!(manager.active_count(), 1);
-        let _ = manager.check_running();
+            .expect("mock runner should spawn");
+
+        let mut completed = Vec::new();
+        for _ in 0..20 {
+            completed = manager.check_running();
+            if !completed.is_empty() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+
+        assert_eq!(completed.len(), 1);
+        let completed = &completed[0];
+        assert_eq!(completed.subject_id, "schedule:nightly");
+        assert_eq!(completed.schedule_id.as_deref(), Some("nightly"));
+        assert!(completed.success);
+        assert_eq!(completed.events.len(), 2);
     }
 }

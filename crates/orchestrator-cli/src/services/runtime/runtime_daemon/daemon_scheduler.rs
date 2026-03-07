@@ -1,6 +1,5 @@
 use super::canonicalize_lossy;
 use crate::cli_types::DaemonRunArgs;
-use crate::services::runtime::runtime_daemon::daemon_process_manager::ProcessManager;
 use crate::shared::{ensure_ai_generated_tasks_for_requirements, requirement_has_active_tasks};
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
@@ -10,8 +9,8 @@ use orchestrator_core::{
     TaskStatus, TaskType, WorkflowResumeManager, WorkflowRunInput, WorkflowStatus,
 };
 pub(super) use orchestrator_daemon_runtime::{
-    run_project_tick_at, DaemonRuntimeOptions, HookBackedProjectTickDriver, ProjectTickHooks,
-    ProjectTickRunMode, ProjectTickSummary, ProjectTickTime,
+    run_project_tick_at, DaemonRuntimeOptions, HookBackedProjectTickDriver, ProcessManager,
+    ProjectTickHooks, ProjectTickRunMode, ProjectTickSummary, ProjectTickTime,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;

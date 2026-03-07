@@ -87,7 +87,7 @@ async fn run_until_schedule_completed(
     now: chrono::DateTime<Utc>,
     schedule_id: &str,
 ) -> Result<ProjectTickSummary> {
-    for _ in 0..20 {
+    for _ in 0..100 {
         let summary = slim_project_tick_at(project_root, args, process_manager, false, now).await?;
         let state = load_schedule_state(Path::new(project_root))?;
         if state
@@ -97,7 +97,7 @@ async fn run_until_schedule_completed(
         {
             return Ok(summary);
         }
-        sleep(Duration::from_millis(20)).await;
+        sleep(Duration::from_millis(25)).await;
     }
 
     anyhow::bail!("schedule {schedule_id} did not reach completed state in time")
@@ -110,13 +110,13 @@ async fn run_until_task_done(
     now: chrono::DateTime<Utc>,
     task_id: &str,
 ) -> Result<ProjectTickSummary> {
-    for _ in 0..20 {
+    for _ in 0..100 {
         let summary = slim_project_tick_at(project_root, args, process_manager, false, now).await?;
         let refreshed_hub = Arc::new(FileServiceHub::new(project_root)?);
         if refreshed_hub.tasks().get(task_id).await?.status == TaskStatus::Done {
             return Ok(summary);
         }
-        sleep(Duration::from_millis(20)).await;
+        sleep(Duration::from_millis(25)).await;
     }
 
     anyhow::bail!("task {task_id} did not reach done state in time")

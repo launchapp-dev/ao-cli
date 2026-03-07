@@ -1,7 +1,5 @@
 use super::*;
-use crate::services::runtime::runtime_daemon::daemon_process_manager::{
-    ProcessManager, WorkflowSubjectArgs,
-};
+use orchestrator_daemon_runtime::{ProcessManager, WorkflowSubjectArgs};
 
 async fn dispatch_ready_tasks_via_runner(
     hub: Arc<dyn ServiceHub>,
@@ -201,13 +199,12 @@ impl ProjectTickHooks for FullProjectTickHooks {
         hub: Arc<dyn ServiceHub>,
         root: &str,
     ) -> Result<()> {
-        let _ =
-            git_ops::refresh_runtime_binaries_if_main_advanced(
-                hub,
-                root,
-                git_ops::RuntimeBinaryRefreshTrigger::Tick,
-            )
-            .await;
+        let _ = git_ops::refresh_runtime_binaries_if_main_advanced(
+            hub,
+            root,
+            git_ops::RuntimeBinaryRefreshTrigger::Tick,
+        )
+        .await;
         Ok(())
     }
 }
@@ -338,13 +335,12 @@ impl ProjectTickHooks for SlimProjectTickHooks<'_> {
         hub: Arc<dyn ServiceHub>,
         root: &str,
     ) -> Result<()> {
-        let _ =
-            git_ops::refresh_runtime_binaries_if_main_advanced(
-                hub,
-                root,
-                git_ops::RuntimeBinaryRefreshTrigger::Tick,
-            )
-            .await;
+        let _ = git_ops::refresh_runtime_binaries_if_main_advanced(
+            hub,
+            root,
+            git_ops::RuntimeBinaryRefreshTrigger::Tick,
+        )
+        .await;
         Ok(())
     }
 }

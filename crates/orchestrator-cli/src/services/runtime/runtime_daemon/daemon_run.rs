@@ -14,10 +14,9 @@ use super::daemon_events::{emit_daemon_event, next_daemon_event};
 use super::daemon_notifications::{DaemonNotificationRuntime, NotificationLifecycleEvent};
 use super::daemon_scheduler::{
     clear_running_workflow_phase_pool, drain_running_workflow_phases_for_project,
-    has_running_workflow_phase_pool_activity, is_pool_draining,
-    pause_running_workflow_phase_spawns, slim_project_tick,
+    is_pool_draining, pause_running_workflow_phase_spawns, slim_project_tick,
     recover_orphaned_running_workflows_on_startup, resume_running_workflow_phase_spawns,
-    set_pool_draining, subscribe_phase_completion_wake,
+    set_pool_draining,
 };
 use super::{
     canonicalize_lossy, get_daemon_pid, is_shutdown_requested, set_daemon_pid, set_runtime_paused,
@@ -509,7 +508,6 @@ pub(super) async fn handle_daemon_run(
 
         let interval = Duration::from_secs(args.interval_secs.max(1));
         let mut process_manager = ProcessManager::new();
-        let mut completion_wake_rx = subscribe_phase_completion_wake();
         let mut sigterm_stream = SigtermStream::new()?;
         loop {
             let externally_paused = super::load_daemon_runtime_state(project_root)
@@ -570,9 +568,7 @@ pub(super) async fn handle_daemon_run(
                 }
             }
 
-            if is_pool_draining(project_root)
-                && !has_running_workflow_phase_pool_activity(project_root)
-            {
+            if is_pool_draining(project_root) {
                 clear_running_workflow_phase_pool(project_root);
                 break;
             }
@@ -718,11 +714,6 @@ pub(super) async fn handle_daemon_run(
                     set_pool_draining(project_root, false);
                     clear_running_workflow_phase_pool(project_root);
                     break;
-                }
-                wake = completion_wake_rx.recv() => {
-                    if wake.is_err() {
-                        completion_wake_rx = subscribe_phase_completion_wake();
-                    }
                 }
                 _ = sleep(interval) => {}
             }

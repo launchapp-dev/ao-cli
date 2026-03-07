@@ -1966,10 +1966,6 @@ fn is_merge_gate_block(task: &orchestrator_core::OrchestratorTask) -> bool {
         .unwrap_or(false)
 }
 
-pub(super) fn subscribe_phase_completion_wake() -> tokio::sync::broadcast::Receiver<String> {
-    project_tick_ops::phase_pool::subscribe_phase_completion_wake()
-}
-
 pub(super) fn resume_running_workflow_phase_spawns(project_root: &str) {
     project_tick_ops::phase_pool::resume_running_workflow_phase_spawns(project_root);
 }
@@ -1984,10 +1980,6 @@ pub(super) fn set_pool_draining(project_root: &str, draining: bool) {
 
 pub(super) fn is_pool_draining(project_root: &str) -> bool {
     project_tick_ops::phase_pool::is_pool_draining(project_root)
-}
-
-pub(super) fn has_running_workflow_phase_pool_activity(project_root: &str) -> bool {
-    project_tick_ops::phase_pool::has_running_workflow_phase_pool_activity(project_root)
 }
 
 pub(super) fn clear_running_workflow_phase_pool(project_root: &str) {

@@ -230,6 +230,7 @@ fn spawn_schedule_command(
     Ok(())
 }
 
+#[cfg(test)]
 pub(super) async fn project_tick(root: &str, args: &DaemonRunArgs) -> Result<ProjectTickSummary> {
     let root = canonicalize_lossy(root);
     let _ = orchestrator_core::ensure_workflow_config_compiled(Path::new(&root));
@@ -269,7 +270,7 @@ pub(super) async fn project_tick(root: &str, args: &DaemonRunArgs) -> Result<Pro
         recover_orphaned_running_workflows(hub.clone(), &root).await;
 
     let reconciled_stale_tasks = if args.reconcile_stale {
-        reconcile_stale_in_progress_tasks_for_project(hub.clone(), &root).await?
+        reconcile_stale_in_progress_tasks_for_project(hub.clone(), &root, args.stale_threshold_hours).await?
     } else {
         0
     };
@@ -427,7 +428,7 @@ pub(super) async fn slim_daemon_tick(
     let _recovered_orphans = recover_orphaned_running_workflows(hub.clone(), &root).await;
 
     let reconciled_stale_tasks = if args.reconcile_stale {
-        reconcile_stale_in_progress_tasks_for_project(hub.clone(), &root).await?
+        reconcile_stale_in_progress_tasks_for_project(hub.clone(), &root, args.stale_threshold_hours).await?
     } else {
         0
     };
@@ -656,14 +657,11 @@ mod tests {
     use super::phase_pool::{
         clear_running_workflow_phase_pool, drain_running_workflow_phases_for_project,
         pause_running_workflow_phase_spawns, resume_running_workflow_phase_spawns,
-        subscribe_phase_completion_wake,
     };
     use super::reconciliation::{
-        reconcile_dependency_gate_tasks_for_project,
         reconcile_stale_in_progress_tasks_for_project,
     };
     use super::task_dispatch::run_ready_task_workflows_for_project;
-    use super::bootstrap::bootstrap_from_vision_if_needed;
     use orchestrator_core::Priority;
     use orchestrator_core::ServiceHub;
     use tempfile::TempDir;
@@ -1270,6 +1268,7 @@ mod tests {
         let reconciled = reconcile_stale_in_progress_tasks_for_project(
             hub.clone() as Arc<dyn ServiceHub>,
             &project_root_str,
+            24,
         )
         .await
         .expect("stale reconciliation should succeed");
@@ -1345,6 +1344,7 @@ mod tests {
         let reconciled = reconcile_stale_in_progress_tasks_for_project(
             hub.clone() as Arc<dyn ServiceHub>,
             &project_root_str,
+            24,
         )
         .await
         .expect("stale reconciliation should succeed");

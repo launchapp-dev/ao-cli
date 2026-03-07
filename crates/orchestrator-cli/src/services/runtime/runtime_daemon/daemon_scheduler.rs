@@ -30,7 +30,6 @@ mod git_ops;
 #[path = "daemon_scheduler_project_tick.rs"]
 mod project_tick_ops;
 
-pub(crate) use git_ops::MergeConflictContext;
 pub(crate) use ::workflow_runner::phase_failover;
 pub(crate) use ::workflow_runner::phase_targets;
 pub(crate) use ::workflow_runner::runtime_support;
@@ -290,8 +289,9 @@ mod tests {
     async fn reconcile_stale_in_progress_tasks_for_project(
         hub: Arc<dyn ServiceHub>,
         project_root: &str,
+        stale_threshold_hours: u64,
     ) -> Result<usize> {
-        project_tick_ops::reconciliation::reconcile_stale_in_progress_tasks_for_project(hub, project_root).await
+        project_tick_ops::reconciliation::reconcile_stale_in_progress_tasks_for_project(hub, project_root, stale_threshold_hours).await
     }
 
     async fn run_ready_task_workflows_for_project(
@@ -1528,6 +1528,7 @@ mod tests {
         let reconciled = reconcile_stale_in_progress_tasks_for_project(
             hub.clone() as Arc<dyn ServiceHub>,
             "/tmp/ao-test-stale-reconcile",
+            24,
         )
         .await
         .expect("stale reconciliation should succeed");
@@ -1598,6 +1599,7 @@ mod tests {
         let reconciled = reconcile_stale_in_progress_tasks_for_project(
             hub.clone() as Arc<dyn ServiceHub>,
             "/tmp/ao-test-stale-reconcile-merge-conflict",
+            24,
         )
         .await
         .expect("stale reconciliation should succeed");
@@ -1939,14 +1941,6 @@ fn persist_phase_output(
     ::workflow_runner::executor::persist_phase_output(project_root, workflow_id, phase_id, outcome)
 }
 
-fn pipeline_for_task(task: &orchestrator_core::OrchestratorTask) -> String {
-    if task.is_frontend_related() {
-        orchestrator_core::UI_UX_PIPELINE_ID.to_string()
-    } else {
-        orchestrator_core::STANDARD_PIPELINE_ID.to_string()
-    }
-}
-
 use ::workflow_runner::executor::{
     task_requires_research, workflow_has_active_research, workflow_has_completed_research,
 };
@@ -2017,6 +2011,7 @@ pub(super) async fn drain_running_workflow_phases_for_project(
     .await
 }
 
+#[cfg(test)]
 pub(super) async fn project_tick(root: &str, args: &DaemonRunArgs) -> Result<ProjectTickSummary> {
     project_tick_ops::project_tick(root, args).await
 }

@@ -159,6 +159,7 @@ pub async fn reconcile_merge_gate_tasks_for_project(
 pub async fn reconcile_stale_in_progress_tasks_for_project(
     hub: Arc<dyn ServiceHub>,
     project_root: &str,
+    stale_threshold_hours: u64,
 ) -> Result<usize> {
     let workflows = hub.workflows().list().await.unwrap_or_default();
     let active_task_ids = active_workflow_task_ids(&workflows);
@@ -224,11 +225,12 @@ pub async fn reconcile_stale_in_progress_tasks_for_project(
             reconciled = reconciled.saturating_add(1);
             continue;
         }
+        let threshold_minutes = (stale_threshold_hours * 60) as i64;
         let age_minutes = now
             .signed_duration_since(task.metadata.updated_at)
             .num_minutes()
             .max(0);
-        if age_minutes < 10 {
+        if age_minutes < threshold_minutes {
             continue;
         }
         hub.tasks().set_status(&task.id, TaskStatus::Ready, false).await?;

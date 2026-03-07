@@ -3,7 +3,10 @@ use std::path::Path;
 use crate::{not_found_error, print_ok, print_value, ScheduleCommand};
 use anyhow::{Context, Result};
 use chrono::Utc;
-use orchestrator_core::{load_schedule_state, load_workflow_config, save_schedule_state};
+use orchestrator_core::{load_schedule_state, load_workflow_config};
+use orchestrator_daemon_runtime::{
+    ScheduleDispatch as RuntimeScheduleDispatch, WorkflowSubjectArgs,
+};
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -32,13 +35,12 @@ pub(crate) async fn handle_schedule(
     project_root: &str,
     json: bool,
 ) -> Result<()> {
-    let schedule_config = load_workflow_config(Path::new(project_root))
-        .with_context(|| format!("failed to load workflow config from {}", project_root))?;
-    let mut schedule_state = load_schedule_state(Path::new(project_root))
-        .with_context(|| format!("failed to load schedule state from {}", project_root))?;
-
     match command {
         ScheduleCommand::List => {
+            let schedule_config = load_workflow_config(Path::new(project_root))
+                .with_context(|| format!("failed to load workflow config from {}", project_root))?;
+            let schedule_state = load_schedule_state(Path::new(project_root))
+                .with_context(|| format!("failed to load schedule state from {}", project_root))?;
             let rows = schedule_config
                 .schedules
                 .iter()
@@ -65,34 +67,38 @@ pub(crate) async fn handle_schedule(
             }
         }
         ScheduleCommand::Fire { id } => {
-            let schedule = schedule_config
+            let schedule_config = load_workflow_config(Path::new(project_root))
+                .with_context(|| format!("failed to load workflow config from {}", project_root))?;
+            if !schedule_config
                 .schedules
                 .iter()
-                .find(|schedule| schedule.id == id)
-                .ok_or_else(|| not_found_error(format!("schedule not found: {id}")))?
-                .clone();
+                .any(|schedule| schedule.id == id)
+            {
+                return Err(not_found_error(format!("schedule not found: {id}")));
+            }
 
-            let status = fire_schedule(project_root, &schedule)?;
-
-            let run_state = schedule_state
-                .schedules
-                .entry(id.clone())
-                .or_insert_with(Default::default);
-            run_state.last_run = Some(Utc::now());
-            run_state.last_status = status;
-            run_state.run_count = run_state.run_count.saturating_add(1);
-
-            save_schedule_state(Path::new(project_root), &schedule_state)
-                .with_context(|| format!("failed to save schedule state to {project_root}"))?;
+            fire_schedule(project_root, &id)?;
             print_ok(&format!("fired schedule: {id}"), json);
             Ok(())
         }
         ScheduleCommand::History { id } => {
-            if !schedule_config.schedules.iter().any(|schedule| schedule.id == id) {
+            let schedule_config = load_workflow_config(Path::new(project_root))
+                .with_context(|| format!("failed to load workflow config from {}", project_root))?;
+            let schedule_state = load_schedule_state(Path::new(project_root))
+                .with_context(|| format!("failed to load schedule state from {}", project_root))?;
+            if !schedule_config
+                .schedules
+                .iter()
+                .any(|schedule| schedule.id == id)
+            {
                 return Err(not_found_error(format!("schedule not found: {id}")));
             }
 
-            let run_state = schedule_state.schedules.get(&id).cloned().unwrap_or_default();
+            let run_state = schedule_state
+                .schedules
+                .get(&id)
+                .cloned()
+                .unwrap_or_default();
             let history = ScheduleHistoryEntry {
                 id,
                 last_run: run_state.last_run.map(|value| value.to_rfc3339()),
@@ -104,50 +110,48 @@ pub(crate) async fn handle_schedule(
     }
 }
 
-fn fire_schedule(
-    project_root: &str,
-    schedule: &orchestrator_core::workflow_config::WorkflowSchedule,
-) -> Result<String> {
-    use crate::services::runtime::WorkflowSubjectArgs;
+fn fire_schedule(project_root: &str, schedule_id: &str) -> Result<()> {
     use std::process::Stdio;
 
-    if let Some(ref pipeline_id) = schedule.pipeline {
-        let input_json = schedule
-            .input
-            .as_ref()
-            .and_then(|v| serde_json::to_string(v).ok());
-        let subject = WorkflowSubjectArgs::Custom {
-            title: format!("schedule:{}", schedule.id),
-            description: Some(format!("Triggered by schedule '{}'", schedule.id)),
-            input_json,
-        };
-        let mut cmd = subject.build_runner_command(pipeline_id, project_root);
-        cmd.stdout(Stdio::null()).stderr(Stdio::inherit());
-        let child = cmd.spawn().with_context(|| {
-            format!(
-                "failed to spawn ao-workflow-runner for schedule '{}'",
-                schedule.id
-            )
-        })?;
-        spawn_completion_writeback(project_root, &schedule.id, child);
-        Ok("dispatched".to_string())
-    } else if let Some(ref command) = schedule.command {
-        use std::process::Command as StdCommand;
-        let child = StdCommand::new("sh")
-            .arg("-c")
-            .arg(command)
-            .current_dir(project_root)
-            .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .with_context(|| {
-                format!("failed to spawn command for schedule '{}'", schedule.id)
+    RuntimeScheduleDispatch::fire_schedule(
+        project_root,
+        schedule_id,
+        Utc::now(),
+        |schedule_id, pipeline_id, input_json| {
+            let subject = WorkflowSubjectArgs::Custom {
+                title: format!("schedule:{schedule_id}"),
+                description: Some(format!("Triggered by schedule '{schedule_id}'")),
+                input_json: input_json.map(String::from),
+            };
+            let mut cmd = subject.build_runner_command(pipeline_id, project_root);
+            cmd.stdout(Stdio::null()).stderr(Stdio::inherit());
+            let child = cmd.spawn().with_context(|| {
+                format!(
+                    "failed to spawn ao-workflow-runner for schedule '{}'",
+                    schedule_id
+                )
             })?;
-        spawn_completion_writeback(project_root, &schedule.id, child);
-        Ok("dispatched".to_string())
-    } else {
-        Ok("evaluated".to_string())
-    }
+            spawn_completion_writeback(project_root, schedule_id, child);
+            Ok(())
+        },
+        |schedule_id, command| {
+            use std::process::Command as StdCommand;
+            let child = StdCommand::new("sh")
+                .arg("-c")
+                .arg(command)
+                .current_dir(project_root)
+                .stdout(Stdio::null())
+                .stderr(Stdio::inherit())
+                .spawn()
+                .with_context(|| {
+                    format!("failed to spawn command for schedule '{}'", schedule_id)
+                })?;
+            spawn_completion_writeback(project_root, schedule_id, child);
+            Ok(())
+        },
+    )?;
+
+    Ok(())
 }
 
 fn spawn_completion_writeback(
@@ -172,16 +176,85 @@ fn spawn_completion_writeback(
     });
 }
 
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use orchestrator_core::{builtin_workflow_config, load_schedule_state, write_workflow_config};
+    use tempfile::tempdir;
+
+    use super::fire_schedule;
+
+    fn wait_for_schedule_status(project_root: &std::path::Path, schedule_id: &str) -> String {
+        for _ in 0..50 {
+            let state = load_schedule_state(project_root).expect("schedule state should load");
+            if let Some(entry) = state.schedules.get(schedule_id) {
+                if entry.last_status != "dispatched" {
+                    return entry.last_status.clone();
+                }
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+
+        load_schedule_state(project_root)
+            .expect("schedule state should load")
+            .schedules
+            .get(schedule_id)
+            .map(|entry| entry.last_status.clone())
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn manual_fire_updates_command_schedule_to_completed() {
+        let temp = tempdir().expect("tempdir should be created");
+        let project_root = temp.path();
+        let mut config = builtin_workflow_config();
+        config.schedules.push(orchestrator_core::WorkflowSchedule {
+            id: "nightly".to_string(),
+            cron: "30 12 * * *".to_string(),
+            pipeline: None,
+            command: Some("exit 0".to_string()),
+            input: None,
+            enabled: true,
+        });
+        write_workflow_config(project_root, &config).expect("workflow config should be written");
+
+        fire_schedule(project_root.to_string_lossy().as_ref(), "nightly")
+            .expect("manual schedule fire should dispatch");
+
+        let status = wait_for_schedule_status(project_root, "nightly");
+        assert_eq!(status, "completed");
+    }
+
+    #[test]
+    fn manual_fire_updates_command_schedule_to_failed() {
+        let temp = tempdir().expect("tempdir should be created");
+        let project_root = temp.path();
+        let mut config = builtin_workflow_config();
+        config.schedules.push(orchestrator_core::WorkflowSchedule {
+            id: "nightly".to_string(),
+            cron: "30 12 * * *".to_string(),
+            pipeline: None,
+            command: Some("exit 1".to_string()),
+            input: None,
+            enabled: true,
+        });
+        write_workflow_config(project_root, &config).expect("workflow config should be written");
+
+        fire_schedule(project_root.to_string_lossy().as_ref(), "nightly")
+            .expect("manual schedule fire should dispatch");
+
+        let status = wait_for_schedule_status(project_root, "nightly");
+        assert_eq!(status, "failed");
+    }
+}
+
 fn print_schedule_table(rows: &[ScheduleListEntry]) {
-    let headers = [
-        "id",
-        "cron",
-        "pipeline",
-        "command",
-        "enabled",
-        "last_run",
-    ];
-    let mut widths = headers.iter().map(|header| header.len()).collect::<Vec<_>>();
+    let headers = ["id", "cron", "pipeline", "command", "enabled", "last_run"];
+    let mut widths = headers
+        .iter()
+        .map(|header| header.len())
+        .collect::<Vec<_>>();
 
     for row in rows {
         widths[0] = widths[0].max(row.id.len());

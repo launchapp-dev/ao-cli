@@ -40,57 +40,53 @@ impl ScheduleDispatch {
             .collect();
 
         for schedule_id in &due {
-            let mut status = "evaluated".to_string();
-
             if let Some(schedule) = schedule_lookup.get(schedule_id.as_str()) {
-                if let Some(ref pipeline_id) = schedule.pipeline {
-                    let input_json = schedule
-                        .input
-                        .as_ref()
-                        .and_then(|value| serde_json::to_string(value).ok());
-                    match spawn_pipeline(schedule_id, pipeline_id, input_json.as_deref()) {
-                        Ok(()) => {
-                            status = "dispatched".to_string();
-                        }
-                        Err(error) => {
-                            status = format!("failed: {error}");
-                            eprintln!(
-                                "{}: schedule '{}' pipeline '{}' dispatch failed: {}",
-                                protocol::ACTOR_DAEMON,
-                                schedule_id,
-                                pipeline_id,
-                                error
-                            );
-                        }
-                    }
-                } else if let Some(ref command) = schedule.command {
-                    match spawn_command(schedule_id, command) {
-                        Ok(()) => {
-                            status = "dispatched".to_string();
-                        }
-                        Err(error) => {
-                            status = format!("failed: {error}");
-                            eprintln!(
-                                "{}: schedule '{}' command dispatch failed: {}",
-                                protocol::ACTOR_DAEMON,
-                                schedule_id,
-                                error
-                            );
-                        }
-                    }
-                }
+                dispatch_schedule(
+                    &mut state,
+                    schedule_id,
+                    schedule,
+                    now,
+                    &mut spawn_pipeline,
+                    &mut spawn_command,
+                );
             }
-
-            let entry = state
-                .schedules
-                .entry(schedule_id.clone())
-                .or_insert_with(orchestrator_core::ScheduleRunState::default);
-            entry.last_run = Some(now);
-            entry.last_status = status;
-            entry.run_count = entry.run_count.saturating_add(1);
         }
 
         let _ = orchestrator_core::save_schedule_state(std::path::Path::new(project_root), &state);
+    }
+
+    pub fn fire_schedule<PipelineSpawner, CommandSpawner>(
+        project_root: &str,
+        schedule_id: &str,
+        now: chrono::DateTime<chrono::Utc>,
+        mut spawn_pipeline: PipelineSpawner,
+        mut spawn_command: CommandSpawner,
+    ) -> Result<String>
+    where
+        PipelineSpawner: FnMut(&str, &str, Option<&str>) -> Result<()>,
+        CommandSpawner: FnMut(&str, &str) -> Result<()>,
+    {
+        let config =
+            orchestrator_core::load_workflow_config_or_default(std::path::Path::new(project_root));
+        let schedule = config
+            .config
+            .schedules
+            .iter()
+            .find(|schedule| schedule.id == schedule_id)
+            .ok_or_else(|| anyhow::anyhow!("schedule not found: {schedule_id}"))?;
+        let mut state = orchestrator_core::load_schedule_state(std::path::Path::new(project_root))
+            .unwrap_or_default();
+        let status = dispatch_schedule(
+            &mut state,
+            schedule_id,
+            schedule,
+            now,
+            &mut spawn_pipeline,
+            &mut spawn_command,
+        );
+
+        let _ = orchestrator_core::save_schedule_state(std::path::Path::new(project_root), &state);
+        Ok(status)
     }
 
     pub fn update_completion_state(project_root: &str, schedule_id: &str, status: &str) {
@@ -101,6 +97,68 @@ impl ScheduleDispatch {
             let _ = orchestrator_core::save_schedule_state(path, &state);
         }
     }
+}
+
+fn dispatch_schedule<PipelineSpawner, CommandSpawner>(
+    state: &mut orchestrator_core::ScheduleState,
+    schedule_id: &str,
+    schedule: &orchestrator_core::workflow_config::WorkflowSchedule,
+    now: chrono::DateTime<chrono::Utc>,
+    spawn_pipeline: &mut PipelineSpawner,
+    spawn_command: &mut CommandSpawner,
+) -> String
+where
+    PipelineSpawner: FnMut(&str, &str, Option<&str>) -> Result<()>,
+    CommandSpawner: FnMut(&str, &str) -> Result<()>,
+{
+    let mut status = "evaluated".to_string();
+
+    if let Some(ref pipeline_id) = schedule.pipeline {
+        let input_json = schedule
+            .input
+            .as_ref()
+            .and_then(|value| serde_json::to_string(value).ok());
+        match spawn_pipeline(schedule_id, pipeline_id, input_json.as_deref()) {
+            Ok(()) => {
+                status = "dispatched".to_string();
+            }
+            Err(error) => {
+                status = format!("failed: {error}");
+                eprintln!(
+                    "{}: schedule '{}' pipeline '{}' dispatch failed: {}",
+                    protocol::ACTOR_DAEMON,
+                    schedule_id,
+                    pipeline_id,
+                    error
+                );
+            }
+        }
+    } else if let Some(ref command) = schedule.command {
+        match spawn_command(schedule_id, command) {
+            Ok(()) => {
+                status = "dispatched".to_string();
+            }
+            Err(error) => {
+                status = format!("failed: {error}");
+                eprintln!(
+                    "{}: schedule '{}' command dispatch failed: {}",
+                    protocol::ACTOR_DAEMON,
+                    schedule_id,
+                    error
+                );
+            }
+        }
+    }
+
+    let entry = state
+        .schedules
+        .entry(schedule_id.to_string())
+        .or_insert_with(orchestrator_core::ScheduleRunState::default);
+    entry.last_run = Some(now);
+    entry.last_status = status.clone();
+    entry.run_count = entry.run_count.saturating_add(1);
+
+    status
 }
 
 fn evaluate_schedules(

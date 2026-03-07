@@ -2,7 +2,11 @@ mod collect_requirement_lifecycle_transitions;
 mod collect_task_state_transitions;
 mod completed_process;
 mod completion_reconciliation_plan;
+mod daemon_run_event;
+mod daemon_run_guard;
+mod daemon_run_hooks;
 mod daemon_runtime_options;
+mod daemon_runtime_state;
 mod em_work_queue_state;
 mod execute_project_tick_script;
 mod hook_backed_project_tick_driver;
@@ -30,6 +34,7 @@ mod ready_task_dispatch_support;
 mod ready_task_workflow_start;
 mod ready_task_workflow_start_summary;
 mod requirement_lifecycle_transition;
+mod run_daemon;
 mod run_project_tick;
 mod runner_event;
 mod schedule_dispatch;
@@ -45,7 +50,11 @@ pub use completion_reconciliation_plan::{
     build_completion_reconciliation_plan, CompletedProcessDisposition,
     CompletionReconciliationPlan, ScheduleCompletionUpdate, TaskCompletionAction,
 };
+pub use daemon_run_event::DaemonRunEvent;
+pub use daemon_run_guard::DaemonRunGuard;
+pub use daemon_run_hooks::DaemonRunHooks;
 pub use daemon_runtime_options::DaemonRuntimeOptions;
+pub use daemon_runtime_state::DaemonRuntimeState;
 pub use em_work_queue_state::{EmWorkQueueEntry, EmWorkQueueEntryStatus, EmWorkQueueState};
 pub use execute_project_tick_script::execute_project_tick_script;
 pub use hook_backed_project_tick_driver::HookBackedProjectTickDriver;
@@ -79,6 +88,7 @@ pub use ready_task_dispatch_support::{
 pub use ready_task_workflow_start::ReadyTaskWorkflowStart;
 pub use ready_task_workflow_start_summary::ReadyTaskWorkflowStartSummary;
 pub use requirement_lifecycle_transition::RequirementLifecycleTransition;
+pub use run_daemon::run_daemon;
 pub use run_project_tick::{run_project_tick, run_project_tick_at};
 pub use runner_event::RunnerEvent;
 pub use schedule_dispatch::ScheduleDispatch;

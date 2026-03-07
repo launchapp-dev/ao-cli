@@ -17,6 +17,10 @@ pub trait ProjectTickDriver {
 
     fn flush_git_outbox(&mut self, root: &str);
 
+    fn active_process_count(&self) -> usize {
+        0
+    }
+
     fn emit_notice(&mut self, _message: &str) {}
 
     fn build_operations<'a>(

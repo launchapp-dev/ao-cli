@@ -31,7 +31,7 @@ use task_dispatch::*;
 use task_lifecycle::*;
 #[cfg(test)]
 use tick_executor::full_project_tick_driver;
-use tick_executor::slim_project_tick_driver;
+pub(crate) use tick_executor::slim_project_tick_driver;
 #[cfg(test)]
 use tick_executor::FullProjectTickDriver;
 use tick_executor::SlimProjectTickDriver;

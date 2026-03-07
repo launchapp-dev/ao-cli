@@ -37,6 +37,10 @@ where
         self.hooks.flush_git_outbox(root);
     }
 
+    fn active_process_count(&self) -> usize {
+        self.hooks.active_process_count()
+    }
+
     fn emit_notice(&mut self, message: &str) {
         self.hooks.emit_notice(message);
     }

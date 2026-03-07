@@ -69,7 +69,7 @@ async fn dispatch_ready_tasks_via_runner(
 #[cfg(test)]
 pub(super) type FullProjectTickDriver = HookBackedProjectTickDriver<FullProjectTickHooks>;
 
-pub(super) type SlimProjectTickDriver<'a> = HookBackedProjectTickDriver<SlimProjectTickHooks<'a>>;
+pub(crate) type SlimProjectTickDriver<'a> = HookBackedProjectTickDriver<SlimProjectTickHooks<'a>>;
 
 #[cfg(test)]
 pub(super) fn full_project_tick_driver() -> FullProjectTickDriver {
@@ -78,7 +78,7 @@ pub(super) fn full_project_tick_driver() -> FullProjectTickDriver {
     })
 }
 
-pub(super) fn slim_project_tick_driver(
+pub(crate) fn slim_project_tick_driver(
     process_manager: &mut ProcessManager,
 ) -> SlimProjectTickDriver<'_> {
     HookBackedProjectTickDriver::new(SlimProjectTickHooks { process_manager })
@@ -209,7 +209,7 @@ impl ProjectTickHooks for FullProjectTickHooks {
     }
 }
 
-pub(super) struct SlimProjectTickHooks<'a> {
+pub(crate) struct SlimProjectTickHooks<'a> {
     pub(super) process_manager: &'a mut ProcessManager,
 }
 
@@ -225,6 +225,10 @@ impl ProjectTickHooks for SlimProjectTickHooks<'_> {
 
     fn flush_git_outbox(&mut self, root: &str) {
         let _ = git_ops::flush_git_integration_outbox(root);
+    }
+
+    fn active_process_count(&self) -> usize {
+        self.process_manager.active_count()
     }
 
     fn emit_notice(&mut self, message: &str) {

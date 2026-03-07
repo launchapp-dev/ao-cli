@@ -12,6 +12,7 @@ pub(super) use orchestrator_daemon_runtime::{
     run_project_tick_at, DaemonRuntimeOptions, HookBackedProjectTickDriver, ProcessManager,
     ProjectTickHooks, ProjectTickRunMode, ProjectTickSummary, ProjectTickTime,
 };
+pub(crate) use project_tick_ops::slim_project_tick_driver;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
@@ -1969,7 +1970,7 @@ pub(super) async fn slim_project_tick_at(
     .await
 }
 
-fn runtime_options_from_cli(args: &DaemonRunArgs) -> DaemonRuntimeOptions {
+pub(super) fn runtime_options_from_cli(args: &DaemonRunArgs) -> DaemonRuntimeOptions {
     DaemonRuntimeOptions {
         pool_size: args.pool_size,
         max_agents: args.max_agents,

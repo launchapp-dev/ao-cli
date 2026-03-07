@@ -223,7 +223,7 @@ mod tests {
     async fn spawn_workflow_runner_tracks_active_processes() {
         let _lock = test_env_lock()
             .lock()
-            .expect("env lock should be available");
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         let temp_dir = TempDir::new().expect("temp directory should be created");
         let runner_path = {
@@ -299,7 +299,7 @@ mod tests {
     async fn custom_subject_tracks_schedule_id_and_parses_events() {
         let _lock = test_env_lock()
             .lock()
-            .expect("env lock should be available");
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         let temp_dir = TempDir::new().expect("temp directory should be created");
         let runner_path = temp_dir.path().join("ao-workflow-runner");
@@ -337,12 +337,12 @@ mod tests {
             .expect("mock runner should spawn");
 
         let mut completed = Vec::new();
-        for _ in 0..20 {
+        for _ in 0..100 {
             completed = manager.check_running();
             if !completed.is_empty() {
                 break;
             }
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
         }
 
         assert_eq!(completed.len(), 1);

@@ -14,6 +14,10 @@ pub trait ProjectTickHooks {
 
     fn flush_git_outbox(&mut self, root: &str);
 
+    fn active_process_count(&self) -> usize {
+        0
+    }
+
     fn emit_notice(&mut self, _message: &str) {}
 
     async fn bootstrap_from_vision(

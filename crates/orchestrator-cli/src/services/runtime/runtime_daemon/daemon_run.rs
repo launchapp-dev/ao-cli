@@ -1,111 +1,18 @@
 use crate::cli_types::DaemonRunArgs;
 use anyhow::Result;
 use chrono::Utc;
-use fs2::FileExt;
 use orchestrator_core::{FileServiceHub, ServiceHub};
-use std::fs::{self, File, OpenOptions};
-use std::io::Write;
-use std::path::PathBuf;
+use orchestrator_daemon_runtime::{run_daemon, DaemonRunEvent, DaemonRunHooks, ProcessManager};
 use std::sync::Arc;
-use std::time::Duration;
-use tokio::time::sleep;
 
+#[cfg(test)]
+use super::canonicalize_lossy;
 use super::daemon_events::{emit_daemon_event, next_daemon_event};
 use super::daemon_notifications::{DaemonNotificationRuntime, NotificationLifecycleEvent};
-use super::daemon_scheduler::{recover_orphaned_running_workflows_on_startup, slim_project_tick};
-use super::{
-    canonicalize_lossy, get_daemon_pid, is_shutdown_requested, set_daemon_pid, set_runtime_paused,
-    set_shutdown_requested,
+use super::daemon_scheduler::{
+    recover_orphaned_running_workflows_on_startup, runtime_options_from_cli,
+    slim_project_tick_driver, ProjectTickSummary,
 };
-use orchestrator_daemon_runtime::ProcessManager;
-
-struct DaemonRunGuard {
-    project_root: String,
-    pid: u32,
-    _lock_file: File,
-}
-
-impl Drop for DaemonRunGuard {
-    fn drop(&mut self) {
-        let _ = set_runtime_paused(&self.project_root, true);
-        if let Ok(Some(existing_pid)) = get_daemon_pid(&self.project_root) {
-            if existing_pid == self.pid {
-                let _ = set_daemon_pid(&self.project_root, None);
-            }
-        }
-    }
-}
-
-fn daemon_lock_path(project_root: &str) -> PathBuf {
-    PathBuf::from(canonicalize_lossy(project_root))
-        .join(".ao")
-        .join("daemon.lock")
-}
-
-fn read_daemon_lock_pid(lock_path: &PathBuf) -> Option<u32> {
-    fs::read_to_string(lock_path)
-        .ok()
-        .and_then(|content| content.trim().parse::<u32>().ok())
-}
-
-fn acquire_daemon_run_guard(project_root: &str) -> Result<DaemonRunGuard> {
-    let canonical_project_root = canonicalize_lossy(project_root);
-    let current_pid = std::process::id();
-    if let Some(existing_pid) = get_daemon_pid(&canonical_project_root)? {
-        if existing_pid != current_pid && super::is_process_alive(existing_pid) {
-            anyhow::bail!(
-                "daemon already running for project {} (pid {})",
-                canonical_project_root,
-                existing_pid
-            );
-        }
-        if existing_pid != current_pid {
-            let _ = set_daemon_pid(&canonical_project_root, None);
-        }
-    }
-
-    let lock_path = daemon_lock_path(&canonical_project_root);
-    if let Some(parent) = lock_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let lock_file = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(&lock_path)?;
-
-    match lock_file.try_lock_exclusive() {
-        Ok(_) => {
-            lock_file.set_len(0)?;
-            write!(&lock_file, "{current_pid}")?;
-            lock_file.sync_all()?;
-        }
-        Err(_) => {
-            if let Some(lock_pid) = read_daemon_lock_pid(&lock_path) {
-                if lock_pid != current_pid && super::is_process_alive(lock_pid) {
-                    anyhow::bail!(
-                        "failed to acquire daemon lock for project {} (held by pid {})",
-                        canonical_project_root,
-                        lock_pid
-                    );
-                }
-            }
-            anyhow::bail!(
-                "failed to acquire daemon lock for project {} (lock busy)",
-                canonical_project_root
-            );
-        }
-    }
-
-    set_daemon_pid(&canonical_project_root, Some(current_pid))?;
-    set_runtime_paused(&canonical_project_root, false)?;
-
-    Ok(DaemonRunGuard {
-        project_root: canonical_project_root,
-        pid: current_pid,
-        _lock_file: lock_file,
-    })
-}
 
 fn restore_env_override(key: &str, original: Option<String>) {
     if let Some(value) = original {
@@ -183,7 +90,7 @@ fn emit_daemon_event_with_notifications(
 
 fn emit_project_tick_summary_events(
     seq: &mut u64,
-    summary: &super::daemon_scheduler::ProjectTickSummary,
+    summary: &ProjectTickSummary,
     json: bool,
     notification_runtime: &mut Option<DaemonNotificationRuntime>,
 ) -> Result<()> {
@@ -292,32 +199,233 @@ fn emit_project_tick_summary_events(
     Ok(())
 }
 
-struct SigtermStream {
-    #[cfg(unix)]
-    inner: tokio::signal::unix::Signal,
+struct CliDaemonRunHost {
+    seq: u64,
+    json: bool,
+    notification_runtime: Option<DaemonNotificationRuntime>,
+    startup_notification_error: Option<String>,
 }
 
-impl SigtermStream {
-    fn new() -> Result<Self> {
-        #[cfg(unix)]
-        {
-            let inner = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
-            Ok(Self { inner })
+impl CliDaemonRunHost {
+    fn new(project_root: &str, json: bool) -> Self {
+        match DaemonNotificationRuntime::new(project_root) {
+            Ok(runtime) => Self {
+                seq: 0,
+                json,
+                notification_runtime: Some(runtime),
+                startup_notification_error: None,
+            },
+            Err(error) => Self {
+                seq: 0,
+                json,
+                notification_runtime: None,
+                startup_notification_error: Some(error.to_string()),
+            },
         }
-        #[cfg(not(unix))]
-        {
-            Ok(Self {})
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl DaemonRunHooks for CliDaemonRunHost {
+    fn handle_event(&mut self, event: DaemonRunEvent) -> Result<()> {
+        match event {
+            DaemonRunEvent::Startup {
+                project_root,
+                daemon_pid,
+            } => {
+                eprintln!(
+                    "{}",
+                    serde_json::json!({
+                        "level": "info",
+                        "event": "daemon_startup",
+                        "timestamp": Utc::now().to_rfc3339(),
+                        "pid": daemon_pid,
+                        "project_root": project_root,
+                    })
+                );
+                if let Some(error) = self.startup_notification_error.as_deref() {
+                    emit_notification_runtime_error(
+                        &mut self.seq,
+                        Some(project_root),
+                        "startup",
+                        error,
+                        self.json,
+                    )?;
+                }
+                Ok(())
+            }
+            DaemonRunEvent::Status {
+                project_root,
+                status,
+            } => emit_daemon_event_with_notifications(
+                &mut self.seq,
+                "status",
+                Some(project_root),
+                serde_json::json!({ "status": status }),
+                self.json,
+                self.notification_runtime.as_mut(),
+            ),
+            DaemonRunEvent::StartupCleanup { project_root } => {
+                emit_daemon_event_with_notifications(
+                    &mut self.seq,
+                    "recovery",
+                    Some(project_root),
+                    serde_json::json!({
+                        "startup_cleanup": true,
+                    }),
+                    self.json,
+                    self.notification_runtime.as_mut(),
+                )
+            }
+            DaemonRunEvent::OrphanDetection {
+                project_root,
+                orphaned_workflows_recovered,
+            } => emit_daemon_event_with_notifications(
+                &mut self.seq,
+                "orphan-detection",
+                Some(project_root),
+                serde_json::json!({
+                    "orphaned_workflows_recovered": orphaned_workflows_recovered,
+                    "recovery_action": "blocked",
+                    "blocked_reason": "orphaned_after_daemon_restart",
+                }),
+                self.json,
+                self.notification_runtime.as_mut(),
+            ),
+            DaemonRunEvent::YamlCompileSucceeded {
+                project_root,
+                source_files,
+                output_path,
+                phase_definitions,
+                agent_profiles,
+            } => emit_daemon_event_with_notifications(
+                &mut self.seq,
+                "yaml-compile",
+                Some(project_root),
+                serde_json::json!({
+                    "compiled": true,
+                    "source_files": source_files,
+                    "output_path": output_path,
+                    "phase_definitions": phase_definitions,
+                    "agent_profiles": agent_profiles,
+                }),
+                self.json,
+                self.notification_runtime.as_mut(),
+            ),
+            DaemonRunEvent::YamlCompileFailed {
+                project_root,
+                error,
+            } => emit_daemon_event_with_notifications(
+                &mut self.seq,
+                "yaml-compile",
+                Some(project_root),
+                serde_json::json!({
+                    "compiled": false,
+                    "error": error,
+                }),
+                self.json,
+                self.notification_runtime.as_mut(),
+            ),
+            DaemonRunEvent::TickSummary { summary } => emit_project_tick_summary_events(
+                &mut self.seq,
+                &summary,
+                self.json,
+                &mut self.notification_runtime,
+            ),
+            DaemonRunEvent::TickError {
+                project_root,
+                message,
+            } => emit_daemon_event_with_notifications(
+                &mut self.seq,
+                "log",
+                Some(project_root),
+                serde_json::json!({
+                    "level": "error",
+                    "message": message,
+                }),
+                self.json,
+                self.notification_runtime.as_mut(),
+            ),
+            DaemonRunEvent::GracefulShutdown {
+                project_root,
+                timeout_secs,
+            } => emit_daemon_event_with_notifications(
+                &mut self.seq,
+                "graceful-shutdown",
+                Some(project_root),
+                serde_json::json!({
+                    "timeout_secs": timeout_secs,
+                }),
+                self.json,
+                self.notification_runtime.as_mut(),
+            ),
+            DaemonRunEvent::Draining {
+                project_root,
+                trigger,
+            } => emit_daemon_event_with_notifications(
+                &mut self.seq,
+                "daemon-draining",
+                Some(project_root),
+                serde_json::json!({
+                    "trigger": trigger,
+                }),
+                self.json,
+                self.notification_runtime.as_mut(),
+            ),
+            DaemonRunEvent::NotificationRuntimeError {
+                project_root,
+                stage,
+                message,
+            } => emit_notification_runtime_error(
+                &mut self.seq,
+                project_root,
+                stage.as_str(),
+                message.as_str(),
+                self.json,
+            ),
+            DaemonRunEvent::Shutdown {
+                project_root,
+                daemon_pid,
+            } => {
+                eprintln!(
+                    "{}",
+                    serde_json::json!({
+                        "level": "info",
+                        "event": "daemon_shutdown",
+                        "timestamp": Utc::now().to_rfc3339(),
+                        "pid": daemon_pid,
+                        "project_root": project_root,
+                    })
+                );
+                Ok(())
+            }
         }
     }
 
-    async fn recv(&mut self) {
-        #[cfg(unix)]
-        {
-            self.inner.recv().await;
-        }
-        #[cfg(not(unix))]
-        {
-            std::future::pending::<()>().await;
+    async fn recover_orphaned_running_workflows_on_startup(
+        &mut self,
+        project_root: &str,
+    ) -> Result<usize> {
+        let startup_hub = Arc::new(FileServiceHub::new(project_root)?);
+        Ok(recover_orphaned_running_workflows_on_startup(
+            startup_hub as Arc<dyn ServiceHub>,
+            project_root,
+        )
+        .await)
+    }
+
+    async fn flush_notifications(&mut self, project_root: &str) -> Result<()> {
+        let Some(runtime) = self.notification_runtime.as_mut() else {
+            return Ok(());
+        };
+
+        match runtime.flush_due_deliveries().await {
+            Ok(lifecycle_events) => {
+                emit_notification_lifecycle_events(&mut self.seq, lifecycle_events, self.json)
+            }
+            Err(error) => {
+                Err(error.context(format!("failed to flush notifications for {project_root}")))
+            }
         }
     }
 }
@@ -378,261 +486,12 @@ pub(super) async fn handle_daemon_run(
         std::env::set_var("AO_RUN_IDLE_TIMEOUT_SECS", timeout_secs.to_string());
     }
 
-    let run_result = async {
-        let _run_guard = acquire_daemon_run_guard(project_root)?;
-        eprintln!(
-            "{}",
-            serde_json::json!({
-                "level": "info",
-                "event": "daemon_startup",
-                "timestamp": Utc::now().to_rfc3339(),
-                "pid": std::process::id(),
-                "project_root": project_root,
-            })
-        );
-        let daemon = hub.daemon();
-        let primary_root = canonicalize_lossy(project_root);
-        let initial_status = daemon.status().await?;
-        let mut stop_daemon_on_exit = false;
-        if !matches!(
-            initial_status,
-            orchestrator_core::DaemonStatus::Running | orchestrator_core::DaemonStatus::Paused
-        ) {
-            daemon.start().await?;
-            stop_daemon_on_exit = true;
-        }
-        let _ = set_runtime_paused(project_root, false);
+    let runtime_options = runtime_options_from_cli(&args);
+    let mut process_manager = ProcessManager::new();
+    let mut driver = slim_project_tick_driver(&mut process_manager);
+    let mut host = CliDaemonRunHost::new(project_root, json);
 
-        let mut seq = 0u64;
-        let mut notification_startup_error = None;
-        let mut notification_runtime = match DaemonNotificationRuntime::new(project_root) {
-            Ok(runtime) => Some(runtime),
-            Err(error) => {
-                notification_startup_error = Some(error.to_string());
-                None
-            }
-        };
-        if let Some(error) = notification_startup_error.as_deref() {
-            emit_notification_runtime_error(
-                &mut seq,
-                Some(primary_root.clone()),
-                "startup",
-                error,
-                json,
-            )?;
-        }
-
-        emit_daemon_event_with_notifications(
-            &mut seq,
-            "status",
-            Some(primary_root.clone()),
-            serde_json::json!({"status":"running"}),
-            json,
-            notification_runtime.as_mut(),
-        )?;
-
-        if args.startup_cleanup {
-            emit_daemon_event_with_notifications(
-                &mut seq,
-                "recovery",
-                Some(primary_root.clone()),
-                serde_json::json!({
-                    "startup_cleanup": true,
-                }),
-                json,
-                notification_runtime.as_mut(),
-            )?;
-
-            let startup_hub = Arc::new(FileServiceHub::new(&primary_root)?);
-            let startup_orphans = recover_orphaned_running_workflows_on_startup(
-                startup_hub as Arc<dyn ServiceHub>,
-                &primary_root,
-            )
-            .await;
-            if startup_orphans > 0 {
-                emit_daemon_event_with_notifications(
-                    &mut seq,
-                    "orphan-detection",
-                    Some(primary_root.clone()),
-                    serde_json::json!({
-                        "orphaned_workflows_recovered": startup_orphans,
-                        "recovery_action": "blocked",
-                        "blocked_reason": "orphaned_after_daemon_restart",
-                    }),
-                    json,
-                    notification_runtime.as_mut(),
-                )?;
-            }
-        }
-
-        match orchestrator_core::compile_and_write_yaml_workflows(std::path::Path::new(
-            project_root,
-        )) {
-            Ok(Some(result)) => {
-                let source_count = result.source_files.len();
-                emit_daemon_event_with_notifications(
-                    &mut seq,
-                    "yaml-compile",
-                    Some(primary_root.clone()),
-                    serde_json::json!({
-                        "compiled": true,
-                        "source_files": source_count,
-                        "output_path": result.output_path.display().to_string(),
-                        "phase_definitions": result.config.phase_definitions.len(),
-                        "agent_profiles": result.config.agent_profiles.len(),
-                    }),
-                    json,
-                    notification_runtime.as_mut(),
-                )?;
-            }
-            Ok(None) => {}
-            Err(error) => {
-                emit_daemon_event_with_notifications(
-                    &mut seq,
-                    "yaml-compile",
-                    Some(primary_root.clone()),
-                    serde_json::json!({
-                        "compiled": false,
-                        "error": error.to_string(),
-                    }),
-                    json,
-                    notification_runtime.as_mut(),
-                )?;
-            }
-        }
-
-        let interval = Duration::from_secs(args.interval_secs.max(1));
-        let mut process_manager = ProcessManager::new();
-        let mut sigterm_stream = SigtermStream::new()?;
-        loop {
-            let externally_paused = super::load_daemon_runtime_state(project_root)
-                .map(|state| state.runtime_paused)
-                .unwrap_or(false);
-            let tick_result =
-                slim_project_tick(project_root, &args, &mut process_manager, externally_paused)
-                    .await;
-            match tick_result {
-                Ok(summary) => {
-                    if summary.started_daemon {
-                        stop_daemon_on_exit = true;
-                    }
-                    emit_project_tick_summary_events(
-                        &mut seq,
-                        &summary,
-                        json,
-                        &mut notification_runtime,
-                    )?;
-                }
-                Err(error) => {
-                    emit_daemon_event_with_notifications(
-                        &mut seq,
-                        "log",
-                        Some(primary_root.clone()),
-                        serde_json::json!({
-                            "level": "error",
-                            "message": error.to_string(),
-                        }),
-                        json,
-                        notification_runtime.as_mut(),
-                    )?;
-                }
-            }
-
-            if externally_paused {
-                break;
-            }
-
-            if let Some(runtime) = notification_runtime.as_mut() {
-                match runtime.flush_due_deliveries().await {
-                    Ok(lifecycle_events) => {
-                        emit_notification_lifecycle_events(&mut seq, lifecycle_events, json)?
-                    }
-                    Err(error) => {
-                        let error_message = error.to_string();
-                        emit_notification_runtime_error(
-                            &mut seq,
-                            Some(primary_root.clone()),
-                            "flush",
-                            error_message.as_str(),
-                            json,
-                        )?
-                    }
-                }
-            }
-
-            if args.once {
-                break;
-            }
-
-            let shutdown = is_shutdown_requested(project_root).unwrap_or((false, None));
-            if shutdown.0 {
-                emit_daemon_event_with_notifications(
-                    &mut seq,
-                    "graceful-shutdown",
-                    Some(primary_root.clone()),
-                    serde_json::json!({
-                        "timeout_secs": shutdown.1,
-                    }),
-                    json,
-                    notification_runtime.as_mut(),
-                )?;
-                let _ = set_shutdown_requested(project_root, false, None);
-                break;
-            }
-
-            tokio::select! {
-                _ = tokio::signal::ctrl_c() => {
-                    emit_daemon_event_with_notifications(
-                        &mut seq,
-                        "daemon-draining",
-                        Some(primary_root.clone()),
-                        serde_json::json!({"trigger":"ctrl_c"}),
-                        json,
-                        notification_runtime.as_mut(),
-                    )?;
-                    break;
-                }
-                _ = sigterm_stream.recv() => {
-                    emit_daemon_event_with_notifications(
-                        &mut seq,
-                        "daemon-draining",
-                        Some(primary_root.clone()),
-                        serde_json::json!({"trigger":"sigterm"}),
-                        json,
-                        notification_runtime.as_mut(),
-                    )?;
-                    break;
-                }
-                _ = sleep(interval) => {}
-            }
-        }
-
-        if stop_daemon_on_exit {
-            if let Ok(project_hub) = FileServiceHub::new(&primary_root) {
-                let _ = project_hub.daemon().stop().await;
-            }
-        }
-        emit_daemon_event_with_notifications(
-            &mut seq,
-            "status",
-            Some(primary_root),
-            serde_json::json!({"status":"stopped"}),
-            json,
-            notification_runtime.as_mut(),
-        )?;
-        eprintln!(
-            "{}",
-            serde_json::json!({
-                "level": "info",
-                "event": "daemon_shutdown",
-                "timestamp": Utc::now().to_rfc3339(),
-                "pid": std::process::id(),
-                "project_root": project_root,
-            })
-        );
-        Ok(())
-    }
-    .await;
+    let run_result = run_daemon(project_root, &runtime_options, hub, &mut driver, &mut host).await;
 
     if phase_timeout_override.is_some() {
         restore_env_override("AO_PHASE_TIMEOUT_SECS", phase_timeout_original);

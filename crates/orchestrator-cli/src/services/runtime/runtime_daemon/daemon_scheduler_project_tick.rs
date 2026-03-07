@@ -47,6 +47,280 @@ fn pipeline_for_task(task: &orchestrator_core::OrchestratorTask) -> String {
     }
 }
 
+async fn dispatch_ready_tasks_via_runner(
+    hub: Arc<dyn ServiceHub>,
+    root: &str,
+    process_manager: &mut ProcessManager,
+    limit: usize,
+) -> Result<ReadyTaskWorkflowStartSummary> {
+    let workflows = hub.workflows().list().await.unwrap_or_default();
+    let active_task_ids = active_workflow_task_ids(&workflows);
+    let candidates = hub.tasks().list_prioritized().await?;
+    let mut started_workflows = Vec::new();
+
+    for task in candidates {
+        if started_workflows.len() >= limit {
+            break;
+        }
+
+        if task.paused || task.cancelled {
+            continue;
+        }
+        if task.status != TaskStatus::Ready {
+            continue;
+        }
+        if active_task_ids.contains(&task.id) {
+            continue;
+        }
+        if should_skip_dispatch(&task) {
+            continue;
+        }
+
+        let dependency_issues = dependency_gate_issues_for_task(hub.clone(), root, &task).await;
+        if !dependency_issues.is_empty() {
+            let reason = dependency_blocked_reason(&dependency_issues);
+            let _ = set_task_blocked_with_reason(hub.clone(), &task, reason, None).await;
+            continue;
+        }
+
+        let pipeline_id = pipeline_for_task(&task);
+        let subject = WorkflowSubjectArgs::Task {
+            task_id: task.id.clone(),
+        };
+        match process_manager.spawn_workflow_runner(&subject, &pipeline_id, root) {
+            Ok(_) => {
+                let _ = hub
+                    .tasks()
+                    .set_status(&task.id, TaskStatus::InProgress, false)
+                    .await;
+                started_workflows.push(ReadyTaskWorkflowStart {
+                    task_id: task.id.clone(),
+                    workflow_id: task.id.clone(),
+                    selection_source: TaskSelectionSource::FallbackPicker,
+                });
+            }
+            Err(error) => {
+                let reason = format!("failed to start workflow runner: {error}");
+                let _ = set_task_blocked_with_reason(hub.clone(), &task, reason, None).await;
+            }
+        }
+    }
+
+    Ok(ReadyTaskWorkflowStartSummary {
+        started: started_workflows.len(),
+        started_workflows,
+    })
+}
+
+#[cfg(test)]
+struct FullProjectTickExecutor<'a> {
+    hub: Arc<dyn ServiceHub>,
+    root: &'a str,
+    args: &'a DaemonRuntimeOptions,
+}
+
+#[cfg(test)]
+#[async_trait::async_trait(?Send)]
+impl ProjectTickActionExecutor for FullProjectTickExecutor<'_> {
+    async fn execute_action(
+        &mut self,
+        action: &ProjectTickAction,
+    ) -> Result<ProjectTickActionEffect> {
+        match action {
+            ProjectTickAction::BootstrapFromVision => {
+                bootstrap_from_vision_if_needed(
+                    self.hub.clone(),
+                    self.args.startup_cleanup,
+                    self.args.ai_task_generation,
+                )
+                .await?;
+                Ok(ProjectTickActionEffect::Noop)
+            }
+            ProjectTickAction::EnsureAiGeneratedTasks => {
+                let _ = ensure_tasks_for_unplanned_requirements(self.hub.clone(), self.root).await;
+                Ok(ProjectTickActionEffect::Noop)
+            }
+            ProjectTickAction::ResumeInterrupted => {
+                let (cleaned_stale_workflows, resumed_workflows) =
+                    resume_interrupted_workflows_for_project(self.hub.clone(), self.root).await?;
+                Ok(ProjectTickActionEffect::ResumedInterrupted {
+                    cleaned_stale_workflows,
+                    resumed_workflows,
+                })
+            }
+            ProjectTickAction::RecoverOrphanedRunningWorkflows => {
+                let _ = recover_orphaned_running_workflows(self.hub.clone(), self.root).await;
+                Ok(ProjectTickActionEffect::Noop)
+            }
+            ProjectTickAction::ReconcileStaleTasks => {
+                let count = reconcile_stale_in_progress_tasks_for_project(
+                    self.hub.clone(),
+                    self.root,
+                    self.args.stale_threshold_hours,
+                )
+                .await?;
+                Ok(ProjectTickActionEffect::ReconciledStaleTasks { count })
+            }
+            ProjectTickAction::ReconcileDependencyTasks => {
+                let count =
+                    reconcile_dependency_gate_tasks_for_project(self.hub.clone(), self.root)
+                        .await?;
+                Ok(ProjectTickActionEffect::ReconciledDependencyTasks { count })
+            }
+            ProjectTickAction::ReconcileMergeTasks => {
+                let count =
+                    reconcile_merge_gate_tasks_for_project(self.hub.clone(), self.root).await?;
+                Ok(ProjectTickActionEffect::ReconciledMergeTasks { count })
+            }
+            ProjectTickAction::ReconcileCompletedProcesses => Ok(ProjectTickActionEffect::Noop),
+            ProjectTickAction::RetryFailedTaskWorkflows => {
+                let _ = retry_failed_task_workflows(self.hub.clone()).await;
+                Ok(ProjectTickActionEffect::Noop)
+            }
+            ProjectTickAction::PromoteBacklogTasksToReady => {
+                let _ = promote_backlog_tasks_to_ready(self.hub.clone(), self.root).await;
+                Ok(ProjectTickActionEffect::Noop)
+            }
+            ProjectTickAction::DispatchReadyTasks { limit } => {
+                let summary =
+                    run_ready_task_workflows_for_project(self.hub.clone(), self.root, *limit)
+                        .await?;
+                Ok(ProjectTickActionEffect::ReadyWorkflowStarts { summary })
+            }
+            ProjectTickAction::RefreshRuntimeBinaries => {
+                let _ = git_ops::refresh_runtime_binaries_if_main_advanced(
+                    self.hub.clone(),
+                    self.root,
+                    git_ops::RuntimeBinaryRefreshTrigger::Tick,
+                )
+                .await;
+                Ok(ProjectTickActionEffect::Noop)
+            }
+            ProjectTickAction::ExecuteRunningWorkflowPhases { limit } => {
+                let (executed_workflow_phases, failed_workflow_phases, phase_execution_events) =
+                    execute_running_workflow_phases_for_project(
+                        self.hub.clone(),
+                        self.root,
+                        *limit,
+                    )
+                    .await?;
+                Ok(ProjectTickActionEffect::ExecutedRunningWorkflowPhases {
+                    executed_workflow_phases,
+                    failed_workflow_phases,
+                    phase_execution_events,
+                })
+            }
+        }
+    }
+}
+
+struct SlimProjectTickExecutor<'a> {
+    hub: Arc<dyn ServiceHub>,
+    root: &'a str,
+    args: &'a DaemonRuntimeOptions,
+    process_manager: &'a mut ProcessManager,
+}
+
+#[async_trait::async_trait(?Send)]
+impl ProjectTickActionExecutor for SlimProjectTickExecutor<'_> {
+    async fn execute_action(
+        &mut self,
+        action: &ProjectTickAction,
+    ) -> Result<ProjectTickActionEffect> {
+        match action {
+            ProjectTickAction::BootstrapFromVision => {
+                bootstrap_from_vision_if_needed(
+                    self.hub.clone(),
+                    self.args.startup_cleanup,
+                    self.args.ai_task_generation,
+                )
+                .await?;
+                Ok(ProjectTickActionEffect::Noop)
+            }
+            ProjectTickAction::EnsureAiGeneratedTasks => {
+                let _ = ensure_tasks_for_unplanned_requirements(self.hub.clone(), self.root).await;
+                Ok(ProjectTickActionEffect::Noop)
+            }
+            ProjectTickAction::ResumeInterrupted => {
+                let (cleaned_stale_workflows, resumed_workflows) =
+                    resume_interrupted_workflows_for_project(self.hub.clone(), self.root).await?;
+                Ok(ProjectTickActionEffect::ResumedInterrupted {
+                    cleaned_stale_workflows,
+                    resumed_workflows,
+                })
+            }
+            ProjectTickAction::RecoverOrphanedRunningWorkflows => {
+                let _ = recover_orphaned_running_workflows(self.hub.clone(), self.root).await;
+                Ok(ProjectTickActionEffect::Noop)
+            }
+            ProjectTickAction::ReconcileStaleTasks => {
+                let count = reconcile_stale_in_progress_tasks_for_project(
+                    self.hub.clone(),
+                    self.root,
+                    self.args.stale_threshold_hours,
+                )
+                .await?;
+                Ok(ProjectTickActionEffect::ReconciledStaleTasks { count })
+            }
+            ProjectTickAction::ReconcileDependencyTasks => {
+                let count =
+                    reconcile_dependency_gate_tasks_for_project(self.hub.clone(), self.root)
+                        .await?;
+                Ok(ProjectTickActionEffect::ReconciledDependencyTasks { count })
+            }
+            ProjectTickAction::ReconcileMergeTasks => {
+                let count =
+                    reconcile_merge_gate_tasks_for_project(self.hub.clone(), self.root).await?;
+                Ok(ProjectTickActionEffect::ReconciledMergeTasks { count })
+            }
+            ProjectTickAction::ReconcileCompletedProcesses => {
+                let completed_processes = self.process_manager.check_running();
+                let (executed_workflow_phases, failed_workflow_phases) =
+                    CompletionReconciler::reconcile(
+                        self.hub.clone(),
+                        self.root,
+                        completed_processes,
+                    )
+                    .await;
+                Ok(ProjectTickActionEffect::ReconciledCompletedProcesses {
+                    executed_workflow_phases,
+                    failed_workflow_phases,
+                })
+            }
+            ProjectTickAction::RetryFailedTaskWorkflows => {
+                let _ = retry_failed_task_workflows(self.hub.clone()).await;
+                Ok(ProjectTickActionEffect::Noop)
+            }
+            ProjectTickAction::PromoteBacklogTasksToReady => {
+                let _ = promote_backlog_tasks_to_ready(self.hub.clone(), self.root).await;
+                Ok(ProjectTickActionEffect::Noop)
+            }
+            ProjectTickAction::DispatchReadyTasks { limit } => {
+                let summary = dispatch_ready_tasks_via_runner(
+                    self.hub.clone(),
+                    self.root,
+                    self.process_manager,
+                    *limit,
+                )
+                .await?;
+                Ok(ProjectTickActionEffect::ReadyWorkflowStarts { summary })
+            }
+            ProjectTickAction::RefreshRuntimeBinaries => {
+                let _ = git_ops::refresh_runtime_binaries_if_main_advanced(
+                    self.hub.clone(),
+                    self.root,
+                    git_ops::RuntimeBinaryRefreshTrigger::Tick,
+                )
+                .await;
+                Ok(ProjectTickActionEffect::Noop)
+            }
+            ProjectTickAction::ExecuteRunningWorkflowPhases { .. } => {
+                Ok(ProjectTickActionEffect::Noop)
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 pub(super) async fn project_tick(
     root: &str,
@@ -99,82 +373,12 @@ pub(super) async fn project_tick(
         daemon_health.as_ref(),
     );
     let tick_script = ProjectTickScript::build(ProjectTickMode::Full, args, &tick_plan);
-    let mut cleaned_stale_workflows = 0usize;
-    let mut resumed_workflows = 0usize;
-    let mut reconciled_stale_tasks = 0usize;
-    let mut reconciled_dependency_tasks = 0usize;
-    let mut reconciled_merge_tasks = 0usize;
-    let mut ready_workflow_starts = ReadyTaskWorkflowStartSummary::default();
-    let mut executed_workflow_phases = 0usize;
-    let mut failed_workflow_phases = 0usize;
-    let mut phase_execution_events = Vec::new();
-
-    for action in tick_script.actions() {
-        match action {
-            ProjectTickAction::BootstrapFromVision => {
-                bootstrap_from_vision_if_needed(
-                    hub.clone(),
-                    args.startup_cleanup,
-                    args.ai_task_generation,
-                )
-                .await?;
-            }
-            ProjectTickAction::EnsureAiGeneratedTasks => {
-                let _ = ensure_tasks_for_unplanned_requirements(hub.clone(), &root).await;
-            }
-            ProjectTickAction::ResumeInterrupted => {
-                let (cleaned, resumed) =
-                    resume_interrupted_workflows_for_project(hub.clone(), &root).await?;
-                cleaned_stale_workflows = cleaned;
-                resumed_workflows = resumed;
-            }
-            ProjectTickAction::RecoverOrphanedRunningWorkflows => {
-                let _ = recover_orphaned_running_workflows(hub.clone(), &root).await;
-            }
-            ProjectTickAction::ReconcileStaleTasks => {
-                reconciled_stale_tasks = reconcile_stale_in_progress_tasks_for_project(
-                    hub.clone(),
-                    &root,
-                    args.stale_threshold_hours,
-                )
-                .await?;
-            }
-            ProjectTickAction::ReconcileDependencyTasks => {
-                reconciled_dependency_tasks =
-                    reconcile_dependency_gate_tasks_for_project(hub.clone(), &root).await?;
-            }
-            ProjectTickAction::ReconcileMergeTasks => {
-                reconciled_merge_tasks =
-                    reconcile_merge_gate_tasks_for_project(hub.clone(), &root).await?;
-            }
-            ProjectTickAction::RetryFailedTaskWorkflows => {
-                let _ = retry_failed_task_workflows(hub.clone()).await;
-            }
-            ProjectTickAction::PromoteBacklogTasksToReady => {
-                let _ = promote_backlog_tasks_to_ready(hub.clone(), &root).await;
-            }
-            ProjectTickAction::DispatchReadyTasks { limit } => {
-                ready_workflow_starts =
-                    run_ready_task_workflows_for_project(hub.clone(), &root, *limit).await?;
-            }
-            ProjectTickAction::RefreshRuntimeBinaries => {
-                let _ = git_ops::refresh_runtime_binaries_if_main_advanced(
-                    hub.clone(),
-                    &root,
-                    git_ops::RuntimeBinaryRefreshTrigger::Tick,
-                )
-                .await;
-            }
-            ProjectTickAction::ExecuteRunningWorkflowPhases { limit } => {
-                (
-                    executed_workflow_phases,
-                    failed_workflow_phases,
-                    phase_execution_events,
-                ) = execute_running_workflow_phases_for_project(hub.clone(), &root, *limit).await?;
-            }
-            ProjectTickAction::ReconcileCompletedProcesses => {}
-        }
-    }
+    let mut executor = FullProjectTickExecutor {
+        hub: hub.clone(),
+        root: &root,
+        args,
+    };
+    let execution_outcome = execute_project_tick_script(&tick_script, &mut executor).await?;
 
     let health = serde_json::to_value(daemon.health().await?)?;
     TickSummaryBuilder::build(
@@ -185,16 +389,16 @@ pub(super) async fn project_tick(
         health,
         &requirements_before,
         &tasks_before,
-        resumed_workflows,
-        cleaned_stale_workflows,
-        reconciled_stale_tasks,
-        reconciled_dependency_tasks,
-        reconciled_merge_tasks,
-        ready_workflow_starts.started,
-        &ready_workflow_starts.started_workflows,
-        executed_workflow_phases,
-        failed_workflow_phases,
-        phase_execution_events,
+        execution_outcome.resumed_workflows,
+        execution_outcome.cleaned_stale_workflows,
+        execution_outcome.reconciled_stale_tasks,
+        execution_outcome.reconciled_dependency_tasks,
+        execution_outcome.reconciled_merge_tasks,
+        execution_outcome.ready_workflow_starts.started,
+        &execution_outcome.ready_workflow_starts.started_workflows,
+        execution_outcome.executed_workflow_phases,
+        execution_outcome.failed_workflow_phases,
+        execution_outcome.phase_execution_events,
     )
     .await
 }
@@ -260,129 +464,13 @@ pub(super) async fn slim_daemon_tick(
         process_manager.active_count(),
     );
     let tick_script = ProjectTickScript::build(ProjectTickMode::Slim, args, &tick_plan);
-    let mut cleaned_stale_workflows = 0usize;
-    let mut resumed_workflows = 0usize;
-    let mut reconciled_stale_tasks = 0usize;
-    let mut reconciled_dependency_tasks = 0usize;
-    let mut reconciled_merge_tasks = 0usize;
-    let mut executed_workflow_phases = 0usize;
-    let mut failed_workflow_phases = 0usize;
-    let mut ready_workflows_started = Vec::new();
-    for action in tick_script.actions() {
-        match action {
-            ProjectTickAction::BootstrapFromVision => {
-                bootstrap_from_vision_if_needed(
-                    hub.clone(),
-                    args.startup_cleanup,
-                    args.ai_task_generation,
-                )
-                .await?;
-            }
-            ProjectTickAction::EnsureAiGeneratedTasks => {
-                let _ = ensure_tasks_for_unplanned_requirements(hub.clone(), &root).await;
-            }
-            ProjectTickAction::ResumeInterrupted => {
-                let (cleaned, resumed) =
-                    resume_interrupted_workflows_for_project(hub.clone(), &root).await?;
-                cleaned_stale_workflows = cleaned;
-                resumed_workflows = resumed;
-            }
-            ProjectTickAction::RecoverOrphanedRunningWorkflows => {
-                let _ = recover_orphaned_running_workflows(hub.clone(), &root).await;
-            }
-            ProjectTickAction::ReconcileStaleTasks => {
-                reconciled_stale_tasks = reconcile_stale_in_progress_tasks_for_project(
-                    hub.clone(),
-                    &root,
-                    args.stale_threshold_hours,
-                )
-                .await?;
-            }
-            ProjectTickAction::ReconcileDependencyTasks => {
-                reconciled_dependency_tasks =
-                    reconcile_dependency_gate_tasks_for_project(hub.clone(), &root).await?;
-            }
-            ProjectTickAction::ReconcileMergeTasks => {
-                reconciled_merge_tasks =
-                    reconcile_merge_gate_tasks_for_project(hub.clone(), &root).await?;
-            }
-            ProjectTickAction::ReconcileCompletedProcesses => {
-                let completed_processes = process_manager.check_running();
-                (executed_workflow_phases, failed_workflow_phases) =
-                    CompletionReconciler::reconcile(hub.clone(), &root, completed_processes).await;
-            }
-            ProjectTickAction::RetryFailedTaskWorkflows => {
-                let _ = retry_failed_task_workflows(hub.clone()).await;
-            }
-            ProjectTickAction::PromoteBacklogTasksToReady => {
-                let _ = promote_backlog_tasks_to_ready(hub.clone(), &root).await;
-            }
-            ProjectTickAction::DispatchReadyTasks { limit } => {
-                let workflows = hub.workflows().list().await.unwrap_or_default();
-                let active_task_ids = active_workflow_task_ids(&workflows);
-                let candidates = hub.tasks().list_prioritized().await?;
-                for task in candidates {
-                    if ready_workflows_started.len() >= *limit {
-                        break;
-                    }
-
-                    if task.paused || task.cancelled {
-                        continue;
-                    }
-                    if task.status != TaskStatus::Ready {
-                        continue;
-                    }
-                    if active_task_ids.contains(&task.id) {
-                        continue;
-                    }
-                    if should_skip_dispatch(&task) {
-                        continue;
-                    }
-
-                    let dependency_issues =
-                        dependency_gate_issues_for_task(hub.clone(), &root, &task).await;
-                    if !dependency_issues.is_empty() {
-                        let reason = dependency_blocked_reason(&dependency_issues);
-                        let _ =
-                            set_task_blocked_with_reason(hub.clone(), &task, reason, None).await;
-                        continue;
-                    }
-
-                    let pipeline_id = pipeline_for_task(&task);
-                    let subject = WorkflowSubjectArgs::Task {
-                        task_id: task.id.clone(),
-                    };
-                    match process_manager.spawn_workflow_runner(&subject, &pipeline_id, &root) {
-                        Ok(_) => {
-                            let _ = hub
-                                .tasks()
-                                .set_status(&task.id, TaskStatus::InProgress, false)
-                                .await;
-                            ready_workflows_started.push(ReadyTaskWorkflowStart {
-                                task_id: task.id.clone(),
-                                workflow_id: task.id.clone(),
-                                selection_source: TaskSelectionSource::FallbackPicker,
-                            });
-                        }
-                        Err(error) => {
-                            let reason = format!("failed to start workflow runner: {error}");
-                            let _ = set_task_blocked_with_reason(hub.clone(), &task, reason, None)
-                                .await;
-                        }
-                    }
-                }
-            }
-            ProjectTickAction::RefreshRuntimeBinaries => {
-                let _ = git_ops::refresh_runtime_binaries_if_main_advanced(
-                    hub.clone(),
-                    &root,
-                    git_ops::RuntimeBinaryRefreshTrigger::Tick,
-                )
-                .await;
-            }
-            ProjectTickAction::ExecuteRunningWorkflowPhases { .. } => {}
-        }
-    }
+    let mut executor = SlimProjectTickExecutor {
+        hub: hub.clone(),
+        root: &root,
+        args,
+        process_manager,
+    };
+    let execution_outcome = execute_project_tick_script(&tick_script, &mut executor).await?;
 
     let health = serde_json::to_value(daemon.health().await?)?;
     TickSummaryBuilder::build(
@@ -393,15 +481,15 @@ pub(super) async fn slim_daemon_tick(
         health,
         &requirements_before,
         &tasks_before,
-        resumed_workflows,
-        cleaned_stale_workflows,
-        reconciled_stale_tasks,
-        reconciled_dependency_tasks,
-        reconciled_merge_tasks,
-        ready_workflows_started.len(),
-        &ready_workflows_started,
-        executed_workflow_phases,
-        failed_workflow_phases,
+        execution_outcome.resumed_workflows,
+        execution_outcome.cleaned_stale_workflows,
+        execution_outcome.reconciled_stale_tasks,
+        execution_outcome.reconciled_dependency_tasks,
+        execution_outcome.reconciled_merge_tasks,
+        execution_outcome.ready_workflow_starts.started,
+        &execution_outcome.ready_workflow_starts.started_workflows,
+        execution_outcome.executed_workflow_phases,
+        execution_outcome.failed_workflow_phases,
         Vec::new(),
     )
     .await

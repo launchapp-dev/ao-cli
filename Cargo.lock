@@ -2382,11 +2382,13 @@ name = "orchestrator-daemon-runtime"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "chrono",
  "orchestrator-core",
  "protocol",
  "serde",
  "serde_json",
+ "tokio",
  "workflow-runner",
 ]
 

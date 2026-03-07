@@ -2,6 +2,8 @@ use anyhow::Result;
 use chrono::{Datelike, Timelike};
 use croner::parser::{CronParser, Seconds, Year};
 
+use crate::SubjectDispatch;
+
 pub struct ScheduleDispatch;
 
 impl ScheduleDispatch {
@@ -17,7 +19,7 @@ impl ScheduleDispatch {
         mut spawn_pipeline: PipelineSpawner,
         mut spawn_command: CommandSpawner,
     ) where
-        PipelineSpawner: FnMut(&str, &str, Option<&str>) -> Result<()>,
+        PipelineSpawner: FnMut(&str, &SubjectDispatch) -> Result<()>,
         CommandSpawner: FnMut(&str, &str) -> Result<()>,
     {
         let config =
@@ -46,6 +48,7 @@ impl ScheduleDispatch {
                     schedule_id,
                     schedule,
                     now,
+                    "schedule",
                     &mut spawn_pipeline,
                     &mut spawn_command,
                 );
@@ -59,11 +62,12 @@ impl ScheduleDispatch {
         project_root: &str,
         schedule_id: &str,
         now: chrono::DateTime<chrono::Utc>,
+        trigger_source: &str,
         mut spawn_pipeline: PipelineSpawner,
         mut spawn_command: CommandSpawner,
     ) -> Result<String>
     where
-        PipelineSpawner: FnMut(&str, &str, Option<&str>) -> Result<()>,
+        PipelineSpawner: FnMut(&str, &SubjectDispatch) -> Result<()>,
         CommandSpawner: FnMut(&str, &str) -> Result<()>,
     {
         let config =
@@ -81,6 +85,7 @@ impl ScheduleDispatch {
             schedule_id,
             schedule,
             now,
+            trigger_source,
             &mut spawn_pipeline,
             &mut spawn_command,
         );
@@ -104,21 +109,25 @@ fn dispatch_schedule<PipelineSpawner, CommandSpawner>(
     schedule_id: &str,
     schedule: &orchestrator_core::workflow_config::WorkflowSchedule,
     now: chrono::DateTime<chrono::Utc>,
+    trigger_source: &str,
     spawn_pipeline: &mut PipelineSpawner,
     spawn_command: &mut CommandSpawner,
 ) -> String
 where
-    PipelineSpawner: FnMut(&str, &str, Option<&str>) -> Result<()>,
+    PipelineSpawner: FnMut(&str, &SubjectDispatch) -> Result<()>,
     CommandSpawner: FnMut(&str, &str) -> Result<()>,
 {
     let mut status = "evaluated".to_string();
 
     if let Some(ref pipeline_id) = schedule.pipeline {
-        let input_json = schedule
-            .input
-            .as_ref()
-            .and_then(|value| serde_json::to_string(value).ok());
-        match spawn_pipeline(schedule_id, pipeline_id, input_json.as_deref()) {
+        let dispatch = SubjectDispatch::for_custom(
+            format!("schedule:{schedule_id}"),
+            format!("Triggered by schedule '{schedule_id}'"),
+            pipeline_id.clone(),
+            schedule.input.clone(),
+            trigger_source.to_string(),
+        );
+        match spawn_pipeline(schedule_id, &dispatch) {
             Ok(()) => {
                 status = "dispatched".to_string();
             }
@@ -452,11 +461,11 @@ mod tests {
         ScheduleDispatch::process_due_schedules(
             project_root.to_string_lossy().as_ref(),
             now,
-            move |schedule_id, pipeline_id, input_json| {
+            move |schedule_id, dispatch| {
                 pipeline_calls_ref.lock().expect("pipeline lock").push((
                     schedule_id.to_string(),
-                    pipeline_id.to_string(),
-                    input_json.map(str::to_string),
+                    dispatch.pipeline_id.clone(),
+                    dispatch.input.as_ref().map(|value| value.to_string()),
                 ));
                 Ok(())
             },
@@ -505,9 +514,7 @@ mod tests {
         ScheduleDispatch::process_due_schedules(
             project_root.to_string_lossy().as_ref(),
             now,
-            |_schedule_id, _pipeline_id, _input_json| {
-                unreachable!("pipeline schedule should not run")
-            },
+            |_schedule_id, _dispatch| unreachable!("pipeline schedule should not run"),
             move |schedule_id, command| {
                 command_calls_ref
                     .lock()

@@ -137,23 +137,15 @@ fn spawn_schedule_pipeline(
     process_manager: &mut ProcessManager,
     project_root: &str,
     schedule_id: &str,
-    pipeline_id: &str,
-    input_json: Option<&str>,
+    dispatch: &SubjectDispatch,
 ) -> Result<()> {
-    let dispatch = SubjectDispatch::for_custom(
-        format!("schedule:{schedule_id}"),
-        format!("Triggered by schedule '{schedule_id}'"),
-        pipeline_id,
-        input_json.and_then(|json| serde_json::from_str(json).ok()),
-        "schedule",
-    );
-    process_manager.spawn_workflow_runner(&dispatch, project_root)?;
+    process_manager.spawn_workflow_runner(dispatch, project_root)?;
 
     eprintln!(
         "{}: schedule '{}' fired pipeline '{}'",
         protocol::ACTOR_DAEMON,
         schedule_id,
-        pipeline_id
+        dispatch.pipeline_id
     );
     Ok(())
 }
@@ -202,13 +194,12 @@ where
         ScheduleDispatch::process_due_schedules(
             root,
             now,
-            |schedule_id, pipeline_id, input_json| {
+            |schedule_id, dispatch| {
                 spawn_schedule_pipeline(
                     &mut self.schedule_process_manager,
                     root,
                     schedule_id,
-                    pipeline_id,
-                    input_json,
+                    dispatch,
                 )
             },
             |schedule_id, command| spawn_schedule_command(root, schedule_id, command),
@@ -335,14 +326,8 @@ where
         ScheduleDispatch::process_due_schedules(
             root,
             now,
-            |schedule_id, pipeline_id, input_json| {
-                spawn_schedule_pipeline(
-                    self.process_manager,
-                    root,
-                    schedule_id,
-                    pipeline_id,
-                    input_json,
-                )
+            |schedule_id, dispatch| {
+                spawn_schedule_pipeline(self.process_manager, root, schedule_id, dispatch)
             },
             |schedule_id, command| spawn_schedule_command(root, schedule_id, command),
         );

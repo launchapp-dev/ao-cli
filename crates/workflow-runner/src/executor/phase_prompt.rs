@@ -100,6 +100,13 @@ pub fn build_phase_prompt(
         }
     }
 
+    if let Ok(schedule_input) = std::env::var("AO_SCHEDULE_INPUT") {
+        if !schedule_input.is_empty() {
+            phase_prompt.push_str("\n\nSchedule trigger input:\n");
+            phase_prompt.push_str(&schedule_input);
+        }
+    }
+
     if let Some(system_prompt) = phase_system_prompt_for(project_root, phase_id) {
         if !system_prompt.trim().is_empty() {
             let mut system_prompt = system_prompt;

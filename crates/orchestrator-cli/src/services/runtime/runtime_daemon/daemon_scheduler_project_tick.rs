@@ -1,7 +1,7 @@
 use chrono::{Datelike, Timelike};
 use super::*;
 use crate::services::runtime::stale_in_progress_summary;
-use crate::services::runtime::runtime_daemon::daemon_process_manager::{CompletedProcess, ProcessManager};
+use crate::services::runtime::runtime_daemon::daemon_process_manager::{CompletedProcess, ProcessManager, WorkflowSubjectArgs};
 
 #[path = "daemon_task_dispatch.rs"]
 pub(super) mod task_dispatch;
@@ -121,7 +121,11 @@ fn field_matches(raw_field: &str, value: u32, min: u32, max: u32) -> bool {
     normalized == value
 }
 
-fn process_due_schedules(project_root: &str, now: chrono::DateTime<chrono::Utc>) {
+fn process_due_schedules(
+    process_manager: &mut ProcessManager,
+    project_root: &str,
+    now: chrono::DateTime<chrono::Utc>,
+) {
     let config = orchestrator_core::load_workflow_config_or_default(std::path::Path::new(project_root));
     let mut state = orchestrator_core::load_schedule_state(std::path::Path::new(project_root))
         .unwrap_or_default();
@@ -138,7 +142,8 @@ fn process_due_schedules(project_root: &str, now: chrono::DateTime<chrono::Utc>)
 
         if let Some(schedule) = schedule_lookup.get(schedule_id.as_str()) {
             if let Some(ref pipeline_id) = schedule.pipeline {
-                match spawn_schedule_pipeline(project_root, schedule_id, pipeline_id) {
+                let input_json = schedule.input.as_ref().and_then(|v| serde_json::to_string(v).ok());
+                match spawn_schedule_pipeline(process_manager, project_root, schedule_id, pipeline_id, input_json.as_deref()) {
                     Ok(()) => {
                         status = "dispatched".to_string();
                     }
@@ -178,27 +183,18 @@ fn process_due_schedules(project_root: &str, now: chrono::DateTime<chrono::Utc>)
 }
 
 fn spawn_schedule_pipeline(
+    process_manager: &mut ProcessManager,
     project_root: &str,
     schedule_id: &str,
     pipeline_id: &str,
+    input_json: Option<&str>,
 ) -> Result<()> {
-    use std::process::{Command as StdCommand, Stdio};
-
-    let ao_bin = std::env::var("AO_BIN").unwrap_or_else(|_| "ao".to_string());
-    StdCommand::new(&ao_bin)
-        .arg("--project-root")
-        .arg(project_root)
-        .arg("workflow")
-        .arg("execute")
-        .arg("--task-id")
-        .arg(format!("schedule:{schedule_id}"))
-        .arg("--pipeline-id")
-        .arg(pipeline_id)
-        .arg("--quiet")
-        .stdout(Stdio::null())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .with_context(|| format!("failed to spawn schedule pipeline '{pipeline_id}'"))?;
+    let subject = WorkflowSubjectArgs::Custom {
+        title: format!("schedule:{schedule_id}"),
+        description: Some(format!("Triggered by schedule '{schedule_id}'")),
+        input_json: input_json.map(String::from),
+    };
+    process_manager.spawn_workflow_runner(&subject, pipeline_id, project_root)?;
 
     eprintln!(
         "{}: schedule '{}' fired pipeline '{}'",
@@ -230,11 +226,21 @@ fn spawn_schedule_command(
     Ok(())
 }
 
+fn update_schedule_completion_state(project_root: &str, schedule_id: &str, status: &str) {
+    let path = std::path::Path::new(project_root);
+    let mut state = orchestrator_core::load_schedule_state(path).unwrap_or_default();
+    if let Some(entry) = state.schedules.get_mut(schedule_id) {
+        entry.last_status = status.to_string();
+        let _ = orchestrator_core::save_schedule_state(path, &state);
+    }
+}
+
 #[cfg(test)]
 pub(super) async fn project_tick(root: &str, args: &DaemonRunArgs) -> Result<ProjectTickSummary> {
     let root = canonicalize_lossy(root);
     let _ = orchestrator_core::ensure_workflow_config_compiled(Path::new(&root));
-    process_due_schedules(&root, Utc::now());
+    let mut schedule_pm = ProcessManager::new();
+    process_due_schedules(&mut schedule_pm, &root, Utc::now());
     let hub = Arc::new(FileServiceHub::new(&root)?);
     let _ = git_ops::flush_git_integration_outbox(&root);
     let requirements_before = hub.planning().list_requirements().await.unwrap_or_default();
@@ -393,7 +399,7 @@ pub(super) async fn slim_daemon_tick(
 ) -> Result<ProjectTickSummary> {
     let root = canonicalize_lossy(root);
     let _ = orchestrator_core::ensure_workflow_config_compiled(Path::new(&root));
-    process_due_schedules(&root, Utc::now());
+    process_due_schedules(process_manager, &root, Utc::now());
     let hub = Arc::new(FileServiceHub::new(&root)?);
     let _ = git_ops::flush_git_integration_outbox(&root);
     let requirements_before = hub.planning().list_requirements().await.unwrap_or_default();
@@ -445,41 +451,59 @@ pub(super) async fn slim_daemon_tick(
     while let Some(completed) = completed_processes.pop() {
         for event in &completed.events {
             eprintln!(
-                "{}: runner event: {} task={} pipeline={:?} exit={:?}",
+                "{}: runner event: {} subject={} pipeline={:?} exit={:?}",
                 protocol::ACTOR_DAEMON,
                 event.event,
-                event.task_id,
+                completed.subject_id,
                 event.pipeline,
                 event.exit_code,
             );
         }
 
-        if completed.success {
-            remove_terminal_em_work_queue_entry_non_fatal(&root, &completed.task_id, None);
-            let _ = hub
-                .tasks()
-                .set_status(&completed.task_id, TaskStatus::Done, false)
-                .await;
-            executed_workflow_phases = executed_workflow_phases.saturating_add(1);
-            continue;
+        if let Some(ref task_id) = completed.task_id {
+            if completed.success {
+                remove_terminal_em_work_queue_entry_non_fatal(&root, task_id, None);
+                let _ = hub
+                    .tasks()
+                    .set_status(task_id, TaskStatus::Done, false)
+                    .await;
+            } else {
+                let reason = completion_reason(&completed);
+                if let Ok(task) = hub.tasks().get(task_id).await {
+                    let _ = set_task_blocked_with_reason(
+                        hub.clone(),
+                        &task,
+                        format!("workflow runner failed: {reason}"),
+                        None,
+                    )
+                    .await;
+                } else {
+                    let _ = hub
+                        .tasks()
+                        .set_status(task_id, TaskStatus::Blocked, false)
+                        .await;
+                }
+            }
+        } else {
+            eprintln!(
+                "{}: workflow runner {} for subject '{}' (exit={:?})",
+                protocol::ACTOR_DAEMON,
+                if completed.success { "succeeded" } else { "failed" },
+                completed.subject_id,
+                completed.exit_code,
+            );
         }
 
-        let reason = completion_reason(&completed);
-        if let Ok(task) = hub.tasks().get(&completed.task_id).await {
-            let _ = set_task_blocked_with_reason(
-                hub.clone(),
-                &task,
-                format!("workflow runner failed: {reason}"),
-                None,
-            )
-            .await;
-        } else {
-            let _ = hub
-                .tasks()
-                .set_status(&completed.task_id, TaskStatus::Blocked, false)
-                .await;
+        if let Some(ref sched_id) = completed.schedule_id {
+            let status = if completed.success { "completed" } else { "failed" };
+            update_schedule_completion_state(&root, sched_id, status);
         }
-        failed_workflow_phases = failed_workflow_phases.saturating_add(1);
+
+        if completed.success {
+            executed_workflow_phases = executed_workflow_phases.saturating_add(1);
+        } else {
+            failed_workflow_phases = failed_workflow_phases.saturating_add(1);
+        }
     }
 
     if !pool_draining && args.auto_run_ready {
@@ -540,7 +564,8 @@ pub(super) async fn slim_daemon_tick(
             }
 
             let pipeline_id = pipeline_for_task(&task);
-            match process_manager.spawn_workflow_runner(&task.id, &pipeline_id, &root) {
+            let subject = WorkflowSubjectArgs::Task { task_id: task.id.clone() };
+            match process_manager.spawn_workflow_runner(&subject, &pipeline_id, &root) {
                 Ok(_) => {
                     let _ = hub
                         .tasks()

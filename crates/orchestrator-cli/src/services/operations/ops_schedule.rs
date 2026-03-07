@@ -65,16 +65,21 @@ pub(crate) async fn handle_schedule(
             }
         }
         ScheduleCommand::Fire { id } => {
-            if !schedule_config.schedules.iter().any(|schedule| schedule.id == id) {
-                return Err(not_found_error(format!("schedule not found: {id}")));
-            }
+            let schedule = schedule_config
+                .schedules
+                .iter()
+                .find(|schedule| schedule.id == id)
+                .ok_or_else(|| not_found_error(format!("schedule not found: {id}")))?
+                .clone();
+
+            let status = fire_schedule(project_root, &schedule)?;
 
             let run_state = schedule_state
                 .schedules
                 .entry(id.clone())
                 .or_insert_with(Default::default);
             run_state.last_run = Some(Utc::now());
-            run_state.last_status = "fired".to_string();
+            run_state.last_status = status;
             run_state.run_count = run_state.run_count.saturating_add(1);
 
             save_schedule_state(Path::new(project_root), &schedule_state)
@@ -96,6 +101,50 @@ pub(crate) async fn handle_schedule(
             };
             print_value(history, json)
         }
+    }
+}
+
+fn fire_schedule(
+    project_root: &str,
+    schedule: &orchestrator_core::workflow_config::WorkflowSchedule,
+) -> Result<String> {
+    use crate::services::runtime::WorkflowSubjectArgs;
+    use std::process::Stdio;
+
+    if let Some(ref pipeline_id) = schedule.pipeline {
+        let input_json = schedule
+            .input
+            .as_ref()
+            .and_then(|v| serde_json::to_string(v).ok());
+        let subject = WorkflowSubjectArgs::Custom {
+            title: format!("schedule:{}", schedule.id),
+            description: Some(format!("Triggered by schedule '{}'", schedule.id)),
+            input_json,
+        };
+        let mut cmd = subject.build_runner_command(pipeline_id, project_root);
+        cmd.stdout(Stdio::null()).stderr(Stdio::inherit());
+        cmd.spawn().with_context(|| {
+            format!(
+                "failed to spawn ao-workflow-runner for schedule '{}'",
+                schedule.id
+            )
+        })?;
+        Ok("dispatched".to_string())
+    } else if let Some(ref command) = schedule.command {
+        use std::process::Command as StdCommand;
+        StdCommand::new("sh")
+            .arg("-c")
+            .arg(command)
+            .current_dir(project_root)
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .with_context(|| {
+                format!("failed to spawn command for schedule '{}'", schedule.id)
+            })?;
+        Ok("dispatched".to_string())
+    } else {
+        Ok("evaluated".to_string())
     }
 }
 

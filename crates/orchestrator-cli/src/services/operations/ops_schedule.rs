@@ -123,16 +123,17 @@ fn fire_schedule(
         };
         let mut cmd = subject.build_runner_command(pipeline_id, project_root);
         cmd.stdout(Stdio::null()).stderr(Stdio::inherit());
-        cmd.spawn().with_context(|| {
+        let child = cmd.spawn().with_context(|| {
             format!(
                 "failed to spawn ao-workflow-runner for schedule '{}'",
                 schedule.id
             )
         })?;
+        spawn_completion_writeback(project_root, &schedule.id, child);
         Ok("dispatched".to_string())
     } else if let Some(ref command) = schedule.command {
         use std::process::Command as StdCommand;
-        StdCommand::new("sh")
+        let child = StdCommand::new("sh")
             .arg("-c")
             .arg(command)
             .current_dir(project_root)
@@ -142,10 +143,33 @@ fn fire_schedule(
             .with_context(|| {
                 format!("failed to spawn command for schedule '{}'", schedule.id)
             })?;
+        spawn_completion_writeback(project_root, &schedule.id, child);
         Ok("dispatched".to_string())
     } else {
         Ok("evaluated".to_string())
     }
+}
+
+fn spawn_completion_writeback(
+    project_root: &str,
+    schedule_id: &str,
+    mut child: std::process::Child,
+) {
+    let root = project_root.to_string();
+    let sched_id = schedule_id.to_string();
+    std::thread::spawn(move || {
+        let status = match child.wait() {
+            Ok(exit) if exit.success() => "completed",
+            Ok(_) => "failed",
+            Err(_) => "failed",
+        };
+        let path = std::path::Path::new(&root);
+        let mut state = orchestrator_core::load_schedule_state(path).unwrap_or_default();
+        if let Some(entry) = state.schedules.get_mut(&sched_id) {
+            entry.last_status = status.to_string();
+            let _ = orchestrator_core::save_schedule_state(path, &state);
+        }
+    });
 }
 
 fn print_schedule_table(rows: &[ScheduleListEntry]) {

@@ -208,14 +208,14 @@ fn spawn_schedule_command(
     schedule_id: &str,
     command: &str,
 ) -> Result<()> {
-    use std::process::{Command as StdCommand, Stdio};
+    use tokio::process::Command as TokioCommand;
 
-    StdCommand::new("sh")
+    let mut child = TokioCommand::new("sh")
         .arg("-c")
         .arg(command)
         .current_dir(project_root)
-        .stdout(Stdio::null())
-        .stderr(Stdio::inherit())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::inherit())
         .spawn()
         .with_context(|| format!("failed to spawn schedule command for '{schedule_id}'"))?;
 
@@ -223,6 +223,18 @@ fn spawn_schedule_command(
         "{}: schedule '{}' fired command: {}",
         protocol::ACTOR_DAEMON, schedule_id, command
     );
+
+    let root = project_root.to_string();
+    let sched_id = schedule_id.to_string();
+    tokio::spawn(async move {
+        let status = match child.wait().await {
+            Ok(exit) if exit.success() => "completed",
+            Ok(_) => "failed",
+            Err(_) => "failed",
+        };
+        update_schedule_completion_state(&root, &sched_id, status);
+    });
+
     Ok(())
 }
 

@@ -57,7 +57,7 @@ pub(super) async fn project_tick(
     let mut schedule_pm = ProcessManager::new();
     let wf_config = orchestrator_core::load_workflow_config_or_default(Path::new(&root));
     let pool_draining = phase_pool::is_pool_draining(&root);
-    let schedule_plan = ProjectTickPlan::build(
+    let schedule_plan = ProjectTickPlan::for_project_tick(
         args,
         wf_config
             .config
@@ -66,7 +66,7 @@ pub(super) async fn project_tick(
             .and_then(|daemon| daemon.active_hours.as_deref()),
         chrono::Local::now().time(),
         pool_draining,
-        0,
+        None,
     );
     if schedule_plan.should_process_due_schedules {
         ScheduleDispatch::process_due_schedules(&mut schedule_pm, &root, Utc::now());
@@ -118,13 +118,8 @@ pub(super) async fn project_tick(
         reconcile_dependency_gate_tasks_for_project(hub.clone(), &root).await?;
     let reconciled_merge_tasks = reconcile_merge_gate_tasks_for_project(hub.clone(), &root).await?;
 
-    let requested_ready_dispatch_limit = match daemon.health().await {
-        Ok(health) => {
-            orchestrator_daemon_runtime::ready_task_dispatch_limit(args.max_tasks_per_tick, &health)
-        }
-        Err(_) => args.max_tasks_per_tick,
-    };
-    let tick_plan = ProjectTickPlan::build(
+    let daemon_health = daemon.health().await.ok();
+    let tick_plan = ProjectTickPlan::for_project_tick(
         args,
         wf_config
             .config
@@ -133,7 +128,7 @@ pub(super) async fn project_tick(
             .and_then(|daemon| daemon.active_hours.as_deref()),
         chrono::Local::now().time(),
         pool_draining,
-        requested_ready_dispatch_limit,
+        daemon_health.as_ref(),
     );
 
     if tick_plan.should_prepare_ready_tasks {
@@ -195,11 +190,12 @@ pub(super) async fn slim_daemon_tick(
         .as_ref()
         .and_then(|d| d.active_hours.clone());
     let pool_draining = phase_pool::is_pool_draining(&root);
-    let schedule_plan = ProjectTickPlan::build(
+    let schedule_plan = ProjectTickPlan::for_slim_tick(
         args,
         active_hours.as_deref(),
         chrono::Local::now().time(),
         pool_draining,
+        None,
         0,
     );
     if !schedule_plan.within_active_hours {
@@ -267,20 +263,13 @@ pub(super) async fn slim_daemon_tick(
         CompletionReconciler::reconcile(hub.clone(), &root, completed_processes).await;
 
     let daemon_health = daemon.health().await.ok();
-    let configured_max_agents = args
-        .pool_size
-        .or(args.max_agents)
-        .or_else(|| daemon_health.as_ref().and_then(|health| health.max_agents))
-        .unwrap_or(args.max_tasks_per_tick);
-    let requested_ready_dispatch_limit = configured_max_agents
-        .saturating_sub(process_manager.active_count())
-        .min(args.max_tasks_per_tick);
-    let tick_plan = ProjectTickPlan::build(
+    let tick_plan = ProjectTickPlan::for_slim_tick(
         args,
         active_hours.as_deref(),
         chrono::Local::now().time(),
         pool_draining,
-        requested_ready_dispatch_limit,
+        daemon_health.as_ref().and_then(|health| health.max_agents),
+        process_manager.active_count(),
     );
 
     if tick_plan.should_prepare_ready_tasks {

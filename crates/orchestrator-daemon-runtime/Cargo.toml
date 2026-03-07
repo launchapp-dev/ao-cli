@@ -14,6 +14,7 @@ chrono = { version = "0.4", features = ["serde"] }
 croner = { workspace = true }
 fs2 = "0.4"
 orchestrator-core = { workspace = true }
+orchestrator-providers = { workspace = true }
 protocol = { workspace = true }
 dirs = "5.0"
 reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls"] }

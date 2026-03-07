@@ -3,14 +3,18 @@ use crate::cli_types::DaemonRunArgs;
 use crate::shared::{ensure_ai_generated_tasks_for_requirements, requirement_has_active_tasks};
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
+#[cfg(test)]
+use orchestrator_core::DependencyType;
 use orchestrator_core::{
-    services::ServiceHub, DependencyType, RequirementItem, RequirementStatus,
-    RequirementsDraftInput, RequirementsExecutionInput, RequirementsRefineInput, TaskCreateInput,
-    TaskStatus, TaskType, WorkflowResumeManager, WorkflowRunInput, WorkflowStatus,
+    services::ServiceHub, RequirementItem, RequirementStatus, RequirementsDraftInput,
+    RequirementsExecutionInput, RequirementsRefineInput, TaskCreateInput, TaskStatus, TaskType,
+    WorkflowResumeManager, WorkflowRunInput, WorkflowStatus,
 };
 pub(super) use orchestrator_daemon_runtime::{
-    run_project_tick_at, DaemonRuntimeOptions, ProcessManager, ProjectTickRunMode,
-    ProjectTickSummary, ProjectTickTime,
+    dependency_blocked_reason, dependency_gate_issues_for_task, is_dependency_gate_block,
+    is_merge_gate_block, merge_blocked_reason, run_project_tick_at, set_task_blocked_with_reason,
+    DaemonRuntimeOptions, ProcessManager, ProjectTickRunMode, ProjectTickSummary, ProjectTickTime,
+    MERGE_GATE_PREFIX,
 };
 pub(crate) use project_tick_ops::slim_project_tick_driver;
 use serde::{Deserialize, Serialize};
@@ -1158,10 +1162,7 @@ mod tests {
             .await
             .expect("blocked task should load");
         assert_eq!(blocked_state.status, TaskStatus::Blocked);
-        assert!(blocked_state
-            .blocked_reason
-            .unwrap_or_default()
-            .starts_with(DEPENDENCY_GATE_PREFIX));
+        assert!(is_dependency_gate_block(&blocked_state));
 
         hub.tasks()
             .set_status(&dependency.id, TaskStatus::Done, false)
@@ -1898,31 +1899,6 @@ fn persist_phase_output(
     outcome: &PhaseExecutionOutcome,
 ) -> Result<()> {
     ::workflow_runner::executor::persist_phase_output(project_root, workflow_id, phase_id, outcome)
-}
-
-const DEPENDENCY_GATE_PREFIX: &str = "dependency gate:";
-const MERGE_GATE_PREFIX: &str = "merge gate:";
-
-fn dependency_blocked_reason(issues: &[String]) -> String {
-    format!("{DEPENDENCY_GATE_PREFIX} {}", issues.join("; "))
-}
-
-fn merge_blocked_reason(branch_name: &str) -> String {
-    format!("{MERGE_GATE_PREFIX} branch `{branch_name}` is not merged into default branch")
-}
-
-fn is_dependency_gate_block(task: &orchestrator_core::OrchestratorTask) -> bool {
-    task.blocked_reason
-        .as_deref()
-        .map(|reason| reason.starts_with(DEPENDENCY_GATE_PREFIX))
-        .unwrap_or(false)
-}
-
-fn is_merge_gate_block(task: &orchestrator_core::OrchestratorTask) -> bool {
-    task.blocked_reason
-        .as_deref()
-        .map(|reason| reason.starts_with(MERGE_GATE_PREFIX))
-        .unwrap_or(false)
 }
 
 #[cfg(test)]

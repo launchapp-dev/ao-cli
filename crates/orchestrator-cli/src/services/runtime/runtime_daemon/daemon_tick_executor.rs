@@ -2,74 +2,9 @@ use super::*;
 #[cfg(test)]
 use orchestrator_daemon_runtime::{default_full_project_tick_driver, DefaultFullProjectTickDriver};
 use orchestrator_daemon_runtime::{
-    default_slim_project_tick_driver, CompletedProcess, DefaultProjectTickServices,
-    DefaultSlimProjectTickDriver, ProcessManager, WorkflowSubjectArgs,
+    default_slim_project_tick_driver, dispatch_ready_tasks_via_runner, CompletedProcess,
+    DefaultProjectTickServices, DefaultSlimProjectTickDriver, ProcessManager,
 };
-
-async fn dispatch_ready_tasks_via_runner(
-    hub: Arc<dyn ServiceHub>,
-    root: &str,
-    process_manager: &mut ProcessManager,
-    limit: usize,
-) -> Result<ReadyTaskWorkflowStartSummary> {
-    let workflows = hub.workflows().list().await.unwrap_or_default();
-    let active_task_ids = active_workflow_task_ids(&workflows);
-    let candidates = hub.tasks().list_prioritized().await?;
-    let mut started_workflows = Vec::new();
-
-    for task in candidates {
-        if started_workflows.len() >= limit {
-            break;
-        }
-
-        if task.paused || task.cancelled {
-            continue;
-        }
-        if task.status != TaskStatus::Ready {
-            continue;
-        }
-        if active_task_ids.contains(&task.id) {
-            continue;
-        }
-        if should_skip_dispatch(&task) {
-            continue;
-        }
-
-        let dependency_issues = dependency_gate_issues_for_task(hub.clone(), root, &task).await;
-        if !dependency_issues.is_empty() {
-            let reason = dependency_blocked_reason(&dependency_issues);
-            let _ = set_task_blocked_with_reason(hub.clone(), &task, reason, None).await;
-            continue;
-        }
-
-        let pipeline_id = super::pipeline_for_task(&task);
-        let subject = WorkflowSubjectArgs::Task {
-            task_id: task.id.clone(),
-        };
-        match process_manager.spawn_workflow_runner(&subject, &pipeline_id, root) {
-            Ok(_) => {
-                let _ = hub
-                    .tasks()
-                    .set_status(&task.id, TaskStatus::InProgress, false)
-                    .await;
-                started_workflows.push(ReadyTaskWorkflowStart {
-                    task_id: task.id.clone(),
-                    workflow_id: task.id.clone(),
-                    selection_source: TaskSelectionSource::FallbackPicker,
-                });
-            }
-            Err(error) => {
-                let reason = format!("failed to start workflow runner: {error}");
-                let _ = set_task_blocked_with_reason(hub.clone(), &task, reason, None).await;
-            }
-        }
-    }
-
-    Ok(ReadyTaskWorkflowStartSummary {
-        started: started_workflows.len(),
-        started_workflows,
-    })
-}
 
 pub(crate) struct CliProjectTickServices;
 

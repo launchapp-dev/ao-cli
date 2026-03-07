@@ -42,7 +42,9 @@ mod requirement_lifecycle_transition;
 mod run_daemon;
 mod run_project_tick;
 mod runner_event;
+mod runner_ready_dispatch;
 mod schedule_dispatch;
+mod task_blocking;
 mod task_selection_source;
 mod task_state_transition;
 mod tick_summary_builder;
@@ -109,7 +111,13 @@ pub use requirement_lifecycle_transition::RequirementLifecycleTransition;
 pub use run_daemon::run_daemon;
 pub use run_project_tick::{run_project_tick, run_project_tick_at};
 pub use runner_event::RunnerEvent;
+pub use runner_ready_dispatch::dispatch_ready_tasks_via_runner;
 pub use schedule_dispatch::ScheduleDispatch;
+pub use task_blocking::{
+    dependency_blocked_reason, dependency_gate_issues_for_task, is_dependency_gate_block,
+    is_merge_gate_block, merge_blocked_reason, set_task_blocked_with_reason,
+    DEPENDENCY_GATE_PREFIX, MERGE_GATE_PREFIX,
+};
 pub use task_selection_source::TaskSelectionSource;
 pub use task_state_transition::TaskStateTransition;
 pub use tick_summary_builder::TickSummaryBuilder;

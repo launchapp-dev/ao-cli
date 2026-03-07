@@ -438,7 +438,7 @@ fn append_phase_execution_metadata_artifact(
     Ok(())
 }
 
-use workflow_runner::executor::workflow_merge_recovery;
+use ::workflow_runner::executor::workflow_merge_recovery;
 
 pub async fn attempt_ai_merge_conflict_recovery(
     project_root: &str,

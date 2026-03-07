@@ -491,7 +491,6 @@ fn parse_commit_message_from_text_for_kind(text: &str, expected_kind: &str) -> O
     None
 }
 
-#[cfg(test)]
 pub fn parse_commit_message_from_text(text: &str) -> Option<String> {
     parse_commit_message_from_text_for_kind(text, "implementation_result")
 }

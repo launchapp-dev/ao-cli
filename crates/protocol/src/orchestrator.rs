@@ -1359,6 +1359,8 @@ pub struct OrchestratorWorkflow {
     pub id: String,
     pub task_id: String,
     pub pipeline_id: Option<String>,
+    #[serde(default = "default_workflow_subject")]
+    pub subject: WorkflowSubject,
     pub status: WorkflowStatus,
     pub current_phase_index: usize,
     #[serde(default)]
@@ -1380,9 +1382,19 @@ pub struct OrchestratorWorkflow {
     pub decision_history: Vec<WorkflowDecisionRecord>,
 }
 
+fn default_workflow_subject() -> WorkflowSubject {
+    WorkflowSubject::Task { id: String::new() }
+}
+
 impl OrchestratorWorkflow {
     pub fn sync_status(&mut self) {
         self.status = self.machine_state.to_workflow_status();
+    }
+
+    pub fn backfill_subject(&mut self) {
+        if matches!(&self.subject, WorkflowSubject::Task { id } if id.is_empty()) && !self.task_id.is_empty() {
+            self.subject = WorkflowSubject::Task { id: self.task_id.clone() };
+        }
     }
 }
 
@@ -1488,9 +1500,11 @@ impl WorkflowSubject {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowRunInput {
-    pub task_id: String,
+    pub subject: WorkflowSubject,
     #[serde(default)]
     pub pipeline_id: Option<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub task_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub requirement_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1502,6 +1516,7 @@ pub struct WorkflowRunInput {
 impl WorkflowRunInput {
     pub fn for_task(task_id: String, pipeline_id: Option<String>) -> Self {
         Self {
+            subject: WorkflowSubject::Task { id: task_id.clone() },
             task_id,
             pipeline_id,
             requirement_id: None,
@@ -1510,18 +1525,33 @@ impl WorkflowRunInput {
         }
     }
 
-    pub fn subject(&self) -> WorkflowSubject {
-        if let Some(req_id) = &self.requirement_id {
-            WorkflowSubject::Requirement { id: req_id.clone() }
-        } else if !self.task_id.is_empty() {
-            WorkflowSubject::Task {
-                id: self.task_id.clone(),
-            }
-        } else {
-            WorkflowSubject::Custom {
-                title: self.title.clone().unwrap_or_default(),
-                description: self.description.clone().unwrap_or_default(),
-            }
+    pub fn for_requirement(requirement_id: String, pipeline_id: Option<String>) -> Self {
+        Self {
+            subject: WorkflowSubject::Requirement { id: requirement_id.clone() },
+            task_id: String::new(),
+            pipeline_id,
+            requirement_id: Some(requirement_id),
+            title: None,
+            description: None,
         }
+    }
+
+    pub fn for_custom(title: String, description: String, pipeline_id: Option<String>) -> Self {
+        Self {
+            subject: WorkflowSubject::Custom { title: title.clone(), description: description.clone() },
+            task_id: String::new(),
+            pipeline_id,
+            requirement_id: None,
+            title: Some(title),
+            description: Some(description),
+        }
+    }
+
+    pub fn subject(&self) -> &WorkflowSubject {
+        &self.subject
+    }
+
+    pub fn subject_id(&self) -> &str {
+        self.subject.id()
     }
 }

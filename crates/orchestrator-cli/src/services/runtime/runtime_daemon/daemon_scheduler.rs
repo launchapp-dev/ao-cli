@@ -31,10 +31,10 @@ mod git_ops;
 mod project_tick_ops;
 
 pub(crate) use git_ops::MergeConflictContext;
-pub(crate) use workflow_runner::phase_failover;
-pub(crate) use workflow_runner::phase_targets;
-pub(crate) use workflow_runner::runtime_support;
-use workflow_runner::executor::{
+pub(crate) use ::workflow_runner::phase_failover;
+pub(crate) use ::workflow_runner::phase_targets;
+pub(crate) use ::workflow_runner::runtime_support;
+use ::workflow_runner::executor::{
     PhaseExecutionMetadata, PhaseExecutionOutcome, PhaseExecutionRunResult,
 };
 use phase_failover::PhaseFailureClassifier;
@@ -74,7 +74,7 @@ pub(super) struct ProjectTickSummary {
     pub(super) task_state_transitions: Vec<TaskStateTransition>,
 }
 
-use workflow_runner::executor::PhaseExecutionEvent;
+use ::workflow_runner::executor::PhaseExecutionEvent;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct RequirementLifecycleTransition {
@@ -178,7 +178,7 @@ fn build_phase_prompt(
     task_description: &str,
     phase_id: &str,
 ) -> String {
-    workflow_runner::executor::build_phase_prompt(
+    ::workflow_runner::executor::build_phase_prompt(
         project_root,
         workflow_id,
         task_id,
@@ -192,12 +192,12 @@ fn build_phase_prompt(
 
 #[cfg(test)]
 fn parse_commit_message_from_text(text: &str) -> Option<String> {
-    workflow_runner::executor::parse_commit_message_from_text(text)
+    ::workflow_runner::executor::parse_commit_message_from_text(text)
 }
 
 #[cfg(test)]
 fn fallback_implementation_commit_message(task_id: &str, task_title: &str) -> String {
-    workflow_runner::executor::fallback_implementation_commit_message(task_id, task_title)
+    ::workflow_runner::executor::fallback_implementation_commit_message(task_id, task_title)
 }
 
 async fn run_workflow_phase_with_agent(
@@ -211,7 +211,7 @@ async fn run_workflow_phase_with_agent(
     phase_id: &str,
     phase_attempt: u32,
 ) -> Result<PhaseExecutionRunResult> {
-    workflow_runner::executor::run_workflow_phase(
+    ::workflow_runner::executor::run_workflow_phase(
         project_root,
         execution_cwd,
         workflow_id,
@@ -239,7 +239,7 @@ async fn run_workflow_phase_with_agent_legacy(
     phase_id: &str,
     phase_runtime_settings: Option<&WorkflowPhaseRuntimeSettings>,
 ) -> Result<PhaseExecutionOutcome> {
-    workflow_runner::executor::run_workflow_phase_with_agent(
+    ::workflow_runner::executor::run_workflow_phase_with_agent(
         project_root,
         execution_cwd,
         workflow_id,
@@ -1936,7 +1936,7 @@ fn persist_phase_output(
     phase_id: &str,
     outcome: &PhaseExecutionOutcome,
 ) -> Result<()> {
-    workflow_runner::executor::persist_phase_output(project_root, workflow_id, phase_id, outcome)
+    ::workflow_runner::executor::persist_phase_output(project_root, workflow_id, phase_id, outcome)
 }
 
 fn pipeline_for_task(task: &orchestrator_core::OrchestratorTask) -> String {
@@ -1947,7 +1947,7 @@ fn pipeline_for_task(task: &orchestrator_core::OrchestratorTask) -> String {
     }
 }
 
-use workflow_runner::executor::{
+use ::workflow_runner::executor::{
     task_requires_research, workflow_has_active_research, workflow_has_completed_research,
 };
 

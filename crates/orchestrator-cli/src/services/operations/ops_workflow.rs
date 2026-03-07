@@ -158,20 +158,8 @@ fn resolve_workflow_run_input(
 ) -> Result<WorkflowRunInput> {
     match (task_id, requirement_id, title) {
         (Some(tid), None, None) => Ok(WorkflowRunInput::for_task(tid, pipeline_id)),
-        (None, Some(rid), None) => Ok(WorkflowRunInput {
-            task_id: String::new(),
-            pipeline_id,
-            requirement_id: Some(rid),
-            title: None,
-            description,
-        }),
-        (None, None, Some(t)) => Ok(WorkflowRunInput {
-            task_id: String::new(),
-            pipeline_id,
-            requirement_id: None,
-            title: Some(t),
-            description,
-        }),
+        (None, Some(rid), None) => Ok(WorkflowRunInput::for_requirement(rid, pipeline_id)),
+        (None, None, Some(t)) => Ok(WorkflowRunInput::for_custom(t, description.unwrap_or_default(), pipeline_id)),
         (None, None, None) => Err(anyhow!(
             "one of --task-id, --requirement-id, or --title must be provided"
         )),

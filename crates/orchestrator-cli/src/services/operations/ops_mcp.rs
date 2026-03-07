@@ -3,7 +3,7 @@ use crate::{
     McpCommand,
 };
 use anyhow::{Context, Result};
-use orchestrator_core::{OrchestratorWorkflow, WorkflowStateManager, WorkflowStatus};
+use orchestrator_core::{OrchestratorWorkflow, WorkflowStateManager, WorkflowStatus, WorkflowSubject};
 use protocol::{AgentRunEvent, OutputStreamType, RunId};
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
@@ -3679,6 +3679,7 @@ mod tests {
                 rework_counts: HashMap::new(),
                 total_reworks: 0,
                 decision_history: Vec::new(),
+                subject: WorkflowSubject::Task { id: task_id.to_string() },
             })
             .expect("workflow should be written");
     }

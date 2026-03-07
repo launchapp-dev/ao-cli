@@ -146,7 +146,7 @@ mod tests {
     use super::*;
     use orchestrator_core::{
         OrchestratorWorkflow, WorkflowCheckpointMetadata, WorkflowMachineState,
-        WorkflowPhaseExecution, WorkflowPhaseStatus, WorkflowStatus,
+        WorkflowPhaseExecution, WorkflowPhaseStatus, WorkflowStatus, WorkflowSubject,
     };
     use std::collections::HashMap;
 
@@ -167,6 +167,7 @@ mod tests {
             rework_counts: HashMap::new(),
             total_reworks: 0,
             decision_history: vec![],
+            subject: WorkflowSubject::Task { id: task_id.to_string() },
         }
     }
 

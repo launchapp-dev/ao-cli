@@ -1,6 +1,6 @@
 //! DEPRECATED: Agent lifecycle now owned by workflow-runner.
 use super::*;
-use workflow_runner::executor::{
+use ::workflow_runner::executor::{
     phase_execution_events_from_signals, AiRecoveryAction, AI_RECOVERY_MARKER,
 };
 #[derive(Debug)]
@@ -153,7 +153,7 @@ pub async fn process_agent_result(
                 return Ok(result);
             }
 
-            let recovery = workflow_runner::executor::attempt_ai_failure_recovery(
+            let recovery = ::workflow_runner::executor::attempt_ai_failure_recovery(
                 project_root,
                 &task,
                 &phase_id,

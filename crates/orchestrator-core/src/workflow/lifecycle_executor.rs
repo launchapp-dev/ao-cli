@@ -380,6 +380,7 @@ impl WorkflowLifecycleExecutor {
         let ms = machine.state();
         OrchestratorWorkflow {
             id: workflow_id,
+            subject: input.subject.clone(),
             task_id: input.task_id,
             pipeline_id: input.pipeline_id,
             status: ms.to_workflow_status(),

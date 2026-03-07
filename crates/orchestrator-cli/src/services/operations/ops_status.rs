@@ -783,6 +783,7 @@ mod tests {
         Assignee, ChecklistItem, Complexity, ImpactArea, Priority, ResourceRequirements, RiskLevel,
         Scope, TaskDependency, TaskMetadata, TaskType, WorkflowCheckpointMetadata,
         WorkflowDecisionRecord, WorkflowMachineState, WorkflowMetadata, WorkflowPhaseExecution,
+        WorkflowSubject,
     };
     use std::collections::HashMap;
 
@@ -886,6 +887,7 @@ mod tests {
             rework_counts: HashMap::<String, u32>::new(),
             total_reworks: 0,
             decision_history: Vec::<WorkflowDecisionRecord>::new(),
+            subject: WorkflowSubject::Task { id: task_id.to_string() },
         }
     }
 

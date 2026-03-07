@@ -31,7 +31,6 @@ pub struct WorkflowPhaseRuntimeSettings {
     pub max_continuations: Option<usize>,
 }
 
-#[cfg(test)]
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct WorkflowPipelineRuntimeRecord {
     pub id: String,
@@ -39,7 +38,6 @@ pub struct WorkflowPipelineRuntimeRecord {
     pub phase_settings: std::collections::HashMap<String, WorkflowPhaseRuntimeSettings>,
 }
 
-#[cfg(test)]
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct WorkflowRuntimeConfigLite {
     #[serde(default)]
@@ -48,7 +46,6 @@ pub struct WorkflowRuntimeConfigLite {
     pub pipelines: Vec<WorkflowPipelineRuntimeRecord>,
 }
 
-#[cfg(test)]
 fn workflow_runtime_config_paths(project_root: &str) -> [PathBuf; 2] {
     [
         Path::new(project_root)
@@ -61,7 +58,6 @@ fn workflow_runtime_config_paths(project_root: &str) -> [PathBuf; 2] {
     ]
 }
 
-#[cfg(test)]
 pub fn load_workflow_runtime_config(project_root: &str) -> WorkflowRuntimeConfigLite {
     for path in workflow_runtime_config_paths(project_root) {
         if !path.exists() {
@@ -80,7 +76,6 @@ pub fn load_workflow_runtime_config(project_root: &str) -> WorkflowRuntimeConfig
     WorkflowRuntimeConfigLite::default()
 }
 
-#[cfg(test)]
 pub fn resolve_phase_runtime_settings(
     config: &WorkflowRuntimeConfigLite,
     pipeline_id: Option<&str>,

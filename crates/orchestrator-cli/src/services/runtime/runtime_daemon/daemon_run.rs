@@ -1,19 +1,16 @@
 use crate::cli_types::DaemonRunArgs;
 use anyhow::Result;
-use chrono::Utc;
 use orchestrator_core::{FileServiceHub, ServiceHub};
 use orchestrator_daemon_runtime::{
-    run_daemon, DaemonNotificationRuntime, DaemonRunEvent, DaemonRunHooks,
-    NotificationLifecycleEvent, ProcessManager,
+    run_daemon, DaemonRunEvent, DaemonRunHooks, DefaultDaemonRunHost, ProcessManager,
 };
 use std::sync::Arc;
 
 #[cfg(test)]
 use super::canonicalize_lossy;
-use super::daemon_events::{emit_daemon_event, next_daemon_event};
 use super::daemon_scheduler::{
     recover_orphaned_running_workflows_on_startup, runtime_options_from_cli,
-    slim_project_tick_driver, ProjectTickSummary,
+    slim_project_tick_driver,
 };
 
 fn restore_env_override(key: &str, original: Option<String>) {
@@ -24,205 +21,14 @@ fn restore_env_override(key: &str, original: Option<String>) {
     }
 }
 
-fn emit_notification_lifecycle_events(
-    seq: &mut u64,
-    events: Vec<NotificationLifecycleEvent>,
-    json: bool,
-) -> Result<()> {
-    for event in events {
-        emit_daemon_event(
-            &next_daemon_event(seq, &event.event_type, event.project_root, event.data),
-            json,
-        )?;
-    }
-    Ok(())
-}
-
-fn emit_notification_runtime_error(
-    seq: &mut u64,
-    project_root: Option<String>,
-    stage: &str,
-    error: &str,
-    json: bool,
-) -> Result<()> {
-    emit_daemon_event(
-        &next_daemon_event(
-            seq,
-            "notification-runtime-error",
-            project_root,
-            serde_json::json!({
-                "stage": stage,
-                "message": error,
-            }),
-        ),
-        json,
-    )
-}
-
-fn emit_daemon_event_with_notifications(
-    seq: &mut u64,
-    event_type: &str,
-    project_root: Option<String>,
-    data: serde_json::Value,
-    json: bool,
-    notification_runtime: Option<&mut DaemonNotificationRuntime>,
-) -> Result<()> {
-    let record = next_daemon_event(seq, event_type, project_root, data);
-    emit_daemon_event(&record, json)?;
-
-    if let Some(runtime) = notification_runtime {
-        match runtime.enqueue_for_event(&record) {
-            Ok(lifecycle_events) => {
-                emit_notification_lifecycle_events(seq, lifecycle_events, json)?
-            }
-            Err(error) => {
-                let error_message = error.to_string();
-                emit_notification_runtime_error(
-                    seq,
-                    record.project_root.clone(),
-                    "enqueue",
-                    error_message.as_str(),
-                    json,
-                )?
-            }
-        }
-    }
-    Ok(())
-}
-
-fn emit_project_tick_summary_events(
-    seq: &mut u64,
-    summary: &ProjectTickSummary,
-    json: bool,
-    notification_runtime: &mut Option<DaemonNotificationRuntime>,
-) -> Result<()> {
-    emit_daemon_event_with_notifications(
-        seq,
-        "health",
-        Some(summary.project_root.clone()),
-        summary.health.clone(),
-        json,
-        notification_runtime.as_mut(),
-    )?;
-    emit_daemon_event_with_notifications(
-        seq,
-        "queue",
-        Some(summary.project_root.clone()),
-        serde_json::json!({
-            "tasks_total": summary.tasks_total,
-            "tasks_ready": summary.tasks_ready,
-            "tasks_in_progress": summary.tasks_in_progress,
-            "tasks_blocked": summary.tasks_blocked,
-            "tasks_done": summary.tasks_done,
-            "stale_in_progress_count": summary.stale_in_progress_count,
-            "stale_in_progress_threshold_hours": summary.stale_in_progress_threshold_hours,
-            "stale_in_progress_task_ids": summary.stale_in_progress_task_ids,
-            "workflows_running": summary.workflows_running,
-            "workflows_completed": summary.workflows_completed,
-            "workflows_failed": summary.workflows_failed,
-            "started_ready_workflows": summary.started_ready_workflows,
-            "executed_workflow_phases": summary.executed_workflow_phases,
-            "failed_workflow_phases": summary.failed_workflow_phases,
-        }),
-        json,
-        notification_runtime.as_mut(),
-    )?;
-
-    emit_daemon_event_with_notifications(
-        seq,
-        "workflow",
-        Some(summary.project_root.clone()),
-        serde_json::json!({
-            "resumed_workflows": summary.resumed_workflows,
-            "cleaned_stale_workflows": summary.cleaned_stale_workflows,
-            "reconciled_stale_tasks": summary.reconciled_stale_tasks,
-            "executed_workflow_phases": summary.executed_workflow_phases,
-            "failed_workflow_phases": summary.failed_workflow_phases,
-        }),
-        json,
-        notification_runtime.as_mut(),
-    )?;
-
-    for transition in &summary.requirement_lifecycle_transitions {
-        emit_daemon_event_with_notifications(
-            seq,
-            "requirement-lifecycle",
-            Some(summary.project_root.clone()),
-            serde_json::json!({
-                "requirement_id": transition.requirement_id,
-                "requirement_title": transition.requirement_title,
-                "phase": transition.phase,
-                "status": transition.status,
-                "transition_at": transition.transition_at,
-                "comment": transition.comment,
-            }),
-            json,
-            notification_runtime.as_mut(),
-        )?;
-    }
-
-    for transition in &summary.task_state_transitions {
-        emit_daemon_event_with_notifications(
-            seq,
-            "task-state-change",
-            Some(summary.project_root.clone()),
-            serde_json::json!({
-                "task_id": transition.task_id,
-                "from_status": transition.from_status,
-                "to_status": transition.to_status,
-                "changed_at": transition.changed_at,
-                "workflow_id": transition.workflow_id,
-                "phase_id": transition.phase_id,
-                "selection_source": transition.selection_source,
-            }),
-            json,
-            notification_runtime.as_mut(),
-        )?;
-    }
-
-    for phase_event in &summary.phase_execution_events {
-        emit_daemon_event_with_notifications(
-            seq,
-            &phase_event.event_type,
-            Some(phase_event.project_root.clone()),
-            serde_json::json!({
-                "workflow_id": phase_event.workflow_id,
-                "task_id": phase_event.task_id,
-                "phase_id": phase_event.phase_id,
-                "phase_mode": phase_event.phase_mode,
-                "metadata": phase_event.metadata,
-                "payload": phase_event.payload,
-            }),
-            json,
-            notification_runtime.as_mut(),
-        )?;
-    }
-
-    Ok(())
-}
-
 struct CliDaemonRunHost {
-    seq: u64,
-    json: bool,
-    notification_runtime: Option<DaemonNotificationRuntime>,
-    startup_notification_error: Option<String>,
+    inner: DefaultDaemonRunHost,
 }
 
 impl CliDaemonRunHost {
     fn new(project_root: &str, json: bool) -> Self {
-        match DaemonNotificationRuntime::new(project_root) {
-            Ok(runtime) => Self {
-                seq: 0,
-                json,
-                notification_runtime: Some(runtime),
-                startup_notification_error: None,
-            },
-            Err(error) => Self {
-                seq: 0,
-                json,
-                notification_runtime: None,
-                startup_notification_error: Some(error.to_string()),
-            },
+        Self {
+            inner: DefaultDaemonRunHost::new(project_root, json),
         }
     }
 }
@@ -230,178 +36,7 @@ impl CliDaemonRunHost {
 #[async_trait::async_trait(?Send)]
 impl DaemonRunHooks for CliDaemonRunHost {
     fn handle_event(&mut self, event: DaemonRunEvent) -> Result<()> {
-        match event {
-            DaemonRunEvent::Startup {
-                project_root,
-                daemon_pid,
-            } => {
-                eprintln!(
-                    "{}",
-                    serde_json::json!({
-                        "level": "info",
-                        "event": "daemon_startup",
-                        "timestamp": Utc::now().to_rfc3339(),
-                        "pid": daemon_pid,
-                        "project_root": project_root,
-                    })
-                );
-                if let Some(error) = self.startup_notification_error.as_deref() {
-                    emit_notification_runtime_error(
-                        &mut self.seq,
-                        Some(project_root),
-                        "startup",
-                        error,
-                        self.json,
-                    )?;
-                }
-                Ok(())
-            }
-            DaemonRunEvent::Status {
-                project_root,
-                status,
-            } => emit_daemon_event_with_notifications(
-                &mut self.seq,
-                "status",
-                Some(project_root),
-                serde_json::json!({ "status": status }),
-                self.json,
-                self.notification_runtime.as_mut(),
-            ),
-            DaemonRunEvent::StartupCleanup { project_root } => {
-                emit_daemon_event_with_notifications(
-                    &mut self.seq,
-                    "recovery",
-                    Some(project_root),
-                    serde_json::json!({
-                        "startup_cleanup": true,
-                    }),
-                    self.json,
-                    self.notification_runtime.as_mut(),
-                )
-            }
-            DaemonRunEvent::OrphanDetection {
-                project_root,
-                orphaned_workflows_recovered,
-            } => emit_daemon_event_with_notifications(
-                &mut self.seq,
-                "orphan-detection",
-                Some(project_root),
-                serde_json::json!({
-                    "orphaned_workflows_recovered": orphaned_workflows_recovered,
-                    "recovery_action": "blocked",
-                    "blocked_reason": "orphaned_after_daemon_restart",
-                }),
-                self.json,
-                self.notification_runtime.as_mut(),
-            ),
-            DaemonRunEvent::YamlCompileSucceeded {
-                project_root,
-                source_files,
-                output_path,
-                phase_definitions,
-                agent_profiles,
-            } => emit_daemon_event_with_notifications(
-                &mut self.seq,
-                "yaml-compile",
-                Some(project_root),
-                serde_json::json!({
-                    "compiled": true,
-                    "source_files": source_files,
-                    "output_path": output_path,
-                    "phase_definitions": phase_definitions,
-                    "agent_profiles": agent_profiles,
-                }),
-                self.json,
-                self.notification_runtime.as_mut(),
-            ),
-            DaemonRunEvent::YamlCompileFailed {
-                project_root,
-                error,
-            } => emit_daemon_event_with_notifications(
-                &mut self.seq,
-                "yaml-compile",
-                Some(project_root),
-                serde_json::json!({
-                    "compiled": false,
-                    "error": error,
-                }),
-                self.json,
-                self.notification_runtime.as_mut(),
-            ),
-            DaemonRunEvent::TickSummary { summary } => emit_project_tick_summary_events(
-                &mut self.seq,
-                &summary,
-                self.json,
-                &mut self.notification_runtime,
-            ),
-            DaemonRunEvent::TickError {
-                project_root,
-                message,
-            } => emit_daemon_event_with_notifications(
-                &mut self.seq,
-                "log",
-                Some(project_root),
-                serde_json::json!({
-                    "level": "error",
-                    "message": message,
-                }),
-                self.json,
-                self.notification_runtime.as_mut(),
-            ),
-            DaemonRunEvent::GracefulShutdown {
-                project_root,
-                timeout_secs,
-            } => emit_daemon_event_with_notifications(
-                &mut self.seq,
-                "graceful-shutdown",
-                Some(project_root),
-                serde_json::json!({
-                    "timeout_secs": timeout_secs,
-                }),
-                self.json,
-                self.notification_runtime.as_mut(),
-            ),
-            DaemonRunEvent::Draining {
-                project_root,
-                trigger,
-            } => emit_daemon_event_with_notifications(
-                &mut self.seq,
-                "daemon-draining",
-                Some(project_root),
-                serde_json::json!({
-                    "trigger": trigger,
-                }),
-                self.json,
-                self.notification_runtime.as_mut(),
-            ),
-            DaemonRunEvent::NotificationRuntimeError {
-                project_root,
-                stage,
-                message,
-            } => emit_notification_runtime_error(
-                &mut self.seq,
-                project_root,
-                stage.as_str(),
-                message.as_str(),
-                self.json,
-            ),
-            DaemonRunEvent::Shutdown {
-                project_root,
-                daemon_pid,
-            } => {
-                eprintln!(
-                    "{}",
-                    serde_json::json!({
-                        "level": "info",
-                        "event": "daemon_shutdown",
-                        "timestamp": Utc::now().to_rfc3339(),
-                        "pid": daemon_pid,
-                        "project_root": project_root,
-                    })
-                );
-                Ok(())
-            }
-        }
+        self.inner.handle_event(event)
     }
 
     async fn recover_orphaned_running_workflows_on_startup(
@@ -417,18 +52,7 @@ impl DaemonRunHooks for CliDaemonRunHost {
     }
 
     async fn flush_notifications(&mut self, project_root: &str) -> Result<()> {
-        let Some(runtime) = self.notification_runtime.as_mut() else {
-            return Ok(());
-        };
-
-        match runtime.flush_due_deliveries().await {
-            Ok(lifecycle_events) => {
-                emit_notification_lifecycle_events(&mut self.seq, lifecycle_events, self.json)
-            }
-            Err(error) => {
-                Err(error.context(format!("failed to flush notifications for {project_root}")))
-            }
-        }
+        self.inner.flush_notifications(project_root).await
     }
 }
 

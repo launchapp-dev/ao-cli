@@ -57,7 +57,14 @@ pub(super) async fn project_tick(
     let mut driver = FullProjectTickDriver {
         schedule_process_manager: ProcessManager::new(),
     };
-    run_project_tick(&root, args, ProjectTickRunMode::Full, pool_draining, &mut driver).await
+    run_project_tick(
+        &root,
+        args,
+        ProjectTickRunMode::Full,
+        pool_draining,
+        &mut driver,
+    )
+    .await
 }
 
 pub(super) async fn slim_daemon_tick(
@@ -70,9 +77,7 @@ pub(super) async fn slim_daemon_tick(
     let mode = ProjectTickRunMode::Slim {
         active_process_count: process_manager.active_count(),
     };
-    let mut driver = SlimProjectTickDriver {
-        process_manager,
-    };
+    let mut driver = SlimProjectTickDriver { process_manager };
     run_project_tick(&root, args, mode, dispatch_paused, &mut driver).await
 }
 
@@ -243,6 +248,105 @@ mod tests {
             .find(|entry| entry.task_id == fallback_task.id)
             .expect("fallback queue entry should remain present");
         assert_eq!(fallback_entry.status, EmWorkQueueEntryStatus::Pending);
+    }
+
+    #[tokio::test]
+    async fn run_ready_uses_fallback_headroom_after_dispatching_queue_entries() {
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
+        let home = TempDir::new().expect("home temp dir");
+        let _home_guard = EnvVarGuard::set("HOME", Some(home.path().to_string_lossy().as_ref()));
+
+        let hub = Arc::new(orchestrator_core::InMemoryServiceHub::new());
+        let project_root = TempDir::new().expect("project temp dir");
+        let project_root_str = project_root.path().to_string_lossy().to_string();
+
+        let queue_task = hub
+            .tasks()
+            .create(TaskCreateInput {
+                title: "queue-first".to_string(),
+                description: "queue task should consume the first slot".to_string(),
+                task_type: Some(TaskType::Feature),
+                priority: Some(Priority::Low),
+                created_by: Some("test".to_string()),
+                tags: Vec::new(),
+                linked_requirements: Vec::new(),
+                linked_architecture_entities: Vec::new(),
+            })
+            .await
+            .expect("queue task should be created");
+        hub.tasks()
+            .set_status(&queue_task.id, TaskStatus::Ready, false)
+            .await
+            .expect("queue task should be ready");
+
+        let fallback_task = hub
+            .tasks()
+            .create(TaskCreateInput {
+                title: "fallback-second".to_string(),
+                description: "fallback task should use the spare slot".to_string(),
+                task_type: Some(TaskType::Feature),
+                priority: Some(Priority::Critical),
+                created_by: Some("test".to_string()),
+                tags: Vec::new(),
+                linked_requirements: Vec::new(),
+                linked_architecture_entities: Vec::new(),
+            })
+            .await
+            .expect("fallback task should be created");
+        hub.tasks()
+            .set_status(&fallback_task.id, TaskStatus::Ready, false)
+            .await
+            .expect("fallback task should be ready");
+
+        save_em_work_queue_state(
+            &project_root_str,
+            &EmWorkQueueState {
+                entries: vec![EmWorkQueueEntry {
+                    task_id: queue_task.id.clone(),
+                    status: EmWorkQueueEntryStatus::Pending,
+                    workflow_id: None,
+                    assigned_at: None,
+                }],
+            },
+        )
+        .expect("queue state should be stored");
+
+        let summary = run_ready_task_workflows_for_project(
+            hub.clone() as Arc<dyn ServiceHub>,
+            &project_root_str,
+            2,
+        )
+        .await
+        .expect("ready runner should succeed");
+
+        assert_eq!(summary.started, 2);
+        assert_eq!(summary.started_workflows.len(), 2);
+        assert_eq!(summary.started_workflows[0].task_id, queue_task.id);
+        assert_eq!(summary.started_workflows[1].task_id, fallback_task.id);
+        assert_eq!(
+            summary.started_workflows[0].selection_source,
+            TaskSelectionSource::EmQueue
+        );
+        assert_eq!(
+            summary.started_workflows[1].selection_source,
+            TaskSelectionSource::FallbackPicker
+        );
+
+        let queue_state = load_em_work_queue_state(&project_root_str)
+            .expect("queue should load")
+            .expect("queue should exist");
+        let queue_entry = queue_state
+            .entries
+            .iter()
+            .find(|entry| entry.task_id == queue_task.id)
+            .expect("queue task entry should remain present");
+        assert_eq!(queue_entry.status, EmWorkQueueEntryStatus::Assigned);
+        assert_eq!(
+            queue_entry.workflow_id.as_deref(),
+            Some(summary.started_workflows[0].workflow_id.as_str())
+        );
     }
 
     #[tokio::test]

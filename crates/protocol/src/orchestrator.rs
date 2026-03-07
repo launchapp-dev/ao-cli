@@ -1392,8 +1392,12 @@ impl OrchestratorWorkflow {
     }
 
     pub fn backfill_subject(&mut self) {
-        if matches!(&self.subject, WorkflowSubject::Task { id } if id.is_empty()) && !self.task_id.is_empty() {
-            self.subject = WorkflowSubject::Task { id: self.task_id.clone() };
+        if matches!(&self.subject, WorkflowSubject::Task { id } if id.is_empty())
+            && !self.task_id.is_empty()
+        {
+            self.subject = WorkflowSubject::Task {
+                id: self.task_id.clone(),
+            };
         }
     }
 }
@@ -1498,6 +1502,95 @@ impl WorkflowSubject {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SubjectDispatch {
+    pub subject: WorkflowSubject,
+    pub pipeline_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<String>,
+    pub trigger_source: String,
+    pub requested_at: DateTime<Utc>,
+}
+
+impl SubjectDispatch {
+    pub fn for_task(task_id: impl Into<String>, pipeline_id: impl Into<String>) -> Self {
+        Self::for_task_with_metadata(task_id, pipeline_id, "ready-queue", Utc::now())
+    }
+
+    pub fn for_task_with_metadata(
+        task_id: impl Into<String>,
+        pipeline_id: impl Into<String>,
+        trigger_source: impl Into<String>,
+        requested_at: DateTime<Utc>,
+    ) -> Self {
+        Self {
+            subject: WorkflowSubject::Task { id: task_id.into() },
+            pipeline_id: pipeline_id.into(),
+            input: None,
+            priority: None,
+            trigger_source: trigger_source.into(),
+            requested_at,
+        }
+    }
+
+    pub fn for_requirement(
+        requirement_id: impl Into<String>,
+        pipeline_id: impl Into<String>,
+        trigger_source: impl Into<String>,
+    ) -> Self {
+        Self {
+            subject: WorkflowSubject::Requirement {
+                id: requirement_id.into(),
+            },
+            pipeline_id: pipeline_id.into(),
+            input: None,
+            priority: None,
+            trigger_source: trigger_source.into(),
+            requested_at: Utc::now(),
+        }
+    }
+
+    pub fn for_custom(
+        title: impl Into<String>,
+        description: impl Into<String>,
+        pipeline_id: impl Into<String>,
+        input: Option<Value>,
+        trigger_source: impl Into<String>,
+    ) -> Self {
+        Self {
+            subject: WorkflowSubject::Custom {
+                title: title.into(),
+                description: description.into(),
+            },
+            pipeline_id: pipeline_id.into(),
+            input,
+            priority: None,
+            trigger_source: trigger_source.into(),
+            requested_at: Utc::now(),
+        }
+    }
+
+    pub fn subject_id(&self) -> &str {
+        self.subject.id()
+    }
+
+    pub fn task_id(&self) -> Option<&str> {
+        match &self.subject {
+            WorkflowSubject::Task { id } => Some(id),
+            _ => None,
+        }
+    }
+
+    pub fn schedule_id(&self) -> Option<&str> {
+        match &self.subject {
+            WorkflowSubject::Custom { title, .. } => title.strip_prefix("schedule:"),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowRunInput {
     pub subject: WorkflowSubject,
@@ -1516,7 +1609,9 @@ pub struct WorkflowRunInput {
 impl WorkflowRunInput {
     pub fn for_task(task_id: String, pipeline_id: Option<String>) -> Self {
         Self {
-            subject: WorkflowSubject::Task { id: task_id.clone() },
+            subject: WorkflowSubject::Task {
+                id: task_id.clone(),
+            },
             task_id,
             pipeline_id,
             requirement_id: None,
@@ -1527,7 +1622,9 @@ impl WorkflowRunInput {
 
     pub fn for_requirement(requirement_id: String, pipeline_id: Option<String>) -> Self {
         Self {
-            subject: WorkflowSubject::Requirement { id: requirement_id.clone() },
+            subject: WorkflowSubject::Requirement {
+                id: requirement_id.clone(),
+            },
             task_id: String::new(),
             pipeline_id,
             requirement_id: Some(requirement_id),
@@ -1538,7 +1635,10 @@ impl WorkflowRunInput {
 
     pub fn for_custom(title: String, description: String, pipeline_id: Option<String>) -> Self {
         Self {
-            subject: WorkflowSubject::Custom { title: title.clone(), description: description.clone() },
+            subject: WorkflowSubject::Custom {
+                title: title.clone(),
+                description: description.clone(),
+            },
             task_id: String::new(),
             pipeline_id,
             requirement_id: None,

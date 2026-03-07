@@ -3,9 +3,10 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
+use protocol::SubjectDispatch;
 use tokio::process::{Child, Command};
 
-use crate::{CompletedProcess, RunnerEvent, SubjectDispatch};
+use crate::{build_runner_command_from_dispatch, CompletedProcess, RunnerEvent};
 
 #[derive(Debug, Clone)]
 struct WorkflowProcess {
@@ -33,7 +34,7 @@ impl ProcessManager {
         dispatch: &SubjectDispatch,
         project_root: &str,
     ) -> Result<()> {
-        let std_cmd = dispatch.build_runner_command(project_root);
+        let std_cmd = build_runner_command_from_dispatch(dispatch, project_root);
         let mut command = Command::from(std_cmd);
         command.stdout(Stdio::null()).stderr(Stdio::piped());
 

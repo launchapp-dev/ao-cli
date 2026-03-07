@@ -4,7 +4,9 @@ use crate::{not_found_error, print_ok, print_value, ScheduleCommand};
 use anyhow::{Context, Result};
 use chrono::Utc;
 use orchestrator_core::{load_schedule_state, load_workflow_config};
-use orchestrator_daemon_runtime::ScheduleDispatch as RuntimeScheduleDispatch;
+use orchestrator_daemon_runtime::{
+    build_runner_command_from_dispatch, ScheduleDispatch as RuntimeScheduleDispatch,
+};
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -117,7 +119,7 @@ fn fire_schedule(project_root: &str, schedule_id: &str) -> Result<()> {
         Utc::now(),
         "manual-schedule-fire",
         |schedule_id, dispatch| {
-            let mut cmd = dispatch.build_runner_command(project_root);
+            let mut cmd = build_runner_command_from_dispatch(dispatch, project_root);
             cmd.stdout(Stdio::null()).stderr(Stdio::inherit());
             let child = cmd.spawn().with_context(|| {
                 format!(

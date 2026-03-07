@@ -33,6 +33,7 @@ pub use daemon_event_record::*;
 pub use error_classification::*;
 pub use errors::*;
 pub use model_routing::*;
+pub use orchestrator::SubjectDispatch;
 pub use output::*;
 pub use process::*;
 pub use repository_scope::*;

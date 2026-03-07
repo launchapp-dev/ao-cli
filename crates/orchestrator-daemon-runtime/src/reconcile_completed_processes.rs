@@ -4,7 +4,7 @@ use orchestrator_core::{services::ServiceHub, TaskStatus};
 
 use crate::{
     build_completion_reconciliation_plan, remove_terminal_em_work_queue_entry_non_fatal,
-    set_task_blocked_with_reason, CompletedProcess, ScheduleDispatch, TaskCompletionAction,
+    set_task_blocked_with_reason, CompletedProcess, ScheduleDispatch,
 };
 
 pub async fn reconcile_completed_processes(
@@ -14,59 +14,52 @@ pub async fn reconcile_completed_processes(
 ) -> (usize, usize) {
     let plan = build_completion_reconciliation_plan(completed_processes);
 
-    for disposition in plan.dispositions {
-        for event in &disposition.runner_events {
+    for fact in plan.execution_facts {
+        for event in &fact.runner_events {
             eprintln!(
                 "{}: runner event: {} subject={} pipeline={:?} exit={:?}",
                 protocol::ACTOR_DAEMON,
                 event.event,
-                disposition.subject_id,
+                fact.subject_id,
                 event.pipeline,
                 event.exit_code,
             );
         }
 
-        if let Some(task_action) = disposition.task_action {
-            match task_action {
-                TaskCompletionAction::MarkDone { task_id } => {
-                    remove_terminal_em_work_queue_entry_non_fatal(root, &task_id, None);
+        if let Some(task_id) = fact.task_id.clone() {
+            if fact.success {
+                remove_terminal_em_work_queue_entry_non_fatal(root, &task_id, None);
+                let _ = hub
+                    .tasks()
+                    .set_status(&task_id, TaskStatus::Done, false)
+                    .await;
+            } else if let Some(reason) = fact.failure_reason.clone() {
+                if let Ok(task) = hub.tasks().get(&task_id).await {
+                    let _ = set_task_blocked_with_reason(hub.clone(), &task, reason, None).await;
+                } else {
                     let _ = hub
                         .tasks()
-                        .set_status(&task_id, TaskStatus::Done, false)
+                        .set_status(&task_id, TaskStatus::Blocked, false)
                         .await;
                 }
-                TaskCompletionAction::MarkBlocked { task_id, reason } => {
-                    if let Ok(task) = hub.tasks().get(&task_id).await {
-                        let _ =
-                            set_task_blocked_with_reason(hub.clone(), &task, reason, None).await;
-                    } else {
-                        let _ = hub
-                            .tasks()
-                            .set_status(&task_id, TaskStatus::Blocked, false)
-                            .await;
-                    }
-                }
+            } else {
+                let _ = hub
+                    .tasks()
+                    .set_status(&task_id, TaskStatus::Blocked, false)
+                    .await;
             }
         } else {
             eprintln!(
                 "{}: workflow runner {} for subject '{}' (exit={:?})",
                 protocol::ACTOR_DAEMON,
-                if disposition.success {
-                    "succeeded"
-                } else {
-                    "failed"
-                },
-                disposition.subject_id,
-                disposition.exit_code,
+                if fact.success { "succeeded" } else { "failed" },
+                fact.subject_id,
+                fact.exit_code,
             );
         }
 
-        if let Some(schedule_update) = disposition.schedule_update {
-            ScheduleDispatch::update_completion_state(
-                root,
-                &schedule_update.schedule_id,
-                &schedule_update.status,
-            );
+        if let Some(schedule_id) = fact.schedule_id.as_deref() {
+            ScheduleDispatch::update_completion_state(root, schedule_id, fact.completion_status());
         }
     }
 

@@ -393,7 +393,7 @@ impl WebApiService {
         task_id: &str,
         body: serde_json::Value,
     ) -> Result<serde_json::Value, WebApiError> {
-        let _request: QueueReleaseRequest =
+        let request: QueueReleaseRequest =
             parse_json_body(body).unwrap_or(QueueReleaseRequest { reason: None });
         let project_root = &self.context.project_root;
 
@@ -406,13 +406,22 @@ impl WebApiService {
         })?;
 
         if updated {
+            let mut payload = serde_json::json!({ "task_id": task_id, "released": true });
+            if let Some(reason) = request.reason.as_deref() {
+                payload["reason"] = serde_json::Value::String(reason.to_string());
+            }
             self.publish_event(
                 "queue-release",
-                serde_json::json!({ "task_id": task_id, "released": true }),
+                payload,
             );
         }
 
-        Ok(serde_json::json!({ "released": updated, "task_id": task_id }))
+        let mut response = serde_json::json!({ "released": updated, "task_id": task_id });
+        if let Some(reason) = request.reason.as_deref() {
+            response["reason"] = serde_json::Value::String(reason.to_string());
+        }
+
+        Ok(response)
     }
 }
 

@@ -8,7 +8,7 @@ use tokio::process::Command as TokioCommand;
 
 use crate::{
     CompletedProcess, HookBackedProjectTickDriver, ProcessManager, ProjectTickHooks,
-    ReadyTaskWorkflowStartSummary, ScheduleDispatch, WorkflowSubjectArgs,
+    ReadyTaskWorkflowStartSummary, ScheduleDispatch, SubjectDispatch,
 };
 
 #[async_trait::async_trait(?Send)]
@@ -140,12 +140,14 @@ fn spawn_schedule_pipeline(
     pipeline_id: &str,
     input_json: Option<&str>,
 ) -> Result<()> {
-    let subject = WorkflowSubjectArgs::Custom {
-        title: format!("schedule:{schedule_id}"),
-        description: Some(format!("Triggered by schedule '{schedule_id}'")),
-        input_json: input_json.map(String::from),
-    };
-    process_manager.spawn_workflow_runner(&subject, pipeline_id, project_root)?;
+    let dispatch = SubjectDispatch::for_custom(
+        format!("schedule:{schedule_id}"),
+        format!("Triggered by schedule '{schedule_id}'"),
+        pipeline_id,
+        input_json.and_then(|json| serde_json::from_str(json).ok()),
+        "schedule",
+    );
+    process_manager.spawn_workflow_runner(&dispatch, project_root)?;
 
     eprintln!(
         "{}: schedule '{}' fired pipeline '{}'",

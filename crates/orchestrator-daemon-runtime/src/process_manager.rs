@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::{Context, Result};
 use tokio::process::{Child, Command};
 
-use crate::{CompletedProcess, RunnerEvent, WorkflowSubjectArgs};
+use crate::{CompletedProcess, RunnerEvent, SubjectDispatch};
 
 #[derive(Debug, Clone)]
 struct WorkflowProcess {
@@ -30,11 +30,10 @@ impl ProcessManager {
 
     pub fn spawn_workflow_runner(
         &mut self,
-        subject: &WorkflowSubjectArgs,
-        pipeline_id: &str,
+        dispatch: &SubjectDispatch,
         project_root: &str,
     ) -> Result<()> {
-        let std_cmd = subject.build_runner_command(pipeline_id, project_root);
+        let std_cmd = dispatch.build_runner_command(project_root);
         let mut command = Command::from(std_cmd);
         command.stdout(Stdio::null()).stderr(Stdio::piped());
 
@@ -57,14 +56,11 @@ impl ProcessManager {
             });
         }
 
-        let task_id = match subject {
-            WorkflowSubjectArgs::Task { task_id } => Some(task_id.clone()),
-            _ => None,
-        };
-        let schedule_id = subject.schedule_id().map(String::from);
+        let task_id = dispatch.task_id().map(String::from);
+        let schedule_id = dispatch.schedule_id().map(String::from);
 
         self.processes.push(WorkflowProcess {
-            subject_id: subject.subject_id().to_string(),
+            subject_id: dispatch.subject_id().to_string(),
             task_id,
             schedule_id,
             child: Arc::new(Mutex::new(child)),
@@ -258,15 +254,9 @@ mod tests {
         let _path_guard = EnvVarGuard::set("PATH", Some(candidate_path.as_ref()));
 
         let mut manager = ProcessManager::new();
-        let subject = WorkflowSubjectArgs::Task {
-            task_id: "task-123".to_string(),
-        };
+        let dispatch = SubjectDispatch::for_task("task-123", "standard");
         manager
-            .spawn_workflow_runner(
-                &subject,
-                "standard",
-                temp_dir.path().to_string_lossy().as_ref(),
-            )
+            .spawn_workflow_runner(&dispatch, temp_dir.path().to_string_lossy().as_ref())
             .expect("mock runner should be discovered from PATH and spawned");
         assert_eq!(manager.active_count(), 1);
         let _ = manager.check_running();
@@ -274,23 +264,21 @@ mod tests {
 
     #[test]
     fn subject_id_returns_correct_value_for_each_variant() {
-        let task = WorkflowSubjectArgs::Task {
-            task_id: "TASK-1".into(),
-        };
+        let task = SubjectDispatch::for_task("TASK-1", "standard");
         assert_eq!(task.subject_id(), "TASK-1");
         assert!(task.schedule_id().is_none());
 
-        let requirement = WorkflowSubjectArgs::Requirement {
-            requirement_id: "REQ-1".into(),
-        };
+        let requirement = SubjectDispatch::for_requirement("REQ-1", "standard", "manual");
         assert_eq!(requirement.subject_id(), "REQ-1");
         assert!(requirement.schedule_id().is_none());
 
-        let custom = WorkflowSubjectArgs::Custom {
-            title: "schedule:nightly".into(),
-            description: Some("nightly run".into()),
-            input_json: Some("{\"key\":\"value\"}".into()),
-        };
+        let custom = SubjectDispatch::for_custom(
+            "schedule:nightly",
+            "nightly run",
+            "standard",
+            Some(serde_json::json!({"key":"value"})),
+            "schedule",
+        );
         assert_eq!(custom.subject_id(), "schedule:nightly");
         assert_eq!(custom.schedule_id(), Some("nightly"));
     }
@@ -323,17 +311,15 @@ mod tests {
         let _path_guard = EnvVarGuard::set("PATH", Some(candidate_path.as_ref()));
 
         let mut manager = ProcessManager::new();
-        let subject = WorkflowSubjectArgs::Custom {
-            title: "schedule:nightly".to_string(),
-            description: Some("nightly run".to_string()),
-            input_json: None,
-        };
+        let dispatch = SubjectDispatch::for_custom(
+            "schedule:nightly",
+            "nightly run",
+            "standard",
+            None,
+            "schedule",
+        );
         manager
-            .spawn_workflow_runner(
-                &subject,
-                "standard",
-                temp_dir.path().to_string_lossy().as_ref(),
-            )
+            .spawn_workflow_runner(&dispatch, temp_dir.path().to_string_lossy().as_ref())
             .expect("mock runner should spawn");
 
         let mut completed = Vec::new();

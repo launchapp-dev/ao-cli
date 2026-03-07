@@ -6,7 +6,7 @@ use orchestrator_core::{services::ServiceHub, TaskStatus, UI_UX_PIPELINE_ID};
 use crate::{
     active_workflow_task_ids, dependency_blocked_reason, dependency_gate_issues_for_task,
     set_task_blocked_with_reason, should_skip_dispatch, ProcessManager, ReadyTaskWorkflowStart,
-    ReadyTaskWorkflowStartSummary, TaskSelectionSource, WorkflowSubjectArgs,
+    ReadyTaskWorkflowStartSummary, SubjectDispatch, TaskSelectionSource,
 };
 
 fn pipeline_for_task(task: &orchestrator_core::OrchestratorTask) -> String {
@@ -54,10 +54,8 @@ pub async fn dispatch_ready_tasks_via_runner(
         }
 
         let pipeline_id = pipeline_for_task(&task);
-        let subject = WorkflowSubjectArgs::Task {
-            task_id: task.id.clone(),
-        };
-        match process_manager.spawn_workflow_runner(&subject, &pipeline_id, root) {
+        let dispatch = SubjectDispatch::for_task(task.id.clone(), pipeline_id);
+        match process_manager.spawn_workflow_runner(&dispatch, root) {
             Ok(_) => {
                 let _ = hub
                     .tasks()

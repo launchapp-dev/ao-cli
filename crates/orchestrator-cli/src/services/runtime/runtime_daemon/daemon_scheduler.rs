@@ -10,7 +10,9 @@ use orchestrator_core::{
     RequirementsDraftInput, RequirementsExecutionInput, RequirementsRefineInput, TaskCreateInput,
     TaskStatus, TaskType, WorkflowResumeManager, WorkflowRunInput, WorkflowStatus,
 };
-pub(super) use orchestrator_daemon_runtime::{DaemonRuntimeOptions, ProjectTickSummary};
+pub(super) use orchestrator_daemon_runtime::{
+    DaemonRuntimeOptions, ProjectTickPlan, ProjectTickSummary,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;

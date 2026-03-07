@@ -4,6 +4,7 @@ mod completed_process;
 mod completion_reconciliation_plan;
 mod daemon_runtime_options;
 mod em_work_queue_state;
+mod project_tick_plan;
 mod project_tick_summary;
 mod ready_task_dispatch_plan;
 mod ready_task_dispatch_support;
@@ -26,6 +27,7 @@ pub use completion_reconciliation_plan::{
 };
 pub use daemon_runtime_options::DaemonRuntimeOptions;
 pub use em_work_queue_state::{EmWorkQueueEntry, EmWorkQueueEntryStatus, EmWorkQueueState};
+pub use project_tick_plan::ProjectTickPlan;
 pub use project_tick_summary::ProjectTickSummary;
 pub use ready_task_dispatch_plan::{
     plan_ready_task_dispatch, PlannedReadyTaskStart, ReadyTaskDispatchPlan,

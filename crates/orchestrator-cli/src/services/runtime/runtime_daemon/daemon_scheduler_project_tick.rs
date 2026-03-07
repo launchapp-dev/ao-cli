@@ -56,16 +56,19 @@ pub(super) async fn project_tick(
     let _ = orchestrator_core::ensure_workflow_config_compiled(Path::new(&root));
     let mut schedule_pm = ProcessManager::new();
     let wf_config = orchestrator_core::load_workflow_config_or_default(Path::new(&root));
-    let active = wf_config
-        .config
-        .daemon
-        .as_ref()
-        .and_then(|d| d.active_hours.as_deref())
-        .map(|spec| {
-            ScheduleDispatch::allows_proactive_dispatch(Some(spec), chrono::Local::now().time())
-        })
-        .unwrap_or(true);
-    if active {
+    let pool_draining = phase_pool::is_pool_draining(&root);
+    let schedule_plan = ProjectTickPlan::build(
+        args,
+        wf_config
+            .config
+            .daemon
+            .as_ref()
+            .and_then(|daemon| daemon.active_hours.as_deref()),
+        chrono::Local::now().time(),
+        pool_draining,
+        0,
+    );
+    if schedule_plan.should_process_due_schedules {
         ScheduleDispatch::process_due_schedules(&mut schedule_pm, &root, Utc::now());
     }
     let hub = Arc::new(FileServiceHub::new(&root)?);
@@ -115,26 +118,32 @@ pub(super) async fn project_tick(
         reconcile_dependency_gate_tasks_for_project(hub.clone(), &root).await?;
     let reconciled_merge_tasks = reconcile_merge_gate_tasks_for_project(hub.clone(), &root).await?;
 
-    let pool_draining = phase_pool::is_pool_draining(&root);
+    let requested_ready_dispatch_limit = match daemon.health().await {
+        Ok(health) => {
+            orchestrator_daemon_runtime::ready_task_dispatch_limit(args.max_tasks_per_tick, &health)
+        }
+        Err(_) => args.max_tasks_per_tick,
+    };
+    let tick_plan = ProjectTickPlan::build(
+        args,
+        wf_config
+            .config
+            .daemon
+            .as_ref()
+            .and_then(|daemon| daemon.active_hours.as_deref()),
+        chrono::Local::now().time(),
+        pool_draining,
+        requested_ready_dispatch_limit,
+    );
 
-    if !pool_draining && args.auto_run_ready {
+    if tick_plan.should_prepare_ready_tasks {
         let _ = retry_failed_task_workflows(hub.clone()).await;
         let _ = promote_backlog_tasks_to_ready(hub.clone(), &root).await;
     }
 
-    let ready_dispatch_limit = if !pool_draining && args.auto_run_ready {
-        match daemon.health().await {
-            Ok(health) => orchestrator_daemon_runtime::ready_task_dispatch_limit(
-                args.max_tasks_per_tick,
-                &health,
-            ),
-            Err(_) => args.max_tasks_per_tick,
-        }
-    } else {
-        0
-    };
-    let ready_workflow_starts = if !pool_draining && args.auto_run_ready {
-        run_ready_task_workflows_for_project(hub.clone(), &root, ready_dispatch_limit).await?
+    let ready_workflow_starts = if tick_plan.ready_dispatch_limit > 0 {
+        run_ready_task_workflows_for_project(hub.clone(), &root, tick_plan.ready_dispatch_limit)
+            .await?
     } else {
         ReadyTaskWorkflowStartSummary::default()
     };
@@ -185,25 +194,25 @@ pub(super) async fn slim_daemon_tick(
         .daemon
         .as_ref()
         .and_then(|d| d.active_hours.clone());
-    let within_active_hours = match active_hours.as_deref() {
-        Some(spec) => {
-            let active = ScheduleDispatch::allows_proactive_dispatch(
-                Some(spec),
-                chrono::Local::now().time(),
+    let pool_draining = phase_pool::is_pool_draining(&root);
+    let schedule_plan = ProjectTickPlan::build(
+        args,
+        active_hours.as_deref(),
+        chrono::Local::now().time(),
+        pool_draining,
+        0,
+    );
+    if !schedule_plan.within_active_hours {
+        if let Some(spec) = active_hours.as_deref() {
+            eprintln!(
+                "{}: outside active_hours ({}), skipping schedule dispatch",
+                protocol::ACTOR_DAEMON,
+                spec
             );
-            if !active {
-                eprintln!(
-                    "{}: outside active_hours ({}), skipping schedule dispatch",
-                    protocol::ACTOR_DAEMON,
-                    spec
-                );
-            }
-            active
         }
-        None => true,
-    };
+    }
 
-    if within_active_hours {
+    if schedule_plan.should_process_due_schedules {
         ScheduleDispatch::process_due_schedules(process_manager, &root, Utc::now());
     }
     let hub = Arc::new(FileServiceHub::new(&root)?);
@@ -253,39 +262,40 @@ pub(super) async fn slim_daemon_tick(
         reconcile_dependency_gate_tasks_for_project(hub.clone(), &root).await?;
     let reconciled_merge_tasks = reconcile_merge_gate_tasks_for_project(hub.clone(), &root).await?;
 
-    let pool_draining = phase_pool::is_pool_draining(&root);
-
     let completed_processes = process_manager.check_running();
     let (executed_workflow_phases, failed_workflow_phases) =
         CompletionReconciler::reconcile(hub.clone(), &root, completed_processes).await;
-
-    if !pool_draining && args.auto_run_ready {
-        let _ = retry_failed_task_workflows(hub.clone()).await;
-        let _ = promote_backlog_tasks_to_ready(hub.clone(), &root).await;
-    }
 
     let daemon_health = daemon.health().await.ok();
     let configured_max_agents = args
         .pool_size
         .or(args.max_agents)
-        .or_else(|| daemon_health.and_then(|health| health.max_agents))
+        .or_else(|| daemon_health.as_ref().and_then(|health| health.max_agents))
         .unwrap_or(args.max_tasks_per_tick);
-    let ready_dispatch_limit = if !pool_draining && args.auto_run_ready {
-        configured_max_agents
-            .saturating_sub(process_manager.active_count())
-            .min(args.max_tasks_per_tick)
-    } else {
-        0
-    };
+    let requested_ready_dispatch_limit = configured_max_agents
+        .saturating_sub(process_manager.active_count())
+        .min(args.max_tasks_per_tick);
+    let tick_plan = ProjectTickPlan::build(
+        args,
+        active_hours.as_deref(),
+        chrono::Local::now().time(),
+        pool_draining,
+        requested_ready_dispatch_limit,
+    );
+
+    if tick_plan.should_prepare_ready_tasks {
+        let _ = retry_failed_task_workflows(hub.clone()).await;
+        let _ = promote_backlog_tasks_to_ready(hub.clone(), &root).await;
+    }
 
     let workflows = hub.workflows().list().await.unwrap_or_default();
     let active_task_ids = active_workflow_task_ids(&workflows);
     let mut ready_workflows_started = Vec::new();
 
-    if ready_dispatch_limit > 0 {
+    if tick_plan.ready_dispatch_limit > 0 {
         let candidates = hub.tasks().list_prioritized().await?;
         for task in candidates {
-            if ready_workflows_started.len() >= ready_dispatch_limit {
+            if ready_workflows_started.len() >= tick_plan.ready_dispatch_limit {
                 break;
             }
 

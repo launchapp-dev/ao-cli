@@ -1,15 +1,7 @@
 //! DEPRECATED: Will be replaced by GitProvider trait. See providers/git.rs
 use super::*;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct MergeConflictContext {
-    pub(crate) source_branch: String,
-    pub(crate) target_branch: String,
-    pub(crate) merge_worktree_path: String,
-    pub(crate) conflicted_files: Vec<String>,
-    pub(crate) merge_queue_branch: String,
-    pub(crate) push_remote: String,
-}
+pub(crate) use ::workflow_runner::executor::MergeConflictContext;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case")]

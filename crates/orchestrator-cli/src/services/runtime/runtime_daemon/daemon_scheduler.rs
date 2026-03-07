@@ -27,21 +27,18 @@ use uuid::Uuid;
 mod frontend_phase_gate;
 #[path = "daemon_scheduler_git_ops.rs"]
 mod git_ops;
-#[path = "daemon_scheduler_failover.rs"]
-pub(crate) mod phase_failover;
-#[path = "daemon_scheduler_phase_targets.rs"]
-pub(crate) mod phase_targets;
 #[path = "daemon_scheduler_project_tick.rs"]
 mod project_tick_ops;
 
 pub(crate) use git_ops::MergeConflictContext;
-use crate::services::runtime::workflow_executor::phase_executor as phase_exec;
-use phase_exec::{PhaseExecutionMetadata, PhaseExecutionOutcome, PhaseExecutionRunResult};
+pub(crate) use workflow_runner::phase_failover;
+pub(crate) use workflow_runner::phase_targets;
+pub(crate) use workflow_runner::runtime_support;
+use workflow_runner::executor::{
+    PhaseExecutionMetadata, PhaseExecutionOutcome, PhaseExecutionRunResult,
+};
 use phase_failover::PhaseFailureClassifier;
 use phase_targets::PhaseTargetPlanner;
-
-#[path = "daemon_scheduler_runtime_support.rs"]
-pub(crate) mod runtime_support;
 
 #[cfg(test)]
 use runtime_support::WorkflowPhaseRuntimeSettings;
@@ -77,7 +74,7 @@ pub(super) struct ProjectTickSummary {
     pub(super) task_state_transitions: Vec<TaskStateTransition>,
 }
 
-use crate::services::runtime::workflow_executor::workflow_runner::PhaseExecutionEvent;
+use workflow_runner::executor::PhaseExecutionEvent;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct RequirementLifecycleTransition {
@@ -181,7 +178,7 @@ fn build_phase_prompt(
     task_description: &str,
     phase_id: &str,
 ) -> String {
-    phase_exec::build_phase_prompt(
+    workflow_runner::executor::build_phase_prompt(
         project_root,
         workflow_id,
         task_id,
@@ -195,12 +192,12 @@ fn build_phase_prompt(
 
 #[cfg(test)]
 fn parse_commit_message_from_text(text: &str) -> Option<String> {
-    phase_exec::parse_commit_message_from_text(text)
+    workflow_runner::executor::parse_commit_message_from_text(text)
 }
 
 #[cfg(test)]
 fn fallback_implementation_commit_message(task_id: &str, task_title: &str) -> String {
-    phase_exec::fallback_implementation_commit_message(task_id, task_title)
+    workflow_runner::executor::fallback_implementation_commit_message(task_id, task_title)
 }
 
 async fn run_workflow_phase_with_agent(
@@ -214,7 +211,7 @@ async fn run_workflow_phase_with_agent(
     phase_id: &str,
     phase_attempt: u32,
 ) -> Result<PhaseExecutionRunResult> {
-    phase_exec::run_workflow_phase(
+    workflow_runner::executor::run_workflow_phase(
         project_root,
         execution_cwd,
         workflow_id,
@@ -242,7 +239,7 @@ async fn run_workflow_phase_with_agent_legacy(
     phase_id: &str,
     phase_runtime_settings: Option<&WorkflowPhaseRuntimeSettings>,
 ) -> Result<PhaseExecutionOutcome> {
-    phase_exec::run_workflow_phase_with_agent(
+    workflow_runner::executor::run_workflow_phase_with_agent(
         project_root,
         execution_cwd,
         workflow_id,
@@ -1939,7 +1936,7 @@ fn persist_phase_output(
     phase_id: &str,
     outcome: &PhaseExecutionOutcome,
 ) -> Result<()> {
-    phase_exec::persist_phase_output(project_root, workflow_id, phase_id, outcome)
+    workflow_runner::executor::persist_phase_output(project_root, workflow_id, phase_id, outcome)
 }
 
 fn pipeline_for_task(task: &orchestrator_core::OrchestratorTask) -> String {
@@ -1950,7 +1947,7 @@ fn pipeline_for_task(task: &orchestrator_core::OrchestratorTask) -> String {
     }
 }
 
-use crate::services::runtime::workflow_executor::workflow_runner::{
+use workflow_runner::executor::{
     task_requires_research, workflow_has_active_research, workflow_has_completed_research,
 };
 

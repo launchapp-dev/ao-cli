@@ -227,7 +227,7 @@ pub fn path_is_within_root(path: &Path, root: &Path) -> bool {
 }
 
 pub fn is_git_repo(project_root: &str) -> bool {
-    crate::services::runtime::workflow_executor::phase_git::is_git_repo(project_root)
+    workflow_runner::executor::is_git_repo(project_root)
 }
 
 pub fn git_ref_exists(project_root: &str, reference: &str) -> bool {
@@ -341,11 +341,11 @@ pub fn is_branch_merged(
 }
 
 fn git_has_pending_changes(cwd: &str) -> Result<bool> {
-    crate::services::runtime::workflow_executor::phase_git::git_has_pending_changes(cwd)
+    workflow_runner::executor::git_has_pending_changes(cwd)
 }
 
 fn ensure_git_identity(cwd: &str) -> Result<()> {
-    crate::services::runtime::workflow_executor::phase_git::ensure_git_identity(cwd)
+    workflow_runner::executor::ensure_git_identity(cwd)
 }
 
 pub fn auto_commit_pending_source_changes(cwd: &str, task_id: &str) -> Result<()> {

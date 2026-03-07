@@ -156,6 +156,13 @@ impl ProcessManager {
     pub fn active_count(&self) -> usize {
         self.processes.len()
     }
+
+    pub fn active_subject_ids(&self) -> std::collections::HashSet<String> {
+        self.processes
+            .iter()
+            .map(|process| process.subject_id.clone())
+            .collect()
+    }
 }
 
 fn parse_runner_events(stderr_lines: &Arc<Mutex<Vec<String>>>) -> Vec<RunnerEvent> {

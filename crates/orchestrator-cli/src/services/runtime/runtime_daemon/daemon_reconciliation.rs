@@ -275,14 +275,23 @@ pub async fn recover_orphaned_running_workflows(
     hub: Arc<dyn ServiceHub>,
     project_root: &str,
 ) -> usize {
-    let workflows = match hub.workflows().list().await {
-        Ok(w) => w,
-        Err(_) => return 0,
-    };
     let in_flight: std::collections::HashSet<String> =
         with_reactive_phase_pool_state_mut(project_root, |state| {
             state.in_flight_workflow_ids.clone()
         });
+
+    recover_orphaned_running_workflows_with_active_ids(hub, project_root, &in_flight).await
+}
+
+pub async fn recover_orphaned_running_workflows_with_active_ids(
+    hub: Arc<dyn ServiceHub>,
+    project_root: &str,
+    active_ids: &std::collections::HashSet<String>,
+) -> usize {
+    let workflows = match hub.workflows().list().await {
+        Ok(w) => w,
+        Err(_) => return 0,
+    };
 
     let mut recovered = 0usize;
     for workflow in workflows {
@@ -292,7 +301,10 @@ pub async fn recover_orphaned_running_workflows(
         if workflow.machine_state == orchestrator_core::WorkflowMachineState::MergeConflict {
             continue;
         }
-        if in_flight.contains(&workflow.id) {
+        if active_ids.contains(&workflow.id)
+            || active_ids.contains(workflow.subject.id())
+            || (!workflow.task_id.is_empty() && active_ids.contains(&workflow.task_id))
+        {
             continue;
         }
 
@@ -370,4 +382,58 @@ pub async fn recover_orphaned_running_workflows_on_startup(
         recovered = recovered.saturating_add(1);
     }
     recovered
+}
+
+#[cfg(test)]
+mod tests {
+    use super::recover_orphaned_running_workflows_with_active_ids;
+    use orchestrator_core::{
+        InMemoryServiceHub, ServiceHub, TaskCreateInput, TaskStatus, TaskType, WorkflowRunInput,
+        WorkflowStatus,
+    };
+    use std::collections::HashSet;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn active_subject_ids_prevent_runner_backed_workflow_from_being_recovered() {
+        let hub = Arc::new(InMemoryServiceHub::new());
+        let task = hub
+            .tasks()
+            .create(TaskCreateInput {
+                title: "runner-backed-workflow".to_string(),
+                description: "should remain running while subprocess is active".to_string(),
+                task_type: Some(TaskType::Feature),
+                priority: None,
+                created_by: Some("test".to_string()),
+                tags: Vec::new(),
+                linked_requirements: Vec::new(),
+                linked_architecture_entities: Vec::new(),
+            })
+            .await
+            .expect("task should be created");
+        hub.tasks()
+            .set_status(&task.id, TaskStatus::InProgress, false)
+            .await
+            .expect("task should be in progress");
+        let workflow = hub
+            .workflows()
+            .run(WorkflowRunInput::for_task(task.id.clone(), None))
+            .await
+            .expect("workflow should start");
+
+        let recovered = recover_orphaned_running_workflows_with_active_ids(
+            hub.clone() as Arc<dyn ServiceHub>,
+            "/tmp/project",
+            &HashSet::from([task.id.clone()]),
+        )
+        .await;
+
+        assert_eq!(recovered, 0);
+        let updated = hub
+            .workflows()
+            .get(&workflow.id)
+            .await
+            .expect("workflow should still exist");
+        assert_eq!(updated.status, WorkflowStatus::Running);
+    }
 }

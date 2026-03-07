@@ -10,7 +10,7 @@ use orchestrator_core::{
     TaskStatus, TaskType, WorkflowResumeManager, WorkflowRunInput, WorkflowStatus,
 };
 pub(super) use orchestrator_daemon_runtime::{
-    run_project_tick, DaemonRuntimeOptions, ProjectTickDriver, ProjectTickOperations,
+    run_project_tick, DaemonRuntimeOptions, HookBackedProjectTickDriver, ProjectTickHooks,
     ProjectTickRunMode, ProjectTickSummary,
 };
 use serde::{Deserialize, Serialize};

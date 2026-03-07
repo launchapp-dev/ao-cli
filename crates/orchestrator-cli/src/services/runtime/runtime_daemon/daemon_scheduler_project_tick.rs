@@ -31,6 +31,9 @@ use task_dispatch::*;
 use task_lifecycle::*;
 #[cfg(test)]
 use tick_executor::FullProjectTickDriver;
+#[cfg(test)]
+use tick_executor::full_project_tick_driver;
+use tick_executor::slim_project_tick_driver;
 use tick_executor::SlimProjectTickDriver;
 
 fn pipeline_for_task(task: &orchestrator_core::OrchestratorTask) -> String {
@@ -47,9 +50,7 @@ pub(super) async fn project_tick(
     args: &DaemonRuntimeOptions,
 ) -> Result<ProjectTickSummary> {
     let root = canonicalize_lossy(root);
-    let mut driver = FullProjectTickDriver {
-        schedule_process_manager: ProcessManager::new(),
-    };
+    let mut driver: FullProjectTickDriver = full_project_tick_driver();
     run_project_tick(&root, args, ProjectTickRunMode::Full, false, &mut driver).await
 }
 
@@ -63,7 +64,7 @@ pub(super) async fn slim_daemon_tick(
     let mode = ProjectTickRunMode::Slim {
         active_process_count: process_manager.active_count(),
     };
-    let mut driver = SlimProjectTickDriver { process_manager };
+    let mut driver: SlimProjectTickDriver<'_> = slim_project_tick_driver(process_manager);
     run_project_tick(&root, args, mode, dispatch_paused, &mut driver).await
 }
 

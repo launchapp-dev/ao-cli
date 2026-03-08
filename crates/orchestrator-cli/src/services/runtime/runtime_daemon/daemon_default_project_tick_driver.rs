@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use orchestrator_core::{services::ServiceHub, FileServiceHub};
+use orchestrator_core::services::ServiceHub;
 use orchestrator_daemon_runtime::{
     CompletedProcess, DispatchWorkflowStartSummary, ProcessManager, ProjectTickHooks,
     ScheduleDispatch, SubjectDispatch,
@@ -100,10 +100,6 @@ impl<S> ProjectTickHooks for DefaultSlimProjectTickHooks<'_, S>
 where
     S: DefaultProjectTickServices,
 {
-    fn build_hub(&mut self, root: &str) -> Result<Arc<dyn ServiceHub>> {
-        Ok(Arc::new(FileServiceHub::new(root)?))
-    }
-
     fn process_due_schedules(&mut self, root: &str, now: DateTime<Utc>) {
         ScheduleDispatch::process_due_schedules(
             root,

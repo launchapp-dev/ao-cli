@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use orchestrator_core::services::ServiceHub;
+use orchestrator_core::{services::ServiceHub, FileServiceHub};
 
 use crate::{
     DaemonRuntimeOptions, ProjectTickExecutionOutcome, ProjectTickHooks, ProjectTickRunMode,
@@ -61,7 +61,7 @@ where
         hooks.process_due_schedules(root, tick_time.schedule_at());
     }
 
-    let hub: Arc<dyn ServiceHub> = hooks.build_hub(root)?;
+    let hub: Arc<dyn ServiceHub> = Arc::new(FileServiceHub::new(root)?);
 
     let snapshot = ProjectTickSnapshot::capture(hub.clone()).await?;
     let preparation = mode.build_preparation(&context, args, now, pool_draining, &snapshot);

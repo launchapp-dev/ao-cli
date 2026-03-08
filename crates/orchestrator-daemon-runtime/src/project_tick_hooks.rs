@@ -8,8 +8,6 @@ use crate::DispatchWorkflowStartSummary;
 
 #[async_trait::async_trait(?Send)]
 pub trait ProjectTickHooks {
-    fn build_hub(&mut self, root: &str) -> Result<Arc<dyn ServiceHub>>;
-
     fn process_due_schedules(&mut self, root: &str, now: DateTime<Utc>);
 
     fn active_process_count(&self) -> usize {

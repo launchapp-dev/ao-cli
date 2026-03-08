@@ -6,8 +6,8 @@ AO should keep daemon and workflow execution generic.
 
 The daemon runtime should schedule and dispatch `SubjectDispatch` values, manage
 capacity, track active work, and emit execution facts. `workflow-runner` should
-execute phases and report workflow events. Neither layer should own task,
-requirement, or queue business policy directly.
+execute YAML-defined workflows and report workflow events. Neither layer should
+own task, requirement, or queue business policy directly.
 
 Domain state changes should happen through explicit command and MCP surfaces.
 
@@ -17,7 +17,7 @@ Task, requirement, and queue mutation are tool surfaces, not daemon-core
 behavior.
 
 - The daemon runtime consumes `SubjectDispatch` and emits facts.
-- `workflow-runner` executes phases and can call tools.
+- `workflow-runner` executes YAML phases and can call tools.
 - Agents and phases mutate domain state by invoking `ao` commands or MCP tools.
 - Projectors and reconcilers may also use the same validated mutation surfaces.
 - The queue is managed through explicit `SubjectDispatch` commands, not hidden
@@ -90,6 +90,7 @@ Examples:
 - refine a requirement after research
 - enqueue a follow-up `SubjectDispatch`
 - reprioritize the queue based on workflow output
+- generate tasks from a requirement by calling typed `ao` or MCP mutation tools
 
 ## Plugins and Modules
 
@@ -113,7 +114,7 @@ The runtime contract should stay stable even when providers change.
 flowchart LR
   subgraph Runtime["Generic Runtime"]
     DAEMON["orchestrator-daemon-runtime"]
-    RUNNER["workflow-runner"]
+    RUNNER["workflow-runner<br/>YAML workflows"]
     FACTS["execution facts / workflow events"]
   end
 
@@ -163,6 +164,8 @@ The architecture is correct when:
 - task, requirement, and queue mutation happen through validated command or MCP
   surfaces
 - workflow phases can manage AO state using commands or MCP tools
+- advanced AI features are expressed as YAML workflows plus tool calls, not
+  daemon-native Rust features
 - queue operations are expressed in terms of `SubjectDispatch`
 - provider or plugin modules can supply subject and project adapters without
   changing daemon-core contracts

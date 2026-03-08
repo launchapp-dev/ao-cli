@@ -1,13 +1,15 @@
-# Subject Dispatch Daemon Architecture
+# YAML Workflow Dispatch Daemon Architecture
 
 ## Purpose
 
-AO needs one execution model for schedules, ready-queue work, manual starts, git
-triggers, and heartbeat rules. The daemon should not be a task-centric state
-machine. It should be a dumb, pluggable runtime that accepts dispatchable work,
-manages capacity and subprocesses, and emits execution facts.
+AO needs one execution model for schedules, ready-queue work, manual starts, and
+API or MCP-triggered work. The daemon should not be a task-centric state
+machine or a feature host. It should be a dumb, pluggable runtime that accepts
+dispatchable work, manages capacity and subprocesses, and emits execution
+facts.
 
-The planning and projection logic should live around the daemon, not inside it.
+Advanced AI behavior should live in YAML-defined workflows executed by
+`workflow-runner`, not in special Rust planning subsystems.
 
 ## Core Decision
 
@@ -15,10 +17,10 @@ The daemon runtime processes `SubjectDispatch`, not raw tasks.
 
 - `WorkflowSubject` is identity only.
 - `SubjectDispatch` is the execution envelope.
-- Planner layers produce dispatches.
+- Ingress surfaces produce dispatches.
 - The daemon runtime consumes dispatches and emits execution facts.
-- Projector layers apply those facts back to tasks, requirements, schedules, and
-  notifications.
+- Tool surfaces and projectors apply those facts back to tasks, requirements,
+  schedules, and notifications.
 
 ## Definitions
 
@@ -37,28 +39,28 @@ Identity of the work item:
 Execution envelope for a subject. At minimum it should include:
 
 - `subject`
-- `pipeline_id`
+- `workflow_ref`
 - `input`
 - `trigger_source`
 - `priority`
 - `requested_at`
 - optional idempotency or dispatch key
 
-`pipeline_id` belongs here, not on `WorkflowSubject`.
+`workflow_ref` belongs here, not on `WorkflowSubject`.
+It should point to a YAML-defined workflow entry, not a hardcoded Rust workflow
+type.
 
-### Planner
+### Ingress Surface
 
 Produces `SubjectDispatch` values from:
 
 - ready queue
 - cron schedules
-- git triggers
-- heartbeat or proactive rules
 - manual CLI, web, or MCP starts
 
-The planner may consult tasks, requirements, schedules, git state, or policy,
+The ingress layer may consult schedules, queue state, or explicit user input,
 but it should output dispatchable work rather than owning daemon runtime
-behavior.
+behavior. There is no requirement for a first-class Rust planning crate.
 
 ### Daemon Runtime
 
@@ -75,7 +77,18 @@ The daemon runtime should know about:
 - workflow execution events
 
 The daemon runtime should not own task status policy, backlog promotion, retry
-policy, or requirement-specific state transitions.
+policy, requirement-specific state transitions, or advanced AI feature logic.
+
+### Workflow Runner
+
+`workflow-runner` resolves `workflow_ref` from YAML and executes phases. This is
+where advanced AI features should live:
+
+- requirement planning
+- task generation
+- refinement or review workflows
+- follow-up queue management
+- any agentic behavior that needs models, tools, or prompts
 
 ### Projectors
 
@@ -92,17 +105,14 @@ Projectors are where state-specific updates belong.
 
 ```mermaid
 flowchart LR
-  subgraph Inputs["Trigger Sources"]
+  subgraph Inputs["Ingress Surfaces"]
     READY["ready queue"]
     SCHED["cron schedules"]
-    GIT["git triggers"]
-    HEART["heartbeat rules"]
     MANUAL["manual CLI / web / MCP"]
   end
 
-  subgraph Planning["Planning Layer"]
-    PLAN["dispatch planner"]
-    DISPATCH["SubjectDispatch"]
+  subgraph Dispatch["Dispatch Contract"]
+    DISPATCH["SubjectDispatch<br/>subject + workflow_ref + input"]
   end
 
   subgraph Runtime["orchestrator-daemon-runtime"]
@@ -118,8 +128,7 @@ flowchart LR
     NOTIF["notification projector"]
   end
 
-  Inputs --> PLAN
-  PLAN --> DISPATCH
+  Inputs --> DISPATCH
   DISPATCH --> QUEUE
   QUEUE --> RUN
   RUN --> FACTS
@@ -139,9 +148,9 @@ flowchart LR
     MCP["MCP surface"]
   end
 
-  subgraph Planner["Planner / Projector"]
-    PDISP["dispatch planner"]
+  subgraph Projection["Projection / Tool Layer"]
     PROJ["task / requirement / schedule projectors"]
+    TOOLS["ao commands / MCP tools"]
   end
 
   subgraph Daemon["orchestrator-daemon-runtime"]
@@ -154,17 +163,17 @@ flowchart LR
     WRAP["llm-cli-wrapper"]
   end
 
-  CLI --> PDISP
-  WEB --> PDISP
-  MCP --> PDISP
-
-  PDISP --> DRT
+  CLI --> DRT
+  WEB --> DRT
+  MCP --> DRT
   DRT --> WFR
   WFR --> AR
   AR --> WRAP
 
   DRT --> PROJ
   WFR --> PROJ
+  WFR --> TOOLS
+  TOOLS --> PROJ
 ```
 
 ## Non-Goals
@@ -177,9 +186,12 @@ These responsibilities should not stay in the daemon core:
 - requirement lifecycle transitions
 - schedule history projection
 - notification formatting
+- AI task generation
+- requirement refinement logic
+- Git workflow policy beyond runtime-safe dispatch mechanics
 
 If the daemon needs those outcomes, it should emit facts that a projector or
-planner consumes.
+tool surface consumes.
 
 ## Migration Guidance
 
@@ -188,24 +200,28 @@ planner consumes.
 - `workflow-runner` as the canonical execution host
 - `agent-runner` as the process supervisor for model CLIs
 - `WorkflowSubject` as the stable identity model
+- YAML as the source of truth for advanced workflows
 
 ### Change
 
 1. Replace task-first daemon entrypoints with `SubjectDispatch`.
-2. Move planning logic out of daemon runtime modules and into planner services.
-3. Move task, requirement, and schedule writeback logic into projector services.
-4. Keep `orchestrator-cli` as command parsing, launching, and output only.
+2. Replace `pipeline_id`-centric dispatch with YAML `workflow_ref`.
+3. Move task, requirement, and schedule writeback logic into projector or tool services.
+4. Replace special Rust AI task generation paths with YAML workflows executed by `workflow-runner`.
+5. Keep `orchestrator-cli` as command parsing, launching, and output only.
 
 ## Acceptance Shape
 
 The architecture is correct when:
 
 - every workflow start is expressed as `SubjectDispatch`
+- every dispatch points to a YAML workflow via `workflow_ref`
 - the daemon runtime can run standalone without task-specific policy
 - task, requirement, and schedule state changes happen in projectors
-- manual starts, schedules, queue dispatch, git triggers, and heartbeat rules
-  all share the same dispatch contract
+- or validated command or MCP tool surfaces
+- manual starts, schedules, and queue dispatch all share the same dispatch contract
 - `workflow-runner` remains the only workflow execution host
+- advanced AI features are implemented as YAML workflows, not daemon-native Rust features
 
 See also:
 

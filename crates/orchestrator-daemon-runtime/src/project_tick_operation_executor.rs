@@ -42,10 +42,6 @@ pub trait ProjectTickOperations {
         Ok(())
     }
 
-    async fn promote_backlog_tasks_to_ready(&mut self) -> Result<()> {
-        Ok(())
-    }
-
     async fn dispatch_ready_tasks(
         &mut self,
         _limit: usize,
@@ -128,10 +124,6 @@ where
             }
             ProjectTickAction::RetryFailedTaskWorkflows => {
                 self.operations.retry_failed_task_workflows().await?;
-                Ok(ProjectTickActionEffect::Noop)
-            }
-            ProjectTickAction::PromoteBacklogTasksToReady => {
-                self.operations.promote_backlog_tasks_to_ready().await?;
                 Ok(ProjectTickActionEffect::Noop)
             }
             ProjectTickAction::DispatchReadyTasks { limit } => {

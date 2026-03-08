@@ -8,7 +8,6 @@ pub enum ProjectTickAction {
     ReconcileMergeTasks,
     ReconcileCompletedProcesses,
     RetryFailedTaskWorkflows,
-    PromoteBacklogTasksToReady,
     DispatchReadyTasks { limit: usize },
     RefreshRuntimeBinaries,
 }

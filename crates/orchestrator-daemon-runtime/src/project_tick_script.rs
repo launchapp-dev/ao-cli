@@ -32,7 +32,6 @@ impl ProjectTickScript {
 
         if tick_plan.should_prepare_ready_tasks {
             actions.push(ProjectTickAction::RetryFailedTaskWorkflows);
-            actions.push(ProjectTickAction::PromoteBacklogTasksToReady);
         }
 
         if tick_plan.ready_dispatch_limit > 0 {
@@ -87,7 +86,6 @@ mod tests {
                 ProjectTickAction::ReconcileDependencyTasks,
                 ProjectTickAction::ReconcileMergeTasks,
                 ProjectTickAction::RetryFailedTaskWorkflows,
-                ProjectTickAction::PromoteBacklogTasksToReady,
                 ProjectTickAction::DispatchReadyTasks { limit: 2 },
                 ProjectTickAction::RefreshRuntimeBinaries,
             ]

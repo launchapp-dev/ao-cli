@@ -79,12 +79,6 @@ where
             .await
     }
 
-    async fn promote_backlog_tasks_to_ready(&mut self) -> Result<()> {
-        self.hooks
-            .promote_backlog_tasks_to_ready(self.hub.clone(), self.root)
-            .await
-    }
-
     async fn dispatch_ready_tasks(
         &mut self,
         limit: usize,

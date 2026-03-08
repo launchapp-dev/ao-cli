@@ -92,15 +92,6 @@ impl DefaultProjectTickServices for CliProjectTickServices {
         Ok(())
     }
 
-    async fn promote_backlog_tasks_to_ready(
-        &mut self,
-        hub: Arc<dyn ServiceHub>,
-        root: &str,
-    ) -> Result<()> {
-        let _ = promote_backlog_tasks_to_ready(hub, root).await;
-        Ok(())
-    }
-
     async fn dispatch_ready_tasks(
         &mut self,
         hub: Arc<dyn ServiceHub>,
@@ -108,6 +99,7 @@ impl DefaultProjectTickServices for CliProjectTickServices {
         limit: usize,
         process_manager: Option<&mut ProcessManager>,
     ) -> Result<ReadyTaskWorkflowStartSummary> {
+        let _ = promote_backlog_tasks_to_ready(hub.clone(), root).await;
         match process_manager {
             Some(process_manager) => {
                 dispatch_ready_tasks_via_runner(hub, root, process_manager, limit).await

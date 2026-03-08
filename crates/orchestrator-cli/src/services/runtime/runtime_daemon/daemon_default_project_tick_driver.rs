@@ -67,12 +67,6 @@ pub trait DefaultProjectTickServices {
         root: &str,
     ) -> Result<()>;
 
-    async fn promote_backlog_tasks_to_ready(
-        &mut self,
-        hub: Arc<dyn ServiceHub>,
-        root: &str,
-    ) -> Result<()>;
-
     async fn dispatch_ready_tasks(
         &mut self,
         hub: Arc<dyn ServiceHub>,
@@ -272,16 +266,6 @@ where
         self.services.retry_failed_task_workflows(hub, root).await
     }
 
-    async fn promote_backlog_tasks_to_ready(
-        &mut self,
-        hub: Arc<dyn ServiceHub>,
-        root: &str,
-    ) -> Result<()> {
-        self.services
-            .promote_backlog_tasks_to_ready(hub, root)
-            .await
-    }
-
     async fn dispatch_ready_tasks(
         &mut self,
         hub: Arc<dyn ServiceHub>,
@@ -409,16 +393,6 @@ where
         root: &str,
     ) -> Result<()> {
         self.services.retry_failed_task_workflows(hub, root).await
-    }
-
-    async fn promote_backlog_tasks_to_ready(
-        &mut self,
-        hub: Arc<dyn ServiceHub>,
-        root: &str,
-    ) -> Result<()> {
-        self.services
-            .promote_backlog_tasks_to_ready(hub, root)
-            .await
     }
 
     async fn dispatch_ready_tasks(

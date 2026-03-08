@@ -87,14 +87,6 @@ pub trait ProjectTickHooks {
         Ok(())
     }
 
-    async fn promote_backlog_tasks_to_ready(
-        &mut self,
-        _hub: Arc<dyn ServiceHub>,
-        _root: &str,
-    ) -> Result<()> {
-        Ok(())
-    }
-
     async fn dispatch_ready_tasks(
         &mut self,
         _hub: Arc<dyn ServiceHub>,

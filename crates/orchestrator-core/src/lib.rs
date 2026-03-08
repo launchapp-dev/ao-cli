@@ -12,6 +12,7 @@ pub mod runtime;
 pub mod runtime_contract;
 pub mod services;
 pub mod state_machines;
+pub mod task_gate;
 pub mod types;
 pub mod workflow;
 pub mod workflow_config;
@@ -71,6 +72,11 @@ pub use state_machines::{
     load_state_machines_for_project, state_machines_path, write_state_machines_document,
     LoadedStateMachines, MachineSource, RequirementLifecycleEvent, StateMachineMode,
     StateMachinesDocument,
+};
+pub use task_gate::{
+    dependency_blocked_reason, dependency_gate_issues_for_task, is_dependency_gate_block,
+    is_merge_gate_block, merge_blocked_reason, promote_backlog_tasks_to_ready,
+    retry_failed_task_workflows, DEPENDENCY_GATE_PREFIX, MERGE_GATE_PREFIX,
 };
 pub use types::{
     AgentHandoffRequestInput, AgentHandoffResult, AgentHandoffStatus, ArchitectureEdge,

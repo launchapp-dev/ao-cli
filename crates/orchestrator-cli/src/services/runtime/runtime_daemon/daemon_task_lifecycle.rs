@@ -1,7 +1,5 @@
 use super::*;
-pub use orchestrator_daemon_runtime::{
-    promote_backlog_tasks_to_ready, retry_failed_task_workflows,
-};
+pub use orchestrator_core::{promote_backlog_tasks_to_ready, retry_failed_task_workflows};
 
 pub async fn ensure_tasks_for_unplanned_requirements(
     hub: Arc<dyn ServiceHub>,

@@ -1,6 +1,9 @@
 use super::*;
 use orchestrator_core::WorkflowRunInput;
-use orchestrator_core::{project_task_blocked_with_reason, project_task_status};
+use orchestrator_core::{
+    dependency_blocked_reason, dependency_gate_issues_for_task, project_task_blocked_with_reason,
+    project_task_status,
+};
 #[cfg(test)]
 pub use orchestrator_daemon_runtime::{
     em_work_queue_state_path, save_em_work_queue_state, EmWorkQueueEntry, EmWorkQueueEntryStatus,

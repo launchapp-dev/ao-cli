@@ -2,13 +2,13 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use orchestrator_core::{
-    project_task_blocked_with_reason, project_task_status, services::ServiceHub, TaskStatus,
+    dependency_blocked_reason, dependency_gate_issues_for_task, project_task_blocked_with_reason,
+    project_task_status, services::ServiceHub, TaskStatus,
 };
 
 use crate::{
-    active_workflow_task_ids, dependency_blocked_reason, dependency_gate_issues_for_task,
-    pipeline_for_task, should_skip_dispatch, ProcessManager, ReadyTaskWorkflowStart,
-    ReadyTaskWorkflowStartSummary, SubjectDispatch, TaskSelectionSource,
+    active_workflow_task_ids, pipeline_for_task, should_skip_dispatch, ProcessManager,
+    ReadyTaskWorkflowStart, ReadyTaskWorkflowStartSummary, SubjectDispatch, TaskSelectionSource,
 };
 
 pub async fn dispatch_ready_tasks_via_runner(

@@ -20,44 +20,6 @@ impl DefaultProjectTickServices for CliProjectTickServices {
         let _ = git_ops::flush_git_integration_outbox(root);
     }
 
-    async fn bootstrap_from_vision(
-        &mut self,
-        hub: Arc<dyn ServiceHub>,
-        _root: &str,
-        startup_cleanup: bool,
-        ai_task_generation: bool,
-    ) -> Result<()> {
-        bootstrap_from_vision_if_needed(hub, startup_cleanup, ai_task_generation).await
-    }
-
-    async fn resume_interrupted(
-        &mut self,
-        hub: Arc<dyn ServiceHub>,
-        root: &str,
-    ) -> Result<(usize, usize)> {
-        resume_interrupted_workflows_for_project(hub, root).await
-    }
-
-    async fn recover_orphaned_running_workflows(
-        &mut self,
-        hub: Arc<dyn ServiceHub>,
-        root: &str,
-        active_subject_ids: &std::collections::HashSet<String>,
-    ) -> Result<()> {
-        let _ =
-            recover_orphaned_running_workflows_with_active_ids(hub, root, active_subject_ids).await;
-        Ok(())
-    }
-
-    async fn reconcile_stale_tasks(
-        &mut self,
-        hub: Arc<dyn ServiceHub>,
-        root: &str,
-        stale_threshold_hours: u64,
-    ) -> Result<usize> {
-        reconcile_stale_in_progress_tasks_for_project(hub, root, stale_threshold_hours).await
-    }
-
     async fn reconcile_completed_processes(
         &mut self,
         hub: Arc<dyn ServiceHub>,

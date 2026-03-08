@@ -14,34 +14,6 @@ use tokio::process::Command as TokioCommand;
 pub trait DefaultProjectTickServices {
     fn flush_git_outbox(&mut self, root: &str);
 
-    async fn bootstrap_from_vision(
-        &mut self,
-        hub: Arc<dyn ServiceHub>,
-        root: &str,
-        startup_cleanup: bool,
-        ai_task_generation: bool,
-    ) -> Result<()>;
-
-    async fn resume_interrupted(
-        &mut self,
-        hub: Arc<dyn ServiceHub>,
-        root: &str,
-    ) -> Result<(usize, usize)>;
-
-    async fn recover_orphaned_running_workflows(
-        &mut self,
-        hub: Arc<dyn ServiceHub>,
-        root: &str,
-        active_subject_ids: &HashSet<String>,
-    ) -> Result<()>;
-
-    async fn reconcile_stale_tasks(
-        &mut self,
-        hub: Arc<dyn ServiceHub>,
-        root: &str,
-        stale_threshold_hours: u64,
-    ) -> Result<usize>;
-
     async fn reconcile_completed_processes(
         &mut self,
         hub: Arc<dyn ServiceHub>,
@@ -183,47 +155,6 @@ where
         self.services.flush_git_outbox(root);
     }
 
-    async fn bootstrap_from_vision(
-        &mut self,
-        hub: Arc<dyn ServiceHub>,
-        root: &str,
-        startup_cleanup: bool,
-        ai_task_generation: bool,
-    ) -> Result<()> {
-        self.services
-            .bootstrap_from_vision(hub, root, startup_cleanup, ai_task_generation)
-            .await
-    }
-
-    async fn resume_interrupted(
-        &mut self,
-        hub: Arc<dyn ServiceHub>,
-        root: &str,
-    ) -> Result<(usize, usize)> {
-        self.services.resume_interrupted(hub, root).await
-    }
-
-    async fn recover_orphaned_running_workflows(
-        &mut self,
-        hub: Arc<dyn ServiceHub>,
-        root: &str,
-    ) -> Result<()> {
-        self.services
-            .recover_orphaned_running_workflows(hub, root, &HashSet::new())
-            .await
-    }
-
-    async fn reconcile_stale_tasks(
-        &mut self,
-        hub: Arc<dyn ServiceHub>,
-        root: &str,
-        stale_threshold_hours: u64,
-    ) -> Result<usize> {
-        self.services
-            .reconcile_stale_tasks(hub, root, stale_threshold_hours)
-            .await
-    }
-
     async fn dispatch_ready_tasks(
         &mut self,
         hub: Arc<dyn ServiceHub>,
@@ -274,48 +205,6 @@ where
 
     fn emit_notice(&mut self, message: &str) {
         eprintln!("{}", message);
-    }
-
-    async fn bootstrap_from_vision(
-        &mut self,
-        hub: Arc<dyn ServiceHub>,
-        root: &str,
-        startup_cleanup: bool,
-        ai_task_generation: bool,
-    ) -> Result<()> {
-        self.services
-            .bootstrap_from_vision(hub, root, startup_cleanup, ai_task_generation)
-            .await
-    }
-
-    async fn resume_interrupted(
-        &mut self,
-        hub: Arc<dyn ServiceHub>,
-        root: &str,
-    ) -> Result<(usize, usize)> {
-        self.services.resume_interrupted(hub, root).await
-    }
-
-    async fn recover_orphaned_running_workflows(
-        &mut self,
-        hub: Arc<dyn ServiceHub>,
-        root: &str,
-    ) -> Result<()> {
-        let active_subject_ids = self.process_manager.active_subject_ids();
-        self.services
-            .recover_orphaned_running_workflows(hub, root, &active_subject_ids)
-            .await
-    }
-
-    async fn reconcile_stale_tasks(
-        &mut self,
-        hub: Arc<dyn ServiceHub>,
-        root: &str,
-        stale_threshold_hours: u64,
-    ) -> Result<usize> {
-        self.services
-            .reconcile_stale_tasks(hub, root, stale_threshold_hours)
-            .await
     }
 
     async fn reconcile_completed_processes(

@@ -1,31 +1,11 @@
 use crate::{
-    DaemonRuntimeOptions, ProjectTickAction, ProjectTickActionEffect, ProjectTickActionExecutor,
+    ProjectTickAction, ProjectTickActionEffect, ProjectTickActionExecutor,
     ReadyTaskWorkflowStartSummary,
 };
 use anyhow::Result;
 
 #[async_trait::async_trait(?Send)]
 pub trait ProjectTickOperations {
-    async fn bootstrap_from_vision(
-        &mut self,
-        _startup_cleanup: bool,
-        _ai_task_generation: bool,
-    ) -> Result<()> {
-        Ok(())
-    }
-
-    async fn resume_interrupted(&mut self) -> Result<(usize, usize)> {
-        Ok((0, 0))
-    }
-
-    async fn recover_orphaned_running_workflows(&mut self) -> Result<()> {
-        Ok(())
-    }
-
-    async fn reconcile_stale_tasks(&mut self, _stale_threshold_hours: u64) -> Result<usize> {
-        Ok(0)
-    }
-
     async fn reconcile_completed_processes(&mut self) -> Result<(usize, usize)> {
         Ok((0, 0))
     }
@@ -43,16 +23,12 @@ pub trait ProjectTickOperations {
 }
 
 pub struct ProjectTickOperationExecutor<'a, O> {
-    options: &'a DaemonRuntimeOptions,
     operations: &'a mut O,
 }
 
 impl<'a, O> ProjectTickOperationExecutor<'a, O> {
-    pub fn new(options: &'a DaemonRuntimeOptions, operations: &'a mut O) -> Self {
-        Self {
-            options,
-            operations,
-        }
+    pub fn new(_options: &'a crate::DaemonRuntimeOptions, operations: &'a mut O) -> Self {
+        Self { operations }
     }
 }
 
@@ -66,34 +42,6 @@ where
         action: &ProjectTickAction,
     ) -> Result<ProjectTickActionEffect> {
         match action {
-            ProjectTickAction::BootstrapFromVision => {
-                self.operations
-                    .bootstrap_from_vision(
-                        self.options.startup_cleanup,
-                        self.options.ai_task_generation,
-                    )
-                    .await?;
-                Ok(ProjectTickActionEffect::Noop)
-            }
-            ProjectTickAction::ResumeInterrupted => {
-                let (cleaned_stale_workflows, resumed_workflows) =
-                    self.operations.resume_interrupted().await?;
-                Ok(ProjectTickActionEffect::ResumedInterrupted {
-                    cleaned_stale_workflows,
-                    resumed_workflows,
-                })
-            }
-            ProjectTickAction::RecoverOrphanedRunningWorkflows => {
-                self.operations.recover_orphaned_running_workflows().await?;
-                Ok(ProjectTickActionEffect::Noop)
-            }
-            ProjectTickAction::ReconcileStaleTasks => {
-                let count = self
-                    .operations
-                    .reconcile_stale_tasks(self.options.stale_threshold_hours)
-                    .await?;
-                Ok(ProjectTickActionEffect::ReconciledStaleTasks { count })
-            }
             ProjectTickAction::ReconcileCompletedProcesses => {
                 let (executed_workflow_phases, failed_workflow_phases) =
                     self.operations.reconcile_completed_processes().await?;

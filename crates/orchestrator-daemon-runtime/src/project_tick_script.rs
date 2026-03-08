@@ -8,20 +8,10 @@ pub struct ProjectTickScript {
 impl ProjectTickScript {
     pub fn build(
         mode: ProjectTickMode,
-        options: &DaemonRuntimeOptions,
+        _options: &DaemonRuntimeOptions,
         tick_plan: &ProjectTickPlan,
     ) -> Self {
-        let mut actions = vec![ProjectTickAction::BootstrapFromVision];
-
-        if options.resume_interrupted {
-            actions.push(ProjectTickAction::ResumeInterrupted);
-        }
-
-        actions.push(ProjectTickAction::RecoverOrphanedRunningWorkflows);
-
-        if options.reconcile_stale {
-            actions.push(ProjectTickAction::ReconcileStaleTasks);
-        }
+        let mut actions = Vec::new();
 
         if mode == ProjectTickMode::Slim {
             actions.push(ProjectTickAction::ReconcileCompletedProcesses);
@@ -72,10 +62,6 @@ mod tests {
         assert_eq!(
             script.actions(),
             &[
-                ProjectTickAction::BootstrapFromVision,
-                ProjectTickAction::ResumeInterrupted,
-                ProjectTickAction::RecoverOrphanedRunningWorkflows,
-                ProjectTickAction::ReconcileStaleTasks,
                 ProjectTickAction::DispatchReadyTasks { limit: 2 },
                 ProjectTickAction::RefreshRuntimeBinaries,
             ]
@@ -103,8 +89,6 @@ mod tests {
         assert_eq!(
             script.actions(),
             &[
-                ProjectTickAction::BootstrapFromVision,
-                ProjectTickAction::RecoverOrphanedRunningWorkflows,
                 ProjectTickAction::ReconcileCompletedProcesses,
                 ProjectTickAction::RefreshRuntimeBinaries,
             ]

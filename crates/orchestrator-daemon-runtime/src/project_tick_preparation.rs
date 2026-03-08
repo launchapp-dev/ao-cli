@@ -111,10 +111,6 @@ mod tests {
         assert_eq!(
             preparation.tick_script.actions(),
             &[
-                ProjectTickAction::BootstrapFromVision,
-                ProjectTickAction::ResumeInterrupted,
-                ProjectTickAction::RecoverOrphanedRunningWorkflows,
-                ProjectTickAction::ReconcileStaleTasks,
                 ProjectTickAction::DispatchReadyTasks { limit: 1 },
                 ProjectTickAction::RefreshRuntimeBinaries,
             ]

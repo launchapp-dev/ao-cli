@@ -44,12 +44,6 @@ mod tests {
         ) -> Result<ProjectTickActionEffect> {
             self.calls.push(action.clone());
             Ok(match action {
-                ProjectTickAction::ResumeInterrupted => {
-                    ProjectTickActionEffect::ResumedInterrupted {
-                        cleaned_stale_workflows: 2,
-                        resumed_workflows: 1,
-                    }
-                }
                 ProjectTickAction::DispatchReadyTasks { limit } => {
                     ProjectTickActionEffect::ReadyWorkflowStarts {
                         summary: ReadyTaskWorkflowStartSummary {
@@ -92,8 +86,8 @@ mod tests {
                 .expect("script execution should succeed");
 
         assert_eq!(executor.calls, script.actions().to_vec());
-        assert_eq!(outcome.cleaned_stale_workflows, 2);
-        assert_eq!(outcome.resumed_workflows, 1);
+        assert_eq!(outcome.cleaned_stale_workflows, 0);
+        assert_eq!(outcome.resumed_workflows, 0);
         assert_eq!(outcome.ready_workflow_starts.started, 1);
         assert_eq!(outcome.executed_workflow_phases, 0);
     }

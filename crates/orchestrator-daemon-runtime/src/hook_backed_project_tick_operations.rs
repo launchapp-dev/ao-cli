@@ -22,39 +22,6 @@ impl<H> ProjectTickOperations for HookBackedProjectTickOperations<'_, H>
 where
     H: ProjectTickHooks,
 {
-    async fn bootstrap_from_vision(
-        &mut self,
-        startup_cleanup: bool,
-        ai_task_generation: bool,
-    ) -> Result<()> {
-        self.hooks
-            .bootstrap_from_vision(
-                self.hub.clone(),
-                self.root,
-                startup_cleanup,
-                ai_task_generation,
-            )
-            .await
-    }
-
-    async fn resume_interrupted(&mut self) -> Result<(usize, usize)> {
-        self.hooks
-            .resume_interrupted(self.hub.clone(), self.root)
-            .await
-    }
-
-    async fn recover_orphaned_running_workflows(&mut self) -> Result<()> {
-        self.hooks
-            .recover_orphaned_running_workflows(self.hub.clone(), self.root)
-            .await
-    }
-
-    async fn reconcile_stale_tasks(&mut self, stale_threshold_hours: u64) -> Result<usize> {
-        self.hooks
-            .reconcile_stale_tasks(self.hub.clone(), self.root, stale_threshold_hours)
-            .await
-    }
-
     async fn reconcile_completed_processes(&mut self) -> Result<(usize, usize)> {
         self.hooks
             .reconcile_completed_processes(self.hub.clone(), self.root)

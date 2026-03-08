@@ -20,41 +20,6 @@ pub trait ProjectTickHooks {
 
     fn emit_notice(&mut self, _message: &str) {}
 
-    async fn bootstrap_from_vision(
-        &mut self,
-        _hub: Arc<dyn ServiceHub>,
-        _root: &str,
-        _startup_cleanup: bool,
-        _ai_task_generation: bool,
-    ) -> Result<()> {
-        Ok(())
-    }
-
-    async fn resume_interrupted(
-        &mut self,
-        _hub: Arc<dyn ServiceHub>,
-        _root: &str,
-    ) -> Result<(usize, usize)> {
-        Ok((0, 0))
-    }
-
-    async fn recover_orphaned_running_workflows(
-        &mut self,
-        _hub: Arc<dyn ServiceHub>,
-        _root: &str,
-    ) -> Result<()> {
-        Ok(())
-    }
-
-    async fn reconcile_stale_tasks(
-        &mut self,
-        _hub: Arc<dyn ServiceHub>,
-        _root: &str,
-        _stale_threshold_hours: u64,
-    ) -> Result<usize> {
-        Ok(0)
-    }
-
     async fn reconcile_completed_processes(
         &mut self,
         _hub: Arc<dyn ServiceHub>,

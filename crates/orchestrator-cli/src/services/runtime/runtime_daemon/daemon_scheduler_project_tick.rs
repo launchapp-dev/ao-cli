@@ -1,6 +1,7 @@
 use super::*;
 use orchestrator_core::FileServiceHub;
 use orchestrator_daemon_runtime::ProcessManager;
+use std::collections::HashSet;
 
 #[path = "daemon_task_dispatch.rs"]
 pub(super) mod task_dispatch;
@@ -35,6 +36,53 @@ use tick_executor::FullProjectTickDriver;
 use tick_executor::SlimProjectTickDriver;
 pub(super) use workflow_result_sync::sync_task_status_for_workflow_result;
 
+#[derive(Default)]
+struct CliPreTickOutcome {
+    cleaned_stale_workflows: usize,
+    resumed_workflows: usize,
+    reconciled_tasks: usize,
+}
+
+async fn run_cli_pre_tick(
+    root: &str,
+    args: &DaemonRuntimeOptions,
+    active_subject_ids: Option<&HashSet<String>>,
+) -> Result<CliPreTickOutcome> {
+    let hub = Arc::new(FileServiceHub::new(root)?);
+
+    bootstrap_from_vision_if_needed(hub.clone(), args.startup_cleanup, args.ai_task_generation)
+        .await?;
+
+    let (cleaned_stale_workflows, resumed_workflows) = if args.resume_interrupted {
+        resume_interrupted_workflows_for_project(hub.clone(), root).await?
+    } else {
+        (0, 0)
+    };
+
+    let empty_active_ids = HashSet::new();
+    let active_ids = active_subject_ids.unwrap_or(&empty_active_ids);
+    let _ = recover_orphaned_running_workflows_with_active_ids(hub.clone(), root, active_ids).await;
+
+    let reconciled_stale_tasks = if args.reconcile_stale {
+        reconcile_stale_in_progress_tasks_for_project(hub.clone(), root, args.stale_threshold_hours)
+            .await?
+    } else {
+        0
+    };
+
+    let reconciled_dependency_tasks =
+        reconcile_dependency_gate_tasks_for_project(hub.clone(), root).await?;
+    let reconciled_merge_tasks = reconcile_merge_gate_tasks_for_project(hub, root).await?;
+
+    Ok(CliPreTickOutcome {
+        cleaned_stale_workflows,
+        resumed_workflows,
+        reconciled_tasks: reconciled_stale_tasks
+            .saturating_add(reconciled_dependency_tasks)
+            .saturating_add(reconciled_merge_tasks),
+    })
+}
+
 #[cfg(test)]
 pub(super) async fn project_tick(
     root: &str,
@@ -50,12 +98,7 @@ pub(super) async fn project_tick_at(
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<ProjectTickSummary> {
     let root = canonicalize_lossy(root);
-    let dependency_reconciled =
-        reconcile_dependency_gate_tasks_for_project(Arc::new(FileServiceHub::new(&root)?), &root)
-            .await?;
-    let merge_reconciled =
-        reconcile_merge_gate_tasks_for_project(Arc::new(FileServiceHub::new(&root)?), &root)
-            .await?;
+    let pre_tick = run_cli_pre_tick(&root, args, None).await?;
     let mut driver: FullProjectTickDriver = full_project_tick_driver();
     let mut summary = run_project_tick_at(
         &root,
@@ -66,10 +109,15 @@ pub(super) async fn project_tick_at(
         ProjectTickTime::from_utc(now),
     )
     .await?;
+    summary.cleaned_stale_workflows = summary
+        .cleaned_stale_workflows
+        .saturating_add(pre_tick.cleaned_stale_workflows);
+    summary.resumed_workflows = summary
+        .resumed_workflows
+        .saturating_add(pre_tick.resumed_workflows);
     summary.reconciled_stale_tasks = summary
         .reconciled_stale_tasks
-        .saturating_add(dependency_reconciled)
-        .saturating_add(merge_reconciled);
+        .saturating_add(pre_tick.reconciled_tasks);
     Ok(summary)
 }
 
@@ -97,12 +145,8 @@ pub(super) async fn slim_daemon_tick_at(
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<ProjectTickSummary> {
     let root = canonicalize_lossy(root);
-    let dependency_reconciled =
-        reconcile_dependency_gate_tasks_for_project(Arc::new(FileServiceHub::new(&root)?), &root)
-            .await?;
-    let merge_reconciled =
-        reconcile_merge_gate_tasks_for_project(Arc::new(FileServiceHub::new(&root)?), &root)
-            .await?;
+    let active_subject_ids = process_manager.active_subject_ids();
+    let pre_tick = run_cli_pre_tick(&root, args, Some(&active_subject_ids)).await?;
     let mode = ProjectTickRunMode::Slim {
         active_process_count: process_manager.active_count(),
     };
@@ -116,10 +160,15 @@ pub(super) async fn slim_daemon_tick_at(
         ProjectTickTime::from_utc(now),
     )
     .await?;
+    summary.cleaned_stale_workflows = summary
+        .cleaned_stale_workflows
+        .saturating_add(pre_tick.cleaned_stale_workflows);
+    summary.resumed_workflows = summary
+        .resumed_workflows
+        .saturating_add(pre_tick.resumed_workflows);
     summary.reconciled_stale_tasks = summary
         .reconciled_stale_tasks
-        .saturating_add(dependency_reconciled)
-        .saturating_add(merge_reconciled);
+        .saturating_add(pre_tick.reconciled_tasks);
     Ok(summary)
 }
 

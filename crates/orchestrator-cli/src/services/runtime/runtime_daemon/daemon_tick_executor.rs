@@ -2,9 +2,8 @@ use super::*;
 #[cfg(test)]
 use orchestrator_daemon_runtime::{default_full_project_tick_driver, DefaultFullProjectTickDriver};
 use orchestrator_daemon_runtime::{
-    default_slim_project_tick_driver, dispatch_ready_tasks_via_runner,
-    reconcile_completed_processes, CompletedProcess, DefaultProjectTickServices,
-    DefaultSlimProjectTickDriver, ProcessManager,
+    default_slim_project_tick_driver, reconcile_completed_processes, CompletedProcess,
+    DefaultProjectTickServices, DefaultSlimProjectTickDriver, ProcessManager,
 };
 use orchestrator_git_ops as git_ops;
 

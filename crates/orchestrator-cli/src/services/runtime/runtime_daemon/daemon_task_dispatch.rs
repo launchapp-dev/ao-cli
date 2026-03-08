@@ -4,15 +4,16 @@ use orchestrator_core::{
     dependency_blocked_reason, dependency_gate_issues_for_task, project_task_blocked_with_reason,
     project_task_status,
 };
+pub use orchestrator_daemon_runtime::{
+    active_workflow_task_ids, load_em_work_queue_state, mark_em_work_queue_entry_assigned,
+    pipeline_for_task, plan_ready_task_dispatch, routing_complexity_for_task, should_skip_dispatch,
+    workflow_current_phase_id, ReadyTaskWorkflowStart, ReadyTaskWorkflowStartSummary,
+    SubjectDispatch, TaskSelectionSource,
+};
 #[cfg(test)]
 pub use orchestrator_daemon_runtime::{
     em_work_queue_state_path, save_em_work_queue_state, EmWorkQueueEntry, EmWorkQueueEntryStatus,
     EmWorkQueueState,
-};
-pub use orchestrator_daemon_runtime::{
-    load_em_work_queue_state, mark_em_work_queue_entry_assigned, plan_ready_task_dispatch,
-    routing_complexity_for_task, workflow_current_phase_id, ReadyTaskWorkflowStart,
-    ReadyTaskWorkflowStartSummary, TaskSelectionSource,
 };
 pub fn daemon_agent_assignee_for_workflow_start(
     project_root: &str,
@@ -147,6 +148,66 @@ pub async fn run_ready_task_workflows_for_project(
             workflow_id: workflow.id.clone(),
             selection_source: planned_start.selection_source,
         });
+    }
+
+    Ok(ReadyTaskWorkflowStartSummary {
+        started: started_workflows.len(),
+        started_workflows,
+    })
+}
+
+pub async fn dispatch_ready_tasks_via_runner(
+    hub: Arc<dyn ServiceHub>,
+    root: &str,
+    process_manager: &mut ProcessManager,
+    limit: usize,
+) -> Result<ReadyTaskWorkflowStartSummary> {
+    let workflows = hub.workflows().list().await.unwrap_or_default();
+    let active_task_ids = active_workflow_task_ids(&workflows);
+    let candidates = hub.tasks().list_prioritized().await?;
+    let mut started_workflows = Vec::new();
+
+    for task in candidates {
+        if started_workflows.len() >= limit {
+            break;
+        }
+
+        if task.paused || task.cancelled {
+            continue;
+        }
+        if task.status != TaskStatus::Ready {
+            continue;
+        }
+        if active_task_ids.contains(&task.id) {
+            continue;
+        }
+        if should_skip_dispatch(&task) {
+            continue;
+        }
+
+        let dependency_issues = dependency_gate_issues_for_task(hub.clone(), root, &task).await;
+        if !dependency_issues.is_empty() {
+            let reason = dependency_blocked_reason(&dependency_issues);
+            let _ = project_task_blocked_with_reason(hub.clone(), &task, reason, None).await;
+            continue;
+        }
+
+        let workflow_ref = pipeline_for_task(&task);
+        let dispatch = SubjectDispatch::for_task(task.id.clone(), workflow_ref);
+        match process_manager.spawn_workflow_runner(&dispatch, root) {
+            Ok(_) => {
+                let _ = project_task_status(hub.clone(), &task.id, TaskStatus::InProgress).await;
+                started_workflows.push(ReadyTaskWorkflowStart {
+                    task_id: task.id.clone(),
+                    workflow_id: task.id.clone(),
+                    selection_source: TaskSelectionSource::FallbackPicker,
+                });
+            }
+            Err(error) => {
+                let reason = format!("failed to start workflow runner: {error}");
+                let _ = project_task_blocked_with_reason(hub.clone(), &task, reason, None).await;
+            }
+        }
     }
 
     Ok(ReadyTaskWorkflowStartSummary {

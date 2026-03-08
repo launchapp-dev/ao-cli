@@ -28,6 +28,8 @@ pub struct EmWorkQueueEntry {
     pub workflow_id: Option<String>,
     #[serde(default)]
     pub assigned_at: Option<String>,
+    #[serde(default)]
+    pub held_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -44,6 +46,7 @@ impl EmWorkQueueEntry {
             status: EmWorkQueueEntryStatus::Pending,
             workflow_id: None,
             assigned_at: None,
+            held_at: None,
         }
     }
 

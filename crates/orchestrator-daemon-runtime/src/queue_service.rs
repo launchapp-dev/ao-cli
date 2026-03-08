@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use chrono::Utc;
 use protocol::SubjectDispatch;
 use serde::Serialize;
 
@@ -19,6 +20,8 @@ pub struct QueueEntrySnapshot {
     pub workflow_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assigned_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -98,6 +101,7 @@ pub fn hold_subject(project_root: &str, subject_id: &str) -> Result<bool> {
             continue;
         }
         entry.status = EmWorkQueueEntryStatus::Held;
+        entry.held_at = Some(Utc::now().to_rfc3339());
         updated = true;
         break;
     }
@@ -119,6 +123,7 @@ pub fn release_subject(project_root: &str, subject_id: &str) -> Result<bool> {
             continue;
         }
         entry.status = EmWorkQueueEntryStatus::Pending;
+        entry.held_at = None;
         updated = true;
         break;
     }
@@ -179,6 +184,7 @@ fn snapshot_from_state(state: &EmWorkQueueState) -> QueueSnapshot {
             status: entry.status,
             workflow_id: entry.workflow_id.clone(),
             assigned_at: entry.assigned_at.clone(),
+            held_at: entry.held_at.clone(),
         })
         .collect::<Vec<_>>();
 

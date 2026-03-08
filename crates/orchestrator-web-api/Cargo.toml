@@ -8,6 +8,7 @@ anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "5.0"
 orchestrator-core = { path = "../orchestrator-core" }
+orchestrator-daemon-runtime = { path = "../orchestrator-daemon-runtime" }
 orchestrator-web-contracts = { path = "../orchestrator-web-contracts" }
 protocol = { path = "../protocol" }
 serde = { version = "1", features = ["derive"] }

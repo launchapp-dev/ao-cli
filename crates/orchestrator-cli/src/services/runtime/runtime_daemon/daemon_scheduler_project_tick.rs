@@ -215,6 +215,7 @@ mod tests {
                         status: EmWorkQueueEntryStatus::Pending,
                         workflow_id: None,
                         assigned_at: None,
+                        held_at: None,
                     },
                     EmWorkQueueEntry {
                         task_id: fallback_task.id.clone(),
@@ -222,6 +223,7 @@ mod tests {
                         status: EmWorkQueueEntryStatus::Pending,
                         workflow_id: None,
                         assigned_at: None,
+                        held_at: None,
                     },
                 ],
             },
@@ -323,6 +325,7 @@ mod tests {
                     status: EmWorkQueueEntryStatus::Pending,
                     workflow_id: None,
                     assigned_at: None,
+                    held_at: None,
                 }],
             },
         )
@@ -443,6 +446,7 @@ mod tests {
                         status: EmWorkQueueEntryStatus::Pending,
                         workflow_id: None,
                         assigned_at: None,
+                        held_at: None,
                     },
                     EmWorkQueueEntry {
                         task_id: queue_task_two.id.clone(),
@@ -450,6 +454,7 @@ mod tests {
                         status: EmWorkQueueEntryStatus::Pending,
                         workflow_id: None,
                         assigned_at: None,
+                        held_at: None,
                     },
                 ],
             },
@@ -553,6 +558,7 @@ mod tests {
                     status: EmWorkQueueEntryStatus::Pending,
                     workflow_id: None,
                     assigned_at: None,
+                    held_at: None,
                 }],
             },
         )
@@ -673,6 +679,7 @@ mod tests {
                     status: EmWorkQueueEntryStatus::Assigned,
                     workflow_id: Some(workflow.id.clone()),
                     assigned_at: Some(Utc::now().to_rfc3339()),
+                    held_at: None,
                 }],
             },
         )
@@ -746,6 +753,7 @@ mod tests {
                     status: EmWorkQueueEntryStatus::Assigned,
                     workflow_id: Some(workflow.id.clone()),
                     assigned_at: Some(Utc::now().to_rfc3339()),
+                    held_at: None,
                 }],
             },
         )
@@ -822,6 +830,7 @@ mod tests {
                     status: EmWorkQueueEntryStatus::Assigned,
                     workflow_id: Some(workflow.id.clone()),
                     assigned_at: Some(Utc::now().to_rfc3339()),
+                    held_at: None,
                 }],
             },
         )
@@ -901,6 +910,7 @@ mod tests {
                     status: EmWorkQueueEntryStatus::Assigned,
                     workflow_id: Some(workflow.id.clone()),
                     assigned_at: Some(Utc::now().to_rfc3339()),
+                    held_at: None,
                 }],
             },
         )

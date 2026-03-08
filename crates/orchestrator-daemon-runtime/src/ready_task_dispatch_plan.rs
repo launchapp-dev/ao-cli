@@ -172,6 +172,7 @@ mod tests {
                 status: EmWorkQueueEntryStatus::Pending,
                 workflow_id: None,
                 assigned_at: None,
+                held_at: None,
             }],
         };
 
@@ -215,6 +216,7 @@ mod tests {
                 status: EmWorkQueueEntryStatus::Pending,
                 workflow_id: None,
                 assigned_at: None,
+                held_at: None,
             }],
         };
 
@@ -257,6 +259,7 @@ mod tests {
                 status: EmWorkQueueEntryStatus::Pending,
                 workflow_id: None,
                 assigned_at: None,
+                held_at: None,
             }],
         };
 

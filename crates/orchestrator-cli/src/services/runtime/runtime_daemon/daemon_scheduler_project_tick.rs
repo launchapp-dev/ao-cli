@@ -1,5 +1,11 @@
 use super::*;
+#[cfg(test)]
+use crate::services::runtime::runtime_daemon::canonicalize_lossy;
 use orchestrator_daemon_runtime::ProcessManager;
+#[cfg(test)]
+use orchestrator_daemon_runtime::{
+    run_project_tick_at, ProjectTickRunMode, ProjectTickSummary, ProjectTickTime,
+};
 
 #[path = "daemon_task_dispatch.rs"]
 pub(super) mod task_dispatch;
@@ -17,13 +23,16 @@ mod tick_wrapper;
 
 use task_dispatch::*;
 pub(crate) use tick_executor::slim_project_tick_driver;
+#[cfg(test)]
 use tick_executor::SlimProjectTickDriver;
+#[cfg(test)]
 use tick_wrapper::{
     apply_cli_pre_tick, flush_git_outbox_for_project, refresh_runtime_binaries_for_project,
     run_cli_pre_tick,
 };
 pub(super) use workflow_result_sync::sync_task_status_for_workflow_result;
 
+#[cfg(test)]
 pub(super) async fn slim_daemon_tick(
     root: &str,
     args: &DaemonRuntimeOptions,
@@ -40,6 +49,7 @@ pub(super) async fn slim_daemon_tick(
     .await
 }
 
+#[cfg(test)]
 pub(super) async fn slim_daemon_tick_at(
     root: &str,
     args: &DaemonRuntimeOptions,

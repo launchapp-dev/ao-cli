@@ -1,4 +1,3 @@
-use super::canonicalize_lossy;
 use crate::cli_types::DaemonRunArgs;
 use anyhow::Result;
 #[cfg(test)]
@@ -6,10 +5,9 @@ use orchestrator_core::is_dependency_gate_block;
 #[cfg(test)]
 use orchestrator_core::DependencyType;
 use orchestrator_core::{services::ServiceHub, TaskStatus};
-pub(super) use orchestrator_daemon_runtime::{
-    run_project_tick_at, DaemonRuntimeOptions, ProcessManager, ProjectTickRunMode,
-    ProjectTickSummary, ProjectTickTime,
-};
+use orchestrator_daemon_runtime::DaemonRuntimeOptions;
+#[cfg(test)]
+use orchestrator_daemon_runtime::{ProcessManager, ProjectTickSummary};
 pub(crate) use project_tick_ops::slim_project_tick_driver;
 #[cfg(test)]
 use std::fs;
@@ -1657,6 +1655,7 @@ mod tests {
     }
 }
 
+#[cfg(test)]
 pub(super) async fn slim_project_tick(
     root: &str,
     args: &DaemonRunArgs,

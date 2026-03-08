@@ -1,8 +1,15 @@
+#[cfg(test)]
 use super::{reconciliation::*, *};
+#[cfg(test)]
 use orchestrator_core::FileServiceHub;
+#[cfg(test)]
+use orchestrator_daemon_runtime::ProjectTickSummary;
+#[cfg(test)]
 use orchestrator_git_ops as git_ops;
+#[cfg(test)]
 use std::collections::HashSet;
 
+#[cfg(test)]
 #[derive(Default)]
 pub(super) struct CliPreTickOutcome {
     pub cleaned_stale_workflows: usize,
@@ -10,6 +17,7 @@ pub(super) struct CliPreTickOutcome {
     pub reconciled_tasks: usize,
 }
 
+#[cfg(test)]
 pub(super) async fn run_cli_pre_tick(
     root: &str,
     args: &DaemonRuntimeOptions,
@@ -47,6 +55,7 @@ pub(super) async fn run_cli_pre_tick(
     })
 }
 
+#[cfg(test)]
 pub(super) fn apply_cli_pre_tick(summary: &mut ProjectTickSummary, pre_tick: CliPreTickOutcome) {
     summary.cleaned_stale_workflows = summary
         .cleaned_stale_workflows
@@ -59,10 +68,12 @@ pub(super) fn apply_cli_pre_tick(summary: &mut ProjectTickSummary, pre_tick: Cli
         .saturating_add(pre_tick.reconciled_tasks);
 }
 
+#[cfg(test)]
 pub(super) fn flush_git_outbox_for_project(root: &str) {
     let _ = git_ops::flush_git_integration_outbox(root);
 }
 
+#[cfg(test)]
 pub(super) async fn refresh_runtime_binaries_for_project(root: &str) -> Result<()> {
     let hub = Arc::new(FileServiceHub::new(root)?);
     let _ = git_ops::refresh_runtime_binaries_if_main_advanced(

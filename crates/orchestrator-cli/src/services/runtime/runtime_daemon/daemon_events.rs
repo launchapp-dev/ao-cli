@@ -54,6 +54,7 @@ fn read_nonempty_lines_since(path: &Path, offset: &mut u64) -> Result<Vec<String
         .collect())
 }
 
+#[cfg(test)]
 pub(crate) fn read_daemon_event_records(
     limit: Option<usize>,
     project_root_filter: Option<&str>,
@@ -66,42 +67,6 @@ pub(crate) fn poll_daemon_events(
     project_root_filter: Option<&str>,
 ) -> Result<DaemonEventsPollResponse> {
     DaemonEventLog::poll(limit, project_root_filter)
-}
-
-pub(super) fn next_daemon_event(
-    seq: &mut u64,
-    event_type: &str,
-    project_root: Option<String>,
-    data: serde_json::Value,
-) -> DaemonEventRecord {
-    DaemonEventLog::next_event(seq, event_type, project_root, data)
-}
-
-pub(crate) fn append_daemon_event(record: &DaemonEventRecord) -> Result<()> {
-    DaemonEventLog::append(record)
-}
-
-pub(crate) fn append_daemon_event_fire_and_forget(
-    event_type: &str,
-    project_root: Option<String>,
-    data: serde_json::Value,
-) {
-    DaemonEventLog::append_fire_and_forget(event_type, project_root, data);
-}
-
-pub(super) fn emit_daemon_event(record: &DaemonEventRecord, json: bool) -> Result<()> {
-    append_daemon_event(record)?;
-    if json {
-        println!("{}", serde_json::to_string(record)?);
-    } else {
-        let project = record
-            .project_root
-            .as_deref()
-            .map(|value| format!(" [{value}]"))
-            .unwrap_or_default();
-        println!("{}{} {}", record.event_type, project, record.timestamp);
-    }
-    Ok(())
 }
 
 #[cfg(test)]

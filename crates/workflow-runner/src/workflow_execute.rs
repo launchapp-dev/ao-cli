@@ -153,6 +153,10 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
 
     ensure_workflow_config_compiled(Path::new(&params.project_root))?;
     let workflow_config = load_workflow_config(Path::new(&params.project_root))?;
+    let pipeline_id = workflow
+        .pipeline_id
+        .as_deref()
+        .unwrap_or(workflow_config.default_pipeline_id.as_str());
     let verdict_routing =
         resolve_pipeline_verdict_routing(&workflow_config, workflow.pipeline_id.as_deref());
     let rework_attempts =
@@ -196,6 +200,7 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
             &params.project_root,
             &execution_cwd,
             &workflow.id,
+            pipeline_id,
             &subject_id_str,
             &subject_title,
             &subject_description,

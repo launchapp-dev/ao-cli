@@ -1,6 +1,6 @@
 use crate::ipc::{
-    build_runtime_contract_with_resume, collect_json_payload_lines,
-    connect_runner, event_matches_run, runner_config_dir, write_json_line,
+    build_runtime_contract_with_resume, collect_json_payload_lines, connect_runner,
+    event_matches_run, runner_config_dir, write_json_line,
 };
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
@@ -8,7 +8,7 @@ use orchestrator_core::ServiceHub;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
@@ -27,10 +27,10 @@ pub use super::phase_output::persist_phase_output;
 pub use super::phase_prompt::build_phase_prompt;
 use super::runtime_contract_builder::{
     inject_agent_tool_policy, inject_default_stdio_mcp, inject_project_mcp_servers,
-    inject_read_only_flag, inject_response_schema_into_launch_args,
-    inject_workflow_mcp_servers, load_phase_capabilities, phase_agent_id_for,
-    phase_decision_contract_for, phase_fallback_models_for, phase_model_override_for,
-    phase_output_contract_for, phase_output_json_schema_for, phase_tool_override_for,
+    inject_read_only_flag, inject_response_schema_into_launch_args, inject_workflow_mcp_servers,
+    load_phase_capabilities, phase_agent_id_for, phase_decision_contract_for,
+    phase_fallback_models_for, phase_model_override_for, phase_output_contract_for,
+    phase_output_json_schema_for, phase_tool_override_for,
 };
 use crate::phase_failover::PhaseFailureClassifier;
 use crate::phase_targets::PhaseTargetPlanner;
@@ -59,11 +59,26 @@ impl orchestrator_core::PhaseExecutor for CliPhaseExecutor {
 
         let (subject_id, subject_title, subject_description, task_complexity) =
             if let Ok(task) = hub.tasks().get(&request.task_id).await {
-                (task.id.clone(), task.title.clone(), task.description.clone(), Some(task.complexity))
+                (
+                    task.id.clone(),
+                    task.title.clone(),
+                    task.description.clone(),
+                    Some(task.complexity),
+                )
             } else if let Ok(req) = hub.planning().get_requirement(&request.task_id).await {
-                (req.id.clone(), req.title.clone(), req.description.clone(), None)
+                (
+                    req.id.clone(),
+                    req.title.clone(),
+                    req.description.clone(),
+                    None,
+                )
             } else {
-                (request.task_id.clone(), request.task_id.clone(), String::new(), None)
+                (
+                    request.task_id.clone(),
+                    request.task_id.clone(),
+                    String::new(),
+                    None,
+                )
             };
 
         let execution_cwd = if Path::new(&request.config_dir).is_dir() {
@@ -97,6 +112,7 @@ impl orchestrator_core::PhaseExecutor for CliPhaseExecutor {
             &request.project_root,
             &execution_cwd,
             &request.pipeline_id,
+            &request.pipeline_id,
             &subject_id,
             &subject_title,
             &subject_description,
@@ -123,14 +139,17 @@ impl orchestrator_core::PhaseExecutor for CliPhaseExecutor {
         let output_log = serde_json::to_string_pretty(&run_result)?;
 
         let mut commit_message = None;
-        let (verdict, exit_code, error) = phase_execution_result_values(&request.phase_id, &run_result.outcome);
+        let (verdict, exit_code, error) =
+            phase_execution_result_values(&request.phase_id, &run_result.outcome);
 
         if let PhaseExecutionOutcome::Completed {
             commit_message: resolved_commit,
             phase_decision: Some(decision),
         } = &run_result.outcome
         {
-            commit_message = resolved_commit.clone().or_else(|| decision.commit_message.clone());
+            commit_message = resolved_commit
+                .clone()
+                .or_else(|| decision.commit_message.clone());
         }
 
         Ok(orchestrator_core::PhaseExecutionResult {
@@ -148,26 +167,21 @@ fn phase_execution_result_values(
     outcome: &PhaseExecutionOutcome,
 ) -> (orchestrator_core::PhaseVerdict, i32, Option<String>) {
     match outcome {
-        PhaseExecutionOutcome::Completed {
-            phase_decision,
-            ..
-        } => match phase_decision {
+        PhaseExecutionOutcome::Completed { phase_decision, .. } => match phase_decision {
             Some(decision) => match decision.verdict {
                 orchestrator_core::PhaseDecisionVerdict::Advance => {
                     (orchestrator_core::PhaseVerdict::Advance, 0, None)
                 }
-                orchestrator_core::PhaseDecisionVerdict::Rework => {
-                    (
-                        orchestrator_core::PhaseVerdict::Rework {
-                            target_phase: decision
-                                .target_phase
-                                .clone()
-                                .unwrap_or_else(|| phase_id.to_string()),
-                        },
-                        0,
-                        None,
-                    )
-                }
+                orchestrator_core::PhaseDecisionVerdict::Rework => (
+                    orchestrator_core::PhaseVerdict::Rework {
+                        target_phase: decision
+                            .target_phase
+                            .clone()
+                            .unwrap_or_else(|| phase_id.to_string()),
+                    },
+                    0,
+                    None,
+                ),
                 orchestrator_core::PhaseDecisionVerdict::Skip => {
                     (orchestrator_core::PhaseVerdict::Skip, 0, None)
                 }
@@ -178,7 +192,9 @@ fn phase_execution_result_values(
                         decision.reason.clone()
                     };
                     (
-                        orchestrator_core::PhaseVerdict::Failed { reason: reason.clone() },
+                        orchestrator_core::PhaseVerdict::Failed {
+                            reason: reason.clone(),
+                        },
                         1,
                         Some(reason),
                     )
@@ -186,7 +202,9 @@ fn phase_execution_result_values(
                 orchestrator_core::PhaseDecisionVerdict::Unknown => {
                     let reason = "phase verdict unknown".to_string();
                     (
-                        orchestrator_core::PhaseVerdict::Failed { reason: reason.clone() },
+                        orchestrator_core::PhaseVerdict::Failed {
+                            reason: reason.clone(),
+                        },
                         1,
                         Some(reason),
                     )
@@ -194,19 +212,19 @@ fn phase_execution_result_values(
             },
             None => (orchestrator_core::PhaseVerdict::Advance, 0, None),
         },
-        PhaseExecutionOutcome::NeedsResearch { reason } => {
-            (
-                orchestrator_core::PhaseVerdict::Rework {
-                    target_phase: phase_id.to_string(),
-                },
-                0,
-                Some(reason.clone()),
-            )
-        }
+        PhaseExecutionOutcome::NeedsResearch { reason } => (
+            orchestrator_core::PhaseVerdict::Rework {
+                target_phase: phase_id.to_string(),
+            },
+            0,
+            Some(reason.clone()),
+        ),
         PhaseExecutionOutcome::ManualPending { instructions, .. } => {
             let reason = format!("manual review required: {instructions}");
             (
-                orchestrator_core::PhaseVerdict::Failed { reason: reason.clone() },
+                orchestrator_core::PhaseVerdict::Failed {
+                    reason: reason.clone(),
+                },
                 1,
                 Some(reason),
             )
@@ -214,7 +232,9 @@ fn phase_execution_result_values(
     }
 }
 
-pub(super) fn load_agent_runtime_config(project_root: &str) -> orchestrator_core::AgentRuntimeConfig {
+pub(super) fn load_agent_runtime_config(
+    project_root: &str,
+) -> orchestrator_core::AgentRuntimeConfig {
     orchestrator_core::load_agent_runtime_config_or_default(Path::new(project_root))
 }
 
@@ -271,7 +291,6 @@ pub struct PhaseExecutionRunResult {
     #[serde(default)]
     pub signals: Vec<PhaseExecutionSignal>,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PhaseExecutionOutcome {
@@ -411,9 +430,7 @@ fn parse_phase_decision_from_payload(payload: &Value) -> Option<orchestrator_cor
     }
 }
 
-pub fn parse_phase_decision_from_text(
-    text: &str,
-) -> Option<orchestrator_core::PhaseDecision> {
+pub fn parse_phase_decision_from_text(text: &str) -> Option<orchestrator_core::PhaseDecision> {
     for (_raw, payload) in collect_json_payload_lines(text) {
         if let Some(decision) = parse_phase_decision_from_payload(&payload) {
             return Some(decision);
@@ -776,10 +793,8 @@ pub async fn run_workflow_phase_with_agent(
     };
     let execution_targets = PhaseTargetPlanner::build_phase_execution_targets(
         phase_id,
-        settings_model
-            .or(agent_model_override.as_deref()),
-        settings_tool
-            .or(agent_tool_override.as_deref()),
+        settings_model.or(agent_model_override.as_deref()),
+        settings_tool.or(agent_tool_override.as_deref()),
         configured_fallback_models.as_slice(),
         routing_complexity,
         Some(project_root),
@@ -936,7 +951,10 @@ pub async fn run_workflow_phase_with_agent(
                             {
                                 let resolved_commit_message =
                                     commit_message.clone().unwrap_or_else(|| {
-                                        fallback_implementation_commit_message(subject_id, subject_title)
+                                        fallback_implementation_commit_message(
+                                            subject_id,
+                                            subject_title,
+                                        )
                                     });
                                 commit_implementation_changes(
                                     execution_cwd,
@@ -1206,21 +1224,76 @@ fn is_program_allowlisted(program: &str, allowlist: &[String]) -> bool {
         .any(|candidate| candidate.eq_ignore_ascii_case(command.as_str()))
 }
 
+#[derive(Debug, Clone, Copy)]
+struct CommandExecutionContext<'a> {
+    project_root: &'a str,
+    execution_cwd: &'a str,
+    workflow_id: &'a str,
+    phase_id: &'a str,
+    pipeline_id: &'a str,
+    subject_id: &'a str,
+    subject_title: &'a str,
+    subject_description: &'a str,
+    pipeline_vars: Option<&'a HashMap<String, String>>,
+}
+
+fn build_command_template_vars(context: &CommandExecutionContext<'_>) -> HashMap<String, String> {
+    let mut vars = HashMap::from([
+        ("project_root".to_string(), context.project_root.to_string()),
+        (
+            "execution_cwd".to_string(),
+            context.execution_cwd.to_string(),
+        ),
+        ("workflow_id".to_string(), context.workflow_id.to_string()),
+        ("phase_id".to_string(), context.phase_id.to_string()),
+        ("pipeline_id".to_string(), context.pipeline_id.to_string()),
+        ("subject_id".to_string(), context.subject_id.to_string()),
+        (
+            "subject_title".to_string(),
+            context.subject_title.to_string(),
+        ),
+        (
+            "subject_description".to_string(),
+            context.subject_description.to_string(),
+        ),
+    ]);
+
+    if let Some(pipeline_vars) = context.pipeline_vars {
+        for (key, value) in pipeline_vars {
+            vars.entry(key.clone()).or_insert_with(|| value.clone());
+        }
+    }
+
+    if let Ok(schedule_input) = std::env::var("AO_SCHEDULE_INPUT") {
+        if !schedule_input.is_empty() {
+            vars.entry("schedule_input".to_string())
+                .or_insert(schedule_input.clone());
+            vars.entry("dispatch_input".to_string())
+                .or_insert(schedule_input);
+        }
+    }
+
+    vars
+}
+
 fn resolve_command_cwd(
-    project_root: &str,
-    task_root: &str,
+    context: &CommandExecutionContext<'_>,
     command: &orchestrator_core::PhaseCommandDefinition,
+    template_vars: &HashMap<String, String>,
 ) -> Result<String> {
     match command.cwd_mode {
-        orchestrator_core::CommandCwdMode::ProjectRoot => Ok(project_root.to_string()),
-        orchestrator_core::CommandCwdMode::TaskRoot => Ok(task_root.to_string()),
+        orchestrator_core::CommandCwdMode::ProjectRoot => Ok(context.project_root.to_string()),
+        orchestrator_core::CommandCwdMode::TaskRoot => Ok(context.execution_cwd.to_string()),
         orchestrator_core::CommandCwdMode::Path => {
-            let raw = command
+            let expanded = command
                 .cwd_path
                 .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
+                .map(|value| orchestrator_config::expand_variables(value, template_vars))
                 .ok_or_else(|| anyhow!("command.cwd_path is required when cwd_mode='path'"))?;
+            let raw = expanded.trim();
+            if raw.is_empty() {
+                return Err(anyhow!("command.cwd_path is required when cwd_mode='path'"));
+            }
             let relative = Path::new(raw);
             if relative.is_absolute() {
                 return Err(anyhow!(
@@ -1233,7 +1306,10 @@ fn resolve_command_cwd(
             {
                 return Err(anyhow!("command.cwd_path cannot contain '..' components"));
             }
-            Ok(Path::new(project_root).join(relative).display().to_string())
+            Ok(Path::new(context.project_root)
+                .join(relative)
+                .display()
+                .to_string())
         }
     }
 }
@@ -1241,40 +1317,56 @@ fn resolve_command_cwd(
 #[derive(Debug, Clone)]
 struct CommandExecutionResult {
     exit_code: i32,
+    args: Vec<String>,
     stdout: String,
     stderr: String,
+    cwd: String,
     duration_ms: u64,
     parsed_payload: Option<Value>,
     failure_summary: Option<String>,
 }
 
 async fn run_workflow_phase_with_command(
-    project_root: &str,
-    execution_cwd: &str,
-    phase_id: &str,
+    context: &CommandExecutionContext<'_>,
     runtime_config: &orchestrator_core::AgentRuntimeConfig,
     command: &orchestrator_core::PhaseCommandDefinition,
 ) -> Result<CommandExecutionResult> {
     if !is_program_allowlisted(&command.program, &runtime_config.tools_allowlist) {
         return Err(anyhow!(
             "phase '{}' command '{}' is not in tools_allowlist",
-            phase_id,
+            context.phase_id,
             command.program
         ));
     }
 
-    let cwd = resolve_command_cwd(project_root, execution_cwd, command)?;
+    let template_vars = build_command_template_vars(context);
+    let args = command
+        .args
+        .iter()
+        .map(|arg| orchestrator_config::expand_variables(arg, &template_vars))
+        .collect::<Vec<_>>();
+    let env = command
+        .env
+        .iter()
+        .map(|(key, value)| {
+            (
+                key.clone(),
+                orchestrator_config::expand_variables(value, &template_vars),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let cwd = resolve_command_cwd(context, command, &template_vars)?;
     let started = std::time::Instant::now();
 
     let mut process = TokioCommand::new(&command.program);
     process
-        .args(&command.args)
+        .args(&args)
         .current_dir(&cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    for (key, value) in &command.env {
+    for (key, value) in &env {
         process.env(key, value);
     }
 
@@ -1284,7 +1376,7 @@ async fn run_workflow_phase_with_command(
             .with_context(|| {
                 format!(
                     "phase '{}' command '{}' timed out after {} seconds",
-                    phase_id, command.program, timeout_secs
+                    context.phase_id, command.program, timeout_secs
                 )
             })??
     } else {
@@ -1299,9 +1391,7 @@ async fn run_workflow_phase_with_command(
     if !command.success_exit_codes.contains(&exit_code) {
         let mut failure_summary = format!(
             "Command `{}` exited with code {} (expected one of {:?}).",
-            command.program,
-            exit_code,
-            command.success_exit_codes
+            command.program, exit_code, command.success_exit_codes
         );
         if !stdout.trim().is_empty() {
             failure_summary.push_str("\n\nStdout:\n");
@@ -1313,8 +1403,10 @@ async fn run_workflow_phase_with_command(
         }
         return Ok(CommandExecutionResult {
             exit_code,
+            args,
             stdout,
             stderr,
+            cwd,
             duration_ms,
             parsed_payload: None,
             failure_summary: Some(failure_summary),
@@ -1335,12 +1427,116 @@ async fn run_workflow_phase_with_command(
 
     Ok(CommandExecutionResult {
         exit_code,
+        args,
         stdout,
         stderr,
+        cwd,
         duration_ms,
         parsed_payload,
         failure_summary: None,
     })
+}
+
+#[cfg(test)]
+mod command_phase_tests {
+    use super::*;
+    use std::fs;
+
+    #[tokio::test]
+    async fn command_phase_expands_context_vars_in_args_env_and_cwd() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let project_root = temp_dir.path().join("project");
+        let execution_cwd = project_root.join("task-root");
+        let command_cwd = project_root
+            .join("commands")
+            .join("implementation")
+            .join("SUBJ-42");
+        fs::create_dir_all(&execution_cwd).expect("create execution cwd");
+        fs::create_dir_all(&command_cwd).expect("create command cwd");
+
+        let mut runtime_config = orchestrator_core::AgentRuntimeConfig::default();
+        runtime_config.tools_allowlist = vec!["sh".to_string()];
+
+        let mut pipeline_vars = HashMap::new();
+        pipeline_vars.insert("queue_reason".to_string(), "manual-review".to_string());
+        pipeline_vars.insert("workflow_id".to_string(), "should-not-override".to_string());
+
+        let context = CommandExecutionContext {
+            project_root: project_root.to_str().expect("project root str"),
+            execution_cwd: execution_cwd.to_str().expect("execution cwd str"),
+            workflow_id: "wf-123",
+            phase_id: "implementation",
+            pipeline_id: "default",
+            subject_id: "SUBJ-42",
+            subject_title: "Subject Title",
+            subject_description: "Refine queue state",
+            pipeline_vars: Some(&pipeline_vars),
+        };
+        let command = orchestrator_core::PhaseCommandDefinition {
+            program: "sh".to_string(),
+            args: vec![
+                "-c".to_string(),
+                "printf '%s\\n%s\\n%s\\n%s\\n%s\\n%s\\n' \"$1\" \"$2\" \"$3\" \"$SUBJECT_TITLE_ENV\" \"$PIPELINE_REASON_ENV\" \"$PWD\"".to_string(),
+                "sh".to_string(),
+                "{{subject_id}}".to_string(),
+                "{{workflow_id}}".to_string(),
+                "{{pipeline_id}}".to_string(),
+            ],
+            env: BTreeMap::from([
+                (
+                    "SUBJECT_TITLE_ENV".to_string(),
+                    "{{subject_title}}".to_string(),
+                ),
+                (
+                    "PIPELINE_REASON_ENV".to_string(),
+                    "{{queue_reason}}".to_string(),
+                ),
+            ]),
+            cwd_mode: orchestrator_core::CommandCwdMode::Path,
+            cwd_path: Some("commands/{{phase_id}}/{{subject_id}}".to_string()),
+            timeout_secs: Some(5),
+            success_exit_codes: vec![0],
+            parse_json_output: false,
+            expected_result_kind: None,
+            expected_schema: None,
+        };
+
+        let result = run_workflow_phase_with_command(&context, &runtime_config, &command)
+            .await
+            .expect("command phase should run");
+
+        assert_eq!(result.exit_code, 0);
+        assert_eq!(
+            result.args,
+            vec![
+                "-c".to_string(),
+                "printf '%s\\n%s\\n%s\\n%s\\n%s\\n%s\\n' \"$1\" \"$2\" \"$3\" \"$SUBJECT_TITLE_ENV\" \"$PIPELINE_REASON_ENV\" \"$PWD\"".to_string(),
+                "sh".to_string(),
+                "SUBJ-42".to_string(),
+                "wf-123".to_string(),
+                "default".to_string(),
+            ]
+        );
+        assert_eq!(
+            fs::canonicalize(&result.cwd).expect("canonicalize result cwd"),
+            fs::canonicalize(&command_cwd).expect("canonicalize expected cwd")
+        );
+        let stdout_lines = result.stdout.lines().collect::<Vec<_>>();
+        assert_eq!(
+            &stdout_lines[..5],
+            &[
+                "SUBJ-42",
+                "wf-123",
+                "default",
+                "Subject Title",
+                "manual-review"
+            ]
+        );
+        assert_eq!(
+            fs::canonicalize(stdout_lines[5]).expect("canonicalize reported cwd"),
+            fs::canonicalize(&command_cwd).expect("canonicalize expected cwd")
+        );
+    }
 }
 
 fn manual_phase_marker_path(project_root: &str) -> PathBuf {
@@ -1403,6 +1599,7 @@ pub async fn run_workflow_phase(
     project_root: &str,
     execution_cwd: &str,
     workflow_id: &str,
+    pipeline_id: &str,
     subject_id: &str,
     subject_title: &str,
     subject_description: &str,
@@ -1504,8 +1701,7 @@ pub async fn run_workflow_phase(
                 timeout_secs: merged_runtime.phase_timeout_secs(phase_id),
                 max_attempts: merged_runtime.phase_max_attempts(phase_id),
                 extra_args: merged_runtime.phase_extra_args(phase_id),
-                codex_config_overrides: merged_runtime
-                    .phase_codex_config_overrides(phase_id),
+                codex_config_overrides: merged_runtime.phase_codex_config_overrides(phase_id),
                 max_continuations: merged_runtime.phase_max_continuations(phase_id),
             });
 
@@ -1527,9 +1723,7 @@ pub async fn run_workflow_phase(
                             .as_ref()
                             .and_then(|settings| settings.tool.as_deref())
                     }),
-                merged_runtime
-                    .phase_fallback_models(phase_id)
-                    .as_slice(),
+                merged_runtime.phase_fallback_models(phase_id).as_slice(),
                 routing_complexity,
                 Some(project_root),
                 &exec_caps,
@@ -1632,15 +1826,20 @@ pub async fn run_workflow_phase(
                 .command
                 .as_ref()
                 .ok_or_else(|| anyhow!("phase '{}' is missing command definition", phase_id))?;
-
-            let command_result = run_workflow_phase_with_command(
+            let command_context = CommandExecutionContext {
                 project_root,
                 execution_cwd,
+                workflow_id,
                 phase_id,
-                &merged_runtime,
-                command,
-            )
-            .await?;
+                pipeline_id,
+                subject_id,
+                subject_title,
+                subject_description,
+                pipeline_vars,
+            };
+
+            let command_result =
+                run_workflow_phase_with_command(&command_context, &merged_runtime, command).await?;
             signals.push(PhaseExecutionSignal {
                 event_type: "workflow-phase-command-executed".to_string(),
                 payload: serde_json::json!({
@@ -1648,7 +1847,8 @@ pub async fn run_workflow_phase(
                     "subject_id": subject_id,
                     "phase_id": phase_id,
                     "program": command.program,
-                    "args": command.args,
+                    "args": command_result.args,
+                    "cwd": command_result.cwd,
                     "exit_code": command_result.exit_code,
                     "duration_ms": command_result.duration_ms,
                     "stdout": command_result.stdout,
@@ -1742,4 +1942,3 @@ pub async fn run_workflow_phase(
         }
     }
 }
-

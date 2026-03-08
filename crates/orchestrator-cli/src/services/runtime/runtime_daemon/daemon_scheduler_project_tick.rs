@@ -10,9 +10,6 @@ pub(super) mod reconciliation;
 #[path = "daemon_workflow_result_sync.rs"]
 pub(super) mod workflow_result_sync;
 
-#[path = "daemon_task_lifecycle.rs"]
-pub(super) mod task_lifecycle;
-
 #[path = "daemon_bootstrap.rs"]
 pub(super) mod bootstrap;
 
@@ -25,7 +22,6 @@ mod tick_executor;
 mod tick_wrapper;
 
 use task_dispatch::*;
-use task_lifecycle::*;
 #[cfg(test)]
 use tick_executor::full_project_tick_driver;
 pub(crate) use tick_executor::slim_project_tick_driver;

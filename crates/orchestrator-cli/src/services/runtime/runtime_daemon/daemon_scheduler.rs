@@ -1,6 +1,6 @@
 use super::canonicalize_lossy;
 use crate::cli_types::DaemonRunArgs;
-use crate::shared::{ensure_ai_generated_tasks_for_requirements, requirement_has_active_tasks};
+use crate::shared::ensure_ai_generated_tasks_for_requirements;
 use anyhow::{anyhow, Result};
 use chrono::Utc;
 #[cfg(test)]
@@ -8,8 +8,8 @@ use orchestrator_core::is_dependency_gate_block;
 #[cfg(test)]
 use orchestrator_core::DependencyType;
 use orchestrator_core::{
-    services::ServiceHub, RequirementItem, RequirementStatus, RequirementsDraftInput,
-    RequirementsExecutionInput, RequirementsRefineInput, TaskCreateInput, TaskStatus, TaskType,
+    services::ServiceHub, RequirementItem, RequirementsDraftInput, RequirementsExecutionInput,
+    RequirementsRefineInput, TaskCreateInput, TaskStatus, TaskType,
 };
 pub(super) use orchestrator_daemon_runtime::{
     run_project_tick_at, DaemonRuntimeOptions, ProcessManager, ProjectTickRunMode,

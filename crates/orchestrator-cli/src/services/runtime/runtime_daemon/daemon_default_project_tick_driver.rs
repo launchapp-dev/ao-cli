@@ -47,6 +47,12 @@ pub struct DefaultSlimProjectTickHooks<'a, S> {
     process_manager: &'a mut ProcessManager,
 }
 
+impl<S> DefaultSlimProjectTickHooks<'_, S> {
+    pub fn active_process_count(&self) -> usize {
+        self.process_manager.active_count()
+    }
+}
+
 fn spawn_schedule_pipeline(
     process_manager: &mut ProcessManager,
     project_root: &str,
@@ -109,10 +115,6 @@ where
             },
             |schedule_id, command| spawn_schedule_command(root, schedule_id, command),
         );
-    }
-
-    fn active_process_count(&self) -> usize {
-        self.process_manager.active_count()
     }
 
     async fn reconcile_completed_processes(

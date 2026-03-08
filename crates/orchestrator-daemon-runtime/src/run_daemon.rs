@@ -25,6 +25,7 @@ pub async fn run_daemon<D, H>(
     hub: Arc<dyn ServiceHub>,
     driver: &mut D,
     hooks: &mut H,
+    mut active_process_count: impl FnMut(&D) -> usize,
 ) -> Result<()>
 where
     D: ProjectTickHooks,
@@ -97,7 +98,7 @@ where
             &primary_root,
             options,
             ProjectTickRunMode {
-                active_process_count: driver.active_process_count(),
+                active_process_count: active_process_count(driver),
             },
             externally_paused,
             driver,

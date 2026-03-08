@@ -116,7 +116,15 @@ pub(super) async fn handle_daemon_run(
     let mut driver = slim_project_tick_driver(&mut process_manager);
     let mut host = CliDaemonRunHost::new(project_root, json);
 
-    let run_result = run_daemon(project_root, &runtime_options, hub, &mut driver, &mut host).await;
+    let run_result = run_daemon(
+        project_root,
+        &runtime_options,
+        hub,
+        &mut driver,
+        &mut host,
+        |driver| driver.active_process_count(),
+    )
+    .await;
 
     if phase_timeout_override.is_some() {
         restore_env_override("AO_PHASE_TIMEOUT_SECS", phase_timeout_original);

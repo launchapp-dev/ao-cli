@@ -10,10 +10,6 @@ use crate::DispatchWorkflowStartSummary;
 pub trait ProjectTickHooks {
     fn process_due_schedules(&mut self, root: &str, now: DateTime<Utc>);
 
-    fn active_process_count(&self) -> usize {
-        0
-    }
-
     async fn reconcile_completed_processes(
         &mut self,
         _hub: Arc<dyn ServiceHub>,

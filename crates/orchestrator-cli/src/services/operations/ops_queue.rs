@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::{anyhow, Result};
 use orchestrator_core::services::ServiceHub;
 use orchestrator_daemon_runtime::{
-    enqueue_subject_dispatch, hold_subject, pipeline_for_task, queue_snapshot, queue_stats,
+    enqueue_subject_dispatch, hold_subject, queue_snapshot, queue_stats, workflow_ref_for_task,
     release_subject, reorder_subjects,
 };
 use protocol::SubjectDispatch;
@@ -21,7 +21,9 @@ pub(crate) async fn handle_queue(
         QueueCommand::Stats => print_value(queue_stats(project_root)?, json),
         QueueCommand::Enqueue(args) => {
             let task = hub.tasks().get(&args.task_id).await?;
-            let pipeline_id = args.pipeline_id.unwrap_or_else(|| pipeline_for_task(&task));
+            let pipeline_id = args
+                .pipeline_id
+                .unwrap_or_else(|| workflow_ref_for_task(&task));
             let input = args
                 .input_json
                 .map(|value| serde_json::from_str(&value))

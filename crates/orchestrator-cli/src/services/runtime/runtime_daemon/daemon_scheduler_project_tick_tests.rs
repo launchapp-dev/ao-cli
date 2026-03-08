@@ -852,7 +852,7 @@
     }
 
     #[test]
-    fn ready_task_dispatch_limit_honors_available_agent_capacity() {
+    fn ready_dispatch_limit_honors_available_agent_capacity() {
         let uncapped = orchestrator_core::DaemonHealth {
             healthy: true,
             status: orchestrator_core::DaemonStatus::Running,
@@ -871,7 +871,7 @@
             total_agents_failed: None,
         };
         assert_eq!(
-            orchestrator_daemon_runtime::ready_task_dispatch_limit(4, &uncapped),
+            orchestrator_daemon_runtime::ready_dispatch_limit(4, &uncapped),
             4
         );
 
@@ -893,11 +893,11 @@
             total_agents_failed: None,
         };
         assert_eq!(
-            orchestrator_daemon_runtime::ready_task_dispatch_limit(10, &capped),
+            orchestrator_daemon_runtime::ready_dispatch_limit(10, &capped),
             2
         );
         assert_eq!(
-            orchestrator_daemon_runtime::ready_task_dispatch_limit(1, &capped),
+            orchestrator_daemon_runtime::ready_dispatch_limit(1, &capped),
             1
         );
 
@@ -919,7 +919,7 @@
             total_agents_failed: None,
         };
         assert_eq!(
-            orchestrator_daemon_runtime::ready_task_dispatch_limit(3, &saturated),
+            orchestrator_daemon_runtime::ready_dispatch_limit(3, &saturated),
             0
         );
     }

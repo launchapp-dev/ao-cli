@@ -8,7 +8,7 @@ use orchestrator_core::{
 
 use crate::DaemonRuntimeOptions;
 
-pub fn ready_task_dispatch_limit(max_tasks_per_tick: usize, health: &DaemonHealth) -> usize {
+pub fn ready_dispatch_limit(max_tasks_per_tick: usize, health: &DaemonHealth) -> usize {
     dispatch_headroom(
         max_tasks_per_tick,
         health.active_agents,
@@ -19,7 +19,7 @@ pub fn ready_task_dispatch_limit(max_tasks_per_tick: usize, health: &DaemonHealt
     )
 }
 
-pub fn ready_task_dispatch_limit_for_options(
+pub fn ready_dispatch_limit_for_options(
     options: &DaemonRuntimeOptions,
     active_agents: usize,
     observed_max_agents: Option<usize>,
@@ -106,7 +106,7 @@ pub fn routing_complexity_for_task(
     }
 }
 
-pub fn pipeline_for_task(task: &OrchestratorTask) -> String {
+pub fn workflow_ref_for_task(task: &OrchestratorTask) -> String {
     if task.is_frontend_related() {
         UI_UX_PIPELINE_ID.to_string()
     } else {
@@ -114,7 +114,7 @@ pub fn pipeline_for_task(task: &OrchestratorTask) -> String {
     }
 }
 
-pub fn should_skip_dispatch(task: &OrchestratorTask) -> bool {
+pub fn should_skip_task_dispatch(task: &OrchestratorTask) -> bool {
     const MAX_DISPATCH_RETRIES: u32 = 3;
     const MIN_RETRY_DELAY_SECS: i64 = 60;
 
@@ -138,11 +138,11 @@ pub fn should_skip_dispatch(task: &OrchestratorTask) -> bool {
 mod tests {
     use orchestrator_core::{DaemonHealth, DaemonStatus};
 
-    use super::{ready_task_dispatch_limit, ready_task_dispatch_limit_for_options};
+    use super::{ready_dispatch_limit, ready_dispatch_limit_for_options};
     use crate::DaemonRuntimeOptions;
 
     #[test]
-    fn ready_task_dispatch_limit_uses_smallest_observed_capacity() {
+    fn ready_dispatch_limit_uses_smallest_observed_capacity() {
         let health = DaemonHealth {
             healthy: true,
             status: DaemonStatus::Running,
@@ -161,11 +161,11 @@ mod tests {
             total_agents_failed: Some(0),
         };
 
-        assert_eq!(ready_task_dispatch_limit(10, &health), 2);
+        assert_eq!(ready_dispatch_limit(10, &health), 2);
     }
 
     #[test]
-    fn ready_task_dispatch_limit_for_options_uses_smallest_available_capacity() {
+    fn ready_dispatch_limit_for_options_uses_smallest_available_capacity() {
         let options = DaemonRuntimeOptions {
             pool_size: Some(6),
             max_agents: Some(2),
@@ -174,20 +174,20 @@ mod tests {
         };
 
         assert_eq!(
-            ready_task_dispatch_limit_for_options(&options, 1, Some(4), Some(3)),
+            ready_dispatch_limit_for_options(&options, 1, Some(4), Some(3)),
             1
         );
     }
 
     #[test]
-    fn ready_task_dispatch_limit_for_options_returns_max_tasks_when_uncapped() {
+    fn ready_dispatch_limit_for_options_returns_max_tasks_when_uncapped() {
         let options = DaemonRuntimeOptions {
             max_tasks_per_tick: 4,
             ..DaemonRuntimeOptions::default()
         };
 
         assert_eq!(
-            ready_task_dispatch_limit_for_options(&options, 2, None, None),
+            ready_dispatch_limit_for_options(&options, 2, None, None),
             4
         );
     }

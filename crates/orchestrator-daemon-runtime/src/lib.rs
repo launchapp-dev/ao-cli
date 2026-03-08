@@ -25,8 +25,8 @@ mod project_tick_summary;
 mod project_tick_summary_input;
 mod project_tick_time;
 mod queue_service;
-mod ready_task_dispatch_plan;
-mod ready_task_dispatch_support;
+mod dispatch_support;
+mod ready_dispatch_plan;
 mod reconcile_completed_processes;
 mod run_daemon;
 mod run_project_tick;
@@ -69,13 +69,13 @@ pub use queue_service::{
     enqueue_subject_dispatch, hold_subject, queue_snapshot, queue_stats, release_subject,
     reorder_subjects, QueueEnqueueResult, QueueEntrySnapshot, QueueSnapshot, QueueStats,
 };
-pub use ready_task_dispatch_plan::{
-    plan_ready_task_dispatch, PlannedReadyTaskStart, ReadyTaskDispatchPlan,
+pub use dispatch_support::{
+    active_workflow_task_ids, is_terminally_completed_workflow, ready_dispatch_limit,
+    ready_dispatch_limit_for_options, routing_complexity_for_task, should_skip_task_dispatch,
+    workflow_current_phase_id, workflow_ref_for_task,
 };
-pub use ready_task_dispatch_support::{
-    active_workflow_task_ids, is_terminally_completed_workflow, pipeline_for_task,
-    ready_task_dispatch_limit, ready_task_dispatch_limit_for_options, routing_complexity_for_task,
-    should_skip_dispatch, workflow_current_phase_id,
+pub use ready_dispatch_plan::{
+    plan_ready_dispatch, PlannedDispatchStart, ReadyDispatchPlan,
 };
 pub use reconcile_completed_processes::reconcile_completed_processes;
 pub use run_daemon::run_daemon;

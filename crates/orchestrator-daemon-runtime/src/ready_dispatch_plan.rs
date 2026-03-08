@@ -4,35 +4,35 @@ use chrono::{DateTime, Utc};
 use orchestrator_core::{OrchestratorTask, OrchestratorWorkflow, TaskStatus};
 
 use crate::{
-    active_workflow_task_ids, is_terminally_completed_workflow, pipeline_for_task,
-    DispatchSelectionSource, EmWorkQueueEntryStatus, EmWorkQueueState, SubjectDispatch,
-    should_skip_dispatch,
+    active_workflow_task_ids, is_terminally_completed_workflow, should_skip_task_dispatch,
+    workflow_ref_for_task, DispatchSelectionSource, EmWorkQueueEntryStatus, EmWorkQueueState,
+    SubjectDispatch,
 };
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct PlannedReadyTaskStart {
+pub struct PlannedDispatchStart {
     pub dispatch: SubjectDispatch,
     pub selection_source: DispatchSelectionSource,
 }
 
-impl PlannedReadyTaskStart {
+impl PlannedDispatchStart {
     pub fn task_id(&self) -> Option<&str> {
         self.dispatch.task_id()
     }
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct ReadyTaskDispatchPlan {
-    pub ordered_starts: Vec<PlannedReadyTaskStart>,
+pub struct ReadyDispatchPlan {
+    pub ordered_starts: Vec<PlannedDispatchStart>,
     pub completed_task_ids: Vec<String>,
 }
 
-pub fn plan_ready_task_dispatch(
+pub fn plan_ready_dispatch(
     tasks: &[OrchestratorTask],
     workflows: &[OrchestratorWorkflow],
     em_queue_state: Option<&EmWorkQueueState>,
     requested_at: DateTime<Utc>,
-) -> ReadyTaskDispatchPlan {
+) -> ReadyDispatchPlan {
     let active_task_ids = active_workflow_task_ids(workflows);
     let completed_task_ids: HashSet<String> = workflows
         .iter()
@@ -42,7 +42,7 @@ pub fn plan_ready_task_dispatch(
     let task_lookup: HashMap<&str, &OrchestratorTask> =
         tasks.iter().map(|task| (task.id.as_str(), task)).collect();
 
-    let mut plan = ReadyTaskDispatchPlan::default();
+    let mut plan = ReadyDispatchPlan::default();
     let mut seen_task_ids = HashSet::new();
     let mut seen_completed_ids = HashSet::new();
 
@@ -73,13 +73,13 @@ pub fn plan_ready_task_dispatch(
             let dispatch = entry.dispatch.clone().unwrap_or_else(|| {
                 SubjectDispatch::for_task_with_metadata(
                     task.id.clone(),
-                    pipeline_for_task(task),
+                    workflow_ref_for_task(task),
                     "em-queue",
                     requested_at,
                 )
             });
 
-            plan.ordered_starts.push(PlannedReadyTaskStart {
+            plan.ordered_starts.push(PlannedDispatchStart {
                 dispatch,
                 selection_source: DispatchSelectionSource::EmQueue,
             });
@@ -102,10 +102,10 @@ pub fn plan_ready_task_dispatch(
             continue;
         }
 
-        plan.ordered_starts.push(PlannedReadyTaskStart {
+        plan.ordered_starts.push(PlannedDispatchStart {
             dispatch: SubjectDispatch::for_task_with_metadata(
                 task.id.clone(),
-                pipeline_for_task(task),
+                workflow_ref_for_task(task),
                 "fallback-picker",
                 requested_at,
             ),
@@ -126,7 +126,7 @@ fn is_dispatch_eligible(task: &OrchestratorTask, active_task_ids: &HashSet<Strin
     if active_task_ids.contains(&task.id) {
         return false;
     }
-    if should_skip_dispatch(task) {
+    if should_skip_task_dispatch(task) {
         return false;
     }
     true
@@ -176,13 +176,13 @@ mod tests {
             }],
         };
 
-        let plan = plan_ready_task_dispatch(&[queued, fallback], &[], Some(&queue), now);
+        let plan = plan_ready_dispatch(&[queued, fallback], &[], Some(&queue), now);
 
         assert_eq!(plan.completed_task_ids, Vec::<String>::new());
         assert_eq!(
             plan.ordered_starts,
             vec![
-                PlannedReadyTaskStart {
+                PlannedDispatchStart {
                     dispatch: SubjectDispatch::for_task_with_metadata(
                         "TASK-1",
                         orchestrator_core::STANDARD_PIPELINE_ID,
@@ -191,7 +191,7 @@ mod tests {
                     ),
                     selection_source: DispatchSelectionSource::EmQueue,
                 },
-                PlannedReadyTaskStart {
+                PlannedDispatchStart {
                     dispatch: SubjectDispatch::for_task_with_metadata(
                         "TASK-2",
                         orchestrator_core::STANDARD_PIPELINE_ID,
@@ -220,11 +220,11 @@ mod tests {
             }],
         };
 
-        let plan = plan_ready_task_dispatch(&[queued, fallback], &[], Some(&queue), now);
+        let plan = plan_ready_dispatch(&[queued, fallback], &[], Some(&queue), now);
 
         assert_eq!(
             plan.ordered_starts,
-            vec![PlannedReadyTaskStart {
+            vec![PlannedDispatchStart {
                 dispatch: SubjectDispatch::for_task_with_metadata(
                     "TASK-2",
                     orchestrator_core::STANDARD_PIPELINE_ID,
@@ -242,9 +242,9 @@ mod tests {
         let workflows = vec![completed_workflow("wf-1", "TASK-9")];
         let now = Utc.with_ymd_and_hms(2026, 3, 7, 12, 0, 0).unwrap();
 
-        let plan = plan_ready_task_dispatch(&[done_candidate], &workflows, None, now);
+        let plan = plan_ready_dispatch(&[done_candidate], &workflows, None, now);
 
-        assert_eq!(plan.ordered_starts, Vec::<PlannedReadyTaskStart>::new());
+        assert_eq!(plan.ordered_starts, Vec::<PlannedDispatchStart>::new());
         assert_eq!(plan.completed_task_ids, vec!["TASK-9".to_string()]);
     }
 
@@ -263,11 +263,11 @@ mod tests {
             }],
         };
 
-        let plan = plan_ready_task_dispatch(&[queued], &[], Some(&queue), now);
+        let plan = plan_ready_dispatch(&[queued], &[], Some(&queue), now);
 
         assert_eq!(
             plan.ordered_starts,
-            vec![PlannedReadyTaskStart {
+            vec![PlannedDispatchStart {
                 dispatch: SubjectDispatch::for_task_with_metadata(
                     "TASK-1",
                     orchestrator_core::STANDARD_PIPELINE_ID,

@@ -6,9 +6,10 @@ use orchestrator_core::{
 };
 pub use orchestrator_daemon_runtime::{
     active_workflow_task_ids, load_em_work_queue_state, mark_em_work_queue_entry_assigned,
-    DispatchSelectionSource, DispatchWorkflowStart, DispatchWorkflowStartSummary,
-    pipeline_for_task, plan_ready_task_dispatch, routing_complexity_for_task, should_skip_dispatch,
-    workflow_current_phase_id, SubjectDispatch,
+    plan_ready_dispatch, should_skip_task_dispatch, workflow_current_phase_id,
+    workflow_ref_for_task, DispatchSelectionSource,
+    DispatchWorkflowStart, DispatchWorkflowStartSummary, SubjectDispatch,
+    routing_complexity_for_task,
 };
 #[cfg(test)]
 pub use orchestrator_daemon_runtime::{
@@ -84,7 +85,7 @@ pub async fn run_ready_task_workflows_for_project(
             None
         }
     };
-    let plan = plan_ready_task_dispatch(
+    let plan = plan_ready_dispatch(
         &candidates,
         &workflows,
         queue_state.as_ref(),
@@ -181,7 +182,7 @@ pub async fn dispatch_ready_tasks_via_runner(
         if active_task_ids.contains(&task.id) {
             continue;
         }
-        if should_skip_dispatch(&task) {
+        if should_skip_task_dispatch(&task) {
             continue;
         }
 
@@ -192,7 +193,7 @@ pub async fn dispatch_ready_tasks_via_runner(
             continue;
         }
 
-        let workflow_ref = pipeline_for_task(&task);
+        let workflow_ref = workflow_ref_for_task(&task);
         let dispatch = SubjectDispatch::for_task(task.id.clone(), workflow_ref);
         match process_manager.spawn_workflow_runner(&dispatch, root) {
             Ok(_) => {

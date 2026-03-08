@@ -1,4 +1,4 @@
-use crate::{ready_task_dispatch_limit_for_options, DaemonRuntimeOptions, ScheduleDispatch};
+use crate::{ready_dispatch_limit_for_options, DaemonRuntimeOptions, ScheduleDispatch};
 use chrono::NaiveTime;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,7 +43,7 @@ impl ProjectTickPlan {
         daemon_pool_size: Option<usize>,
         active_process_count: usize,
     ) -> Self {
-        let requested_ready_dispatch_limit = ready_task_dispatch_limit_for_options(
+        let requested_ready_dispatch_limit = ready_dispatch_limit_for_options(
             options,
             active_process_count,
             daemon_max_agents,

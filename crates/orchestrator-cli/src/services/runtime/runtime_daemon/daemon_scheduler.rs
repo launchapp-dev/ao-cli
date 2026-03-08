@@ -12,8 +12,8 @@ use orchestrator_core::{
     RequirementsExecutionInput, RequirementsRefineInput, TaskCreateInput, TaskStatus, TaskType,
 };
 pub(super) use orchestrator_daemon_runtime::{
-    run_project_tick_at, sync_task_status_for_workflow_result, DaemonRuntimeOptions,
-    ProcessManager, ProjectTickRunMode, ProjectTickSummary, ProjectTickTime,
+    run_project_tick_at, DaemonRuntimeOptions, ProcessManager, ProjectTickRunMode,
+    ProjectTickSummary, ProjectTickTime,
 };
 pub(crate) use project_tick_ops::slim_project_tick_driver;
 use serde::{Deserialize, Serialize};

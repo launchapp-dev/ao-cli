@@ -11,8 +11,8 @@ pub use orchestrator_daemon_runtime::{
 };
 pub use orchestrator_daemon_runtime::{
     load_em_work_queue_state, mark_em_work_queue_entry_assigned, plan_ready_task_dispatch,
-    routing_complexity_for_task, sync_task_status_for_workflow_result, workflow_current_phase_id,
-    ReadyTaskWorkflowStart, ReadyTaskWorkflowStartSummary, TaskSelectionSource,
+    routing_complexity_for_task, workflow_current_phase_id, ReadyTaskWorkflowStart,
+    ReadyTaskWorkflowStartSummary, TaskSelectionSource,
 };
 pub fn daemon_agent_assignee_for_workflow_start(
     project_root: &str,

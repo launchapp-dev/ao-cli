@@ -6,14 +6,13 @@ use orchestrator_core::{
     merge_blocked_reason, project_task_blocked_with_reason, project_task_dispatch_failure,
     project_task_status, services::ServiceHub, TaskStatus, WorkflowStatus, MERGE_GATE_PREFIX,
 };
+use orchestrator_daemon_runtime::remove_terminal_em_work_queue_entry_non_fatal;
 use orchestrator_git_ops::{
     cleanup_merge_conflict_worktree, finalize_merge_conflict_resolution, is_branch_merged,
     load_post_success_git_config, post_success_merge_push_and_cleanup, PostMergeOutcome,
     PostSuccessGitConfig,
 };
 use workflow_runner::executor::attempt_ai_merge_conflict_recovery;
-
-use crate::remove_terminal_em_work_queue_entry_non_fatal;
 
 const MAX_DISPATCH_RETRIES: u32 = 3;
 

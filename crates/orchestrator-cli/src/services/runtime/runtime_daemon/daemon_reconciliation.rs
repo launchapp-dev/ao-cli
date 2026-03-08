@@ -4,10 +4,7 @@ use orchestrator_core::{
     is_merge_gate_block, project_task_blocked_with_reason, project_task_status,
     services::ServiceHub, TaskStatus, WorkflowMachineState, WorkflowResumeManager, WorkflowStatus,
 };
-use orchestrator_daemon_runtime::{
-    active_workflow_task_ids, is_terminally_completed_workflow,
-    sync_task_status_for_workflow_result,
-};
+use orchestrator_daemon_runtime::{active_workflow_task_ids, is_terminally_completed_workflow};
 use orchestrator_git_ops::is_branch_merged;
 
 pub async fn reconcile_dependency_gate_tasks_for_project(

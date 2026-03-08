@@ -7,6 +7,9 @@ pub(super) mod task_dispatch;
 #[path = "daemon_reconciliation.rs"]
 pub(super) mod reconciliation;
 
+#[path = "daemon_workflow_result_sync.rs"]
+pub(super) mod workflow_result_sync;
+
 #[path = "daemon_task_lifecycle.rs"]
 pub(super) mod task_lifecycle;
 
@@ -29,6 +32,7 @@ pub(crate) use tick_executor::slim_project_tick_driver;
 #[cfg(test)]
 use tick_executor::FullProjectTickDriver;
 use tick_executor::SlimProjectTickDriver;
+pub(super) use workflow_result_sync::sync_task_status_for_workflow_result;
 
 #[cfg(test)]
 pub(super) async fn project_tick(

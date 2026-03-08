@@ -43,16 +43,6 @@ where
     let now = tick_time.local_time();
     let context = mode.load_context(root, args, now, pool_draining);
 
-    if !context
-        .initial_preparation
-        .schedule_plan
-        .within_active_hours
-    {
-        if let Some(message) = context.active_hours_skip_message() {
-            hooks.emit_notice(&message);
-        }
-    }
-
     if context
         .initial_preparation
         .schedule_plan

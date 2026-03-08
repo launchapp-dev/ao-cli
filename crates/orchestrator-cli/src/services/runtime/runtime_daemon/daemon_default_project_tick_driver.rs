@@ -115,10 +115,6 @@ where
         self.process_manager.active_count()
     }
 
-    fn emit_notice(&mut self, message: &str) {
-        eprintln!("{}", message);
-    }
-
     async fn reconcile_completed_processes(
         &mut self,
         hub: Arc<dyn ServiceHub>,

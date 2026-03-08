@@ -14,8 +14,6 @@ pub trait ProjectTickHooks {
         0
     }
 
-    fn emit_notice(&mut self, _message: &str) {}
-
     async fn reconcile_completed_processes(
         &mut self,
         _hub: Arc<dyn ServiceHub>,

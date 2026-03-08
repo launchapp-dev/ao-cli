@@ -13,6 +13,9 @@ pub(super) mod task_dispatch;
 
 #[path = "daemon_reconciliation.rs"]
 pub(super) mod reconciliation;
+#[cfg(test)]
+#[path = "daemon_reconciliation_test_support.rs"]
+pub(super) mod reconciliation_test_support;
 
 #[path = "daemon_tick_executor.rs"]
 mod tick_executor;
@@ -78,7 +81,7 @@ pub(super) async fn slim_daemon_tick_at(
 
 #[cfg(test)]
 mod tests {
-    use super::reconciliation::reconcile_stale_in_progress_tasks_for_project;
+    use super::reconciliation_test_support::reconcile_stale_in_progress_tasks_for_project;
     use super::task_dispatch::run_ready_task_workflows_for_project;
     use super::*;
     use chrono::Utc;

@@ -9,7 +9,7 @@
         hub: Arc<dyn ServiceHub>,
         project_root: &str,
     ) -> Result<usize> {
-        project_tick_ops::reconciliation::reconcile_dependency_gate_tasks_for_project(
+        project_tick_ops::reconciliation_test_support::reconcile_dependency_gate_tasks_for_project(
             hub,
             project_root,
         )
@@ -21,7 +21,7 @@
         project_root: &str,
         stale_threshold_hours: u64,
     ) -> Result<usize> {
-        project_tick_ops::reconciliation::reconcile_stale_in_progress_tasks_for_project(
+        project_tick_ops::reconciliation_test_support::reconcile_stale_in_progress_tasks_for_project(
             hub,
             project_root,
             stale_threshold_hours,

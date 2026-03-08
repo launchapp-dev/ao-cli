@@ -95,6 +95,10 @@ async fn refresh_runtime_binaries_for_project(root: &str) -> Result<()> {
     Ok(())
 }
 
+fn flush_git_outbox_for_project(root: &str) {
+    let _ = git_ops::flush_git_integration_outbox(root);
+}
+
 #[cfg(test)]
 pub(super) async fn project_tick(
     root: &str,
@@ -111,6 +115,7 @@ pub(super) async fn project_tick_at(
 ) -> Result<ProjectTickSummary> {
     let root = canonicalize_lossy(root);
     let pre_tick = run_cli_pre_tick(&root, args, None).await?;
+    flush_git_outbox_for_project(&root);
     let mut driver: FullProjectTickDriver = full_project_tick_driver();
     let mut summary = run_project_tick_at(
         &root,
@@ -160,6 +165,7 @@ pub(super) async fn slim_daemon_tick_at(
     let root = canonicalize_lossy(root);
     let active_subject_ids = process_manager.active_subject_ids();
     let pre_tick = run_cli_pre_tick(&root, args, Some(&active_subject_ids)).await?;
+    flush_git_outbox_for_project(&root);
     let mode = ProjectTickRunMode::Slim {
         active_process_count: process_manager.active_count(),
     };

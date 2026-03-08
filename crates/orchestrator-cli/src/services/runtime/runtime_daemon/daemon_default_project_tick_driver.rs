@@ -11,8 +11,6 @@ use tokio::process::Command as TokioCommand;
 
 #[async_trait::async_trait(?Send)]
 pub trait DefaultProjectTickServices {
-    fn flush_git_outbox(&mut self, root: &str);
-
     async fn reconcile_completed_processes(
         &mut self,
         hub: Arc<dyn ServiceHub>,
@@ -144,10 +142,6 @@ where
         );
     }
 
-    fn flush_git_outbox(&mut self, root: &str) {
-        self.services.flush_git_outbox(root);
-    }
-
     async fn dispatch_ready_tasks(
         &mut self,
         hub: Arc<dyn ServiceHub>,
@@ -178,10 +172,6 @@ where
             },
             |schedule_id, command| spawn_schedule_command(root, schedule_id, command),
         );
-    }
-
-    fn flush_git_outbox(&mut self, root: &str) {
-        self.services.flush_git_outbox(root);
     }
 
     fn active_process_count(&self) -> usize {

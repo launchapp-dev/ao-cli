@@ -33,10 +33,6 @@ where
         self.hooks.process_due_schedules(root, now);
     }
 
-    fn flush_git_outbox(&mut self, root: &str) {
-        self.hooks.flush_git_outbox(root);
-    }
-
     fn active_process_count(&self) -> usize {
         self.hooks.active_process_count()
     }

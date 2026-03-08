@@ -10,16 +10,11 @@ use default_project_tick_driver::{
 use orchestrator_daemon_runtime::{
     reconcile_completed_processes, CompletedProcess, ProcessManager,
 };
-use orchestrator_git_ops as git_ops;
 
 pub(crate) struct CliProjectTickServices;
 
 #[async_trait::async_trait(?Send)]
 impl DefaultProjectTickServices for CliProjectTickServices {
-    fn flush_git_outbox(&mut self, root: &str) {
-        let _ = git_ops::flush_git_integration_outbox(root);
-    }
-
     async fn reconcile_completed_processes(
         &mut self,
         hub: Arc<dyn ServiceHub>,

@@ -12,8 +12,6 @@ pub trait ProjectTickHooks {
 
     fn process_due_schedules(&mut self, root: &str, now: DateTime<Utc>);
 
-    fn flush_git_outbox(&mut self, root: &str);
-
     fn active_process_count(&self) -> usize {
         0
     }

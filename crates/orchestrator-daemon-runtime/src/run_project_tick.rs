@@ -63,7 +63,6 @@ where
     }
 
     let hub: Arc<dyn ServiceHub> = driver.build_hub(root)?;
-    driver.flush_git_outbox(root);
 
     let snapshot = ProjectTickSnapshot::capture(hub.clone()).await?;
     let preparation = mode.build_preparation(&context, args, now, pool_draining, &snapshot);

@@ -1602,6 +1602,43 @@ impl SubjectDispatch {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunnerEvent {
+    pub event: String,
+    #[serde(default)]
+    pub task_id: String,
+    #[serde(default, alias = "pipeline")]
+    pub workflow_ref: Option<String>,
+    #[serde(default)]
+    pub exit_code: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubjectExecutionFact {
+    pub subject_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schedule_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    pub success: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_reason: Option<String>,
+    #[serde(default)]
+    pub runner_events: Vec<RunnerEvent>,
+}
+
+impl SubjectExecutionFact {
+    pub fn completion_status(&self) -> &str {
+        if self.success {
+            "completed"
+        } else {
+            "failed"
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowRunInput {
     pub subject: WorkflowSubject,
     #[serde(default, alias = "pipeline_id")]

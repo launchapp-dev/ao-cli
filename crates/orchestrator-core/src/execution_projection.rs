@@ -1,8 +1,14 @@
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
 use chrono::Utc;
-use orchestrator_core::{services::ServiceHub, OrchestratorTask, TaskStatus};
+use protocol::SubjectExecutionFact;
+
+use crate::{
+    load_schedule_state, save_schedule_state, services::ServiceHub, OrchestratorTask,
+    ScheduleRunState, TaskStatus,
+};
 
 pub async fn project_task_status(
     hub: Arc<dyn ServiceHub>,
@@ -60,4 +66,43 @@ pub async fn project_task_dispatch_failure(
     updated.last_dispatch_failure_at = Some(Utc::now().to_rfc3339());
     hub.tasks().replace(updated).await?;
     project_task_status(hub, task_id, TaskStatus::Blocked).await
+}
+
+pub async fn project_task_execution_fact(
+    hub: Arc<dyn ServiceHub>,
+    _root: &str,
+    fact: &SubjectExecutionFact,
+) {
+    let Some(task_id) = fact.task_id.as_deref() else {
+        return;
+    };
+
+    if fact.success {
+        let _ = project_task_status(hub, task_id, TaskStatus::Done).await;
+        return;
+    }
+
+    if let Some(reason) = fact.failure_reason.clone() {
+        if let Ok(task) = hub.tasks().get(task_id).await {
+            let _ = project_task_blocked_with_reason(hub, &task, reason, None).await;
+            return;
+        }
+    }
+
+    let _ = project_task_status(hub, task_id, TaskStatus::Blocked).await;
+}
+
+pub fn project_schedule_execution_fact(root: &str, fact: &SubjectExecutionFact) {
+    let Some(schedule_id) = fact.schedule_id.as_deref() else {
+        return;
+    };
+
+    let project_root = Path::new(root);
+    let mut state = load_schedule_state(project_root).unwrap_or_default();
+    let entry = state
+        .schedules
+        .entry(schedule_id.to_string())
+        .or_insert_with(ScheduleRunState::default);
+    entry.last_status = fact.completion_status().to_string();
+    let _ = save_schedule_state(project_root, &state);
 }

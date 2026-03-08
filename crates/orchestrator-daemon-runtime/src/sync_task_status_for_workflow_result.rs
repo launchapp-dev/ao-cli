@@ -2,7 +2,10 @@ use std::path::Path;
 use std::sync::Arc;
 
 use chrono::Utc;
-use orchestrator_core::{services::ServiceHub, TaskStatus, WorkflowStatus};
+use orchestrator_core::{
+    project_task_blocked_with_reason, project_task_dispatch_failure, project_task_status,
+    services::ServiceHub, TaskStatus, WorkflowStatus,
+};
 use orchestrator_git_ops::{
     cleanup_merge_conflict_worktree, finalize_merge_conflict_resolution, is_branch_merged,
     load_post_success_git_config, post_success_merge_push_and_cleanup, PostMergeOutcome,
@@ -11,8 +14,7 @@ use orchestrator_git_ops::{
 use workflow_runner::executor::attempt_ai_merge_conflict_recovery;
 
 use crate::{
-    merge_blocked_reason, project_task_blocked_with_reason, project_task_dispatch_failure,
-    project_task_status, remove_terminal_em_work_queue_entry_non_fatal, MERGE_GATE_PREFIX,
+    merge_blocked_reason, remove_terminal_em_work_queue_entry_non_fatal, MERGE_GATE_PREFIX,
 };
 
 const MAX_DISPATCH_RETRIES: u32 = 3;

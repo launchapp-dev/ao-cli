@@ -19,9 +19,6 @@ mod hook_backed_project_tick_driver;
 mod hook_backed_project_tick_operations;
 mod notification_runtime;
 mod process_manager;
-mod project_schedule_execution_fact;
-mod project_task_execution_fact;
-mod project_task_lifecycle;
 mod project_tick_action;
 mod project_tick_action_effect;
 mod project_tick_action_executor;
@@ -48,10 +45,8 @@ mod reconcile_completed_processes;
 mod requirement_lifecycle_transition;
 mod run_daemon;
 mod run_project_tick;
-mod runner_event;
 mod runner_ready_dispatch;
 mod schedule_dispatch;
-mod subject_execution_fact;
 mod sync_task_status_for_workflow_result;
 mod task_blocking;
 mod task_lifecycle_support;
@@ -94,9 +89,6 @@ pub use notification_runtime::{
     NOTIFICATION_CONFIG_SCHEMA,
 };
 pub use process_manager::ProcessManager;
-pub use project_task_lifecycle::{
-    project_task_blocked_with_reason, project_task_dispatch_failure, project_task_status,
-};
 pub use project_tick_action::ProjectTickAction;
 pub use project_tick_action_effect::ProjectTickActionEffect;
 pub use project_tick_action_executor::ProjectTickActionExecutor;
@@ -114,7 +106,7 @@ pub use project_tick_snapshot::ProjectTickSnapshot;
 pub use project_tick_summary::ProjectTickSummary;
 pub use project_tick_summary_input::ProjectTickSummaryInput;
 pub use project_tick_time::ProjectTickTime;
-pub use protocol::SubjectDispatch;
+pub use protocol::{RunnerEvent, SubjectDispatch, SubjectExecutionFact};
 pub use queue_service::{
     enqueue_subject_dispatch, hold_subject, queue_snapshot, queue_stats, release_subject,
     reorder_subjects, QueueEnqueueResult, QueueEntrySnapshot, QueueSnapshot, QueueStats,
@@ -133,10 +125,8 @@ pub use reconcile_completed_processes::reconcile_completed_processes;
 pub use requirement_lifecycle_transition::RequirementLifecycleTransition;
 pub use run_daemon::run_daemon;
 pub use run_project_tick::{run_project_tick, run_project_tick_at};
-pub use runner_event::RunnerEvent;
 pub use runner_ready_dispatch::dispatch_ready_tasks_via_runner;
 pub use schedule_dispatch::ScheduleDispatch;
-pub use subject_execution_fact::SubjectExecutionFact;
 pub use sync_task_status_for_workflow_result::sync_task_status_for_workflow_result;
 pub use task_blocking::{
     dependency_blocked_reason, dependency_gate_issues_for_task, is_dependency_gate_block,

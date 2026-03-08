@@ -4,14 +4,15 @@ use std::sync::Arc;
 use anyhow::Result;
 use chrono::Utc;
 use orchestrator_core::{
-    services::ServiceHub, TaskStatus, WorkflowMachineState, WorkflowResumeManager, WorkflowStatus,
+    project_task_blocked_with_reason, project_task_status, services::ServiceHub, TaskStatus,
+    WorkflowMachineState, WorkflowResumeManager, WorkflowStatus,
 };
 use orchestrator_git_ops::is_branch_merged;
 
 use crate::{
     active_workflow_task_ids, dependency_blocked_reason, dependency_gate_issues_for_task,
     is_dependency_gate_block, is_merge_gate_block, is_terminally_completed_workflow,
-    project_task_blocked_with_reason, project_task_status, sync_task_status_for_workflow_result,
+    sync_task_status_for_workflow_result,
 };
 
 pub struct WorkflowStateReconciler;

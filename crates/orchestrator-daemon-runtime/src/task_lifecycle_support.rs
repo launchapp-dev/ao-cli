@@ -2,12 +2,14 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use chrono::Utc;
-use orchestrator_core::{services::ServiceHub, TaskStatus, WorkflowStatus};
+use orchestrator_core::{
+    project_task_blocked_with_reason, project_task_status, services::ServiceHub, TaskStatus,
+    WorkflowStatus,
+};
 
 use crate::{
     active_workflow_task_ids, dependency_blocked_reason, dependency_gate_issues_for_task,
-    is_dependency_gate_block, is_merge_gate_block, project_task_blocked_with_reason,
-    project_task_status,
+    is_dependency_gate_block, is_merge_gate_block,
 };
 
 const DEFAULT_RETRY_COOLDOWN_SECS: i64 = 300;

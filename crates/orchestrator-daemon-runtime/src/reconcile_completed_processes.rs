@@ -1,10 +1,13 @@
 use std::sync::Arc;
 
-use orchestrator_core::services::ServiceHub;
+use orchestrator_core::{
+    project_schedule_execution_fact, project_task_execution_fact, services::ServiceHub,
+};
 
-use crate::project_schedule_execution_fact::project_schedule_execution_fact;
-use crate::project_task_execution_fact::project_task_execution_fact;
-use crate::{build_completion_reconciliation_plan, CompletedProcess};
+use crate::{
+    build_completion_reconciliation_plan, remove_terminal_em_work_queue_entry_non_fatal,
+    CompletedProcess,
+};
 
 pub async fn reconcile_completed_processes(
     hub: Arc<dyn ServiceHub>,
@@ -25,7 +28,10 @@ pub async fn reconcile_completed_processes(
             );
         }
 
-        if fact.task_id.is_some() {
+        if let Some(task_id) = fact.task_id.as_deref() {
+            if fact.success {
+                remove_terminal_em_work_queue_entry_non_fatal(root, task_id, None);
+            }
             project_task_execution_fact(hub.clone(), root, &fact).await;
         } else {
             eprintln!(

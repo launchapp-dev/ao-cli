@@ -5,6 +5,7 @@ pub mod daemon_config;
 pub mod doctor;
 pub mod domain_state;
 pub mod events;
+pub mod execution_projection;
 pub mod model_quality;
 pub mod providers;
 pub mod runtime;
@@ -44,6 +45,10 @@ pub use domain_state::{
     ReviewDecision, ReviewEntityType, ReviewRecord, ReviewStore, ReviewerRole,
 };
 pub use events::{OrchestratorEvent, OrchestratorEventKind};
+pub use execution_projection::{
+    project_schedule_execution_fact, project_task_blocked_with_reason,
+    project_task_dispatch_failure, project_task_execution_fact, project_task_status,
+};
 pub use model_quality::{
     is_model_suppressed_for_phase, load_model_quality_ledger, model_quality_ledger_path,
     record_model_phase_outcome, ModelQualityLedger, ModelQualityRecord,
@@ -79,14 +84,14 @@ pub use types::{
     RequirementPriorityExt, RequirementRange, RequirementStatus, RequirementType,
     RequirementsDraftInput, RequirementsDraftResult, RequirementsExecutionInput,
     RequirementsExecutionResult, RequirementsRefineInput, ResourceRequirements, RiskLevel, Scope,
-    TaskCreateInput, TaskDensity, TaskDependency, TaskFilter, TaskMetadata,
+    SubjectDispatch, TaskCreateInput, TaskDensity, TaskDependency, TaskFilter, TaskMetadata,
     TaskPriorityDistribution, TaskPriorityPolicyReport, TaskPriorityRebalanceChange,
     TaskPriorityRebalanceOptions, TaskPriorityRebalancePlan, TaskStatistics, TaskStatus, TaskType,
     TaskUpdateInput, VisionDocument, VisionDraftInput, WorkflowCheckpoint,
     WorkflowCheckpointMetadata, WorkflowDecisionAction, WorkflowDecisionRecord,
     WorkflowDecisionRisk, WorkflowDecisionSource, WorkflowMachineEvent, WorkflowMachineState,
     WorkflowMetadata, WorkflowPhaseExecution, WorkflowPhaseStatus, WorkflowRunInput,
-    WorkflowStatus, WorkflowSubject, SubjectDispatch, DEFAULT_HIGH_PRIORITY_BUDGET_PERCENT,
+    WorkflowStatus, WorkflowSubject, DEFAULT_HIGH_PRIORITY_BUDGET_PERCENT,
     MAX_DISPATCH_HISTORY_ENTRIES,
 };
 pub use workflow::{

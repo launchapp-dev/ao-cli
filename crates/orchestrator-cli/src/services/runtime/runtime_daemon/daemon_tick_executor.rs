@@ -7,7 +7,7 @@ use default_project_tick_driver::{
 };
 use orchestrator_core::{promote_backlog_tasks_to_ready, retry_failed_task_workflows};
 use orchestrator_daemon_runtime::{
-    reconcile_completed_processes, CompletedProcess, ProcessManager,
+    reconcile_completed_processes, CompletedProcess, DispatchWorkflowStartSummary, ProcessManager,
 };
 
 pub(crate) struct CliProjectTickServices;
@@ -29,7 +29,7 @@ impl DefaultProjectTickServices for CliProjectTickServices {
         root: &str,
         limit: usize,
         process_manager: Option<&mut ProcessManager>,
-    ) -> Result<ReadyTaskWorkflowStartSummary> {
+    ) -> Result<DispatchWorkflowStartSummary> {
         let _ = retry_failed_task_workflows(hub.clone()).await;
         let _ = promote_backlog_tasks_to_ready(hub.clone(), root).await;
         match process_manager {

@@ -1,12 +1,12 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum TaskSelectionSource {
+pub enum DispatchSelectionSource {
     EmQueue,
     FallbackPicker,
 }
 
-impl TaskSelectionSource {
+impl DispatchSelectionSource {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::EmQueue => "em_queue",

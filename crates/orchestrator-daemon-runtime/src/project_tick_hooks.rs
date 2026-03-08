@@ -4,7 +4,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use orchestrator_core::services::ServiceHub;
 
-use crate::ReadyTaskWorkflowStartSummary;
+use crate::DispatchWorkflowStartSummary;
 
 #[async_trait::async_trait(?Send)]
 pub trait ProjectTickHooks {
@@ -31,7 +31,7 @@ pub trait ProjectTickHooks {
         _hub: Arc<dyn ServiceHub>,
         _root: &str,
         _limit: usize,
-    ) -> Result<ReadyTaskWorkflowStartSummary> {
-        Ok(ReadyTaskWorkflowStartSummary::default())
+    ) -> Result<DispatchWorkflowStartSummary> {
+        Ok(DispatchWorkflowStartSummary::default())
     }
 }

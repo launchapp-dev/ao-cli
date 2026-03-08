@@ -50,9 +50,9 @@ mod tests {
 
     use super::execute_project_tick_script;
     use crate::{
-        DaemonRuntimeOptions, ProjectTickAction, ProjectTickExecutionOutcome, ProjectTickHooks,
-        ProjectTickPlan, ProjectTickScript,
-        ReadyTaskWorkflowStart, ReadyTaskWorkflowStartSummary, TaskSelectionSource,
+        DaemonRuntimeOptions, DispatchSelectionSource, DispatchWorkflowStart,
+        DispatchWorkflowStartSummary, ProjectTickAction, ProjectTickExecutionOutcome,
+        ProjectTickHooks, ProjectTickPlan, ProjectTickScript,
     };
 
     struct FakeHooks {
@@ -82,15 +82,18 @@ mod tests {
             _hub: Arc<dyn ServiceHub>,
             _root: &str,
             limit: usize,
-        ) -> Result<ReadyTaskWorkflowStartSummary> {
+        ) -> Result<DispatchWorkflowStartSummary> {
             self.calls
                 .push(ProjectTickAction::DispatchReadyTasks { limit });
-            Ok(ReadyTaskWorkflowStartSummary {
+            Ok(DispatchWorkflowStartSummary {
                 started: limit,
-                started_workflows: vec![ReadyTaskWorkflowStart {
-                    task_id: "TASK-1".to_string(),
+                started_workflows: vec![DispatchWorkflowStart {
+                    dispatch: protocol::SubjectDispatch::for_task(
+                        "TASK-1",
+                        orchestrator_core::STANDARD_PIPELINE_ID,
+                    ),
                     workflow_id: "wf-1".to_string(),
-                    selection_source: TaskSelectionSource::FallbackPicker,
+                    selection_source: DispatchSelectionSource::FallbackPicker,
                 }],
             })
         }

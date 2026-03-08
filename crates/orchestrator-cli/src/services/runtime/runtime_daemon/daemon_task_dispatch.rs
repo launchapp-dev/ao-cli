@@ -6,9 +6,9 @@ use orchestrator_core::{
 };
 pub use orchestrator_daemon_runtime::{
     active_workflow_task_ids, load_em_work_queue_state, mark_em_work_queue_entry_assigned,
+    DispatchSelectionSource, DispatchWorkflowStart, DispatchWorkflowStartSummary,
     pipeline_for_task, plan_ready_task_dispatch, routing_complexity_for_task, should_skip_dispatch,
-    workflow_current_phase_id, ReadyTaskWorkflowStart, ReadyTaskWorkflowStartSummary,
-    SubjectDispatch, TaskSelectionSource,
+    workflow_current_phase_id, SubjectDispatch,
 };
 #[cfg(test)]
 pub use orchestrator_daemon_runtime::{
@@ -60,9 +60,9 @@ pub async fn run_ready_task_workflows_for_project(
     hub: Arc<dyn ServiceHub>,
     project_root: &str,
     max_tasks_per_tick: usize,
-) -> Result<ReadyTaskWorkflowStartSummary> {
+) -> Result<DispatchWorkflowStartSummary> {
     if max_tasks_per_tick == 0 {
-        return Ok(ReadyTaskWorkflowStartSummary::default());
+        return Ok(DispatchWorkflowStartSummary::default());
     }
 
     let workflows = hub.workflows().list().await.unwrap_or_default();
@@ -122,7 +122,7 @@ pub async fn run_ready_task_workflows_for_project(
                 Some(planned_start.dispatch.workflow_ref.clone()),
             ))
             .await?;
-        if planned_start.selection_source == TaskSelectionSource::EmQueue {
+        if planned_start.selection_source == DispatchSelectionSource::EmQueue {
             if let Err(error) =
                 mark_em_work_queue_entry_assigned(project_root, &task.id, workflow.id.as_str())
             {
@@ -143,14 +143,14 @@ pub async fn run_ready_task_workflows_for_project(
             Some(workflow.id.as_str()),
         )
         .await;
-        started_workflows.push(ReadyTaskWorkflowStart {
-            task_id: task.id.clone(),
+        started_workflows.push(DispatchWorkflowStart {
+            dispatch: planned_start.dispatch.clone(),
             workflow_id: workflow.id.clone(),
             selection_source: planned_start.selection_source,
         });
     }
 
-    Ok(ReadyTaskWorkflowStartSummary {
+    Ok(DispatchWorkflowStartSummary {
         started: started_workflows.len(),
         started_workflows,
     })
@@ -161,7 +161,7 @@ pub async fn dispatch_ready_tasks_via_runner(
     root: &str,
     process_manager: &mut ProcessManager,
     limit: usize,
-) -> Result<ReadyTaskWorkflowStartSummary> {
+) -> Result<DispatchWorkflowStartSummary> {
     let workflows = hub.workflows().list().await.unwrap_or_default();
     let active_task_ids = active_workflow_task_ids(&workflows);
     let candidates = hub.tasks().list_prioritized().await?;
@@ -197,10 +197,10 @@ pub async fn dispatch_ready_tasks_via_runner(
         match process_manager.spawn_workflow_runner(&dispatch, root) {
             Ok(_) => {
                 let _ = project_task_status(hub.clone(), &task.id, TaskStatus::InProgress).await;
-                started_workflows.push(ReadyTaskWorkflowStart {
-                    task_id: task.id.clone(),
+                started_workflows.push(DispatchWorkflowStart {
+                    dispatch: dispatch.clone(),
                     workflow_id: task.id.clone(),
-                    selection_source: TaskSelectionSource::FallbackPicker,
+                    selection_source: DispatchSelectionSource::FallbackPicker,
                 });
             }
             Err(error) => {
@@ -210,7 +210,7 @@ pub async fn dispatch_ready_tasks_via_runner(
         }
     }
 
-    Ok(ReadyTaskWorkflowStartSummary {
+    Ok(DispatchWorkflowStartSummary {
         started: started_workflows.len(),
         started_workflows,
     })

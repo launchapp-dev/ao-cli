@@ -225,8 +225,8 @@ mod tests {
         assert_eq!(summary.started, 1);
         assert_eq!(summary.started_workflows.len(), 1);
         let started = &summary.started_workflows[0];
-        assert_eq!(started.task_id, queue_task.id);
-        assert_eq!(started.selection_source, TaskSelectionSource::EmQueue);
+        assert_eq!(started.task_id(), Some(queue_task.id.as_str()));
+        assert_eq!(started.selection_source, DispatchSelectionSource::EmQueue);
 
         let queue_state = load_em_work_queue_state(&project_root_str)
             .expect("queue should load")
@@ -325,15 +325,21 @@ mod tests {
 
         assert_eq!(summary.started, 2);
         assert_eq!(summary.started_workflows.len(), 2);
-        assert_eq!(summary.started_workflows[0].task_id, queue_task.id);
-        assert_eq!(summary.started_workflows[1].task_id, fallback_task.id);
+        assert_eq!(
+            summary.started_workflows[0].task_id(),
+            Some(queue_task.id.as_str())
+        );
+        assert_eq!(
+            summary.started_workflows[1].task_id(),
+            Some(fallback_task.id.as_str())
+        );
         assert_eq!(
             summary.started_workflows[0].selection_source,
-            TaskSelectionSource::EmQueue
+            DispatchSelectionSource::EmQueue
         );
         assert_eq!(
             summary.started_workflows[1].selection_source,
-            TaskSelectionSource::FallbackPicker
+            DispatchSelectionSource::FallbackPicker
         );
 
         let queue_state = load_em_work_queue_state(&project_root_str)
@@ -455,20 +461,26 @@ mod tests {
 
         assert_eq!(summary.started, 2);
         assert_eq!(summary.started_workflows.len(), 2);
-        assert_eq!(summary.started_workflows[0].task_id, queue_task_one.id);
-        assert_eq!(summary.started_workflows[1].task_id, queue_task_two.id);
+        assert_eq!(
+            summary.started_workflows[0].task_id(),
+            Some(queue_task_one.id.as_str())
+        );
+        assert_eq!(
+            summary.started_workflows[1].task_id(),
+            Some(queue_task_two.id.as_str())
+        );
         assert_eq!(
             summary.started_workflows[0].selection_source,
-            TaskSelectionSource::EmQueue
+            DispatchSelectionSource::EmQueue
         );
         assert_eq!(
             summary.started_workflows[1].selection_source,
-            TaskSelectionSource::EmQueue
+            DispatchSelectionSource::EmQueue
         );
         assert!(!summary
             .started_workflows
             .iter()
-            .any(|started| started.task_id == fallback_task.id));
+            .any(|started| started.task_id() == Some(fallback_task.id.as_str())));
 
         let queue_state = load_em_work_queue_state(&project_root_str)
             .expect("queue should load")
@@ -477,7 +489,7 @@ mod tests {
             let queue_entry = queue_state
                 .entries
                 .iter()
-                .find(|entry| entry.task_id == started.task_id)
+                .find(|entry| started.task_id() == Some(entry.task_id.as_str()))
                 .expect("started queue entry should remain present");
             assert_eq!(queue_entry.status, EmWorkQueueEntryStatus::Assigned);
             assert_eq!(
@@ -558,10 +570,10 @@ mod tests {
         assert_eq!(summary.started, 1);
         assert_eq!(summary.started_workflows.len(), 1);
         let started = &summary.started_workflows[0];
-        assert_eq!(started.task_id, fallback_ready_task.id);
+        assert_eq!(started.task_id(), Some(fallback_ready_task.id.as_str()));
         assert_eq!(
             started.selection_source,
-            TaskSelectionSource::FallbackPicker
+            DispatchSelectionSource::FallbackPicker
         );
     }
 
@@ -613,7 +625,7 @@ mod tests {
         assert_eq!(summary.started_workflows.len(), 1);
         assert_eq!(
             summary.started_workflows[0].selection_source,
-            TaskSelectionSource::FallbackPicker
+            DispatchSelectionSource::FallbackPicker
         );
     }
 
@@ -1104,7 +1116,8 @@ thinking...
 
         assert_eq!(summary.started, 2, "should start both tasks");
         assert_eq!(
-            summary.started_workflows[0].task_id, high_task.id,
+            summary.started_workflows[0].task_id(),
+            Some(high_task.id.as_str()),
             "high priority should start first"
         );
     }

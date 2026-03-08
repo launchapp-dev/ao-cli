@@ -5,14 +5,14 @@ use orchestrator_core::{OrchestratorTask, OrchestratorWorkflow, TaskStatus};
 
 use crate::{
     active_workflow_task_ids, is_terminally_completed_workflow, pipeline_for_task,
-    should_skip_dispatch, EmWorkQueueEntryStatus, EmWorkQueueState, SubjectDispatch,
-    TaskSelectionSource,
+    DispatchSelectionSource, EmWorkQueueEntryStatus, EmWorkQueueState, SubjectDispatch,
+    should_skip_dispatch,
 };
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlannedReadyTaskStart {
     pub dispatch: SubjectDispatch,
-    pub selection_source: TaskSelectionSource,
+    pub selection_source: DispatchSelectionSource,
 }
 
 impl PlannedReadyTaskStart {
@@ -81,7 +81,7 @@ pub fn plan_ready_task_dispatch(
 
             plan.ordered_starts.push(PlannedReadyTaskStart {
                 dispatch,
-                selection_source: TaskSelectionSource::EmQueue,
+                selection_source: DispatchSelectionSource::EmQueue,
             });
         }
     }
@@ -109,7 +109,7 @@ pub fn plan_ready_task_dispatch(
                 "fallback-picker",
                 requested_at,
             ),
-            selection_source: TaskSelectionSource::FallbackPicker,
+            selection_source: DispatchSelectionSource::FallbackPicker,
         });
     }
 
@@ -189,7 +189,7 @@ mod tests {
                         "em-queue",
                         now,
                     ),
-                    selection_source: TaskSelectionSource::EmQueue,
+                    selection_source: DispatchSelectionSource::EmQueue,
                 },
                 PlannedReadyTaskStart {
                     dispatch: SubjectDispatch::for_task_with_metadata(
@@ -198,7 +198,7 @@ mod tests {
                         "fallback-picker",
                         now,
                     ),
-                    selection_source: TaskSelectionSource::FallbackPicker,
+                    selection_source: DispatchSelectionSource::FallbackPicker,
                 },
             ]
         );
@@ -231,7 +231,7 @@ mod tests {
                     "fallback-picker",
                     now,
                 ),
-                selection_source: TaskSelectionSource::FallbackPicker,
+                selection_source: DispatchSelectionSource::FallbackPicker,
             }]
         );
     }
@@ -274,7 +274,7 @@ mod tests {
                     "em-queue",
                     now,
                 ),
-                selection_source: TaskSelectionSource::EmQueue,
+                selection_source: DispatchSelectionSource::EmQueue,
             }]
         );
     }

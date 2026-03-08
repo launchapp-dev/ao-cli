@@ -4,7 +4,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use orchestrator_core::{services::ServiceHub, FileServiceHub};
 use orchestrator_daemon_runtime::{
-    CompletedProcess, ProcessManager, ProjectTickHooks, ReadyTaskWorkflowStartSummary,
+    CompletedProcess, DispatchWorkflowStartSummary, ProcessManager, ProjectTickHooks,
     ScheduleDispatch, SubjectDispatch,
 };
 use tokio::process::Command as TokioCommand;
@@ -24,7 +24,7 @@ pub trait DefaultProjectTickServices {
         root: &str,
         limit: usize,
         process_manager: Option<&mut ProcessManager>,
-    ) -> Result<ReadyTaskWorkflowStartSummary>;
+    ) -> Result<DispatchWorkflowStartSummary>;
 }
 
 pub type DefaultSlimProjectTickDriver<'a, S> = DefaultSlimProjectTickHooks<'a, S>;
@@ -139,7 +139,7 @@ where
         hub: Arc<dyn ServiceHub>,
         root: &str,
         limit: usize,
-    ) -> Result<ReadyTaskWorkflowStartSummary> {
+    ) -> Result<DispatchWorkflowStartSummary> {
         self.services
             .dispatch_ready_tasks(hub, root, limit, Some(self.process_manager))
             .await

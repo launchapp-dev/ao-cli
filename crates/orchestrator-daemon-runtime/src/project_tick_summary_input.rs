@@ -2,7 +2,7 @@ use orchestrator_core::{OrchestratorTask, RequirementItem};
 use serde_json::Value;
 use workflow_runner::executor::PhaseExecutionEvent;
 
-use crate::ReadyTaskWorkflowStart;
+use crate::DispatchWorkflowStart;
 
 #[derive(Debug, Clone)]
 pub struct ProjectTickSummaryInput {
@@ -17,7 +17,7 @@ pub struct ProjectTickSummaryInput {
     pub reconciled_dependency_tasks: usize,
     pub reconciled_merge_tasks: usize,
     pub ready_started_count: usize,
-    pub ready_started_workflows: Vec<ReadyTaskWorkflowStart>,
+    pub ready_started_workflows: Vec<DispatchWorkflowStart>,
     pub executed_workflow_phases: usize,
     pub failed_workflow_phases: usize,
     pub phase_execution_events: Vec<PhaseExecutionEvent>,

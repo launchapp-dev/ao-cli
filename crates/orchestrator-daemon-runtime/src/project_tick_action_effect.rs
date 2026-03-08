@@ -1,4 +1,4 @@
-use crate::ReadyTaskWorkflowStartSummary;
+use crate::DispatchWorkflowStartSummary;
 
 #[derive(Debug, Clone)]
 pub enum ProjectTickActionEffect {
@@ -20,6 +20,6 @@ pub enum ProjectTickActionEffect {
         failed_workflow_phases: usize,
     },
     ReadyWorkflowStarts {
-        summary: ReadyTaskWorkflowStartSummary,
+        summary: DispatchWorkflowStartSummary,
     },
 }

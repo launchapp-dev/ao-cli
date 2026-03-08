@@ -158,6 +158,85 @@ struct RequirementGetInput {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+struct RequirementCreateInput {
+    title: String,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    priority: Option<String>,
+    #[serde(default)]
+    category: Option<String>,
+    #[serde(default, rename = "type")]
+    requirement_type: Option<String>,
+    #[serde(default)]
+    source: Option<String>,
+    #[serde(default)]
+    acceptance_criterion: Vec<String>,
+    #[serde(default)]
+    input_json: Option<String>,
+    #[serde(default)]
+    project_root: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
+struct RequirementUpdateInput {
+    id: String,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    priority: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    category: Option<String>,
+    #[serde(default, rename = "type")]
+    requirement_type: Option<String>,
+    #[serde(default)]
+    source: Option<String>,
+    #[serde(default)]
+    linked_task_id: Vec<String>,
+    #[serde(default)]
+    acceptance_criterion: Vec<String>,
+    #[serde(default)]
+    replace_acceptance_criteria: bool,
+    #[serde(default)]
+    input_json: Option<String>,
+    #[serde(default)]
+    project_root: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+struct RequirementDeleteInput {
+    id: String,
+    #[serde(default)]
+    project_root: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
+struct RequirementRefineInput {
+    #[serde(default, rename = "id")]
+    requirement_ids: Vec<String>,
+    #[serde(default)]
+    focus: Option<String>,
+    #[serde(default)]
+    use_ai: Option<bool>,
+    #[serde(default)]
+    tool: Option<String>,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    timeout_secs: Option<u64>,
+    #[serde(default)]
+    start_runner: Option<bool>,
+    #[serde(default)]
+    input_json: Option<String>,
+    #[serde(default)]
+    project_root: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 struct WorkflowRunInput {
     #[serde(default)]
     task_id: Option<String>,
@@ -1066,6 +1145,66 @@ impl AoMcpServer {
         let input = params.0;
         let args = build_requirements_get_args(input.id);
         self.run_tool("ao.requirements.get", args, input.project_root)
+            .await
+    }
+
+    #[tool(
+        name = "ao.requirements.create",
+        description = "Create a requirement in AO. Purpose: Add a new requirement with structured metadata and acceptance criteria. Prerequisites: None. Example: {\"title\": \"Offline mode\", \"priority\": \"must\", \"acceptance_criterion\": [\"Sync resumes after reconnect\"]}. Sequencing: Use ao.requirements.get or ao.requirements.update to inspect or refine the new requirement, and ao.task.create to create derived tasks.",
+        input_schema = ao_schema_for_type::<RequirementCreateInput>()
+    )]
+    async fn ao_requirements_create(
+        &self,
+        params: Parameters<RequirementCreateInput>,
+    ) -> Result<CallToolResult, McpError> {
+        let input = params.0;
+        let args = build_requirements_create_args(&input);
+        self.run_tool("ao.requirements.create", args, input.project_root)
+            .await
+    }
+
+    #[tool(
+        name = "ao.requirements.update",
+        description = "Update a requirement in AO. Purpose: Modify requirement title, description, priority, status, acceptance criteria, and linked tasks. Prerequisites: Requirement must exist. Example: {\"id\": \"REQ-001\", \"status\": \"in-progress\", \"acceptance_criterion\": [\"Exports CSV\"]}. Sequencing: Use ao.requirements.get first to inspect current state, or ao.requirements.refine for AI-assisted refinement.",
+        input_schema = ao_schema_for_type::<RequirementUpdateInput>()
+    )]
+    async fn ao_requirements_update(
+        &self,
+        params: Parameters<RequirementUpdateInput>,
+    ) -> Result<CallToolResult, McpError> {
+        let input = params.0;
+        let args = build_requirements_update_args(&input);
+        self.run_tool("ao.requirements.update", args, input.project_root)
+            .await
+    }
+
+    #[tool(
+        name = "ao.requirements.delete",
+        description = "Delete a requirement from AO. Purpose: Remove a requirement that is obsolete or created in error. Prerequisites: Requirement must exist. Example: {\"id\": \"REQ-099\"}. Sequencing: Use ao.requirements.get first to verify the requirement, and ensure linked tasks have been handled before deletion.",
+        input_schema = ao_schema_for_type::<RequirementDeleteInput>()
+    )]
+    async fn ao_requirements_delete(
+        &self,
+        params: Parameters<RequirementDeleteInput>,
+    ) -> Result<CallToolResult, McpError> {
+        let input = params.0;
+        let args = build_requirements_delete_args(input.id);
+        self.run_tool("ao.requirements.delete", args, input.project_root)
+            .await
+    }
+
+    #[tool(
+        name = "ao.requirements.refine",
+        description = "Refine requirements in AO. Purpose: Improve one or more requirements, optionally with AI assistance, before planning or task derivation. Prerequisites: Requirements should exist. Example: {\"id\": [\"REQ-001\"], \"focus\": \"tighten acceptance criteria\"}. Sequencing: Use ao.requirements.get or ao.requirements.list to choose targets first, then ao.requirements.update or ao.task.create to apply follow-up work.",
+        input_schema = ao_schema_for_type::<RequirementRefineInput>()
+    )]
+    async fn ao_requirements_refine(
+        &self,
+        params: Parameters<RequirementRefineInput>,
+    ) -> Result<CallToolResult, McpError> {
+        let input = params.0;
+        let args = build_requirements_refine_args(&input);
+        self.run_tool("ao.requirements.refine", args, input.project_root)
             .await
     }
 
@@ -3066,6 +3205,90 @@ fn build_requirements_get_args(id: String) -> Vec<String> {
     ]
 }
 
+fn build_requirements_create_args(input: &RequirementCreateInput) -> Vec<String> {
+    let mut args = vec![
+        "requirements".to_string(),
+        "create".to_string(),
+        "--title".to_string(),
+        input.title.clone(),
+        "--description".to_string(),
+        input.description.clone().unwrap_or_default(),
+    ];
+    push_opt(&mut args, "--priority", input.priority.clone());
+    push_opt(&mut args, "--category", input.category.clone());
+    push_opt(&mut args, "--type", input.requirement_type.clone());
+    push_opt(&mut args, "--source", input.source.clone());
+    for criterion in &input.acceptance_criterion {
+        args.push("--acceptance-criterion".to_string());
+        args.push(criterion.clone());
+    }
+    push_opt(&mut args, "--input-json", input.input_json.clone());
+    args
+}
+
+fn build_requirements_update_args(input: &RequirementUpdateInput) -> Vec<String> {
+    let mut args = vec![
+        "requirements".to_string(),
+        "update".to_string(),
+        "--id".to_string(),
+        input.id.clone(),
+    ];
+    push_opt(&mut args, "--title", input.title.clone());
+    push_opt(&mut args, "--description", input.description.clone());
+    push_opt(&mut args, "--priority", input.priority.clone());
+    push_opt(&mut args, "--status", input.status.clone());
+    push_opt(&mut args, "--category", input.category.clone());
+    push_opt(&mut args, "--type", input.requirement_type.clone());
+    push_opt(&mut args, "--source", input.source.clone());
+    for task_id in &input.linked_task_id {
+        args.push("--linked-task-id".to_string());
+        args.push(task_id.clone());
+    }
+    for criterion in &input.acceptance_criterion {
+        args.push("--acceptance-criterion".to_string());
+        args.push(criterion.clone());
+    }
+    if input.replace_acceptance_criteria {
+        args.push("--replace-acceptance-criteria".to_string());
+    }
+    push_opt(&mut args, "--input-json", input.input_json.clone());
+    args
+}
+
+fn build_requirements_delete_args(id: String) -> Vec<String> {
+    vec![
+        "requirements".to_string(),
+        "delete".to_string(),
+        "--id".to_string(),
+        id,
+    ]
+}
+
+fn build_requirements_refine_args(input: &RequirementRefineInput) -> Vec<String> {
+    let mut args = vec!["requirements".to_string(), "refine".to_string()];
+    for requirement_id in &input.requirement_ids {
+        args.push("--id".to_string());
+        args.push(requirement_id.clone());
+    }
+    push_opt(&mut args, "--focus", input.focus.clone());
+    if let Some(use_ai) = input.use_ai {
+        args.push("--use-ai".to_string());
+        args.push(use_ai.to_string());
+    }
+    push_opt(&mut args, "--tool", input.tool.clone());
+    push_opt(&mut args, "--model", input.model.clone());
+    if let Some(timeout_secs) = input.timeout_secs {
+        args.push("--timeout-secs".to_string());
+        args.push(timeout_secs.to_string());
+    }
+    if let Some(start_runner) = input.start_runner {
+        args.push("--start-runner".to_string());
+        args.push(start_runner.to_string());
+    }
+    push_opt(&mut args, "--input-json", input.input_json.clone());
+    args
+}
+
 fn build_bulk_status_item_args(item: &BulkTaskStatusItem) -> Vec<String> {
     vec![
         "task".to_string(),
@@ -4054,6 +4277,126 @@ mod tests {
                 "get".to_string(),
                 "--id".to_string(),
                 "REQ-123".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn build_requirements_create_args_includes_acceptance_criteria() {
+        let args = build_requirements_create_args(&RequirementCreateInput {
+            title: "Offline mode".to_string(),
+            description: Some("Support sync after reconnect".to_string()),
+            priority: Some("must".to_string()),
+            category: Some("product".to_string()),
+            requirement_type: Some("feature".to_string()),
+            source: Some("research".to_string()),
+            acceptance_criterion: vec![
+                "Queues local writes".to_string(),
+                "Resumes sync".to_string(),
+            ],
+            input_json: None,
+            project_root: None,
+        });
+        assert_eq!(
+            args,
+            vec![
+                "requirements".to_string(),
+                "create".to_string(),
+                "--title".to_string(),
+                "Offline mode".to_string(),
+                "--description".to_string(),
+                "Support sync after reconnect".to_string(),
+                "--priority".to_string(),
+                "must".to_string(),
+                "--category".to_string(),
+                "product".to_string(),
+                "--type".to_string(),
+                "feature".to_string(),
+                "--source".to_string(),
+                "research".to_string(),
+                "--acceptance-criterion".to_string(),
+                "Queues local writes".to_string(),
+                "--acceptance-criterion".to_string(),
+                "Resumes sync".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn build_requirements_update_args_includes_status_links_and_replace_flag() {
+        let args = build_requirements_update_args(&RequirementUpdateInput {
+            id: "REQ-123".to_string(),
+            title: Some("Tighten requirement".to_string()),
+            description: None,
+            priority: Some("should".to_string()),
+            status: Some("in-progress".to_string()),
+            category: None,
+            requirement_type: None,
+            source: None,
+            linked_task_id: vec!["TASK-1".to_string(), "TASK-2".to_string()],
+            acceptance_criterion: vec!["Adds retry handling".to_string()],
+            replace_acceptance_criteria: true,
+            input_json: None,
+            project_root: None,
+        });
+        assert_eq!(
+            args,
+            vec![
+                "requirements".to_string(),
+                "update".to_string(),
+                "--id".to_string(),
+                "REQ-123".to_string(),
+                "--title".to_string(),
+                "Tighten requirement".to_string(),
+                "--priority".to_string(),
+                "should".to_string(),
+                "--status".to_string(),
+                "in-progress".to_string(),
+                "--linked-task-id".to_string(),
+                "TASK-1".to_string(),
+                "--linked-task-id".to_string(),
+                "TASK-2".to_string(),
+                "--acceptance-criterion".to_string(),
+                "Adds retry handling".to_string(),
+                "--replace-acceptance-criteria".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn build_requirements_refine_args_includes_ids_and_optional_flags() {
+        let args = build_requirements_refine_args(&RequirementRefineInput {
+            requirement_ids: vec!["REQ-1".to_string(), "REQ-2".to_string()],
+            focus: Some("tighten acceptance criteria".to_string()),
+            use_ai: Some(true),
+            tool: Some("codex".to_string()),
+            model: Some("gpt-5".to_string()),
+            timeout_secs: Some(45),
+            start_runner: Some(false),
+            input_json: None,
+            project_root: None,
+        });
+        assert_eq!(
+            args,
+            vec![
+                "requirements".to_string(),
+                "refine".to_string(),
+                "--id".to_string(),
+                "REQ-1".to_string(),
+                "--id".to_string(),
+                "REQ-2".to_string(),
+                "--focus".to_string(),
+                "tighten acceptance criteria".to_string(),
+                "--use-ai".to_string(),
+                "true".to_string(),
+                "--tool".to_string(),
+                "codex".to_string(),
+                "--model".to_string(),
+                "gpt-5".to_string(),
+                "--timeout-secs".to_string(),
+                "45".to_string(),
+                "--start-runner".to_string(),
+                "false".to_string(),
             ]
         );
     }

@@ -149,17 +149,11 @@ pub async fn connect_runner(config_dir: &Path) -> Result<tokio::net::UnixStream>
 pub async fn connect_runner(config_dir: &Path) -> Result<tokio::net::TcpStream> {
     let mut stream = tokio::net::TcpStream::connect("127.0.0.1:9001")
         .await
-        .map_err(|error| {
-            anyhow!(
-                "failed to connect to runner at 127.0.0.1:9001: {error}"
-            )
-        })?;
+        .map_err(|error| anyhow!("failed to connect to runner at 127.0.0.1:9001: {error}"))?;
     authenticate_runner_stream(&mut stream, config_dir)
         .await
         .map_err(|error| {
-            anyhow!(
-                "failed to authenticate runner connection at 127.0.0.1:9001: {error}"
-            )
+            anyhow!("failed to authenticate runner connection at 127.0.0.1:9001: {error}")
         })?;
     Ok(stream)
 }
@@ -185,9 +179,7 @@ where
 
     write_json_line(stream, &IpcAuthRequest::new(token))
         .await
-        .map_err(|error| {
-            anyhow!("failed to send runner auth payload: {error}")
-        })?;
+        .map_err(|error| anyhow!("failed to send runner auth payload: {error}"))?;
 
     let mut line = String::new();
     let read_len = tokio::time::timeout(Duration::from_secs(2), async {
@@ -199,14 +191,11 @@ where
     .map_err(|error| anyhow!("failed to read runner auth response: {error}"))?;
 
     if read_len == 0 {
-        return Err(anyhow!(
-            "runner closed connection before auth completed",
-        ));
+        return Err(anyhow!("runner closed connection before auth completed",));
     }
 
-    let response: IpcAuthResult = serde_json::from_str(line.trim()).map_err(|error| {
-        anyhow!("received malformed runner auth response: {error}")
-    })?;
+    let response: IpcAuthResult = serde_json::from_str(line.trim())
+        .map_err(|error| anyhow!("received malformed runner auth response: {error}"))?;
     if response.ok {
         return Ok(());
     }
@@ -333,12 +322,18 @@ fn launch_prompt_insert_index(args: &[Value]) -> usize {
 }
 
 fn ensure_flag_value_if_missing(args: &mut Vec<Value>, flag: &str, value: &str, insert_at: usize) {
-    if args.iter().any(|item| item.as_str().is_some_and(|v| v == flag)) {
+    if args
+        .iter()
+        .any(|item| item.as_str().is_some_and(|v| v == flag))
+    {
         return;
     }
     let insert_at = insert_at.min(args.len());
     args.insert(insert_at, Value::String(flag.to_string()));
-    args.insert((insert_at + 1).min(args.len()), Value::String(value.to_string()));
+    args.insert(
+        (insert_at + 1).min(args.len()),
+        Value::String(value.to_string()),
+    );
 }
 
 fn ensure_codex_config_override(args: &mut Vec<Value>, key: &str, value_expr: &str) {
@@ -347,7 +342,10 @@ fn ensure_codex_config_override(args: &mut Vec<Value>, key: &str, value_expr: &s
     let mut index = 0usize;
     while index + 1 < args.len() {
         let flag = args[index].as_str().unwrap_or_default();
-        let value = args.get(index + 1).and_then(Value::as_str).unwrap_or_default();
+        let value = args
+            .get(index + 1)
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         if (flag == "-c" || flag == "--config") && value.starts_with(&key_prefix) {
             args[index + 1] = Value::String(target);
             return;

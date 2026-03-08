@@ -39,7 +39,10 @@ fn infer_api_base(normalized_model: &str) -> Result<String> {
     if normalized_model.starts_with("minimax/") || normalized_model.contains("minimax") {
         return Ok("https://api.minimax.io/v1".to_string());
     }
-    if normalized_model.starts_with("zai") || normalized_model.starts_with("glm") || normalized_model.contains("glm") {
+    if normalized_model.starts_with("zai")
+        || normalized_model.starts_with("glm")
+        || normalized_model.contains("glm")
+    {
         return Ok("https://api.z.ai/api/coding/paas/v4".to_string());
     }
     if normalized_model.starts_with("deepseek/") || normalized_model.contains("deepseek") {
@@ -80,7 +83,9 @@ fn resolve_api_key(normalized_model: &str, api_base: &str) -> Result<String> {
         return Ok(key);
     }
 
-    if let Some(key) = protocol::credentials::Credentials::load_global().resolve(normalized_model, api_base) {
+    if let Some(key) =
+        protocol::credentials::Credentials::load_global().resolve(normalized_model, api_base)
+    {
         return Ok(key);
     }
 
@@ -104,8 +109,7 @@ fn try_opencode_auth_json(normalized_model: &str, api_base: &str) -> Option<Stri
     let home = dirs_path()?;
     let auth_path = home.join(".local/share/opencode/auth.json");
     let content = std::fs::read_to_string(auth_path).ok()?;
-    let auth: HashMap<String, ProviderAuth> =
-        serde_json::from_str(&content).ok()?;
+    let auth: HashMap<String, ProviderAuth> = serde_json::from_str(&content).ok()?;
 
     for (provider_name, provider) in &auth {
         let matches = api_base.contains(provider_name.as_str())
@@ -125,7 +129,13 @@ fn try_opencode_auth_json(normalized_model: &str, api_base: &str) -> Option<Stri
 }
 
 fn strip_provider_prefix(model: &str) -> String {
-    let prefixes = ["minimax/", "zai-coding-plan/", "zai/", "deepseek/", "openrouter/"];
+    let prefixes = [
+        "minimax/",
+        "zai-coding-plan/",
+        "zai/",
+        "deepseek/",
+        "openrouter/",
+    ];
     for prefix in prefixes {
         if let Some(stripped) = model.strip_prefix(prefix) {
             return stripped.to_string();

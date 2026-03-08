@@ -344,9 +344,7 @@ pub(super) async fn handle_git_worktree(
                     .as_ref()
                     .map(|task| task.id.clone())
                     .or_else(|| inferred_task_id.clone());
-                let task_status = matched_task
-                    .as_ref()
-                    .map(|task| task.status.to_string());
+                let task_status = matched_task.as_ref().map(|task| task.status.to_string());
                 let terminal_task = matched_task
                     .as_ref()
                     .map(|task| task.status.is_terminal())
@@ -451,7 +449,10 @@ pub(super) async fn handle_git_worktree(
                     &git_confirmation_next_step(PRUNE_WORKTREES_CONFIRMATION_OPERATION, &args.repo),
                 );
                 if let Some(obj) = envelope.as_object_mut() {
-                    obj.insert("candidate_count".to_string(), json!(candidate_reports.len()));
+                    obj.insert(
+                        "candidate_count".to_string(),
+                        json!(candidate_reports.len()),
+                    );
                     obj.insert("candidates".to_string(), json!(candidate_reports));
                 }
                 return print_value(envelope, json);

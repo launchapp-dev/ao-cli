@@ -8,8 +8,7 @@ fn global_requirements_index_dir(project_root: &std::path::Path) -> std::path::P
 }
 
 fn scoped_ao_root(project_root: &std::path::Path) -> std::path::PathBuf {
-    protocol::scoped_state_root(project_root)
-        .unwrap_or_else(|| project_root.join(".ao"))
+    protocol::scoped_state_root(project_root).unwrap_or_else(|| project_root.join(".ao"))
 }
 
 fn assert_core_state_json_is_valid(project_root: &std::path::Path) {
@@ -159,7 +158,10 @@ async fn file_hub_project_create_bootstraps_base_configs_for_project_path() {
     assert!(scoped.join("core-state.json").exists());
     assert!(project_path.join(".ao").join("config.json").exists());
     assert!(scoped.join("resume-config.json").exists());
-    assert!(scoped.join("state").join("workflow-config.v2.json").exists());
+    assert!(scoped
+        .join("state")
+        .join("workflow-config.v2.json")
+        .exists());
     assert!(scoped.join("state").join("state-machines.v1.json").exists());
     assert!(scoped
         .join("state")
@@ -2075,9 +2077,7 @@ async fn file_hub_writes_legacy_style_requirement_and_task_files() {
         .expect("relative path should be set");
 
     let scoped = scoped_ao_root(temp.path());
-    let requirement_file_path = scoped
-        .join("requirements")
-        .join(requirement_relative_path);
+    let requirement_file_path = scoped.join("requirements").join(requirement_relative_path);
     assert!(requirement_file_path.exists());
 
     let requirement_file_json: serde_json::Value = serde_json::from_str(
@@ -2095,9 +2095,7 @@ async fn file_hub_writes_legacy_style_requirement_and_task_files() {
     let requirement_index_path = global_requirements_index_dir(temp.path()).join("index.json");
     assert!(requirement_index_path.exists());
 
-    let task_file_path = scoped
-        .join("tasks")
-        .join(format!("{}.json", task_id));
+    let task_file_path = scoped.join("tasks").join(format!("{}.json", task_id));
     assert!(task_file_path.exists());
     let task_file_json: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(&task_file_path).expect("task file should be readable"),

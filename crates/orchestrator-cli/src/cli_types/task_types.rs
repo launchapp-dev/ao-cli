@@ -2,9 +2,9 @@ use clap::{Args, Subcommand};
 
 use super::{
     parse_percentage_u8, parse_positive_u64, parse_positive_usize, IdArgs, TaskIdArgs,
-    DEPENDENCY_TYPE_HELP, INPUT_JSON_PRECEDENCE_HELP, TASK_PRIORITY_FILTER_HELP, TASK_PRIORITY_HELP,
-    TASK_RISK_FILTER_HELP, TASK_STATUS_FILTER_HELP, TASK_STATUS_HELP, TASK_TYPE_FILTER_HELP,
-    TASK_TYPE_HELP,
+    DEPENDENCY_TYPE_HELP, INPUT_JSON_PRECEDENCE_HELP, TASK_PRIORITY_FILTER_HELP,
+    TASK_PRIORITY_HELP, TASK_RISK_FILTER_HELP, TASK_STATUS_FILTER_HELP, TASK_STATUS_HELP,
+    TASK_TYPE_FILTER_HELP, TASK_TYPE_HELP,
 };
 
 #[derive(Debug, Subcommand)]
@@ -342,9 +342,17 @@ pub(crate) struct TaskAssignArgs {
         help = "Assignee type: agent|human."
     )]
     pub(crate) assignee_type: Option<String>,
-    #[arg(long = "agent-role", value_name = "ROLE", help = "Agent role identifier.")]
+    #[arg(
+        long = "agent-role",
+        value_name = "ROLE",
+        help = "Agent role identifier."
+    )]
     pub(crate) agent_role: Option<String>,
-    #[arg(long, value_name = "MODEL", help = "Optional model override (agent only).")]
+    #[arg(
+        long,
+        value_name = "MODEL",
+        help = "Optional model override (agent only)."
+    )]
     pub(crate) model: Option<String>,
     #[arg(
         long,

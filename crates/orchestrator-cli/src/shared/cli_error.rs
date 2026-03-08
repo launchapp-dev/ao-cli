@@ -184,8 +184,7 @@ mod tests {
 
     #[test]
     fn extract_cli_error_details_returns_none_when_absent() {
-        let err: anyhow::Error =
-            CliError::new(CliErrorKind::Internal, "plain error").into();
+        let err: anyhow::Error = CliError::new(CliErrorKind::Internal, "plain error").into();
         assert!(extract_cli_error_details(&err).is_none());
     }
 }

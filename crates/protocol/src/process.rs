@@ -1,13 +1,13 @@
 use anyhow::Result;
 #[cfg(windows)]
-use std::collections::HashMap;
-#[cfg(windows)]
-use std::sync::Mutex;
-#[cfg(windows)]
 use once_cell::sync::Lazy;
-use std::time::Duration;
+#[cfg(windows)]
+use std::collections::HashMap;
 #[cfg(unix)]
 use std::process::Command;
+#[cfg(windows)]
+use std::sync::Mutex;
+use std::time::Duration;
 
 #[cfg(windows)]
 static JOB_HANDLES: Lazy<Mutex<HashMap<u32, windows::Win32::Foundation::HANDLE>>> =
@@ -101,7 +101,7 @@ pub fn kill_process(pid: i32) -> bool {
         if kill(Pid::from_raw(-pid), Signal::SIGKILL).is_ok() {
             return true;
         }
-        
+
         kill(Pid::from_raw(pid), Signal::SIGKILL).is_ok()
     }
 

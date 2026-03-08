@@ -14,9 +14,9 @@ use uuid::Uuid;
 
 use crate::{
     dry_run_envelope, ensure_destructive_confirmation, parse_input_json_or, print_value,
-    WorkflowAgentRuntimeCommand, WorkflowCheckpointCommand, WorkflowCommand,
-    WorkflowConfigCommand, WorkflowPhaseCommand, WorkflowPhasesCommand,
-    WorkflowPipelinesCommand, WorkflowStateMachineCommand,
+    WorkflowAgentRuntimeCommand, WorkflowCheckpointCommand, WorkflowCommand, WorkflowConfigCommand,
+    WorkflowPhaseCommand, WorkflowPhasesCommand, WorkflowPipelinesCommand,
+    WorkflowStateMachineCommand,
 };
 
 fn resolve_workflow_run_input(
@@ -29,9 +29,11 @@ fn resolve_workflow_run_input(
     match (task_id, requirement_id, title) {
         (Some(tid), None, None) => Ok(WorkflowRunInput::for_task(tid, pipeline_id)),
         (None, Some(rid), None) => Ok(WorkflowRunInput::for_requirement(rid, pipeline_id)),
-        (None, None, Some(t)) => {
-            Ok(WorkflowRunInput::for_custom(t, description.unwrap_or_default(), pipeline_id))
-        }
+        (None, None, Some(t)) => Ok(WorkflowRunInput::for_custom(
+            t,
+            description.unwrap_or_default(),
+            pipeline_id,
+        )),
         (None, None, None) => Err(anyhow!(
             "one of --task-id, --requirement-id, or --title must be provided"
         )),
@@ -232,8 +234,7 @@ pub(crate) async fn handle_workflow(
         },
         WorkflowCommand::Pipelines { command } => match command {
             WorkflowPipelinesCommand::List => {
-                let wf_config =
-                    orchestrator_core::load_workflow_config(Path::new(project_root))?;
+                let wf_config = orchestrator_core::load_workflow_config(Path::new(project_root))?;
                 print_value(wf_config.pipelines, json)
             }
             WorkflowPipelinesCommand::Upsert(args) => {

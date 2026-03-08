@@ -28,10 +28,10 @@ pub async fn connect(config: &McpServerConfig) -> Result<McpClient> {
         cmd.arg(arg);
     }
 
-    let transport = TokioChildProcess::new(cmd)
-        .context("failed to spawn MCP server process")?;
+    let transport = TokioChildProcess::new(cmd).context("failed to spawn MCP server process")?;
 
-    let service: RunningService<RoleClient, ()> = ().serve(transport)
+    let service: RunningService<RoleClient, ()> = ()
+        .serve(transport)
         .await
         .map_err(|e| anyhow::anyhow!("failed to initialize MCP session: {}", e))?;
 
@@ -50,7 +50,10 @@ pub async fn connect_all(configs: &[McpServerConfig]) -> Result<Vec<McpClient>> 
 }
 
 pub async fn fetch_tool_definitions(client: &mut McpClient) -> Result<Vec<ToolDefinition>> {
-    let tools = client.service.peer().list_all_tools()
+    let tools = client
+        .service
+        .peer()
+        .list_all_tools()
         .await
         .map_err(|e| anyhow::anyhow!("failed to list MCP tools: {}", e))?;
 
@@ -85,12 +88,14 @@ fn mcp_tool_to_openai(tool: &rmcp::model::Tool) -> ToolDefinition {
 }
 
 pub fn find_client_for_tool<'a>(clients: &'a [McpClient], name: &str) -> Option<&'a McpClient> {
-    clients.iter().find(|c| c.tool_names.iter().any(|n| n == name))
+    clients
+        .iter()
+        .find(|c| c.tool_names.iter().any(|n| n == name))
 }
 
 pub async fn call_tool(client: &McpClient, name: &str, args_json: &str) -> Result<String> {
-    let args: serde_json::Value = serde_json::from_str(args_json)
-        .unwrap_or(serde_json::Value::Object(Default::default()));
+    let args: serde_json::Value =
+        serde_json::from_str(args_json).unwrap_or(serde_json::Value::Object(Default::default()));
 
     let arguments = match args {
         serde_json::Value::Object(map) => Some(map),
@@ -104,11 +109,16 @@ pub async fn call_tool(client: &McpClient, name: &str, args_json: &str) -> Resul
         task: None,
     };
 
-    let result = client.service.peer().call_tool(params)
+    let result = client
+        .service
+        .peer()
+        .call_tool(params)
         .await
         .map_err(|e| anyhow::anyhow!("MCP tool call failed for {}: {}", name, e))?;
 
-    let text_parts: Vec<String> = result.content.iter()
+    let text_parts: Vec<String> = result
+        .content
+        .iter()
         .filter_map(|content| match &content.raw {
             RawContent::Text(t) => Some(t.text.clone()),
             _ => None,
@@ -130,9 +140,12 @@ mod tests {
     fn mcp_tool_to_openai_converts_basic_tool() {
         let schema = Arc::new(serde_json::Map::from_iter([
             ("type".to_string(), serde_json::json!("object")),
-            ("properties".to_string(), serde_json::json!({
-                "query": { "type": "string", "description": "Search query" }
-            })),
+            (
+                "properties".to_string(),
+                serde_json::json!({
+                    "query": { "type": "string", "description": "Search query" }
+                }),
+            ),
             ("required".to_string(), serde_json::json!(["query"])),
         ]));
 

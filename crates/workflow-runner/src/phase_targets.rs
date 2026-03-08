@@ -224,10 +224,7 @@ fn enforce_write_capable_phase_target(
             .into_iter()
             .find(|(_, t)| tool_supports_repository_writes(t))
         {
-            return (
-                fallback_tool.unwrap_or(t),
-                fallback_model.unwrap_or(m),
-            );
+            return (fallback_tool.unwrap_or(t), fallback_model.unwrap_or(m));
         }
         return (normalized_tool_id, model_id);
     }

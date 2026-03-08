@@ -22,7 +22,9 @@ pub(crate) async fn handle_workflow_monitor(
     json: bool,
 ) -> Result<()> {
     if json {
-        return Err(anyhow!("`ao workflow-monitor` does not support --json output"));
+        return Err(anyhow!(
+            "`ao workflow-monitor` does not support --json output"
+        ));
     }
 
     let refresh_interval = Duration::from_secs(args.refresh_interval);
@@ -106,9 +108,7 @@ async fn run_event_loop(
             } else {
                 match key.code {
                     KeyCode::Char('q') => break,
-                    KeyCode::Char('c')
-                        if key.modifiers.contains(KeyModifiers::CONTROL) =>
-                    {
+                    KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                         break;
                     }
                     KeyCode::Up | KeyCode::Char('k') => {
@@ -164,9 +164,7 @@ async fn run_event_loop(
                             }
                         }
                     }
-                    KeyCode::Char('l')
-                        if key.modifiers.contains(KeyModifiers::CONTROL) =>
-                    {
+                    KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                         state.clear_output();
                     }
                     KeyCode::Char('r') => {

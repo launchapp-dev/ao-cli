@@ -51,11 +51,9 @@ impl WorkflowStateMachine {
         event: WorkflowMachineEvent,
         context: &GuardContext,
     ) -> Result<WorkflowTransitionOutcome, TransitionError> {
-        let outcome =
-            self.definition
-                .apply(self.current, event, |guard_id| {
-                    evaluate_guard(guard_id, context)
-                })?;
+        let outcome = self.definition.apply(self.current, event, |guard_id| {
+            evaluate_guard(guard_id, context)
+        })?;
         self.current = outcome.to;
         Ok(outcome)
     }

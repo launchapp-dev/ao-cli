@@ -172,7 +172,10 @@ fn extract_gemini(obj: &Value) -> NormalizedTextEvent {
 
     if let Some(candidates) = obj.get("candidates").and_then(Value::as_array) {
         for candidate in candidates {
-            if let Some(parts) = candidate.pointer("/content/parts").and_then(Value::as_array) {
+            if let Some(parts) = candidate
+                .pointer("/content/parts")
+                .and_then(Value::as_array)
+            {
                 let mut text = String::new();
                 for part in parts {
                     if let Some(t) = part.get("text").and_then(Value::as_str) {
@@ -444,5 +447,4 @@ mod tests {
             NormalizedTextEvent::Ignored
         );
     }
-
 }

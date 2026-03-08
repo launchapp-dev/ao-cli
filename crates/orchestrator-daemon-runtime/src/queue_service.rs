@@ -82,7 +82,9 @@ pub fn enqueue_subject_dispatch(
         });
     }
 
-    state.entries.push(EmWorkQueueEntry::from_dispatch(dispatch));
+    state
+        .entries
+        .push(EmWorkQueueEntry::from_dispatch(dispatch));
     save_em_work_queue_state(project_root, &state)?;
     Ok(QueueEnqueueResult {
         enqueued: true,
@@ -149,7 +151,11 @@ pub fn reorder_subjects(project_root: &str, subject_ids: Vec<String>) -> Result<
         subject_ids.iter().map(String::as_str).collect();
 
     for subject_id in &subject_ids {
-        if let Some(entry) = state.entries.iter().find(|entry| entry.subject_id() == subject_id) {
+        if let Some(entry) = state
+            .entries
+            .iter()
+            .find(|entry| entry.subject_id() == subject_id)
+        {
             reordered.push(entry.clone());
         }
     }
@@ -254,8 +260,10 @@ mod tests {
 
         assert!(hold_subject(&project_root, "TASK-2").expect("hold"));
         assert!(release_subject(&project_root, "TASK-2").expect("release"));
-        assert!(reorder_subjects(&project_root, vec!["TASK-2".into(), "TASK-1".into()])
-            .expect("reorder"));
+        assert!(
+            reorder_subjects(&project_root, vec!["TASK-2".into(), "TASK-1".into()])
+                .expect("reorder")
+        );
 
         let snapshot = queue_snapshot(&project_root).expect("snapshot");
         assert_eq!(snapshot.entries[0].subject_id, "TASK-2");

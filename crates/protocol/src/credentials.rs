@@ -33,9 +33,8 @@ impl Credentials {
                 continue;
             }
             let p = provider.to_ascii_lowercase();
-            let matches = model_lower.starts_with(&p)
-                || model_lower.contains(&p)
-                || base_lower.contains(&p);
+            let matches =
+                model_lower.starts_with(&p) || model_lower.contains(&p) || base_lower.contains(&p);
             if matches {
                 return Some(cred.api_key.clone());
             }
@@ -53,7 +52,9 @@ mod tests {
         let creds = Credentials {
             providers: HashMap::from([(
                 "minimax".to_string(),
-                ProviderCredential { api_key: "sk-test".to_string() },
+                ProviderCredential {
+                    api_key: "sk-test".to_string(),
+                },
             )]),
         };
         assert_eq!(
@@ -67,7 +68,9 @@ mod tests {
         let creds = Credentials {
             providers: HashMap::from([(
                 "deepseek".to_string(),
-                ProviderCredential { api_key: "sk-ds".to_string() },
+                ProviderCredential {
+                    api_key: "sk-ds".to_string(),
+                },
             )]),
         };
         assert_eq!(
@@ -81,7 +84,9 @@ mod tests {
         let creds = Credentials {
             providers: HashMap::from([(
                 "openrouter".to_string(),
-                ProviderCredential { api_key: "sk-or".to_string() },
+                ProviderCredential {
+                    api_key: "sk-or".to_string(),
+                },
             )]),
         };
         assert_eq!(
@@ -95,10 +100,15 @@ mod tests {
         let creds = Credentials {
             providers: HashMap::from([(
                 "minimax".to_string(),
-                ProviderCredential { api_key: "sk-test".to_string() },
+                ProviderCredential {
+                    api_key: "sk-test".to_string(),
+                },
             )]),
         };
-        assert_eq!(creds.resolve("deepseek/chat", "https://api.deepseek.com"), None);
+        assert_eq!(
+            creds.resolve("deepseek/chat", "https://api.deepseek.com"),
+            None
+        );
     }
 
     #[test]
@@ -106,10 +116,15 @@ mod tests {
         let creds = Credentials {
             providers: HashMap::from([(
                 "minimax".to_string(),
-                ProviderCredential { api_key: "  ".to_string() },
+                ProviderCredential {
+                    api_key: "  ".to_string(),
+                },
             )]),
         };
-        assert_eq!(creds.resolve("minimax/M2.5", "https://api.minimax.io"), None);
+        assert_eq!(
+            creds.resolve("minimax/M2.5", "https://api.minimax.io"),
+            None
+        );
     }
 
     #[test]
@@ -117,7 +132,9 @@ mod tests {
         let creds = Credentials {
             providers: HashMap::from([(
                 "MiniMax".to_string(),
-                ProviderCredential { api_key: "sk-mm".to_string() },
+                ProviderCredential {
+                    api_key: "sk-mm".to_string(),
+                },
             )]),
         };
         assert_eq!(

@@ -359,11 +359,7 @@ async fn handle_key_status_picker(
     }
 }
 
-async fn handle_key_assign_input(
-    app: &mut AppState,
-    hub: &Arc<dyn ServiceHub>,
-    key_code: KeyCode,
-) {
+async fn handle_key_assign_input(app: &mut AppState, hub: &Arc<dyn ServiceHub>, key_code: KeyCode) {
     let input = match &app.modal {
         ModalState::AssignInput { input } => input.clone(),
         _ => return,
@@ -424,17 +420,17 @@ async fn handle_key_assign_input(
     }
 }
 
-async fn handle_key_create_task(
-    app: &mut AppState,
-    hub: &Arc<dyn ServiceHub>,
-    key_code: KeyCode,
-) {
+async fn handle_key_create_task(app: &mut AppState, hub: &Arc<dyn ServiceHub>, key_code: KeyCode) {
     let (title_input, description_input, focused_field) = match &app.modal {
         ModalState::CreateTask {
             title_input,
             description_input,
             focused_field,
-        } => (title_input.clone(), description_input.clone(), focused_field.clone()),
+        } => (
+            title_input.clone(),
+            description_input.clone(),
+            focused_field.clone(),
+        ),
         _ => return,
     };
 
@@ -453,28 +449,26 @@ async fn handle_key_create_task(
                 focused_field: next_field,
             };
         }
-        KeyCode::Backspace => {
-            match focused_field {
-                CreateTaskField::Title => {
-                    let mut new_title = title_input;
-                    new_title.pop();
-                    app.modal = ModalState::CreateTask {
-                        title_input: new_title,
-                        description_input,
-                        focused_field: CreateTaskField::Title,
-                    };
-                }
-                CreateTaskField::Description => {
-                    let mut new_desc = description_input;
-                    new_desc.pop();
-                    app.modal = ModalState::CreateTask {
-                        title_input,
-                        description_input: new_desc,
-                        focused_field: CreateTaskField::Description,
-                    };
-                }
+        KeyCode::Backspace => match focused_field {
+            CreateTaskField::Title => {
+                let mut new_title = title_input;
+                new_title.pop();
+                app.modal = ModalState::CreateTask {
+                    title_input: new_title,
+                    description_input,
+                    focused_field: CreateTaskField::Title,
+                };
             }
-        }
+            CreateTaskField::Description => {
+                let mut new_desc = description_input;
+                new_desc.pop();
+                app.modal = ModalState::CreateTask {
+                    title_input,
+                    description_input: new_desc,
+                    focused_field: CreateTaskField::Description,
+                };
+            }
+        },
         KeyCode::Enter => {
             let title = title_input.trim().to_string();
             let description = description_input.trim().to_string();
@@ -541,11 +535,7 @@ async fn handle_key_create_task(
     }
 }
 
-async fn handle_key_delete_task(
-    app: &mut AppState,
-    hub: &Arc<dyn ServiceHub>,
-    key_code: KeyCode,
-) {
+async fn handle_key_delete_task(app: &mut AppState, hub: &Arc<dyn ServiceHub>, key_code: KeyCode) {
     let confirm = match &app.modal {
         ModalState::DeleteTask { confirm } => *confirm,
         _ => false,

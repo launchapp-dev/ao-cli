@@ -68,7 +68,11 @@ pub fn canonical_model_id(model_id: &str) -> String {
         "gemini-3" | "gemini-3.0-pro" | "gemini-3-pro-latest" | "gemini-pro-3" => {
             "gemini-3-pro".to_string()
         }
-        "glm-5" | "glm5" | "zai/glm-5" | "z-ai/glm-5" | "zai-coding-plan-glm-5"
+        "glm-5"
+        | "glm5"
+        | "zai/glm-5"
+        | "z-ai/glm-5"
+        | "zai-coding-plan-glm-5"
         | "zai-coding-plan/glm-5" => "zai-coding-plan/glm-5".to_string(),
         "minimax-m2.5"
         | "minimax-m2-5"
@@ -151,7 +155,10 @@ pub fn default_model_specs() -> Vec<(String, String)> {
         ("gemini-3-pro".to_string(), "gemini".to_string()),
         ("gemini-3.1-pro-preview".to_string(), "gemini".to_string()),
         ("minimax/MiniMax-M2.5".to_string(), "oai-runner".to_string()),
-        ("zai-coding-plan/glm-5".to_string(), "oai-runner".to_string()),
+        (
+            "zai-coding-plan/glm-5".to_string(),
+            "oai-runner".to_string(),
+        ),
     ]
 }
 

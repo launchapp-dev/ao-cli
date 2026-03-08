@@ -57,8 +57,7 @@ pub(super) use orchestrator_core::{project_state_dir, read_json_or_default, writ
 
 fn core_state_path(project_root: &str) -> PathBuf {
     let root = Path::new(project_root);
-    let base = protocol::scoped_state_root(root)
-        .unwrap_or_else(|| root.join(".ao"));
+    let base = protocol::scoped_state_root(root).unwrap_or_else(|| root.join(".ao"));
     base.join("core-state.json")
 }
 
@@ -127,8 +126,7 @@ fn write_requirements_docs(
     requirements: &HashMap<String, RequirementItem>,
 ) -> Result<()> {
     let root = Path::new(project_root);
-    let base = protocol::scoped_state_root(root)
-        .unwrap_or_else(|| root.join(".ao"));
+    let base = protocol::scoped_state_root(root).unwrap_or_else(|| root.join(".ao"));
     let docs_dir = base.join("docs");
     fs::create_dir_all(&docs_dir)?;
     let mut items: Vec<_> = requirements.values().cloned().collect();
@@ -142,8 +140,7 @@ fn write_requirements_docs(
 
 fn generated_requirements_dir(project_root: &str) -> PathBuf {
     let root = Path::new(project_root);
-    let base = protocol::scoped_state_root(root)
-        .unwrap_or_else(|| root.join(".ao"));
+    let base = protocol::scoped_state_root(root).unwrap_or_else(|| root.join(".ao"));
     base.join("requirements").join("generated")
 }
 
@@ -373,9 +370,9 @@ fn parse_requirement_category(value: &str) -> Result<String> {
 }
 
 fn parse_requirement_status(value: &str) -> Result<RequirementStatus> {
-    value.parse().map_err(|_| {
-        invalid_requirement_value_error("status", value, REQUIREMENT_STATUS_EXPECTED)
-    })
+    value
+        .parse()
+        .map_err(|_| invalid_requirement_value_error("status", value, REQUIREMENT_STATUS_EXPECTED))
 }
 
 fn parse_requirement_priority_opt(value: Option<&str>) -> Result<Option<RequirementPriority>> {
@@ -658,9 +655,8 @@ mod tests {
         )
         .expect("write generated requirement");
 
-        let requirements =
-            load_requirements_map_from_core_state(project_root)
-                .expect("load requirements from generated docs");
+        let requirements = load_requirements_map_from_core_state(project_root)
+            .expect("load requirements from generated docs");
         let requirement = requirements
             .get("REQ-007")
             .expect("requirement should load from generated docs");

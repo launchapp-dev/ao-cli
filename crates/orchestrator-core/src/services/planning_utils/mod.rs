@@ -207,8 +207,8 @@ pub(super) fn collect_codebase_insight(project_root: &Path) -> CodebaseInsight {
 }
 
 fn planning_docs_dir(project_root: &Path) -> PathBuf {
-    let base = protocol::scoped_state_root(project_root)
-        .unwrap_or_else(|| project_root.join(".ao"));
+    let base =
+        protocol::scoped_state_root(project_root).unwrap_or_else(|| project_root.join(".ao"));
     base.join("docs")
 }
 

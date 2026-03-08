@@ -240,7 +240,10 @@ mod tests {
         let entry = &config.mcp_servers["my-db"];
         assert_eq!(entry.command, "/usr/local/bin/db-mcp");
         assert_eq!(entry.args, vec!["--port", "5432"]);
-        assert_eq!(entry.env.get("DB_HOST").map(String::as_str), Some("localhost"));
+        assert_eq!(
+            entry.env.get("DB_HOST").map(String::as_str),
+            Some("localhost")
+        );
         assert_eq!(entry.assign_to, vec!["swe"]);
 
         let serialized = serde_json::to_string(&config).unwrap();

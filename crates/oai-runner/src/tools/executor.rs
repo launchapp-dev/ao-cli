@@ -10,8 +10,14 @@ pub fn execute_tool(name: &str, args_json: &str, working_dir: &Path) -> Result<S
     match name {
         "read_file" => {
             let path = get_str(&args, "path")?;
-            let offset = args.get("offset").and_then(|v| v.as_u64()).map(|v| v as usize);
-            let limit = args.get("limit").and_then(|v| v.as_u64()).map(|v| v as usize);
+            let offset = args
+                .get("offset")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as usize);
+            let limit = args
+                .get("limit")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as usize);
             file_ops::read_file(working_dir, path, offset, limit)
         }
         "write_file" => {
@@ -59,7 +65,11 @@ mod tests {
 
     fn setup_temp_dir() -> TempDir {
         let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("test.txt"), "line one\nline two\nline three\n").unwrap();
+        fs::write(
+            dir.path().join("test.txt"),
+            "line one\nline two\nline three\n",
+        )
+        .unwrap();
         fs::create_dir_all(dir.path().join("src")).unwrap();
         fs::write(dir.path().join("src/main.rs"), "fn main() {}\n").unwrap();
         dir
@@ -68,12 +78,7 @@ mod tests {
     #[test]
     fn read_file_returns_content_with_line_numbers() {
         let dir = setup_temp_dir();
-        let result = execute_tool(
-            "read_file",
-            r#"{"path": "test.txt"}"#,
-            dir.path(),
-        )
-        .unwrap();
+        let result = execute_tool("read_file", r#"{"path": "test.txt"}"#, dir.path()).unwrap();
         assert!(result.contains("line one"));
         assert!(result.contains("line two"));
         assert!(result.contains("1\t"));
@@ -150,24 +155,14 @@ mod tests {
     #[test]
     fn list_files_matches_glob_pattern() {
         let dir = setup_temp_dir();
-        let result = execute_tool(
-            "list_files",
-            r#"{"pattern": "**/*.rs"}"#,
-            dir.path(),
-        )
-        .unwrap();
+        let result = execute_tool("list_files", r#"{"pattern": "**/*.rs"}"#, dir.path()).unwrap();
         assert!(result.contains("src/main.rs"));
     }
 
     #[test]
     fn search_files_finds_matching_content() {
         let dir = setup_temp_dir();
-        let result = execute_tool(
-            "search_files",
-            r#"{"pattern": "fn main"}"#,
-            dir.path(),
-        )
-        .unwrap();
+        let result = execute_tool("search_files", r#"{"pattern": "fn main"}"#, dir.path()).unwrap();
         assert!(result.contains("fn main"));
     }
 
@@ -186,12 +181,8 @@ mod tests {
     #[test]
     fn execute_command_captures_exit_code() {
         let dir = setup_temp_dir();
-        let result = execute_tool(
-            "execute_command",
-            r#"{"command": "exit 42"}"#,
-            dir.path(),
-        )
-        .unwrap();
+        let result =
+            execute_tool("execute_command", r#"{"command": "exit 42"}"#, dir.path()).unwrap();
         assert!(result.contains("[exit code: 42]"));
     }
 
@@ -208,6 +199,9 @@ mod tests {
         let dir = setup_temp_dir();
         let result = execute_tool("read_file", r#"{}"#, dir.path());
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Missing required parameter"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Missing required parameter"));
     }
 }

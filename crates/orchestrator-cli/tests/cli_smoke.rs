@@ -1,5 +1,5 @@
-use std::process::Command;
 use protocol::CLI_SCHEMA_ID;
+use std::process::Command;
 
 #[test]
 fn help_includes_top_level_usage() -> Result<(), Box<dyn std::error::Error>> {

@@ -17,7 +17,6 @@
 ///   AO_E2E_TOOLS=claude,codex      — comma-separated list of tools to test (default: claude)
 ///   AO_E2E_PROJECT_ROOT=<path>     — project root (default: current directory)
 ///   AO_E2E_TIMEOUT=120             — agent timeout in seconds (default: 120)
-
 use anyhow::{Context, Result};
 use cli_wrapper::{extract_text_from_line, NormalizedTextEvent};
 use serde_json::{json, Value};
@@ -256,8 +255,10 @@ fn run_agent(
                 }
             }
             "finished" => {
-                exit_code =
-                    data.and_then(|d| d.get("exit_code")).and_then(Value::as_i64).map(|v| v as i32);
+                exit_code = data
+                    .and_then(|d| d.get("exit_code"))
+                    .and_then(Value::as_i64)
+                    .map(|v| v as i32);
             }
             _ => {}
         }
@@ -314,7 +315,14 @@ fn test_session_continuation_for_tool(tool: &str) -> Result<()> {
     let first_prompt = "Reply with exactly: PINEAPPLE_SESSION_MARKER_42. Nothing else.";
 
     eprintln!("[e2e] tool={} — running first agent invocation", tool);
-    let r1 = run_agent(tool, model, first_prompt, Some(&session_id), false, &timeout)?;
+    let r1 = run_agent(
+        tool,
+        model,
+        first_prompt,
+        Some(&session_id),
+        false,
+        &timeout,
+    )?;
 
     eprintln!(
         "[e2e] tool={} — first run success={} exit_code={:?}",
@@ -366,7 +374,14 @@ fn test_session_continuation_for_tool(tool: &str) -> Result<()> {
         "[e2e] tool={} — running second agent invocation (session resume)",
         tool
     );
-    let r2 = run_agent(tool, model, second_prompt, Some(&session_id), true, &timeout)?;
+    let r2 = run_agent(
+        tool,
+        model,
+        second_prompt,
+        Some(&session_id),
+        true,
+        &timeout,
+    )?;
 
     eprintln!(
         "[e2e] tool={} — second run success={} exit_code={:?}",

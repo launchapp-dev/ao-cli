@@ -285,7 +285,9 @@ mod tests {
 
     #[test]
     fn sync_errors_ingests_notification_lifecycle_events() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
 
         let config_root = TempDir::new().expect("config temp dir");
         let _config_guard = EnvVarGuard::set(

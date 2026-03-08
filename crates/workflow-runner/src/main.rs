@@ -6,7 +6,10 @@ use serde::Serialize;
 use workflow_runner::workflow_execute::{execute_workflow, WorkflowExecuteParams};
 
 #[derive(Parser)]
-#[command(name = "ao-workflow-runner", about = "Standalone workflow phase runner")]
+#[command(
+    name = "ao-workflow-runner",
+    about = "Standalone workflow phase runner"
+)]
 struct WorkflowRunnerCli {
     #[command(subcommand)]
     command: WorkflowRunnerCommand,
@@ -122,10 +125,7 @@ async fn run_execute(args: WorkflowExecuteArgs) -> anyhow::Result<u8> {
         pipeline: args.pipeline,
         exit_code: Some(exit_code),
     };
-    eprintln!(
-        "{}",
-        serde_json::to_string(&completion).unwrap_or_default()
-    );
+    eprintln!("{}", serde_json::to_string(&completion).unwrap_or_default());
 
     if let Err(ref error) = result {
         eprintln!("workflow execution failed: {error}");

@@ -241,8 +241,7 @@ fn expand_pipeline_phases_inner(
     for entry in &pipeline.phases {
         match entry {
             PipelinePhaseEntry::SubPipeline(sub) => {
-                let sub_phases =
-                    expand_pipeline_phases_inner(pipelines, &sub.pipeline, visited)?;
+                let sub_phases = expand_pipeline_phases_inner(pipelines, &sub.pipeline, visited)?;
                 expanded.extend(sub_phases);
             }
             other => {
@@ -441,10 +440,7 @@ fn validate_cron_expression(expression: &str) -> Result<()> {
 }
 
 fn is_supported_shortcut_cron(expression: &str) -> bool {
-    matches!(
-        expression,
-        "@hourly" | "@daily" | "@weekly" | "@monthly"
-    )
+    matches!(expression, "@hourly" | "@daily" | "@weekly" | "@monthly")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -682,8 +678,8 @@ pub fn builtin_workflow_config() -> WorkflowConfig {
 }
 
 pub fn workflow_config_path(project_root: &Path) -> PathBuf {
-    let base = protocol::scoped_state_root(project_root)
-        .unwrap_or_else(|| project_root.join(".ao"));
+    let base =
+        protocol::scoped_state_root(project_root).unwrap_or_else(|| project_root.join(".ao"));
     base.join("state").join(WORKFLOW_CONFIG_FILE_NAME)
 }
 
@@ -755,8 +751,9 @@ pub fn ensure_workflow_config_compiled(project_root: &Path) -> Result<()> {
         return Ok(());
     }
 
-    let config = compile_yaml_workflow_files(project_root)?
-        .ok_or_else(|| anyhow!("no YAML workflow files found in .ao/workflows/ or .ao/workflows.yaml"))?;
+    let config = compile_yaml_workflow_files(project_root)?.ok_or_else(|| {
+        anyhow!("no YAML workflow files found in .ao/workflows/ or .ao/workflows.yaml")
+    })?;
     write_workflow_config(project_root, &config)
 }
 
@@ -918,7 +915,8 @@ pub fn resolve_pipeline_rework_attempts(
 
     let mut limits = HashMap::new();
     for entry in &expanded {
-        if let Some(max_rework_attempts) = entry.max_rework_attempts()
+        if let Some(max_rework_attempts) = entry
+            .max_rework_attempts()
             .filter(|value| *value != default_max_rework_attempts())
         {
             limits.insert(entry.phase_id().to_owned(), max_rework_attempts);
@@ -949,10 +947,7 @@ pub fn resolve_pipeline_skip_guards(
     for entry in &expanded {
         let skip_if = entry.skip_if();
         if !skip_if.is_empty() {
-            guards.insert(
-                entry.phase_id().trim().to_owned(),
-                skip_if.to_vec(),
-            );
+            guards.insert(entry.phase_id().trim().to_owned(), skip_if.to_vec());
         }
     }
     guards
@@ -1154,10 +1149,7 @@ pub fn validate_workflow_config(config: &WorkflowConfig) -> Result<()> {
         match expand_pipeline_phases(&config.pipelines, pipeline_id) {
             Ok(expanded) => {
                 if expanded.is_empty() {
-                    errors.push(format!(
-                        "pipeline '{}' expands to zero phases",
-                        pipeline_id
-                    ));
+                    errors.push(format!("pipeline '{}' expands to zero phases", pipeline_id));
                 }
 
                 let expanded_phase_ids: Vec<String> = expanded
@@ -1310,29 +1302,23 @@ pub fn validate_workflow_config(config: &WorkflowConfig) -> Result<()> {
         if definition.command.trim().is_empty() {
             errors.push(format!("mcp_servers['{}'].command must not be empty", name));
         }
-        if definition
-            .args
-            .iter()
-            .any(|arg| arg.trim().is_empty())
-        {
+        if definition.args.iter().any(|arg| arg.trim().is_empty()) {
             errors.push(format!(
                 "mcp_servers['{}'].args must not contain empty values",
                 name
             ));
         }
-        if definition
-            .tools
-            .iter()
-            .any(|tool| tool.trim().is_empty())
-        {
+        if definition.tools.iter().any(|tool| tool.trim().is_empty()) {
             errors.push(format!(
                 "mcp_servers['{}'].tools must not contain empty values",
                 name
             ));
         }
-        if definition.transport.as_deref().is_some_and(|transport| {
-            transport.trim().is_empty()
-        }) {
+        if definition
+            .transport
+            .as_deref()
+            .is_some_and(|transport| transport.trim().is_empty())
+        {
             errors.push(format!(
                 "mcp_servers['{}'].transport must not be empty when set",
                 name
@@ -1376,20 +1362,13 @@ pub fn validate_workflow_config(config: &WorkflowConfig) -> Result<()> {
         if definition.executable.trim().is_empty() {
             errors.push(format!("tools['{}'].executable must not be empty", name));
         }
-        if definition
-            .base_args
-            .iter()
-            .any(|arg| arg.trim().is_empty())
-        {
+        if definition.base_args.iter().any(|arg| arg.trim().is_empty()) {
             errors.push(format!(
                 "tools['{}'].base_args must not contain empty values",
                 name
             ));
         }
-        if definition
-            .context_window
-            .is_some_and(|value| value == 0)
-        {
+        if definition.context_window.is_some_and(|value| value == 0) {
             errors.push(format!(
                 "tools['{}'].context_window must be greater than 0 when set",
                 name
@@ -1409,7 +1388,9 @@ pub fn validate_workflow_config(config: &WorkflowConfig) -> Result<()> {
             }
             if let Some(base_branch) = git.base_branch.as_deref() {
                 if base_branch.trim().is_empty() {
-                    errors.push("integrations.git.base_branch must not be empty when set".to_string());
+                    errors.push(
+                        "integrations.git.base_branch must not be empty when set".to_string(),
+                    );
                 }
             }
         }
@@ -1517,7 +1498,10 @@ pub fn validate_workflow_config(config: &WorkflowConfig) -> Result<()> {
 pub const YAML_WORKFLOWS_DIR: &str = "workflows";
 
 fn merge_strategy_is_valid(strategy: &MergeStrategy) -> bool {
-    matches!(strategy, MergeStrategy::Squash | MergeStrategy::Merge | MergeStrategy::Rebase)
+    matches!(
+        strategy,
+        MergeStrategy::Squash | MergeStrategy::Merge | MergeStrategy::Rebase
+    )
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1623,7 +1607,10 @@ fn parse_cwd_mode(value: &str) -> Result<CommandCwdMode> {
         "project_root" => Ok(CommandCwdMode::ProjectRoot),
         "task_root" => Ok(CommandCwdMode::TaskRoot),
         "path" => Ok(CommandCwdMode::Path),
-        other => Err(anyhow!("unknown cwd_mode '{}' (expected project_root, task_root, or path)", other)),
+        other => Err(anyhow!(
+            "unknown cwd_mode '{}' (expected project_root, task_root, or path)",
+            other
+        )),
     }
 }
 
@@ -2021,7 +2008,9 @@ pub fn merge_yaml_into_config(base: WorkflowConfig, yaml: WorkflowConfig) -> Wor
     let mut schedules = base.schedules;
     for overlay_schedule in yaml.schedules {
         if let Some(pos) = schedules.iter().position(|schedule| {
-            schedule.id.eq_ignore_ascii_case(overlay_schedule.id.as_str())
+            schedule
+                .id
+                .eq_ignore_ascii_case(overlay_schedule.id.as_str())
         }) {
             schedules[pos] = overlay_schedule;
         } else {
@@ -2294,7 +2283,9 @@ mod tests {
         assert_eq!(pipeline.phases[0].phase_id(), "requirements");
         assert!(pipeline.phases[0].on_verdict().is_none());
         assert_eq!(pipeline.phases[1].phase_id(), "implementation");
-        let verdicts = pipeline.phases[1].on_verdict().expect("should have verdicts");
+        let verdicts = pipeline.phases[1]
+            .on_verdict()
+            .expect("should have verdicts");
         assert_eq!(verdicts["rework"].target, "requirements");
         assert_eq!(pipeline.phases[2].phase_id(), "testing");
         assert!(pipeline.phases[2].on_verdict().is_none());
@@ -2451,7 +2442,9 @@ pipelines:
             .expect("should have on_verdict");
         assert_eq!(verdicts["rework"].target, "implementation");
         assert_eq!(
-            standard.phases[2].max_rework_attempts().expect("has attempts"),
+            standard.phases[2]
+                .max_rework_attempts()
+                .expect("has attempts"),
             3
         );
     }
@@ -2471,13 +2464,19 @@ pipelines:
               target: implementation
       - implementation
 "#;
-        let config = parse_yaml_workflow_config(yaml).expect("should parse YAML with custom max_rework_attempts");
+        let config = parse_yaml_workflow_config(yaml)
+            .expect("should parse YAML with custom max_rework_attempts");
         let standard = config
             .pipelines
             .iter()
             .find(|p| p.id == "standard")
             .expect("should have standard pipeline");
-        assert_eq!(standard.phases[1].max_rework_attempts().expect("has attempts"), 1);
+        assert_eq!(
+            standard.phases[1]
+                .max_rework_attempts()
+                .expect("has attempts"),
+            1
+        );
     }
 
     #[test]
@@ -2692,8 +2691,7 @@ pipelines:
         )
         .expect("write yaml");
 
-        let result =
-            compile_yaml_workflow_files(temp.path()).expect("compile should succeed");
+        let result = compile_yaml_workflow_files(temp.path()).expect("compile should succeed");
         let config = result.expect("should have config");
         let standard = config
             .pipelines
@@ -2723,8 +2721,7 @@ pipelines:
         )
         .expect("write yaml");
 
-        let result =
-            compile_yaml_workflow_files(temp.path()).expect("compile should succeed");
+        let result = compile_yaml_workflow_files(temp.path()).expect("compile should succeed");
         let config = result.expect("should have config");
         let standard = config
             .pipelines
@@ -2763,8 +2760,8 @@ pipelines:
         )
         .expect("write yaml");
 
-        let result =
-            compile_and_write_yaml_workflows(temp.path()).expect("compile and write should succeed");
+        let result = compile_and_write_yaml_workflows(temp.path())
+            .expect("compile and write should succeed");
         let compile_result = result.expect("should have result");
         assert_eq!(compile_result.source_files.len(), 1);
 
@@ -2815,7 +2812,13 @@ pipelines:
         let ids: Vec<&str> = expanded.iter().map(|e| e.phase_id()).collect();
         assert_eq!(
             ids,
-            vec!["requirements", "implementation", "code-review", "testing", "merge"]
+            vec![
+                "requirements",
+                "implementation",
+                "code-review",
+                "testing",
+                "merge"
+            ]
         );
     }
 
@@ -2906,7 +2909,8 @@ pipelines:
         let err = expand_pipeline_phases(&pipelines, "standard")
             .expect_err("should error on missing ref");
         assert!(
-            err.to_string().contains("sub-pipeline 'nonexistent' not found"),
+            err.to_string()
+                .contains("sub-pipeline 'nonexistent' not found"),
             "error should mention missing pipeline: {}",
             err
         );
@@ -3074,8 +3078,8 @@ pipelines:
             }),
         ];
 
-        let err = validate_workflow_config(&config)
-            .expect_err("should reject missing sub-pipeline ref");
+        let err =
+            validate_workflow_config(&config).expect_err("should reject missing sub-pipeline ref");
         let message = err.to_string();
         assert!(
             message.contains("references unknown sub-pipeline 'nonexistent'"),
@@ -3155,7 +3159,8 @@ pipelines:
         let err = expand_pipeline_phases(&pipelines, "nonexistent")
             .expect_err("should error on missing pipeline");
         assert!(
-            err.to_string().contains("sub-pipeline 'nonexistent' not found"),
+            err.to_string()
+                .contains("sub-pipeline 'nonexistent' not found"),
             "error should mention missing pipeline: {}",
             err
         );
@@ -3181,7 +3186,8 @@ pipelines:
       - build
       - testing
 "#;
-        let config = parse_yaml_workflow_config(yaml).expect("should parse YAML with command phase");
+        let config =
+            parse_yaml_workflow_config(yaml).expect("should parse YAML with command phase");
         assert!(config.phase_definitions.contains_key("build"));
         let build = &config.phase_definitions["build"];
         assert_eq!(build.mode, PhaseExecutionMode::Command);
@@ -3217,7 +3223,10 @@ pipelines:
         let approval = &config.phase_definitions["approval"];
         assert_eq!(approval.mode, PhaseExecutionMode::Manual);
         let manual = approval.manual.as_ref().expect("should have manual");
-        assert_eq!(manual.instructions, "Review and approve the deployment plan");
+        assert_eq!(
+            manual.instructions,
+            "Review and approve the deployment plan"
+        );
         assert!(manual.approval_note_required);
     }
 
@@ -3242,10 +3251,14 @@ pipelines:
       - implementation
       - testing
 "#;
-        let config = parse_yaml_workflow_config(yaml).expect("should parse YAML with agent profile");
+        let config =
+            parse_yaml_workflow_config(yaml).expect("should parse YAML with agent profile");
         assert!(config.agent_profiles.contains_key("researcher"));
         let researcher = &config.agent_profiles["researcher"];
-        assert_eq!(researcher.system_prompt, "You are a research agent focused on code analysis");
+        assert_eq!(
+            researcher.system_prompt,
+            "You are a research agent focused on code analysis"
+        );
         assert_eq!(researcher.model.as_deref(), Some("gemini-3.1-pro-preview"));
         assert_eq!(researcher.web_search, Some(true));
         assert_eq!(researcher.skills, vec!["deep-search"]);
@@ -3350,7 +3363,8 @@ pipelines:
       - implementation
       - testing
 "#;
-        let config = parse_yaml_workflow_config(yaml).expect("should parse unified config sections");
+        let config =
+            parse_yaml_workflow_config(yaml).expect("should parse unified config sections");
         let server = config
             .mcp_servers
             .get("mcp-go")
@@ -3387,12 +3401,12 @@ pipelines:
         assert_eq!(config.schedules.len(), 1);
         assert_eq!(config.schedules[0].id, "nightly");
         assert_eq!(config.schedules[0].cron, "0 2 * * *");
-        assert_eq!(
-            config.schedules[0].command.as_deref(),
-            Some("echo nightly")
-        );
+        assert_eq!(config.schedules[0].command.as_deref(), Some("echo nightly"));
         assert!(config.schedules[0].enabled);
-        let daemon = config.daemon.as_ref().expect("daemon config should be parsed");
+        let daemon = config
+            .daemon
+            .as_ref()
+            .expect("daemon config should be parsed");
         assert_eq!(daemon.interval_secs, Some(300));
         assert_eq!(daemon.max_agents, Some(2));
         assert_eq!(daemon.active_hours.as_deref(), Some("00:00-06:00"));
@@ -3463,11 +3477,14 @@ integrations:
             .find(|schedule| schedule.id == "nightly")
             .expect("nightly should be merged");
         assert_eq!(nightly.cron, "0 3 * * *");
-        assert!(
-            merged.integrations.is_some()
-        );
+        assert!(merged.integrations.is_some());
         assert_eq!(
-            merged.integrations.unwrap().git.as_ref().and_then(|git| git.base_branch.as_deref()),
+            merged
+                .integrations
+                .unwrap()
+                .git
+                .as_ref()
+                .and_then(|git| git.base_branch.as_deref()),
             Some("main")
         );
     }
@@ -3553,7 +3570,8 @@ pipelines:
       - testing
 "#;
         let config = parse_yaml_workflow_config(yaml).expect("should parse");
-        let err = validate_workflow_config(&config).expect_err("should reject missing MCP reference");
+        let err =
+            validate_workflow_config(&config).expect_err("should reject missing MCP reference");
         let message = err.to_string();
         assert!(
             message.contains(
@@ -3577,8 +3595,8 @@ pipelines:
     phases:
       - requirements
 "#;
-        let err = parse_yaml_workflow_config(yaml)
-            .expect_err("should reject agent mode in YAML phases");
+        let err =
+            parse_yaml_workflow_config(yaml).expect_err("should reject agent mode in YAML phases");
         let message = format!("{:#}", err);
         assert!(
             message.contains("not supported in YAML"),
@@ -3788,8 +3806,8 @@ pipelines:
                 system_prompt: None,
             },
         );
-        let err = validate_workflow_config(&config)
-            .expect_err("should reject program not in allowlist");
+        let err =
+            validate_workflow_config(&config).expect_err("should reject program not in allowlist");
         let message = err.to_string();
         assert!(
             message.contains("not in tools_allowlist"),
@@ -3830,7 +3848,8 @@ pipelines:
                 env: BTreeMap::from([("".to_string(), "value".to_string())]),
             },
         );
-        let err = validate_workflow_config(&config).expect_err("invalid unified config should fail");
+        let err =
+            validate_workflow_config(&config).expect_err("invalid unified config should fail");
         let message = err.to_string();
         assert!(
             message.contains("schedules['nightly'] must define a pipeline or command"),
@@ -3875,9 +3894,8 @@ pipelines:
             input: None,
             enabled: true,
         });
-        let err = validate_workflow_config(&config).expect_err(
-            "schedules defining both pipeline and command should be rejected",
-        );
+        let err = validate_workflow_config(&config)
+            .expect_err("schedules defining both pipeline and command should be rejected");
         let message = err.to_string();
         assert!(
             message.contains("must define only one of pipeline or command"),
@@ -4011,7 +4029,10 @@ pipelines:
 "#;
         let config = parse_yaml_workflow_config(yaml).expect("should parse");
         let phase = &config.phase_definitions["custom-build"];
-        assert_eq!(phase.directive.as_deref(), Some("Build with custom settings"));
+        assert_eq!(
+            phase.directive.as_deref(),
+            Some("Build with custom settings")
+        );
         let cmd = phase.command.as_ref().expect("command");
         assert_eq!(cmd.program, "make");
         assert_eq!(cmd.args, vec!["all", "-j4"]);
@@ -4111,10 +4132,17 @@ pipelines:
       - implementation
 "#;
         let config = parse_yaml_workflow_config(yaml).expect("parse yaml");
-        let pipeline = config.pipelines.iter().find(|p| p.id == "docs").expect("docs pipeline");
+        let pipeline = config
+            .pipelines
+            .iter()
+            .find(|p| p.id == "docs")
+            .expect("docs pipeline");
         assert_eq!(pipeline.variables.len(), 2);
         assert_eq!(pipeline.variables[0].name, "AUDIENCE");
-        assert_eq!(pipeline.variables[0].description.as_deref(), Some("Target audience"));
+        assert_eq!(
+            pipeline.variables[0].description.as_deref(),
+            Some("Target audience")
+        );
         assert!(pipeline.variables[0].required);
         assert!(pipeline.variables[0].default.is_none());
         assert_eq!(pipeline.variables[1].name, "FORMAT");
@@ -4154,14 +4182,12 @@ pipelines:
 
     #[test]
     fn resolve_variables_required_without_default_errors() {
-        let definitions = vec![
-            PipelineVariable {
-                name: "REQUIRED_VAR".to_string(),
-                description: None,
-                required: true,
-                default: None,
-            },
-        ];
+        let definitions = vec![PipelineVariable {
+            name: "REQUIRED_VAR".to_string(),
+            description: None,
+            required: true,
+            default: None,
+        }];
         let cli_vars = HashMap::new();
         let err = resolve_pipeline_variables(&definitions, &cli_vars)
             .expect_err("should error on missing required var");
@@ -4194,14 +4220,12 @@ pipelines:
 
     #[test]
     fn resolve_variables_default_used_when_not_provided() {
-        let definitions = vec![
-            PipelineVariable {
-                name: "FORMAT".to_string(),
-                description: None,
-                required: false,
-                default: Some("markdown".to_string()),
-            },
-        ];
+        let definitions = vec![PipelineVariable {
+            name: "FORMAT".to_string(),
+            description: None,
+            required: false,
+            default: Some("markdown".to_string()),
+        }];
         let cli_vars = HashMap::new();
         let resolved = resolve_pipeline_variables(&definitions, &cli_vars).expect("should resolve");
         assert_eq!(resolved.get("FORMAT").map(String::as_str), Some("markdown"));
@@ -4209,14 +4233,12 @@ pipelines:
 
     #[test]
     fn resolve_variables_cli_overrides_default() {
-        let definitions = vec![
-            PipelineVariable {
-                name: "FORMAT".to_string(),
-                description: None,
-                required: false,
-                default: Some("markdown".to_string()),
-            },
-        ];
+        let definitions = vec![PipelineVariable {
+            name: "FORMAT".to_string(),
+            description: None,
+            required: false,
+            default: Some("markdown".to_string()),
+        }];
         let mut cli_vars = HashMap::new();
         cli_vars.insert("FORMAT".to_string(), "html".to_string());
         let resolved = resolve_pipeline_variables(&definitions, &cli_vars).expect("should resolve");
@@ -4225,14 +4247,12 @@ pipelines:
 
     #[test]
     fn resolve_variables_optional_without_default_omitted() {
-        let definitions = vec![
-            PipelineVariable {
-                name: "OPTIONAL".to_string(),
-                description: None,
-                required: false,
-                default: None,
-            },
-        ];
+        let definitions = vec![PipelineVariable {
+            name: "OPTIONAL".to_string(),
+            description: None,
+            required: false,
+            default: None,
+        }];
         let cli_vars = HashMap::new();
         let resolved = resolve_pipeline_variables(&definitions, &cli_vars).expect("should resolve");
         assert!(!resolved.contains_key("OPTIONAL"));
@@ -4240,14 +4260,12 @@ pipelines:
 
     #[test]
     fn resolve_variables_unknown_cli_vars_ignored() {
-        let definitions = vec![
-            PipelineVariable {
-                name: "KNOWN".to_string(),
-                description: None,
-                required: true,
-                default: None,
-            },
-        ];
+        let definitions = vec![PipelineVariable {
+            name: "KNOWN".to_string(),
+            description: None,
+            required: true,
+            default: None,
+        }];
         let mut cli_vars = HashMap::new();
         cli_vars.insert("KNOWN".to_string(), "value".to_string());
         cli_vars.insert("UNKNOWN".to_string(), "extra".to_string());
@@ -4293,6 +4311,9 @@ pipelines:
         };
         let json = serde_json::to_value(&pipeline).expect("serialize");
         let obj = json.as_object().expect("json object");
-        assert!(!obj.contains_key("variables"), "empty variables should not be serialized");
+        assert!(
+            !obj.contains_key("variables"),
+            "empty variables should not be serialized"
+        );
     }
 }

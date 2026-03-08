@@ -203,12 +203,18 @@ fn launch_prompt_insert_index(args: &[Value]) -> usize {
 }
 
 fn ensure_flag_value_if_missing(args: &mut Vec<Value>, flag: &str, value: &str, insert_at: usize) {
-    if args.iter().any(|item| item.as_str().is_some_and(|v| v == flag)) {
+    if args
+        .iter()
+        .any(|item| item.as_str().is_some_and(|v| v == flag))
+    {
         return;
     }
     let insert_at = insert_at.min(args.len());
     args.insert(insert_at, Value::String(flag.to_string()));
-    args.insert((insert_at + 1).min(args.len()), Value::String(value.to_string()));
+    args.insert(
+        (insert_at + 1).min(args.len()),
+        Value::String(value.to_string()),
+    );
 }
 
 fn ensure_codex_config_override(args: &mut Vec<Value>, key: &str, value_expr: &str) {
@@ -217,7 +223,10 @@ fn ensure_codex_config_override(args: &mut Vec<Value>, key: &str, value_expr: &s
     let mut index = 0usize;
     while index + 1 < args.len() {
         let flag = args[index].as_str().unwrap_or_default();
-        let value = args.get(index + 1).and_then(Value::as_str).unwrap_or_default();
+        let value = args
+            .get(index + 1)
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         if (flag == "-c" || flag == "--config") && value.starts_with(&key_prefix) {
             args[index + 1] = Value::String(target);
             return;

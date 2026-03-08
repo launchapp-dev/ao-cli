@@ -57,7 +57,8 @@ fn workflow_transition_matrix_matches_legacy_behavior() {
 #[test]
 fn workflow_failed_state_can_resume_for_retry() {
     let mut machine = WorkflowStateMachine::new(WorkflowMachineState::Failed);
-    let state = machine.apply(WorkflowMachineEvent::ResumeRequested)
+    let state = machine
+        .apply(WorkflowMachineEvent::ResumeRequested)
         .expect("test: Failed -> ResumeRequested");
     assert_eq!(state, WorkflowMachineState::EvaluateTransition);
 }
@@ -104,8 +105,9 @@ fn legacy_transition(
         WorkflowMachineState::ApplyTransition => match event {
             WorkflowMachineEvent::Start => WorkflowMachineState::EvaluateTransition,
             WorkflowMachineEvent::NoMorePhases => WorkflowMachineState::Completed,
-            WorkflowMachineEvent::PhaseStarted
-            | WorkflowMachineEvent::RetryPhaseStarted => WorkflowMachineState::RunPhase,
+            WorkflowMachineEvent::PhaseStarted | WorkflowMachineEvent::RetryPhaseStarted => {
+                WorkflowMachineState::RunPhase
+            }
             WorkflowMachineEvent::PauseRequested => WorkflowMachineState::Paused,
             WorkflowMachineEvent::CancelRequested => WorkflowMachineState::Cancelled,
             WorkflowMachineEvent::ReworkBudgetExceeded => WorkflowMachineState::HumanEscalated,
@@ -131,9 +133,7 @@ fn legacy_transition(
             _ => WorkflowMachineState::Failed,
         },
         WorkflowMachineState::HumanEscalated => match event {
-            WorkflowMachineEvent::HumanFeedbackProvided => {
-                WorkflowMachineState::EvaluateTransition
-            }
+            WorkflowMachineEvent::HumanFeedbackProvided => WorkflowMachineState::EvaluateTransition,
             WorkflowMachineEvent::ResumeRequested => WorkflowMachineState::EvaluateTransition,
             WorkflowMachineEvent::CancelRequested => WorkflowMachineState::Cancelled,
             _ => WorkflowMachineState::HumanEscalated,

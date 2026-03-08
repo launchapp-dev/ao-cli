@@ -47,19 +47,17 @@ pub(super) fn validate_task_status_transition(
         ));
     }
     match current {
-        TaskStatus::Done | TaskStatus::Cancelled => {
-            Err(anyhow!(
-                "cannot transition from {} to {} — use reopen to move out of terminal state",
-                serde_json::to_value(current)
-                    .ok()
-                    .and_then(|v| v.as_str().map(String::from))
-                    .unwrap_or_else(|| format!("{:?}", current)),
-                serde_json::to_value(target)
-                    .ok()
-                    .and_then(|v| v.as_str().map(String::from))
-                    .unwrap_or_else(|| format!("{:?}", target)),
-            ))
-        }
+        TaskStatus::Done | TaskStatus::Cancelled => Err(anyhow!(
+            "cannot transition from {} to {} — use reopen to move out of terminal state",
+            serde_json::to_value(current)
+                .ok()
+                .and_then(|v| v.as_str().map(String::from))
+                .unwrap_or_else(|| format!("{:?}", current)),
+            serde_json::to_value(target)
+                .ok()
+                .and_then(|v| v.as_str().map(String::from))
+                .unwrap_or_else(|| format!("{:?}", target)),
+        )),
         _ => Ok(()),
     }
 }
@@ -511,8 +509,13 @@ pub(super) fn create_task_in_state(
 ) -> Result<OrchestratorTask> {
     let now = Utc::now();
     let id = next_task_id(&state.tasks);
-    let created_by = input.created_by.unwrap_or_else(|| protocol::ACTOR_CLI.to_string());
-    validate_linked_architecture_entities(&state.architecture, &input.linked_architecture_entities)?;
+    let created_by = input
+        .created_by
+        .unwrap_or_else(|| protocol::ACTOR_CLI.to_string());
+    validate_linked_architecture_entities(
+        &state.architecture,
+        &input.linked_architecture_entities,
+    )?;
     let task = OrchestratorTask {
         id: id.clone(),
         title: input.title,

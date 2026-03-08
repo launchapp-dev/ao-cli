@@ -228,7 +228,8 @@ mod tests {
     fn test_model_for_cli_uses_generic_fallback() {
         let fallback_model =
             default_model_for_tool("codex").expect("default model for codex should be configured");
-        let cmd = CliCommand::new("test").with_env("CLI_MODEL".to_string(), fallback_model.to_string());
+        let cmd =
+            CliCommand::new("test").with_env("CLI_MODEL".to_string(), fallback_model.to_string());
 
         assert_eq!(cmd.model_for_cli("codex"), Some(fallback_model));
     }

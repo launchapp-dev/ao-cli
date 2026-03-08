@@ -4,8 +4,8 @@ use std::time::Duration;
 use anyhow::Result;
 use orchestrator_core::services::ServiceHub;
 
-use ::workflow_runner::workflow_execute::{execute_workflow, PhaseEvent, WorkflowExecuteParams};
 use crate::{print_value, WorkflowExecuteArgs};
+use ::workflow_runner::workflow_execute::{execute_workflow, PhaseEvent, WorkflowExecuteParams};
 
 pub(crate) async fn handle_workflow_execute(
     args: WorkflowExecuteArgs,
@@ -117,10 +117,21 @@ fn emit_phase_footer(phase_id: &str, duration: Duration, succeeded: bool, _json:
     let color = use_ansi_colors();
     let dur = format_duration(duration);
     if succeeded {
-        let (green, reset) = if color { ("\x1b[32m", "\x1b[0m") } else { ("", "") };
-        let _ = writeln!(std::io::stderr(), "{green}completed {phase_id} in {dur}{reset}");
+        let (green, reset) = if color {
+            ("\x1b[32m", "\x1b[0m")
+        } else {
+            ("", "")
+        };
+        let _ = writeln!(
+            std::io::stderr(),
+            "{green}completed {phase_id} in {dur}{reset}"
+        );
     } else {
-        let (red, reset) = if color { ("\x1b[31m", "\x1b[0m") } else { ("", "") };
+        let (red, reset) = if color {
+            ("\x1b[31m", "\x1b[0m")
+        } else {
+            ("", "")
+        };
         let _ = writeln!(std::io::stderr(), "{red}failed {phase_id} in {dur}{reset}");
     }
 }
@@ -155,11 +166,7 @@ fn emit_phase_decision(decision: &orchestrator_core::PhaseDecision, _json: bool)
     }
 }
 
-fn emit_workflow_summary(
-    results: &[serde_json::Value],
-    total_duration: Duration,
-    _json: bool,
-) {
+fn emit_workflow_summary(results: &[serde_json::Value], total_duration: Duration, _json: bool) {
     use std::io::Write as _;
     let color = use_ansi_colors();
     let (bold, green, red, dim, reset) = if color {

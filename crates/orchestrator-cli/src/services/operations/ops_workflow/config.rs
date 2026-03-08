@@ -7,8 +7,8 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::not_found_error;
 use super::project_state_dir;
+use crate::not_found_error;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct LegacyWorkflowConfig {

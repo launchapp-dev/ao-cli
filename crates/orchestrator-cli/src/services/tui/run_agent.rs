@@ -157,7 +157,7 @@ fn build_agent_run_args(
 }
 
 fn format_agent_line(line: &str, tool: &str) -> String {
-    use cli_wrapper::{NormalizedTextEvent, extract_text_from_line};
+    use cli_wrapper::{extract_text_from_line, NormalizedTextEvent};
 
     let trimmed = line.trim();
     if trimmed.is_empty() {

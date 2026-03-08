@@ -4,11 +4,12 @@ use std::path::Path;
 use super::phase_executor::load_agent_runtime_config;
 
 pub(super) fn phase_agent_id_for(project_root: &str, phase_id: &str) -> Option<String> {
-    let workflow_override = orchestrator_core::load_workflow_config_or_default(Path::new(project_root))
-        .config
-        .phase_definitions
-        .get(phase_id)
-        .and_then(|def| def.agent_id.clone());
+    let workflow_override =
+        orchestrator_core::load_workflow_config_or_default(Path::new(project_root))
+            .config
+            .phase_definitions
+            .get(phase_id)
+            .and_then(|def| def.agent_id.clone());
     if workflow_override.is_some() {
         return workflow_override;
     }
@@ -39,7 +40,10 @@ pub(super) fn phase_fallback_models_for(project_root: &str, phase_id: &str) -> V
     load_agent_runtime_config(project_root).phase_fallback_models(phase_id)
 }
 
-pub(super) fn load_phase_capabilities(project_root: &str, phase_id: &str) -> protocol::PhaseCapabilities {
+pub(super) fn load_phase_capabilities(
+    project_root: &str,
+    phase_id: &str,
+) -> protocol::PhaseCapabilities {
     load_agent_runtime_config(project_root).phase_capabilities(phase_id)
 }
 
@@ -177,11 +181,14 @@ pub(super) fn inject_default_stdio_mcp(runtime_contract: &mut Value, project_roo
     }
 }
 
-pub(super) fn inject_agent_tool_policy(runtime_contract: &mut Value, project_root: &str, phase_id: &str) {
+pub(super) fn inject_agent_tool_policy(
+    runtime_contract: &mut Value,
+    project_root: &str,
+    phase_id: &str,
+) {
     let agent_id = phase_agent_id_for(project_root, phase_id);
 
-    let wf_config =
-        orchestrator_core::load_workflow_config_or_default(Path::new(project_root));
+    let wf_config = orchestrator_core::load_workflow_config_or_default(Path::new(project_root));
     let wf_profile = agent_id
         .as_deref()
         .and_then(|id| wf_config.config.agent_profiles.get(id));
@@ -253,10 +260,7 @@ pub(super) fn inject_project_mcp_servers(
         .get_mut("mcp")
         .and_then(Value::as_object_mut)
     {
-        mcp.insert(
-            "additional_servers".to_string(),
-            Value::Object(servers),
-        );
+        mcp.insert("additional_servers".to_string(), Value::Object(servers));
     }
 }
 
@@ -285,8 +289,8 @@ pub(super) fn inject_workflow_mcp_servers(
     } else {
         None
     };
-    let allowed_servers: Option<&[String]> = workflow_profile_servers
-        .or_else(|| runtime_profile_servers.as_deref());
+    let allowed_servers: Option<&[String]> =
+        workflow_profile_servers.or_else(|| runtime_profile_servers.as_deref());
 
     let existing = runtime_contract
         .pointer("/mcp/additional_servers")
@@ -317,10 +321,7 @@ pub(super) fn inject_workflow_mcp_servers(
         .get_mut("mcp")
         .and_then(Value::as_object_mut)
     {
-        mcp.insert(
-            "additional_servers".to_string(),
-            Value::Object(servers),
-        );
+        mcp.insert("additional_servers".to_string(), Value::Object(servers));
     }
 }
 
@@ -438,8 +439,7 @@ mod tests {
 
     #[test]
     fn inject_workflow_mcp_servers_filters_by_agent_profile() {
-        let tmp =
-            std::env::temp_dir().join(format!("ao-test-wf-mcp-filter-{}", Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("ao-test-wf-mcp-filter-{}", Uuid::new_v4()));
         let project_root = tmp.to_str().unwrap();
         std::fs::create_dir_all(&tmp).unwrap();
 
@@ -501,8 +501,8 @@ mod tests {
 
     #[test]
     fn inject_workflow_mcp_servers_falls_back_to_runtime_config_profile() {
-        let tmp = std::env::temp_dir()
-            .join(format!("ao-test-wf-mcp-rt-fallback-{}", Uuid::new_v4()));
+        let tmp =
+            std::env::temp_dir().join(format!("ao-test-wf-mcp-rt-fallback-{}", Uuid::new_v4()));
         let project_root = tmp.to_str().unwrap();
         std::fs::create_dir_all(&tmp).unwrap();
 
@@ -551,8 +551,8 @@ mod tests {
 
     #[test]
     fn inject_workflow_mcp_servers_respects_phase_definition_agent_id_override() {
-        let tmp = std::env::temp_dir()
-            .join(format!("ao-test-wf-mcp-phase-override-{}", Uuid::new_v4()));
+        let tmp =
+            std::env::temp_dir().join(format!("ao-test-wf-mcp-phase-override-{}", Uuid::new_v4()));
         let project_root = tmp.to_str().unwrap();
         std::fs::create_dir_all(&tmp).unwrap();
 
@@ -641,19 +641,19 @@ mod tests {
 
     #[test]
     fn inject_agent_tool_policy_respects_workflow_agent_override() {
-        let tmp = std::env::temp_dir()
-            .join(format!("ao-test-tool-policy-override-{}", Uuid::new_v4()));
+        let tmp =
+            std::env::temp_dir().join(format!("ao-test-tool-policy-override-{}", Uuid::new_v4()));
         let project_root = tmp.to_str().unwrap();
         std::fs::create_dir_all(&tmp).unwrap();
 
         let mut config = orchestrator_core::builtin_workflow_config();
-        let profile: orchestrator_core::AgentProfile =
-            serde_json::from_value(serde_json::json!({
-                "tool_policy": {
-                    "allow": ["Read", "Grep"],
-                    "deny": ["Write"]
-                }
-            })).unwrap();
+        let profile: orchestrator_core::AgentProfile = serde_json::from_value(serde_json::json!({
+            "tool_policy": {
+                "allow": ["Read", "Grep"],
+                "deny": ["Write"]
+            }
+        }))
+        .unwrap();
         config
             .agent_profiles
             .insert("restricted-agent".to_string(), profile);

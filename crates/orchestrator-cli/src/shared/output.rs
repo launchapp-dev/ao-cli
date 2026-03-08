@@ -1,6 +1,6 @@
 use anyhow::Result;
-use serde::Serialize;
 use protocol::CLI_SCHEMA_ID;
+use serde::Serialize;
 use serde_json::{json, Value};
 
 use super::{classify_cli_error_kind, CliErrorKind};
@@ -40,7 +40,10 @@ pub(crate) fn print_ok(message: &str, json: bool) {
         println!(
             "{}",
             serde_json::to_string_pretty(&envelope).unwrap_or_else(|_| {
-                format!("{{\"schema\":\"{}\",\"ok\":true,\"data\":{{\"message\":\"ok\"}}}}", CLI_SCHEMA_ID)
+                format!(
+                    "{{\"schema\":\"{}\",\"ok\":true,\"data\":{{\"message\":\"ok\"}}}}",
+                    CLI_SCHEMA_ID
+                )
             })
         );
     } else {

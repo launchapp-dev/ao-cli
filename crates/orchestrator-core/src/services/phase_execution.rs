@@ -16,13 +16,9 @@ pub struct PhaseExecutionRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PhaseVerdict {
     Advance,
-    Rework {
-        target_phase: String,
-    },
+    Rework { target_phase: String },
     Skip,
-    Failed {
-        reason: String,
-    },
+    Failed { reason: String },
 }
 
 #[derive(Debug, Clone)]
@@ -36,8 +32,5 @@ pub struct PhaseExecutionResult {
 
 #[async_trait]
 pub trait PhaseExecutor {
-    async fn execute_phase(
-        &self,
-        request: PhaseExecutionRequest,
-    ) -> Result<PhaseExecutionResult>;
+    async fn execute_phase(&self, request: PhaseExecutionRequest) -> Result<PhaseExecutionResult>;
 }

@@ -185,7 +185,10 @@ pub fn ensure_codex_config_override_json(args: &mut Vec<Value>, key: &str, value
     let mut index = 0usize;
     while index + 1 < args.len() {
         let flag = args[index].as_str().unwrap_or_default();
-        let value = args.get(index + 1).and_then(Value::as_str).unwrap_or_default();
+        let value = args
+            .get(index + 1)
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         if (flag == "-c" || flag == "--config") && value.starts_with(&key_prefix) {
             args[index + 1] = Value::String(target);
             return;

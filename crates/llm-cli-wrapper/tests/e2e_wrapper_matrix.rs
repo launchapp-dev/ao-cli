@@ -196,8 +196,7 @@ async fn e2e_coding_agent_task_suite_passes_for_opencode() -> Result<()> {
     let sandbox = MockCliSandbox::new()?;
     let path_value = sandbox.bin_dir().to_string_lossy().to_string();
     let _path_guard = EnvVarGuard::set("PATH", Some(&path_value));
-    let _default_model_guard =
-        EnvVarGuard::set("OPENCODE_MODEL", Some("zai-coding-plan/glm-4.7"));
+    let _default_model_guard = EnvVarGuard::set("OPENCODE_MODEL", Some("zai-coding-plan/glm-4.7"));
 
     let mut registry = CliRegistry::new();
     registry.discover_clis().await?;

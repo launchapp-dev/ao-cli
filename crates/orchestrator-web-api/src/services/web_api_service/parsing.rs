@@ -219,9 +219,9 @@ pub(super) fn is_empty_task_filter(filter: &TaskFilter) -> bool {
 }
 
 pub(super) fn parse_task_status(value: &str) -> Result<TaskStatus, WebApiError> {
-    value.parse().map_err(|_| {
-        WebApiError::new("invalid_input", format!("invalid status: {value}"), 2)
-    })
+    value
+        .parse()
+        .map_err(|_| WebApiError::new("invalid_input", format!("invalid status: {value}"), 2))
 }
 
 pub(super) fn parse_requirement_priority(value: &str) -> Result<RequirementPriority, WebApiError> {

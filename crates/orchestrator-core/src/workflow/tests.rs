@@ -14,7 +14,9 @@ fn make_workflow(status: WorkflowStatus) -> OrchestratorWorkflow {
         id: "WF-test".to_string(),
         task_id: "TASK-1".to_string(),
         pipeline_id: Some("standard".to_string()),
-        subject: crate::types::WorkflowSubject::Task { id: "TASK-1".to_string() },
+        subject: crate::types::WorkflowSubject::Task {
+            id: "TASK-1".to_string(),
+        },
         status,
         current_phase_index: 0,
         phases: vec![WorkflowPhaseExecution {
@@ -57,7 +59,9 @@ fn state_machine_transitions() {
 fn state_machine_allows_resume_from_failed() {
     let mut machine = WorkflowStateMachine::new(WorkflowMachineState::Failed);
 
-    machine.apply(WorkflowMachineEvent::ResumeRequested).unwrap();
+    machine
+        .apply(WorkflowMachineEvent::ResumeRequested)
+        .unwrap();
     assert_eq!(machine.state(), WorkflowMachineState::EvaluateTransition);
 
     machine.apply(WorkflowMachineEvent::PhaseStarted).unwrap();
@@ -67,14 +71,18 @@ fn state_machine_allows_resume_from_failed() {
 #[test]
 fn state_machine_enters_merge_conflict_from_completed() {
     let mut machine = WorkflowStateMachine::new(WorkflowMachineState::Completed);
-    machine.apply(WorkflowMachineEvent::MergeConflictDetected).unwrap();
+    machine
+        .apply(WorkflowMachineEvent::MergeConflictDetected)
+        .unwrap();
     assert_eq!(machine.state(), WorkflowMachineState::MergeConflict);
 }
 
 #[test]
 fn state_machine_resolves_merge_conflict_to_completed() {
     let mut machine = WorkflowStateMachine::new(WorkflowMachineState::MergeConflict);
-    machine.apply(WorkflowMachineEvent::MergeConflictResolved).unwrap();
+    machine
+        .apply(WorkflowMachineEvent::MergeConflictResolved)
+        .unwrap();
     assert_eq!(machine.state(), WorkflowMachineState::Completed);
 }
 
@@ -380,7 +388,10 @@ fn lifecycle_resolves_merge_conflict_and_clears_failure_reason() {
     let executor = WorkflowLifecycleExecutor::new(vec!["implementation".to_string()]);
     let mut workflow = executor.bootstrap(
         "WF-merge-conflict-resolve".to_string(),
-        WorkflowRunInput::for_task("TASK-merge-resolve".to_string(), Some("standard".to_string())),
+        WorkflowRunInput::for_task(
+            "TASK-merge-resolve".to_string(),
+            Some("standard".to_string()),
+        ),
     );
     executor.mark_current_phase_success(&mut workflow);
     executor.mark_merge_conflict(
@@ -481,14 +492,8 @@ fn rework_routes_to_prior_phase_by_id() {
 
     assert_eq!(workflow.status, WorkflowStatus::Running);
     assert_eq!(workflow.current_phase_index, 1);
-    assert_eq!(
-        workflow.current_phase.as_deref(),
-        Some("implementation")
-    );
-    assert_eq!(
-        workflow.phases[1].status,
-        WorkflowPhaseStatus::Running
-    );
+    assert_eq!(workflow.current_phase.as_deref(), Some("implementation"));
+    assert_eq!(workflow.phases[1].status, WorkflowPhaseStatus::Running);
     assert!(workflow.phases[1].attempt >= 2);
 
     let last_decision = workflow.decision_history.last().unwrap();
@@ -508,7 +513,10 @@ fn rework_without_target_reruns_current_phase() {
     ]);
     let mut workflow = executor.bootstrap(
         "WF-rework-current".to_string(),
-        WorkflowRunInput::for_task("TASK-rework-current".to_string(), Some("standard".to_string())),
+        WorkflowRunInput::for_task(
+            "TASK-rework-current".to_string(),
+            Some("standard".to_string()),
+        ),
     );
     executor.mark_current_phase_success(&mut workflow);
     assert_eq!(workflow.current_phase.as_deref(), Some("code-review"));
@@ -521,18 +529,12 @@ fn rework_without_target_reruns_current_phase() {
     assert_eq!(workflow.status, WorkflowStatus::Running);
     assert_eq!(workflow.current_phase_index, 1);
     assert_eq!(workflow.current_phase.as_deref(), Some("code-review"));
-    assert_eq!(
-        workflow.phases[1].status,
-        WorkflowPhaseStatus::Running
-    );
+    assert_eq!(workflow.phases[1].status, WorkflowPhaseStatus::Running);
     assert_eq!(workflow.phases[1].attempt, attempt_before + 1);
 
     let last_decision = workflow.decision_history.last().unwrap();
     assert_eq!(last_decision.decision, WorkflowDecisionAction::Rework);
-    assert_eq!(
-        last_decision.target_phase.as_deref(),
-        Some("code-review")
-    );
+    assert_eq!(last_decision.target_phase.as_deref(), Some("code-review"));
 }
 
 #[test]
@@ -672,11 +674,9 @@ fn skip_guarded_phase_skips_when_task_type_matches() {
         "testing".to_string(),
         vec!["task_type == 'docs'".to_string()],
     );
-    let executor = WorkflowLifecycleExecutor::new(vec![
-        "requirements".to_string(),
-        "testing".to_string(),
-    ])
-    .with_skip_guards(guards);
+    let executor =
+        WorkflowLifecycleExecutor::new(vec!["requirements".to_string(), "testing".to_string()])
+            .with_skip_guards(guards);
 
     let mut workflow = executor.bootstrap(
         "WF-skip-1".to_string(),
@@ -691,15 +691,10 @@ fn skip_guarded_phase_skips_when_task_type_matches() {
     executor.skip_guarded_phases(&mut workflow, &task);
 
     assert_eq!(workflow.status, WorkflowStatus::Completed);
-    assert_eq!(
-        workflow.phases[1].status,
-        WorkflowPhaseStatus::Skipped
-    );
-    assert!(workflow
-        .decision_history
-        .iter()
-        .any(|r| r.decision == crate::types::WorkflowDecisionAction::Skip
-            && r.phase_id == "testing"));
+    assert_eq!(workflow.phases[1].status, WorkflowPhaseStatus::Skipped);
+    assert!(workflow.decision_history.iter().any(|r| r.decision
+        == crate::types::WorkflowDecisionAction::Skip
+        && r.phase_id == "testing"));
 }
 
 #[test]
@@ -709,11 +704,9 @@ fn skip_guarded_phase_does_not_skip_when_guard_does_not_match() {
         "testing".to_string(),
         vec!["task_type == 'docs'".to_string()],
     );
-    let executor = WorkflowLifecycleExecutor::new(vec![
-        "requirements".to_string(),
-        "testing".to_string(),
-    ])
-    .with_skip_guards(guards);
+    let executor =
+        WorkflowLifecycleExecutor::new(vec!["requirements".to_string(), "testing".to_string()])
+            .with_skip_guards(guards);
 
     let mut workflow = executor.bootstrap(
         "WF-skip-2".to_string(),
@@ -726,10 +719,7 @@ fn skip_guarded_phase_does_not_skip_when_guard_does_not_match() {
 
     assert_eq!(workflow.status, WorkflowStatus::Running);
     assert_eq!(workflow.current_phase.as_deref(), Some("testing"));
-    assert_eq!(
-        workflow.phases[1].status,
-        WorkflowPhaseStatus::Running
-    );
+    assert_eq!(workflow.phases[1].status, WorkflowPhaseStatus::Running);
 }
 
 #[test]
@@ -742,11 +732,9 @@ fn skip_guarded_phase_any_matching_guard_causes_skip() {
             "priority == 'low'".to_string(),
         ],
     );
-    let executor = WorkflowLifecycleExecutor::new(vec![
-        "requirements".to_string(),
-        "testing".to_string(),
-    ])
-    .with_skip_guards(guards);
+    let executor =
+        WorkflowLifecycleExecutor::new(vec!["requirements".to_string(), "testing".to_string()])
+            .with_skip_guards(guards);
 
     let mut workflow = executor.bootstrap(
         "WF-skip-3".to_string(),
@@ -758,18 +746,13 @@ fn skip_guarded_phase_any_matching_guard_causes_skip() {
     executor.skip_guarded_phases(&mut workflow, &task);
 
     assert_eq!(workflow.status, WorkflowStatus::Completed);
-    assert_eq!(
-        workflow.phases[1].status,
-        WorkflowPhaseStatus::Skipped
-    );
+    assert_eq!(workflow.phases[1].status, WorkflowPhaseStatus::Skipped);
 }
 
 #[test]
 fn skip_guarded_phase_with_empty_skip_if_runs_normally() {
-    let executor = WorkflowLifecycleExecutor::new(vec![
-        "requirements".to_string(),
-        "testing".to_string(),
-    ]);
+    let executor =
+        WorkflowLifecycleExecutor::new(vec!["requirements".to_string(), "testing".to_string()]);
 
     let mut workflow = executor.bootstrap(
         "WF-skip-4".to_string(),
@@ -782,10 +765,7 @@ fn skip_guarded_phase_with_empty_skip_if_runs_normally() {
 
     assert_eq!(workflow.status, WorkflowStatus::Running);
     assert_eq!(workflow.current_phase.as_deref(), Some("testing"));
-    assert_eq!(
-        workflow.phases[1].status,
-        WorkflowPhaseStatus::Running
-    );
+    assert_eq!(workflow.phases[1].status, WorkflowPhaseStatus::Running);
 }
 
 #[test]
@@ -825,14 +805,8 @@ fn skip_guarded_phase_skips_first_phase_on_bootstrap() {
 
     assert_eq!(workflow.status, WorkflowStatus::Running);
     assert_eq!(workflow.current_phase.as_deref(), Some("implementation"));
-    assert_eq!(
-        workflow.phases[0].status,
-        WorkflowPhaseStatus::Skipped
-    );
-    assert_eq!(
-        workflow.phases[1].status,
-        WorkflowPhaseStatus::Running
-    );
+    assert_eq!(workflow.phases[0].status, WorkflowPhaseStatus::Skipped);
+    assert_eq!(workflow.phases[1].status, WorkflowPhaseStatus::Running);
 }
 
 #[test]
@@ -863,14 +837,8 @@ fn skip_guarded_phases_skips_consecutive_phases() {
     executor.skip_guarded_phases(&mut workflow, &task);
 
     assert_eq!(workflow.status, WorkflowStatus::Completed);
-    assert_eq!(
-        workflow.phases[1].status,
-        WorkflowPhaseStatus::Skipped
-    );
-    assert_eq!(
-        workflow.phases[2].status,
-        WorkflowPhaseStatus::Skipped
-    );
+    assert_eq!(workflow.phases[1].status, WorkflowPhaseStatus::Skipped);
+    assert_eq!(workflow.phases[2].status, WorkflowPhaseStatus::Skipped);
 }
 
 #[test]
@@ -883,7 +851,10 @@ fn advance_to_specific_target_phase_by_id() {
     ]);
     let mut workflow = executor.bootstrap(
         "WF-advance-target".to_string(),
-        WorkflowRunInput::for_task("TASK-advance-target".to_string(), Some("standard".to_string())),
+        WorkflowRunInput::for_task(
+            "TASK-advance-target".to_string(),
+            Some("standard".to_string()),
+        ),
     );
     assert_eq!(workflow.current_phase.as_deref(), Some("requirements"));
 
@@ -905,10 +876,7 @@ fn advance_to_specific_target_phase_by_id() {
     assert_eq!(workflow.current_phase_index, 2);
     assert_eq!(workflow.current_phase.as_deref(), Some("testing"));
     assert_eq!(workflow.phases[2].status, WorkflowPhaseStatus::Running);
-    assert_eq!(
-        workflow.phases[1].status,
-        WorkflowPhaseStatus::Pending
-    );
+    assert_eq!(workflow.phases[1].status, WorkflowPhaseStatus::Pending);
 
     let last_decision = workflow.decision_history.last().unwrap();
     assert_eq!(last_decision.decision, WorkflowDecisionAction::Advance);
@@ -935,10 +903,7 @@ fn rework_with_nonexistent_target_falls_back_to_current_phase() {
     assert_eq!(workflow.status, WorkflowStatus::Running);
     assert_eq!(workflow.current_phase_index, 1);
     assert_eq!(workflow.current_phase.as_deref(), Some("code-review"));
-    assert_eq!(
-        workflow.phases[1].status,
-        WorkflowPhaseStatus::Running
-    );
+    assert_eq!(workflow.phases[1].status, WorkflowPhaseStatus::Running);
 }
 
 #[test]
@@ -949,7 +914,10 @@ fn default_max_attempts_is_3_when_no_config() {
 
     let mut workflow = executor.bootstrap(
         "WF-default-retry".to_string(),
-        WorkflowRunInput::for_task("TASK-default-retry".to_string(), Some("standard".to_string())),
+        WorkflowRunInput::for_task(
+            "TASK-default-retry".to_string(),
+            Some("standard".to_string()),
+        ),
     );
 
     for i in 0..3 {
@@ -1032,7 +1000,10 @@ fn on_verdict_rework_routes_to_configured_phase() {
     );
     let mut workflow = executor.bootstrap(
         "WF-verdict-rework".to_string(),
-        WorkflowRunInput::for_task("TASK-verdict-rework".to_string(), Some("standard".to_string())),
+        WorkflowRunInput::for_task(
+            "TASK-verdict-rework".to_string(),
+            Some("standard".to_string()),
+        ),
     );
     executor.mark_current_phase_success(&mut workflow);
     executor.mark_current_phase_success(&mut workflow);
@@ -1045,17 +1016,11 @@ fn on_verdict_rework_routes_to_configured_phase() {
     assert_eq!(workflow.status, WorkflowStatus::Running);
     assert_eq!(workflow.current_phase_index, 0);
     assert_eq!(workflow.current_phase.as_deref(), Some("requirements"));
-    assert_eq!(
-        workflow.phases[0].status,
-        WorkflowPhaseStatus::Running
-    );
+    assert_eq!(workflow.phases[0].status, WorkflowPhaseStatus::Running);
 
     let last_decision = workflow.decision_history.last().unwrap();
     assert_eq!(last_decision.decision, WorkflowDecisionAction::Rework);
-    assert_eq!(
-        last_decision.target_phase.as_deref(),
-        Some("requirements")
-    );
+    assert_eq!(last_decision.target_phase.as_deref(), Some("requirements"));
 }
 
 #[test]
@@ -1155,7 +1120,10 @@ fn on_verdict_advance_skips_to_configured_phase() {
     );
     let mut workflow = executor.bootstrap(
         "WF-verdict-advance".to_string(),
-        WorkflowRunInput::for_task("TASK-verdict-advance".to_string(), Some("standard".to_string())),
+        WorkflowRunInput::for_task(
+            "TASK-verdict-advance".to_string(),
+            Some("standard".to_string()),
+        ),
     );
     assert_eq!(workflow.current_phase.as_deref(), Some("requirements"));
 
@@ -1165,17 +1133,11 @@ fn on_verdict_advance_skips_to_configured_phase() {
     assert_eq!(workflow.current_phase_index, 2);
     assert_eq!(workflow.current_phase.as_deref(), Some("code-review"));
     assert_eq!(workflow.phases[2].status, WorkflowPhaseStatus::Running);
-    assert_eq!(
-        workflow.phases[1].status,
-        WorkflowPhaseStatus::Pending,
-    );
+    assert_eq!(workflow.phases[1].status, WorkflowPhaseStatus::Pending,);
 
     let last_decision = workflow.decision_history.last().unwrap();
     assert_eq!(last_decision.decision, WorkflowDecisionAction::Advance);
-    assert_eq!(
-        last_decision.target_phase.as_deref(),
-        Some("code-review")
-    );
+    assert_eq!(last_decision.target_phase.as_deref(), Some("code-review"));
 }
 
 #[test]
@@ -1187,7 +1149,10 @@ fn no_on_verdict_uses_default_advance_behavior() {
     ]);
     let mut workflow = executor.bootstrap(
         "WF-default-advance".to_string(),
-        WorkflowRunInput::for_task("TASK-default-advance".to_string(), Some("standard".to_string())),
+        WorkflowRunInput::for_task(
+            "TASK-default-advance".to_string(),
+            Some("standard".to_string()),
+        ),
     );
     assert_eq!(workflow.current_phase.as_deref(), Some("requirements"));
 
@@ -1195,22 +1160,13 @@ fn no_on_verdict_uses_default_advance_behavior() {
 
     assert_eq!(workflow.status, WorkflowStatus::Running);
     assert_eq!(workflow.current_phase_index, 1);
-    assert_eq!(
-        workflow.current_phase.as_deref(),
-        Some("implementation")
-    );
-    assert_eq!(
-        workflow.phases[1].status,
-        WorkflowPhaseStatus::Running
-    );
+    assert_eq!(workflow.current_phase.as_deref(), Some("implementation"));
+    assert_eq!(workflow.phases[1].status, WorkflowPhaseStatus::Running);
 
     executor.mark_current_phase_success(&mut workflow);
 
     assert_eq!(workflow.current_phase_index, 2);
-    assert_eq!(
-        workflow.current_phase.as_deref(),
-        Some("code-review")
-    );
+    assert_eq!(workflow.current_phase.as_deref(), Some("code-review"));
 }
 
 #[test]

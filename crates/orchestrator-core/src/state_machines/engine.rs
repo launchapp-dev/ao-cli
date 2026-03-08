@@ -32,11 +32,7 @@ impl std::fmt::Display for TransitionError {
             Self::NoTransition { from, event } => {
                 write!(f, "no transition from {from:?} on {event:?}")
             }
-            Self::GuardBlocked {
-                from,
-                event,
-                guard,
-            } => {
+            Self::GuardBlocked { from, event, guard } => {
                 write!(
                     f,
                     "guard '{guard}' blocked transition from {from:?} on {event:?}"
@@ -455,12 +451,14 @@ mod tests {
         )
         .expect("compile should succeed");
 
-        let outcome = compiled.workflow.apply(
-            WorkflowMachineState::Idle,
-            WorkflowMachineEvent::Start,
-            |_| true,
-        )
-        .expect("test: Idle + Start should transition");
+        let outcome = compiled
+            .workflow
+            .apply(
+                WorkflowMachineState::Idle,
+                WorkflowMachineEvent::Start,
+                |_| true,
+            )
+            .expect("test: Idle + Start should transition");
         assert!(outcome.matched);
         assert_eq!(outcome.to, WorkflowMachineState::EvaluateTransition);
     }
@@ -622,12 +620,9 @@ mod tests {
     }
 
     fn builtin_workflow() -> CompiledWorkflowMachine {
-        compile_state_machines_document(
-            builtin_state_machines_document(),
-            MachineSource::Builtin,
-        )
-        .expect("compile should succeed")
-        .workflow
+        compile_state_machines_document(builtin_state_machines_document(), MachineSource::Builtin)
+            .expect("compile should succeed")
+            .workflow
     }
 
     #[test]
@@ -638,10 +633,7 @@ mod tests {
             WorkflowMachineEvent::PhaseSucceeded,
             |_| true,
         );
-        assert!(matches!(
-            result,
-            Err(TransitionError::NoTransition { .. })
-        ));
+        assert!(matches!(result, Err(TransitionError::NoTransition { .. })));
     }
 
     #[test]
@@ -652,10 +644,7 @@ mod tests {
             WorkflowMachineEvent::Start,
             |_| true,
         );
-        assert!(matches!(
-            result,
-            Err(TransitionError::NoTransition { .. })
-        ));
+        assert!(matches!(result, Err(TransitionError::NoTransition { .. })));
     }
 
     #[test]
@@ -666,10 +655,7 @@ mod tests {
             WorkflowMachineEvent::PhaseStarted,
             |_| true,
         );
-        assert!(matches!(
-            result,
-            Err(TransitionError::NoTransition { .. })
-        ));
+        assert!(matches!(result, Err(TransitionError::NoTransition { .. })));
     }
 
     #[test]
@@ -680,10 +666,7 @@ mod tests {
             WorkflowMachineEvent::GatesPassed,
             |_| true,
         );
-        assert!(matches!(
-            result,
-            Err(TransitionError::NoTransition { .. })
-        ));
+        assert!(matches!(result, Err(TransitionError::NoTransition { .. })));
     }
 
     #[test]
@@ -694,10 +677,7 @@ mod tests {
             WorkflowMachineEvent::Start,
             |_| true,
         );
-        assert!(matches!(
-            result,
-            Err(TransitionError::NoTransition { .. })
-        ));
+        assert!(matches!(result, Err(TransitionError::NoTransition { .. })));
     }
 
     #[test]
@@ -708,10 +688,7 @@ mod tests {
             WorkflowMachineEvent::PhaseSucceeded,
             |_| true,
         );
-        assert!(matches!(
-            result,
-            Err(TransitionError::NoTransition { .. })
-        ));
+        assert!(matches!(result, Err(TransitionError::NoTransition { .. })));
     }
 
     #[test]
@@ -1050,11 +1027,7 @@ mod tests {
     fn state_unchanged_on_no_transition_error() {
         let wf = builtin_workflow();
         let state_before = WorkflowMachineState::Idle;
-        let result = wf.apply(
-            state_before,
-            WorkflowMachineEvent::PhaseSucceeded,
-            |_| true,
-        );
+        let result = wf.apply(state_before, WorkflowMachineEvent::PhaseSucceeded, |_| true);
         assert!(result.is_err());
         assert_eq!(state_before, WorkflowMachineState::Idle);
     }
@@ -1080,11 +1053,9 @@ mod tests {
             .expect("compile should succeed");
 
         let state_before = WorkflowMachineState::Idle;
-        let result = compiled.workflow.apply(
-            state_before,
-            WorkflowMachineEvent::Start,
-            |_| false,
-        );
+        let result = compiled
+            .workflow
+            .apply(state_before, WorkflowMachineEvent::Start, |_| false);
         assert!(result.is_err());
         assert_eq!(state_before, WorkflowMachineState::Idle);
     }

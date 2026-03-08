@@ -7,8 +7,8 @@ use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use orchestrator_core::{
     evaluate_task_priority_policy, plan_task_priority_rebalance, services::ServiceHub,
-    TaskCreateInput, TaskFilter, TaskPriorityPolicyReport, TaskPriorityRebalanceOptions, TaskStatus,
-    TaskType, TaskUpdateInput, DEFAULT_HIGH_PRIORITY_BUDGET_PERCENT,
+    TaskCreateInput, TaskFilter, TaskPriorityPolicyReport, TaskPriorityRebalanceOptions,
+    TaskStatus, TaskType, TaskUpdateInput, DEFAULT_HIGH_PRIORITY_BUDGET_PERCENT,
 };
 use serde::Serialize;
 
@@ -185,7 +185,8 @@ pub(crate) async fn handle_task(
                     search_text: args.search,
                     ..Default::default()
                 };
-                result.retain(|task| orchestrator_core::services::task_matches_filter(task, &filter));
+                result
+                    .retain(|task| orchestrator_core::services::task_matches_filter(task, &filter));
             }
             print_value(paginate(result, args.offset, args.limit), json)
         }
@@ -207,7 +208,10 @@ pub(crate) async fn handle_task(
             )
         }
         TaskCommand::Get(args) => {
-            let task = tasks.get(&args.id).await.map_err(classify_task_service_error)?;
+            let task = tasks
+                .get(&args.id)
+                .await
+                .map_err(classify_task_service_error)?;
             print_value(task, json)
         }
         TaskCommand::Create(args) => {
@@ -254,7 +258,10 @@ pub(crate) async fn handle_task(
             print_value(tasks.update(&args.id, input).await?, json)
         }
         TaskCommand::Delete(args) => {
-            let task = tasks.get(&args.id).await.map_err(classify_task_service_error)?;
+            let task = tasks
+                .get(&args.id)
+                .await
+                .map_err(classify_task_service_error)?;
             if args.dry_run {
                 let task_id = task.id.clone();
                 let task_title = task.title.clone();
@@ -308,7 +315,8 @@ pub(crate) async fn handle_task(
             )
         }
         TaskCommand::Assign(args) => {
-            let is_agent = args.assignee_type.as_deref() == Some("agent") || args.agent_role.is_some();
+            let is_agent =
+                args.assignee_type.as_deref() == Some("agent") || args.agent_role.is_some();
             if is_agent {
                 let role = args.agent_role.unwrap_or(args.assignee);
                 print_value(
@@ -373,11 +381,17 @@ pub(crate) async fn handle_task(
             )
         }
         TaskCommand::History(args) => {
-            let task = tasks.get(&args.id).await.map_err(classify_task_service_error)?;
+            let task = tasks
+                .get(&args.id)
+                .await
+                .map_err(classify_task_service_error)?;
             print_value(&task.dispatch_history, json)
         }
         TaskCommand::Pause(args) => {
-            let mut task = tasks.get(&args.task_id).await.map_err(classify_task_service_error)?;
+            let mut task = tasks
+                .get(&args.task_id)
+                .await
+                .map_err(classify_task_service_error)?;
             if task.paused {
                 return print_value(
                     serde_json::json!({
@@ -400,7 +414,10 @@ pub(crate) async fn handle_task(
             )
         }
         TaskCommand::Resume(args) => {
-            let mut task = tasks.get(&args.task_id).await.map_err(classify_task_service_error)?;
+            let mut task = tasks
+                .get(&args.task_id)
+                .await
+                .map_err(classify_task_service_error)?;
             if !task.paused {
                 return print_value(
                     serde_json::json!({
@@ -423,7 +440,10 @@ pub(crate) async fn handle_task(
             )
         }
         TaskCommand::Cancel(args) => {
-            let mut task = tasks.get(&args.task_id).await.map_err(classify_task_service_error)?;
+            let mut task = tasks
+                .get(&args.task_id)
+                .await
+                .map_err(classify_task_service_error)?;
             if task.cancelled {
                 return print_value(
                     serde_json::json!({
@@ -475,7 +495,10 @@ pub(crate) async fn handle_task(
             )
         }
         TaskCommand::Reopen(args) => {
-            let mut task = tasks.get(&args.task_id).await.map_err(classify_task_service_error)?;
+            let mut task = tasks
+                .get(&args.task_id)
+                .await
+                .map_err(classify_task_service_error)?;
             if !task.status.is_terminal() {
                 return print_value(
                     serde_json::json!({
@@ -511,7 +534,10 @@ pub(crate) async fn handle_task(
         TaskCommand::SetPriority(args) => {
             let priority = parse_priority_opt(Some(args.priority.as_str()))?
                 .ok_or_else(|| anyhow!("priority is required"))?;
-            let mut task = tasks.get(&args.task_id).await.map_err(classify_task_service_error)?;
+            let mut task = tasks
+                .get(&args.task_id)
+                .await
+                .map_err(classify_task_service_error)?;
             task.priority = priority;
             task.metadata.updated_by = protocol::ACTOR_CLI.to_string();
             tasks.replace(task).await?;
@@ -524,7 +550,10 @@ pub(crate) async fn handle_task(
             )
         }
         TaskCommand::SetDeadline(args) => {
-            let mut task = tasks.get(&args.task_id).await.map_err(classify_task_service_error)?;
+            let mut task = tasks
+                .get(&args.task_id)
+                .await
+                .map_err(classify_task_service_error)?;
             let normalized = args
                 .deadline
                 .as_deref()
@@ -708,7 +737,9 @@ mod tests {
 
     #[test]
     fn infer_human_assignee_prefers_ao_assignee_user_id() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let _ao_assignee = EnvVarGuard::set("AO_ASSIGNEE_USER_ID", Some("assignee-user"));
         let _ao_user = EnvVarGuard::set("AO_USER_ID", Some("ao-user"));
         let _user = EnvVarGuard::set("USER", Some("shell-user"));
@@ -722,7 +753,9 @@ mod tests {
 
     #[test]
     fn infer_human_assignee_prefers_git_identity_before_shell_user() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let _ao_assignee = EnvVarGuard::set("AO_ASSIGNEE_USER_ID", None);
         let _ao_user = EnvVarGuard::set("AO_USER_ID", None);
         let _user = EnvVarGuard::set("USER", Some("shell-user"));
@@ -741,7 +774,9 @@ mod tests {
 
     #[tokio::test]
     async fn set_task_status_in_progress_assigns_human_when_identity_is_available() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let _ao_assignee = EnvVarGuard::set("AO_ASSIGNEE_USER_ID", Some("operator@example.com"));
         let _ao_user = EnvVarGuard::set("AO_USER_ID", None);
 
@@ -782,7 +817,9 @@ mod tests {
 
     #[tokio::test]
     async fn set_task_status_in_progress_keeps_unassigned_when_identity_is_unavailable() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let _ao_assignee = EnvVarGuard::set("AO_ASSIGNEE_USER_ID", None);
         let _ao_user = EnvVarGuard::set("AO_USER_ID", None);
         let _user = EnvVarGuard::set("USER", None);
@@ -820,7 +857,9 @@ mod tests {
 
     #[tokio::test]
     async fn set_task_status_non_in_progress_does_not_assign_human() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let _ao_assignee = EnvVarGuard::set("AO_ASSIGNEE_USER_ID", Some("operator@example.com"));
 
         let hub = Arc::new(InMemoryServiceHub::new());

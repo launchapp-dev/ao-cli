@@ -56,8 +56,8 @@ pub struct LoadedStateMachines {
 }
 
 pub fn state_machines_path(project_root: &Path) -> PathBuf {
-    let base = protocol::scoped_state_root(project_root)
-        .unwrap_or_else(|| project_root.join(".ao"));
+    let base =
+        protocol::scoped_state_root(project_root).unwrap_or_else(|| project_root.join(".ao"));
     base.join("state").join(STATE_MACHINES_FILE_NAME)
 }
 

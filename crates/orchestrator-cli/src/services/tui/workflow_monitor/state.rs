@@ -167,7 +167,9 @@ mod tests {
             rework_counts: HashMap::new(),
             total_reworks: 0,
             decision_history: vec![],
-            subject: WorkflowSubject::Task { id: task_id.to_string() },
+            subject: WorkflowSubject::Task {
+                id: task_id.to_string(),
+            },
         }
     }
 

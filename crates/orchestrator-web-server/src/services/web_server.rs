@@ -800,10 +800,7 @@ async fn queue_stats_handler(State(state): State<AppState>) -> Response {
     }
 }
 
-async fn queue_reorder_handler(
-    State(state): State<AppState>,
-    Json(body): Json<Value>,
-) -> Response {
+async fn queue_reorder_handler(State(state): State<AppState>, Json(body): Json<Value>) -> Response {
     match state.api.queue_reorder(body).await {
         Ok(data) => success_response(data),
         Err(error) => error_response(error),
@@ -2209,7 +2206,9 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("GET")
-                    .uri(format!("/api/v1/requirements?cursor={next_cursor}&page_size=500"))
+                    .uri(format!(
+                        "/api/v1/requirements?cursor={next_cursor}&page_size=500"
+                    ))
                     .body(Body::empty())
                     .expect("request should be built"),
             )
@@ -2333,7 +2332,9 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("GET")
-                    .uri(format!("/api/v1/workflows?cursor={next_cursor}&page_size=500"))
+                    .uri(format!(
+                        "/api/v1/workflows?cursor={next_cursor}&page_size=500"
+                    ))
                     .body(Body::empty())
                     .expect("request should be built"),
             )
@@ -2624,7 +2625,10 @@ mod tests {
 
         assert_eq!(payload.get("ok"), Some(&Value::Bool(true)));
         let data = payload.get("data").expect("data should exist");
-        assert_eq!(data.get("entries").and_then(Value::as_array).map(Vec::len), Some(0));
+        assert_eq!(
+            data.get("entries").and_then(Value::as_array).map(Vec::len),
+            Some(0)
+        );
         let stats = data.get("stats").expect("stats should exist");
         assert_eq!(stats.get("total").and_then(Value::as_u64), Some(0));
     }
@@ -2656,7 +2660,10 @@ mod tests {
         let data = payload.get("data").expect("data should exist");
         assert_eq!(data.get("depth").and_then(Value::as_u64), Some(0));
         assert_eq!(data.get("pending").and_then(Value::as_u64), Some(0));
-        assert_eq!(data.get("throughput_last_hour").and_then(Value::as_u64), Some(0));
+        assert_eq!(
+            data.get("throughput_last_hour").and_then(Value::as_u64),
+            Some(0)
+        );
     }
 
     #[tokio::test]
@@ -2720,7 +2727,10 @@ mod tests {
         assert_eq!(payload.get("ok"), Some(&Value::Bool(true)));
         let data = payload.get("data").expect("data should exist");
         assert_eq!(data.get("held").and_then(Value::as_bool), Some(false));
-        assert_eq!(data.get("task_id").and_then(Value::as_str), Some("TASK-001"));
+        assert_eq!(
+            data.get("task_id").and_then(Value::as_str),
+            Some("TASK-001")
+        );
     }
 
     #[tokio::test]
@@ -2750,6 +2760,9 @@ mod tests {
         assert_eq!(payload.get("ok"), Some(&Value::Bool(true)));
         let data = payload.get("data").expect("data should exist");
         assert_eq!(data.get("released").and_then(Value::as_bool), Some(false));
-        assert_eq!(data.get("task_id").and_then(Value::as_str), Some("TASK-001"));
+        assert_eq!(
+            data.get("task_id").and_then(Value::as_str),
+            Some("TASK-001")
+        );
     }
 }

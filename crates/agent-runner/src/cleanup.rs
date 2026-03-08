@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::fs;
 use tracing::{debug, info, warn};
 
-pub use protocol::{process_exists, kill_process};
+pub use protocol::{kill_process, process_exists};
 
 #[cfg(windows)]
 pub use protocol::{track_job, untrack_job};

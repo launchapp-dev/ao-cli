@@ -198,7 +198,10 @@ pub fn format_prior_phase_outputs(outputs: &[PersistedPhaseOutput]) -> String {
     result
 }
 
-pub(super) fn pipeline_phase_order_for_workflow(project_root: &str, workflow_id: &str) -> Vec<String> {
+pub(super) fn pipeline_phase_order_for_workflow(
+    project_root: &str,
+    workflow_id: &str,
+) -> Vec<String> {
     let workflow_path = Path::new(project_root)
         .join(".ao")
         .join("workflow-state")
@@ -218,7 +221,12 @@ pub(super) fn pipeline_phase_order_for_workflow(project_root: &str, workflow_id:
         .collect()
 }
 
-pub(super) fn format_output_chunk_for_display(text: &str, _verbose: bool, use_colors: bool, tool: &str) -> Option<String> {
+pub(super) fn format_output_chunk_for_display(
+    text: &str,
+    _verbose: bool,
+    use_colors: bool,
+    tool: &str,
+) -> Option<String> {
     let trimmed = text.trim_start();
     if !trimmed.starts_with('{') {
         return Some(text.to_string());
@@ -276,35 +284,66 @@ fn extract_display_text(line: &str, tool: &str) -> Option<String> {
 fn extract_claude_text(obj: &serde_json::Value) -> Option<String> {
     let event_type = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
     match event_type {
-        "content_block_delta" => obj.pointer("/delta/text").and_then(|v| v.as_str()).map(str::to_string),
-        "result" => obj.get("result").and_then(|v| v.as_str()).map(str::to_string)
-            .or_else(|| obj.pointer("/result/text").and_then(|v| v.as_str()).map(str::to_string)),
+        "content_block_delta" => obj
+            .pointer("/delta/text")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        "result" => obj
+            .get("result")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .or_else(|| {
+                obj.pointer("/result/text")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+            }),
         "assistant" => {
             let content = obj.pointer("/message/content").and_then(|v| v.as_array())?;
-            let text: String = content.iter()
+            let text: String = content
+                .iter()
                 .filter(|b| b.get("type").and_then(|v| v.as_str()) == Some("text"))
                 .filter_map(|b| b.get("text").and_then(|v| v.as_str()))
                 .collect();
             (!text.is_empty()).then_some(text)
         }
-        "content_block_start" => obj.pointer("/content_block/text")
-            .and_then(|v| v.as_str()).filter(|t| !t.is_empty()).map(str::to_string),
-        _ => obj.get("content").and_then(|v| v.as_str()).map(str::to_string),
+        "content_block_start" => obj
+            .pointer("/content_block/text")
+            .and_then(|v| v.as_str())
+            .filter(|t| !t.is_empty())
+            .map(str::to_string),
+        _ => obj
+            .get("content")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
     }
 }
 
 fn extract_codex_text(obj: &serde_json::Value) -> Option<String> {
     let event_type = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
-    if !matches!(event_type, "item.completed" | "item.started" | "") { return None; }
+    if !matches!(event_type, "item.completed" | "item.started" | "") {
+        return None;
+    }
     let item = obj.get("item")?;
     let item_type = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
-    if !matches!(item_type, "agent_message" | "message" | "") { return None; }
-    if let Some(text) = item.get("text").and_then(|v| v.as_str()).filter(|t| !t.is_empty()) {
+    if !matches!(item_type, "agent_message" | "message" | "") {
+        return None;
+    }
+    if let Some(text) = item
+        .get("text")
+        .and_then(|v| v.as_str())
+        .filter(|t| !t.is_empty())
+    {
         return Some(text.to_string());
     }
     let content = item.get("content").and_then(|v| v.as_array())?;
-    let text: String = content.iter()
-        .filter(|b| matches!(b.get("type").and_then(|v| v.as_str()).unwrap_or(""), "output_text" | "text" | ""))
+    let text: String = content
+        .iter()
+        .filter(|b| {
+            matches!(
+                b.get("type").and_then(|v| v.as_str()).unwrap_or(""),
+                "output_text" | "text" | ""
+            )
+        })
         .filter_map(|b| b.get("text").and_then(|v| v.as_str()))
         .collect();
     (!text.is_empty()).then_some(text)
@@ -317,13 +356,29 @@ fn extract_gemini_text(obj: &serde_json::Value) -> Option<String> {
             return Some(t.to_string());
         }
     }
-    if let Some(t) = obj.get("text").and_then(|v| v.as_str()) { return Some(t.to_string()); }
-    if let Some(t) = obj.get("response").and_then(|v| v.as_str()) { return Some(t.to_string()); }
-    if let Some(t) = obj.pointer("/content/text").and_then(|v| v.as_str()) { return Some(t.to_string()); }
-    let parts = obj.pointer("/content/parts").and_then(|v| v.as_array())
-        .or_else(|| obj.get("candidates").and_then(|v| v.as_array())
-            .and_then(|c| c.first()).and_then(|c| c.pointer("/content/parts")).and_then(|v| v.as_array()));
-    let text: String = parts?.iter().filter_map(|p| p.get("text").and_then(|v| v.as_str())).collect();
+    if let Some(t) = obj.get("text").and_then(|v| v.as_str()) {
+        return Some(t.to_string());
+    }
+    if let Some(t) = obj.get("response").and_then(|v| v.as_str()) {
+        return Some(t.to_string());
+    }
+    if let Some(t) = obj.pointer("/content/text").and_then(|v| v.as_str()) {
+        return Some(t.to_string());
+    }
+    let parts = obj
+        .pointer("/content/parts")
+        .and_then(|v| v.as_array())
+        .or_else(|| {
+            obj.get("candidates")
+                .and_then(|v| v.as_array())
+                .and_then(|c| c.first())
+                .and_then(|c| c.pointer("/content/parts"))
+                .and_then(|v| v.as_array())
+        });
+    let text: String = parts?
+        .iter()
+        .filter_map(|p| p.get("text").and_then(|v| v.as_str()))
+        .collect();
     (!text.is_empty()).then_some(text)
 }
 
@@ -338,14 +393,21 @@ fn extract_opencode_text(obj: &serde_json::Value) -> Option<String> {
     if obj.get("type").and_then(|v| v.as_str()) == Some("text") {
         return obj.get("text").and_then(|v| v.as_str()).map(str::to_string);
     }
-    obj.get("content").and_then(|v| v.as_str()).map(str::to_string)
+    obj.get("content")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
 }
 
 fn extract_generic_text(obj: &serde_json::Value) -> Option<String> {
-    obj.get("text").and_then(|v| v.as_str()).map(str::to_string)
-        .or_else(|| obj.get("content").and_then(|v| v.as_str()).map(str::to_string))
+    obj.get("text")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .or_else(|| {
+            obj.get("content")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        })
 }
-
 
 pub(super) fn format_tool_call_for_display(
     tool_name: &str,
@@ -453,10 +515,8 @@ mod tests {
 
     #[test]
     fn test_load_prior_phase_outputs_ordering() {
-        let tmp = std::env::temp_dir().join(format!(
-            "ao-test-phase-output-order-{}",
-            Uuid::new_v4()
-        ));
+        let tmp =
+            std::env::temp_dir().join(format!("ao-test-phase-output-order-{}", Uuid::new_v4()));
         let project_root = tmp.to_str().unwrap();
         let workflow_id = "wf-test-002";
 
@@ -589,10 +649,8 @@ mod tests {
 
     #[test]
     fn test_persist_needs_research_outcome() {
-        let tmp = std::env::temp_dir().join(format!(
-            "ao-test-phase-output-research-{}",
-            Uuid::new_v4()
-        ));
+        let tmp =
+            std::env::temp_dir().join(format!("ao-test-phase-output-research-{}", Uuid::new_v4()));
         let project_root = tmp.to_str().unwrap();
         let workflow_id = "wf-test-003";
 
@@ -601,8 +659,7 @@ mod tests {
         };
         persist_phase_output(project_root, workflow_id, "implementation", &outcome).unwrap();
 
-        let output_file =
-            phase_output_dir(project_root, workflow_id).join("implementation.json");
+        let output_file = phase_output_dir(project_root, workflow_id).join("implementation.json");
         let loaded: PersistedPhaseOutput =
             serde_json::from_str(&std::fs::read_to_string(&output_file).unwrap()).unwrap();
         assert_eq!(loaded.verdict.as_deref(), Some("rework"));

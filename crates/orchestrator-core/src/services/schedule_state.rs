@@ -24,8 +24,8 @@ pub struct ScheduleRunState {
 }
 
 fn schedule_state_path(project_root: &Path) -> PathBuf {
-    let scoped_root = protocol::scoped_state_root(project_root)
-        .unwrap_or_else(|| project_root.join(".ao"));
+    let scoped_root =
+        protocol::scoped_state_root(project_root).unwrap_or_else(|| project_root.join(".ao"));
     scoped_root.join("state").join(SCHEDULE_STATE_FILE_NAME)
 }
 
@@ -35,11 +35,13 @@ pub fn load_schedule_state(project_root: &Path) -> Result<ScheduleState> {
         return Ok(ScheduleState::default());
     }
 
-    let raw = std::fs::read_to_string(&path).with_context(|| {
-        format!("failed to read schedule state from {}", path.display())
-    })?;
+    let raw = std::fs::read_to_string(&path)
+        .with_context(|| format!("failed to read schedule state from {}", path.display()))?;
     serde_json::from_str(&raw).with_context(|| {
-        format!("failed to parse schedule state JSON from {}", path.display())
+        format!(
+            "failed to parse schedule state JSON from {}",
+            path.display()
+        )
     })
 }
 
@@ -54,9 +56,8 @@ pub fn save_schedule_state(project_root: &Path, state: &ScheduleState) -> Result
         })?;
     }
     let payload = serde_json::to_string_pretty(state)?;
-    std::fs::write(&path, payload).with_context(|| {
-        format!("failed to write schedule state to {}", path.display())
-    })
+    std::fs::write(&path, payload)
+        .with_context(|| format!("failed to write schedule state to {}", path.display()))
 }
 
 #[cfg(test)]
@@ -88,7 +89,10 @@ mod tests {
         let loaded = load_schedule_state(temp.path()).expect("load state");
 
         assert_eq!(loaded.schedules.len(), 1);
-        let run_state = loaded.schedules.get("nightly").expect("run state should exist");
+        let run_state = loaded
+            .schedules
+            .get("nightly")
+            .expect("run state should exist");
         assert_eq!(run_state.last_status, "completed");
         assert_eq!(run_state.run_count, 3);
         assert!(run_state.last_run.is_some());

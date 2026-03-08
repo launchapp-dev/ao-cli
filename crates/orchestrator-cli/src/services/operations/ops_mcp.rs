@@ -3,16 +3,16 @@ use crate::{
     McpCommand,
 };
 use anyhow::{Context, Result};
-use orchestrator_core::{OrchestratorWorkflow, WorkflowStateManager, WorkflowStatus};
 #[cfg(test)]
 use orchestrator_core::WorkflowSubject;
+use orchestrator_core::{OrchestratorWorkflow, WorkflowStateManager, WorkflowStatus};
 use protocol::{AgentRunEvent, OutputStreamType, RunId};
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::{
-        Annotated, CallToolResult, ErrorCode, JsonObject, ListResourcesResult, PaginatedRequestParams,
-        RawResource, ReadResourceRequestParams, ReadResourceResult, ResourceContents,
-        ServerCapabilities, ServerInfo,
+        Annotated, CallToolResult, ErrorCode, JsonObject, ListResourcesResult,
+        PaginatedRequestParams, RawResource, ReadResourceRequestParams, ReadResourceResult,
+        ResourceContents, ServerCapabilities, ServerInfo,
     },
     service::{RequestContext, RoleServer},
     tool, tool_handler, tool_router,
@@ -892,7 +892,10 @@ impl AoMcpServer {
                 continue;
             }
 
-            match self.execute_ao(item.args, project_root_override.clone()).await {
+            match self
+                .execute_ao(item.args, project_root_override.clone())
+                .await
+            {
                 Ok(exec_result) => {
                     if exec_result.success {
                         let data = extract_cli_success_data(exec_result.stdout_json);
@@ -938,22 +941,10 @@ impl AoMcpServer {
             }
         }
 
-        let executed = outcomes
-            .iter()
-            .filter(|o| o["status"] != "skipped")
-            .count();
-        let succeeded = outcomes
-            .iter()
-            .filter(|o| o["status"] == "success")
-            .count();
-        let failed = outcomes
-            .iter()
-            .filter(|o| o["status"] == "failed")
-            .count();
-        let skipped = outcomes
-            .iter()
-            .filter(|o| o["status"] == "skipped")
-            .count();
+        let executed = outcomes.iter().filter(|o| o["status"] != "skipped").count();
+        let succeeded = outcomes.iter().filter(|o| o["status"] == "success").count();
+        let failed = outcomes.iter().filter(|o| o["status"] == "failed").count();
+        let skipped = outcomes.iter().filter(|o| o["status"] == "skipped").count();
 
         Ok(CallToolResult::structured(json!({
             "schema": BATCH_RESULT_SCHEMA,
@@ -1241,10 +1232,7 @@ impl AoMcpServer {
         params: Parameters<WorkflowRunInput>,
     ) -> Result<CallToolResult, McpError> {
         let input = params.0;
-        let mut args = vec![
-            "workflow".to_string(),
-            "run".to_string(),
-        ];
+        let mut args = vec!["workflow".to_string(), "run".to_string()];
         push_opt(&mut args, "--task-id", input.task_id);
         push_opt(&mut args, "--requirement-id", input.requirement_id);
         push_opt(&mut args, "--title", input.title);
@@ -2205,8 +2193,13 @@ impl AoMcpServer {
                 }
             })
             .collect();
-        self.run_batch_tool("ao.task.bulk-status", items, &input.on_error, input.project_root)
-            .await
+        self.run_batch_tool(
+            "ao.task.bulk-status",
+            items,
+            &input.on_error,
+            input.project_root,
+        )
+        .await
     }
 
     #[tool(
@@ -2238,8 +2231,13 @@ impl AoMcpServer {
                 }
             })
             .collect();
-        self.run_batch_tool("ao.task.bulk-update", items, &input.on_error, input.project_root)
-            .await
+        self.run_batch_tool(
+            "ao.task.bulk-update",
+            items,
+            &input.on_error,
+            input.project_root,
+        )
+        .await
     }
 
     #[tool(
@@ -2458,17 +2456,23 @@ impl ServerHandler for AoMcpServer {
         _ctx: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, rmcp::model::ErrorData> {
         let mut resource_tasks = RawResource::new("ao://project/tasks", "Tasks Index");
-        resource_tasks.description = Some("AO project task index with id, title, status, priority".to_string());
+        resource_tasks.description =
+            Some("AO project task index with id, title, status, priority".to_string());
         resource_tasks.mime_type = Some("application/json".to_string());
-        
-        let mut resource_requirements = RawResource::new("ao://project/requirements", "Requirements Index");
-        resource_requirements.description = Some("AO project requirements index with id, title, status, priority".to_string());
+
+        let mut resource_requirements =
+            RawResource::new("ao://project/requirements", "Requirements Index");
+        resource_requirements.description =
+            Some("AO project requirements index with id, title, status, priority".to_string());
         resource_requirements.mime_type = Some("application/json".to_string());
-        
+
         let mut resource_daemon = RawResource::new("ao://project/daemon-events", "Daemon Events");
-        resource_daemon.description = Some("Recent daemon events for project observability. Supports ?limit=N query param".to_string());
+        resource_daemon.description = Some(
+            "Recent daemon events for project observability. Supports ?limit=N query param"
+                .to_string(),
+        );
         resource_daemon.mime_type = Some("application/json".to_string());
-        
+
         let resources = vec![
             Annotated::new(resource_tasks, None),
             Annotated::new(resource_requirements, None),
@@ -2484,12 +2488,17 @@ impl ServerHandler for AoMcpServer {
     ) -> Result<ReadResourceResult, rmcp::model::ErrorData> {
         let uri = params.uri.to_string();
         let (resource_uri, query) = parse_resource_uri(&uri);
-        
+
         match resource_uri.as_str() {
             "ao://project/tasks" => {
                 let path = PathBuf::from(&self.default_project_root).join(".ao/tasks/index.json");
-                let (content, _modified) = read_file_with_mtime(&path)
-                    .map_err(|e| McpError::new(ErrorCode::INTERNAL_ERROR, format!("failed to read tasks: {}", e), None))?;
+                let (content, _modified) = read_file_with_mtime(&path).map_err(|e| {
+                    McpError::new(
+                        ErrorCode::INTERNAL_ERROR,
+                        format!("failed to read tasks: {}", e),
+                        None,
+                    )
+                })?;
                 let result = ReadResourceResult {
                     contents: vec![ResourceContents::TextResourceContents {
                         uri: uri.clone(),
@@ -2501,9 +2510,15 @@ impl ServerHandler for AoMcpServer {
                 Ok(result)
             }
             "ao://project/requirements" => {
-                let path = PathBuf::from(&self.default_project_root).join(".ao/requirements/index.json");
-                let (content, _modified) = read_file_with_mtime(&path)
-                    .map_err(|e| McpError::new(ErrorCode::INTERNAL_ERROR, format!("failed to read requirements: {}", e), None))?;
+                let path =
+                    PathBuf::from(&self.default_project_root).join(".ao/requirements/index.json");
+                let (content, _modified) = read_file_with_mtime(&path).map_err(|e| {
+                    McpError::new(
+                        ErrorCode::INTERNAL_ERROR,
+                        format!("failed to read requirements: {}", e),
+                        None,
+                    )
+                })?;
                 let result = ReadResourceResult {
                     contents: vec![ResourceContents::TextResourceContents {
                         uri: uri.clone(),
@@ -2519,8 +2534,14 @@ impl ServerHandler for AoMcpServer {
                     .get("limit")
                     .and_then(|v| v.parse::<usize>().ok())
                     .unwrap_or(100);
-                let content = read_daemon_events(&self.default_project_root, limit)
-                    .map_err(|e| McpError::new(ErrorCode::INTERNAL_ERROR, format!("failed to read daemon events: {}", e), None))?;
+                let content =
+                    read_daemon_events(&self.default_project_root, limit).map_err(|e| {
+                        McpError::new(
+                            ErrorCode::INTERNAL_ERROR,
+                            format!("failed to read daemon events: {}", e),
+                            None,
+                        )
+                    })?;
                 let result = ReadResourceResult {
                     contents: vec![ResourceContents::TextResourceContents {
                         uri: uri.clone(),
@@ -2531,7 +2552,11 @@ impl ServerHandler for AoMcpServer {
                 };
                 Ok(result)
             }
-            _ => Err(McpError::new(ErrorCode::RESOURCE_NOT_FOUND, format!("unknown resource: {}", uri), None)),
+            _ => Err(McpError::new(
+                ErrorCode::RESOURCE_NOT_FOUND,
+                format!("unknown resource: {}", uri),
+                None,
+            )),
         }
     }
 }
@@ -3928,8 +3953,7 @@ fn build_daemon_events_poll_result(
 const DEFAULT_DAEMON_LOGS_LIMIT: usize = 100;
 
 fn build_daemon_logs_result(default_project_root: &str, input: DaemonLogsInput) -> Result<Value> {
-    let project_root =
-        resolve_daemon_events_project_root(default_project_root, input.project_root);
+    let project_root = resolve_daemon_events_project_root(default_project_root, input.project_root);
     let limit = input.limit.unwrap_or(DEFAULT_DAEMON_LOGS_LIMIT).max(1);
     let log_path = crate::services::runtime::autonomous_daemon_log_path(&project_root);
 
@@ -3944,7 +3968,11 @@ fn build_daemon_logs_result(default_project_root: &str, input: DaemonLogsInput) 
             }));
         }
         Err(err) => {
-            anyhow::bail!("failed to read daemon log at {}: {}", log_path.display(), err);
+            anyhow::bail!(
+                "failed to read daemon log at {}: {}",
+                log_path.display(),
+                err
+            );
         }
     };
 
@@ -3971,10 +3999,10 @@ fn build_daemon_logs_result(default_project_root: &str, input: DaemonLogsInput) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use protocol::CLI_SCHEMA_ID;
     use crate::services::runtime::daemon_events_log_path;
     use crate::services::runtime::DaemonEventRecord;
     use chrono::{Duration, Utc};
+    use protocol::CLI_SCHEMA_ID;
     use std::collections::HashMap;
     use tempfile::TempDir;
 
@@ -4074,7 +4102,9 @@ mod tests {
                 rework_counts: HashMap::new(),
                 total_reworks: 0,
                 decision_history: Vec::new(),
-                subject: WorkflowSubject::Task { id: task_id.to_string() },
+                subject: WorkflowSubject::Task {
+                    id: task_id.to_string(),
+                },
             })
             .expect("workflow should be written");
     }
@@ -4525,8 +4555,7 @@ mod tests {
 
     #[test]
     fn validate_bulk_status_input_rejects_empty() {
-        let err = validate_bulk_status_input("ao.task.bulk-status", &[])
-            .unwrap_err();
+        let err = validate_bulk_status_input("ao.task.bulk-status", &[]).unwrap_err();
         assert!(
             err.contains("must not be empty"),
             "expected empty-array error, got: {err}"
@@ -4663,8 +4692,8 @@ mod tests {
 
     #[test]
     fn validate_workflow_run_multiple_rejects_empty() {
-        let err = validate_workflow_run_multiple_input("ao.workflow.run-multiple", &[])
-            .unwrap_err();
+        let err =
+            validate_workflow_run_multiple_input("ao.workflow.run-multiple", &[]).unwrap_err();
         assert!(
             err.contains("must not be empty"),
             "expected empty-array error, got: {err}"
@@ -5305,7 +5334,9 @@ mod tests {
 
     #[test]
     fn build_daemon_events_poll_result_returns_non_null_structured_events() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let config_root = TempDir::new().expect("config temp dir");
         let _config_guard = EnvVarGuard::set(
             "AO_CONFIG_DIR",
@@ -5348,7 +5379,9 @@ mod tests {
 
     #[test]
     fn build_daemon_events_poll_result_filters_by_project_root() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let config_root = TempDir::new().expect("config temp dir");
         let _config_guard = EnvVarGuard::set(
             "AO_CONFIG_DIR",
@@ -5388,7 +5421,9 @@ mod tests {
 
     #[test]
     fn build_daemon_events_poll_result_blank_project_root_falls_back_to_default() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let config_root = TempDir::new().expect("config temp dir");
         let _config_guard = EnvVarGuard::set(
             "AO_CONFIG_DIR",
@@ -5495,7 +5530,9 @@ mod tests {
 
     #[test]
     fn build_output_tail_result_filters_out_events_for_other_runs() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let temp = TempDir::new().expect("tempdir should be created");
         let _home_guard = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
         let project_root = temp.path().join("project");
@@ -5553,7 +5590,9 @@ mod tests {
 
     #[test]
     fn build_output_tail_result_returns_empty_when_events_log_missing() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let temp = TempDir::new().expect("tempdir should be created");
         let _home_guard = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
         let project_root = temp.path().join("project");
@@ -5584,7 +5623,9 @@ mod tests {
 
     #[test]
     fn build_output_tail_result_skips_invalid_utf8_log_lines() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let temp = TempDir::new().expect("tempdir should be created");
         let _home_guard = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
         let project_root = temp.path().join("project");
@@ -5631,7 +5672,9 @@ mod tests {
 
     #[test]
     fn build_output_tail_result_defaults_to_output_and_thinking() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let temp = TempDir::new().expect("tempdir should be created");
         let _home_guard = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
         let project_root = temp.path().join("project");
@@ -5696,7 +5739,9 @@ mod tests {
 
     #[test]
     fn build_output_tail_result_normalizes_output_stream_types() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let temp = TempDir::new().expect("tempdir should be created");
         let _home_guard = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
         let project_root = temp.path().join("project");
@@ -5747,7 +5792,9 @@ mod tests {
 
     #[test]
     fn build_output_tail_result_applies_filter_and_limit_in_order() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let temp = TempDir::new().expect("tempdir should be created");
         let _home_guard = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
         let project_root = temp.path().join("project");
@@ -5796,7 +5843,9 @@ mod tests {
 
     #[test]
     fn build_output_tail_result_clamps_limit_to_minimum() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let temp = TempDir::new().expect("tempdir should be created");
         let _home_guard = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
         let project_root = temp.path().join("project");
@@ -5836,7 +5885,9 @@ mod tests {
 
     #[test]
     fn build_output_tail_result_resolves_task_to_running_workflow_run() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let temp = TempDir::new().expect("tempdir should be created");
         let _home_guard = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
         let project_root = temp.path().join("project");

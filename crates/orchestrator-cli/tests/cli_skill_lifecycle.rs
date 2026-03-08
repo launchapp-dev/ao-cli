@@ -485,9 +485,7 @@ fn skill_error_contract_maps_registry_unavailable_to_exit_code_5() -> Result<()>
         "local",
     ])?;
 
-    let registry_path = harness
-        .scoped_root()
-        .join("state/skills-registry.v1.json");
+    let registry_path = harness.scoped_root().join("state/skills-registry.v1.json");
     let mut registry_json = read_json(&registry_path)?;
     let registries = registry_json
         .get_mut("registries")

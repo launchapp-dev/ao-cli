@@ -251,7 +251,7 @@ mod tests {
                 .expect("default model for codex should be configured"),
             "hello world",
         )
-            .expect("codex runtime contract should be generated");
+        .expect("codex runtime contract should be generated");
 
         assert_eq!(
             contract

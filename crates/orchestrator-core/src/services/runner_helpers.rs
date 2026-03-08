@@ -854,7 +854,9 @@ mod tests {
         } else if let Ok(path) = find_agent_runner_binary() {
             path
         } else {
-            eprintln!("SKIP: agent-runner binary not found, build with cargo build -p agent-runner");
+            eprintln!(
+                "SKIP: agent-runner binary not found, build with cargo build -p agent-runner"
+            );
             return;
         };
 
@@ -908,13 +910,18 @@ mod tests {
             std::env::remove_var("AGENT_RUNNER_TOKEN");
         }
 
-        let pid = startup_result.expect("runner startup should succeed")
+        let pid = startup_result
+            .expect("runner startup should succeed")
             .expect("runner startup should return a PID");
-        assert!(is_runner_process_alive(pid), "runner process should be alive");
+        assert!(
+            is_runner_process_alive(pid),
+            "runner process should be alive"
+        );
 
-        let config_after = protocol::Config::load_from_dir(&runner_config_dir)
-            .expect("load config after startup");
-        let token = config_after.agent_runner_token
+        let config_after =
+            protocol::Config::load_from_dir(&runner_config_dir).expect("load config after startup");
+        let token = config_after
+            .agent_runner_token
             .clone()
             .expect("token should be generated after startup");
         assert!(!token.is_empty(), "generated token should not be empty");
@@ -926,7 +933,10 @@ mod tests {
         let status = query_runner_status(&runner_config_dir)
             .await
             .expect("runner status query should succeed");
-        assert_eq!(status.active_agents, 0, "runner should have no active agents initially");
+        assert_eq!(
+            status.active_agents, 0,
+            "runner should have no active agents initially"
+        );
 
         let original_runner_config_dir2 = std::env::var("AO_RUNNER_CONFIG_DIR").ok();
         let original_skip_runner2 = std::env::var("AO_SKIP_RUNNER_START").ok();

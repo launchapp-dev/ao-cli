@@ -436,7 +436,11 @@ fn apply_codex_native_mcp_lockdown(
 
     for server in additional_servers {
         let sbase = format!("mcp_servers.{}", server.name);
-        ensure_codex_config_override(args, &format!("{sbase}.command"), &toml_string(&server.command));
+        ensure_codex_config_override(
+            args,
+            &format!("{sbase}.command"),
+            &toml_string(&server.command),
+        );
         let toml_args = format!(
             "[{}]",
             server
@@ -448,11 +452,7 @@ fn apply_codex_native_mcp_lockdown(
         );
         ensure_codex_config_override(args, &format!("{sbase}.args"), &toml_args);
         for (key, value) in &server.env {
-            ensure_codex_config_override(
-                args,
-                &format!("{sbase}.env.{key}"),
-                &toml_string(value),
-            );
+            ensure_codex_config_override(args, &format!("{sbase}.env.{key}"), &toml_string(value));
         }
         ensure_codex_config_override(args, &format!("{sbase}.enabled"), "true");
     }
@@ -581,12 +581,12 @@ fn apply_opencode_native_mcp_lockdown(
     env.insert("OPENCODE_CONFIG_CONTENT".to_string(), config.to_string());
 }
 
-fn apply_oai_runner_native_mcp_lockdown(
-    args: &mut Vec<String>,
-    transport: McpServerTransport<'_>,
-) {
+fn apply_oai_runner_native_mcp_lockdown(args: &mut Vec<String>, transport: McpServerTransport<'_>) {
     let config = match transport {
-        McpServerTransport::Stdio { command, args: stdio_args } => {
+        McpServerTransport::Stdio {
+            command,
+            args: stdio_args,
+        } => {
             serde_json::json!([{ "command": command, "args": stdio_args }])
         }
         McpServerTransport::Http(_) => return,
@@ -612,12 +612,9 @@ fn apply_native_mcp_policy(
     let additional = &enforcement.additional_servers;
 
     match cli.as_str() {
-        "claude" => apply_claude_native_mcp_lockdown(
-            &mut invocation.args,
-            transport,
-            agent_id,
-            additional,
-        ),
+        "claude" => {
+            apply_claude_native_mcp_lockdown(&mut invocation.args, transport, agent_id, additional)
+        }
         "codex" => {
             let configured_servers = discover_codex_mcp_server_names();
             apply_codex_native_mcp_lockdown(
@@ -656,9 +653,7 @@ fn tool_policy_glob_match(pattern: &str, value: &str) -> bool {
     fn inner(pat: &[u8], val: &[u8]) -> bool {
         match (pat.first(), val.first()) {
             (None, None) => true,
-            (Some(b'*'), _) => {
-                inner(&pat[1..], val) || (!val.is_empty() && inner(pat, &val[1..]))
-            }
+            (Some(b'*'), _) => inner(&pat[1..], val) || (!val.is_empty() && inner(pat, &val[1..])),
             (Some(&p), Some(&v)) if p == v => inner(&pat[1..], &val[1..]),
             _ => false,
         }
@@ -1671,37 +1666,81 @@ mod tests {
     #[test]
     fn tool_policy_empty_permits_all_prefixed_tools() {
         let enforcement = enforcement_with_tool_policy(vec![], vec![]);
-        assert!(is_tool_call_allowed("ao.task.list", &serde_json::json!({}), &enforcement));
-        assert!(is_tool_call_allowed("ao.daemon.start", &serde_json::json!({}), &enforcement));
+        assert!(is_tool_call_allowed(
+            "ao.task.list",
+            &serde_json::json!({}),
+            &enforcement
+        ));
+        assert!(is_tool_call_allowed(
+            "ao.daemon.start",
+            &serde_json::json!({}),
+            &enforcement
+        ));
     }
 
     #[test]
     fn tool_policy_allowlist_restricts_to_matching() {
         let enforcement = enforcement_with_tool_policy(vec!["ao.task.*"], vec![]);
-        assert!(is_tool_call_allowed("ao.task.list", &serde_json::json!({}), &enforcement));
-        assert!(is_tool_call_allowed("ao.task.get", &serde_json::json!({}), &enforcement));
-        assert!(!is_tool_call_allowed("ao.daemon.start", &serde_json::json!({}), &enforcement));
+        assert!(is_tool_call_allowed(
+            "ao.task.list",
+            &serde_json::json!({}),
+            &enforcement
+        ));
+        assert!(is_tool_call_allowed(
+            "ao.task.get",
+            &serde_json::json!({}),
+            &enforcement
+        ));
+        assert!(!is_tool_call_allowed(
+            "ao.daemon.start",
+            &serde_json::json!({}),
+            &enforcement
+        ));
     }
 
     #[test]
     fn tool_policy_denylist_blocks_matching() {
         let enforcement = enforcement_with_tool_policy(vec![], vec!["ao.daemon.*"]);
-        assert!(is_tool_call_allowed("ao.task.list", &serde_json::json!({}), &enforcement));
-        assert!(!is_tool_call_allowed("ao.daemon.start", &serde_json::json!({}), &enforcement));
-        assert!(!is_tool_call_allowed("ao.daemon.stop", &serde_json::json!({}), &enforcement));
+        assert!(is_tool_call_allowed(
+            "ao.task.list",
+            &serde_json::json!({}),
+            &enforcement
+        ));
+        assert!(!is_tool_call_allowed(
+            "ao.daemon.start",
+            &serde_json::json!({}),
+            &enforcement
+        ));
+        assert!(!is_tool_call_allowed(
+            "ao.daemon.stop",
+            &serde_json::json!({}),
+            &enforcement
+        ));
     }
 
     #[test]
     fn tool_policy_deny_overrides_allow() {
         let enforcement = enforcement_with_tool_policy(vec!["ao.*"], vec!["ao.daemon.*"]);
-        assert!(is_tool_call_allowed("ao.task.list", &serde_json::json!({}), &enforcement));
-        assert!(!is_tool_call_allowed("ao.daemon.start", &serde_json::json!({}), &enforcement));
+        assert!(is_tool_call_allowed(
+            "ao.task.list",
+            &serde_json::json!({}),
+            &enforcement
+        ));
+        assert!(!is_tool_call_allowed(
+            "ao.daemon.start",
+            &serde_json::json!({}),
+            &enforcement
+        ));
     }
 
     #[test]
     fn tool_policy_does_not_affect_phase_transition() {
         let enforcement = enforcement_with_tool_policy(vec!["ao.task.*"], vec![]);
-        assert!(is_tool_call_allowed("phase_transition", &serde_json::json!({}), &enforcement));
+        assert!(is_tool_call_allowed(
+            "phase_transition",
+            &serde_json::json!({}),
+            &enforcement
+        ));
     }
 
     #[test]
@@ -1732,11 +1771,26 @@ mod tests {
             }
         });
         let enforcement = resolve_mcp_tool_enforcement(Some(&contract));
-        assert_eq!(enforcement.tool_policy_allow, vec!["ao.task.*", "ao.workflow.*"]);
+        assert_eq!(
+            enforcement.tool_policy_allow,
+            vec!["ao.task.*", "ao.workflow.*"]
+        );
         assert_eq!(enforcement.tool_policy_deny, vec!["ao.task.delete"]);
-        assert!(is_tool_call_allowed("ao.task.list", &serde_json::json!({}), &enforcement));
-        assert!(!is_tool_call_allowed("ao.task.delete", &serde_json::json!({}), &enforcement));
-        assert!(!is_tool_call_allowed("ao.daemon.start", &serde_json::json!({}), &enforcement));
+        assert!(is_tool_call_allowed(
+            "ao.task.list",
+            &serde_json::json!({}),
+            &enforcement
+        ));
+        assert!(!is_tool_call_allowed(
+            "ao.task.delete",
+            &serde_json::json!({}),
+            &enforcement
+        ));
+        assert!(!is_tool_call_allowed(
+            "ao.daemon.start",
+            &serde_json::json!({}),
+            &enforcement
+        ));
     }
 
     #[test]
@@ -1762,10 +1816,19 @@ mod tests {
         let enforcement = resolve_mcp_tool_enforcement(Some(&contract));
         assert_eq!(enforcement.additional_servers.len(), 1);
         assert_eq!(enforcement.additional_servers[0].name, "my-db");
-        assert_eq!(enforcement.additional_servers[0].command, "/usr/local/bin/db-mcp");
-        assert_eq!(enforcement.additional_servers[0].args, vec!["--port", "5432"]);
         assert_eq!(
-            enforcement.additional_servers[0].env.get("DB_HOST").map(String::as_str),
+            enforcement.additional_servers[0].command,
+            "/usr/local/bin/db-mcp"
+        );
+        assert_eq!(
+            enforcement.additional_servers[0].args,
+            vec!["--port", "5432"]
+        );
+        assert_eq!(
+            enforcement.additional_servers[0]
+                .env
+                .get("DB_HOST")
+                .map(String::as_str),
             Some("localhost")
         );
     }

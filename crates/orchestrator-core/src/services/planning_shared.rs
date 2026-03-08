@@ -474,11 +474,7 @@ fn unsatisfied_blocked_dependencies(lock: &CoreState, task: &OrchestratorTask) -
 
         match lock.tasks.get(&dependency.task_id) {
             Some(dep_task) if dep_task.status == TaskStatus::Done => {}
-            Some(dep_task) => issues.push(format!(
-                "{} ({})",
-                dependency.task_id,
-                dep_task.status
-            )),
+            Some(dep_task) => issues.push(format!("{} ({})", dependency.task_id, dep_task.status)),
             None => issues.push(format!("{} (missing)", dependency.task_id)),
         }
     }
@@ -714,8 +710,7 @@ Run `ao requirements draft`/`ao requirements refine` (or upsert explicit constra
                             | crate::WorkflowStatus::Pending
                             | crate::WorkflowStatus::Paused
                     )
-                    && workflow.machine_state
-                        != crate::types::WorkflowMachineState::MergeConflict
+                    && workflow.machine_state != crate::types::WorkflowMachineState::MergeConflict
             });
             if has_active_workflow {
                 continue;

@@ -42,22 +42,24 @@ pub fn write_file(working_dir: &Path, path: &str, content: &str) -> Result<Strin
     std::fs::write(&full_path, content)
         .map_err(|e| anyhow::anyhow!("Failed to write {}: {}", path, e))?;
 
-    Ok(format!("Successfully wrote {} bytes to {}", content.len(), path))
+    Ok(format!(
+        "Successfully wrote {} bytes to {}",
+        content.len(),
+        path
+    ))
 }
 
-pub fn edit_file(
-    working_dir: &Path,
-    path: &str,
-    old_text: &str,
-    new_text: &str,
-) -> Result<String> {
+pub fn edit_file(working_dir: &Path, path: &str, old_text: &str, new_text: &str) -> Result<String> {
     let full_path = resolve_path(working_dir, path)?;
     let content = std::fs::read_to_string(&full_path)
         .map_err(|e| anyhow::anyhow!("Failed to read {}: {}", path, e))?;
 
     let count = content.matches(old_text).count();
     if count == 0 {
-        bail!("old_text not found in {}. Make sure the text matches exactly including whitespace.", path);
+        bail!(
+            "old_text not found in {}. Make sure the text matches exactly including whitespace.",
+            path
+        );
     }
 
     let new_content = content.replacen(old_text, new_text, 1);
@@ -115,11 +117,16 @@ fn resolve_path(working_dir: &Path, path: &str) -> Result<std::path::PathBuf> {
         working_dir.join(path)
     };
 
-    let canonical_wd = working_dir.canonicalize().unwrap_or_else(|_| working_dir.to_path_buf());
+    let canonical_wd = working_dir
+        .canonicalize()
+        .unwrap_or_else(|_| working_dir.to_path_buf());
     let canonical_resolved = resolved.canonicalize().unwrap_or_else(|_| resolved.clone());
 
     if !canonical_resolved.starts_with(&canonical_wd) {
-        if resolved.components().any(|c| c == std::path::Component::ParentDir) {
+        if resolved
+            .components()
+            .any(|c| c == std::path::Component::ParentDir)
+        {
             bail!(
                 "Path '{}' attempts to escape the working directory. Paths must stay within the project root.",
                 path

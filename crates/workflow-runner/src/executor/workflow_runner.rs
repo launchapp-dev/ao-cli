@@ -1,8 +1,8 @@
+use super::phase_executor::{PhaseExecutionMetadata, PhaseExecutionSignal};
 use crate::ipc::{collect_json_payload_lines, run_prompt_against_runner};
 use protocol::{default_primary_model_for_phase, tool_for_model_id};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use super::phase_executor::{PhaseExecutionMetadata, PhaseExecutionSignal};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PhaseExecutionEvent {
@@ -74,18 +74,14 @@ pub fn task_requires_research(task: &orchestrator_core::OrchestratorTask) -> boo
     .any(|needle| haystack.contains(needle))
 }
 
-pub fn workflow_has_completed_research(
-    workflow: &orchestrator_core::OrchestratorWorkflow,
-) -> bool {
+pub fn workflow_has_completed_research(workflow: &orchestrator_core::OrchestratorWorkflow) -> bool {
     workflow.phases.iter().any(|phase| {
         phase.phase_id == "research"
             && phase.status == orchestrator_core::WorkflowPhaseStatus::Success
     })
 }
 
-pub fn workflow_has_active_research(
-    workflow: &orchestrator_core::OrchestratorWorkflow,
-) -> bool {
+pub fn workflow_has_active_research(workflow: &orchestrator_core::OrchestratorWorkflow) -> bool {
     workflow.phases.iter().any(|phase| {
         phase.phase_id == "research"
             && matches!(

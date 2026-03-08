@@ -1,3 +1,4 @@
+use super::phase_executor::load_agent_runtime_config;
 use super::phase_output::{
     format_prior_phase_outputs, load_prior_phase_outputs, pipeline_phase_order_for_workflow,
 };
@@ -5,7 +6,6 @@ use super::runtime_contract_builder::{
     load_phase_capabilities, phase_decision_contract_for, phase_output_contract_for,
     phase_system_prompt_for,
 };
-use super::phase_executor::load_agent_runtime_config;
 
 pub(super) const WORKFLOW_PHASE_PROMPT_TEMPLATE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -69,7 +69,9 @@ pub fn build_phase_prompt(
     let phase_order = pipeline_phase_order_for_workflow(project_root, workflow_id);
     let prior_outputs = load_prior_phase_outputs(project_root, workflow_id, phase_id, &phase_order);
     let prior_phase_context = format_prior_phase_outputs(&prior_outputs);
-    let rework_context = rework_context.map(str::trim).filter(|value| !value.is_empty());
+    let rework_context = rework_context
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
     let mut prior_context = prior_phase_context;
     if let Some(context) = rework_context {
         prior_context.push_str("\n\nFailure context:\n");
@@ -96,7 +98,8 @@ pub fn build_phase_prompt(
 
     if let Some(vars) = pipeline_vars {
         if !vars.is_empty() {
-            phase_prompt = orchestrator_core::workflow_config::expand_variables(&phase_prompt, vars);
+            phase_prompt =
+                orchestrator_core::workflow_config::expand_variables(&phase_prompt, vars);
         }
     }
 
@@ -112,7 +115,8 @@ pub fn build_phase_prompt(
             let mut system_prompt = system_prompt;
             if let Some(vars) = pipeline_vars {
                 if !vars.is_empty() {
-                    system_prompt = orchestrator_core::workflow_config::expand_variables(&system_prompt, vars);
+                    system_prompt =
+                        orchestrator_core::workflow_config::expand_variables(&system_prompt, vars);
                 }
             }
             return format!("{system_prompt}\n\n{phase_prompt}");

@@ -20,7 +20,13 @@ pub fn execute_command(
 
     let output = match wait_with_timeout(child, timeout) {
         Ok(output) => output,
-        Err(e) => return Ok(format!("Command timed out after {}s: {}", timeout.as_secs(), e)),
+        Err(e) => {
+            return Ok(format!(
+                "Command timed out after {}s: {}",
+                timeout.as_secs(),
+                e
+            ))
+        }
     };
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -45,7 +51,10 @@ pub fn execute_command(
 
     if result.len() > 50_000 {
         let truncated = &result[..50_000];
-        return Ok(format!("{}...\n[output truncated at 50000 chars]", truncated));
+        return Ok(format!(
+            "{}...\n[output truncated at 50000 chars]",
+            truncated
+        ));
     }
 
     Ok(result)

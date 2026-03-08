@@ -1199,8 +1199,8 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
 }
 
 pub fn agent_runtime_config_path(project_root: &Path) -> PathBuf {
-    let base = protocol::scoped_state_root(project_root)
-        .unwrap_or_else(|| project_root.join(".ao"));
+    let base =
+        protocol::scoped_state_root(project_root).unwrap_or_else(|| project_root.join(".ao"));
     base.join("state").join(AGENT_RUNTIME_CONFIG_FILE_NAME)
 }
 
@@ -1960,8 +1960,7 @@ mod tests {
         };
 
         let json = serde_json::to_string(&definition).expect("serialize");
-        let restored: PhaseExecutionDefinition =
-            serde_json::from_str(&json).expect("deserialize");
+        let restored: PhaseExecutionDefinition = serde_json::from_str(&json).expect("deserialize");
 
         assert_eq!(restored.mode, PhaseExecutionMode::Command);
         assert!(restored.agent_id.is_none());
@@ -2234,10 +2233,7 @@ mod tests {
                 manual: None,
             },
         );
-        assert_eq!(
-            config.phase_mode("lint"),
-            Some(PhaseExecutionMode::Command)
-        );
+        assert_eq!(config.phase_mode("lint"), Some(PhaseExecutionMode::Command));
         let cmd = config.phase_command("lint").expect("command block present");
         assert_eq!(cmd.program, "cargo");
         assert_eq!(cmd.args, vec!["clippy"]);
@@ -2282,8 +2278,7 @@ mod tests {
         };
 
         let json = serde_json::to_string_pretty(&definition).expect("serialize");
-        let restored: PhaseExecutionDefinition =
-            serde_json::from_str(&json).expect("deserialize");
+        let restored: PhaseExecutionDefinition = serde_json::from_str(&json).expect("deserialize");
 
         let cmd = restored.command.expect("command present");
         assert!(cmd.parse_json_output);
@@ -2399,9 +2394,7 @@ mod tests {
             },
         );
         let err = validate_agent_runtime_config(&config).unwrap_err();
-        assert!(err
-            .to_string()
-            .contains("env must not contain empty keys"));
+        assert!(err.to_string().contains("env must not contain empty keys"));
     }
 
     #[test]
@@ -2476,8 +2469,7 @@ mod tests {
 
     #[test]
     fn agent_mcp_server_source_defaults_to_builtin() {
-        let config: AgentMcpServerConfig =
-            serde_json::from_str("{}").expect("deserialize empty");
+        let config: AgentMcpServerConfig = serde_json::from_str("{}").expect("deserialize empty");
         assert_eq!(config.source, AgentMcpServerSource::Builtin);
         assert!(config.tool_policy.allow.is_empty());
         assert!(config.tool_policy.deny.is_empty());
@@ -2549,16 +2541,11 @@ mod tests {
         let restored: AgentRuntimeConfig = serde_json::from_str(&json).expect("deserialize");
         validate_agent_runtime_config(&restored).expect("validate");
 
-        let restored_profile = restored
-            .agent_profile("default")
-            .expect("default profile");
+        let restored_profile = restored.agent_profile("default").expect("default profile");
         assert!(restored_profile.mcp_server_configs.is_some());
         let mcp_configs = restored_profile.mcp_server_configs.as_ref().unwrap();
         assert_eq!(mcp_configs.len(), 1);
-        assert_eq!(
-            mcp_configs["ao"].source,
-            AgentMcpServerSource::Builtin
-        );
+        assert_eq!(mcp_configs["ao"].source, AgentMcpServerSource::Builtin);
 
         assert!(restored_profile.structured_capabilities.is_some());
         let caps = restored_profile.structured_capabilities.as_ref().unwrap();
@@ -2566,10 +2553,7 @@ mod tests {
 
         assert!(restored_profile.project_overrides.is_some());
         let overrides = restored_profile.project_overrides.as_ref().unwrap();
-        assert_eq!(
-            overrides["my-project"].tool.as_deref(),
-            Some("codex")
-        );
+        assert_eq!(overrides["my-project"].tool.as_deref(), Some("codex"));
     }
 
     #[test]
@@ -2718,7 +2702,8 @@ mod tests {
     fn make_agent_profile_with_system_prompt(prompt: &str) -> AgentProfile {
         serde_json::from_value(serde_json::json!({
             "system_prompt": prompt
-        })).expect("deserialize agent profile")
+        }))
+        .expect("deserialize agent profile")
     }
 
     #[test]
@@ -2813,17 +2798,26 @@ mod tests {
 
     #[test]
     fn phase_system_prompt_deserializes_with_and_without_field() {
-        let with_prompt: PhaseExecutionDefinition = serde_json::from_str(r#"{
+        let with_prompt: PhaseExecutionDefinition = serde_json::from_str(
+            r#"{
             "mode": "agent",
             "agent_id": "default",
             "system_prompt": "Custom prompt from JSON"
-        }"#).expect("deserialize with system_prompt");
-        assert_eq!(with_prompt.system_prompt.as_deref(), Some("Custom prompt from JSON"));
+        }"#,
+        )
+        .expect("deserialize with system_prompt");
+        assert_eq!(
+            with_prompt.system_prompt.as_deref(),
+            Some("Custom prompt from JSON")
+        );
 
-        let without_prompt: PhaseExecutionDefinition = serde_json::from_str(r#"{
+        let without_prompt: PhaseExecutionDefinition = serde_json::from_str(
+            r#"{
             "mode": "agent",
             "agent_id": "default"
-        }"#).expect("deserialize without system_prompt");
+        }"#,
+        )
+        .expect("deserialize without system_prompt");
         assert!(without_prompt.system_prompt.is_none());
     }
 

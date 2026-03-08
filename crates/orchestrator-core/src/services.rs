@@ -15,14 +15,16 @@ use tokio::sync::RwLock;
 use tokio::time::sleep;
 use uuid::Uuid;
 
-use crate::providers::{BuiltinRequirementsProvider, BuiltinTaskProvider, RequirementsProvider, TaskProvider};
+use crate::providers::{BuiltinGitProvider, GitProvider};
+use crate::providers::{
+    BuiltinRequirementsProvider, BuiltinTaskProvider, RequirementsProvider, TaskProvider,
+};
 use crate::types::{
     AgentHandoffRequestInput, AgentHandoffResult, ArchitectureGraph, Assignee, ChecklistItem,
-    CheckpointReason, CodebaseInsight, Complexity, ComplexityAssessment,
-    DaemonHealth, DaemonStatus, DependencyType, LogEntry, LogLevel, OrchestratorProject,
-    OrchestratorTask, OrchestratorWorkflow, PhaseDecision, Priority, ProjectConfig,
-    ProjectCreateInput, ProjectType, RequirementItem, RequirementPriorityExt, RequirementStatus,
-    RequirementsDraftInput,
+    CheckpointReason, CodebaseInsight, Complexity, ComplexityAssessment, DaemonHealth,
+    DaemonStatus, DependencyType, LogEntry, LogLevel, OrchestratorProject, OrchestratorTask,
+    OrchestratorWorkflow, PhaseDecision, Priority, ProjectConfig, ProjectCreateInput, ProjectType,
+    RequirementItem, RequirementPriorityExt, RequirementStatus, RequirementsDraftInput,
     RequirementsDraftResult, RequirementsExecutionInput, RequirementsExecutionResult,
     RequirementsRefineInput, RiskLevel, Scope, TaskCreateInput, TaskDensity, TaskDependency,
     TaskFilter, TaskMetadata, TaskPriorityDistribution, TaskPriorityPolicyReport,
@@ -30,36 +32,37 @@ use crate::types::{
     TaskStatistics, TaskStatus, TaskType, TaskUpdateInput, VisionDocument, VisionDraftInput,
     WorkflowMetadata, WorkflowRunInput, WorkflowSubject,
 };
-use crate::providers::{BuiltinGitProvider, GitProvider};
 use crate::workflow::{
     ResumeConfig, WorkflowLifecycleExecutor, WorkflowStateManager, STANDARD_PIPELINE_ID,
     UI_UX_PIPELINE_ID,
 };
 
 mod daemon_impl;
+mod phase_execution;
 mod planning_impl;
 mod planning_shared;
-mod schedule_state;
 mod planning_utils;
 mod project_impl;
 mod project_shared;
 mod review_impl;
-mod phase_execution;
 mod runner_helpers;
+mod schedule_state;
 mod state_store;
 mod task_impl;
 mod task_shared;
 mod workflow_impl;
 
+pub use phase_execution::{
+    PhaseExecutionRequest, PhaseExecutionResult, PhaseExecutor, PhaseVerdict,
+};
 use planning_utils::*;
 use runner_helpers::*;
-use state_store::{load_core_state, load_core_state_for_mutation, CoreState};
-use task_shared::*;
-pub use phase_execution::{PhaseExecutionRequest, PhaseExecutionResult, PhaseExecutor, PhaseVerdict};
-pub use task_shared::task_matches_filter;
 pub use schedule_state::{
     load_schedule_state, save_schedule_state, ScheduleRunState, ScheduleState,
 };
+use state_store::{load_core_state, load_core_state_for_mutation, CoreState};
+pub use task_shared::task_matches_filter;
+use task_shared::*;
 
 pub fn evaluate_task_priority_policy(
     tasks: &[OrchestratorTask],
@@ -128,7 +131,12 @@ pub trait TaskServiceApi: Send + Sync {
         user_id: String,
         updated_by: String,
     ) -> Result<OrchestratorTask>;
-    async fn set_status(&self, id: &str, status: TaskStatus, validate: bool) -> Result<OrchestratorTask>;
+    async fn set_status(
+        &self,
+        id: &str,
+        status: TaskStatus,
+        validate: bool,
+    ) -> Result<OrchestratorTask>;
     async fn add_checklist_item(
         &self,
         id: &str,
@@ -269,8 +277,8 @@ impl FileServiceHub {
     pub fn new(project_root: impl AsRef<Path>) -> Result<Self> {
         let project_root = project_root.as_ref().to_path_buf();
         Self::bootstrap_project_base_configs(&project_root)?;
-        let scoped_root = protocol::scoped_state_root(&project_root)
-            .unwrap_or_else(|| project_root.join(".ao"));
+        let scoped_root =
+            protocol::scoped_state_root(&project_root).unwrap_or_else(|| project_root.join(".ao"));
         let state_file = scoped_root.join("core-state.json");
 
         let mut state = load_core_state(&state_file);
@@ -430,7 +438,11 @@ impl FileServiceHub {
         })
     }
 
-    fn write_requirement_files(path: &Path, snapshot: &CoreState, only_ids: Option<&HashSet<String>>) -> Result<()> {
+    fn write_requirement_files(
+        path: &Path,
+        snapshot: &CoreState,
+        only_ids: Option<&HashSet<String>>,
+    ) -> Result<()> {
         let Some(ao_dir) = Self::ao_dir_for_state_file(path) else {
             return Ok(());
         };
@@ -504,7 +516,11 @@ impl FileServiceHub {
         Ok(())
     }
 
-    fn write_task_files(path: &Path, snapshot: &CoreState, only_ids: Option<&HashSet<String>>) -> Result<()> {
+    fn write_task_files(
+        path: &Path,
+        snapshot: &CoreState,
+        only_ids: Option<&HashSet<String>>,
+    ) -> Result<()> {
         let Some(ao_dir) = Self::ao_dir_for_state_file(path) else {
             return Ok(());
         };
@@ -809,8 +825,8 @@ impl FileServiceHub {
 
         Self::maybe_migrate_state_to_scoped_root(project_root)?;
 
-        let scoped_root = protocol::scoped_state_root(project_root)
-            .unwrap_or_else(|| project_root.join(".ao"));
+        let scoped_root =
+            protocol::scoped_state_root(project_root).unwrap_or_else(|| project_root.join(".ao"));
         let state_dir = scoped_root.join("state");
         std::fs::create_dir_all(&state_dir)?;
 

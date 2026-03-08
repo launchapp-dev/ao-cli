@@ -6,10 +6,11 @@ pub use protocol::orchestrator::{
     LogLevel, OrchestratorProject, OrchestratorWorkflow, PhaseDecision, PhaseDecisionVerdict,
     PhaseEvidence, PhaseEvidenceKind, Priority, ProjectConcurrencyLimits, ProjectConfig,
     ProjectCreateInput, ProjectMetadata, ProjectModelPreferences, ProjectType, RequirementRange,
-    RiskLevel, Scope, TaskDensity, TaskStatus, TaskType, VisionDraftInput, VisionDocument,
+    RiskLevel, Scope, TaskDensity, TaskStatus, TaskType, VisionDocument, VisionDraftInput,
     WorkflowCheckpoint, WorkflowCheckpointMetadata, WorkflowDecisionAction, WorkflowDecisionRecord,
     WorkflowDecisionRisk, WorkflowDecisionSource, WorkflowMachineEvent, WorkflowMachineState,
     WorkflowPhaseExecution, WorkflowPhaseStatus, WorkflowRunInput, WorkflowStatus, WorkflowSubject,
+    SubjectDispatch,
     DEFAULT_HIGH_PRIORITY_BUDGET_PERCENT,
 };
 

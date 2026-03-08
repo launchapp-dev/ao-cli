@@ -193,7 +193,12 @@ fn json_error_envelope_maps_unavailable() -> Result<()> {
     let harness = CliHarness::new()?;
 
     let (payload, status) = harness.run_json_err_with_exit(&[
-        "agent", "control", "--run-id", "fake-run", "--action", "terminate",
+        "agent",
+        "control",
+        "--run-id",
+        "fake-run",
+        "--action",
+        "terminate",
     ])?;
     assert_eq!(
         status, 5,

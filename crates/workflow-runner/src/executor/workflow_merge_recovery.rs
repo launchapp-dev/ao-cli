@@ -1,4 +1,3 @@
-use serde::Serialize;
 use crate::ipc::{
     build_runtime_contract, collect_json_payload_lines, connect_runner, event_matches_run,
     runner_config_dir, write_json_line,
@@ -9,6 +8,7 @@ use protocol::{
     RunId, PROTOCOL_VERSION,
 };
 use serde::Deserialize;
+use serde::Serialize;
 use std::path::Path;
 use std::process::{Command as ProcessCommand, Stdio};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -214,9 +214,7 @@ pub fn merge_conflict_recovery_status(status: &str) -> Option<&'static str> {
     }
 }
 
-pub fn is_valid_merge_conflict_recovery_response(
-    response: &MergeConflictRecoveryResponse,
-) -> bool {
+pub fn is_valid_merge_conflict_recovery_response(response: &MergeConflictRecoveryResponse) -> bool {
     response
         .kind
         .trim()
@@ -224,9 +222,7 @@ pub fn is_valid_merge_conflict_recovery_response(
         && merge_conflict_recovery_status(response.status.as_str()).is_some()
 }
 
-pub fn parse_merge_conflict_recovery_response(
-    text: &str,
-) -> Option<MergeConflictRecoveryResponse> {
+pub fn parse_merge_conflict_recovery_response(text: &str) -> Option<MergeConflictRecoveryResponse> {
     let mut parsed_response = None;
     for (_raw, payload) in collect_json_payload_lines(text) {
         if let Ok(response) = serde_json::from_value::<MergeConflictRecoveryResponse>(payload) {

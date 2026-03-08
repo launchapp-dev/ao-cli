@@ -33,7 +33,10 @@ fn main() {
     if let Some(git_dir) = git_dir {
         let git_dir = std::path::Path::new(&git_dir);
         println!("cargo:rerun-if-changed={}", git_dir.join("HEAD").display());
-        println!("cargo:rerun-if-changed={}", git_dir.join("packed-refs").display());
+        println!(
+            "cargo:rerun-if-changed={}",
+            git_dir.join("packed-refs").display()
+        );
         if let Ok(head) = std::fs::read_to_string(git_dir.join("HEAD")) {
             if let Some(branch_ref) = head.strip_prefix("ref: ") {
                 println!(

@@ -777,7 +777,10 @@ fn e2e_daemon_autonomous_start_reports_early_exit_failure() -> Result<()> {
         "--max-tasks-per-tick",
         "1",
     ])?;
-    assert_ne!(exit_code, 0, "daemon start should fail when autonomous child exits");
+    assert_ne!(
+        exit_code, 0,
+        "daemon start should fail when autonomous child exits"
+    );
     let message = failure
         .pointer("/error/message")
         .and_then(Value::as_str)
@@ -896,8 +899,7 @@ fn e2e_task_control_cancel_requires_confirmation_and_supports_dry_run() -> Resul
         .context("task create should return data.id")?
         .to_string();
 
-    let confirmation_error =
-        harness.run_json_err(&["task", "cancel", "--task-id", &task_id])?;
+    let confirmation_error = harness.run_json_err(&["task", "cancel", "--task-id", &task_id])?;
     let confirmation_message = confirmation_error
         .pointer("/error/message")
         .and_then(Value::as_str)
@@ -911,8 +913,7 @@ fn e2e_task_control_cancel_requires_confirmation_and_supports_dry_run() -> Resul
         "task cancel confirmation message should use canonical token order"
     );
 
-    let preview =
-        harness.run_json_ok(&["task", "cancel", "--task-id", &task_id, "--dry-run"])?;
+    let preview = harness.run_json_ok(&["task", "cancel", "--task-id", &task_id, "--dry-run"])?;
     assert_shared_destructive_dry_run_contract(&preview, "task.cancel", true);
 
     let before_cancel = harness.run_json_ok(&["task", "get", "--id", &task_id])?;
@@ -1036,12 +1037,8 @@ fn e2e_task_control_rebalance_priority_dry_run_and_apply() -> Result<()> {
         "2026-03-10T09:00:00Z",
     ])?;
 
-    let dry_run = harness.run_json_ok(&[
-        "task",
-        "rebalance-priority",
-        "--high-budget-percent",
-        "34",
-    ])?;
+    let dry_run =
+        harness.run_json_ok(&["task", "rebalance-priority", "--high-budget-percent", "34"])?;
     assert_eq!(
         dry_run.pointer("/data/dry_run").and_then(Value::as_bool),
         Some(true)
@@ -1582,7 +1579,14 @@ fn e2e_git_worktree_prune_cleans_done_task_worktrees() -> Result<()> {
         .and_then(Value::as_str)
         .context("task create should return data.id")?
         .to_string();
-    harness.run_json_ok(&["task", "status", "--id", &task_id, "--status", "in-progress"])?;
+    harness.run_json_ok(&[
+        "task",
+        "status",
+        "--id",
+        &task_id,
+        "--status",
+        "in-progress",
+    ])?;
     harness.run_json_ok(&["task", "status", "--id", &task_id, "--status", "done"])?;
 
     let task_token = task_id.to_ascii_lowercase();

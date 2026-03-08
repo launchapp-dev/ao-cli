@@ -123,10 +123,7 @@ impl WorkflowServiceApi for InMemoryServiceHub {
                 None,
                 Some(pipeline_id.as_str()),
             )?);
-            let workflow = executor.bootstrap(
-                id.clone(),
-                input.with_pipeline(pipeline_id),
-            );
+            let workflow = executor.bootstrap(id.clone(), input.with_pipeline(pipeline_id));
             lock.workflows.insert(id.clone(), workflow.clone());
             workflow
         };
@@ -283,8 +280,7 @@ impl WorkflowServiceApi for FileServiceHub {
             None
         };
         let pipeline_id = effective_pipeline_id(input.pipeline_id.as_deref(), task.as_ref());
-        let workflow_config =
-            crate::load_workflow_config_or_default(self.project_root.as_path());
+        let workflow_config = crate::load_workflow_config_or_default(self.project_root.as_path());
         let skip_guards = crate::resolve_pipeline_skip_guards(
             &workflow_config.config,
             Some(pipeline_id.as_str()),
@@ -298,10 +294,7 @@ impl WorkflowServiceApi for FileServiceHub {
         )
         .with_retry_configs(retry_configs)
         .with_skip_guards(skip_guards);
-        let mut workflow = executor.bootstrap(
-            id.clone(),
-            input.with_pipeline(pipeline_id),
-        );
+        let mut workflow = executor.bootstrap(id.clone(), input.with_pipeline(pipeline_id));
         if let Some(ref task) = task {
             executor.skip_guarded_phases(&mut workflow, task);
         }
@@ -423,8 +416,7 @@ impl WorkflowServiceApi for FileServiceHub {
         let mut workflow = manager.load(id)?;
         let state_machines = load_compiled_state_machines(self.project_root.as_path())?;
         let retry_configs = load_phase_retry_configs(self.project_root.as_path());
-        let workflow_config =
-            crate::load_workflow_config_or_default(self.project_root.as_path());
+        let workflow_config = crate::load_workflow_config_or_default(self.project_root.as_path());
         let skip_guards = crate::resolve_pipeline_skip_guards(
             &workflow_config.config,
             workflow.pipeline_id.as_deref(),

@@ -174,7 +174,10 @@ mod tests {
         };
         let json = serde_json::to_value(&request).unwrap();
         assert_eq!(json["response_format"]["type"], "json_schema");
-        assert_eq!(json["response_format"]["json_schema"]["name"], "phase_output");
+        assert_eq!(
+            json["response_format"]["json_schema"]["name"],
+            "phase_output"
+        );
         assert_eq!(json["response_format"]["json_schema"]["strict"], true);
         assert_eq!(
             json["response_format"]["json_schema"]["schema"]["required"],
@@ -214,7 +217,10 @@ mod tests {
         let tc = chunk.choices[0].delta.tool_calls.as_ref().unwrap();
         assert_eq!(tc[0].index, 0);
         assert_eq!(tc[0].id.as_deref(), Some("call_abc"));
-        assert_eq!(tc[0].function.as_ref().unwrap().name.as_deref(), Some("read_file"));
+        assert_eq!(
+            tc[0].function.as_ref().unwrap().name.as_deref(),
+            Some("read_file")
+        );
     }
 
     #[test]

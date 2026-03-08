@@ -10,9 +10,7 @@ mod run;
 mod status;
 
 use run::handle_agent_run;
-use status::{
-    handle_agent_control, handle_agent_status,
-};
+use status::{handle_agent_control, handle_agent_status};
 
 pub(crate) async fn handle_agent(
     command: AgentCommand,

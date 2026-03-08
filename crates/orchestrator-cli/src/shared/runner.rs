@@ -1,26 +1,25 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
-use protocol::{AgentRunEvent, OutputStreamType};
 #[cfg(test)]
 use protocol::RunId;
+use protocol::{AgentRunEvent, OutputStreamType};
 use serde_json::Value;
 
-use cli_wrapper::{NormalizedTextEvent, extract_text_from_line};
+use cli_wrapper::{extract_text_from_line, NormalizedTextEvent};
 
 use crate::{invalid_input_error, AgentControlActionArg, AgentRunArgs, RunnerScopeArg};
 use protocol::AgentControlAction;
 
+#[cfg(test)]
+pub(crate) use workflow_runner::ipc::build_runtime_contract_with_resume;
 pub(crate) use workflow_runner::ipc::{
     append_line, build_runtime_contract, collect_json_payload_lines, connect_runner,
     event_matches_run, run_dir, runner_config_dir, write_json_line,
 };
-#[cfg(test)]
-pub(crate) use workflow_runner::ipc::build_runtime_contract_with_resume;
 
 pub(crate) fn ensure_safe_run_id(run_id: &str) -> Result<()> {
-    workflow_runner::ipc::ensure_safe_run_id(run_id)
-        .map_err(|e| invalid_input_error(e.to_string()))
+    workflow_runner::ipc::ensure_safe_run_id(run_id).map_err(|e| invalid_input_error(e.to_string()))
 }
 
 impl From<AgentControlActionArg> for AgentControlAction {
@@ -325,7 +324,6 @@ fn stream_type_label(stream_type: OutputStreamType) -> &'static str {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -505,7 +503,9 @@ mod tests {
 
     #[test]
     fn claude_bypass_permissions_is_disabled_by_default() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", None);
         let contract = build_runtime_contract("claude", "claude-opus-4-1", "hello")
             .expect("runtime contract should build");
@@ -522,7 +522,9 @@ mod tests {
 
     #[test]
     fn claude_bypass_permissions_respects_enable_toggle() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", Some("true"));
         let contract = build_runtime_contract("claude", "claude-opus-4-1", "hello")
             .expect("runtime contract should build");
@@ -539,7 +541,9 @@ mod tests {
 
     #[test]
     fn claude_bypass_permissions_respects_disable_toggle() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", Some("false"));
         let contract = build_runtime_contract("claude", "claude-opus-4-1", "hello")
             .expect("runtime contract should build");
@@ -556,7 +560,9 @@ mod tests {
 
     #[test]
     fn claude_bypass_permissions_treats_empty_value_as_disabled() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", Some(""));
         let contract = build_runtime_contract("claude", "claude-opus-4-1", "hello")
             .expect("runtime contract should build");
@@ -573,7 +579,9 @@ mod tests {
 
     #[test]
     fn inject_claude_permission_mode_override_is_disabled_by_default() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", None);
         let contract = build_runtime_contract("claude", "claude-opus-4-1", "hello")
             .expect("runtime contract should build");
@@ -590,7 +598,9 @@ mod tests {
 
     #[test]
     fn inject_claude_permission_mode_override_respects_enable_toggle() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", Some("true"));
         let mut contract = build_runtime_contract("claude", "claude-opus-4-1", "hello")
             .expect("runtime contract should build");
@@ -608,7 +618,9 @@ mod tests {
 
     #[test]
     fn inject_claude_permission_mode_override_respects_disable_toggle() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", Some("false"));
         let mut contract = build_runtime_contract("claude", "claude-opus-4-1", "hello")
             .expect("runtime contract should build");
@@ -626,7 +638,9 @@ mod tests {
 
     #[test]
     fn inject_claude_permission_mode_override_treats_empty_toggle_as_disabled() {
-        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let _lock = crate::shared::test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", Some(""));
         let mut contract = build_runtime_contract("claude", "claude-opus-4-1", "hello")
             .expect("runtime contract should build");
@@ -740,9 +754,8 @@ mod tests {
     #[test]
     fn build_runtime_contract_without_resume_has_no_session_metadata() {
         let _lock = crate::shared::test_env_lock().lock().expect("env lock");
-        let contract =
-            build_runtime_contract("claude", "claude-sonnet-4-6", "hello")
-                .expect("runtime contract should build");
+        let contract = build_runtime_contract("claude", "claude-sonnet-4-6", "hello")
+            .expect("runtime contract should build");
         let session = contract.pointer("/cli/session");
         assert!(session.is_none());
         let args = contract
@@ -809,9 +822,10 @@ mod tests {
         let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
         runtime.block_on(async {
             let (mut client, _server) = tokio::io::duplex(256);
-            let error = workflow_runner::ipc::authenticate_runner_stream(&mut client, scoped_dir.path())
-                .await
-                .expect_err("authentication should fail without runner token");
+            let error =
+                workflow_runner::ipc::authenticate_runner_stream(&mut client, scoped_dir.path())
+                    .await
+                    .expect_err("authentication should fail without runner token");
             assert!(
                 error.to_string().contains("agent runner token unavailable"),
                 "error should mention missing runner token: {error}"

@@ -198,37 +198,89 @@ pub(crate) struct WorkflowRunArgs {
     pub(crate) pipeline_id: Option<String>,
     #[arg(long, value_name = "JSON", help = INPUT_JSON_PRECEDENCE_HELP)]
     pub(crate) input_json: Option<String>,
-    #[arg(long = "var", value_name = "KEY=VALUE", help = "Pipeline variable in KEY=VALUE format. Repeat for multiple variables.")]
+    #[arg(
+        long = "var",
+        value_name = "KEY=VALUE",
+        help = "Pipeline variable in KEY=VALUE format. Repeat for multiple variables."
+    )]
     pub(crate) vars: Vec<String>,
 }
 
 #[derive(Debug, Args)]
 pub(crate) struct WorkflowExecuteArgs {
-    #[arg(long, value_name = "TASK_ID", help = "Task id to execute the workflow for.")]
+    #[arg(
+        long,
+        value_name = "TASK_ID",
+        help = "Task id to execute the workflow for."
+    )]
     pub(crate) task_id: Option<String>,
-    #[arg(long, value_name = "REQ_ID", help = "Requirement id to execute the workflow for (alternative to --task-id).")]
+    #[arg(
+        long,
+        value_name = "REQ_ID",
+        help = "Requirement id to execute the workflow for (alternative to --task-id)."
+    )]
     pub(crate) requirement_id: Option<String>,
-    #[arg(long, value_name = "TITLE", help = "Custom workflow title (alternative to --task-id / --requirement-id).")]
+    #[arg(
+        long,
+        value_name = "TITLE",
+        help = "Custom workflow title (alternative to --task-id / --requirement-id)."
+    )]
     pub(crate) title: Option<String>,
-    #[arg(long, value_name = "TEXT", help = "Custom workflow description (used with --title).")]
+    #[arg(
+        long,
+        value_name = "TEXT",
+        help = "Custom workflow description (used with --title)."
+    )]
     pub(crate) description: Option<String>,
-    #[arg(long, value_name = "PIPELINE_ID", help = "Optional pipeline id override.")]
+    #[arg(
+        long,
+        value_name = "PIPELINE_ID",
+        help = "Optional pipeline id override."
+    )]
     pub(crate) pipeline_id: Option<String>,
-    #[arg(long, value_name = "PHASE_ID", help = "Run only this specific phase instead of the full workflow.")]
+    #[arg(
+        long,
+        value_name = "PHASE_ID",
+        help = "Run only this specific phase instead of the full workflow."
+    )]
     pub(crate) phase: Option<String>,
-    #[arg(long, value_name = "MODEL_ID", help = "Override the model for phase execution.")]
+    #[arg(
+        long,
+        value_name = "MODEL_ID",
+        help = "Override the model for phase execution."
+    )]
     pub(crate) model: Option<String>,
-    #[arg(long, value_name = "TOOL_ID", help = "Override the tool/CLI for phase execution (claude, codex, gemini).")]
+    #[arg(
+        long,
+        value_name = "TOOL_ID",
+        help = "Override the tool/CLI for phase execution (claude, codex, gemini)."
+    )]
     pub(crate) tool: Option<String>,
     #[arg(long, value_name = "SECS", help = "Override phase timeout in seconds.")]
     pub(crate) phase_timeout_secs: Option<u64>,
-    #[arg(long, value_name = "JSON", help = "JSON payload for additional config overrides.")]
+    #[arg(
+        long,
+        value_name = "JSON",
+        help = "JSON payload for additional config overrides."
+    )]
     pub(crate) input_json: Option<String>,
-    #[arg(long, default_value_t = false, help = "Suppress agent output streaming; only show phase summaries.")]
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Suppress agent output streaming; only show phase summaries."
+    )]
     pub(crate) quiet: bool,
-    #[arg(long, default_value_t = false, help = "Show all agent output including thinking blocks and raw JSON.")]
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Show all agent output including thinking blocks and raw JSON."
+    )]
     pub(crate) verbose: bool,
-    #[arg(long = "var", value_name = "KEY=VALUE", help = "Pipeline variable in KEY=VALUE format. Repeat for multiple variables.")]
+    #[arg(
+        long = "var",
+        value_name = "KEY=VALUE",
+        help = "Pipeline variable in KEY=VALUE format. Repeat for multiple variables."
+    )]
     pub(crate) vars: Vec<String>,
 }
 

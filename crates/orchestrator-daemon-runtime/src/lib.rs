@@ -22,6 +22,7 @@ mod notification_runtime;
 mod process_manager;
 mod project_schedule_execution_fact;
 mod project_task_execution_fact;
+mod project_task_lifecycle;
 mod project_tick_action;
 mod project_tick_action_effect;
 mod project_tick_action_executor;
@@ -60,13 +61,13 @@ mod task_state_transition;
 mod tick_summary_builder;
 mod workflow_state_reconciler;
 
+pub use build_runner_command_from_dispatch::build_runner_command_from_dispatch;
 pub use collect_requirement_lifecycle_transitions::collect_requirement_lifecycle_transitions;
 pub use collect_task_state_transitions::collect_task_state_transitions;
 pub use completed_process::CompletedProcess;
 pub use completion_reconciliation_plan::{
     build_completion_reconciliation_plan, CompletionReconciliationPlan,
 };
-pub use build_runner_command_from_dispatch::build_runner_command_from_dispatch;
 pub use daemon_event_log::DaemonEventLog;
 pub use daemon_events_poll_response::DaemonEventsPollResponse;
 pub use daemon_run_event::DaemonRunEvent;
@@ -95,6 +96,9 @@ pub use notification_runtime::{
     NOTIFICATION_CONFIG_SCHEMA,
 };
 pub use process_manager::ProcessManager;
+pub use project_task_lifecycle::{
+    project_task_blocked_with_reason, project_task_dispatch_failure, project_task_status,
+};
 pub use project_tick_action::ProjectTickAction;
 pub use project_tick_action_effect::ProjectTickActionEffect;
 pub use project_tick_action_executor::ProjectTickActionExecutor;
@@ -112,6 +116,7 @@ pub use project_tick_snapshot::ProjectTickSnapshot;
 pub use project_tick_summary::ProjectTickSummary;
 pub use project_tick_summary_input::ProjectTickSummaryInput;
 pub use project_tick_time::ProjectTickTime;
+pub use protocol::SubjectDispatch;
 pub use queue_service::{
     enqueue_subject_dispatch, hold_subject, queue_snapshot, queue_stats, release_subject,
     reorder_subjects, QueueEnqueueResult, QueueEntrySnapshot, QueueSnapshot, QueueStats,
@@ -133,13 +138,11 @@ pub use run_project_tick::{run_project_tick, run_project_tick_at};
 pub use runner_event::RunnerEvent;
 pub use runner_ready_dispatch::dispatch_ready_tasks_via_runner;
 pub use schedule_dispatch::ScheduleDispatch;
-pub use protocol::SubjectDispatch;
 pub use subject_execution_fact::SubjectExecutionFact;
 pub use sync_task_status_for_workflow_result::sync_task_status_for_workflow_result;
 pub use task_blocking::{
     dependency_blocked_reason, dependency_gate_issues_for_task, is_dependency_gate_block,
-    is_merge_gate_block, merge_blocked_reason, set_task_blocked_with_reason,
-    DEPENDENCY_GATE_PREFIX, MERGE_GATE_PREFIX,
+    is_merge_gate_block, merge_blocked_reason, DEPENDENCY_GATE_PREFIX, MERGE_GATE_PREFIX,
 };
 pub use task_lifecycle_support::{promote_backlog_tasks_to_ready, retry_failed_task_workflows};
 pub use task_selection_source::TaskSelectionSource;

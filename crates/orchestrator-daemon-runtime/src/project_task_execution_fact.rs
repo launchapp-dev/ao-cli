@@ -3,8 +3,8 @@ use std::sync::Arc;
 use orchestrator_core::{services::ServiceHub, TaskStatus};
 
 use crate::{
-    remove_terminal_em_work_queue_entry_non_fatal, set_task_blocked_with_reason,
-    SubjectExecutionFact,
+    project_task_blocked_with_reason, project_task_status,
+    remove_terminal_em_work_queue_entry_non_fatal, SubjectExecutionFact,
 };
 
 pub(crate) async fn project_task_execution_fact(
@@ -18,22 +18,16 @@ pub(crate) async fn project_task_execution_fact(
 
     if fact.success {
         remove_terminal_em_work_queue_entry_non_fatal(root, task_id, None);
-        let _ = hub
-            .tasks()
-            .set_status(task_id, TaskStatus::Done, false)
-            .await;
+        let _ = project_task_status(hub, task_id, TaskStatus::Done).await;
         return;
     }
 
     if let Some(reason) = fact.failure_reason.clone() {
         if let Ok(task) = hub.tasks().get(task_id).await {
-            let _ = set_task_blocked_with_reason(hub, &task, reason, None).await;
+            let _ = project_task_blocked_with_reason(hub, &task, reason, None).await;
             return;
         }
     }
 
-    let _ = hub
-        .tasks()
-        .set_status(task_id, TaskStatus::Blocked, false)
-        .await;
+    let _ = project_task_status(hub, task_id, TaskStatus::Blocked).await;
 }

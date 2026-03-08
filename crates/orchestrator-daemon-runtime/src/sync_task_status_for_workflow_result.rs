@@ -7,9 +7,10 @@ use workflow_runner::executor::attempt_ai_merge_conflict_recovery;
 
 use crate::{
     cleanup_merge_conflict_worktree, finalize_merge_conflict_resolution, is_branch_merged,
-    load_post_success_git_config, post_success_merge_push_and_cleanup,
-    remove_terminal_em_work_queue_entry_non_fatal, set_task_blocked_with_reason,
-    PostMergeOutcome, PostSuccessGitConfig, MERGE_GATE_PREFIX, merge_blocked_reason,
+    load_post_success_git_config, merge_blocked_reason, post_success_merge_push_and_cleanup,
+    project_task_blocked_with_reason, project_task_dispatch_failure, project_task_status,
+    remove_terminal_em_work_queue_entry_non_fatal, PostMergeOutcome, PostSuccessGitConfig,
+    MERGE_GATE_PREFIX,
 };
 
 const MAX_DISPATCH_RETRIES: u32 = 3;
@@ -34,7 +35,7 @@ pub async fn sync_task_status_for_workflow_result(
             remove_terminal_em_work_queue_entry_non_fatal(project_root, task_id, workflow_id);
             let task = hub.tasks().get(task_id).await;
             let Ok(task) = task else {
-                let _ = hub.tasks().set_status(task_id, TaskStatus::Done, false).await;
+                let _ = project_task_status(hub.clone(), task_id, TaskStatus::Done).await;
                 return;
             };
             let cfg = effective_post_success_git_config(project_root, workflow.as_ref());
@@ -42,7 +43,7 @@ pub async fn sync_task_status_for_workflow_result(
             match post_success_merge_push_and_cleanup(hub.clone(), project_root, &task, &cfg).await
             {
                 Ok(PostMergeOutcome::Completed) => {
-                    let _ = hub.tasks().set_status(task_id, TaskStatus::Done, false).await;
+                    let _ = project_task_status(hub.clone(), task_id, TaskStatus::Done).await;
                     return;
                 }
                 Ok(PostMergeOutcome::Skipped) => {}
@@ -66,7 +67,7 @@ pub async fn sync_task_status_for_workflow_result(
                         attempt_ai_merge_conflict_recovery(project_root, &task, &context).await;
                     if let Err(error) = recovery_result {
                         cleanup_merge_conflict_worktree(project_root, &context);
-                        let _ = set_task_blocked_with_reason(
+                        let _ = project_task_blocked_with_reason(
                             hub.clone(),
                             &task,
                             format!(
@@ -91,11 +92,12 @@ pub async fn sync_task_status_for_workflow_result(
                             if let Some(workflow_id) = workflow_id {
                                 let _ = hub.workflows().resolve_merge_conflict(workflow_id).await;
                             }
-                            let _ = hub.tasks().set_status(task_id, TaskStatus::Done, false).await;
+                            let _ =
+                                project_task_status(hub.clone(), task_id, TaskStatus::Done).await;
                         }
                         Err(error) => {
                             cleanup_merge_conflict_worktree(project_root, &context);
-                            let _ = set_task_blocked_with_reason(
+                            let _ = project_task_blocked_with_reason(
                                 hub.clone(),
                                 &task,
                                 format!(
@@ -115,7 +117,7 @@ pub async fn sync_task_status_for_workflow_result(
                             .mark_merge_conflict(workflow_id, error.to_string())
                             .await;
                     }
-                    let _ = set_task_blocked_with_reason(
+                    let _ = project_task_blocked_with_reason(
                         hub.clone(),
                         &task,
                         format!("{MERGE_GATE_PREFIX} auto-merge failed: {error}"),
@@ -132,16 +134,16 @@ pub async fn sync_task_status_for_workflow_result(
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
             else {
-                let _ = hub.tasks().set_status(task_id, TaskStatus::Done, false).await;
+                let _ = project_task_status(hub.clone(), task_id, TaskStatus::Done).await;
                 return;
             };
 
             match is_branch_merged(project_root, branch_name) {
                 Ok(Some(true)) | Ok(None) => {
-                    let _ = hub.tasks().set_status(task_id, TaskStatus::Done, false).await;
+                    let _ = project_task_status(hub.clone(), task_id, TaskStatus::Done).await;
                 }
                 Ok(Some(false)) => {
-                    let _ = set_task_blocked_with_reason(
+                    let _ = project_task_blocked_with_reason(
                         hub.clone(),
                         &task,
                         merge_blocked_reason(branch_name),
@@ -150,7 +152,7 @@ pub async fn sync_task_status_for_workflow_result(
                     .await;
                 }
                 Err(error) => {
-                    let _ = set_task_blocked_with_reason(
+                    let _ = project_task_blocked_with_reason(
                         hub.clone(),
                         &task,
                         format!("{MERGE_GATE_PREFIX} unable to verify merge status: {error}"),
@@ -165,47 +167,24 @@ pub async fn sync_task_status_for_workflow_result(
                 record_dispatch_history_entry(hub.clone(), task_id, wf_id, "failed").await;
             }
             remove_terminal_em_work_queue_entry_non_fatal(project_root, task_id, workflow_id);
-            if let Ok(mut task) = hub.tasks().get(task_id).await {
-                let count = task
-                    .consecutive_dispatch_failures
-                    .unwrap_or(0)
-                    .saturating_add(1);
-                task.consecutive_dispatch_failures = Some(count);
-                task.last_dispatch_failure_at = Some(Utc::now().to_rfc3339());
-                if count >= MAX_DISPATCH_RETRIES {
-                    let reason =
-                        format!("auto-blocked after {} consecutive dispatch failures", count);
-                    let _ = set_task_blocked_with_reason(hub.clone(), &task, reason, None).await;
-                } else {
-                    let _ = hub.tasks().replace(task).await;
-                    let _ = hub.tasks().set_status(task_id, TaskStatus::Blocked, false).await;
-                }
-            } else {
-                let _ = hub.tasks().set_status(task_id, TaskStatus::Blocked, false).await;
-            }
+            let _ = project_task_dispatch_failure(hub.clone(), task_id, MAX_DISPATCH_RETRIES).await;
         }
         WorkflowStatus::Escalated => {
             if let Some(wf_id) = workflow_id {
                 record_dispatch_history_entry(hub.clone(), task_id, wf_id, "escalated").await;
             }
             remove_terminal_em_work_queue_entry_non_fatal(project_root, task_id, workflow_id);
-            let _ = hub.tasks().set_status(task_id, TaskStatus::Blocked, false).await;
+            let _ = project_task_status(hub.clone(), task_id, TaskStatus::Blocked).await;
         }
         WorkflowStatus::Cancelled => {
             if let Some(wf_id) = workflow_id {
                 record_dispatch_history_entry(hub.clone(), task_id, wf_id, "cancelled").await;
             }
             remove_terminal_em_work_queue_entry_non_fatal(project_root, task_id, workflow_id);
-            let _ = hub
-                .tasks()
-                .set_status(task_id, TaskStatus::Cancelled, false)
-                .await;
+            let _ = project_task_status(hub.clone(), task_id, TaskStatus::Cancelled).await;
         }
         WorkflowStatus::Paused | WorkflowStatus::Running | WorkflowStatus::Pending => {
-            let _ = hub
-                .tasks()
-                .set_status(task_id, TaskStatus::InProgress, false)
-                .await;
+            let _ = project_task_status(hub.clone(), task_id, TaskStatus::InProgress).await;
         }
     }
 }

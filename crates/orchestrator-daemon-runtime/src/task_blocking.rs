@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use anyhow::Result;
-use chrono::Utc;
 use orchestrator_core::{services::ServiceHub, DependencyType, OrchestratorTask, TaskStatus};
 use orchestrator_providers::{BuiltinGitProvider, GitProvider};
 
@@ -28,26 +26,6 @@ pub fn is_merge_gate_block(task: &OrchestratorTask) -> bool {
         .as_deref()
         .map(|reason| reason.starts_with(MERGE_GATE_PREFIX))
         .unwrap_or(false)
-}
-
-pub async fn set_task_blocked_with_reason(
-    hub: Arc<dyn ServiceHub>,
-    task: &OrchestratorTask,
-    reason: String,
-    blocked_by: Option<String>,
-) -> Result<()> {
-    let mut updated = task.clone();
-    updated.status = TaskStatus::Blocked;
-    updated.paused = true;
-    updated.blocked_reason = Some(reason);
-    updated.blocked_at = Some(Utc::now());
-    updated.blocked_phase = None;
-    updated.blocked_by = blocked_by;
-    updated.metadata.updated_at = Utc::now();
-    updated.metadata.updated_by = protocol::ACTOR_DAEMON.to_string();
-    updated.metadata.version = updated.metadata.version.saturating_add(1);
-    hub.tasks().replace(updated).await?;
-    Ok(())
 }
 
 pub async fn dependency_gate_issues_for_task(

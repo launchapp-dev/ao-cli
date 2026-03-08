@@ -6,7 +6,8 @@ use orchestrator_core::{services::ServiceHub, TaskStatus, WorkflowStatus};
 
 use crate::{
     active_workflow_task_ids, dependency_blocked_reason, dependency_gate_issues_for_task,
-    is_dependency_gate_block, is_merge_gate_block, set_task_blocked_with_reason,
+    is_dependency_gate_block, is_merge_gate_block, project_task_blocked_with_reason,
+    project_task_status,
 };
 
 const DEFAULT_RETRY_COOLDOWN_SECS: i64 = 300;
@@ -37,14 +38,11 @@ pub async fn promote_backlog_tasks_to_ready(
             dependency_gate_issues_for_task(hub.clone(), project_root, task).await;
         if !dependency_issues.is_empty() {
             let reason = dependency_blocked_reason(&dependency_issues);
-            let _ = set_task_blocked_with_reason(hub.clone(), task, reason, None).await;
+            let _ = project_task_blocked_with_reason(hub.clone(), task, reason, None).await;
             continue;
         }
 
-        let _ = hub
-            .tasks()
-            .set_status(&task.id, TaskStatus::Ready, false)
-            .await;
+        let _ = project_task_status(hub.clone(), &task.id, TaskStatus::Ready).await;
         promoted = promoted.saturating_add(1);
     }
 
@@ -107,10 +105,7 @@ pub async fn retry_failed_task_workflows(hub: Arc<dyn ServiceHub>) -> Result<usi
             }
         }
 
-        let _ = hub
-            .tasks()
-            .set_status(&task.id, TaskStatus::Ready, false)
-            .await;
+        let _ = project_task_status(hub.clone(), &task.id, TaskStatus::Ready).await;
         retried = retried.saturating_add(1);
     }
 

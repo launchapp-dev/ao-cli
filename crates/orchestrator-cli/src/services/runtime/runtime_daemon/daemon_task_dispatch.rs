@@ -1,15 +1,15 @@
 use super::*;
 use orchestrator_core::WorkflowRunInput;
-pub use orchestrator_daemon_runtime::{
-    load_em_work_queue_state, mark_em_work_queue_entry_assigned, plan_ready_task_dispatch,
-    routing_complexity_for_task, sync_task_status_for_workflow_result,
-    workflow_current_phase_id, ReadyTaskWorkflowStart,
-    ReadyTaskWorkflowStartSummary, TaskSelectionSource,
-};
 #[cfg(test)]
 pub use orchestrator_daemon_runtime::{
     em_work_queue_state_path, save_em_work_queue_state, EmWorkQueueEntry, EmWorkQueueEntryStatus,
     EmWorkQueueState,
+};
+pub use orchestrator_daemon_runtime::{
+    load_em_work_queue_state, mark_em_work_queue_entry_assigned, plan_ready_task_dispatch,
+    project_task_blocked_with_reason, project_task_status, routing_complexity_for_task,
+    sync_task_status_for_workflow_result, workflow_current_phase_id, ReadyTaskWorkflowStart,
+    ReadyTaskWorkflowStartSummary, TaskSelectionSource,
 };
 pub fn daemon_agent_assignee_for_workflow_start(
     project_root: &str,
@@ -88,10 +88,7 @@ pub async fn run_ready_task_workflows_for_project(
     );
 
     for task_id in &plan.completed_task_ids {
-        let _ = hub
-            .tasks()
-            .set_status(task_id, TaskStatus::Done, false)
-            .await;
+        let _ = project_task_status(hub.clone(), task_id, TaskStatus::Done).await;
     }
 
     let mut started_workflows = Vec::new();
@@ -110,7 +107,7 @@ pub async fn run_ready_task_workflows_for_project(
             dependency_gate_issues_for_task(hub.clone(), project_root, &task).await;
         if !dependency_issues.is_empty() {
             let reason = dependency_blocked_reason(&dependency_issues);
-            let _ = set_task_blocked_with_reason(hub.clone(), &task, reason, None).await;
+            let _ = project_task_blocked_with_reason(hub.clone(), &task, reason, None).await;
             continue;
         }
 

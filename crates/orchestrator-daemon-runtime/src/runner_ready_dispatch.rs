@@ -5,8 +5,9 @@ use orchestrator_core::{services::ServiceHub, TaskStatus};
 
 use crate::{
     active_workflow_task_ids, dependency_blocked_reason, dependency_gate_issues_for_task,
-    pipeline_for_task, set_task_blocked_with_reason, should_skip_dispatch, ProcessManager,
-    ReadyTaskWorkflowStart, ReadyTaskWorkflowStartSummary, SubjectDispatch, TaskSelectionSource,
+    pipeline_for_task, project_task_blocked_with_reason, project_task_status, should_skip_dispatch,
+    ProcessManager, ReadyTaskWorkflowStart, ReadyTaskWorkflowStartSummary, SubjectDispatch,
+    TaskSelectionSource,
 };
 
 pub async fn dispatch_ready_tasks_via_runner(
@@ -41,7 +42,7 @@ pub async fn dispatch_ready_tasks_via_runner(
         let dependency_issues = dependency_gate_issues_for_task(hub.clone(), root, &task).await;
         if !dependency_issues.is_empty() {
             let reason = dependency_blocked_reason(&dependency_issues);
-            let _ = set_task_blocked_with_reason(hub.clone(), &task, reason, None).await;
+            let _ = project_task_blocked_with_reason(hub.clone(), &task, reason, None).await;
             continue;
         }
 
@@ -49,10 +50,7 @@ pub async fn dispatch_ready_tasks_via_runner(
         let dispatch = SubjectDispatch::for_task(task.id.clone(), pipeline_id);
         match process_manager.spawn_workflow_runner(&dispatch, root) {
             Ok(_) => {
-                let _ = hub
-                    .tasks()
-                    .set_status(&task.id, TaskStatus::InProgress, false)
-                    .await;
+                let _ = project_task_status(hub.clone(), &task.id, TaskStatus::InProgress).await;
                 started_workflows.push(ReadyTaskWorkflowStart {
                     task_id: task.id.clone(),
                     workflow_id: task.id.clone(),
@@ -61,7 +59,7 @@ pub async fn dispatch_ready_tasks_via_runner(
             }
             Err(error) => {
                 let reason = format!("failed to start workflow runner: {error}");
-                let _ = set_task_blocked_with_reason(hub.clone(), &task, reason, None).await;
+                let _ = project_task_blocked_with_reason(hub.clone(), &task, reason, None).await;
             }
         }
     }

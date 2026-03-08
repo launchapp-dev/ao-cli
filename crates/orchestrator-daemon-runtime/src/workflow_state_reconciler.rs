@@ -4,13 +4,14 @@ use std::sync::Arc;
 use anyhow::Result;
 use chrono::Utc;
 use orchestrator_core::{
-    services::ServiceHub, WorkflowMachineState, WorkflowResumeManager, WorkflowStatus, TaskStatus,
+    services::ServiceHub, TaskStatus, WorkflowMachineState, WorkflowResumeManager, WorkflowStatus,
 };
 
 use crate::{
     active_workflow_task_ids, dependency_blocked_reason, dependency_gate_issues_for_task,
-    is_dependency_gate_block, is_merge_gate_block, is_terminally_completed_workflow,
-    is_branch_merged, set_task_blocked_with_reason, sync_task_status_for_workflow_result,
+    is_branch_merged, is_dependency_gate_block, is_merge_gate_block,
+    is_terminally_completed_workflow, project_task_blocked_with_reason, project_task_status,
+    sync_task_status_for_workflow_result,
 };
 
 pub struct WorkflowStateReconciler;
@@ -34,9 +35,7 @@ impl WorkflowStateReconciler {
                 dependency_gate_issues_for_task(hub.clone(), project_root, &task).await;
             if dependency_issues.is_empty() {
                 if task.status == TaskStatus::Blocked && is_dependency_gate_block(&task) {
-                    hub.tasks()
-                        .set_status(&task.id, TaskStatus::Ready, false)
-                        .await?;
+                    project_task_status(hub.clone(), &task.id, TaskStatus::Ready).await?;
                     changed = changed.saturating_add(1);
                 }
                 continue;
@@ -50,7 +49,7 @@ impl WorkflowStateReconciler {
             };
 
             if should_block {
-                set_task_blocked_with_reason(hub.clone(), &task, reason, None).await?;
+                project_task_blocked_with_reason(hub.clone(), &task, reason, None).await?;
                 changed = changed.saturating_add(1);
             }
         }
@@ -81,18 +80,14 @@ impl WorkflowStateReconciler {
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
             else {
-                hub.tasks()
-                    .set_status(&task.id, TaskStatus::Done, false)
-                    .await?;
+                project_task_status(hub.clone(), &task.id, TaskStatus::Done).await?;
                 resolved = resolved.saturating_add(1);
                 continue;
             };
 
             match is_branch_merged(project_root, branch_name) {
                 Ok(Some(true)) | Ok(None) => {
-                    hub.tasks()
-                        .set_status(&task.id, TaskStatus::Done, false)
-                        .await?;
+                    project_task_status(hub.clone(), &task.id, TaskStatus::Done).await?;
                     resolved = resolved.saturating_add(1);
                 }
                 Ok(Some(false)) | Err(_) => {}
@@ -179,9 +174,7 @@ impl WorkflowStateReconciler {
             if age_minutes < threshold_minutes {
                 continue;
             }
-            hub.tasks()
-                .set_status(&task.id, TaskStatus::Ready, false)
-                .await?;
+            project_task_status(hub.clone(), &task.id, TaskStatus::Ready).await?;
             reconciled = reconciled.saturating_add(1);
         }
         Ok(reconciled)
@@ -301,7 +294,7 @@ impl WorkflowStateReconciler {
                     continue;
                 }
             };
-            let _ = set_task_blocked_with_reason(
+            let _ = project_task_blocked_with_reason(
                 hub.clone(),
                 &task,
                 "orphaned_after_daemon_restart".to_string(),

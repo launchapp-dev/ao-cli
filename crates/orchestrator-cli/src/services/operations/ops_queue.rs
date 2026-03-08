@@ -21,8 +21,8 @@ pub(crate) async fn handle_queue(
         QueueCommand::Stats => print_value(queue_stats(project_root)?, json),
         QueueCommand::Enqueue(args) => {
             let task = hub.tasks().get(&args.task_id).await?;
-            let pipeline_id = args
-                .pipeline_id
+            let workflow_ref = args
+                .workflow_ref
                 .unwrap_or_else(|| workflow_ref_for_task(&task));
             let input = args
                 .input_json
@@ -30,7 +30,7 @@ pub(crate) async fn handle_queue(
                 .transpose()?;
             let dispatch = SubjectDispatch::for_task_with_metadata(
                 task.id.clone(),
-                pipeline_id,
+                workflow_ref,
                 "manual-queue-enqueue",
                 chrono::Utc::now(),
             )

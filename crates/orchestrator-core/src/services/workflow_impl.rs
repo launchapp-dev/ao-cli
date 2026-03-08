@@ -123,7 +123,7 @@ impl WorkflowServiceApi for InMemoryServiceHub {
                 None,
                 Some(pipeline_id.as_str()),
             )?);
-            let workflow = executor.bootstrap(id.clone(), input.with_pipeline(pipeline_id));
+            let workflow = executor.bootstrap(id.clone(), input.with_workflow_ref(pipeline_id));
             lock.workflows.insert(id.clone(), workflow.clone());
             workflow
         };
@@ -294,7 +294,7 @@ impl WorkflowServiceApi for FileServiceHub {
         )
         .with_retry_configs(retry_configs)
         .with_skip_guards(skip_guards);
-        let mut workflow = executor.bootstrap(id.clone(), input.with_pipeline(pipeline_id));
+        let mut workflow = executor.bootstrap(id.clone(), input.with_workflow_ref(pipeline_id));
         if let Some(ref task) = task {
             executor.skip_guarded_phases(&mut workflow, task);
         }

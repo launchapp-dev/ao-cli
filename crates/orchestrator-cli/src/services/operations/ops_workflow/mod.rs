@@ -24,15 +24,15 @@ fn resolve_workflow_run_input(
     requirement_id: Option<String>,
     title: Option<String>,
     description: Option<String>,
-    pipeline_id: Option<String>,
+    workflow_ref: Option<String>,
 ) -> Result<WorkflowRunInput> {
     match (task_id, requirement_id, title) {
-        (Some(tid), None, None) => Ok(WorkflowRunInput::for_task(tid, pipeline_id)),
-        (None, Some(rid), None) => Ok(WorkflowRunInput::for_requirement(rid, pipeline_id)),
+        (Some(tid), None, None) => Ok(WorkflowRunInput::for_task(tid, workflow_ref)),
+        (None, Some(rid), None) => Ok(WorkflowRunInput::for_requirement(rid, workflow_ref)),
         (None, None, Some(t)) => Ok(WorkflowRunInput::for_custom(
             t,
             description.unwrap_or_default(),
-            pipeline_id,
+            workflow_ref,
         )),
         (None, None, None) => Err(anyhow!(
             "one of --task-id, --requirement-id, or --title must be provided"
@@ -107,7 +107,7 @@ pub(crate) async fn handle_workflow(
                     args.requirement_id,
                     args.title,
                     args.description,
-                    args.pipeline_id,
+                    args.workflow_ref,
                 )
             })?;
             print_value(workflows.run(input).await?, json)

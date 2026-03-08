@@ -192,10 +192,10 @@ pub(crate) struct WorkflowRunArgs {
     pub(crate) description: Option<String>,
     #[arg(
         long,
-        value_name = "PIPELINE_ID",
-        help = "Optional pipeline id override."
+        value_name = "WORKFLOW_REF",
+        help = "Optional YAML workflow reference override."
     )]
-    pub(crate) pipeline_id: Option<String>,
+    pub(crate) workflow_ref: Option<String>,
     #[arg(long, value_name = "JSON", help = INPUT_JSON_PRECEDENCE_HELP)]
     pub(crate) input_json: Option<String>,
     #[arg(
@@ -234,10 +234,10 @@ pub(crate) struct WorkflowExecuteArgs {
     pub(crate) description: Option<String>,
     #[arg(
         long,
-        value_name = "PIPELINE_ID",
-        help = "Optional pipeline id override."
+        value_name = "WORKFLOW_REF",
+        help = "Optional YAML workflow reference override."
     )]
-    pub(crate) pipeline_id: Option<String>,
+    pub(crate) workflow_ref: Option<String>,
     #[arg(
         long,
         value_name = "PHASE_ID",

@@ -66,7 +66,7 @@ fn runner_includes_pipeline_in_events() {
         .arg("execute")
         .arg("--task-id")
         .arg("TASK-PIPE")
-        .arg("--pipeline")
+        .arg("--workflow-ref")
         .arg("custom-pipeline")
         .arg("--project-root")
         .arg(temp_dir.path())
@@ -76,7 +76,7 @@ fn runner_includes_pipeline_in_events() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("custom-pipeline"),
-        "events should include pipeline; stderr: {stderr}"
+        "events should include workflow ref; stderr: {stderr}"
     );
 }
 

@@ -46,7 +46,6 @@ pub struct WorkflowExecuteParams {
     pub title: Option<String>,
     pub description: Option<String>,
     pub workflow_ref: Option<String>,
-    pub pipeline_id: Option<String>,
     pub model: Option<String>,
     pub tool: Option<String>,
     pub phase_timeout_secs: Option<u64>,
@@ -437,10 +436,7 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
 }
 
 fn resolve_input(params: &WorkflowExecuteParams) -> Result<WorkflowRunInput> {
-    let workflow_ref = params
-        .workflow_ref
-        .clone()
-        .or_else(|| params.pipeline_id.clone());
+    let workflow_ref = params.workflow_ref.clone();
     match (&params.task_id, &params.requirement_id, &params.title) {
         (Some(task_id), _, _) => Ok(WorkflowRunInput::for_task(task_id.clone(), workflow_ref)),
         (None, Some(req_id), _) => Ok(WorkflowRunInput::for_requirement(

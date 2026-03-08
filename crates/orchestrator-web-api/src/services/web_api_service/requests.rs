@@ -209,7 +209,7 @@ pub(super) struct TaskDependencyRemoveRequest {
 pub(super) struct WorkflowRunRequest {
     pub(super) task_id: String,
     #[serde(default)]
-    pub(super) pipeline_id: Option<String>,
+    pub(super) workflow_ref: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

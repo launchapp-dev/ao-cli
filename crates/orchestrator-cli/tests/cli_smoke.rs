@@ -330,8 +330,8 @@ fn help_uses_explicit_value_names_and_repeatable_flag_guidance(
     );
     let workflow_run_stdout = String::from_utf8(workflow_run_help.stdout)?;
     assert!(
-        workflow_run_stdout.contains("--pipeline-id <PIPELINE_ID>"),
-        "workflow run help should expose pipeline id value names"
+        workflow_run_stdout.contains("--workflow-ref <WORKFLOW_REF>"),
+        "workflow run help should expose workflow ref value names"
     );
 
     let task_list_help = Command::new(&binary)

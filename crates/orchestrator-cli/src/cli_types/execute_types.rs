@@ -13,7 +13,7 @@ pub(crate) struct ExecuteArgs {
     #[arg(long = "id")]
     pub(crate) requirement_ids: Vec<String>,
     #[arg(long)]
-    pub(crate) pipeline_id: Option<String>,
+    pub(crate) workflow_ref: Option<String>,
     #[arg(long, action = ArgAction::Set, default_value_t = false)]
     pub(crate) ai_task_generation: bool,
     #[arg(long, action = ArgAction::Set, default_value_t = false)]

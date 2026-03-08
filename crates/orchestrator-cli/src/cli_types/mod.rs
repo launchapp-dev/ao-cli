@@ -146,7 +146,7 @@ mod tests {
             "enqueue",
             "--task-id",
             "TASK-123",
-            "--pipeline",
+            "--workflow-ref",
             "ops",
         ])
         .expect("queue enqueue command should parse");
@@ -156,7 +156,7 @@ mod tests {
                 command: QueueCommand::Enqueue(args),
             } => {
                 assert_eq!(args.task_id, "TASK-123");
-                assert_eq!(args.pipeline_id.as_deref(), Some("ops"));
+                assert_eq!(args.workflow_ref.as_deref(), Some("ops"));
             }
             _ => panic!("expected queue enqueue command"),
         }

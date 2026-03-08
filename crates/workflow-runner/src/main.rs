@@ -38,9 +38,6 @@ struct WorkflowExecuteArgs {
     workflow_ref: Option<String>,
 
     #[arg(long)]
-    pipeline: Option<String>,
-
-    #[arg(long)]
     project_root: String,
 
     #[arg(long)]
@@ -93,7 +90,7 @@ async fn run_execute(args: WorkflowExecuteArgs) -> anyhow::Result<u8> {
     let startup = RunnerEvent {
         event: "runner_start",
         task_id: subject_id.clone(),
-        workflow_ref: args.workflow_ref.clone().or_else(|| args.pipeline.clone()),
+        workflow_ref: args.workflow_ref.clone(),
         exit_code: None,
     };
     eprintln!("{}", serde_json::to_string(&startup).unwrap_or_default());
@@ -104,8 +101,7 @@ async fn run_execute(args: WorkflowExecuteArgs) -> anyhow::Result<u8> {
         requirement_id: args.requirement_id,
         title: args.title,
         description: args.description,
-        workflow_ref: args.workflow_ref.clone().or_else(|| args.pipeline.clone()),
-        pipeline_id: args.pipeline.clone(),
+        workflow_ref: args.workflow_ref.clone(),
         model: args.model,
         tool: args.tool,
         phase_timeout_secs: args.phase_timeout_secs,
@@ -126,7 +122,7 @@ async fn run_execute(args: WorkflowExecuteArgs) -> anyhow::Result<u8> {
     let completion = RunnerEvent {
         event: "runner_complete",
         task_id: subject_id,
-        workflow_ref: args.workflow_ref.or(args.pipeline),
+        workflow_ref: args.workflow_ref,
         exit_code: Some(exit_code),
     };
     eprintln!("{}", serde_json::to_string(&completion).unwrap_or_default());

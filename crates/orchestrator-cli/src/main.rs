@@ -219,9 +219,9 @@ struct VersionInfo {
 }
 
 fn build_workflow_execute_command(command: ExecuteCommand) -> Result<WorkflowCommand> {
-    let (requirement_ids, pipeline_id, input_json) = match command {
-        ExecuteCommand::Plan(args) => (args.requirement_ids, args.pipeline_id, args.input_json),
-        ExecuteCommand::Run(args) => (args.requirement_ids, args.pipeline_id, args.input_json),
+    let (requirement_ids, workflow_ref, input_json) = match command {
+        ExecuteCommand::Plan(args) => (args.requirement_ids, args.workflow_ref, args.input_json),
+        ExecuteCommand::Run(args) => (args.requirement_ids, args.workflow_ref, args.input_json),
     };
 
     let mut task_ids = requirement_ids
@@ -248,7 +248,7 @@ fn build_workflow_execute_command(command: ExecuteCommand) -> Result<WorkflowCom
         requirement_id: None,
         title: None,
         description: None,
-        pipeline_id,
+        workflow_ref,
         phase: None,
         model: None,
         tool: None,

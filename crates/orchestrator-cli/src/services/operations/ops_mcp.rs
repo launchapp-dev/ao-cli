@@ -247,7 +247,7 @@ struct WorkflowRunInput {
     #[serde(default)]
     description: Option<String>,
     #[serde(default)]
-    pipeline_id: Option<String>,
+    workflow_ref: Option<String>,
     #[serde(default)]
     input_json: Option<String>,
     #[serde(default)]
@@ -258,7 +258,7 @@ struct WorkflowRunInput {
 struct QueueEnqueueInput {
     task_id: String,
     #[serde(default)]
-    pipeline: Option<String>,
+    workflow_ref: Option<String>,
     #[serde(default)]
     input_json: Option<String>,
     #[serde(default)]
@@ -569,7 +569,7 @@ struct TaskBulkUpdateInput {
 struct BulkWorkflowRunItem {
     task_id: String,
     #[serde(default)]
-    pipeline_id: Option<String>,
+    workflow_ref: Option<String>,
     #[serde(default)]
     input_json: Option<String>,
 }
@@ -656,7 +656,7 @@ struct WorkflowPhaseGetInput {
 struct WorkflowExecuteInput {
     task_id: String,
     #[serde(default)]
-    pipeline_id: Option<String>,
+    workflow_ref: Option<String>,
     #[serde(default)]
     phase: Option<String>,
     #[serde(default)]
@@ -1224,7 +1224,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.workflow.run",
-        description = "Run a workflow for a task. Purpose: Execute a workflow to complete task phases automatically. Prerequisites: Task should exist (use ao.task.get to verify). Example: {\"task_id\": \"TASK-001\"} or {\"task_id\": \"TASK-001\", \"pipeline_id\": \"default\"}. Sequencing: Use ao.task.status to track progress, ao.workflow.get to monitor, ao.workflow.pause/resume/cancel for control.",
+        description = "Run a workflow for a task. Purpose: Execute a workflow to complete task phases automatically. Prerequisites: Task should exist (use ao.task.get to verify). Example: {\"task_id\": \"TASK-001\"} or {\"task_id\": \"TASK-001\", \"workflow_ref\": \"default\"}. Sequencing: Use ao.task.status to track progress, ao.workflow.get to monitor, ao.workflow.pause/resume/cancel for control.",
         input_schema = ao_schema_for_type::<WorkflowRunInput>()
     )]
     async fn ao_workflow_run(
@@ -1237,7 +1237,7 @@ impl AoMcpServer {
         push_opt(&mut args, "--requirement-id", input.requirement_id);
         push_opt(&mut args, "--title", input.title);
         push_opt(&mut args, "--description", input.description);
-        push_opt(&mut args, "--pipeline-id", input.pipeline_id);
+        push_opt(&mut args, "--workflow-ref", input.workflow_ref);
         push_opt(&mut args, "--input-json", input.input_json);
         self.run_tool("ao.workflow.run", args, input.project_root)
             .await
@@ -1470,7 +1470,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.queue.enqueue",
-        description = "Enqueue a task-backed subject dispatch. Purpose: Add a SubjectDispatch to the daemon queue using a task subject and optional pipeline/input override. Prerequisites: Task must exist. Example: {\"task_id\": \"TASK-001\", \"pipeline\": \"ops\"}. Sequencing: Use ao.queue.list to inspect position or ao.queue.reorder to adjust ordering.",
+        description = "Enqueue a task-backed subject dispatch. Purpose: Add a SubjectDispatch to the daemon queue using a task subject and optional workflow/input override. Prerequisites: Task must exist. Example: {\"task_id\": \"TASK-001\", \"workflow_ref\": \"ops\"}. Sequencing: Use ao.queue.list to inspect position or ao.queue.reorder to adjust ordering.",
         input_schema = ao_schema_for_type::<QueueEnqueueInput>()
     )]
     async fn ao_queue_enqueue(
@@ -2401,7 +2401,7 @@ impl AoMcpServer {
             "--task-id".to_string(),
             input.task_id,
         ];
-        push_opt(&mut args, "--pipeline-id", input.pipeline_id);
+        push_opt(&mut args, "--workflow-ref", input.workflow_ref);
         push_opt(&mut args, "--phase", input.phase);
         push_opt(&mut args, "--model", input.model);
         push_opt(&mut args, "--tool", input.tool);
@@ -3117,7 +3117,7 @@ fn build_queue_enqueue_args(input: &QueueEnqueueInput) -> Vec<String> {
         "--task-id".to_string(),
         input.task_id.clone(),
     ];
-    push_opt(&mut args, "--pipeline", input.pipeline.clone());
+    push_opt(&mut args, "--workflow-ref", input.workflow_ref.clone());
     push_opt(&mut args, "--input-json", input.input_json.clone());
     args
 }
@@ -3343,7 +3343,7 @@ fn build_bulk_workflow_run_item_args(item: &BulkWorkflowRunItem) -> Vec<String> 
         "--task-id".to_string(),
         item.task_id.clone(),
     ];
-    push_opt(&mut args, "--pipeline-id", item.pipeline_id.clone());
+    push_opt(&mut args, "--workflow-ref", item.workflow_ref.clone());
     push_opt(&mut args, "--input-json", item.input_json.clone());
     args
 }
@@ -4510,7 +4510,7 @@ mod tests {
     fn build_bulk_workflow_run_item_args_basic() {
         let item = BulkWorkflowRunItem {
             task_id: "TASK-4".to_string(),
-            pipeline_id: None,
+            workflow_ref: None,
             input_json: None,
         };
         let args = build_bulk_workflow_run_item_args(&item);
@@ -4526,10 +4526,10 @@ mod tests {
     }
 
     #[test]
-    fn build_bulk_workflow_run_item_args_with_pipeline_and_input() {
+    fn build_bulk_workflow_run_item_args_with_workflow_ref_and_input() {
         let item = BulkWorkflowRunItem {
             task_id: "TASK-5".to_string(),
-            pipeline_id: Some("my-pipeline".to_string()),
+            workflow_ref: Some("my-pipeline".to_string()),
             input_json: Some(r#"{"key":"val"}"#.to_string()),
         };
         let args = build_bulk_workflow_run_item_args(&item);
@@ -4540,7 +4540,7 @@ mod tests {
                 "run".to_string(),
                 "--task-id".to_string(),
                 "TASK-5".to_string(),
-                "--pipeline-id".to_string(),
+                "--workflow-ref".to_string(),
                 "my-pipeline".to_string(),
                 "--input-json".to_string(),
                 r#"{"key":"val"}"#.to_string(),
@@ -4699,7 +4699,7 @@ mod tests {
     fn validate_workflow_run_multiple_rejects_empty_task_id() {
         let runs = vec![BulkWorkflowRunItem {
             task_id: "".to_string(),
-            pipeline_id: None,
+            workflow_ref: None,
             input_json: None,
         }];
         let err =
@@ -4715,12 +4715,12 @@ mod tests {
         let runs = vec![
             BulkWorkflowRunItem {
                 task_id: "TASK-1".to_string(),
-                pipeline_id: None,
+                workflow_ref: None,
                 input_json: None,
             },
             BulkWorkflowRunItem {
                 task_id: "TASK-2".to_string(),
-                pipeline_id: Some("p1".to_string()),
+                workflow_ref: Some("p1".to_string()),
                 input_json: None,
             },
         ];
@@ -4764,7 +4764,7 @@ mod tests {
         let runs: Vec<BulkWorkflowRunItem> = (0..=MAX_BATCH_SIZE)
             .map(|i| BulkWorkflowRunItem {
                 task_id: format!("TASK-{i}"),
-                pipeline_id: None,
+                workflow_ref: None,
                 input_json: None,
             })
             .collect();
@@ -5188,7 +5188,7 @@ mod tests {
     fn build_queue_enqueue_args_includes_optional_fields() {
         let input = QueueEnqueueInput {
             task_id: "TASK-123".to_string(),
-            pipeline: Some("ops".to_string()),
+            workflow_ref: Some("ops".to_string()),
             input_json: Some("{\"mode\":\"fast\"}".to_string()),
             project_root: None,
         };
@@ -5200,7 +5200,7 @@ mod tests {
                 "enqueue".to_string(),
                 "--task-id".to_string(),
                 "TASK-123".to_string(),
-                "--pipeline".to_string(),
+                "--workflow-ref".to_string(),
                 "ops".to_string(),
                 "--input-json".to_string(),
                 "{\"mode\":\"fast\"}".to_string(),

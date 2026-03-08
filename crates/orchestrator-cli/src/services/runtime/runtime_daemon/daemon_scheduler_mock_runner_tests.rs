@@ -173,7 +173,7 @@ async fn slim_project_tick_processes_due_schedule_via_mock_runner() {
     assert!(args_log.contains("execute"));
     assert!(args_log.contains("--title"));
     assert!(args_log.contains("schedule:nightly-review"));
-    assert!(args_log.contains("--pipeline"));
+    assert!(args_log.contains("--workflow-ref"));
     assert!(args_log.contains(orchestrator_core::STANDARD_PIPELINE_ID));
 
     let input_log = read_with_retry(&runner_dir.path().join("runner-input.log"))

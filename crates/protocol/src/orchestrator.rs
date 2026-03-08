@@ -1505,7 +1505,6 @@ impl WorkflowSubject {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SubjectDispatch {
     pub subject: WorkflowSubject,
-    #[serde(alias = "pipeline_id")]
     pub workflow_ref: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input: Option<Value>,
@@ -1584,10 +1583,6 @@ impl SubjectDispatch {
         }
     }
 
-    pub fn pipeline_id(&self) -> &str {
-        self.workflow_ref.as_str()
-    }
-
     pub fn schedule_id(&self) -> Option<&str> {
         match &self.subject {
             WorkflowSubject::Custom { title, .. } => title.strip_prefix("schedule:"),
@@ -1606,7 +1601,7 @@ pub struct RunnerEvent {
     pub event: String,
     #[serde(default)]
     pub task_id: String,
-    #[serde(default, alias = "pipeline")]
+    #[serde(default)]
     pub workflow_ref: Option<String>,
     #[serde(default)]
     pub exit_code: Option<i32>,
@@ -1641,7 +1636,7 @@ impl SubjectExecutionFact {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowRunInput {
     pub subject: WorkflowSubject,
-    #[serde(default, alias = "pipeline_id")]
+    #[serde(default)]
     pub workflow_ref: Option<String>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub task_id: String,
@@ -1706,17 +1701,9 @@ impl WorkflowRunInput {
         self.workflow_ref.as_deref()
     }
 
-    pub fn pipeline_id(&self) -> Option<&str> {
-        self.workflow_ref()
-    }
-
     pub fn with_workflow_ref(mut self, workflow_ref: String) -> Self {
         self.workflow_ref = Some(workflow_ref);
         self
-    }
-
-    pub fn with_pipeline(self, pipeline_id: String) -> Self {
-        self.with_workflow_ref(pipeline_id)
     }
 
     pub fn into_workflow_ref(self) -> Option<String> {
@@ -1724,14 +1711,6 @@ impl WorkflowRunInput {
     }
 
     pub fn clone_workflow_ref(&self) -> Option<String> {
-        self.workflow_ref.clone()
-    }
-
-    pub fn into_pipeline_id(self) -> Option<String> {
-        self.workflow_ref
-    }
-
-    pub fn clone_pipeline_id(&self) -> Option<String> {
         self.workflow_ref.clone()
     }
 

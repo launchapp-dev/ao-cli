@@ -55,7 +55,7 @@ impl WebApiService {
             .workflows()
             .run(WorkflowRunInput::for_task(
                 request.task_id,
-                request.pipeline_id,
+                request.workflow_ref,
             ))
             .await?;
         self.publish_event(

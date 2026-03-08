@@ -23,12 +23,11 @@ pub(crate) struct QueueEnqueueArgs {
     #[arg(long, value_name = "TASK_ID", help = "Task subject to enqueue.")]
     pub(crate) task_id: String,
     #[arg(
-        long = "pipeline",
-        alias = "pipeline-id",
-        value_name = "PIPELINE",
-        help = "Optional pipeline override. Defaults to the task pipeline."
+        long = "workflow-ref",
+        value_name = "WORKFLOW_REF",
+        help = "Optional YAML workflow reference override. Defaults to the task workflow."
     )]
-    pub(crate) pipeline_id: Option<String>,
+    pub(crate) workflow_ref: Option<String>,
     #[arg(long, value_name = "JSON", help = INPUT_JSON_PRECEDENCE_HELP)]
     pub(crate) input_json: Option<String>,
 }

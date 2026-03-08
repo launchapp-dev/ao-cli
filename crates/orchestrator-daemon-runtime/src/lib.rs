@@ -74,7 +74,7 @@ pub use dispatch_support::{
     ready_dispatch_limit_for_options, workflow_current_phase_id,
 };
 pub use ready_dispatch_plan::{
-    plan_ready_dispatch, PlannedDispatchStart, ReadyDispatchPlan,
+    plan_ready_dispatch, DispatchCandidate, PlannedDispatchStart, ReadyDispatchPlan,
 };
 pub use reconcile_completed_processes::reconcile_completed_processes;
 pub use run_daemon::run_daemon;

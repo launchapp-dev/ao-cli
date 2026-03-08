@@ -7,13 +7,13 @@ use orchestrator_core::{
 };
 pub use orchestrator_daemon_runtime::{
     active_workflow_task_ids, load_em_work_queue_state, mark_em_work_queue_entry_assigned,
-    plan_ready_dispatch, workflow_current_phase_id, DispatchSelectionSource, DispatchWorkflowStart,
-    DispatchWorkflowStartSummary, SubjectDispatch,
+    plan_ready_dispatch, workflow_current_phase_id, DispatchCandidate,
+    DispatchSelectionSource, DispatchWorkflowStart, DispatchWorkflowStartSummary, SubjectDispatch,
+    EmWorkQueueEntryStatus, EmWorkQueueState, is_terminally_completed_workflow,
 };
 #[cfg(test)]
 pub use orchestrator_daemon_runtime::{
-    em_work_queue_state_path, save_em_work_queue_state, EmWorkQueueEntry, EmWorkQueueEntryStatus,
-    EmWorkQueueState,
+    em_work_queue_state_path, save_em_work_queue_state, EmWorkQueueEntry,
 };
 pub fn daemon_agent_assignee_for_workflow_start(
     project_root: &str,
@@ -84,15 +84,20 @@ pub async fn run_ready_task_workflows_for_project(
             None
         }
     };
-    let plan = plan_ready_dispatch(
+    let prepared = prepare_ready_dispatch_candidates(
         &candidates,
         &workflows,
         queue_state.as_ref(),
         chrono::Utc::now(),
     );
+    let plan = plan_ready_dispatch(
+        &prepared.queued_candidates,
+        &prepared.fallback_candidates,
+        &prepared.completed_subject_ids,
+    );
 
-    for task_id in &plan.completed_task_ids {
-        let _ = project_task_status(hub.clone(), task_id, TaskStatus::Done).await;
+    for subject_id in &plan.completed_subject_ids {
+        let _ = project_task_status(hub.clone(), subject_id, TaskStatus::Done).await;
     }
 
     let mut started_workflows = Vec::new();
@@ -162,29 +167,53 @@ pub async fn dispatch_ready_tasks_via_runner(
     process_manager: &mut ProcessManager,
     limit: usize,
 ) -> Result<DispatchWorkflowStartSummary> {
-    let workflows = hub.workflows().list().await.unwrap_or_default();
-    let active_task_ids = active_workflow_task_ids(&workflows);
     let candidates = hub.tasks().list_prioritized().await?;
+    let workflows = hub.workflows().list().await.unwrap_or_default();
+    let queue_state = match load_em_work_queue_state(root) {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!(
+                "{}: failed to load EM work queue state: {}",
+                protocol::ACTOR_DAEMON,
+                error
+            );
+            None
+        }
+    };
+    let prepared = prepare_ready_dispatch_candidates(
+        &candidates,
+        &workflows,
+        queue_state.as_ref(),
+        chrono::Utc::now(),
+    );
+    let task_lookup: std::collections::HashMap<String, orchestrator_core::OrchestratorTask> =
+        candidates
+            .iter()
+            .cloned()
+            .map(|task| (task.id.clone(), task))
+            .collect();
+    let plan = plan_ready_dispatch(
+        &prepared.queued_candidates,
+        &prepared.fallback_candidates,
+        &prepared.completed_subject_ids,
+    );
+    for subject_id in &plan.completed_subject_ids {
+        let _ = project_task_status(hub.clone(), subject_id, TaskStatus::Done).await;
+    }
+
     let mut started_workflows = Vec::new();
 
-    for task in candidates {
+    for planned_start in plan.ordered_starts {
         if started_workflows.len() >= limit {
             break;
         }
 
-        if task.paused || task.cancelled {
+        let Some(task_id) = planned_start.task_id() else {
             continue;
-        }
-        if task.status != TaskStatus::Ready {
+        };
+        let Some(task) = task_lookup.get(task_id).cloned() else {
             continue;
-        }
-        if active_task_ids.contains(&task.id) {
-            continue;
-        }
-        if should_skip_task_dispatch(&task) {
-            continue;
-        }
-
+        };
         let dependency_issues = dependency_gate_issues_for_task(hub.clone(), root, &task).await;
         if !dependency_issues.is_empty() {
             let reason = dependency_blocked_reason(&dependency_issues);
@@ -192,15 +221,25 @@ pub async fn dispatch_ready_tasks_via_runner(
             continue;
         }
 
-        let workflow_ref = workflow_ref_for_task(&task);
-        let dispatch = SubjectDispatch::for_task(task.id.clone(), workflow_ref);
-        match process_manager.spawn_workflow_runner(&dispatch, root) {
+        match process_manager.spawn_workflow_runner(&planned_start.dispatch, root) {
             Ok(_) => {
                 let _ = project_task_status(hub.clone(), &task.id, TaskStatus::InProgress).await;
+                if planned_start.selection_source == DispatchSelectionSource::EmQueue {
+                    if let Err(error) =
+                        mark_em_work_queue_entry_assigned(root, &task.id, task.id.as_str())
+                    {
+                        eprintln!(
+                            "{}: failed to mark EM queue entry assigned for task {}: {}",
+                            protocol::ACTOR_DAEMON,
+                            task.id,
+                            error
+                        );
+                    }
+                }
                 started_workflows.push(DispatchWorkflowStart {
-                    dispatch: dispatch.clone(),
+                    dispatch: planned_start.dispatch.clone(),
                     workflow_id: task.id.clone(),
-                    selection_source: DispatchSelectionSource::FallbackPicker,
+                    selection_source: planned_start.selection_source,
                 });
             }
             Err(error) => {
@@ -214,4 +253,136 @@ pub async fn dispatch_ready_tasks_via_runner(
         started: started_workflows.len(),
         started_workflows,
     })
+}
+
+struct PreparedReadyDispatchCandidates {
+    queued_candidates: Vec<DispatchCandidate>,
+    fallback_candidates: Vec<DispatchCandidate>,
+    completed_subject_ids: Vec<String>,
+}
+
+fn prepare_ready_dispatch_candidates(
+    tasks: &[orchestrator_core::OrchestratorTask],
+    workflows: &[orchestrator_core::OrchestratorWorkflow],
+    queue_state: Option<&EmWorkQueueState>,
+    requested_at: chrono::DateTime<chrono::Utc>,
+) -> PreparedReadyDispatchCandidates {
+    let active_task_ids = active_workflow_task_ids(workflows);
+    let completed_task_ids: std::collections::HashSet<String> = workflows
+        .iter()
+        .filter(|workflow| is_terminally_completed_workflow(workflow))
+        .map(|workflow| workflow.task_id.clone())
+        .collect();
+    let task_lookup: std::collections::HashMap<&str, &orchestrator_core::OrchestratorTask> =
+        tasks.iter().map(|task| (task.id.as_str(), task)).collect();
+
+    let mut queued_candidates = Vec::new();
+    let mut fallback_candidates = Vec::new();
+    let mut completed_subject_ids = Vec::new();
+    let mut seen_completed_ids = std::collections::HashSet::new();
+
+    if let Some(queue_state) = queue_state {
+        for entry in &queue_state.entries {
+            if entry.status != EmWorkQueueEntryStatus::Pending {
+                continue;
+            }
+
+            let Some(task) = entry
+                .task_id()
+                .and_then(|task_id| task_lookup.get(task_id).copied())
+            else {
+                continue;
+            };
+
+            if should_include_completed_task(
+                task,
+                &completed_task_ids,
+                &mut completed_subject_ids,
+                &mut seen_completed_ids,
+            ) {
+                continue;
+            }
+            if !is_dispatch_eligible(task, &active_task_ids) {
+                continue;
+            }
+
+            let dispatch = entry.dispatch.clone().unwrap_or_else(|| {
+                SubjectDispatch::for_task_with_metadata(
+                    task.id.clone(),
+                    workflow_ref_for_task(task),
+                    "em-queue",
+                    requested_at,
+                )
+            });
+
+            queued_candidates.push(DispatchCandidate {
+                dispatch,
+                selection_source: DispatchSelectionSource::EmQueue,
+            });
+        }
+    }
+
+    for task in tasks {
+        if should_include_completed_task(
+            task,
+            &completed_task_ids,
+            &mut completed_subject_ids,
+            &mut seen_completed_ids,
+        ) {
+            continue;
+        }
+        if !is_dispatch_eligible(task, &active_task_ids) {
+            continue;
+        }
+
+        fallback_candidates.push(DispatchCandidate {
+            dispatch: SubjectDispatch::for_task_with_metadata(
+                task.id.clone(),
+                workflow_ref_for_task(task),
+                "fallback-picker",
+                requested_at,
+            ),
+            selection_source: DispatchSelectionSource::FallbackPicker,
+        });
+    }
+
+    PreparedReadyDispatchCandidates {
+        queued_candidates,
+        fallback_candidates,
+        completed_subject_ids,
+    }
+}
+
+fn is_dispatch_eligible(
+    task: &orchestrator_core::OrchestratorTask,
+    active_task_ids: &std::collections::HashSet<String>,
+) -> bool {
+    if task.paused || task.cancelled {
+        return false;
+    }
+    if task.status != TaskStatus::Ready {
+        return false;
+    }
+    if active_task_ids.contains(&task.id) {
+        return false;
+    }
+    if should_skip_task_dispatch(task) {
+        return false;
+    }
+    true
+}
+
+fn should_include_completed_task(
+    task: &orchestrator_core::OrchestratorTask,
+    completed_task_ids: &std::collections::HashSet<String>,
+    completed_targets: &mut Vec<String>,
+    seen_completed_ids: &mut std::collections::HashSet<String>,
+) -> bool {
+    if !completed_task_ids.contains(&task.id) {
+        return false;
+    }
+    if seen_completed_ids.insert(task.id.clone()) {
+        completed_targets.push(task.id.clone());
+    }
+    true
 }

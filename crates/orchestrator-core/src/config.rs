@@ -1,3 +1,6 @@
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -13,6 +16,7 @@ pub struct RuntimeConfig {
 pub enum ProjectRootSource {
     CliArg,
     EnvVar,
+    GitRepoRoot,
     CurrentDir,
 }
 
@@ -33,27 +37,244 @@ pub fn resolve_project_root(config: &RuntimeConfig) -> (String, ProjectRootSourc
         }
     }
 
-    let cwd = std::env::current_dir()
-        .expect("Failed to get current directory")
-        .to_string_lossy()
-        .to_string();
+    let cwd = std::env::current_dir().expect("Failed to get current directory");
 
-    (cwd, ProjectRootSource::CurrentDir)
+    if let Some(root) = resolve_git_repo_root(&cwd) {
+        return (root, ProjectRootSource::GitRepoRoot);
+    }
+
+    (
+        cwd.to_string_lossy().to_string(),
+        ProjectRootSource::CurrentDir,
+    )
+}
+
+fn resolve_git_repo_root(cwd: &Path) -> Option<String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(cwd)
+        .args(["rev-parse", "--git-common-dir"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let common_dir = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if common_dir.is_empty() {
+        return None;
+    }
+
+    let common_dir_path = absolutize_path(cwd, common_dir.as_str());
+    let canonical_common_dir = common_dir_path.canonicalize().unwrap_or(common_dir_path);
+    if canonical_common_dir.file_name()? != ".git" {
+        return None;
+    }
+
+    let repo_root = canonical_common_dir.parent()?.to_path_buf();
+    Some(
+        repo_root
+            .canonicalize()
+            .unwrap_or(repo_root)
+            .to_string_lossy()
+            .to_string(),
+    )
+}
+
+fn absolutize_path(base: &Path, path: &str) -> PathBuf {
+    let candidate = PathBuf::from(path);
+    if candidate.is_absolute() {
+        candidate
+    } else {
+        base.join(candidate)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
+    use std::path::Path;
+    use std::sync::{Mutex, OnceLock};
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: Option<&str>) -> Self {
+            let previous = std::env::var_os(key);
+            match value {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(previous) = &self.previous {
+                std::env::set_var(self.key, previous);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
+
+    struct CurrentDirGuard {
+        original: PathBuf,
+    }
+
+    impl CurrentDirGuard {
+        fn set(cwd: &Path) -> Self {
+            let original = std::env::current_dir().expect("current dir should load");
+            std::env::set_current_dir(cwd).expect("test cwd should set");
+            Self { original }
+        }
+    }
+
+    impl Drop for CurrentDirGuard {
+        fn drop(&mut self) {
+            std::env::set_current_dir(&self.original).expect("cwd should restore");
+        }
+    }
+
+    fn resolver_test_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn run_with_test_process_state<T>(
+        cwd: &Path,
+        project_root: Option<&str>,
+        test: impl FnOnce() -> T,
+    ) -> T {
+        let _guard = resolver_test_lock()
+            .lock()
+            .expect("project root resolver test lock should acquire");
+        let _project_root_guard = EnvVarGuard::set("PROJECT_ROOT", project_root);
+        let _cwd_guard = CurrentDirGuard::set(cwd);
+        test()
+    }
+
+    fn run_git(repo_root: &Path, args: &[&str]) -> String {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(repo_root)
+            .args(args)
+            .output()
+            .expect("git command should start");
+        assert!(
+            output.status.success(),
+            "git command failed: git {}\nstdout:\n{}\nstderr:\n{}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    }
 
     #[test]
     fn cli_project_root_wins() {
-        let config = RuntimeConfig {
-            project_root: Some("/tmp/custom".to_string()),
-            ..RuntimeConfig::default()
-        };
+        let temp = tempfile::tempdir().expect("tempdir");
+        run_with_test_process_state(temp.path(), None, || {
+            let config = RuntimeConfig {
+                project_root: Some("/tmp/custom".to_string()),
+                ..RuntimeConfig::default()
+            };
 
-        let (root, source) = resolve_project_root(&config);
-        assert_eq!(root, "/tmp/custom");
-        assert_eq!(source, ProjectRootSource::CliArg);
+            let (root, source) = resolve_project_root(&config);
+            assert_eq!(root, "/tmp/custom");
+            assert_eq!(source, ProjectRootSource::CliArg);
+        });
+    }
+
+    #[test]
+    fn env_project_root_wins_when_cli_arg_missing() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        run_with_test_process_state(temp.path(), Some("/tmp/from-env"), || {
+            let (root, source) = resolve_project_root(&RuntimeConfig::default());
+            assert_eq!(root, "/tmp/from-env");
+            assert_eq!(source, ProjectRootSource::EnvVar);
+        });
+    }
+
+    #[test]
+    fn resolves_repo_root_from_git_subdirectory() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let repo_root = temp.path().join("repo");
+        let subdir = repo_root.join("nested").join("deeper");
+        std::fs::create_dir_all(&subdir).expect("subdir should be created");
+        run_git(&repo_root, &["init"]);
+
+        run_with_test_process_state(&subdir, None, || {
+            let (root, source) = resolve_project_root(&RuntimeConfig::default());
+            assert_eq!(
+                PathBuf::from(root),
+                repo_root
+                    .canonicalize()
+                    .expect("repo root should canonicalize")
+            );
+            assert_eq!(source, ProjectRootSource::GitRepoRoot);
+        });
+    }
+
+    #[test]
+    fn resolves_primary_repo_root_from_linked_worktree() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let repo_root = temp.path().join("repo");
+        let worktree_root = temp.path().join("repo-worktree");
+        std::fs::create_dir_all(&repo_root).expect("repo root should be created");
+
+        run_git(&repo_root, &["init"]);
+        run_git(
+            &repo_root,
+            &["config", "user.email", "ao-tests@example.com"],
+        );
+        run_git(&repo_root, &["config", "user.name", "AO Tests"]);
+        std::fs::write(repo_root.join("README.md"), "root\n").expect("seed file should write");
+        run_git(&repo_root, &["add", "README.md"]);
+        run_git(&repo_root, &["commit", "-m", "init"]);
+        run_git(&repo_root, &["branch", "feature/worktree-root"]);
+        run_git(
+            &repo_root,
+            &[
+                "worktree",
+                "add",
+                worktree_root.to_string_lossy().as_ref(),
+                "feature/worktree-root",
+            ],
+        );
+
+        run_with_test_process_state(&worktree_root, None, || {
+            let (root, source) = resolve_project_root(&RuntimeConfig::default());
+            assert_eq!(
+                PathBuf::from(root),
+                repo_root
+                    .canonicalize()
+                    .expect("repo root should canonicalize")
+            );
+            assert_eq!(source, ProjectRootSource::GitRepoRoot);
+        });
+    }
+
+    #[test]
+    fn falls_back_to_current_dir_outside_git_repo() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let outside = temp.path().join("outside");
+        std::fs::create_dir_all(&outside).expect("outside dir should be created");
+
+        run_with_test_process_state(&outside, None, || {
+            let (root, source) = resolve_project_root(&RuntimeConfig::default());
+            assert_eq!(
+                PathBuf::from(root),
+                outside
+                    .canonicalize()
+                    .expect("outside dir should canonicalize")
+            );
+            assert_eq!(source, ProjectRootSource::CurrentDir);
+        });
     }
 }

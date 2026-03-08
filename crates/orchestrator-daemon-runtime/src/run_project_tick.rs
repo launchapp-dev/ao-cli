@@ -65,9 +65,8 @@ where
 
     let snapshot = ProjectTickSnapshot::capture(hub.clone()).await?;
     let preparation = mode.build_preparation(&context, args, now, pool_draining, &snapshot);
-    let mut executor = crate::ProjectTickOperationExecutor::new(args, hooks, hub.clone(), root);
     let execution_outcome =
-        execute_project_tick_script(&preparation.tick_script, &mut executor).await?;
+        execute_project_tick_script(&preparation.tick_script, hooks, hub.clone(), root).await?;
 
     let health = serde_json::to_value(hub.daemon().health().await?)?;
     let summary_input = snapshot.into_summary_input(

@@ -1,18 +1,39 @@
+use std::sync::Arc;
+
 use anyhow::Result;
+use orchestrator_core::services::ServiceHub;
 
-use crate::{ProjectTickActionExecutor, ProjectTickExecutionOutcome, ProjectTickScript};
+use crate::{
+    ProjectTickAction, ProjectTickActionEffect, ProjectTickExecutionOutcome, ProjectTickHooks,
+    ProjectTickScript,
+};
 
-pub async fn execute_project_tick_script<E>(
+pub async fn execute_project_tick_script<H>(
     script: &ProjectTickScript,
-    executor: &mut E,
+    hooks: &mut H,
+    hub: Arc<dyn ServiceHub>,
+    root: &str,
 ) -> Result<ProjectTickExecutionOutcome>
 where
-    E: ProjectTickActionExecutor,
+    H: ProjectTickHooks,
 {
     let mut outcome = ProjectTickExecutionOutcome::default();
 
     for action in script.actions() {
-        let effect = executor.execute_action(action).await?;
+        let effect = match action {
+            ProjectTickAction::ReconcileCompletedProcesses => {
+                let (executed_workflow_phases, failed_workflow_phases) =
+                    hooks.reconcile_completed_processes(hub.clone(), root).await?;
+                ProjectTickActionEffect::ReconciledCompletedProcesses {
+                    executed_workflow_phases,
+                    failed_workflow_phases,
+                }
+            }
+            ProjectTickAction::DispatchReadyTasks { limit } => {
+                let summary = hooks.dispatch_ready_tasks(hub.clone(), root, *limit).await?;
+                ProjectTickActionEffect::ReadyWorkflowStarts { summary }
+            }
+        };
         outcome.apply_effect(effect);
     }
 
@@ -21,46 +42,56 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use anyhow::Result;
-    use async_trait::async_trait;
+    use chrono::{DateTime, Utc};
+    use orchestrator_core::{services::ServiceHub, InMemoryServiceHub};
 
     use super::execute_project_tick_script;
     use crate::{
-        DaemonRuntimeOptions, ProjectTickAction, ProjectTickActionEffect,
-        ProjectTickActionExecutor, ProjectTickExecutionOutcome, ProjectTickPlan, ProjectTickScript,
+        DaemonRuntimeOptions, ProjectTickAction, ProjectTickExecutionOutcome, ProjectTickHooks,
+        ProjectTickPlan, ProjectTickScript,
         ReadyTaskWorkflowStart, ReadyTaskWorkflowStartSummary, TaskSelectionSource,
     };
 
-    struct FakeExecutor {
+    struct FakeHooks {
         calls: Vec<ProjectTickAction>,
     }
 
-    #[async_trait(?Send)]
-    impl ProjectTickActionExecutor for FakeExecutor {
-        async fn execute_action(
+    #[async_trait::async_trait(?Send)]
+    impl ProjectTickHooks for FakeHooks {
+        fn build_hub(&mut self, _root: &str) -> Result<Arc<dyn ServiceHub>> {
+            Ok(Arc::new(InMemoryServiceHub::new()))
+        }
+
+        fn process_due_schedules(&mut self, _root: &str, _now: DateTime<Utc>) {}
+
+        async fn reconcile_completed_processes(
             &mut self,
-            action: &ProjectTickAction,
-        ) -> Result<ProjectTickActionEffect> {
-            self.calls.push(action.clone());
-            Ok(match action {
-                ProjectTickAction::DispatchReadyTasks { limit } => {
-                    ProjectTickActionEffect::ReadyWorkflowStarts {
-                        summary: ReadyTaskWorkflowStartSummary {
-                            started: *limit,
-                            started_workflows: vec![ReadyTaskWorkflowStart {
-                                task_id: "TASK-1".to_string(),
-                                workflow_id: "wf-1".to_string(),
-                                selection_source: TaskSelectionSource::FallbackPicker,
-                            }],
-                        },
-                    }
-                }
-                ProjectTickAction::ReconcileCompletedProcesses => {
-                    ProjectTickActionEffect::ReconciledCompletedProcesses {
-                        executed_workflow_phases: 0,
-                        failed_workflow_phases: 0,
-                    }
-                }
+            _hub: Arc<dyn ServiceHub>,
+            _root: &str,
+        ) -> Result<(usize, usize)> {
+            self.calls
+                .push(ProjectTickAction::ReconcileCompletedProcesses);
+            Ok((0, 0))
+        }
+
+        async fn dispatch_ready_tasks(
+            &mut self,
+            _hub: Arc<dyn ServiceHub>,
+            _root: &str,
+            limit: usize,
+        ) -> Result<ReadyTaskWorkflowStartSummary> {
+            self.calls
+                .push(ProjectTickAction::DispatchReadyTasks { limit });
+            Ok(ReadyTaskWorkflowStartSummary {
+                started: limit,
+                started_workflows: vec![ReadyTaskWorkflowStart {
+                    task_id: "TASK-1".to_string(),
+                    workflow_id: "wf-1".to_string(),
+                    selection_source: TaskSelectionSource::FallbackPicker,
+                }],
             })
         }
     }
@@ -82,14 +113,15 @@ mod tests {
             1,
         );
         let script = ProjectTickScript::build(&options, &plan);
-        let mut executor = FakeExecutor { calls: Vec::new() };
+        let mut hooks = FakeHooks { calls: Vec::new() };
+        let hub: Arc<dyn ServiceHub> = Arc::new(InMemoryServiceHub::new());
 
         let outcome: ProjectTickExecutionOutcome =
-            execute_project_tick_script(&script, &mut executor)
+            execute_project_tick_script(&script, &mut hooks, hub, "/tmp/project")
                 .await
                 .expect("script execution should succeed");
 
-        assert_eq!(executor.calls, script.actions().to_vec());
+        assert_eq!(hooks.calls, script.actions().to_vec());
         assert_eq!(outcome.cleaned_stale_workflows, 0);
         assert_eq!(outcome.resumed_workflows, 0);
         assert_eq!(outcome.ready_workflow_starts.started, 1);

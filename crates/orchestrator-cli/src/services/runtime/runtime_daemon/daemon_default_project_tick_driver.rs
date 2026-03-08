@@ -4,12 +4,11 @@ use std::sync::Arc;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use orchestrator_core::{services::ServiceHub, FileServiceHub};
-use tokio::process::Command as TokioCommand;
-
-use crate::{
+use orchestrator_daemon_runtime::{
     CompletedProcess, HookBackedProjectTickDriver, ProcessManager, ProjectTickHooks,
     ReadyTaskWorkflowStartSummary, ScheduleDispatch, SubjectDispatch,
 };
+use tokio::process::Command as TokioCommand;
 
 #[async_trait::async_trait(?Send)]
 pub trait DefaultProjectTickServices {
@@ -95,11 +94,13 @@ pub trait DefaultProjectTickServices {
     ) -> Result<()>;
 }
 
+#[cfg(test)]
 pub type DefaultFullProjectTickDriver<S> =
     HookBackedProjectTickDriver<DefaultFullProjectTickHooks<S>>;
 pub type DefaultSlimProjectTickDriver<'a, S> =
     HookBackedProjectTickDriver<DefaultSlimProjectTickHooks<'a, S>>;
 
+#[cfg(test)]
 pub fn default_full_project_tick_driver<S>(services: S) -> DefaultFullProjectTickDriver<S>
 where
     S: DefaultProjectTickServices,
@@ -123,6 +124,7 @@ where
     })
 }
 
+#[cfg(test)]
 pub struct DefaultFullProjectTickHooks<S> {
     services: S,
     schedule_process_manager: ProcessManager,
@@ -182,6 +184,7 @@ fn spawn_schedule_command(project_root: &str, schedule_id: &str, command: &str) 
 }
 
 #[async_trait::async_trait(?Send)]
+#[cfg(test)]
 impl<S> ProjectTickHooks for DefaultFullProjectTickHooks<S>
 where
     S: DefaultProjectTickServices,

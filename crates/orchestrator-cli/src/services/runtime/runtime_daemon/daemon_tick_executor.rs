@@ -1,9 +1,14 @@
 use super::*;
+#[path = "daemon_default_project_tick_driver.rs"]
+mod default_project_tick_driver;
+
 #[cfg(test)]
-use orchestrator_daemon_runtime::{default_full_project_tick_driver, DefaultFullProjectTickDriver};
+use default_project_tick_driver::{default_full_project_tick_driver, DefaultFullProjectTickDriver};
+use default_project_tick_driver::{
+    default_slim_project_tick_driver, DefaultProjectTickServices, DefaultSlimProjectTickDriver,
+};
 use orchestrator_daemon_runtime::{
-    default_slim_project_tick_driver, reconcile_completed_processes, CompletedProcess,
-    DefaultProjectTickServices, DefaultSlimProjectTickDriver, ProcessManager,
+    reconcile_completed_processes, CompletedProcess, ProcessManager,
 };
 use orchestrator_git_ops as git_ops;
 

@@ -17,7 +17,11 @@ fn throughput_last_hour(snapshot: &QueueSnapshot, now: DateTime<Utc>) -> usize {
         .iter()
         .filter_map(|entry| entry.assigned_at.as_deref())
         .filter_map(|assigned_at| DateTime::parse_from_rfc3339(assigned_at).ok())
-        .filter(|assigned_at| now.signed_duration_since(assigned_at.with_timezone(&Utc)).num_hours() < 1)
+        .filter(|assigned_at| {
+            now.signed_duration_since(assigned_at.with_timezone(&Utc))
+                .num_hours()
+                < 1
+        })
         .count()
 }
 

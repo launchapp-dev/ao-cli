@@ -2663,12 +2663,7 @@ const REQUIREMENT_SUMMARY_FIELDS: &[&str] = &[
     "linked_task_ids",
 ];
 
-const QUEUE_SUMMARY_FIELDS: &[&str] = &[
-    "subject_id",
-    "task_id",
-    "status",
-    "workflow_id",
-];
+const QUEUE_SUMMARY_FIELDS: &[&str] = &["subject_id", "task_id", "status", "workflow_id"];
 
 const WORKFLOW_SUMMARY_FIELDS: &[&str] = &[
     "id",

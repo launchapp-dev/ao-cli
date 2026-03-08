@@ -313,17 +313,23 @@ mod tests {
             .await
             .expect("task should be created");
 
-        let execution_cwd =
-            ensure_execution_cwd(hub.clone() as Arc<dyn ServiceHub>, &project_root, Some(&task))
-                .await
-                .expect("execution cwd should be provisioned");
+        let execution_cwd = ensure_execution_cwd(
+            hub.clone() as Arc<dyn ServiceHub>,
+            &project_root,
+            Some(&task),
+        )
+        .await
+        .expect("execution cwd should be provisioned");
 
         assert!(execution_cwd.contains("/.ao/"));
         assert!(execution_cwd.contains("/worktrees/"));
         assert!(Path::new(&execution_cwd).exists());
 
         let updated = hub.tasks().get(&task.id).await.expect("task should load");
-        assert_eq!(updated.worktree_path.as_deref(), Some(execution_cwd.as_str()));
+        assert_eq!(
+            updated.worktree_path.as_deref(),
+            Some(execution_cwd.as_str())
+        );
         assert!(updated
             .branch_name
             .as_deref()

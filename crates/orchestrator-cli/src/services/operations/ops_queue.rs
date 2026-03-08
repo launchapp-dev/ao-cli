@@ -21,9 +21,7 @@ pub(crate) async fn handle_queue(
         QueueCommand::Stats => print_value(queue_stats(project_root)?, json),
         QueueCommand::Enqueue(args) => {
             let task = hub.tasks().get(&args.task_id).await?;
-            let pipeline_id = args
-                .pipeline_id
-                .unwrap_or_else(|| pipeline_for_task(&task));
+            let pipeline_id = args.pipeline_id.unwrap_or_else(|| pipeline_for_task(&task));
             let input = args
                 .input_json
                 .map(|value| serde_json::from_str(&value))

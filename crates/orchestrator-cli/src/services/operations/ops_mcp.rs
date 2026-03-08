@@ -2668,7 +2668,7 @@ const QUEUE_SUMMARY_FIELDS: &[&str] = &["subject_id", "task_id", "status", "work
 const WORKFLOW_SUMMARY_FIELDS: &[&str] = &[
     "id",
     "task_id",
-    "pipeline_id",
+    "workflow_ref",
     "status",
     "current_phase",
     "current_phase_index",
@@ -4084,7 +4084,7 @@ mod tests {
             .save(&OrchestratorWorkflow {
                 id: workflow_id.to_string(),
                 task_id: task_id.to_string(),
-                pipeline_id: None,
+                workflow_ref: None,
                 status,
                 current_phase_index: 0,
                 phases: Vec::new(),
@@ -4950,7 +4950,7 @@ mod tests {
             "id": "wf-1",
             "task_id": "TASK-077",
             "status": "running",
-            "pipeline_id": "default",
+            "workflow_ref": "default",
             "decision_history": "x".repeat(8000),
             "raw_state": { "huge_blob": "y".repeat(4000) }
         }]);

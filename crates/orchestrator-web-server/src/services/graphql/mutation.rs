@@ -53,12 +53,12 @@ impl MutationRoot {
         &self,
         ctx: &Context<'_>,
         task_id: String,
-        pipeline_id: Option<String>,
+        workflow_ref: Option<String>,
     ) -> Result<GqlWorkflow> {
         let api = ctx.data::<WebApiService>()?;
         let body = json!({
             "task_id": task_id,
-            "pipeline_id": pipeline_id,
+            "workflow_ref": workflow_ref,
         });
         let val = api
             .workflows_run(body)

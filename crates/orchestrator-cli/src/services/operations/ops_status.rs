@@ -874,7 +874,7 @@ mod tests {
         OrchestratorWorkflow {
             id: id.to_string(),
             task_id: task_id.to_string(),
-            pipeline_id: None,
+            workflow_ref: None,
             status,
             current_phase_index: 0,
             phases,

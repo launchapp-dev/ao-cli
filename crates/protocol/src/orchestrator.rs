@@ -353,7 +353,7 @@ pub struct RequirementsExecutionInput {
     #[serde(default)]
     pub start_workflows: bool,
     #[serde(default)]
-    pub pipeline_id: Option<String>,
+    pub workflow_ref: Option<String>,
     #[serde(default)]
     pub include_wont: bool,
 }
@@ -1358,7 +1358,7 @@ pub struct OrchestratorProject {
 pub struct OrchestratorWorkflow {
     pub id: String,
     pub task_id: String,
-    pub pipeline_id: Option<String>,
+    pub workflow_ref: Option<String>,
     #[serde(default = "default_workflow_subject")]
     pub subject: WorkflowSubject,
     pub status: WorkflowStatus,

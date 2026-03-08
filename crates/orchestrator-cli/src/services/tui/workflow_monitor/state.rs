@@ -157,7 +157,7 @@ mod tests {
             status,
             current_phase: None,
             phases: vec![],
-            pipeline_id: None,
+            workflow_ref: None,
             current_phase_index: 0,
             machine_state: WorkflowMachineState::Idle,
             started_at: Utc::now(),

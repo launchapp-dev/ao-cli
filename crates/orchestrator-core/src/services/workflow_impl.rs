@@ -1,16 +1,16 @@
 use super::*;
 use crate::types::PhaseDecision;
 
-fn effective_pipeline_id(
+fn effective_workflow_ref(
     requested: Option<&str>,
     task: Option<&crate::types::OrchestratorTask>,
 ) -> String {
-    if let Some(pipeline_id) = requested
+    if let Some(workflow_ref) = requested
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
     {
-        return pipeline_id;
+        return workflow_ref;
     }
 
     if task.map(|task| task.is_frontend_related()).unwrap_or(false) {
@@ -118,12 +118,12 @@ impl WorkflowServiceApi for InMemoryServiceHub {
             } else {
                 None
             };
-            let pipeline_id = effective_pipeline_id(input.workflow_ref(), task.as_ref());
+            let workflow_ref = effective_workflow_ref(input.workflow_ref(), task.as_ref());
             let executor = WorkflowLifecycleExecutor::new(crate::resolve_phase_plan_for_pipeline(
                 None,
-                Some(pipeline_id.as_str()),
+                Some(workflow_ref.as_str()),
             )?);
-            let workflow = executor.bootstrap(id.clone(), input.with_workflow_ref(pipeline_id));
+            let workflow = executor.bootstrap(id.clone(), input.with_workflow_ref(workflow_ref));
             lock.workflows.insert(id.clone(), workflow.clone());
             workflow
         };
@@ -279,22 +279,22 @@ impl WorkflowServiceApi for FileServiceHub {
         } else {
             None
         };
-        let pipeline_id = effective_pipeline_id(input.workflow_ref(), task.as_ref());
+        let workflow_ref = effective_workflow_ref(input.workflow_ref(), task.as_ref());
         let workflow_config = crate::load_workflow_config_or_default(self.project_root.as_path());
         let skip_guards = crate::resolve_pipeline_skip_guards(
             &workflow_config.config,
-            Some(pipeline_id.as_str()),
+            Some(workflow_ref.as_str()),
         );
         let executor = WorkflowLifecycleExecutor::with_state_machines(
             crate::resolve_phase_plan_for_pipeline(
                 Some(self.project_root.as_path()),
-                Some(pipeline_id.as_str()),
+                Some(workflow_ref.as_str()),
             )?,
             state_machines,
         )
         .with_retry_configs(retry_configs)
         .with_skip_guards(skip_guards);
-        let mut workflow = executor.bootstrap(id.clone(), input.with_workflow_ref(pipeline_id));
+        let mut workflow = executor.bootstrap(id.clone(), input.with_workflow_ref(workflow_ref));
         if let Some(ref task) = task {
             executor.skip_guarded_phases(&mut workflow, task);
         }
@@ -318,7 +318,7 @@ impl WorkflowServiceApi for FileServiceHub {
         let executor = WorkflowLifecycleExecutor::with_state_machines(
             crate::resolve_phase_plan_for_pipeline(
                 Some(self.project_root.as_path()),
-                workflow.pipeline_id.as_deref(),
+                workflow.workflow_ref.as_deref(),
             )?,
             state_machines,
         );
@@ -341,7 +341,7 @@ impl WorkflowServiceApi for FileServiceHub {
         WorkflowLifecycleExecutor::with_state_machines(
             crate::resolve_phase_plan_for_pipeline(
                 Some(self.project_root.as_path()),
-                workflow.pipeline_id.as_deref(),
+                workflow.workflow_ref.as_deref(),
             )?,
             state_machines,
         )
@@ -364,7 +364,7 @@ impl WorkflowServiceApi for FileServiceHub {
         WorkflowLifecycleExecutor::with_state_machines(
             crate::resolve_phase_plan_for_pipeline(
                 Some(self.project_root.as_path()),
-                workflow.pipeline_id.as_deref(),
+                workflow.workflow_ref.as_deref(),
             )?,
             state_machines,
         )
@@ -387,7 +387,7 @@ impl WorkflowServiceApi for FileServiceHub {
         WorkflowLifecycleExecutor::with_state_machines(
             crate::resolve_phase_plan_for_pipeline(
                 Some(self.project_root.as_path()),
-                workflow.pipeline_id.as_deref(),
+                workflow.workflow_ref.as_deref(),
             )?,
             state_machines,
         )
@@ -419,12 +419,12 @@ impl WorkflowServiceApi for FileServiceHub {
         let workflow_config = crate::load_workflow_config_or_default(self.project_root.as_path());
         let skip_guards = crate::resolve_pipeline_skip_guards(
             &workflow_config.config,
-            workflow.pipeline_id.as_deref(),
+            workflow.workflow_ref.as_deref(),
         );
         let executor = WorkflowLifecycleExecutor::with_state_machines(
             crate::resolve_phase_plan_for_pipeline(
                 Some(self.project_root.as_path()),
-                workflow.pipeline_id.as_deref(),
+                workflow.workflow_ref.as_deref(),
             )?,
             state_machines,
         )
@@ -492,7 +492,7 @@ impl WorkflowServiceApi for FileServiceHub {
         WorkflowLifecycleExecutor::with_state_machines(
             crate::resolve_phase_plan_for_pipeline(
                 Some(self.project_root.as_path()),
-                workflow.pipeline_id.as_deref(),
+                workflow.workflow_ref.as_deref(),
             )?,
             state_machines,
         )
@@ -515,7 +515,7 @@ impl WorkflowServiceApi for FileServiceHub {
         WorkflowLifecycleExecutor::with_state_machines(
             crate::resolve_phase_plan_for_pipeline(
                 Some(self.project_root.as_path()),
-                workflow.pipeline_id.as_deref(),
+                workflow.workflow_ref.as_deref(),
             )?,
             state_machines,
         )
@@ -540,7 +540,7 @@ impl WorkflowServiceApi for FileServiceHub {
         WorkflowLifecycleExecutor::with_state_machines(
             crate::resolve_phase_plan_for_pipeline(
                 Some(self.project_root.as_path()),
-                workflow.pipeline_id.as_deref(),
+                workflow.workflow_ref.as_deref(),
             )?,
             state_machines,
         )

@@ -717,7 +717,7 @@ Run `ao requirements draft`/`ao requirements refine` (or upsert explicit constra
             }
 
             let task = lock.tasks.get(task_id).cloned();
-            let workflow_ref = input.pipeline_id.clone().unwrap_or_else(|| {
+            let workflow_ref = input.workflow_ref.clone().unwrap_or_else(|| {
                 if task
                     .as_ref()
                     .map(|task| task.is_frontend_related())

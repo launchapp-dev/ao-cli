@@ -5,7 +5,7 @@ use async_trait::async_trait;
 pub struct PhaseExecutionRequest {
     pub task_id: String,
     pub phase_id: String,
-    pub pipeline_id: String,
+    pub workflow_ref: String,
     pub project_root: String,
     pub config_dir: String,
     pub model_override: Option<String>,

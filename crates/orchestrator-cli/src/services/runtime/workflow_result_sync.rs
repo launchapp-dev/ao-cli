@@ -192,12 +192,12 @@ pub(crate) async fn sync_task_status_for_workflow_result(
 
 fn resolve_workflow_pipeline_definition<'a>(
     config: &'a orchestrator_core::WorkflowConfig,
-    pipeline_id: &str,
+    workflow_ref: &str,
 ) -> Option<&'a orchestrator_core::workflow_config::PipelineDefinition> {
     config
         .pipelines
         .iter()
-        .find(|pipeline| pipeline.id.eq_ignore_ascii_case(pipeline_id))
+        .find(|pipeline| pipeline.id.eq_ignore_ascii_case(workflow_ref))
 }
 
 fn effective_post_success_git_config(
@@ -216,7 +216,7 @@ fn effective_post_success_git_config(
     };
 
     let requested_workflow_ref = workflow
-        .pipeline_id
+        .workflow_ref
         .as_deref()
         .map(str::trim)
         .filter(|candidate| !candidate.is_empty())

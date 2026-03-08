@@ -78,10 +78,10 @@ pub fn load_workflow_runtime_config(project_root: &str) -> WorkflowRuntimeConfig
 
 pub fn resolve_phase_runtime_settings(
     config: &WorkflowRuntimeConfigLite,
-    pipeline_id: Option<&str>,
+    workflow_ref: Option<&str>,
     phase_id: &str,
 ) -> Option<WorkflowPhaseRuntimeSettings> {
-    let requested_pipeline = pipeline_id
+    let requested_pipeline = workflow_ref
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .or_else(|| {

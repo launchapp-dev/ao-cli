@@ -948,7 +948,7 @@ export function WorkflowsPage() {
     });
   };
 
-  const runWorkflow = (taskId: string, pipelineId: string | null) => {
+  const runWorkflow = (taskId: string, workflowRef: string | null) => {
     if (pendingAction) {
       return;
     }
@@ -958,7 +958,7 @@ export function WorkflowsPage() {
     void api
       .workflowRun({
         task_id: taskId,
-        ...(pipelineId ? { pipeline_id: pipelineId } : {}),
+        ...(workflowRef ? { workflow_ref: workflowRef } : {}),
       })
       .then((result) => {
         if (result.kind === "error") {
@@ -1268,7 +1268,7 @@ export function WorkflowDetailPage() {
       current.length > 0 ? current : (state.data.workflow.task_id ?? ""),
     );
     setRunPipelineId((current) =>
-      current.length > 0 ? current : (state.data.workflow.pipeline_id ?? ""),
+      current.length > 0 ? current : (state.data.workflow.workflow_ref ?? ""),
     );
   }, [state]);
 
@@ -1282,7 +1282,7 @@ export function WorkflowDetailPage() {
     });
   };
 
-  const runWorkflow = (taskId: string, pipelineId: string | null) => {
+  const runWorkflow = (taskId: string, workflowRef: string | null) => {
     if (pendingAction) {
       return;
     }
@@ -1292,7 +1292,7 @@ export function WorkflowDetailPage() {
     void api
       .workflowRun({
         task_id: taskId,
-        ...(pipelineId ? { pipeline_id: pipelineId } : {}),
+        ...(workflowRef ? { workflow_ref: workflowRef } : {}),
       })
       .then((result) => {
         if (result.kind === "error") {

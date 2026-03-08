@@ -13,7 +13,7 @@ fn make_workflow(status: WorkflowStatus) -> OrchestratorWorkflow {
     OrchestratorWorkflow {
         id: "WF-test".to_string(),
         task_id: "TASK-1".to_string(),
-        pipeline_id: Some("standard".to_string()),
+        workflow_ref: Some("standard".to_string()),
         subject: crate::types::WorkflowSubject::Task {
             id: "TASK-1".to_string(),
         },

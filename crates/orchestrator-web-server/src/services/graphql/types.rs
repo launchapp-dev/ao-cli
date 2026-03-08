@@ -80,7 +80,7 @@ pub struct RawWorkflow {
     pub id: String,
     pub task_id: String,
     #[serde(default)]
-    pub pipeline_id: Option<String>,
+    pub workflow_ref: Option<String>,
     #[serde(default)]
     pub status: String,
     #[serde(default)]
@@ -207,8 +207,8 @@ impl GqlWorkflow {
     async fn task_id(&self) -> &str {
         &self.0.task_id
     }
-    async fn pipeline_id(&self) -> Option<&str> {
-        self.0.pipeline_id.as_deref()
+    async fn workflow_ref(&self) -> Option<&str> {
+        self.0.workflow_ref.as_deref()
     }
     async fn status(&self) -> &str {
         &self.0.status

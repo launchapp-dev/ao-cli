@@ -105,7 +105,7 @@ export type TaskDetail = JsonRecord & {
 export type WorkflowSummary = JsonRecord & {
   id: string;
   task_id?: string;
-  pipeline_id?: string | null;
+  workflow_ref?: string | null;
   status?: WorkflowStatusValue;
   current_phase?: string | null;
   current_phase_index?: number;
@@ -328,7 +328,7 @@ export type TaskDependencyRemoveInput = {
 
 export type WorkflowRunInput = {
   task_id: string;
-  pipeline_id?: string;
+  workflow_ref?: string;
 };
 
 export type AgentSessionStatus =

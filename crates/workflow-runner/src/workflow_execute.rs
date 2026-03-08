@@ -153,14 +153,14 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
 
     ensure_workflow_config_compiled(Path::new(&params.project_root))?;
     let workflow_config = load_workflow_config(Path::new(&params.project_root))?;
-    let pipeline_id = workflow
-        .pipeline_id
+    let workflow_ref = workflow
+        .workflow_ref
         .as_deref()
         .unwrap_or(workflow_config.default_pipeline_id.as_str());
     let verdict_routing =
-        resolve_pipeline_verdict_routing(&workflow_config, workflow.pipeline_id.as_deref());
+        resolve_pipeline_verdict_routing(&workflow_config, workflow.workflow_ref.as_deref());
     let rework_attempts =
-        resolve_pipeline_rework_attempts(&workflow_config, workflow.pipeline_id.as_deref());
+        resolve_pipeline_rework_attempts(&workflow_config, workflow.workflow_ref.as_deref());
 
     let mut rework_counts: HashMap<String, u32> = HashMap::new();
     let mut rework_context: Option<String> = None;
@@ -200,7 +200,7 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
             &params.project_root,
             &execution_cwd,
             &workflow.id,
-            pipeline_id,
+            workflow_ref,
             &subject_id_str,
             &subject_title,
             &subject_description,
@@ -479,14 +479,14 @@ async fn execute_post_success_actions(
     workflow_config: &orchestrator_core::WorkflowConfig,
     execution_cwd: &str,
 ) -> Value {
-    let pipeline_id = workflow
-        .pipeline_id
+    let workflow_ref = workflow
+        .workflow_ref
         .as_deref()
         .unwrap_or(workflow_config.default_pipeline_id.as_str());
     let pipeline = workflow_config
         .pipelines
         .iter()
-        .find(|p| p.id.eq_ignore_ascii_case(pipeline_id))
+        .find(|p| p.id.eq_ignore_ascii_case(workflow_ref))
         .or_else(|| {
             workflow_config
                 .pipelines
@@ -503,7 +503,7 @@ async fn execute_post_success_actions(
     let Some(pipeline) = pipeline else {
         return serde_json::json!({
             "status": "skipped",
-            "reason": "pipeline configuration not found",
+            "reason": "workflow configuration not found",
         });
     };
 
@@ -514,7 +514,7 @@ async fn execute_post_success_actions(
         return serde_json::json!({
             "status": "skipped",
             "reason": "post_success.merge not configured",
-            "pipeline_id": pipeline.id,
+            "workflow_ref": pipeline.id,
         });
     };
 
@@ -522,7 +522,7 @@ async fn execute_post_success_actions(
         return serde_json::json!({
             "status": "skipped",
             "reason": "unable to resolve source branch",
-            "pipeline_id": pipeline.id,
+            "workflow_ref": pipeline.id,
         });
     };
 
@@ -531,7 +531,7 @@ async fn execute_post_success_actions(
 
     let mut action_result = serde_json::json!({
         "status": "skipped",
-        "pipeline_id": pipeline.id,
+        "workflow_ref": pipeline.id,
         "target_branch": target_branch,
         "strategy": merge_strategy_name(&merge_cfg.strategy),
         "create_pr": merge_cfg.create_pr,

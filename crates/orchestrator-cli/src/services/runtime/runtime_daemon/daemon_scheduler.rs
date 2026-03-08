@@ -45,12 +45,12 @@ use serde_json::Value;
 #[cfg(test)]
 fn resolve_phase_runtime_settings(
     config: &WorkflowRuntimeConfigLite,
-    pipeline_id: Option<&str>,
+    workflow_ref: Option<&str>,
     phase_id: &str,
 ) -> Option<WorkflowPhaseRuntimeSettings> {
     ::workflow_runner::runtime_support::resolve_phase_runtime_settings(
         config,
-        pipeline_id,
+        workflow_ref,
         phase_id,
     )
 }

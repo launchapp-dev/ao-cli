@@ -1032,7 +1032,7 @@ async fn planning_execute_starts_workflows_with_config_phase_plan() {
         RequirementsExecutionInput {
             requirement_ids: vec![requirement.id.clone()],
             start_workflows: true,
-            pipeline_id: Some("planning-custom".to_string()),
+            workflow_ref: Some("planning-custom".to_string()),
             include_wont: false,
         },
     )
@@ -1045,9 +1045,9 @@ async fn planning_execute_starts_workflows_with_config_phase_plan() {
             .await
             .expect("workflow should exist");
         assert_eq!(
-            workflow.pipeline_id.as_deref(),
+            workflow.workflow_ref.as_deref(),
             Some("planning-custom"),
-            "workflow should preserve configured pipeline id"
+            "workflow should preserve configured workflow ref"
         );
 
         let phase_ids = workflow
@@ -1646,7 +1646,7 @@ async fn planning_service_drafts_and_executes_requirements() {
         RequirementsExecutionInput {
             requirement_ids: vec![],
             start_workflows: true,
-            pipeline_id: Some("standard".to_string()),
+            workflow_ref: Some("standard".to_string()),
             include_wont: false,
         },
     )
@@ -1758,7 +1758,7 @@ async fn execute_requirements_blocks_when_vision_constraints_are_not_covered() {
         RequirementsExecutionInput {
             requirement_ids: vec![unrelated.id],
             start_workflows: false,
-            pipeline_id: None,
+            workflow_ref: None,
             include_wont: false,
         },
     )
@@ -1879,7 +1879,7 @@ async fn requirements_refine_propagates_research_metadata_to_tasks() {
         RequirementsExecutionInput {
             requirement_ids: vec![requirement.id.clone()],
             start_workflows: false,
-            pipeline_id: None,
+            workflow_ref: None,
             include_wont: false,
         },
     )
@@ -1947,7 +1947,7 @@ async fn execute_requirements_runs_requirement_state_machine_before_task_materia
         RequirementsExecutionInput {
             requirement_ids: vec![requirement.id.clone()],
             start_workflows: false,
-            pipeline_id: None,
+            workflow_ref: None,
             include_wont: false,
         },
     )
@@ -2054,7 +2054,7 @@ async fn file_hub_writes_legacy_style_requirement_and_task_files() {
         RequirementsExecutionInput {
             requirement_ids: vec![requirement_id.clone()],
             start_workflows: false,
-            pipeline_id: None,
+            workflow_ref: None,
             include_wont: false,
         },
     )
@@ -2148,7 +2148,7 @@ async fn execute_requirements_generates_stable_task_titles() {
         RequirementsExecutionInput {
             requirement_ids: vec![requirement_id],
             start_workflows: false,
-            pipeline_id: None,
+            workflow_ref: None,
             include_wont: false,
         },
     )
@@ -2201,7 +2201,7 @@ async fn execute_requirements_excludes_wont_by_default() {
         RequirementsExecutionInput {
             requirement_ids: vec![requirement.id],
             start_workflows: false,
-            pipeline_id: None,
+            workflow_ref: None,
             include_wont: false,
         },
     )
@@ -2246,7 +2246,7 @@ async fn execute_requirements_can_include_wont_with_opt_in() {
         RequirementsExecutionInput {
             requirement_ids: vec![requirement.id],
             start_workflows: false,
-            pipeline_id: None,
+            workflow_ref: None,
             include_wont: true,
         },
     )
@@ -2317,7 +2317,7 @@ async fn execute_requirements_maps_requirement_priority_to_task_priority() {
             RequirementsExecutionInput {
                 requirement_ids: vec![requirement.id.clone()],
                 start_workflows: false,
-                pipeline_id: None,
+                workflow_ref: None,
                 include_wont: true,
             },
         )

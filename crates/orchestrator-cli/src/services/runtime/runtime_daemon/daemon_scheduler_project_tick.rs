@@ -1,8 +1,5 @@
 use super::*;
-use orchestrator_core::FileServiceHub;
 use orchestrator_daemon_runtime::ProcessManager;
-use orchestrator_git_ops as git_ops;
-use std::collections::HashSet;
 
 #[path = "daemon_task_dispatch.rs"]
 pub(super) mod task_dispatch;
@@ -24,9 +21,9 @@ pub(super) mod bootstrap;
 pub(super) mod agent_slot;
 #[path = "daemon_tick_executor.rs"]
 mod tick_executor;
+#[path = "daemon_tick_wrapper.rs"]
+mod tick_wrapper;
 
-use bootstrap::*;
-use reconciliation::*;
 use task_dispatch::*;
 use task_lifecycle::*;
 #[cfg(test)]
@@ -35,69 +32,11 @@ pub(crate) use tick_executor::slim_project_tick_driver;
 #[cfg(test)]
 use tick_executor::FullProjectTickDriver;
 use tick_executor::SlimProjectTickDriver;
+use tick_wrapper::{
+    apply_cli_pre_tick, flush_git_outbox_for_project, refresh_runtime_binaries_for_project,
+    run_cli_pre_tick,
+};
 pub(super) use workflow_result_sync::sync_task_status_for_workflow_result;
-
-#[derive(Default)]
-struct CliPreTickOutcome {
-    cleaned_stale_workflows: usize,
-    resumed_workflows: usize,
-    reconciled_tasks: usize,
-}
-
-async fn run_cli_pre_tick(
-    root: &str,
-    args: &DaemonRuntimeOptions,
-    active_subject_ids: Option<&HashSet<String>>,
-) -> Result<CliPreTickOutcome> {
-    let hub = Arc::new(FileServiceHub::new(root)?);
-
-    bootstrap_from_vision_if_needed(hub.clone(), args.startup_cleanup, args.ai_task_generation)
-        .await?;
-
-    let (cleaned_stale_workflows, resumed_workflows) = if args.resume_interrupted {
-        resume_interrupted_workflows_for_project(hub.clone(), root).await?
-    } else {
-        (0, 0)
-    };
-
-    let empty_active_ids = HashSet::new();
-    let active_ids = active_subject_ids.unwrap_or(&empty_active_ids);
-    let _ = recover_orphaned_running_workflows_with_active_ids(hub.clone(), root, active_ids).await;
-
-    let reconciled_stale_tasks = if args.reconcile_stale {
-        reconcile_stale_in_progress_tasks_for_project(hub.clone(), root, args.stale_threshold_hours)
-            .await?
-    } else {
-        0
-    };
-
-    let reconciled_dependency_tasks =
-        reconcile_dependency_gate_tasks_for_project(hub.clone(), root).await?;
-    let reconciled_merge_tasks = reconcile_merge_gate_tasks_for_project(hub, root).await?;
-
-    Ok(CliPreTickOutcome {
-        cleaned_stale_workflows,
-        resumed_workflows,
-        reconciled_tasks: reconciled_stale_tasks
-            .saturating_add(reconciled_dependency_tasks)
-            .saturating_add(reconciled_merge_tasks),
-    })
-}
-
-async fn refresh_runtime_binaries_for_project(root: &str) -> Result<()> {
-    let hub = Arc::new(FileServiceHub::new(root)?);
-    let _ = git_ops::refresh_runtime_binaries_if_main_advanced(
-        hub,
-        root,
-        git_ops::RuntimeBinaryRefreshTrigger::Tick,
-    )
-    .await;
-    Ok(())
-}
-
-fn flush_git_outbox_for_project(root: &str) {
-    let _ = git_ops::flush_git_integration_outbox(root);
-}
 
 #[cfg(test)]
 pub(super) async fn project_tick(
@@ -126,15 +65,7 @@ pub(super) async fn project_tick_at(
         ProjectTickTime::from_utc(now),
     )
     .await?;
-    summary.cleaned_stale_workflows = summary
-        .cleaned_stale_workflows
-        .saturating_add(pre_tick.cleaned_stale_workflows);
-    summary.resumed_workflows = summary
-        .resumed_workflows
-        .saturating_add(pre_tick.resumed_workflows);
-    summary.reconciled_stale_tasks = summary
-        .reconciled_stale_tasks
-        .saturating_add(pre_tick.reconciled_tasks);
+    apply_cli_pre_tick(&mut summary, pre_tick);
     refresh_runtime_binaries_for_project(&root).await?;
     Ok(summary)
 }
@@ -179,15 +110,7 @@ pub(super) async fn slim_daemon_tick_at(
         ProjectTickTime::from_utc(now),
     )
     .await?;
-    summary.cleaned_stale_workflows = summary
-        .cleaned_stale_workflows
-        .saturating_add(pre_tick.cleaned_stale_workflows);
-    summary.resumed_workflows = summary
-        .resumed_workflows
-        .saturating_add(pre_tick.resumed_workflows);
-    summary.reconciled_stale_tasks = summary
-        .reconciled_stale_tasks
-        .saturating_add(pre_tick.reconciled_tasks);
+    apply_cli_pre_tick(&mut summary, pre_tick);
     refresh_runtime_binaries_for_project(&root).await?;
     Ok(summary)
 }

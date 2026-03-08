@@ -4,7 +4,6 @@ pub enum ProjectTickAction {
     ResumeInterrupted,
     RecoverOrphanedRunningWorkflows,
     ReconcileStaleTasks,
-    ReconcileDependencyTasks,
     ReconcileMergeTasks,
     ReconcileCompletedProcesses,
     DispatchReadyTasks { limit: usize },

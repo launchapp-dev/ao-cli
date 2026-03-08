@@ -115,7 +115,6 @@ mod tests {
                 ProjectTickAction::ResumeInterrupted,
                 ProjectTickAction::RecoverOrphanedRunningWorkflows,
                 ProjectTickAction::ReconcileStaleTasks,
-                ProjectTickAction::ReconcileDependencyTasks,
                 ProjectTickAction::ReconcileMergeTasks,
                 ProjectTickAction::DispatchReadyTasks { limit: 1 },
                 ProjectTickAction::RefreshRuntimeBinaries,

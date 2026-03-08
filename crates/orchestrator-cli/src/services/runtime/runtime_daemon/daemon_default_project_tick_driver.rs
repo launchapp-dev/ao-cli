@@ -42,12 +42,6 @@ pub trait DefaultProjectTickServices {
         stale_threshold_hours: u64,
     ) -> Result<usize>;
 
-    async fn reconcile_dependency_tasks(
-        &mut self,
-        hub: Arc<dyn ServiceHub>,
-        root: &str,
-    ) -> Result<usize>;
-
     async fn reconcile_merge_tasks(
         &mut self,
         hub: Arc<dyn ServiceHub>,
@@ -236,14 +230,6 @@ where
             .await
     }
 
-    async fn reconcile_dependency_tasks(
-        &mut self,
-        hub: Arc<dyn ServiceHub>,
-        root: &str,
-    ) -> Result<usize> {
-        self.services.reconcile_dependency_tasks(hub, root).await
-    }
-
     async fn reconcile_merge_tasks(
         &mut self,
         hub: Arc<dyn ServiceHub>,
@@ -344,14 +330,6 @@ where
         self.services
             .reconcile_stale_tasks(hub, root, stale_threshold_hours)
             .await
-    }
-
-    async fn reconcile_dependency_tasks(
-        &mut self,
-        hub: Arc<dyn ServiceHub>,
-        root: &str,
-    ) -> Result<usize> {
-        self.services.reconcile_dependency_tasks(hub, root).await
     }
 
     async fn reconcile_merge_tasks(

@@ -23,7 +23,6 @@ impl ProjectTickScript {
             actions.push(ProjectTickAction::ReconcileStaleTasks);
         }
 
-        actions.push(ProjectTickAction::ReconcileDependencyTasks);
         actions.push(ProjectTickAction::ReconcileMergeTasks);
 
         if mode == ProjectTickMode::Slim {
@@ -79,7 +78,6 @@ mod tests {
                 ProjectTickAction::ResumeInterrupted,
                 ProjectTickAction::RecoverOrphanedRunningWorkflows,
                 ProjectTickAction::ReconcileStaleTasks,
-                ProjectTickAction::ReconcileDependencyTasks,
                 ProjectTickAction::ReconcileMergeTasks,
                 ProjectTickAction::DispatchReadyTasks { limit: 2 },
                 ProjectTickAction::RefreshRuntimeBinaries,
@@ -110,7 +108,6 @@ mod tests {
             &[
                 ProjectTickAction::BootstrapFromVision,
                 ProjectTickAction::RecoverOrphanedRunningWorkflows,
-                ProjectTickAction::ReconcileDependencyTasks,
                 ProjectTickAction::ReconcileMergeTasks,
                 ProjectTickAction::ReconcileCompletedProcesses,
                 ProjectTickAction::RefreshRuntimeBinaries,

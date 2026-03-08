@@ -1,4 +1,5 @@
 use super::*;
+use orchestrator_core::FileServiceHub;
 use orchestrator_daemon_runtime::ProcessManager;
 
 #[path = "daemon_task_dispatch.rs"]
@@ -49,8 +50,11 @@ pub(super) async fn project_tick_at(
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<ProjectTickSummary> {
     let root = canonicalize_lossy(root);
+    let dependency_reconciled =
+        reconcile_dependency_gate_tasks_for_project(Arc::new(FileServiceHub::new(&root)?), &root)
+            .await?;
     let mut driver: FullProjectTickDriver = full_project_tick_driver();
-    run_project_tick_at(
+    let mut summary = run_project_tick_at(
         &root,
         args,
         ProjectTickRunMode::Full,
@@ -58,7 +62,11 @@ pub(super) async fn project_tick_at(
         &mut driver,
         ProjectTickTime::from_utc(now),
     )
-    .await
+    .await?;
+    summary.reconciled_stale_tasks = summary
+        .reconciled_stale_tasks
+        .saturating_add(dependency_reconciled);
+    Ok(summary)
 }
 
 pub(super) async fn slim_daemon_tick(
@@ -85,11 +93,14 @@ pub(super) async fn slim_daemon_tick_at(
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<ProjectTickSummary> {
     let root = canonicalize_lossy(root);
+    let dependency_reconciled =
+        reconcile_dependency_gate_tasks_for_project(Arc::new(FileServiceHub::new(&root)?), &root)
+            .await?;
     let mode = ProjectTickRunMode::Slim {
         active_process_count: process_manager.active_count(),
     };
     let mut driver: SlimProjectTickDriver<'_> = slim_project_tick_driver(process_manager);
-    run_project_tick_at(
+    let mut summary = run_project_tick_at(
         &root,
         args,
         mode,
@@ -97,7 +108,11 @@ pub(super) async fn slim_daemon_tick_at(
         &mut driver,
         ProjectTickTime::from_utc(now),
     )
-    .await
+    .await?;
+    summary.reconciled_stale_tasks = summary
+        .reconciled_stale_tasks
+        .saturating_add(dependency_reconciled);
+    Ok(summary)
 }
 
 #[cfg(test)]

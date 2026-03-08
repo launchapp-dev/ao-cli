@@ -55,14 +55,6 @@ pub trait ProjectTickHooks {
         Ok(0)
     }
 
-    async fn reconcile_dependency_tasks(
-        &mut self,
-        _hub: Arc<dyn ServiceHub>,
-        _root: &str,
-    ) -> Result<usize> {
-        Ok(0)
-    }
-
     async fn reconcile_merge_tasks(
         &mut self,
         _hub: Arc<dyn ServiceHub>,

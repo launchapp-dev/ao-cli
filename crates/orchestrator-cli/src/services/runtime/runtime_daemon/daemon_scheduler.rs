@@ -6,10 +6,7 @@ use chrono::Utc;
 use orchestrator_core::is_dependency_gate_block;
 #[cfg(test)]
 use orchestrator_core::DependencyType;
-use orchestrator_core::{
-    services::ServiceHub, RequirementItem, RequirementsDraftInput, RequirementsExecutionInput,
-    RequirementsRefineInput, TaskCreateInput, TaskStatus, TaskType,
-};
+use orchestrator_core::{services::ServiceHub, TaskCreateInput, TaskStatus, TaskType};
 pub(super) use orchestrator_daemon_runtime::{
     run_project_tick_at, DaemonRuntimeOptions, ProcessManager, ProjectTickRunMode,
     ProjectTickSummary, ProjectTickTime,
@@ -34,7 +31,8 @@ mod project_tick_ops;
 use ::workflow_runner::executor::PhaseExecutionOutcome;
 pub(crate) use ::workflow_runner::phase_failover;
 pub(crate) use ::workflow_runner::phase_targets;
-pub(crate) use ::workflow_runner::runtime_support;
+#[cfg(test)]
+use ::workflow_runner::runtime_support;
 use phase_failover::PhaseFailureClassifier;
 use phase_targets::PhaseTargetPlanner;
 
@@ -61,7 +59,11 @@ fn resolve_phase_runtime_settings(
     pipeline_id: Option<&str>,
     phase_id: &str,
 ) -> Option<WorkflowPhaseRuntimeSettings> {
-    runtime_support::resolve_phase_runtime_settings(config, pipeline_id, phase_id)
+    ::workflow_runner::runtime_support::resolve_phase_runtime_settings(
+        config,
+        pipeline_id,
+        phase_id,
+    )
 }
 
 #[cfg(test)]
@@ -74,12 +76,9 @@ fn phase_max_continuations() -> usize {
     runtime_support::phase_max_continuations()
 }
 
+#[cfg(test)]
 fn bootstrap_max_requirements() -> usize {
     runtime_support::bootstrap_max_requirements()
-}
-
-fn requirement_needs_refinement(requirement: &RequirementItem) -> bool {
-    runtime_support::requirement_needs_refinement(requirement)
 }
 
 #[cfg(test)]
@@ -160,19 +159,6 @@ mod tests {
     use protocol::{ModelRoutingComplexity, PhaseCapabilities};
     use std::sync::Arc;
     use tempfile::TempDir;
-
-    async fn bootstrap_from_vision_if_needed(
-        hub: Arc<dyn ServiceHub>,
-        include_codebase_scan: bool,
-        ai_task_generation: bool,
-    ) -> Result<()> {
-        project_tick_ops::bootstrap::bootstrap_from_vision_if_needed(
-            hub,
-            include_codebase_scan,
-            ai_task_generation,
-        )
-        .await
-    }
 
     async fn reconcile_dependency_gate_tasks_for_project(
         hub: Arc<dyn ServiceHub>,
@@ -1032,71 +1018,6 @@ mod tests {
                 .expect("expected phase settings");
         assert_eq!(settings.reasoning_effort.as_deref(), Some("xhigh"));
         assert_eq!(settings.web_search, Some(true));
-    }
-
-    #[tokio::test]
-    async fn bootstrap_from_vision_materializes_requirements_and_tasks() {
-        let _lock = crate::shared::test_env_lock()
-            .lock()
-            .expect("env lock should be available");
-        let _max_requirements = EnvVarGuard::set("AO_BOOTSTRAP_MAX_REQUIREMENTS", Some("4"));
-        let hub = Arc::new(InMemoryServiceHub::new());
-        hub.planning()
-            .draft_vision(VisionDraftInput {
-                project_name: Some("Bootstrap Test".to_string()),
-                problem_statement: "Need a daemon-owned planning bootstrap".to_string(),
-                target_users: vec!["Engineers".to_string()],
-                goals: vec![
-                    "Generate requirements and tasks from vision".to_string(),
-                    "Run QA and review gates autonomously".to_string(),
-                    "Ship production-ready increments".to_string(),
-                ],
-                constraints: vec!["No manual planning commands".to_string()],
-                value_proposition: Some("Vision-only kickoff".to_string()),
-                complexity_assessment: None,
-            })
-            .await
-            .expect("vision should be drafted");
-
-        assert!(hub
-            .planning()
-            .list_requirements()
-            .await
-            .expect("requirements list")
-            .is_empty());
-        assert!(hub.tasks().list().await.expect("task list").is_empty());
-
-        bootstrap_from_vision_if_needed(hub.clone() as Arc<dyn ServiceHub>, false, false)
-            .await
-            .expect("bootstrap should succeed");
-
-        let requirements = hub
-            .planning()
-            .list_requirements()
-            .await
-            .expect("requirements list");
-        let materialized_requirements: Vec<&RequirementItem> = requirements
-            .iter()
-            .filter(|requirement| !requirement.source.eq_ignore_ascii_case("baseline"))
-            .collect();
-        assert!(!requirements.is_empty());
-        assert!(requirements.len() >= 3);
-        assert!(!materialized_requirements.is_empty());
-        assert!(materialized_requirements
-            .iter()
-            .all(|requirement| requirement.status != RequirementStatus::Draft));
-        assert!(materialized_requirements
-            .iter()
-            .all(|requirement| !requirement.linked_task_ids.is_empty()));
-        assert!(requirements
-            .iter()
-            .any(|requirement| requirement
-                .acceptance_criteria
-                .iter()
-                .any(|criterion| criterion
-                    .to_ascii_lowercase()
-                    .contains("automated test coverage"))));
-        assert!(!hub.tasks().list().await.expect("task list").is_empty());
     }
 
     #[tokio::test]

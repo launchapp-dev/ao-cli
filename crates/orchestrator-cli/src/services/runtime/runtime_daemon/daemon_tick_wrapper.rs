@@ -1,4 +1,4 @@
-use super::{bootstrap::*, reconciliation::*, *};
+use super::{reconciliation::*, *};
 use orchestrator_core::FileServiceHub;
 use orchestrator_git_ops as git_ops;
 use std::collections::HashSet;
@@ -16,9 +16,6 @@ pub(super) async fn run_cli_pre_tick(
     active_subject_ids: Option<&HashSet<String>>,
 ) -> Result<CliPreTickOutcome> {
     let hub = Arc::new(FileServiceHub::new(root)?);
-
-    bootstrap_from_vision_if_needed(hub.clone(), args.startup_cleanup, args.ai_task_generation)
-        .await?;
 
     let (cleaned_stale_workflows, resumed_workflows) = if args.resume_interrupted {
         resume_interrupted_workflows_for_project(hub.clone(), root).await?

@@ -10,9 +10,6 @@ pub(super) mod reconciliation;
 #[path = "daemon_workflow_result_sync.rs"]
 pub(super) mod workflow_result_sync;
 
-#[path = "daemon_bootstrap.rs"]
-pub(super) mod bootstrap;
-
 #[allow(dead_code)]
 #[path = "daemon_agent_slot.rs"]
 pub(super) mod agent_slot;

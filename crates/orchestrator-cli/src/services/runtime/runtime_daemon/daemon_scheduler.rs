@@ -1,6 +1,5 @@
 use super::canonicalize_lossy;
 use crate::cli_types::DaemonRunArgs;
-use crate::shared::ensure_ai_generated_tasks_for_requirements;
 use anyhow::{anyhow, Result};
 use chrono::Utc;
 #[cfg(test)]

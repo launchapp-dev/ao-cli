@@ -2,13 +2,11 @@ mod cli_error;
 mod output;
 mod parsing;
 mod runner;
-mod task_generation;
 
 pub(crate) use cli_error::*;
 pub(crate) use output::*;
 pub(crate) use parsing::*;
 pub(crate) use runner::*;
-pub(crate) use task_generation::*;
 
 #[cfg(test)]
 pub(crate) fn test_env_lock() -> &'static std::sync::Mutex<()> {

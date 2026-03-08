@@ -3,10 +3,10 @@ use super::*;
 pub async fn bootstrap_from_vision_if_needed(
     hub: Arc<dyn ServiceHub>,
     include_codebase_scan: bool,
-    ai_task_generation: bool,
+    _ai_task_generation: bool,
 ) -> Result<()> {
     let planning = hub.planning();
-    let Some(vision) = planning.get_vision().await? else {
+    let Some(_vision) = planning.get_vision().await? else {
         return Ok(());
     };
 
@@ -58,14 +58,6 @@ pub async fn bootstrap_from_vision_if_needed(
             .iter()
             .map(|requirement| requirement.id.clone())
             .collect();
-    }
-    if ai_task_generation {
-        ensure_ai_generated_tasks_for_requirements(
-            hub.clone(),
-            &vision.project_root,
-            &requirement_ids,
-        )
-        .await?;
     }
     planning
         .execute_requirements(RequirementsExecutionInput {

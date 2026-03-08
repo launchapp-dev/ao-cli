@@ -836,8 +836,8 @@
     #[test]
     fn phase_runtime_settings_lookup_matches_pipeline_and_phase() {
         let config = WorkflowRuntimeConfigLite {
-            default_pipeline_id: "standard".to_string(),
-            pipelines: vec![WorkflowPipelineRuntimeRecord {
+            default_workflow_ref: "standard".to_string(),
+            workflows: vec![WorkflowPipelineRuntimeRecord {
                 id: "ui-ux-standard".to_string(),
                 phase_settings: std::collections::HashMap::from([(
                     "implementation".to_string(),

@@ -11,7 +11,7 @@ use orchestrator_config::workflow_config::MergeStrategy;
 use orchestrator_core::{
     ensure_workflow_config_compiled, load_workflow_config,
     providers::{BuiltinGitProvider, GitProvider},
-    resolve_pipeline_rework_attempts, resolve_pipeline_verdict_routing,
+    resolve_workflow_rework_attempts, resolve_workflow_verdict_routing,
     services::ServiceHub,
     FileServiceHub, OrchestratorTask, PhaseDecisionVerdict, TaskStatus, WorkflowRunInput,
     WorkflowSubject,
@@ -156,11 +156,11 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
     let workflow_ref = workflow
         .workflow_ref
         .as_deref()
-        .unwrap_or(workflow_config.default_pipeline_id.as_str());
+        .unwrap_or(workflow_config.default_workflow_ref.as_str());
     let verdict_routing =
-        resolve_pipeline_verdict_routing(&workflow_config, workflow.workflow_ref.as_deref());
+        resolve_workflow_verdict_routing(&workflow_config, workflow.workflow_ref.as_deref());
     let rework_attempts =
-        resolve_pipeline_rework_attempts(&workflow_config, workflow.workflow_ref.as_deref());
+        resolve_workflow_rework_attempts(&workflow_config, workflow.workflow_ref.as_deref());
 
     let mut rework_counts: HashMap<String, u32> = HashMap::new();
     let mut rework_context: Option<String> = None;
@@ -482,39 +482,39 @@ async fn execute_post_success_actions(
     let workflow_ref = workflow
         .workflow_ref
         .as_deref()
-        .unwrap_or(workflow_config.default_pipeline_id.as_str());
-    let pipeline = workflow_config
-        .pipelines
+        .unwrap_or(workflow_config.default_workflow_ref.as_str());
+    let workflow_def = workflow_config
+        .workflows
         .iter()
         .find(|p| p.id.eq_ignore_ascii_case(workflow_ref))
         .or_else(|| {
             workflow_config
-                .pipelines
+                .workflows
                 .iter()
                 .find(|p| p.id.eq_ignore_ascii_case("standard"))
         })
         .or_else(|| {
-            workflow_config.pipelines.iter().find(|p| {
-                p.id.eq_ignore_ascii_case(&workflow_config.default_pipeline_id)
+            workflow_config.workflows.iter().find(|p| {
+                p.id.eq_ignore_ascii_case(&workflow_config.default_workflow_ref)
             })
         })
         .cloned();
 
-    let Some(pipeline) = pipeline else {
+    let Some(workflow_def) = workflow_def else {
         return serde_json::json!({
             "status": "skipped",
             "reason": "workflow configuration not found",
         });
     };
 
-    let Some(merge_cfg) = pipeline
+    let Some(merge_cfg) = workflow_def
         .post_success
         .and_then(|post_success| post_success.merge)
     else {
         return serde_json::json!({
             "status": "skipped",
             "reason": "post_success.merge not configured",
-            "workflow_ref": pipeline.id,
+            "workflow_ref": workflow_def.id,
         });
     };
 
@@ -522,7 +522,7 @@ async fn execute_post_success_actions(
         return serde_json::json!({
             "status": "skipped",
             "reason": "unable to resolve source branch",
-            "workflow_ref": pipeline.id,
+            "workflow_ref": workflow_def.id,
         });
     };
 
@@ -531,7 +531,7 @@ async fn execute_post_success_actions(
 
     let mut action_result = serde_json::json!({
         "status": "skipped",
-        "workflow_ref": pipeline.id,
+        "workflow_ref": workflow_def.id,
         "target_branch": target_branch,
         "strategy": merge_strategy_name(&merge_cfg.strategy),
         "create_pr": merge_cfg.create_pr,

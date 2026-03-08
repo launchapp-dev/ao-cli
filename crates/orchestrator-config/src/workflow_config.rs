@@ -47,7 +47,7 @@ fn default_max_rework_attempts() -> u32 {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PipelinePhaseConfig {
+pub struct WorkflowPhaseConfig {
     pub id: String,
     #[serde(default = "default_max_rework_attempts")]
     pub max_rework_attempts: u32,
@@ -59,31 +59,31 @@ pub struct PipelinePhaseConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct SubPipelineRef {
-    pub pipeline: String,
+pub struct SubWorkflowRef {
+    pub workflow_ref: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum PipelinePhaseEntry {
-    SubPipeline(SubPipelineRef),
+pub enum WorkflowPhaseEntry {
+    SubWorkflow(SubWorkflowRef),
     Simple(String),
-    Rich(PipelinePhaseConfig),
+    Rich(WorkflowPhaseConfig),
 }
 
-impl PipelinePhaseEntry {
+impl WorkflowPhaseEntry {
     pub fn phase_id(&self) -> &str {
         match self {
-            PipelinePhaseEntry::Simple(id) => id.as_str(),
-            PipelinePhaseEntry::Rich(config) => config.id.as_str(),
-            PipelinePhaseEntry::SubPipeline(sub) => sub.pipeline.as_str(),
+            WorkflowPhaseEntry::Simple(id) => id.as_str(),
+            WorkflowPhaseEntry::Rich(config) => config.id.as_str(),
+            WorkflowPhaseEntry::SubWorkflow(sub) => sub.workflow_ref.as_str(),
         }
     }
 
     pub fn on_verdict(&self) -> Option<&HashMap<String, PhaseTransitionConfig>> {
         match self {
-            PipelinePhaseEntry::Simple(_) | PipelinePhaseEntry::SubPipeline(_) => None,
-            PipelinePhaseEntry::Rich(config) => {
+            WorkflowPhaseEntry::Simple(_) | WorkflowPhaseEntry::SubWorkflow(_) => None,
+            WorkflowPhaseEntry::Rich(config) => {
                 if config.on_verdict.is_empty() {
                     None
                 } else {
@@ -95,31 +95,31 @@ impl PipelinePhaseEntry {
 
     pub fn max_rework_attempts(&self) -> Option<u32> {
         match self {
-            PipelinePhaseEntry::Simple(_) | PipelinePhaseEntry::SubPipeline(_) => None,
-            PipelinePhaseEntry::Rich(config) => Some(config.max_rework_attempts),
+            WorkflowPhaseEntry::Simple(_) | WorkflowPhaseEntry::SubWorkflow(_) => None,
+            WorkflowPhaseEntry::Rich(config) => Some(config.max_rework_attempts),
         }
     }
 
     pub fn skip_if(&self) -> &[String] {
         match self {
-            PipelinePhaseEntry::Simple(_) | PipelinePhaseEntry::SubPipeline(_) => &[],
-            PipelinePhaseEntry::Rich(config) => &config.skip_if,
+            WorkflowPhaseEntry::Simple(_) | WorkflowPhaseEntry::SubWorkflow(_) => &[],
+            WorkflowPhaseEntry::Rich(config) => &config.skip_if,
         }
     }
 
-    pub fn is_sub_pipeline(&self) -> bool {
-        matches!(self, PipelinePhaseEntry::SubPipeline(_))
+    pub fn is_sub_workflow(&self) -> bool {
+        matches!(self, WorkflowPhaseEntry::SubWorkflow(_))
     }
 }
 
-impl From<String> for PipelinePhaseEntry {
+impl From<String> for WorkflowPhaseEntry {
     fn from(id: String) -> Self {
-        PipelinePhaseEntry::Simple(id)
+        WorkflowPhaseEntry::Simple(id)
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PipelineVariable {
+pub struct WorkflowVariable {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -130,17 +130,17 @@ pub struct PipelineVariable {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PipelineDefinition {
+pub struct WorkflowDefinition {
     pub id: String,
     pub name: String,
     #[serde(default)]
     pub description: String,
     #[serde(default)]
-    pub phases: Vec<PipelinePhaseEntry>,
+    pub phases: Vec<WorkflowPhaseEntry>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub post_success: Option<PostSuccessConfig>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub variables: Vec<PipelineVariable>,
+    pub variables: Vec<WorkflowVariable>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -189,7 +189,7 @@ pub struct PostSuccessConfig {
     pub merge: Option<MergeConfig>,
 }
 
-impl PipelineDefinition {
+impl WorkflowDefinition {
     pub fn phase_ids(&self) -> Vec<String> {
         self.phases
             .iter()
@@ -209,39 +209,39 @@ impl PipelineDefinition {
     }
 }
 
-pub fn expand_pipeline_phases(
-    pipelines: &[PipelineDefinition],
-    pipeline_id: &str,
-) -> Result<Vec<PipelinePhaseEntry>> {
+pub fn expand_workflow_phases(
+    workflows: &[WorkflowDefinition],
+    workflow_ref: &str,
+) -> Result<Vec<WorkflowPhaseEntry>> {
     let mut visited = HashSet::new();
-    expand_pipeline_phases_inner(pipelines, pipeline_id, &mut visited)
+    expand_workflow_phases_inner(workflows, workflow_ref, &mut visited)
 }
 
-fn expand_pipeline_phases_inner(
-    pipelines: &[PipelineDefinition],
-    pipeline_id: &str,
+fn expand_workflow_phases_inner(
+    workflows: &[WorkflowDefinition],
+    workflow_ref: &str,
     visited: &mut HashSet<String>,
-) -> Result<Vec<PipelinePhaseEntry>> {
-    let normalized = pipeline_id.to_ascii_lowercase();
+) -> Result<Vec<WorkflowPhaseEntry>> {
+    let normalized = workflow_ref.to_ascii_lowercase();
     if !visited.insert(normalized.clone()) {
         let chain: Vec<&str> = visited.iter().map(String::as_str).collect();
         return Err(anyhow!(
-            "circular sub-pipeline reference detected: '{}' (visited: {})",
-            pipeline_id,
+            "circular sub-workflow reference detected: '{}' (visited: {})",
+            workflow_ref,
             chain.join(" -> ")
         ));
     }
 
-    let pipeline = pipelines
+    let workflow = workflows
         .iter()
-        .find(|p| p.id.eq_ignore_ascii_case(pipeline_id))
-        .ok_or_else(|| anyhow!("sub-pipeline '{}' not found", pipeline_id))?;
+        .find(|p| p.id.eq_ignore_ascii_case(workflow_ref))
+        .ok_or_else(|| anyhow!("sub-workflow '{}' not found", workflow_ref))?;
 
     let mut expanded = Vec::new();
-    for entry in &pipeline.phases {
+    for entry in &workflow.phases {
         match entry {
-            PipelinePhaseEntry::SubPipeline(sub) => {
-                let sub_phases = expand_pipeline_phases_inner(pipelines, &sub.pipeline, visited)?;
+            WorkflowPhaseEntry::SubWorkflow(sub) => {
+                let sub_phases = expand_workflow_phases_inner(workflows, &sub.workflow_ref, visited)?;
                 expanded.extend(sub_phases);
             }
             other => {
@@ -254,8 +254,8 @@ fn expand_pipeline_phases_inner(
     Ok(expanded)
 }
 
-pub fn resolve_pipeline_variables(
-    definitions: &[PipelineVariable],
+pub fn resolve_workflow_variables(
+    definitions: &[WorkflowVariable],
     cli_vars: &HashMap<String, String>,
 ) -> Result<HashMap<String, String>> {
     let mut resolved = HashMap::new();
@@ -274,7 +274,7 @@ pub fn resolve_pipeline_variables(
     if !missing.is_empty() {
         missing.sort();
         return Err(anyhow!(
-            "missing required pipeline variable(s): {}",
+            "missing required workflow variable(s): {}",
             missing.join(", ")
         ));
     }
@@ -373,7 +373,7 @@ pub struct WorkflowSchedule {
     #[serde(default)]
     pub cron: String,
     #[serde(default)]
-    pub pipeline: Option<String>,
+    pub workflow_ref: Option<String>,
     #[serde(default)]
     pub command: Option<String>,
     #[serde(default)]
@@ -459,11 +459,11 @@ pub struct DaemonConfig {
 pub struct WorkflowConfig {
     pub schema: String,
     pub version: u32,
-    pub default_pipeline_id: String,
+    pub default_workflow_ref: String,
     #[serde(default)]
     pub phase_catalog: BTreeMap<String, PhaseUiDefinition>,
     #[serde(default)]
-    pub pipelines: Vec<PipelineDefinition>,
+    pub workflows: Vec<WorkflowDefinition>,
     #[serde(default)]
     pub checkpoint_retention: WorkflowCheckpointRetentionConfig,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -554,7 +554,7 @@ pub fn builtin_workflow_config() -> WorkflowConfig {
         .get_or_init(|| WorkflowConfig {
             schema: WORKFLOW_CONFIG_SCHEMA_ID.to_string(),
             version: WORKFLOW_CONFIG_VERSION,
-            default_pipeline_id: "standard".to_string(),
+            default_workflow_ref: "standard".to_string(),
             checkpoint_retention: WorkflowCheckpointRetentionConfig::default(),
             phase_catalog: BTreeMap::from([
                 (
@@ -630,8 +630,8 @@ pub fn builtin_workflow_config() -> WorkflowConfig {
                     ),
                 ),
             ]),
-            pipelines: vec![
-                PipelineDefinition {
+            workflows: vec![
+                WorkflowDefinition {
                     id: "standard".to_string(),
                     name: "Standard".to_string(),
                     description:
@@ -646,7 +646,7 @@ pub fn builtin_workflow_config() -> WorkflowConfig {
                     post_success: None,
                     variables: Vec::new(),
                 },
-                PipelineDefinition {
+                WorkflowDefinition {
                     id: "ui-ux-standard".to_string(),
                     name: "UI UX Standard".to_string(),
                     description:
@@ -831,25 +831,25 @@ pub fn workflow_config_hash(config: &WorkflowConfig) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-pub fn resolve_pipeline_phase_plan(
+pub fn resolve_workflow_phase_plan(
     config: &WorkflowConfig,
-    pipeline_id: Option<&str>,
+    workflow_ref: Option<&str>,
 ) -> Option<Vec<String>> {
-    let requested = pipeline_id
+    let requested = workflow_ref
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or(config.default_pipeline_id.trim());
+        .unwrap_or(config.default_workflow_ref.trim());
 
     if requested.is_empty() {
         return None;
     }
 
     config
-        .pipelines
+        .workflows
         .iter()
-        .find(|pipeline| pipeline.id.eq_ignore_ascii_case(requested))?;
+        .find(|workflow| workflow.id.eq_ignore_ascii_case(requested))?;
 
-    let expanded = expand_pipeline_phases(&config.pipelines, requested).ok()?;
+    let expanded = expand_workflow_phases(&config.workflows, requested).ok()?;
 
     let phases: Vec<String> = expanded
         .iter()
@@ -866,20 +866,20 @@ pub fn resolve_pipeline_phase_plan(
     }
 }
 
-pub fn resolve_pipeline_verdict_routing(
+pub fn resolve_workflow_verdict_routing(
     config: &WorkflowConfig,
-    pipeline_id: Option<&str>,
+    workflow_ref: Option<&str>,
 ) -> HashMap<String, HashMap<String, PhaseTransitionConfig>> {
-    let requested = pipeline_id
+    let requested = workflow_ref
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or(config.default_pipeline_id.trim());
+        .unwrap_or(config.default_workflow_ref.trim());
 
     if requested.is_empty() {
         return HashMap::new();
     }
 
-    let expanded = match expand_pipeline_phases(&config.pipelines, requested) {
+    let expanded = match expand_workflow_phases(&config.workflows, requested) {
         Ok(phases) => phases,
         Err(_) => return HashMap::new(),
     };
@@ -895,20 +895,20 @@ pub fn resolve_pipeline_verdict_routing(
     routing
 }
 
-pub fn resolve_pipeline_rework_attempts(
+pub fn resolve_workflow_rework_attempts(
     config: &WorkflowConfig,
-    pipeline_id: Option<&str>,
+    workflow_ref: Option<&str>,
 ) -> HashMap<String, u32> {
-    let requested = pipeline_id
+    let requested = workflow_ref
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or(config.default_pipeline_id.trim());
+        .unwrap_or(config.default_workflow_ref.trim());
 
     if requested.is_empty() {
         return HashMap::new();
     }
 
-    let expanded = match expand_pipeline_phases(&config.pipelines, requested) {
+    let expanded = match expand_workflow_phases(&config.workflows, requested) {
         Ok(phases) => phases,
         Err(_) => return HashMap::new(),
     };
@@ -925,20 +925,20 @@ pub fn resolve_pipeline_rework_attempts(
     limits
 }
 
-pub fn resolve_pipeline_skip_guards(
+pub fn resolve_workflow_skip_guards(
     config: &WorkflowConfig,
-    pipeline_id: Option<&str>,
+    workflow_ref: Option<&str>,
 ) -> HashMap<String, Vec<String>> {
-    let requested = pipeline_id
+    let requested = workflow_ref
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or(config.default_pipeline_id.trim());
+        .unwrap_or(config.default_workflow_ref.trim());
 
     if requested.is_empty() {
         return HashMap::new();
     }
 
-    let expanded = match expand_pipeline_phases(&config.pipelines, requested) {
+    let expanded = match expand_workflow_phases(&config.workflows, requested) {
         Ok(phases) => phases,
         Err(_) => return HashMap::new(),
     };
@@ -960,8 +960,8 @@ pub fn validate_workflow_and_runtime_configs(
     validate_workflow_config(workflow)?;
 
     let mut errors = Vec::new();
-    for pipeline in &workflow.pipelines {
-        let expanded = match expand_pipeline_phases(&workflow.pipelines, &pipeline.id) {
+    for workflow_def in &workflow.workflows {
+        let expanded = match expand_workflow_phases(&workflow.workflows, &workflow_def.id) {
             Ok(phases) => phases,
             Err(_) => continue,
         };
@@ -978,8 +978,8 @@ pub fn validate_workflow_and_runtime_configs(
                 .all(|candidate| !candidate.eq_ignore_ascii_case(phase_id))
             {
                 errors.push(format!(
-                    "pipeline '{}' phase '{}' is missing from phase_catalog",
-                    pipeline.id, phase_id
+                    "workflow '{}' phase '{}' is missing from phase_catalog",
+                    workflow_def.id, phase_id
                 ));
             }
 
@@ -989,8 +989,8 @@ pub fn validate_workflow_and_runtime_configs(
                 .any(|k| k.eq_ignore_ascii_case(phase_id));
             if !in_workflow && !runtime.has_phase_definition(phase_id) {
                 errors.push(format!(
-                    "pipeline '{}' phase '{}' is missing from agent-runtime phases and workflow phase_definitions",
-                    pipeline.id, phase_id
+                    "workflow '{}' phase '{}' is missing from agent-runtime phases and workflow phase_definitions",
+                    workflow_def.id, phase_id
                 ));
             }
         }
@@ -1020,8 +1020,8 @@ pub fn validate_workflow_config(config: &WorkflowConfig) -> Result<()> {
         ));
     }
 
-    if config.default_pipeline_id.trim().is_empty() {
-        errors.push("default_pipeline_id must not be empty".to_string());
+    if config.default_workflow_ref.trim().is_empty() {
+        errors.push("default_workflow_ref must not be empty".to_string());
     }
 
     if config.checkpoint_retention.keep_last_per_phase == 0 {
@@ -1054,54 +1054,54 @@ pub fn validate_workflow_config(config: &WorkflowConfig) -> Result<()> {
         }
     }
 
-    if config.pipelines.is_empty() {
-        errors.push("pipelines must include at least one pipeline".to_string());
+    if config.workflows.is_empty() {
+        errors.push("workflows must include at least one workflow".to_string());
     }
 
-    let mut pipeline_ids = BTreeMap::<String, usize>::new();
-    for pipeline in &config.pipelines {
-        let pipeline_id = pipeline.id.trim();
-        if pipeline_id.is_empty() {
-            errors.push("pipelines contains a pipeline with an empty id".to_string());
+    let mut workflow_refs = BTreeMap::<String, usize>::new();
+    for workflow in &config.workflows {
+        let workflow_ref = workflow.id.trim();
+        if workflow_ref.is_empty() {
+            errors.push("workflows contains a workflow with an empty id".to_string());
             continue;
         }
 
-        let normalized = pipeline_id.to_ascii_lowercase();
-        if let Some(existing) = pipeline_ids.insert(normalized.clone(), 1) {
+        let normalized = workflow_ref.to_ascii_lowercase();
+        if let Some(existing) = workflow_refs.insert(normalized.clone(), 1) {
             let _ = existing;
-            errors.push(format!("duplicate pipeline id '{}'", pipeline_id));
+            errors.push(format!("duplicate workflow id '{}'", workflow_ref));
         }
 
-        if pipeline.name.trim().is_empty() {
-            errors.push(format!("pipeline '{}' name must not be empty", pipeline_id));
+        if workflow.name.trim().is_empty() {
+            errors.push(format!("workflow '{}' name must not be empty", workflow_ref));
         }
 
-        if pipeline.phases.is_empty() {
+        if workflow.phases.is_empty() {
             errors.push(format!(
-                "pipeline '{}' must include at least one phase",
-                pipeline_id
+                "workflow '{}' must include at least one phase",
+                workflow_ref
             ));
             continue;
         }
 
-        for entry in &pipeline.phases {
-            if let PipelinePhaseEntry::SubPipeline(sub) = entry {
-                let ref_id = sub.pipeline.trim();
+        for entry in &workflow.phases {
+            if let WorkflowPhaseEntry::SubWorkflow(sub) = entry {
+                let ref_id = sub.workflow_ref.trim();
                 if ref_id.is_empty() {
                     errors.push(format!(
-                        "pipeline '{}' contains a sub-pipeline reference with an empty id",
-                        pipeline_id
+                        "workflow '{}' contains a sub-workflow reference with an empty workflow_ref",
+                        workflow_ref
                     ));
                     continue;
                 }
                 if !config
-                    .pipelines
+                    .workflows
                     .iter()
                     .any(|p| p.id.eq_ignore_ascii_case(ref_id))
                 {
                     errors.push(format!(
-                        "pipeline '{}' references unknown sub-pipeline '{}'",
-                        pipeline_id, ref_id
+                        "workflow '{}' references unknown sub-workflow '{}'",
+                        workflow_ref, ref_id
                     ));
                 }
                 continue;
@@ -1110,8 +1110,8 @@ pub fn validate_workflow_config(config: &WorkflowConfig) -> Result<()> {
             let phase_id = entry.phase_id().trim();
             if phase_id.is_empty() {
                 errors.push(format!(
-                    "pipeline '{}' contains an empty phase id",
-                    pipeline_id
+                    "workflow '{}' contains an empty phase id",
+                    workflow_ref
                 ));
                 continue;
             }
@@ -1122,34 +1122,34 @@ pub fn validate_workflow_config(config: &WorkflowConfig) -> Result<()> {
                 .all(|candidate| !candidate.eq_ignore_ascii_case(phase_id))
             {
                 errors.push(format!(
-                    "pipeline '{}' references unknown phase '{}'; add it to phase_catalog",
-                    pipeline_id, phase_id
+                    "workflow '{}' references unknown phase '{}'; add it to phase_catalog",
+                    workflow_ref, phase_id
                 ));
             }
         }
 
-        if let Some(post_success) = &pipeline.post_success {
+        if let Some(post_success) = &workflow.post_success {
             if let Some(merge) = &post_success.merge {
                 if merge.target_branch.trim().is_empty() {
                     errors.push(format!(
-                        "pipeline '{}' post_success.merge.target_branch must not be empty",
-                        pipeline_id
+                        "workflow '{}' post_success.merge.target_branch must not be empty",
+                        workflow_ref
                     ));
                 }
 
                 if !merge_strategy_is_valid(&merge.strategy) {
                     errors.push(format!(
-                        "pipeline '{}' post_success.merge.strategy is not supported",
-                        pipeline_id
+                        "workflow '{}' post_success.merge.strategy is not supported",
+                        workflow_ref
                     ));
                 }
             }
         }
 
-        match expand_pipeline_phases(&config.pipelines, pipeline_id) {
+        match expand_workflow_phases(&config.workflows, workflow_ref) {
             Ok(expanded) => {
                 if expanded.is_empty() {
-                    errors.push(format!("pipeline '{}' expands to zero phases", pipeline_id));
+                    errors.push(format!("workflow '{}' expands to zero phases", workflow_ref));
                 }
 
                 let expanded_phase_ids: Vec<String> = expanded
@@ -1163,8 +1163,8 @@ pub fn validate_workflow_config(config: &WorkflowConfig) -> Result<()> {
                     if let Some(max_rework_attempts) = entry.max_rework_attempts() {
                         if max_rework_attempts == 0 {
                             errors.push(format!(
-                                "pipeline '{}' phase '{}' max_rework_attempts must be greater than 0",
-                                pipeline_id, phase_id
+                                "workflow '{}' phase '{}' max_rework_attempts must be greater than 0",
+                                workflow_ref, phase_id
                             ));
                         }
                     }
@@ -1174,8 +1174,8 @@ pub fn validate_workflow_config(config: &WorkflowConfig) -> Result<()> {
                             let target = transition.target.trim();
                             if target.is_empty() {
                                 errors.push(format!(
-                                    "pipeline '{}' phase '{}' on_verdict '{}' has an empty target",
-                                    pipeline_id, phase_id, verdict_key
+                                    "workflow '{}' phase '{}' on_verdict '{}' has an empty target",
+                                    workflow_ref, phase_id, verdict_key
                                 ));
                                 continue;
                             }
@@ -1184,8 +1184,8 @@ pub fn validate_workflow_config(config: &WorkflowConfig) -> Result<()> {
                                 .any(|id| id.eq_ignore_ascii_case(target))
                             {
                                 errors.push(format!(
-                                    "pipeline '{}' phase '{}' on_verdict '{}' targets unknown phase '{}'",
-                                    pipeline_id, phase_id, verdict_key, target
+                                    "workflow '{}' phase '{}' on_verdict '{}' targets unknown phase '{}'",
+                                    workflow_ref, phase_id, verdict_key, target
                                 ));
                             }
                         }
@@ -1194,21 +1194,21 @@ pub fn validate_workflow_config(config: &WorkflowConfig) -> Result<()> {
             }
             Err(e) => {
                 errors.push(format!(
-                    "pipeline '{}' sub-pipeline expansion failed: {}",
-                    pipeline_id, e
+                    "workflow '{}' sub-workflow expansion failed: {}",
+                    workflow_ref, e
                 ));
             }
         }
     }
 
-    if config.pipelines.iter().all(|pipeline| {
-        !pipeline
+    if config.workflows.iter().all(|workflow| {
+        !workflow
             .id
-            .eq_ignore_ascii_case(config.default_pipeline_id.as_str())
+            .eq_ignore_ascii_case(config.default_workflow_ref.as_str())
     }) {
         errors.push(format!(
-            "default_pipeline_id '{}' must reference an existing pipeline",
-            config.default_pipeline_id
+            "default_workflow_ref '{}' must reference an existing workflow",
+            config.default_workflow_ref
         ));
     }
 
@@ -1416,35 +1416,35 @@ pub fn validate_workflow_config(config: &WorkflowConfig) -> Result<()> {
                 schedule_id
             ));
         }
-        match (schedule.pipeline.as_deref(), schedule.command.as_deref()) {
+        match (schedule.workflow_ref.as_deref(), schedule.command.as_deref()) {
             (Some(_), Some(_)) => {
                 errors.push(format!(
-                    "schedules['{}'] must define only one of pipeline or command",
+                    "schedules['{}'] must define only one of workflow_ref or command",
                     schedule_id
                 ));
             }
             (None, None) => {
                 errors.push(format!(
-                    "schedules['{}'] must define a pipeline or command",
+                    "schedules['{}'] must define a workflow_ref or command",
                     schedule_id
                 ));
             }
             _ => {}
         }
-        if let Some(pipeline) = schedule.pipeline.as_deref() {
-            if pipeline.trim().is_empty() {
+        if let Some(workflow_ref) = schedule.workflow_ref.as_deref() {
+            if workflow_ref.trim().is_empty() {
                 errors.push(format!(
-                    "schedules['{}'].pipeline must not be empty",
+                    "schedules['{}'].workflow_ref must not be empty",
                     schedule_id
                 ));
             } else if !config
-                .pipelines
+                .workflows
                 .iter()
-                .any(|p| p.id.eq_ignore_ascii_case(pipeline))
+                .any(|workflow| workflow.id.eq_ignore_ascii_case(workflow_ref))
             {
                 errors.push(format!(
-                    "schedules['{}'].pipeline '{}' does not exist",
-                    schedule_id, pipeline
+                    "schedules['{}'].workflow_ref '{}' does not exist",
+                    schedule_id, workflow_ref
                 ));
             }
         }
@@ -1516,20 +1516,20 @@ struct YamlPhaseRichConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct YamlSubPipelineRef {
-    pipeline: String,
+struct YamlSubWorkflowRef {
+    workflow_ref: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 enum YamlPhaseEntry {
-    SubPipeline(YamlSubPipelineRef),
+    SubWorkflow(YamlSubWorkflowRef),
     Simple(String),
     Rich(HashMap<String, YamlPhaseRichConfig>),
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct YamlPipelineDefinition {
+struct YamlWorkflowDefinition {
     id: String,
     #[serde(default)]
     name: Option<String>,
@@ -1540,7 +1540,7 @@ struct YamlPipelineDefinition {
     #[serde(default)]
     post_success: Option<YamlPostSuccessConfig>,
     #[serde(default)]
-    variables: Vec<PipelineVariable>,
+    variables: Vec<WorkflowVariable>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1741,11 +1741,11 @@ fn title_case_phase_id(phase_id: &str) -> String {
 #[derive(Debug, Clone, Deserialize)]
 struct YamlWorkflowFile {
     #[serde(default)]
-    default_pipeline_id: Option<String>,
+    default_workflow_ref: Option<String>,
     #[serde(default)]
     phase_catalog: Option<BTreeMap<String, PhaseUiDefinition>>,
     #[serde(default)]
-    pipelines: Vec<YamlPipelineDefinition>,
+    workflows: Vec<YamlWorkflowDefinition>,
     #[serde(default)]
     phases: BTreeMap<String, YamlPhaseDefinition>,
     #[serde(default)]
@@ -1764,11 +1764,11 @@ struct YamlWorkflowFile {
     daemon: Option<DaemonConfig>,
 }
 
-fn yaml_phase_entry_to_pipeline_phase_entry(entry: YamlPhaseEntry) -> Result<PipelinePhaseEntry> {
+fn yaml_phase_entry_to_workflow_phase_entry(entry: YamlPhaseEntry) -> Result<WorkflowPhaseEntry> {
     match entry {
-        YamlPhaseEntry::Simple(id) => Ok(PipelinePhaseEntry::Simple(id)),
-        YamlPhaseEntry::SubPipeline(sub) => Ok(PipelinePhaseEntry::SubPipeline(SubPipelineRef {
-            pipeline: sub.pipeline,
+        YamlPhaseEntry::Simple(id) => Ok(WorkflowPhaseEntry::Simple(id)),
+        YamlPhaseEntry::SubWorkflow(sub) => Ok(WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+            workflow_ref: sub.workflow_ref,
         })),
         YamlPhaseEntry::Rich(map) => {
             if map.len() != 1 {
@@ -1778,7 +1778,7 @@ fn yaml_phase_entry_to_pipeline_phase_entry(entry: YamlPhaseEntry) -> Result<Pip
                 ));
             }
             let (id, config) = map.into_iter().next().unwrap();
-            Ok(PipelinePhaseEntry::Rich(PipelinePhaseConfig {
+            Ok(WorkflowPhaseEntry::Rich(WorkflowPhaseConfig {
                 id,
                 max_rework_attempts: config.max_rework_attempts,
                 on_verdict: config.on_verdict,
@@ -1788,9 +1788,9 @@ fn yaml_phase_entry_to_pipeline_phase_entry(entry: YamlPhaseEntry) -> Result<Pip
     }
 }
 
-fn yaml_pipeline_to_pipeline_definition(
-    yaml: YamlPipelineDefinition,
-) -> Result<PipelineDefinition> {
+fn yaml_workflow_to_workflow_definition(
+    yaml: YamlWorkflowDefinition,
+) -> Result<WorkflowDefinition> {
     let post_success = match yaml.post_success {
         Some(post_success) => Some(yaml_post_success_to_post_success_config(post_success)?),
         None => None,
@@ -1799,9 +1799,9 @@ fn yaml_pipeline_to_pipeline_definition(
     let phases = yaml
         .phases
         .into_iter()
-        .map(yaml_phase_entry_to_pipeline_phase_entry)
+        .map(yaml_phase_entry_to_workflow_phase_entry)
         .collect::<Result<Vec<_>>>()?;
-    Ok(PipelineDefinition {
+    Ok(WorkflowDefinition {
         id: yaml.id.clone(),
         name: yaml.name.unwrap_or_else(|| yaml.id.clone()),
         description: yaml.description.unwrap_or_default(),
@@ -1840,10 +1840,10 @@ pub fn parse_yaml_workflow_config(yaml_str: &str) -> Result<WorkflowConfig> {
     let yaml_file: YamlWorkflowFile =
         serde_yaml::from_str(yaml_str).context("failed to parse YAML workflow config")?;
 
-    let pipelines = yaml_file
-        .pipelines
+    let workflows = yaml_file
+        .workflows
         .into_iter()
-        .map(yaml_pipeline_to_pipeline_definition)
+        .map(yaml_workflow_to_workflow_definition)
         .collect::<Result<Vec<_>>>()?;
 
     let mut phase_definitions = BTreeMap::new();
@@ -1874,9 +1874,9 @@ pub fn parse_yaml_workflow_config(yaml_str: &str) -> Result<WorkflowConfig> {
 
     let base = builtin_workflow_config();
 
-    let default_pipeline_id = yaml_file
-        .default_pipeline_id
-        .unwrap_or(base.default_pipeline_id);
+    let default_workflow_ref = yaml_file
+        .default_workflow_ref
+        .unwrap_or(base.default_workflow_ref);
     let mut phase_catalog = yaml_file.phase_catalog.unwrap_or(base.phase_catalog);
     for (id, ui_def) in auto_phase_catalog {
         phase_catalog.entry(id).or_insert(ui_def);
@@ -1885,12 +1885,12 @@ pub fn parse_yaml_workflow_config(yaml_str: &str) -> Result<WorkflowConfig> {
     Ok(WorkflowConfig {
         schema: WORKFLOW_CONFIG_SCHEMA_ID.to_string(),
         version: WORKFLOW_CONFIG_VERSION,
-        default_pipeline_id,
+        default_workflow_ref,
         phase_catalog,
-        pipelines: if pipelines.is_empty() {
-            base.pipelines
+        workflows: if workflows.is_empty() {
+            base.workflows
         } else {
-            pipelines
+            workflows
         },
         checkpoint_retention: WorkflowCheckpointRetentionConfig::default(),
         phase_definitions,
@@ -1960,16 +1960,16 @@ pub fn compile_yaml_workflow_files(project_root: &Path) -> Result<Option<Workflo
 }
 
 pub fn merge_yaml_into_config(base: WorkflowConfig, yaml: WorkflowConfig) -> WorkflowConfig {
-    let mut pipelines = base.pipelines;
+    let mut workflows = base.workflows;
 
-    for yaml_pipeline in yaml.pipelines {
-        if let Some(pos) = pipelines
+    for yaml_pipeline in yaml.workflows {
+        if let Some(pos) = workflows
             .iter()
             .position(|p| p.id.eq_ignore_ascii_case(&yaml_pipeline.id))
         {
-            pipelines[pos] = yaml_pipeline;
+            workflows[pos] = yaml_pipeline;
         } else {
-            pipelines.push(yaml_pipeline);
+            workflows.push(yaml_pipeline);
         }
     }
 
@@ -2033,20 +2033,20 @@ pub fn merge_yaml_into_config(base: WorkflowConfig, yaml: WorkflowConfig) -> Wor
         (None, Some(overlay)) => Some(overlay),
     };
 
-    let default_pipeline_id = if yaml.default_pipeline_id != base.default_pipeline_id
-        && !yaml.default_pipeline_id.is_empty()
+    let default_workflow_ref = if yaml.default_workflow_ref != base.default_workflow_ref
+        && !yaml.default_workflow_ref.is_empty()
     {
-        yaml.default_pipeline_id
+        yaml.default_workflow_ref
     } else {
-        base.default_pipeline_id
+        base.default_workflow_ref
     };
 
     WorkflowConfig {
         schema: WORKFLOW_CONFIG_SCHEMA_ID.to_string(),
         version: WORKFLOW_CONFIG_VERSION,
-        default_pipeline_id,
+        default_workflow_ref,
         phase_catalog,
-        pipelines,
+        workflows,
         checkpoint_retention: base.checkpoint_retention,
         phase_definitions,
         agent_profiles,
@@ -2150,10 +2150,10 @@ mod tests {
     fn validation_rejects_on_verdict_targeting_nonexistent_phase() {
         let mut config = builtin_workflow_config();
         let standard_pipeline = config
-            .pipelines
+            .workflows
             .iter_mut()
             .find(|p| p.id == "standard")
-            .expect("standard pipeline");
+            .expect("standard workflow");
 
         let mut on_verdict = HashMap::new();
         on_verdict.insert(
@@ -2163,7 +2163,7 @@ mod tests {
                 guard: None,
             },
         );
-        standard_pipeline.phases[0] = PipelinePhaseEntry::Rich(PipelinePhaseConfig {
+        standard_pipeline.phases[0] = WorkflowPhaseEntry::Rich(WorkflowPhaseConfig {
             id: "requirements".to_string(),
             max_rework_attempts: 3,
             on_verdict,
@@ -2184,12 +2184,12 @@ mod tests {
     fn validation_rejects_zero_max_rework_attempts() {
         let mut config = builtin_workflow_config();
         let standard_pipeline = config
-            .pipelines
+            .workflows
             .iter_mut()
             .find(|p| p.id == "standard")
-            .expect("standard pipeline");
+            .expect("standard workflow");
 
-        standard_pipeline.phases[1] = PipelinePhaseEntry::Rich(PipelinePhaseConfig {
+        standard_pipeline.phases[1] = WorkflowPhaseEntry::Rich(WorkflowPhaseConfig {
             id: "implementation".to_string(),
             max_rework_attempts: 0,
             on_verdict: HashMap::new(),
@@ -2210,8 +2210,8 @@ mod tests {
         let config = builtin_workflow_config();
         let json = serde_json::to_string(&config).expect("serialize");
         let deserialized: WorkflowConfig = serde_json::from_str(&json).expect("deserialize");
-        assert_eq!(deserialized.pipelines.len(), config.pipelines.len());
-        for (orig, deser) in config.pipelines.iter().zip(deserialized.pipelines.iter()) {
+        assert_eq!(deserialized.workflows.len(), config.workflows.len());
+        for (orig, deser) in config.workflows.iter().zip(deserialized.workflows.iter()) {
             let orig_ids: Vec<&str> = orig.phases.iter().map(|e| e.phase_id()).collect();
             let deser_ids: Vec<&str> = deser.phases.iter().map(|e| e.phase_id()).collect();
             assert_eq!(orig_ids, deser_ids);
@@ -2226,7 +2226,7 @@ mod tests {
                 "rework": { "target": "implementation" }
             }
         }"#;
-        let entry: PipelinePhaseEntry = serde_json::from_str(json).expect("deserialize rich entry");
+        let entry: WorkflowPhaseEntry = serde_json::from_str(json).expect("deserialize rich entry");
         assert_eq!(entry.phase_id(), "code-review");
         assert_eq!(entry.max_rework_attempts().unwrap_or_default(), 3);
         let verdicts = entry.on_verdict().expect("should have on_verdict");
@@ -2243,7 +2243,7 @@ mod tests {
                 "rework": { "target": "implementation" }
             }
         }"#;
-        let entry: PipelinePhaseEntry = serde_json::from_str(json).expect("deserialize rich entry");
+        let entry: WorkflowPhaseEntry = serde_json::from_str(json).expect("deserialize rich entry");
         assert_eq!(entry.phase_id(), "testing");
         assert_eq!(entry.max_rework_attempts().unwrap_or_default(), 1);
         let verdicts = entry.on_verdict().expect("should have on_verdict");
@@ -2251,16 +2251,16 @@ mod tests {
     }
 
     #[test]
-    fn resolve_pipeline_rework_attempts_uses_defaults() {
+    fn resolve_workflow_rework_attempts_uses_defaults() {
         let config = builtin_workflow_config();
-        let attempts = resolve_pipeline_rework_attempts(&config, Some("standard"));
+        let attempts = resolve_workflow_rework_attempts(&config, Some("standard"));
         assert!(attempts.is_empty());
     }
 
     #[test]
     fn serde_deserializes_simple_string_phase() {
         let json = r#""requirements""#;
-        let entry: PipelinePhaseEntry =
+        let entry: WorkflowPhaseEntry =
             serde_json::from_str(json).expect("deserialize simple string");
         assert_eq!(entry.phase_id(), "requirements");
         assert!(entry.on_verdict().is_none());
@@ -2269,7 +2269,7 @@ mod tests {
     #[test]
     fn serde_deserializes_mixed_pipeline_phases() {
         let json = r#"{
-            "id": "test-pipeline",
+            "id": "test-workflow",
             "name": "Test",
             "description": "",
             "phases": [
@@ -2278,23 +2278,23 @@ mod tests {
                 "testing"
             ]
         }"#;
-        let pipeline: PipelineDefinition = serde_json::from_str(json).expect("deserialize");
-        assert_eq!(pipeline.phases.len(), 3);
-        assert_eq!(pipeline.phases[0].phase_id(), "requirements");
-        assert!(pipeline.phases[0].on_verdict().is_none());
-        assert_eq!(pipeline.phases[1].phase_id(), "implementation");
-        let verdicts = pipeline.phases[1]
+        let workflow: WorkflowDefinition = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(workflow.phases.len(), 3);
+        assert_eq!(workflow.phases[0].phase_id(), "requirements");
+        assert!(workflow.phases[0].on_verdict().is_none());
+        assert_eq!(workflow.phases[1].phase_id(), "implementation");
+        let verdicts = workflow.phases[1]
             .on_verdict()
             .expect("should have verdicts");
         assert_eq!(verdicts["rework"].target, "requirements");
-        assert_eq!(pipeline.phases[2].phase_id(), "testing");
-        assert!(pipeline.phases[2].on_verdict().is_none());
+        assert_eq!(workflow.phases[2].phase_id(), "testing");
+        assert!(workflow.phases[2].on_verdict().is_none());
     }
 
     #[test]
     fn pipeline_phase_entry_deserializes_from_string() {
         let json = r#""requirements""#;
-        let entry: PipelinePhaseEntry = serde_json::from_str(json).expect("parse string entry");
+        let entry: WorkflowPhaseEntry = serde_json::from_str(json).expect("parse string entry");
         assert_eq!(entry.phase_id(), "requirements");
         assert!(entry.skip_if().is_empty());
     }
@@ -2302,7 +2302,7 @@ mod tests {
     #[test]
     fn pipeline_phase_entry_deserializes_from_object_with_skip_if() {
         let json = r#"{"id": "testing", "skip_if": ["task_type == 'docs'"]}"#;
-        let entry: PipelinePhaseEntry = serde_json::from_str(json).expect("parse config entry");
+        let entry: WorkflowPhaseEntry = serde_json::from_str(json).expect("parse config entry");
         assert_eq!(entry.phase_id(), "testing");
         assert_eq!(entry.skip_if(), &["task_type == 'docs'"]);
     }
@@ -2310,7 +2310,7 @@ mod tests {
     #[test]
     fn pipeline_phase_entry_deserializes_from_object_without_skip_if() {
         let json = r#"{"id": "implementation"}"#;
-        let entry: PipelinePhaseEntry = serde_json::from_str(json).expect("parse config entry");
+        let entry: WorkflowPhaseEntry = serde_json::from_str(json).expect("parse config entry");
         assert_eq!(entry.phase_id(), "implementation");
         assert!(entry.skip_if().is_empty());
     }
@@ -2318,7 +2318,7 @@ mod tests {
     #[test]
     fn pipeline_definition_deserializes_mixed_phase_entries() {
         let json = r#"{
-            "id": "test-pipeline",
+            "id": "test-workflow",
             "name": "Test",
             "phases": [
                 "requirements",
@@ -2326,27 +2326,27 @@ mod tests {
                 "implementation"
             ]
         }"#;
-        let pipeline: PipelineDefinition =
-            serde_json::from_str(json).expect("parse mixed pipeline");
-        assert_eq!(pipeline.phases.len(), 3);
-        assert_eq!(pipeline.phases[0].phase_id(), "requirements");
-        assert!(pipeline.phases[0].skip_if().is_empty());
-        assert_eq!(pipeline.phases[1].phase_id(), "testing");
-        assert_eq!(pipeline.phases[1].skip_if(), &["task_type == 'docs'"]);
-        assert_eq!(pipeline.phases[2].phase_id(), "implementation");
+        let workflow: WorkflowDefinition =
+            serde_json::from_str(json).expect("parse mixed workflow");
+        assert_eq!(workflow.phases.len(), 3);
+        assert_eq!(workflow.phases[0].phase_id(), "requirements");
+        assert!(workflow.phases[0].skip_if().is_empty());
+        assert_eq!(workflow.phases[1].phase_id(), "testing");
+        assert_eq!(workflow.phases[1].skip_if(), &["task_type == 'docs'"]);
+        assert_eq!(workflow.phases[2].phase_id(), "implementation");
     }
 
     #[test]
-    fn resolve_pipeline_skip_guards_extracts_guards_from_config() {
+    fn resolve_workflow_skip_guards_extracts_guards_from_config() {
         let mut config = builtin_workflow_config();
         let standard_pipeline = config
-            .pipelines
+            .workflows
             .iter_mut()
             .find(|p| p.id == "standard")
-            .expect("standard pipeline");
+            .expect("standard workflow");
         standard_pipeline.phases = vec![
             "requirements".to_string().into(),
-            PipelinePhaseEntry::Rich(PipelinePhaseConfig {
+            WorkflowPhaseEntry::Rich(WorkflowPhaseConfig {
                 id: "testing".to_string(),
                 max_rework_attempts: 3,
                 on_verdict: HashMap::new(),
@@ -2355,7 +2355,7 @@ mod tests {
             "implementation".to_string().into(),
         ];
 
-        let guards = resolve_pipeline_skip_guards(&config, Some("standard"));
+        let guards = resolve_workflow_skip_guards(&config, Some("standard"));
         assert_eq!(guards.len(), 1);
         assert_eq!(
             guards.get("testing").unwrap(),
@@ -2366,7 +2366,7 @@ mod tests {
     #[test]
     fn yaml_parses_simple_pipeline() {
         let yaml = r#"
-pipelines:
+workflows:
   - id: standard
     name: Standard Pipeline
     description: Default development workflow
@@ -2378,10 +2378,10 @@ pipelines:
 "#;
         let config = parse_yaml_workflow_config(yaml).expect("should parse simple YAML");
         let standard = config
-            .pipelines
+            .workflows
             .iter()
             .find(|p| p.id == "standard")
-            .expect("should have standard pipeline");
+            .expect("should have standard workflow");
         assert_eq!(standard.name, "Standard Pipeline");
         assert_eq!(standard.phases.len(), 4);
         assert_eq!(standard.phases[0].phase_id(), "requirements");
@@ -2393,7 +2393,7 @@ pipelines:
     #[test]
     fn yaml_parses_rich_phase_with_skip_if() {
         let yaml = r#"
-pipelines:
+workflows:
   - id: standard
     name: Standard
     phases:
@@ -2406,10 +2406,10 @@ pipelines:
 "#;
         let config = parse_yaml_workflow_config(yaml).expect("should parse YAML with skip_if");
         let standard = config
-            .pipelines
+            .workflows
             .iter()
             .find(|p| p.id == "standard")
-            .expect("should have standard pipeline");
+            .expect("should have standard workflow");
         assert_eq!(standard.phases.len(), 4);
         assert_eq!(standard.phases[2].phase_id(), "testing");
         assert_eq!(standard.phases[2].skip_if(), &["task_type == 'docs'"]);
@@ -2418,7 +2418,7 @@ pipelines:
     #[test]
     fn yaml_parses_rich_phase_with_on_verdict() {
         let yaml = r#"
-pipelines:
+workflows:
   - id: standard
     name: Standard
     phases:
@@ -2432,10 +2432,10 @@ pipelines:
 "#;
         let config = parse_yaml_workflow_config(yaml).expect("should parse YAML with on_verdict");
         let standard = config
-            .pipelines
+            .workflows
             .iter()
             .find(|p| p.id == "standard")
-            .expect("should have standard pipeline");
+            .expect("should have standard workflow");
         assert_eq!(standard.phases[2].phase_id(), "code-review");
         let verdicts = standard.phases[2]
             .on_verdict()
@@ -2452,7 +2452,7 @@ pipelines:
     #[test]
     fn yaml_parses_rich_phase_with_custom_max_rework_attempts() {
         let yaml = r#"
-pipelines:
+workflows:
   - id: standard
     name: Standard
     phases:
@@ -2467,10 +2467,10 @@ pipelines:
         let config = parse_yaml_workflow_config(yaml)
             .expect("should parse YAML with custom max_rework_attempts");
         let standard = config
-            .pipelines
+            .workflows
             .iter()
             .find(|p| p.id == "standard")
-            .expect("should have standard pipeline");
+            .expect("should have standard workflow");
         assert_eq!(
             standard.phases[1]
                 .max_rework_attempts()
@@ -2482,7 +2482,7 @@ pipelines:
     #[test]
     fn yaml_parses_mixed_simple_and_rich_phases() {
         let yaml = r#"
-pipelines:
+workflows:
   - id: standard
     name: Standard
     phases:
@@ -2498,10 +2498,10 @@ pipelines:
 "#;
         let config = parse_yaml_workflow_config(yaml).expect("should parse mixed phases");
         let standard = config
-            .pipelines
+            .workflows
             .iter()
             .find(|p| p.id == "standard")
-            .expect("should have standard pipeline");
+            .expect("should have standard workflow");
         assert_eq!(standard.phases.len(), 4);
         assert_eq!(standard.phases[0].phase_id(), "requirements");
         assert!(standard.phases[0].on_verdict().is_none());
@@ -2518,7 +2518,7 @@ pipelines:
     #[test]
     fn yaml_parses_post_success_merge_block() {
         let yaml = r#"
-pipelines:
+workflows:
   - id: standard
     name: Standard
     phases:
@@ -2535,10 +2535,10 @@ pipelines:
 "#;
         let config = parse_yaml_workflow_config(yaml).expect("should parse YAML with post_success");
         let standard = config
-            .pipelines
+            .workflows
             .iter()
             .find(|p| p.id == "standard")
-            .expect("pipeline");
+            .expect("workflow_ref");
         let post_success = standard
             .post_success
             .as_ref()
@@ -2557,7 +2557,7 @@ pipelines:
     #[test]
     fn yaml_parses_invalid_merge_strategy() {
         let yaml = r#"
-pipelines:
+workflows:
   - id: standard
     name: Standard
     phases:
@@ -2583,7 +2583,7 @@ pipelines:
     fn yaml_merge_replaces_pipeline_by_id() {
         let base = builtin_workflow_config();
         let yaml = r#"
-pipelines:
+workflows:
   - id: standard
     name: Overridden Standard
     phases:
@@ -2594,24 +2594,24 @@ pipelines:
         let yaml_config = parse_yaml_workflow_config(yaml).expect("parse yaml");
         let merged = merge_yaml_into_config(base.clone(), yaml_config);
         let standard = merged
-            .pipelines
+            .workflows
             .iter()
             .find(|p| p.id == "standard")
-            .expect("standard pipeline");
+            .expect("standard workflow");
         assert_eq!(standard.name, "Overridden Standard");
         assert_eq!(standard.phases.len(), 3);
         assert!(
-            merged.pipelines.iter().any(|p| p.id == "ui-ux-standard"),
-            "non-overridden pipeline should be preserved"
+            merged.workflows.iter().any(|p| p.id == "ui-ux-standard"),
+            "non-overridden workflow should be preserved"
         );
     }
 
     #[test]
     fn yaml_merge_adds_new_pipeline() {
         let base = builtin_workflow_config();
-        let base_count = base.pipelines.len();
+        let base_count = base.workflows.len();
         let yaml = r#"
-pipelines:
+workflows:
   - id: quick-fix
     name: Quick Fix
     phases:
@@ -2620,8 +2620,8 @@ pipelines:
 "#;
         let yaml_config = parse_yaml_workflow_config(yaml).expect("parse yaml");
         let merged = merge_yaml_into_config(base, yaml_config);
-        assert_eq!(merged.pipelines.len(), base_count + 1);
-        assert!(merged.pipelines.iter().any(|p| p.id == "quick-fix"));
+        assert_eq!(merged.workflows.len(), base_count + 1);
+        assert!(merged.workflows.iter().any(|p| p.id == "quick-fix"));
     }
 
     #[test]
@@ -2633,7 +2633,7 @@ pipelines:
 
     #[test]
     fn yaml_invalid_syntax_returns_error() {
-        let yaml = "pipelines:\n  - id: [invalid";
+        let yaml = "workflows:\n  - id: [invalid";
         let result = parse_yaml_workflow_config(yaml);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
@@ -2647,19 +2647,19 @@ pipelines:
     #[test]
     fn yaml_pipeline_name_defaults_to_id() {
         let yaml = r#"
-pipelines:
+workflows:
   - id: quick-fix
     phases:
       - implementation
       - testing
 "#;
         let config = parse_yaml_workflow_config(yaml).expect("parse");
-        let pipeline = config
-            .pipelines
+        let workflow = config
+            .workflows
             .iter()
             .find(|p| p.id == "quick-fix")
-            .expect("pipeline");
-        assert_eq!(pipeline.name, "quick-fix");
+            .expect("workflow_ref");
+        assert_eq!(workflow.name, "quick-fix");
     }
 
     #[test]
@@ -2677,9 +2677,9 @@ pipelines:
         let workflows_dir = temp.path().join(".ao").join("workflows");
         fs::create_dir_all(&workflows_dir).expect("create workflows dir");
         fs::write(
-            workflows_dir.join("pipelines.yaml"),
+            workflows_dir.join("workflows.yaml"),
             r#"
-pipelines:
+workflows:
   - id: standard
     name: YAML Standard
     phases:
@@ -2694,10 +2694,10 @@ pipelines:
         let result = compile_yaml_workflow_files(temp.path()).expect("compile should succeed");
         let config = result.expect("should have config");
         let standard = config
-            .pipelines
+            .workflows
             .iter()
             .find(|p| p.id == "standard")
-            .expect("standard pipeline");
+            .expect("standard workflow");
         assert_eq!(standard.name, "YAML Standard");
     }
 
@@ -2709,7 +2709,7 @@ pipelines:
         fs::write(
             ao_dir.join("workflows.yaml"),
             r#"
-pipelines:
+workflows:
   - id: standard
     name: Single File Standard
     phases:
@@ -2724,10 +2724,10 @@ pipelines:
         let result = compile_yaml_workflow_files(temp.path()).expect("compile should succeed");
         let config = result.expect("should have config");
         let standard = config
-            .pipelines
+            .workflows
             .iter()
             .find(|p| p.id == "standard")
-            .expect("standard pipeline");
+            .expect("standard workflow");
         assert_eq!(standard.name, "Single File Standard");
     }
 
@@ -2746,9 +2746,9 @@ pipelines:
         let workflows_dir = temp.path().join(".ao").join("workflows");
         fs::create_dir_all(&workflows_dir).expect("create workflows dir");
         fs::write(
-            workflows_dir.join("pipelines.yaml"),
+            workflows_dir.join("workflows.yaml"),
             r#"
-pipelines:
+workflows:
   - id: standard
     name: Compiled Standard
     phases:
@@ -2767,15 +2767,15 @@ pipelines:
 
         let reloaded = load_workflow_config(temp.path()).expect("reload config");
         let standard = reloaded
-            .pipelines
+            .workflows
             .iter()
             .find(|p| p.id == "standard")
-            .expect("standard pipeline");
+            .expect("standard workflow");
         assert_eq!(standard.name, "Compiled Standard");
     }
 
-    fn make_pipeline(id: &str, phases: Vec<PipelinePhaseEntry>) -> PipelineDefinition {
-        PipelineDefinition {
+    fn make_pipeline(id: &str, phases: Vec<WorkflowPhaseEntry>) -> WorkflowDefinition {
+        WorkflowDefinition {
             id: id.to_string(),
             name: id.to_string(),
             description: String::new(),
@@ -2787,28 +2787,28 @@ pipelines:
 
     #[test]
     fn expand_basic_sub_pipeline() {
-        let pipelines = vec![
+        let workflows = vec![
             make_pipeline(
                 "review-cycle",
                 vec![
-                    PipelinePhaseEntry::Simple("code-review".into()),
-                    PipelinePhaseEntry::Simple("testing".into()),
+                    WorkflowPhaseEntry::Simple("code-review".into()),
+                    WorkflowPhaseEntry::Simple("testing".into()),
                 ],
             ),
             make_pipeline(
                 "standard",
                 vec![
-                    PipelinePhaseEntry::Simple("requirements".into()),
-                    PipelinePhaseEntry::Simple("implementation".into()),
-                    PipelinePhaseEntry::SubPipeline(SubPipelineRef {
-                        pipeline: "review-cycle".into(),
+                    WorkflowPhaseEntry::Simple("requirements".into()),
+                    WorkflowPhaseEntry::Simple("implementation".into()),
+                    WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+                        workflow_ref: "review-cycle".into(),
                     }),
-                    PipelinePhaseEntry::Simple("merge".into()),
+                    WorkflowPhaseEntry::Simple("merge".into()),
                 ],
             ),
         ];
 
-        let expanded = expand_pipeline_phases(&pipelines, "standard").expect("should expand");
+        let expanded = expand_workflow_phases(&workflows, "standard").expect("should expand");
         let ids: Vec<&str> = expanded.iter().map(|e| e.phase_id()).collect();
         assert_eq!(
             ids,
@@ -2824,56 +2824,56 @@ pipelines:
 
     #[test]
     fn expand_nested_sub_pipelines() {
-        let pipelines = vec![
+        let workflows = vec![
             make_pipeline(
                 "lint",
-                vec![PipelinePhaseEntry::Simple("code-review".into())],
+                vec![WorkflowPhaseEntry::Simple("code-review".into())],
             ),
             make_pipeline(
                 "review-cycle",
                 vec![
-                    PipelinePhaseEntry::SubPipeline(SubPipelineRef {
-                        pipeline: "lint".into(),
+                    WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+                        workflow_ref: "lint".into(),
                     }),
-                    PipelinePhaseEntry::Simple("testing".into()),
+                    WorkflowPhaseEntry::Simple("testing".into()),
                 ],
             ),
             make_pipeline(
                 "standard",
                 vec![
-                    PipelinePhaseEntry::Simple("requirements".into()),
-                    PipelinePhaseEntry::SubPipeline(SubPipelineRef {
-                        pipeline: "review-cycle".into(),
+                    WorkflowPhaseEntry::Simple("requirements".into()),
+                    WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+                        workflow_ref: "review-cycle".into(),
                     }),
                 ],
             ),
         ];
 
-        let expanded = expand_pipeline_phases(&pipelines, "standard").expect("should expand");
+        let expanded = expand_workflow_phases(&workflows, "standard").expect("should expand");
         let ids: Vec<&str> = expanded.iter().map(|e| e.phase_id()).collect();
         assert_eq!(ids, vec!["requirements", "code-review", "testing"]);
     }
 
     #[test]
     fn expand_detects_circular_reference() {
-        let pipelines = vec![
+        let workflows = vec![
             make_pipeline(
                 "a",
-                vec![PipelinePhaseEntry::SubPipeline(SubPipelineRef {
-                    pipeline: "b".into(),
+                vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+                    workflow_ref: "b".into(),
                 })],
             ),
             make_pipeline(
                 "b",
-                vec![PipelinePhaseEntry::SubPipeline(SubPipelineRef {
-                    pipeline: "a".into(),
+                vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+                    workflow_ref: "a".into(),
                 })],
             ),
         ];
 
-        let err = expand_pipeline_phases(&pipelines, "a").expect_err("should detect cycle");
+        let err = expand_workflow_phases(&workflows, "a").expect_err("should detect cycle");
         assert!(
-            err.to_string().contains("circular sub-pipeline reference"),
+            err.to_string().contains("circular sub-workflow reference"),
             "error should mention circular reference: {}",
             err
         );
@@ -2881,17 +2881,17 @@ pipelines:
 
     #[test]
     fn expand_detects_self_reference() {
-        let pipelines = vec![make_pipeline(
+        let workflows = vec![make_pipeline(
             "self-ref",
-            vec![PipelinePhaseEntry::SubPipeline(SubPipelineRef {
-                pipeline: "self-ref".into(),
+            vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+                workflow_ref: "self-ref".into(),
             })],
         )];
 
         let err =
-            expand_pipeline_phases(&pipelines, "self-ref").expect_err("should detect self-ref");
+            expand_workflow_phases(&workflows, "self-ref").expect_err("should detect self-ref");
         assert!(
-            err.to_string().contains("circular sub-pipeline reference"),
+            err.to_string().contains("circular sub-workflow reference"),
             "error should mention circular reference: {}",
             err
         );
@@ -2899,19 +2899,19 @@ pipelines:
 
     #[test]
     fn expand_errors_on_missing_pipeline_reference() {
-        let pipelines = vec![make_pipeline(
+        let workflows = vec![make_pipeline(
             "standard",
-            vec![PipelinePhaseEntry::SubPipeline(SubPipelineRef {
-                pipeline: "nonexistent".into(),
+            vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+                workflow_ref: "nonexistent".into(),
             })],
         )];
 
-        let err = expand_pipeline_phases(&pipelines, "standard")
+        let err = expand_workflow_phases(&workflows, "standard")
             .expect_err("should error on missing ref");
         assert!(
             err.to_string()
-                .contains("sub-pipeline 'nonexistent' not found"),
-            "error should mention missing pipeline: {}",
+                .contains("sub-workflow 'nonexistent' not found"),
+            "error should mention missing workflow_ref: {}",
             err
         );
     }
@@ -2927,10 +2927,10 @@ pipelines:
             },
         );
 
-        let pipelines = vec![
+        let workflows = vec![
             make_pipeline(
                 "review",
-                vec![PipelinePhaseEntry::Rich(PipelinePhaseConfig {
+                vec![WorkflowPhaseEntry::Rich(WorkflowPhaseConfig {
                     id: "code-review".into(),
                     max_rework_attempts: 3,
                     on_verdict: on_verdict.clone(),
@@ -2940,15 +2940,15 @@ pipelines:
             make_pipeline(
                 "standard",
                 vec![
-                    PipelinePhaseEntry::Simple("implementation".into()),
-                    PipelinePhaseEntry::SubPipeline(SubPipelineRef {
-                        pipeline: "review".into(),
+                    WorkflowPhaseEntry::Simple("implementation".into()),
+                    WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+                        workflow_ref: "review".into(),
                     }),
                 ],
             ),
         ];
 
-        let expanded = expand_pipeline_phases(&pipelines, "standard").expect("should expand");
+        let expanded = expand_workflow_phases(&workflows, "standard").expect("should expand");
         assert_eq!(expanded.len(), 2);
         assert_eq!(expanded[1].phase_id(), "code-review");
         let verdicts = expanded[1].on_verdict().expect("should have on_verdict");
@@ -2958,21 +2958,21 @@ pipelines:
 
     #[test]
     fn serde_deserializes_sub_pipeline_ref() {
-        let json = r#"{"pipeline": "review-cycle"}"#;
-        let entry: PipelinePhaseEntry =
-            serde_json::from_str(json).expect("deserialize sub-pipeline");
-        assert!(entry.is_sub_pipeline());
+        let json = r#"{"workflow_ref": "review-cycle"}"#;
+        let entry: WorkflowPhaseEntry =
+            serde_json::from_str(json).expect("deserialize sub-workflow");
+        assert!(entry.is_sub_workflow());
         assert_eq!(entry.phase_id(), "review-cycle");
     }
 
     #[test]
     fn serde_round_trips_sub_pipeline_entry() {
-        let entry = PipelinePhaseEntry::SubPipeline(SubPipelineRef {
-            pipeline: "review-cycle".into(),
+        let entry = WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+            workflow_ref: "review-cycle".into(),
         });
         let json = serde_json::to_string(&entry).expect("serialize");
-        let deserialized: PipelinePhaseEntry = serde_json::from_str(&json).expect("deserialize");
-        assert!(deserialized.is_sub_pipeline());
+        let deserialized: WorkflowPhaseEntry = serde_json::from_str(&json).expect("deserialize");
+        assert!(deserialized.is_sub_workflow());
         assert_eq!(deserialized.phase_id(), "review-cycle");
     }
 
@@ -2984,25 +2984,25 @@ pipelines:
             "description": "",
             "phases": [
                 "requirements",
-                {"pipeline": "review-cycle"},
+                {"workflow_ref": "review-cycle"},
                 {"id": "testing", "skip_if": ["task_type == 'docs'"]},
                 "merge"
             ]
         }"#;
-        let pipeline: PipelineDefinition = serde_json::from_str(json).expect("deserialize");
-        assert_eq!(pipeline.phases.len(), 4);
-        assert!(!pipeline.phases[0].is_sub_pipeline());
-        assert!(pipeline.phases[1].is_sub_pipeline());
-        assert_eq!(pipeline.phases[1].phase_id(), "review-cycle");
-        assert!(!pipeline.phases[2].is_sub_pipeline());
-        assert_eq!(pipeline.phases[2].phase_id(), "testing");
-        assert!(!pipeline.phases[3].is_sub_pipeline());
+        let workflow: WorkflowDefinition = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(workflow.phases.len(), 4);
+        assert!(!workflow.phases[0].is_sub_workflow());
+        assert!(workflow.phases[1].is_sub_workflow());
+        assert_eq!(workflow.phases[1].phase_id(), "review-cycle");
+        assert!(!workflow.phases[2].is_sub_workflow());
+        assert_eq!(workflow.phases[2].phase_id(), "testing");
+        assert!(!workflow.phases[3].is_sub_workflow());
     }
 
     #[test]
     fn yaml_parses_sub_pipeline_ref() {
         let yaml = r#"
-pipelines:
+workflows:
   - id: review-cycle
     name: Review Cycle
     phases:
@@ -3013,50 +3013,50 @@ pipelines:
     phases:
       - requirements
       - implementation
-      - pipeline: review-cycle
+      - workflow_ref: review-cycle
       - merge
 "#;
-        let config = parse_yaml_workflow_config(yaml).expect("should parse YAML with sub-pipeline");
+        let config = parse_yaml_workflow_config(yaml).expect("should parse YAML with sub-workflow");
         let standard = config
-            .pipelines
+            .workflows
             .iter()
             .find(|p| p.id == "standard")
-            .expect("should have standard pipeline");
+            .expect("should have standard workflow");
         assert_eq!(standard.phases.len(), 4);
-        assert!(standard.phases[2].is_sub_pipeline());
+        assert!(standard.phases[2].is_sub_workflow());
         assert_eq!(standard.phases[2].phase_id(), "review-cycle");
     }
 
     #[test]
     fn resolve_phase_plan_expands_sub_pipelines() {
         let mut config = builtin_workflow_config();
-        config.pipelines.push(PipelineDefinition {
+        config.workflows.push(WorkflowDefinition {
             id: "review-cycle".into(),
             name: "Review Cycle".into(),
             description: String::new(),
             phases: vec![
-                PipelinePhaseEntry::Simple("code-review".into()),
-                PipelinePhaseEntry::Simple("testing".into()),
+                WorkflowPhaseEntry::Simple("code-review".into()),
+                WorkflowPhaseEntry::Simple("testing".into()),
             ],
             post_success: None,
             variables: Vec::new(),
         });
 
         let standard = config
-            .pipelines
+            .workflows
             .iter_mut()
             .find(|p| p.id == "standard")
-            .expect("standard pipeline");
+            .expect("standard workflow");
         standard.phases = vec![
-            PipelinePhaseEntry::Simple("requirements".into()),
-            PipelinePhaseEntry::Simple("implementation".into()),
-            PipelinePhaseEntry::SubPipeline(SubPipelineRef {
-                pipeline: "review-cycle".into(),
+            WorkflowPhaseEntry::Simple("requirements".into()),
+            WorkflowPhaseEntry::Simple("implementation".into()),
+            WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+                workflow_ref: "review-cycle".into(),
             }),
         ];
 
         let phases =
-            resolve_pipeline_phase_plan(&config, Some("standard")).expect("should resolve");
+            resolve_workflow_phase_plan(&config, Some("standard")).expect("should resolve");
         assert_eq!(
             phases,
             vec!["requirements", "implementation", "code-review", "testing"]
@@ -3067,23 +3067,23 @@ pipelines:
     fn validate_rejects_missing_sub_pipeline_reference() {
         let mut config = builtin_workflow_config();
         let standard = config
-            .pipelines
+            .workflows
             .iter_mut()
             .find(|p| p.id == "standard")
-            .expect("standard pipeline");
+            .expect("standard workflow");
         standard.phases = vec![
-            PipelinePhaseEntry::Simple("requirements".into()),
-            PipelinePhaseEntry::SubPipeline(SubPipelineRef {
-                pipeline: "nonexistent".into(),
+            WorkflowPhaseEntry::Simple("requirements".into()),
+            WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+                workflow_ref: "nonexistent".into(),
             }),
         ];
 
         let err =
-            validate_workflow_config(&config).expect_err("should reject missing sub-pipeline ref");
+            validate_workflow_config(&config).expect_err("should reject missing sub-workflow ref");
         let message = err.to_string();
         assert!(
-            message.contains("references unknown sub-pipeline 'nonexistent'"),
-            "error should mention missing sub-pipeline: {}",
+            message.contains("references unknown sub-workflow 'nonexistent'"),
+            "error should mention missing sub-workflow: {}",
             message
         );
     }
@@ -3092,10 +3092,10 @@ pipelines:
     fn validate_rejects_empty_post_success_target_branch() {
         let mut config = builtin_workflow_config();
         let standard = config
-            .pipelines
+            .workflows
             .iter_mut()
             .find(|p| p.id == "standard")
-            .expect("standard pipeline");
+            .expect("standard workflow");
         standard.post_success = Some(PostSuccessConfig {
             merge: Some(MergeConfig {
                 target_branch: "".to_string(),
@@ -3116,23 +3116,23 @@ pipelines:
     #[test]
     fn validate_rejects_circular_sub_pipeline() {
         let mut config = builtin_workflow_config();
-        config.pipelines = vec![
-            PipelineDefinition {
+        config.workflows = vec![
+            WorkflowDefinition {
                 id: "standard".into(),
                 name: "Standard".into(),
                 description: String::new(),
-                phases: vec![PipelinePhaseEntry::SubPipeline(SubPipelineRef {
-                    pipeline: "review".into(),
+                phases: vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+                    workflow_ref: "review".into(),
                 })],
                 post_success: None,
                 variables: Vec::new(),
             },
-            PipelineDefinition {
+            WorkflowDefinition {
                 id: "review".into(),
                 name: "Review".into(),
                 description: String::new(),
-                phases: vec![PipelinePhaseEntry::SubPipeline(SubPipelineRef {
-                    pipeline: "standard".into(),
+                phases: vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+                    workflow_ref: "standard".into(),
                 })],
                 post_success: None,
                 variables: Vec::new(),
@@ -3140,10 +3140,10 @@ pipelines:
         ];
 
         let err =
-            validate_workflow_config(&config).expect_err("should reject circular sub-pipeline");
+            validate_workflow_config(&config).expect_err("should reject circular sub-workflow");
         let message = err.to_string();
         assert!(
-            message.contains("sub-pipeline expansion failed"),
+            message.contains("sub-workflow expansion failed"),
             "error should mention expansion failure: {}",
             message
         );
@@ -3151,17 +3151,17 @@ pipelines:
 
     #[test]
     fn expand_pipeline_not_found_at_top_level() {
-        let pipelines = vec![make_pipeline(
+        let workflows = vec![make_pipeline(
             "standard",
-            vec![PipelinePhaseEntry::Simple("requirements".into())],
+            vec![WorkflowPhaseEntry::Simple("requirements".into())],
         )];
 
-        let err = expand_pipeline_phases(&pipelines, "nonexistent")
-            .expect_err("should error on missing pipeline");
+        let err = expand_workflow_phases(&workflows, "nonexistent")
+            .expect_err("should error on missing workflow");
         assert!(
             err.to_string()
-                .contains("sub-pipeline 'nonexistent' not found"),
-            "error should mention missing pipeline: {}",
+                .contains("sub-workflow 'nonexistent' not found"),
+            "error should mention missing workflow_ref: {}",
             err
         );
     }
@@ -3177,7 +3177,7 @@ phases:
       args: ["build", "--release"]
       timeout_secs: 300
 
-pipelines:
+workflows:
   - id: standard
     name: Standard
     phases:
@@ -3209,7 +3209,7 @@ phases:
       instructions: "Review and approve the deployment plan"
       approval_note_required: true
 
-pipelines:
+workflows:
   - id: standard
     name: Standard
     phases:
@@ -3243,7 +3243,7 @@ agents:
     capabilities:
       code_execution: false
 
-pipelines:
+workflows:
   - id: standard
     name: Standard
     phases:
@@ -3275,7 +3275,7 @@ phases:
       program: cargo
       args: ["build"]
 
-pipelines:
+workflows:
   - id: standard
     name: Standard
     phases:
@@ -3298,7 +3298,7 @@ tools_allowlist:
   - cargo
   - npm
 
-pipelines:
+workflows:
   - id: standard
     name: Standard
     phases:
@@ -3355,7 +3355,7 @@ daemon:
   max_agents: 2
   active_hours: "00:00-06:00"
   auto_run_ready: true
-pipelines:
+workflows:
   - id: standard
     name: Standard
     phases:
@@ -3433,7 +3433,7 @@ schedules:
     cron: "0 2 * * *"
     command: "echo nightly"
 
-pipelines:
+workflows:
   - id: standard
     name: Standard
     phases:
@@ -3499,7 +3499,7 @@ mcp_servers:
     tools:
       - search
 
-pipelines:
+workflows:
   - id: standard
     name: Standard
     phases:
@@ -3532,7 +3532,7 @@ agents:
     mcp_servers:
       - ao
 
-pipelines:
+workflows:
   - id: standard
     name: Standard
     phases:
@@ -3561,7 +3561,7 @@ agents:
     mcp_servers:
       - missing
 
-pipelines:
+workflows:
   - id: standard
     name: Standard
     phases:
@@ -3589,7 +3589,7 @@ phases:
   research:
     mode: agent
 
-pipelines:
+workflows:
   - id: standard
     name: Standard
     phases:
@@ -3612,7 +3612,7 @@ phases:
   build:
     mode: command
 
-pipelines:
+workflows:
   - id: standard
     name: Standard
     phases:
@@ -3635,7 +3635,7 @@ phases:
   approval:
     mode: manual
 
-pipelines:
+workflows:
   - id: standard
     name: Standard
     phases:
@@ -3661,7 +3661,7 @@ phases:
       program: cargo
       args: ["build"]
 
-pipelines:
+workflows:
   - id: standard
     name: Standard
     phases:
@@ -3693,7 +3693,7 @@ agents:
     system_prompt: "Research agent"
     model: gemini-3.1-pro-preview
 
-pipelines:
+workflows:
   - id: standard
     name: Standard
     phases:
@@ -3720,7 +3720,7 @@ tools_allowlist:
   - cargo
   - npm
 
-pipelines:
+workflows:
   - id: standard
     name: Standard
     phases:
@@ -3755,7 +3755,7 @@ phases:
       program: cargo
       args: ["build"]
 
-pipelines:
+workflows:
   - id: standard
     name: Standard
     phases:
@@ -3822,7 +3822,7 @@ pipelines:
         config.schedules.push(WorkflowSchedule {
             id: "nightly".to_string(),
             cron: "".to_string(),
-            pipeline: None,
+            workflow_ref: None,
             command: None,
             enabled: true,
             input: None,
@@ -3852,7 +3852,7 @@ pipelines:
             validate_workflow_config(&config).expect_err("invalid unified config should fail");
         let message = err.to_string();
         assert!(
-            message.contains("schedules['nightly'] must define a pipeline or command"),
+            message.contains("schedules['nightly'] must define a workflow_ref or command"),
             "error should mention missing schedule target: {}",
             message
         );
@@ -3889,16 +3889,16 @@ pipelines:
         config.schedules.push(WorkflowSchedule {
             id: "conflicting-schedule".to_string(),
             cron: "0 * * * *".to_string(),
-            pipeline: Some("standard".to_string()),
+            workflow_ref: Some("standard".to_string()),
             command: Some("echo conflict".to_string()),
             input: None,
             enabled: true,
         });
         let err = validate_workflow_config(&config)
-            .expect_err("schedules defining both pipeline and command should be rejected");
+            .expect_err("schedules defining both workflow and command should be rejected");
         let message = err.to_string();
         assert!(
-            message.contains("must define only one of pipeline or command"),
+            message.contains("must define only one of workflow_ref or command"),
             "error should mention schedule target exclusivity: {}",
             message
         );
@@ -3910,7 +3910,7 @@ pipelines:
         config.schedules.push(WorkflowSchedule {
             id: "bad-cron".to_string(),
             cron: "0 0 0".to_string(),
-            pipeline: Some("standard".to_string()),
+            workflow_ref: Some("standard".to_string()),
             command: None,
             input: None,
             enabled: true,
@@ -3931,9 +3931,9 @@ pipelines:
 schedules:
   - id: nightly
     cron: "0 2 * * *"
-    pipeline: "standard"
+    workflow_ref: "standard"
 
-pipelines:
+workflows:
   - id: standard
     name: Standard
     phases:
@@ -3977,7 +3977,7 @@ agents:
       deny:
         - Write
 
-pipelines:
+workflows:
   - id: standard
     name: Standard
     phases:
@@ -4021,7 +4021,7 @@ phases:
       success_exit_codes: [0, 2]
       parse_json_output: true
 
-pipelines:
+workflows:
   - id: standard
     name: Standard
     phases:
@@ -4048,7 +4048,7 @@ pipelines:
         let json = serde_json::json!({
             "schema": WORKFLOW_CONFIG_SCHEMA_ID,
             "version": WORKFLOW_CONFIG_VERSION,
-            "default_pipeline_id": "standard",
+            "default_workflow_ref": "standard",
             "phase_catalog": {
                 "requirements": {
                     "label": "Requirements",
@@ -4058,7 +4058,7 @@ pipelines:
                     "tags": []
                 }
             },
-            "pipelines": [{
+            "workflows": [{
                 "id": "standard",
                 "name": "Standard",
                 "description": "",
@@ -4119,7 +4119,7 @@ pipelines:
     #[test]
     fn pipeline_variables_parse_from_yaml() {
         let yaml = r#"
-pipelines:
+workflows:
   - id: docs
     name: Documentation
     variables:
@@ -4132,22 +4132,22 @@ pipelines:
       - implementation
 "#;
         let config = parse_yaml_workflow_config(yaml).expect("parse yaml");
-        let pipeline = config
-            .pipelines
+        let workflow = config
+            .workflows
             .iter()
             .find(|p| p.id == "docs")
-            .expect("docs pipeline");
-        assert_eq!(pipeline.variables.len(), 2);
-        assert_eq!(pipeline.variables[0].name, "AUDIENCE");
+            .expect("docs workflow");
+        assert_eq!(workflow.variables.len(), 2);
+        assert_eq!(workflow.variables[0].name, "AUDIENCE");
         assert_eq!(
-            pipeline.variables[0].description.as_deref(),
+            workflow.variables[0].description.as_deref(),
             Some("Target audience")
         );
-        assert!(pipeline.variables[0].required);
-        assert!(pipeline.variables[0].default.is_none());
-        assert_eq!(pipeline.variables[1].name, "FORMAT");
-        assert!(!pipeline.variables[1].required);
-        assert_eq!(pipeline.variables[1].default.as_deref(), Some("markdown"));
+        assert!(workflow.variables[0].required);
+        assert!(workflow.variables[0].default.is_none());
+        assert_eq!(workflow.variables[1].name, "FORMAT");
+        assert!(!workflow.variables[1].required);
+        assert_eq!(workflow.variables[1].default.as_deref(), Some("markdown"));
     }
 
     #[test]
@@ -4161,12 +4161,12 @@ pipelines:
                 { "name": "FORMAT", "default": "markdown" }
             ]
         });
-        let pipeline: PipelineDefinition = serde_json::from_value(json).expect("parse json");
-        assert_eq!(pipeline.variables.len(), 2);
-        assert_eq!(pipeline.variables[0].name, "AUDIENCE");
-        assert!(pipeline.variables[0].required);
-        assert_eq!(pipeline.variables[1].name, "FORMAT");
-        assert_eq!(pipeline.variables[1].default.as_deref(), Some("markdown"));
+        let workflow: WorkflowDefinition = serde_json::from_value(json).expect("parse json");
+        assert_eq!(workflow.variables.len(), 2);
+        assert_eq!(workflow.variables[0].name, "AUDIENCE");
+        assert!(workflow.variables[0].required);
+        assert_eq!(workflow.variables[1].name, "FORMAT");
+        assert_eq!(workflow.variables[1].default.as_deref(), Some("markdown"));
     }
 
     #[test]
@@ -4176,20 +4176,20 @@ pipelines:
             "name": "Simple",
             "phases": ["implementation"]
         });
-        let pipeline: PipelineDefinition = serde_json::from_value(json).expect("parse json");
-        assert!(pipeline.variables.is_empty());
+        let workflow: WorkflowDefinition = serde_json::from_value(json).expect("parse json");
+        assert!(workflow.variables.is_empty());
     }
 
     #[test]
     fn resolve_variables_required_without_default_errors() {
-        let definitions = vec![PipelineVariable {
+        let definitions = vec![WorkflowVariable {
             name: "REQUIRED_VAR".to_string(),
             description: None,
             required: true,
             default: None,
         }];
         let cli_vars = HashMap::new();
-        let err = resolve_pipeline_variables(&definitions, &cli_vars)
+        let err = resolve_workflow_variables(&definitions, &cli_vars)
             .expect_err("should error on missing required var");
         assert!(err.to_string().contains("REQUIRED_VAR"));
     }
@@ -4197,13 +4197,13 @@ pipelines:
     #[test]
     fn resolve_variables_required_multiple_missing() {
         let definitions = vec![
-            PipelineVariable {
+            WorkflowVariable {
                 name: "VAR_B".to_string(),
                 description: None,
                 required: true,
                 default: None,
             },
-            PipelineVariable {
+            WorkflowVariable {
                 name: "VAR_A".to_string(),
                 description: None,
                 required: true,
@@ -4211,7 +4211,7 @@ pipelines:
             },
         ];
         let cli_vars = HashMap::new();
-        let err = resolve_pipeline_variables(&definitions, &cli_vars)
+        let err = resolve_workflow_variables(&definitions, &cli_vars)
             .expect_err("should error on missing required vars");
         let msg = err.to_string();
         assert!(msg.contains("VAR_A"));
@@ -4220,20 +4220,20 @@ pipelines:
 
     #[test]
     fn resolve_variables_default_used_when_not_provided() {
-        let definitions = vec![PipelineVariable {
+        let definitions = vec![WorkflowVariable {
             name: "FORMAT".to_string(),
             description: None,
             required: false,
             default: Some("markdown".to_string()),
         }];
         let cli_vars = HashMap::new();
-        let resolved = resolve_pipeline_variables(&definitions, &cli_vars).expect("should resolve");
+        let resolved = resolve_workflow_variables(&definitions, &cli_vars).expect("should resolve");
         assert_eq!(resolved.get("FORMAT").map(String::as_str), Some("markdown"));
     }
 
     #[test]
     fn resolve_variables_cli_overrides_default() {
-        let definitions = vec![PipelineVariable {
+        let definitions = vec![WorkflowVariable {
             name: "FORMAT".to_string(),
             description: None,
             required: false,
@@ -4241,26 +4241,26 @@ pipelines:
         }];
         let mut cli_vars = HashMap::new();
         cli_vars.insert("FORMAT".to_string(), "html".to_string());
-        let resolved = resolve_pipeline_variables(&definitions, &cli_vars).expect("should resolve");
+        let resolved = resolve_workflow_variables(&definitions, &cli_vars).expect("should resolve");
         assert_eq!(resolved.get("FORMAT").map(String::as_str), Some("html"));
     }
 
     #[test]
     fn resolve_variables_optional_without_default_omitted() {
-        let definitions = vec![PipelineVariable {
+        let definitions = vec![WorkflowVariable {
             name: "OPTIONAL".to_string(),
             description: None,
             required: false,
             default: None,
         }];
         let cli_vars = HashMap::new();
-        let resolved = resolve_pipeline_variables(&definitions, &cli_vars).expect("should resolve");
+        let resolved = resolve_workflow_variables(&definitions, &cli_vars).expect("should resolve");
         assert!(!resolved.contains_key("OPTIONAL"));
     }
 
     #[test]
     fn resolve_variables_unknown_cli_vars_ignored() {
-        let definitions = vec![PipelineVariable {
+        let definitions = vec![WorkflowVariable {
             name: "KNOWN".to_string(),
             description: None,
             required: true,
@@ -4269,7 +4269,7 @@ pipelines:
         let mut cli_vars = HashMap::new();
         cli_vars.insert("KNOWN".to_string(), "value".to_string());
         cli_vars.insert("UNKNOWN".to_string(), "extra".to_string());
-        let resolved = resolve_pipeline_variables(&definitions, &cli_vars).expect("should resolve");
+        let resolved = resolve_workflow_variables(&definitions, &cli_vars).expect("should resolve");
         assert_eq!(resolved.get("KNOWN").map(String::as_str), Some("value"));
     }
 
@@ -4301,7 +4301,7 @@ pipelines:
 
     #[test]
     fn pipeline_variables_not_serialized_when_empty() {
-        let pipeline = PipelineDefinition {
+        let workflow = WorkflowDefinition {
             id: "test".to_string(),
             name: "Test".to_string(),
             description: String::new(),
@@ -4309,7 +4309,7 @@ pipelines:
             post_success: None,
             variables: Vec::new(),
         };
-        let json = serde_json::to_value(&pipeline).expect("serialize");
+        let json = serde_json::to_value(&workflow).expect("serialize");
         let obj = json.as_object().expect("json object");
         assert!(
             !obj.contains_key("variables"),

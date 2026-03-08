@@ -14,7 +14,7 @@ struct ScheduleListEntry {
     id: String,
     cron: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pipeline: Option<String>,
+    workflow_ref: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     command: Option<String>,
     enabled: bool,
@@ -49,7 +49,7 @@ pub(crate) async fn handle_schedule(
                     ScheduleListEntry {
                         id: schedule.id.clone(),
                         cron: schedule.cron.clone(),
-                        pipeline: schedule.pipeline.clone(),
+                        workflow_ref: schedule.workflow_ref.clone(),
                         command: schedule.command.clone(),
                         enabled: schedule.enabled,
                         last_run: run_state
@@ -208,7 +208,7 @@ mod tests {
         config.schedules.push(orchestrator_core::WorkflowSchedule {
             id: "nightly".to_string(),
             cron: "30 12 * * *".to_string(),
-            pipeline: None,
+            workflow_ref: None,
             command: Some("exit 0".to_string()),
             input: None,
             enabled: true,
@@ -230,7 +230,7 @@ mod tests {
         config.schedules.push(orchestrator_core::WorkflowSchedule {
             id: "nightly".to_string(),
             cron: "30 12 * * *".to_string(),
-            pipeline: None,
+            workflow_ref: None,
             command: Some("exit 1".to_string()),
             input: None,
             enabled: true,
@@ -246,7 +246,7 @@ mod tests {
 }
 
 fn print_schedule_table(rows: &[ScheduleListEntry]) {
-    let headers = ["id", "cron", "pipeline", "command", "enabled", "last_run"];
+    let headers = ["id", "cron", "workflow_ref", "command", "enabled", "last_run"];
     let mut widths = headers
         .iter()
         .map(|header| header.len())
@@ -255,7 +255,7 @@ fn print_schedule_table(rows: &[ScheduleListEntry]) {
     for row in rows {
         widths[0] = widths[0].max(row.id.len());
         widths[1] = widths[1].max(row.cron.len());
-        widths[2] = widths[2].max(row.pipeline.as_deref().unwrap_or("-").len());
+        widths[2] = widths[2].max(row.workflow_ref.as_deref().unwrap_or("-").len());
         widths[3] = widths[3].max(row.command.as_deref().unwrap_or("-").len());
         widths[4] = widths[4].max(row.enabled.to_string().len());
         widths[5] = widths[5].max(row.last_run.as_deref().unwrap_or("-").len());
@@ -284,7 +284,7 @@ fn print_schedule_table(rows: &[ScheduleListEntry]) {
             "{:<w0$}  {:<w1$}  {:<w2$}  {:<w3$}  {:<w4$}  {:<w5$}",
             row.id,
             row.cron,
-            row.pipeline.as_deref().unwrap_or("-"),
+            row.workflow_ref.as_deref().unwrap_or("-"),
             row.command.as_deref().unwrap_or("-"),
             row.enabled,
             row.last_run.as_deref().unwrap_or("-"),

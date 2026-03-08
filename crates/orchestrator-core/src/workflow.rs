@@ -6,8 +6,8 @@ mod state_manager;
 
 pub use lifecycle_executor::WorkflowLifecycleExecutor;
 pub use phase_plan::{
-    phase_plan_for_pipeline_id, resolve_phase_plan_for_pipeline, STANDARD_PIPELINE_ID,
-    UI_UX_PIPELINE_ID,
+    phase_plan_for_workflow_ref, resolve_phase_plan_for_workflow_ref, STANDARD_WORKFLOW_REF,
+    UI_UX_WORKFLOW_REF,
 };
 pub use resume::{ResumabilityStatus, ResumeConfig, WorkflowResumeManager};
 pub use state_machine::WorkflowStateMachine;

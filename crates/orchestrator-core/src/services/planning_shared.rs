@@ -1,4 +1,5 @@
 use super::*;
+use crate::{STANDARD_WORKFLOW_REF, UI_UX_WORKFLOW_REF};
 use crate::state_machines::CompiledStateMachines;
 
 mod requirement_lifecycle;
@@ -723,13 +724,13 @@ Run `ao requirements draft`/`ao requirements refine` (or upsert explicit constra
                     .map(|task| task.is_frontend_related())
                     .unwrap_or(false)
                 {
-                    UI_UX_PIPELINE_ID.to_string()
+                    UI_UX_WORKFLOW_REF.to_string()
                 } else {
-                    STANDARD_PIPELINE_ID.to_string()
+                    STANDARD_WORKFLOW_REF.to_string()
                 }
             });
             let phase_plan =
-                crate::resolve_phase_plan_for_pipeline(project_root, Some(workflow_ref.as_str()))?;
+                crate::resolve_phase_plan_for_workflow_ref(project_root, Some(workflow_ref.as_str()))?;
             let executor = if let Some(machine_catalog) = state_machines {
                 WorkflowLifecycleExecutor::with_state_machines(phase_plan, machine_catalog.clone())
             } else {

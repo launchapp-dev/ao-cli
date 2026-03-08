@@ -243,7 +243,7 @@ async fn file_hub_bootstraps_workflow_config_v2_with_phase_catalog() {
     );
     assert_eq!(
         config
-            .pointer("/default_pipeline_id")
+            .pointer("/default_workflow_ref")
             .and_then(serde_json::Value::as_str),
         Some("standard")
     );
@@ -255,7 +255,7 @@ async fn file_hub_bootstraps_workflow_config_v2_with_phase_catalog() {
     );
     assert_eq!(
         config
-            .pointer("/pipelines/1/phases/1")
+            .pointer("/workflows/1/phases/1")
             .and_then(serde_json::Value::as_str),
         Some("ux-research")
     );
@@ -764,7 +764,7 @@ async fn file_hub_uses_custom_pipeline_from_workflow_config_v2() {
         serde_json::json!({
             "schema": "ao.workflow-config.v2",
             "version": 2,
-            "default_pipeline_id": "xhigh-dev",
+            "default_workflow_ref": "xhigh-dev",
             "phase_catalog": {
                 "requirements": {
                     "label": "Requirements",
@@ -812,7 +812,7 @@ async fn file_hub_uses_custom_pipeline_from_workflow_config_v2() {
                     "visible": true
                 }
             },
-            "pipelines": [
+            "workflows": [
                 {
                     "id": "xhigh-dev",
                     "name": "XHigh Dev",
@@ -967,7 +967,7 @@ async fn planning_execute_starts_workflows_with_config_phase_plan() {
     let hub = file_hub(temp.path()).expect("create hub");
 
     let mut workflow_config = crate::load_workflow_config(temp.path()).expect("load config");
-    workflow_config.pipelines.push(crate::PipelineDefinition {
+    workflow_config.workflows.push(crate::WorkflowDefinition {
         id: "planning-custom".to_string(),
         name: "Planning Custom".to_string(),
         description: "planning execution pipeline".to_string(),

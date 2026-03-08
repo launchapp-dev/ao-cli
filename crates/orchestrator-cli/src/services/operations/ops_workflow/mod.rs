@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::{
     dry_run_envelope, ensure_destructive_confirmation, parse_input_json_or, print_value,
     WorkflowAgentRuntimeCommand, WorkflowCheckpointCommand, WorkflowCommand, WorkflowConfigCommand,
-    WorkflowPhaseCommand, WorkflowPhasesCommand, WorkflowPipelinesCommand,
+    WorkflowDefinitionsCommand, WorkflowPhaseCommand, WorkflowPhasesCommand,
     WorkflowStateMachineCommand,
 };
 
@@ -232,17 +232,17 @@ pub(crate) async fn handle_workflow(
                 )
             }
         },
-        WorkflowCommand::Pipelines { command } => match command {
-            WorkflowPipelinesCommand::List => {
+        WorkflowCommand::Definitions { command } => match command {
+            WorkflowDefinitionsCommand::List => {
                 let wf_config = orchestrator_core::load_workflow_config(Path::new(project_root))?;
-                print_value(wf_config.pipelines, json)
+                print_value(wf_config.workflows, json)
             }
-            WorkflowPipelinesCommand::Upsert(args) => {
-                let pipeline: orchestrator_core::PipelineDefinition =
+            WorkflowDefinitionsCommand::Upsert(args) => {
+                let workflow: orchestrator_core::WorkflowDefinition =
                     serde_json::from_str(&args.input_json).with_context(|| {
-                        "invalid --input-json payload for workflow pipelines upsert; run 'ao workflow pipelines upsert --help' for schema"
+                        "invalid --input-json payload for workflow definitions upsert; run 'ao workflow definitions upsert --help' for schema"
                     })?;
-                print_value(phases::upsert_pipeline(project_root, pipeline)?, json)
+                print_value(phases::upsert_pipeline(project_root, workflow)?, json)
             }
         },
         WorkflowCommand::Config { command } => match command {
@@ -283,22 +283,22 @@ pub(crate) async fn handle_workflow(
                 json,
             ),
         },
-        WorkflowCommand::UpdatePipeline(args) => {
-            let pipeline = parse_input_json_or(args.input_json, || {
-                Ok(orchestrator_core::PipelineDefinition {
+        WorkflowCommand::UpdateDefinition(args) => {
+            let workflow = parse_input_json_or(args.input_json, || {
+                Ok(orchestrator_core::WorkflowDefinition {
                     id: args.id,
                     name: args.name,
                     description: args.description.unwrap_or_default(),
                     phases: args
                         .phases
                         .into_iter()
-                        .map(orchestrator_core::PipelinePhaseEntry::Simple)
+                        .map(orchestrator_core::WorkflowPhaseEntry::Simple)
                         .collect(),
                     post_success: None,
                     variables: Vec::new(),
                 })
             })?;
-            print_value(phases::upsert_pipeline(project_root, pipeline)?, json)
+            print_value(phases::upsert_pipeline(project_root, workflow)?, json)
         }
     }
 }

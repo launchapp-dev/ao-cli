@@ -86,7 +86,7 @@ ao
 │   ├── resume-status        Check resumability
 │   ├── pause                Pause workflow (confirmation)
 │   ├── cancel               Cancel workflow (confirmation)
-│   ├── update-pipeline      Update pipeline by id
+│   ├── update-definition    Update workflow definition by id
 │   ├── checkpoints
 │   │   ├── list             List checkpoints
 │   │   ├── get              Get checkpoint
@@ -98,9 +98,9 @@ ao
 │   │   ├── get              Get phase by id
 │   │   ├── upsert           Create/replace phase
 │   │   └── remove           Remove phase
-│   ├── pipelines
-│   │   ├── list             List pipelines
-│   │   └── upsert           Create/replace pipeline
+│   ├── definitions
+│   │   ├── list             List workflow definitions
+│   │   └── upsert           Create/replace workflow definition
 │   ├── config
 │   │   ├── get              Read workflow config
 │   │   ├── validate         Validate config

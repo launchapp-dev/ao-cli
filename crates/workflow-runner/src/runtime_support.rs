@@ -41,9 +41,9 @@ pub struct WorkflowPipelineRuntimeRecord {
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct WorkflowRuntimeConfigLite {
     #[serde(default)]
-    pub default_pipeline_id: String,
+    pub default_workflow_ref: String,
     #[serde(default)]
-    pub pipelines: Vec<WorkflowPipelineRuntimeRecord>,
+    pub workflows: Vec<WorkflowPipelineRuntimeRecord>,
 }
 
 fn workflow_runtime_config_paths(project_root: &str) -> [PathBuf; 2] {
@@ -85,7 +85,7 @@ pub fn resolve_phase_runtime_settings(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .or_else(|| {
-            let value = config.default_pipeline_id.trim();
+            let value = config.default_workflow_ref.trim();
             if value.is_empty() {
                 None
             } else {
@@ -94,7 +94,7 @@ pub fn resolve_phase_runtime_settings(
         })?;
 
     let pipeline = config
-        .pipelines
+        .workflows
         .iter()
         .find(|pipeline| pipeline.id.eq_ignore_ascii_case(requested_pipeline))?;
 

@@ -92,7 +92,7 @@ fn find_phase_index(phases: &[WorkflowPhaseExecution], phase_id: &str) -> Option
 
 pub type VerdictRouting = HashMap<String, HashMap<String, PhaseTransitionConfig>>;
 
-use super::phase_plan::{phase_plan_for_pipeline_id, STANDARD_PIPELINE_ID};
+use super::phase_plan::{phase_plan_for_workflow_ref, STANDARD_WORKFLOW_REF};
 use super::state_machine::WorkflowStateMachine;
 
 pub fn evaluate_skip_guard(guard: &str, task: &OrchestratorTask) -> bool {
@@ -130,7 +130,7 @@ pub struct WorkflowLifecycleExecutor {
 impl Default for WorkflowLifecycleExecutor {
     fn default() -> Self {
         Self {
-            phase_plan: phase_plan_for_pipeline_id(Some(STANDARD_PIPELINE_ID)),
+            phase_plan: phase_plan_for_workflow_ref(Some(STANDARD_WORKFLOW_REF)),
             state_machines: builtin_compiled_state_machines(),
             retry_configs: HashMap::new(),
             verdict_routing: HashMap::new(),

@@ -1,7 +1,7 @@
 use chrono::Utc;
 use protocol::ModelRoutingComplexity;
 
-use crate::{Complexity, OrchestratorTask, STANDARD_PIPELINE_ID, UI_UX_PIPELINE_ID};
+use crate::{Complexity, OrchestratorTask, STANDARD_WORKFLOW_REF, UI_UX_WORKFLOW_REF};
 
 pub fn routing_complexity_for_task(task: &OrchestratorTask) -> Option<ModelRoutingComplexity> {
     match task.complexity {
@@ -13,9 +13,9 @@ pub fn routing_complexity_for_task(task: &OrchestratorTask) -> Option<ModelRouti
 
 pub fn workflow_ref_for_task(task: &OrchestratorTask) -> String {
     if task.is_frontend_related() {
-        UI_UX_PIPELINE_ID.to_string()
+        UI_UX_WORKFLOW_REF.to_string()
     } else {
-        STANDARD_PIPELINE_ID.to_string()
+        STANDARD_WORKFLOW_REF.to_string()
     }
 }
 

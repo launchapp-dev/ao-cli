@@ -32,10 +32,7 @@ use crate::types::{
     TaskStatistics, TaskStatus, TaskType, TaskUpdateInput, VisionDocument, VisionDraftInput,
     WorkflowMetadata, WorkflowRunInput, WorkflowSubject,
 };
-use crate::workflow::{
-    ResumeConfig, WorkflowLifecycleExecutor, WorkflowStateManager, STANDARD_PIPELINE_ID,
-    UI_UX_PIPELINE_ID,
-};
+use crate::workflow::{ResumeConfig, WorkflowLifecycleExecutor, WorkflowStateManager};
 
 mod daemon_impl;
 mod phase_execution;

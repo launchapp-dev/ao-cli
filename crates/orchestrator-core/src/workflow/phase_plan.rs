@@ -2,8 +2,8 @@ use std::path::Path;
 
 use anyhow::{anyhow, Result};
 
-pub const STANDARD_PIPELINE_ID: &str = "standard";
-pub const UI_UX_PIPELINE_ID: &str = "ui-ux-standard";
+pub const STANDARD_WORKFLOW_REF: &str = "standard";
+pub const UI_UX_WORKFLOW_REF: &str = "ui-ux-standard";
 
 fn standard_phase_plan() -> Vec<String> {
     vec![
@@ -26,49 +26,49 @@ fn ui_ux_phase_plan() -> Vec<String> {
     ]
 }
 
-fn normalize_requested_pipeline_id(pipeline_id: Option<&str>) -> Option<String> {
-    let requested = pipeline_id
+fn normalize_requested_workflow_ref(workflow_ref: Option<&str>) -> Option<String> {
+    let requested = workflow_ref
         .map(str::trim)
         .filter(|value| !value.is_empty())?;
     let normalized = requested.to_ascii_lowercase();
 
     match normalized.as_str() {
-        STANDARD_PIPELINE_ID => Some(STANDARD_PIPELINE_ID.to_string()),
-        UI_UX_PIPELINE_ID | "ui-ux" | "uiux" | "frontend" | "frontend-ui-ux" | "product-ui" => {
-            Some(UI_UX_PIPELINE_ID.to_string())
+        STANDARD_WORKFLOW_REF => Some(STANDARD_WORKFLOW_REF.to_string()),
+        UI_UX_WORKFLOW_REF | "ui-ux" | "uiux" | "frontend" | "frontend-ui-ux" | "product-ui" => {
+            Some(UI_UX_WORKFLOW_REF.to_string())
         }
         _ => Some(requested.to_string()),
     }
 }
 
-fn raw_requested_pipeline_id(pipeline_id: Option<&str>) -> Option<String> {
-    pipeline_id
+fn raw_requested_workflow_ref(workflow_ref: Option<&str>) -> Option<String> {
+    workflow_ref
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
 }
 
-pub fn phase_plan_for_pipeline_id(pipeline_id: Option<&str>) -> Vec<String> {
-    let normalized = normalize_requested_pipeline_id(pipeline_id)
-        .unwrap_or_else(|| STANDARD_PIPELINE_ID.to_string());
+pub fn phase_plan_for_workflow_ref(workflow_ref: Option<&str>) -> Vec<String> {
+    let normalized = normalize_requested_workflow_ref(workflow_ref)
+        .unwrap_or_else(|| STANDARD_WORKFLOW_REF.to_string());
 
     match normalized.as_str() {
-        STANDARD_PIPELINE_ID => standard_phase_plan(),
-        UI_UX_PIPELINE_ID => ui_ux_phase_plan(),
+        STANDARD_WORKFLOW_REF => standard_phase_plan(),
+        UI_UX_WORKFLOW_REF => ui_ux_phase_plan(),
         _ => standard_phase_plan(),
     }
 }
 
-pub fn resolve_phase_plan_for_pipeline(
+pub fn resolve_phase_plan_for_workflow_ref(
     project_root: Option<&Path>,
-    pipeline_id: Option<&str>,
+    workflow_ref: Option<&str>,
 ) -> Result<Vec<String>> {
-    let requested_pipeline_id = raw_requested_pipeline_id(pipeline_id);
-    let normalized_pipeline_id = normalize_requested_pipeline_id(pipeline_id);
+    let requested_workflow_ref = raw_requested_workflow_ref(workflow_ref);
+    let normalized_workflow_ref = normalize_requested_workflow_ref(workflow_ref);
 
     let Some(root) = project_root else {
-        return Ok(phase_plan_for_pipeline_id(
-            normalized_pipeline_id.as_deref(),
+        return Ok(phase_plan_for_workflow_ref(
+            normalized_workflow_ref.as_deref(),
         ));
     };
 
@@ -77,8 +77,8 @@ pub fn resolve_phase_plan_for_pipeline(
         .iter()
         .any(|candidate| candidate.exists());
     if !workflow_config_path.exists() && !has_legacy_workflow_config {
-        return Ok(phase_plan_for_pipeline_id(
-            normalized_pipeline_id.as_deref(),
+        return Ok(phase_plan_for_workflow_ref(
+            normalized_workflow_ref.as_deref(),
         ));
     }
 
@@ -87,27 +87,27 @@ pub fn resolve_phase_plan_for_pipeline(
     crate::validate_workflow_and_runtime_configs(&workflow_config, &runtime_config)?;
 
     if let Some(phases) =
-        crate::resolve_pipeline_phase_plan(&workflow_config, requested_pipeline_id.as_deref())
+        crate::resolve_workflow_phase_plan(&workflow_config, requested_workflow_ref.as_deref())
     {
         return Ok(phases);
     }
 
-    if requested_pipeline_id != normalized_pipeline_id {
+    if requested_workflow_ref != normalized_workflow_ref {
         if let Some(phases) =
-            crate::resolve_pipeline_phase_plan(&workflow_config, normalized_pipeline_id.as_deref())
+            crate::resolve_workflow_phase_plan(&workflow_config, normalized_workflow_ref.as_deref())
         {
             return Ok(phases);
         }
     }
 
-    let requested = requested_pipeline_id
+    let requested = requested_workflow_ref
         .as_deref()
-        .or(normalized_pipeline_id.as_deref())
-        .unwrap_or(workflow_config.default_pipeline_id.as_str());
+        .or(normalized_workflow_ref.as_deref())
+        .unwrap_or(workflow_config.default_workflow_ref.as_str());
     let available = workflow_config
-        .pipelines
+        .workflows
         .iter()
-        .map(|pipeline| pipeline.id.as_str())
+        .map(|workflow| workflow.id.as_str())
         .collect::<Vec<_>>()
         .join(", ");
     let available_display = if available.is_empty() {
@@ -117,7 +117,7 @@ pub fn resolve_phase_plan_for_pipeline(
     };
 
     Err(anyhow!(
-        "pipeline '{requested}' not found in workflow config at {} (available: {available_display})",
+        "workflow '{requested}' not found in workflow config at {} (available: {available_display})",
         workflow_config_path.display()
     ))
 }
@@ -130,7 +130,7 @@ mod tests {
     fn resolve_phase_plan_falls_back_when_workflow_config_is_missing() {
         let temp = tempfile::tempdir().expect("tempdir");
 
-        let phases = resolve_phase_plan_for_pipeline(Some(temp.path()), Some("ui-ux"))
+        let phases = resolve_phase_plan_for_workflow_ref(Some(temp.path()), Some("ui-ux"))
             .expect("missing config should use fallback");
 
         assert_eq!(phases, ui_ux_phase_plan());
@@ -150,7 +150,7 @@ mod tests {
         )
         .expect("write invalid workflow config");
 
-        let err = resolve_phase_plan_for_pipeline(Some(temp.path()), Some("standard"))
+        let err = resolve_phase_plan_for_workflow_ref(Some(temp.path()), Some("standard"))
             .expect_err("invalid config should return error");
         let message = err.to_string();
         assert!(message.contains("invalid workflow config JSON"));
@@ -165,7 +165,7 @@ mod tests {
         std::fs::create_dir_all(parent).expect("create legacy directory");
         std::fs::write(legacy_path, "{}").expect("write legacy config placeholder");
 
-        let err = resolve_phase_plan_for_pipeline(Some(temp.path()), Some("standard"))
+        let err = resolve_phase_plan_for_workflow_ref(Some(temp.path()), Some("standard"))
             .expect_err("legacy config should return migration guidance");
         let message = err.to_string();
         assert!(message.contains("workflow config v2 is required"));
@@ -181,10 +181,10 @@ mod tests {
         crate::write_agent_runtime_config(temp.path(), &crate::builtin_agent_runtime_config())
             .expect("write runtime config");
 
-        let err = resolve_phase_plan_for_pipeline(Some(temp.path()), Some("does-not-exist"))
+        let err = resolve_phase_plan_for_workflow_ref(Some(temp.path()), Some("does-not-exist"))
             .expect_err("missing pipeline should return error");
         let message = err.to_string();
-        assert!(message.contains("pipeline 'does-not-exist' not found"));
+        assert!(message.contains("workflow 'does-not-exist' not found"));
         assert!(message.contains(crate::WORKFLOW_CONFIG_FILE_NAME));
     }
 
@@ -194,9 +194,9 @@ mod tests {
         let mut workflow_config = crate::builtin_workflow_config();
 
         let standard_pipeline = workflow_config
-            .pipelines
+            .workflows
             .iter_mut()
-            .find(|pipeline| pipeline.id == STANDARD_PIPELINE_ID)
+            .find(|pipeline| pipeline.id == STANDARD_WORKFLOW_REF)
             .expect("standard pipeline should exist");
         standard_pipeline.phases = vec![
             "requirements".to_string().into(),
@@ -208,7 +208,7 @@ mod tests {
         crate::write_agent_runtime_config(temp.path(), &crate::builtin_agent_runtime_config())
             .expect("write runtime config");
 
-        let phases = resolve_phase_plan_for_pipeline(Some(temp.path()), Some(STANDARD_PIPELINE_ID))
+        let phases = resolve_phase_plan_for_workflow_ref(Some(temp.path()), Some(STANDARD_WORKFLOW_REF))
             .expect("resolver should use configured standard pipeline phases");
         assert_eq!(
             phases,
@@ -225,13 +225,13 @@ mod tests {
     fn resolve_phase_plan_uses_config_default_pipeline_when_none_is_requested() {
         let temp = tempfile::tempdir().expect("tempdir");
         let mut workflow_config = crate::builtin_workflow_config();
-        workflow_config.default_pipeline_id = UI_UX_PIPELINE_ID.to_string();
+        workflow_config.default_workflow_ref = UI_UX_WORKFLOW_REF.to_string();
 
         crate::write_workflow_config(temp.path(), &workflow_config).expect("write workflow config");
         crate::write_agent_runtime_config(temp.path(), &crate::builtin_agent_runtime_config())
             .expect("write runtime config");
 
-        let phases = resolve_phase_plan_for_pipeline(Some(temp.path()), None)
+        let phases = resolve_phase_plan_for_workflow_ref(Some(temp.path()), None)
             .expect("resolver should use configured default pipeline");
         assert_eq!(phases, ui_ux_phase_plan());
     }
@@ -242,9 +242,9 @@ mod tests {
         let mut workflow_config = crate::builtin_workflow_config();
 
         let ui_ux_pipeline = workflow_config
-            .pipelines
+            .workflows
             .iter_mut()
-            .find(|pipeline| pipeline.id == UI_UX_PIPELINE_ID)
+            .find(|pipeline| pipeline.id == UI_UX_WORKFLOW_REF)
             .expect("ui-ux pipeline should exist");
         ui_ux_pipeline.id = "ui-ux".to_string();
 
@@ -252,7 +252,7 @@ mod tests {
         crate::write_agent_runtime_config(temp.path(), &crate::builtin_agent_runtime_config())
             .expect("write runtime config");
 
-        let phases = resolve_phase_plan_for_pipeline(Some(temp.path()), Some("ui-ux"))
+        let phases = resolve_phase_plan_for_workflow_ref(Some(temp.path()), Some("ui-ux"))
             .expect("resolver should use explicit configured pipeline id");
         assert_eq!(phases, ui_ux_phase_plan());
     }

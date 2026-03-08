@@ -35,10 +35,10 @@ pub(crate) enum WorkflowCommand {
         #[command(subcommand)]
         command: WorkflowPhasesCommand,
     },
-    /// Manage workflow pipeline definitions.
-    Pipelines {
+    /// Manage workflow definitions.
+    Definitions {
         #[command(subcommand)]
-        command: WorkflowPipelinesCommand,
+        command: WorkflowDefinitionsCommand,
     },
     /// Read and validate workflow configuration.
     Config {
@@ -57,8 +57,8 @@ pub(crate) enum WorkflowCommand {
     },
     /// Execute a workflow synchronously (no daemon required).
     Execute(WorkflowExecuteArgs),
-    /// Update a pipeline by id.
-    UpdatePipeline(WorkflowPipelineUpdateArgs),
+    /// Update a workflow definition by id.
+    UpdateDefinition(WorkflowDefinitionUpdateArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -80,11 +80,11 @@ pub(crate) enum WorkflowPhasesCommand {
 }
 
 #[derive(Debug, Subcommand)]
-pub(crate) enum WorkflowPipelinesCommand {
-    /// List configured workflow pipelines.
+pub(crate) enum WorkflowDefinitionsCommand {
+    /// List configured workflow definitions.
     List,
-    /// Create or replace a workflow pipeline definition.
-    Upsert(WorkflowPipelineUpsertArgs),
+    /// Create or replace a workflow definition.
+    Upsert(WorkflowDefinitionUpsertArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -201,7 +201,7 @@ pub(crate) struct WorkflowRunArgs {
     #[arg(
         long = "var",
         value_name = "KEY=VALUE",
-        help = "Pipeline variable in KEY=VALUE format. Repeat for multiple variables."
+        help = "Workflow variable in KEY=VALUE format. Repeat for multiple variables."
     )]
     pub(crate) vars: Vec<String>,
 }
@@ -279,7 +279,7 @@ pub(crate) struct WorkflowExecuteArgs {
     #[arg(
         long = "var",
         value_name = "KEY=VALUE",
-        help = "Pipeline variable in KEY=VALUE format. Repeat for multiple variables."
+        help = "Workflow variable in KEY=VALUE format. Repeat for multiple variables."
     )]
     pub(crate) vars: Vec<String>,
 }
@@ -367,27 +367,27 @@ pub(crate) struct WorkflowPhaseRemoveArgs {
 }
 
 #[derive(Debug, Args)]
-pub(crate) struct WorkflowPipelineUpsertArgs {
+pub(crate) struct WorkflowDefinitionUpsertArgs {
     #[arg(
         long,
         value_name = "JSON",
-        help = "Workflow pipeline definition JSON payload."
+        help = "Workflow definition JSON payload."
     )]
     pub(crate) input_json: String,
 }
 
 #[derive(Debug, Args)]
-pub(crate) struct WorkflowPipelineUpdateArgs {
-    #[arg(long, value_name = "PIPELINE_ID", help = "Pipeline identifier.")]
+pub(crate) struct WorkflowDefinitionUpdateArgs {
+    #[arg(long, value_name = "WORKFLOW_REF", help = "Workflow reference.")]
     pub(crate) id: String,
-    #[arg(long, value_name = "NAME", help = "Pipeline display name.")]
+    #[arg(long, value_name = "NAME", help = "Workflow display name.")]
     pub(crate) name: String,
-    #[arg(long, value_name = "TEXT", help = "Optional pipeline description.")]
+    #[arg(long, value_name = "TEXT", help = "Optional workflow description.")]
     pub(crate) description: Option<String>,
     #[arg(
         long = "phase",
         value_name = "PHASE_ID",
-        help = "Ordered phase ids for the pipeline. Repeat to add multiple phases."
+        help = "Ordered phase ids for the workflow. Repeat to add multiple phases."
     )]
     pub(crate) phases: Vec<String>,
     #[arg(long, value_name = "JSON", help = INPUT_JSON_PRECEDENCE_HELP)]

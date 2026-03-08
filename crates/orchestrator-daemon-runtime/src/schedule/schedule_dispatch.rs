@@ -119,7 +119,7 @@ where
 {
     let mut status = "evaluated".to_string();
 
-    if let Some(ref workflow_ref) = schedule.pipeline {
+    if let Some(ref workflow_ref) = schedule.workflow_ref {
         let dispatch = SubjectDispatch::for_custom(
             format!("schedule:{schedule_id}"),
             format!("Triggered by schedule '{schedule_id}'"),

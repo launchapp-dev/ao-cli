@@ -359,7 +359,7 @@ pub(crate) fn compile_yaml_workflows_payload(project_root: &str) -> Result<Value
                 "compiled": true,
                 "source_files": source_files,
                 "output_path": result.output_path.display().to_string(),
-                "pipelines": result.config.pipelines.iter().map(|p| &p.id).collect::<Vec<_>>(),
+                "workflows": result.config.workflows.iter().map(|p| &p.id).collect::<Vec<_>>(),
                 "phase_definitions": result.config.phase_definitions.len(),
                 "agent_profiles": result.config.agent_profiles.len(),
                 "hash": orchestrator_core::workflow_config_hash(&result.config),
@@ -433,11 +433,11 @@ pub(crate) fn migrate_v1_to_v2(project_root: &str) -> Result<Value> {
     }
 
     let mut workflow_config = orchestrator_core::builtin_workflow_config();
-    workflow_config.default_pipeline_id = legacy_workflow.default_pipeline_id.trim().to_string();
-    workflow_config.pipelines = legacy_workflow
+    workflow_config.default_workflow_ref = legacy_workflow.default_pipeline_id.trim().to_string();
+    workflow_config.workflows = legacy_workflow
         .pipelines
         .iter()
-        .map(|pipeline| orchestrator_core::PipelineDefinition {
+        .map(|pipeline| orchestrator_core::WorkflowDefinition {
             id: pipeline.id.trim().to_string(),
             name: if pipeline.name.trim().is_empty() {
                 title_case_phase_id(pipeline.id.as_str())
@@ -451,7 +451,7 @@ pub(crate) fn migrate_v1_to_v2(project_root: &str) -> Result<Value> {
                 .map(String::as_str)
                 .map(str::trim)
                 .filter(|phase| !phase.is_empty())
-                .map(|phase| orchestrator_core::PipelinePhaseEntry::Simple(phase.to_owned()))
+                .map(|phase| orchestrator_core::WorkflowPhaseEntry::Simple(phase.to_owned()))
                 .collect(),
             post_success: None,
             variables: Vec::new(),

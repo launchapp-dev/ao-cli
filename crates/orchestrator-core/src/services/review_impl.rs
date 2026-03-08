@@ -51,9 +51,9 @@ struct WorkflowPipelineRuntimeRecord {
 #[derive(Debug, Clone, Deserialize, Default)]
 struct WorkflowRuntimeConfigLite {
     #[serde(default)]
-    default_pipeline_id: String,
+    default_workflow_ref: String,
     #[serde(default)]
-    pipelines: Vec<WorkflowPipelineRuntimeRecord>,
+    workflows: Vec<WorkflowPipelineRuntimeRecord>,
 }
 
 fn handoff_timeout() -> Duration {
@@ -96,15 +96,15 @@ fn resolve_handoff_settings_from_runtime_config(
     phase_key: &str,
 ) -> Option<WorkflowPhaseRuntimeSettings> {
     let config = load_workflow_runtime_config(project_root);
-    let pipeline_id = config.default_pipeline_id.trim();
-    let pipeline = if pipeline_id.is_empty() {
-        config.pipelines.first()
+    let workflow_ref = config.default_workflow_ref.trim();
+    let pipeline = if workflow_ref.is_empty() {
+        config.workflows.first()
     } else {
         config
-            .pipelines
+            .workflows
             .iter()
-            .find(|pipeline| pipeline.id.eq_ignore_ascii_case(pipeline_id))
-            .or_else(|| config.pipelines.first())
+            .find(|pipeline| pipeline.id.eq_ignore_ascii_case(workflow_ref))
+            .or_else(|| config.workflows.first())
     }?;
     pipeline
         .phase_settings

@@ -1612,7 +1612,7 @@
                   "task_id": {
                     "type": "string"
                   },
-                  "pipeline_id": {
+                  "workflow_ref": {
                     "type": "string"
                   }
                 }

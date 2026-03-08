@@ -140,7 +140,7 @@ async fn slim_project_tick_processes_due_schedule_via_mock_runner() {
     config.schedules.push(WorkflowSchedule {
         id: "nightly-review".to_string(),
         cron: "30 12 * * *".to_string(),
-        pipeline: Some(orchestrator_core::STANDARD_PIPELINE_ID.to_string()),
+        workflow_ref: Some(orchestrator_core::STANDARD_WORKFLOW_REF.to_string()),
         command: None,
         input: Some(json!({"source":"schedule","count":1})),
         enabled: true,
@@ -174,7 +174,7 @@ async fn slim_project_tick_processes_due_schedule_via_mock_runner() {
     assert!(args_log.contains("--title"));
     assert!(args_log.contains("schedule:nightly-review"));
     assert!(args_log.contains("--workflow-ref"));
-    assert!(args_log.contains(orchestrator_core::STANDARD_PIPELINE_ID));
+    assert!(args_log.contains(orchestrator_core::STANDARD_WORKFLOW_REF));
 
     let input_log = read_with_retry(&runner_dir.path().join("runner-input.log"))
         .expect("mock runner input should be captured");

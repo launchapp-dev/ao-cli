@@ -205,7 +205,7 @@ tool surface consumes.
 ### Change
 
 1. Replace task-first daemon entrypoints with `SubjectDispatch`.
-2. Replace `pipeline_id`-centric dispatch with YAML `workflow_ref`.
+2. Replace the remaining pipeline-centric dispatch semantics with YAML `workflow_ref`.
 3. Move task, requirement, and schedule writeback logic into projector or tool services.
 4. Replace special Rust AI task generation paths with YAML workflows executed by `workflow-runner`.
 5. Keep `orchestrator-cli` as command parsing, launching, and output only.

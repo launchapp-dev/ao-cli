@@ -115,7 +115,7 @@ pub(crate) fn upsert_phase_definition(
 
 pub(crate) fn remove_phase_definition(project_root: &str, phase_id: &str) -> Result<Value> {
     let workflow = orchestrator_core::load_workflow_config(Path::new(project_root))?;
-    if workflow.pipelines.iter().any(|pipeline| {
+    if workflow.workflows.iter().any(|pipeline| {
         pipeline
             .phases
             .iter()
@@ -170,17 +170,17 @@ pub(crate) fn preview_phase_removal(project_root: &str, phase_id: &str) -> Resul
 
 pub(crate) fn upsert_pipeline(
     project_root: &str,
-    pipeline: orchestrator_core::PipelineDefinition,
+    pipeline: orchestrator_core::WorkflowDefinition,
 ) -> Result<Value> {
     let mut workflow = orchestrator_core::load_workflow_config(Path::new(project_root))?;
     if let Some(existing) = workflow
-        .pipelines
+        .workflows
         .iter_mut()
         .find(|existing| existing.id.eq_ignore_ascii_case(pipeline.id.as_str()))
     {
         *existing = pipeline.clone();
     } else {
-        workflow.pipelines.push(pipeline.clone());
+        workflow.workflows.push(pipeline.clone());
     }
 
     let runtime = orchestrator_core::load_agent_runtime_config(Path::new(project_root))?;

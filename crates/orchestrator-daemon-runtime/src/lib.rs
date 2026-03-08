@@ -24,7 +24,7 @@ pub use queue::{
     DispatchQueueEntry, DispatchQueueEntryStatus, DispatchQueueState, QueueEnqueueResult,
     QueueEntrySnapshot, QueueSnapshot, QueueStats,
 };
-pub use schedule::ScheduleDispatch;
+pub use schedule::{ScheduleDispatch, ScheduleDispatchOutcome};
 pub use tick::{
     run_project_tick, run_project_tick_at, ProjectTickContext, ProjectTickExecutionOutcome,
     ProjectTickHooks, ProjectTickPlan, ProjectTickPreparation, ProjectTickRunMode,

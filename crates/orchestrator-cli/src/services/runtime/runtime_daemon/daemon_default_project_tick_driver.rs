@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use orchestrator_core::{services::ServiceHub, DaemonStatus, DaemonTickMetrics, FileServiceHub};
+use orchestrator_core::{
+    project_schedule_dispatch_attempt, services::ServiceHub, DaemonStatus, DaemonTickMetrics,
+    FileServiceHub,
+};
 use orchestrator_daemon_runtime::{
     CompletedProcess, DaemonRuntimeOptions, DispatchWorkflowStartSummary, ProcessManager,
     ProjectTickHooks, ProjectTickSnapshot, ProjectTickSummary, ProjectTickSummaryInput,
@@ -114,9 +117,13 @@ where
     S: DefaultProjectTickServices,
 {
     fn process_due_schedules(&mut self, root: &str, now: DateTime<Utc>) {
-        ScheduleDispatch::process_due_schedules(root, now, |schedule_id, dispatch| {
-            spawn_schedule_pipeline(self.process_manager, root, schedule_id, dispatch)
-        });
+        let outcomes =
+            ScheduleDispatch::process_due_schedules(root, now, |schedule_id, dispatch| {
+                spawn_schedule_pipeline(self.process_manager, root, schedule_id, dispatch)
+            });
+        for outcome in outcomes {
+            project_schedule_dispatch_attempt(root, &outcome.schedule_id, now, &outcome.status);
+        }
     }
 
     async fn capture_snapshot(&mut self, root: &str) -> Result<ProjectTickSnapshot> {

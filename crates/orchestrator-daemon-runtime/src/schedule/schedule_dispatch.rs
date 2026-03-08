@@ -1,8 +1,8 @@
 use anyhow::Result;
 use chrono::{Datelike, Timelike};
 use croner::parser::{CronParser, Seconds, Year};
-use orchestrator_core::{project_schedule_completion_status, project_schedule_dispatch_attempt};
 
+use super::ScheduleDispatchOutcome;
 use crate::SubjectDispatch;
 
 pub struct ScheduleDispatch;
@@ -18,7 +18,8 @@ impl ScheduleDispatch {
         project_root: &str,
         now: chrono::DateTime<chrono::Utc>,
         mut spawn_pipeline: PipelineSpawner,
-    ) where
+    ) -> Vec<ScheduleDispatchOutcome>
+    where
         PipelineSpawner: FnMut(&str, &SubjectDispatch) -> Result<()>,
     {
         let config =
@@ -27,7 +28,7 @@ impl ScheduleDispatch {
             .unwrap_or_default();
         let due = evaluate_schedules(&config.config.schedules, &state, now);
         if due.is_empty() {
-            return;
+            return Vec::new();
         }
 
         let schedule_lookup: std::collections::HashMap<
@@ -40,13 +41,19 @@ impl ScheduleDispatch {
             .map(|schedule| (schedule.id.as_str(), schedule))
             .collect();
 
-        for schedule_id in &due {
+        let mut outcomes = Vec::with_capacity(due.len());
+        for schedule_id in due {
             if let Some(schedule) = schedule_lookup.get(schedule_id.as_str()) {
                 let status =
-                    dispatch_schedule(schedule_id, schedule, now, "schedule", &mut spawn_pipeline);
-                project_schedule_dispatch_attempt(project_root, schedule_id, now, &status);
+                    dispatch_schedule(&schedule_id, schedule, now, "schedule", &mut spawn_pipeline);
+                outcomes.push(ScheduleDispatchOutcome {
+                    schedule_id,
+                    status,
+                });
             }
         }
+
+        outcomes
     }
 
     pub fn fire_schedule<PipelineSpawner>(
@@ -75,12 +82,7 @@ impl ScheduleDispatch {
             &mut spawn_pipeline,
         );
 
-        project_schedule_dispatch_attempt(project_root, schedule_id, now, &status);
         Ok(status)
-    }
-
-    pub fn update_completion_state(project_root: &str, schedule_id: &str, status: &str) {
-        project_schedule_completion_status(project_root, schedule_id, status);
     }
 }
 
@@ -415,7 +417,7 @@ mod tests {
         let pipeline_calls = Arc::new(Mutex::new(Vec::new()));
         let pipeline_calls_ref = pipeline_calls.clone();
 
-        ScheduleDispatch::process_due_schedules(
+        let outcomes = ScheduleDispatch::process_due_schedules(
             project_root.to_string_lossy().as_ref(),
             now,
             move |schedule_id, dispatch| {
@@ -427,12 +429,27 @@ mod tests {
                 Ok(())
             },
         );
+        for outcome in &outcomes {
+            orchestrator_core::project_schedule_dispatch_attempt(
+                project_root.to_string_lossy().as_ref(),
+                &outcome.schedule_id,
+                now,
+                &outcome.status,
+            );
+        }
 
         let calls = pipeline_calls.lock().expect("pipeline lock");
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].0, "nightly");
         assert_eq!(calls[0].1, "standard");
         assert_eq!(calls[0].2.as_deref(), Some(r#"{"scope":"nightly"}"#));
+        assert_eq!(
+            outcomes,
+            vec![ScheduleDispatchOutcome {
+                schedule_id: "nightly".to_string(),
+                status: "dispatched".to_string(),
+            }]
+        );
 
         let state =
             orchestrator_core::load_schedule_state(project_root).expect("schedule state loads");

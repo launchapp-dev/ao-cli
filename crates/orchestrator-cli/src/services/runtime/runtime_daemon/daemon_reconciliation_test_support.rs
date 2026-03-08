@@ -1,6 +1,6 @@
 use super::*;
+use crate::services::runtime::execution_fact_projection::project_terminal_workflow_result;
 use crate::services::runtime::runtime_daemon::daemon_reconciliation::recover_orphaned_running_workflows;
-use crate::services::runtime::sync_task_status_for_workflow_result;
 use orchestrator_core::{
     dependency_blocked_reason, dependency_gate_issues_for_task, is_dependency_gate_block,
     is_merge_gate_block, project_task_blocked_with_reason, project_task_status,
@@ -126,10 +126,13 @@ pub async fn reconcile_stale_in_progress_tasks_for_project(
             continue;
         }
         if completed_task_ids.contains(&task.id) {
-            sync_task_status_for_workflow_result(
+            project_terminal_workflow_result(
                 hub.clone(),
                 project_root,
                 &task.id,
+                Some(&task.id),
+                None,
+                None,
                 WorkflowStatus::Completed,
                 None,
             )
@@ -138,10 +141,13 @@ pub async fn reconcile_stale_in_progress_tasks_for_project(
             continue;
         }
         if failed_task_ids.contains(&task.id) {
-            sync_task_status_for_workflow_result(
+            project_terminal_workflow_result(
                 hub.clone(),
                 project_root,
                 &task.id,
+                Some(&task.id),
+                None,
+                None,
                 WorkflowStatus::Failed,
                 None,
             )
@@ -150,10 +156,13 @@ pub async fn reconcile_stale_in_progress_tasks_for_project(
             continue;
         }
         if cancelled_task_ids.contains(&task.id) {
-            sync_task_status_for_workflow_result(
+            project_terminal_workflow_result(
                 hub.clone(),
                 project_root,
                 &task.id,
+                Some(&task.id),
+                None,
+                None,
                 WorkflowStatus::Cancelled,
                 None,
             )
@@ -189,12 +198,15 @@ pub async fn resume_interrupted_workflows_for_project(
     for (workflow, _) in resumable {
         let updated = hub.workflows().resume(&workflow.id).await?;
         resumed = resumed.saturating_add(1);
-        sync_task_status_for_workflow_result(
+        project_terminal_workflow_result(
             hub.clone(),
             root,
             &updated.task_id,
-            updated.status,
+            Some(updated.task_id.as_str()),
+            updated.workflow_ref.as_deref(),
             Some(updated.id.as_str()),
+            updated.status,
+            None,
         )
         .await;
     }

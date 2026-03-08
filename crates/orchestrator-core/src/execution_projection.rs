@@ -1,3 +1,5 @@
+mod project_task_terminal_workflow_status;
+
 use std::path::Path;
 use std::sync::Arc;
 
@@ -9,6 +11,8 @@ use crate::{
     load_schedule_state, save_schedule_state, services::ServiceHub, OrchestratorTask,
     ScheduleRunState, TaskStatus,
 };
+
+pub use project_task_terminal_workflow_status::project_task_terminal_workflow_status;
 
 pub async fn project_task_status(
     hub: Arc<dyn ServiceHub>,

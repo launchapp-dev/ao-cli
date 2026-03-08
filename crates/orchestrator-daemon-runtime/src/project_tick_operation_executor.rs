@@ -26,10 +26,6 @@ pub trait ProjectTickOperations {
         Ok(0)
     }
 
-    async fn reconcile_merge_tasks(&mut self) -> Result<usize> {
-        Ok(0)
-    }
-
     async fn reconcile_completed_processes(&mut self) -> Result<(usize, usize)> {
         Ok((0, 0))
     }
@@ -97,10 +93,6 @@ where
                     .reconcile_stale_tasks(self.options.stale_threshold_hours)
                     .await?;
                 Ok(ProjectTickActionEffect::ReconciledStaleTasks { count })
-            }
-            ProjectTickAction::ReconcileMergeTasks => {
-                let count = self.operations.reconcile_merge_tasks().await?;
-                Ok(ProjectTickActionEffect::ReconciledMergeTasks { count })
             }
             ProjectTickAction::ReconcileCompletedProcesses => {
                 let (executed_workflow_phases, failed_workflow_phases) =

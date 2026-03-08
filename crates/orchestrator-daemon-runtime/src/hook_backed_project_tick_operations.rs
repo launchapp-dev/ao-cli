@@ -55,12 +55,6 @@ where
             .await
     }
 
-    async fn reconcile_merge_tasks(&mut self) -> Result<usize> {
-        self.hooks
-            .reconcile_merge_tasks(self.hub.clone(), self.root)
-            .await
-    }
-
     async fn reconcile_completed_processes(&mut self) -> Result<(usize, usize)> {
         self.hooks
             .reconcile_completed_processes(self.hub.clone(), self.root)

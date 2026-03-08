@@ -58,14 +58,6 @@ impl DefaultProjectTickServices for CliProjectTickServices {
         reconcile_stale_in_progress_tasks_for_project(hub, root, stale_threshold_hours).await
     }
 
-    async fn reconcile_merge_tasks(
-        &mut self,
-        hub: Arc<dyn ServiceHub>,
-        root: &str,
-    ) -> Result<usize> {
-        reconcile_merge_gate_tasks_for_project(hub, root).await
-    }
-
     async fn reconcile_completed_processes(
         &mut self,
         hub: Arc<dyn ServiceHub>,

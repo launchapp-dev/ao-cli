@@ -53,6 +53,9 @@ pub(super) async fn project_tick_at(
     let dependency_reconciled =
         reconcile_dependency_gate_tasks_for_project(Arc::new(FileServiceHub::new(&root)?), &root)
             .await?;
+    let merge_reconciled =
+        reconcile_merge_gate_tasks_for_project(Arc::new(FileServiceHub::new(&root)?), &root)
+            .await?;
     let mut driver: FullProjectTickDriver = full_project_tick_driver();
     let mut summary = run_project_tick_at(
         &root,
@@ -65,7 +68,8 @@ pub(super) async fn project_tick_at(
     .await?;
     summary.reconciled_stale_tasks = summary
         .reconciled_stale_tasks
-        .saturating_add(dependency_reconciled);
+        .saturating_add(dependency_reconciled)
+        .saturating_add(merge_reconciled);
     Ok(summary)
 }
 
@@ -96,6 +100,9 @@ pub(super) async fn slim_daemon_tick_at(
     let dependency_reconciled =
         reconcile_dependency_gate_tasks_for_project(Arc::new(FileServiceHub::new(&root)?), &root)
             .await?;
+    let merge_reconciled =
+        reconcile_merge_gate_tasks_for_project(Arc::new(FileServiceHub::new(&root)?), &root)
+            .await?;
     let mode = ProjectTickRunMode::Slim {
         active_process_count: process_manager.active_count(),
     };
@@ -111,7 +118,8 @@ pub(super) async fn slim_daemon_tick_at(
     .await?;
     summary.reconciled_stale_tasks = summary
         .reconciled_stale_tasks
-        .saturating_add(dependency_reconciled);
+        .saturating_add(dependency_reconciled)
+        .saturating_add(merge_reconciled);
     Ok(summary)
 }
 

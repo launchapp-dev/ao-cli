@@ -366,11 +366,7 @@ pub(crate) struct WorkflowPhaseRemoveArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct WorkflowDefinitionUpsertArgs {
-    #[arg(
-        long,
-        value_name = "JSON",
-        help = "Workflow definition JSON payload."
-    )]
+    #[arg(long, value_name = "JSON", help = "Workflow definition JSON payload.")]
     pub(crate) input_json: String,
 }
 

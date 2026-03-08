@@ -1,8 +1,8 @@
 // phase-decision-test
 pub mod agent_runtime_config;
 pub mod config;
-pub mod daemon_tick_metrics;
 pub mod daemon_config;
+pub mod daemon_tick_metrics;
 pub mod doctor;
 pub mod domain_state;
 pub mod events;
@@ -13,8 +13,8 @@ pub mod runtime;
 pub mod runtime_contract;
 pub mod services;
 pub mod state_machines;
-pub mod task_gate;
 pub mod task_dispatch_policy;
+pub mod task_gate;
 pub mod types;
 pub mod workflow;
 pub mod workflow_config;
@@ -76,13 +76,13 @@ pub use state_machines::{
     LoadedStateMachines, MachineSource, RequirementLifecycleEvent, StateMachineMode,
     StateMachinesDocument,
 };
+pub use task_dispatch_policy::{
+    routing_complexity_for_task, should_skip_task_dispatch, workflow_ref_for_task,
+};
 pub use task_gate::{
     dependency_blocked_reason, dependency_gate_issues_for_task, is_dependency_gate_block,
     is_merge_gate_block, merge_blocked_reason, promote_backlog_tasks_to_ready,
     retry_failed_task_workflows, DEPENDENCY_GATE_PREFIX, MERGE_GATE_PREFIX,
-};
-pub use task_dispatch_policy::{
-    routing_complexity_for_task, should_skip_task_dispatch, workflow_ref_for_task,
 };
 pub use types::{
     AgentHandoffRequestInput, AgentHandoffResult, AgentHandoffStatus, ArchitectureEdge,
@@ -107,24 +107,24 @@ pub use types::{
     MAX_DISPATCH_HISTORY_ENTRIES,
 };
 pub use workflow::{
-    phase_plan_for_workflow_ref, resolve_phase_plan_for_workflow_ref, ResumabilityStatus, ResumeConfig,
-    WorkflowCheckpointPruneResult, WorkflowLifecycleExecutor, WorkflowResumeManager,
+    phase_plan_for_workflow_ref, resolve_phase_plan_for_workflow_ref, ResumabilityStatus,
+    ResumeConfig, WorkflowCheckpointPruneResult, WorkflowLifecycleExecutor, WorkflowResumeManager,
     WorkflowStateMachine, WorkflowStateManager, DEFAULT_CHECKPOINT_RETENTION_KEEP_LAST_PER_PHASE,
     STANDARD_WORKFLOW_REF, UI_UX_WORKFLOW_REF,
 };
 pub use workflow_config::{
     builtin_workflow_config, compile_and_write_yaml_workflows, compile_yaml_workflow_files,
-    ensure_workflow_config_compiled, ensure_workflow_config_file, expand_workflow_phases,
-    expand_variables, legacy_workflow_config_paths, load_workflow_config,
+    ensure_workflow_config_compiled, ensure_workflow_config_file, expand_variables,
+    expand_workflow_phases, legacy_workflow_config_paths, load_workflow_config,
     load_workflow_config_or_default, load_workflow_config_with_metadata, merge_yaml_into_config,
     parse_yaml_workflow_config, resolve_workflow_phase_plan, resolve_workflow_rework_attempts,
     resolve_workflow_skip_guards, resolve_workflow_variables, resolve_workflow_verdict_routing,
     validate_workflow_and_runtime_configs, validate_workflow_config, workflow_config_hash,
     workflow_config_path, write_workflow_config, yaml_workflows_dir, CompileYamlResult,
-    LoadedWorkflowConfig, PhaseTransitionConfig, PhaseUiDefinition, WorkflowDefinition,
-    WorkflowPhaseConfig, WorkflowPhaseEntry, WorkflowVariable, SubWorkflowRef,
+    LoadedWorkflowConfig, PhaseTransitionConfig, PhaseUiDefinition, SubWorkflowRef,
     WorkflowCheckpointRetentionConfig, WorkflowConfig, WorkflowConfigMetadata,
-    WorkflowConfigSource, WorkflowSchedule, WORKFLOW_CONFIG_FILE_NAME, WORKFLOW_CONFIG_SCHEMA_ID,
+    WorkflowConfigSource, WorkflowDefinition, WorkflowPhaseConfig, WorkflowPhaseEntry,
+    WorkflowSchedule, WorkflowVariable, WORKFLOW_CONFIG_FILE_NAME, WORKFLOW_CONFIG_SCHEMA_ID,
     WORKFLOW_CONFIG_VERSION, YAML_WORKFLOWS_DIR,
 };
 

@@ -19,10 +19,7 @@ pub struct DaemonTickMetrics {
 }
 
 impl DaemonTickMetrics {
-    pub async fn collect(
-        hub: Arc<dyn ServiceHub>,
-        stale_threshold_hours: u64,
-    ) -> Result<Self> {
+    pub async fn collect(hub: Arc<dyn ServiceHub>, stale_threshold_hours: u64) -> Result<Self> {
         let tasks = hub.tasks().list().await?;
         let workflows = hub.workflows().list().await.unwrap_or_default();
 

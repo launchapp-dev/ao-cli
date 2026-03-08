@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use chrono::Utc;
 use protocol::SubjectDispatch;
 use serde::Serialize;
@@ -57,24 +57,17 @@ pub fn enqueue_subject_dispatch(
     project_root: &str,
     dispatch: SubjectDispatch,
 ) -> Result<QueueEnqueueResult> {
-    let Some(task_id) = dispatch.task_id() else {
-        return Err(anyhow!(
-            "queue currently supports task subjects only; got {}",
-            dispatch.subject_id()
-        ));
-    };
     let mut state = load_dispatch_queue_state(project_root)?.unwrap_or_default();
     let subject_id = dispatch.subject_id().to_string();
 
     if state.entries.iter().any(|entry| {
         entry.subject_id() == subject_id
             && entry.status != DispatchQueueEntryStatus::Unknown
-            && entry.task_id() == Some(task_id)
             && entry
                 .dispatch
                 .as_ref()
                 .map(|existing| existing.workflow_ref == dispatch.workflow_ref)
-                .unwrap_or(true)
+                .unwrap_or_else(|| entry.task_id() == dispatch.task_id())
     }) {
         return Ok(QueueEnqueueResult {
             enqueued: false,
@@ -147,21 +140,20 @@ pub fn reorder_subjects(project_root: &str, subject_ids: Vec<String>) -> Result<
         .map(|entry| entry.subject_id().to_string())
         .collect::<Vec<_>>();
     let mut reordered = Vec::new();
-    let subject_id_set: std::collections::HashSet<&str> =
-        subject_ids.iter().map(String::as_str).collect();
+    let mut consumed = vec![false; state.entries.len()];
 
     for subject_id in &subject_ids {
-        if let Some(entry) = state
-            .entries
-            .iter()
-            .find(|entry| entry.subject_id() == subject_id)
-        {
+        for (index, entry) in state.entries.iter().enumerate() {
+            if consumed[index] || entry.subject_id() != subject_id {
+                continue;
+            }
+            consumed[index] = true;
             reordered.push(entry.clone());
         }
     }
 
-    for entry in &state.entries {
-        if !subject_id_set.contains(entry.subject_id()) {
+    for (index, entry) in state.entries.iter().enumerate() {
+        if !consumed[index] {
             reordered.push(entry.clone());
         }
     }
@@ -219,6 +211,7 @@ fn snapshot_from_state(state: &DispatchQueueState) -> QueueSnapshot {
 #[cfg(test)]
 mod tests {
     use chrono::{TimeZone, Utc};
+    use serde_json::json;
 
     use super::*;
 
@@ -268,5 +261,71 @@ mod tests {
         let snapshot = queue_snapshot(&project_root).expect("snapshot");
         assert_eq!(snapshot.entries[0].subject_id, "TASK-2");
         assert_eq!(snapshot.entries[1].subject_id, "TASK-1");
+    }
+
+    #[test]
+    fn enqueue_subject_dispatch_accepts_non_task_subjects() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let project_root = temp.path().to_string_lossy().to_string();
+
+        let result = enqueue_subject_dispatch(
+            &project_root,
+            SubjectDispatch::for_requirement("REQ-39", "planning", "manual-queue-enqueue")
+                .with_input(Some(json!({"scope":"shared-ingress"}))),
+        )
+        .expect("enqueue");
+
+        assert!(result.enqueued);
+        let snapshot = queue_snapshot(&project_root).expect("snapshot");
+        assert_eq!(snapshot.stats.total, 1);
+        assert_eq!(snapshot.entries[0].subject_id, "REQ-39");
+        assert!(snapshot.entries[0].task_id.is_none());
+        assert_eq!(
+            snapshot.entries[0]
+                .dispatch
+                .as_ref()
+                .map(|dispatch| dispatch.workflow_ref.as_str()),
+            Some("planning")
+        );
+    }
+
+    #[test]
+    fn reorder_subjects_keeps_all_entries_for_same_subject() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let project_root = temp.path().to_string_lossy().to_string();
+        enqueue_subject_dispatch(
+            &project_root,
+            SubjectDispatch::for_task("TASK-1", "standard"),
+        )
+        .expect("enqueue standard");
+        enqueue_subject_dispatch(
+            &project_root,
+            SubjectDispatch::for_task("TASK-2", "standard"),
+        )
+        .expect("enqueue second");
+        enqueue_subject_dispatch(&project_root, SubjectDispatch::for_task("TASK-1", "ops"))
+            .expect("enqueue ops");
+
+        assert!(reorder_subjects(&project_root, vec!["TASK-1".into()]).expect("reorder"));
+
+        let snapshot = queue_snapshot(&project_root).expect("snapshot");
+        assert_eq!(snapshot.stats.total, 3);
+        assert_eq!(snapshot.entries[0].subject_id, "TASK-1");
+        assert_eq!(
+            snapshot.entries[0]
+                .dispatch
+                .as_ref()
+                .map(|dispatch| dispatch.workflow_ref.as_str()),
+            Some("standard")
+        );
+        assert_eq!(snapshot.entries[1].subject_id, "TASK-1");
+        assert_eq!(
+            snapshot.entries[1]
+                .dispatch
+                .as_ref()
+                .map(|dispatch| dispatch.workflow_ref.as_str()),
+            Some("ops")
+        );
+        assert_eq!(snapshot.entries[2].subject_id, "TASK-2");
     }
 }

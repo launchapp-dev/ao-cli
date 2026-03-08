@@ -131,7 +131,7 @@ impl WebApiService {
         let request: QueueReorderRequest = parse_json_body(body)?;
         let project_root = &self.context.project_root;
 
-        let updated = reorder_subjects(project_root, request.task_ids).map_err(|e| {
+        let updated = reorder_subjects(project_root, request.subject_ids).map_err(|e| {
             WebApiError::new(
                 "internal_error",
                 format!("failed to reorder queue: {}", e),

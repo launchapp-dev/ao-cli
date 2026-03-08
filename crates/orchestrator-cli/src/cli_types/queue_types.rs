@@ -20,12 +20,34 @@ pub(crate) enum QueueCommand {
 
 #[derive(Debug, Args)]
 pub(crate) struct QueueEnqueueArgs {
-    #[arg(long, value_name = "TASK_ID", help = "Task subject to enqueue.")]
-    pub(crate) task_id: String,
+    #[arg(
+        long,
+        value_name = "TASK_ID",
+        help = "Task subject to enqueue (mutually exclusive with --requirement-id / --title)."
+    )]
+    pub(crate) task_id: Option<String>,
+    #[arg(
+        long,
+        value_name = "REQ_ID",
+        help = "Requirement subject to enqueue (mutually exclusive with --task-id / --title)."
+    )]
+    pub(crate) requirement_id: Option<String>,
+    #[arg(
+        long,
+        value_name = "TITLE",
+        help = "Custom subject title (mutually exclusive with --task-id / --requirement-id)."
+    )]
+    pub(crate) title: Option<String>,
+    #[arg(
+        long,
+        value_name = "TEXT",
+        help = "Custom subject description (used with --title)."
+    )]
+    pub(crate) description: Option<String>,
     #[arg(
         long = "workflow-ref",
         value_name = "WORKFLOW_REF",
-        help = "Optional YAML workflow reference override. Defaults to the task workflow."
+        help = "Optional YAML workflow reference override."
     )]
     pub(crate) workflow_ref: Option<String>,
     #[arg(long, value_name = "JSON", help = INPUT_JSON_PRECEDENCE_HELP)]

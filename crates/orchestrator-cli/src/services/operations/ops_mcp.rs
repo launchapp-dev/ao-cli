@@ -256,7 +256,14 @@ struct WorkflowRunInput {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 struct QueueEnqueueInput {
-    task_id: String,
+    #[serde(default)]
+    task_id: Option<String>,
+    #[serde(default)]
+    requirement_id: Option<String>,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
     #[serde(default)]
     workflow_ref: Option<String>,
     #[serde(default)]
@@ -1470,7 +1477,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.queue.enqueue",
-        description = "Enqueue a task-backed subject dispatch. Purpose: Add a SubjectDispatch to the daemon queue using a task subject and optional workflow/input override. Prerequisites: Task must exist. Example: {\"task_id\": \"TASK-001\", \"workflow_ref\": \"ops\"}. Sequencing: Use ao.queue.list to inspect position or ao.queue.reorder to adjust ordering.",
+        description = "Enqueue a subject dispatch. Purpose: Add a SubjectDispatch to the daemon queue using a task, requirement, or custom subject plus optional workflow/input override. Prerequisites: Task subjects must exist; custom subjects require a title. Example: {\"task_id\": \"TASK-001\", \"workflow_ref\": \"ops\"}. Sequencing: Use ao.queue.list to inspect position or ao.queue.reorder to adjust ordering.",
         input_schema = ao_schema_for_type::<QueueEnqueueInput>()
     )]
     async fn ao_queue_enqueue(
@@ -3111,12 +3118,11 @@ fn build_daemon_config_set_args(input: &DaemonConfigSetInput) -> Vec<String> {
 }
 
 fn build_queue_enqueue_args(input: &QueueEnqueueInput) -> Vec<String> {
-    let mut args = vec![
-        "queue".to_string(),
-        "enqueue".to_string(),
-        "--task-id".to_string(),
-        input.task_id.clone(),
-    ];
+    let mut args = vec!["queue".to_string(), "enqueue".to_string()];
+    push_opt(&mut args, "--task-id", input.task_id.clone());
+    push_opt(&mut args, "--requirement-id", input.requirement_id.clone());
+    push_opt(&mut args, "--title", input.title.clone());
+    push_opt(&mut args, "--description", input.description.clone());
     push_opt(&mut args, "--workflow-ref", input.workflow_ref.clone());
     push_opt(&mut args, "--input-json", input.input_json.clone());
     args
@@ -5187,7 +5193,10 @@ mod tests {
     #[test]
     fn build_queue_enqueue_args_includes_optional_fields() {
         let input = QueueEnqueueInput {
-            task_id: "TASK-123".to_string(),
+            task_id: Some("TASK-123".to_string()),
+            requirement_id: None,
+            title: None,
+            description: None,
             workflow_ref: Some("ops".to_string()),
             input_json: Some("{\"mode\":\"fast\"}".to_string()),
             project_root: None,

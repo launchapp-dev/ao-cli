@@ -12,6 +12,7 @@ use crate::{build_runner_command_from_dispatch, CompletedProcess, RunnerEvent};
 struct WorkflowProcess {
     subject_id: String,
     task_id: Option<String>,
+    workflow_ref: String,
     schedule_id: Option<String>,
     child: Arc<Mutex<Child>>,
     stderr_lines: Arc<Mutex<Vec<String>>>,
@@ -58,11 +59,13 @@ impl ProcessManager {
         }
 
         let task_id = dispatch.task_id().map(String::from);
+        let workflow_ref = dispatch.workflow_ref.clone();
         let schedule_id = dispatch.schedule_id().map(String::from);
 
         self.processes.push(WorkflowProcess {
             subject_id: dispatch.subject_id().to_string(),
             task_id,
+            workflow_ref,
             schedule_id,
             child: Arc::new(Mutex::new(child)),
             stderr_lines,
@@ -83,6 +86,7 @@ impl ProcessManager {
                         completed.push(CompletedProcess {
                             subject_id: process.subject_id,
                             task_id: process.task_id,
+                            workflow_ref: Some(process.workflow_ref),
                             schedule_id: process.schedule_id,
                             exit_code: None,
                             success: false,
@@ -117,6 +121,7 @@ impl ProcessManager {
                     completed.push(CompletedProcess {
                         subject_id: process.subject_id,
                         task_id: process.task_id,
+                        workflow_ref: Some(process.workflow_ref),
                         schedule_id: process.schedule_id,
                         exit_code,
                         success,
@@ -129,6 +134,7 @@ impl ProcessManager {
                     completed.push(CompletedProcess {
                         subject_id: process.subject_id,
                         task_id: process.task_id,
+                        workflow_ref: Some(process.workflow_ref),
                         schedule_id: process.schedule_id,
                         exit_code: None,
                         success: false,

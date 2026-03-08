@@ -71,7 +71,7 @@ mod tests {
         let queued = DispatchCandidate {
             dispatch: SubjectDispatch::for_task_with_metadata(
                 "TASK-1",
-                orchestrator_core::STANDARD_PIPELINE_ID,
+                orchestrator_core::STANDARD_WORKFLOW_REF,
                 "em-queue",
                 now,
             ),
@@ -80,7 +80,7 @@ mod tests {
         let fallback = DispatchCandidate {
             dispatch: SubjectDispatch::for_task_with_metadata(
                 "TASK-2",
-                orchestrator_core::STANDARD_PIPELINE_ID,
+                orchestrator_core::STANDARD_WORKFLOW_REF,
                 "fallback-picker",
                 now,
             ),
@@ -96,7 +96,7 @@ mod tests {
                 PlannedDispatchStart {
                     dispatch: SubjectDispatch::for_task_with_metadata(
                         "TASK-1",
-                        orchestrator_core::STANDARD_PIPELINE_ID,
+                        orchestrator_core::STANDARD_WORKFLOW_REF,
                         "em-queue",
                         now,
                     ),
@@ -105,7 +105,7 @@ mod tests {
                 PlannedDispatchStart {
                     dispatch: SubjectDispatch::for_task_with_metadata(
                         "TASK-2",
-                        orchestrator_core::STANDARD_PIPELINE_ID,
+                        orchestrator_core::STANDARD_WORKFLOW_REF,
                         "fallback-picker",
                         now,
                     ),
@@ -121,7 +121,7 @@ mod tests {
         let fallback = DispatchCandidate {
             dispatch: SubjectDispatch::for_task_with_metadata(
                 "TASK-2",
-                orchestrator_core::STANDARD_PIPELINE_ID,
+                orchestrator_core::STANDARD_WORKFLOW_REF,
                 "fallback-picker",
                 now,
             ),
@@ -135,7 +135,7 @@ mod tests {
             vec![PlannedDispatchStart {
                 dispatch: SubjectDispatch::for_task_with_metadata(
                     "TASK-2",
-                    orchestrator_core::STANDARD_PIPELINE_ID,
+                    orchestrator_core::STANDARD_WORKFLOW_REF,
                     "fallback-picker",
                     now,
                 ),
@@ -158,7 +158,7 @@ mod tests {
         let queued = DispatchCandidate {
             dispatch: SubjectDispatch::for_task_with_metadata(
                 "TASK-1",
-                orchestrator_core::STANDARD_PIPELINE_ID,
+                orchestrator_core::STANDARD_WORKFLOW_REF,
                 "em-queue",
                 now,
             ),
@@ -167,7 +167,7 @@ mod tests {
         let fallback = DispatchCandidate {
             dispatch: SubjectDispatch::for_task_with_metadata(
                 "TASK-1",
-                orchestrator_core::STANDARD_PIPELINE_ID,
+                orchestrator_core::STANDARD_WORKFLOW_REF,
                 "fallback-picker",
                 now,
             ),

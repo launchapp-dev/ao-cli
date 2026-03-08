@@ -16,8 +16,8 @@ pub use completion_reconciliation_plan::{
 };
 pub use dispatch_selection_source::DispatchSelectionSource;
 pub use dispatch_support::{
-    active_workflow_task_ids, is_terminally_completed_workflow, ready_dispatch_limit,
-    ready_dispatch_limit_for_options, workflow_current_phase_id,
+    active_workflow_subject_ids, active_workflow_task_ids, is_terminally_completed_workflow,
+    ready_dispatch_limit, ready_dispatch_limit_for_options, workflow_current_phase_id,
 };
 pub use dispatch_workflow_start::DispatchWorkflowStart;
 pub use dispatch_workflow_start_summary::DispatchWorkflowStartSummary;

@@ -1,7 +1,6 @@
 use super::*;
-use orchestrator_core::{
-    project_task_blocked_with_reason, services::ServiceHub, WorkflowMachineState, WorkflowStatus,
-};
+use orchestrator_core::{services::ServiceHub, WorkflowMachineState, WorkflowStatus};
+use orchestrator_daemon_runtime::remove_terminal_dispatch_queue_entry_non_fatal;
 
 pub async fn recover_orphaned_running_workflows_on_startup(
     hub: Arc<dyn ServiceHub>,
@@ -27,31 +26,14 @@ pub async fn recover_orphaned_running_workflows_on_startup(
             workflow.id,
             workflow.task_id
         );
-        let task_id = workflow.task_id.clone();
         if let Ok(_updated) = hub.workflows().cancel(&workflow.id).await {
-            sync_task_status_for_workflow_result(
-                hub.clone(),
+            remove_terminal_dispatch_queue_entry_non_fatal(
                 project_root,
-                &task_id,
-                WorkflowStatus::Cancelled,
+                workflow.subject.id(),
+                workflow.workflow_ref.as_deref(),
                 Some(workflow.id.as_str()),
-            )
-            .await;
+            );
         }
-        let task = match hub.tasks().get(&task_id).await {
-            Ok(task) => task,
-            Err(_) => {
-                recovered = recovered.saturating_add(1);
-                continue;
-            }
-        };
-        let _ = project_task_blocked_with_reason(
-            hub.clone(),
-            &task,
-            "orphaned_after_daemon_restart".to_string(),
-            Some(workflow.id.clone()),
-        )
-        .await;
         recovered = recovered.saturating_add(1);
     }
 

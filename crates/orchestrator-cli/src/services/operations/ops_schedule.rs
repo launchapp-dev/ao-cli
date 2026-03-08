@@ -130,21 +130,6 @@ fn fire_schedule(project_root: &str, schedule_id: &str) -> Result<()> {
             spawn_completion_writeback(project_root, schedule_id, child);
             Ok(())
         },
-        |schedule_id, command| {
-            use std::process::Command as StdCommand;
-            let child = StdCommand::new("sh")
-                .arg("-c")
-                .arg(command)
-                .current_dir(project_root)
-                .stdout(Stdio::null())
-                .stderr(Stdio::inherit())
-                .spawn()
-                .with_context(|| {
-                    format!("failed to spawn command for schedule '{}'", schedule_id)
-                })?;
-            spawn_completion_writeback(project_root, schedule_id, child);
-            Ok(())
-        },
     )?;
 
     Ok(())
@@ -201,7 +186,7 @@ mod tests {
     }
 
     #[test]
-    fn manual_fire_updates_command_schedule_to_completed() {
+    fn manual_fire_rejects_command_schedules() {
         let temp = tempdir().expect("tempdir should be created");
         let project_root = temp.path();
         let mut config = builtin_workflow_config();
@@ -216,37 +201,22 @@ mod tests {
         write_workflow_config(project_root, &config).expect("workflow config should be written");
 
         fire_schedule(project_root.to_string_lossy().as_ref(), "nightly")
-            .expect("manual schedule fire should dispatch");
+            .expect("manual schedule fire should write failed status");
 
         let status = wait_for_schedule_status(project_root, "nightly");
-        assert_eq!(status, "completed");
-    }
-
-    #[test]
-    fn manual_fire_updates_command_schedule_to_failed() {
-        let temp = tempdir().expect("tempdir should be created");
-        let project_root = temp.path();
-        let mut config = builtin_workflow_config();
-        config.schedules.push(orchestrator_core::WorkflowSchedule {
-            id: "nightly".to_string(),
-            cron: "30 12 * * *".to_string(),
-            workflow_ref: None,
-            command: Some("exit 1".to_string()),
-            input: None,
-            enabled: true,
-        });
-        write_workflow_config(project_root, &config).expect("workflow config should be written");
-
-        fire_schedule(project_root.to_string_lossy().as_ref(), "nightly")
-            .expect("manual schedule fire should dispatch");
-
-        let status = wait_for_schedule_status(project_root, "nightly");
-        assert_eq!(status, "failed");
+        assert_eq!(status, "failed: schedule is missing workflow_ref");
     }
 }
 
 fn print_schedule_table(rows: &[ScheduleListEntry]) {
-    let headers = ["id", "cron", "workflow_ref", "command", "enabled", "last_run"];
+    let headers = [
+        "id",
+        "cron",
+        "workflow_ref",
+        "command",
+        "enabled",
+        "last_run",
+    ];
     let mut widths = headers
         .iter()
         .map(|header| header.len())

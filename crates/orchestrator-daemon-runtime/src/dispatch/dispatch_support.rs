@@ -78,6 +78,19 @@ pub fn active_workflow_task_ids(workflows: &[OrchestratorWorkflow]) -> HashSet<S
         .collect()
 }
 
+pub fn active_workflow_subject_ids(workflows: &[OrchestratorWorkflow]) -> HashSet<String> {
+    workflows
+        .iter()
+        .filter(|workflow| {
+            matches!(
+                workflow.status,
+                WorkflowStatus::Running | WorkflowStatus::Paused | WorkflowStatus::Pending
+            ) && workflow.machine_state != orchestrator_core::WorkflowMachineState::MergeConflict
+        })
+        .map(|workflow| workflow.subject.id().to_string())
+        .collect()
+}
+
 pub fn workflow_current_phase_id(workflow: &OrchestratorWorkflow) -> Option<String> {
     workflow
         .current_phase
@@ -144,9 +157,6 @@ mod tests {
             ..DaemonRuntimeOptions::default()
         };
 
-        assert_eq!(
-            ready_dispatch_limit_for_options(&options, 2, None, None),
-            4
-        );
+        assert_eq!(ready_dispatch_limit_for_options(&options, 2, None, None), 4);
     }
 }

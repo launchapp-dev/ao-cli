@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
-use orchestrator_core::{services::ServiceHub, workflow_ref_for_task};
+use orchestrator_core::{services::ServiceHub, workflow_ref_for_task, STANDARD_WORKFLOW_REF};
 use orchestrator_daemon_runtime::{
     enqueue_subject_dispatch, hold_subject, queue_snapshot, queue_stats, release_subject,
     reorder_subjects,
@@ -20,21 +20,53 @@ pub(crate) async fn handle_queue(
         QueueCommand::List => print_value(queue_snapshot(project_root)?, json),
         QueueCommand::Stats => print_value(queue_stats(project_root)?, json),
         QueueCommand::Enqueue(args) => {
-            let task = hub.tasks().get(&args.task_id).await?;
-            let workflow_ref = args
-                .workflow_ref
-                .unwrap_or_else(|| workflow_ref_for_task(&task));
             let input = args
                 .input_json
                 .map(|value| serde_json::from_str(&value))
                 .transpose()?;
-            let dispatch = SubjectDispatch::for_task_with_metadata(
-                task.id.clone(),
-                workflow_ref,
-                "manual-queue-enqueue",
-                chrono::Utc::now(),
-            )
-            .with_input(input);
+            let dispatch = match (args.task_id, args.requirement_id, args.title) {
+                (Some(task_id), None, None) => {
+                    let task = hub.tasks().get(&task_id).await?;
+                    let workflow_ref = args
+                        .workflow_ref
+                        .unwrap_or_else(|| workflow_ref_for_task(&task));
+                    SubjectDispatch::for_task_with_metadata(
+                        task.id.clone(),
+                        workflow_ref,
+                        "manual-queue-enqueue",
+                        chrono::Utc::now(),
+                    )
+                    .with_input(input)
+                }
+                (None, Some(requirement_id), None) => {
+                    hub.planning().get_requirement(&requirement_id).await?;
+                    SubjectDispatch::for_requirement(
+                        requirement_id,
+                        args.workflow_ref
+                            .unwrap_or_else(|| STANDARD_WORKFLOW_REF.to_string()),
+                        "manual-queue-enqueue",
+                    )
+                    .with_input(input)
+                }
+                (None, None, Some(title)) => SubjectDispatch::for_custom(
+                    title,
+                    args.description.unwrap_or_default(),
+                    args.workflow_ref
+                        .unwrap_or_else(|| STANDARD_WORKFLOW_REF.to_string()),
+                    input,
+                    "manual-queue-enqueue",
+                ),
+                (None, None, None) => {
+                    return Err(anyhow!(
+                        "one of --task-id, --requirement-id, or --title must be provided"
+                    ));
+                }
+                _ => {
+                    return Err(anyhow!(
+                        "--task-id, --requirement-id, and --title are mutually exclusive"
+                    ));
+                }
+            };
             let result = enqueue_subject_dispatch(project_root, dispatch)?;
             if !json {
                 if result.enqueued {

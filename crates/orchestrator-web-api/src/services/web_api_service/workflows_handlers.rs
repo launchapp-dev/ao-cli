@@ -1,7 +1,37 @@
 use orchestrator_core::{FileServiceHub, ServiceHub, WorkflowRunInput};
+use protocol::orchestrator::WorkflowSubject;
 use serde_json::{json, Value};
 
 use super::{parsing::parse_json_body, requests::WorkflowRunRequest, WebApiError, WebApiService};
+
+fn resolve_workflow_run_input(
+    request: WorkflowRunRequest,
+) -> Result<WorkflowRunInput, WebApiError> {
+    match (request.task_id, request.requirement_id, request.title) {
+        (Some(task_id), None, None) => {
+            Ok(WorkflowRunInput::for_task(task_id, request.workflow_ref))
+        }
+        (None, Some(requirement_id), None) => Ok(WorkflowRunInput::for_requirement(
+            requirement_id,
+            request.workflow_ref,
+        )),
+        (None, None, Some(title)) => Ok(WorkflowRunInput::for_custom(
+            title,
+            request.description.unwrap_or_default(),
+            request.workflow_ref,
+        )),
+        (None, None, None) => Err(WebApiError::new(
+            "invalid_input",
+            "one of task_id, requirement_id, or title must be provided".to_string(),
+            2,
+        )),
+        _ => Err(WebApiError::new(
+            "invalid_input",
+            "task_id, requirement_id, and title are mutually exclusive".to_string(),
+            2,
+        )),
+    }
+}
 
 impl WebApiService {
     pub async fn workflows_list(&self) -> Result<Value, WebApiError> {
@@ -49,18 +79,19 @@ impl WebApiService {
 
     pub async fn workflows_run(&self, body: Value) -> Result<Value, WebApiError> {
         let request: WorkflowRunRequest = parse_json_body(body)?;
-        let workflow = self
-            .context
-            .hub
-            .workflows()
-            .run(WorkflowRunInput::for_task(
-                request.task_id,
-                request.workflow_ref,
-            ))
-            .await?;
+        let input = resolve_workflow_run_input(request)?;
+        let workflow = self.context.hub.workflows().run(input).await?;
+        let subject_id = match &workflow.subject {
+            WorkflowSubject::Task { id } | WorkflowSubject::Requirement { id } => id.clone(),
+            WorkflowSubject::Custom { title, .. } => title.clone(),
+        };
         self.publish_event(
             "workflow-run",
-            json!({ "workflow_id": workflow.id, "task_id": workflow.task_id }),
+            json!({
+                "workflow_id": workflow.id,
+                "subject_id": subject_id,
+                "task_id": workflow.task_id,
+            }),
         );
         Ok(json!(workflow))
     }

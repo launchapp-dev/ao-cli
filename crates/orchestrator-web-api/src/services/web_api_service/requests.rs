@@ -207,7 +207,14 @@ pub(super) struct TaskDependencyRemoveRequest {
 
 #[derive(Debug, Deserialize)]
 pub(super) struct WorkflowRunRequest {
-    pub(super) task_id: String,
+    #[serde(default)]
+    pub(super) task_id: Option<String>,
+    #[serde(default)]
+    pub(super) requirement_id: Option<String>,
+    #[serde(default)]
+    pub(super) title: Option<String>,
+    #[serde(default)]
+    pub(super) description: Option<String>,
     #[serde(default)]
     pub(super) workflow_ref: Option<String>,
 }
@@ -226,7 +233,8 @@ pub(super) struct ReviewHandoffRequest {
 #[derive(Debug, Deserialize)]
 pub(super) struct QueueReorderRequest {
     #[serde(default)]
-    pub(super) task_ids: Vec<String>,
+    #[serde(alias = "task_ids")]
+    pub(super) subject_ids: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]

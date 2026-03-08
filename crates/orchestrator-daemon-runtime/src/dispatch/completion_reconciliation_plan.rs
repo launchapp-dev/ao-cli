@@ -31,6 +31,7 @@ pub fn build_completion_reconciliation_plan(
         plan.execution_facts.push(SubjectExecutionFact {
             subject_id: completed.subject_id,
             task_id: completed.task_id,
+            workflow_ref: completed.workflow_ref,
             schedule_id: completed.schedule_id,
             exit_code: completed.exit_code,
             success: completed.success,
@@ -61,6 +62,7 @@ mod tests {
         let plan = build_completion_reconciliation_plan(vec![CompletedProcess {
             subject_id: "TASK-123".to_string(),
             task_id: Some("TASK-123".to_string()),
+            workflow_ref: Some("standard".to_string()),
             schedule_id: None,
             exit_code: Some(0),
             success: true,
@@ -72,6 +74,10 @@ mod tests {
         assert_eq!(plan.failed_workflow_phases, 0);
         assert_eq!(plan.execution_facts.len(), 1);
         assert_eq!(plan.execution_facts[0].task_id.as_deref(), Some("TASK-123"));
+        assert_eq!(
+            plan.execution_facts[0].workflow_ref.as_deref(),
+            Some("standard")
+        );
         assert!(plan.execution_facts[0].schedule_id.is_none());
         assert!(plan.execution_facts[0].failure_reason.is_none());
     }
@@ -81,6 +87,7 @@ mod tests {
         let plan = build_completion_reconciliation_plan(vec![CompletedProcess {
             subject_id: "schedule:nightly".to_string(),
             task_id: Some("TASK-999".to_string()),
+            workflow_ref: Some("ops".to_string()),
             schedule_id: Some("nightly".to_string()),
             exit_code: Some(17),
             success: false,
@@ -91,6 +98,7 @@ mod tests {
         assert_eq!(plan.executed_workflow_phases, 0);
         assert_eq!(plan.failed_workflow_phases, 1);
         assert_eq!(plan.execution_facts[0].task_id.as_deref(), Some("TASK-999"));
+        assert_eq!(plan.execution_facts[0].workflow_ref.as_deref(), Some("ops"));
         assert_eq!(
             plan.execution_facts[0].schedule_id.as_deref(),
             Some("nightly")
@@ -103,6 +111,7 @@ mod tests {
         let plan = build_completion_reconciliation_plan(vec![CompletedProcess {
             subject_id: "schedule:daily-review".to_string(),
             task_id: None,
+            workflow_ref: Some("review".to_string()),
             schedule_id: Some("daily-review".to_string()),
             exit_code: Some(0),
             success: true,

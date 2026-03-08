@@ -4,6 +4,7 @@ use crate::RunnerEvent;
 pub struct CompletedProcess {
     pub subject_id: String,
     pub task_id: Option<String>,
+    pub workflow_ref: Option<String>,
     pub schedule_id: Option<String>,
     pub exit_code: Option<i32>,
     pub success: bool,

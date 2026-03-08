@@ -119,10 +119,9 @@ impl WorkflowServiceApi for InMemoryServiceHub {
                 None
             };
             let workflow_ref = effective_workflow_ref(input.workflow_ref(), task.as_ref());
-            let executor = WorkflowLifecycleExecutor::new(crate::resolve_phase_plan_for_workflow_ref(
-                None,
-                Some(workflow_ref.as_str()),
-            )?);
+            let executor = WorkflowLifecycleExecutor::new(
+                crate::resolve_phase_plan_for_workflow_ref(None, Some(workflow_ref.as_str()))?,
+            );
             let workflow = executor.bootstrap(id.clone(), input.with_workflow_ref(workflow_ref));
             lock.workflows.insert(id.clone(), workflow.clone());
             workflow

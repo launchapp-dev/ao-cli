@@ -1,6 +1,6 @@
 use super::*;
-use crate::{STANDARD_WORKFLOW_REF, UI_UX_WORKFLOW_REF};
 use crate::state_machines::CompiledStateMachines;
+use crate::{STANDARD_WORKFLOW_REF, UI_UX_WORKFLOW_REF};
 
 mod requirement_lifecycle;
 use requirement_lifecycle::run_requirement_lifecycle_state_machine;
@@ -729,8 +729,10 @@ Run `ao requirements draft`/`ao requirements refine` (or upsert explicit constra
                     STANDARD_WORKFLOW_REF.to_string()
                 }
             });
-            let phase_plan =
-                crate::resolve_phase_plan_for_workflow_ref(project_root, Some(workflow_ref.as_str()))?;
+            let phase_plan = crate::resolve_phase_plan_for_workflow_ref(
+                project_root,
+                Some(workflow_ref.as_str()),
+            )?;
             let executor = if let Some(machine_catalog) = state_machines {
                 WorkflowLifecycleExecutor::with_state_machines(phase_plan, machine_catalog.clone())
             } else {

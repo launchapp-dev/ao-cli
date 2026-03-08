@@ -28,10 +28,14 @@ pub async fn reconcile_completed_processes(
             );
         }
 
-        if let Some(task_id) = fact.task_id.as_deref() {
-            if fact.success {
-                remove_terminal_dispatch_queue_entry_non_fatal(root, task_id, None);
-            }
+        remove_terminal_dispatch_queue_entry_non_fatal(
+            root,
+            &fact.subject_id,
+            fact.workflow_ref.as_deref(),
+            None,
+        );
+
+        if fact.task_id.is_some() {
             project_task_execution_fact(hub.clone(), root, &fact).await;
         } else {
             eprintln!(

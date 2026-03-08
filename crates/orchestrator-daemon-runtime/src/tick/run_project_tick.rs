@@ -56,8 +56,9 @@ where
     let snapshot = ProjectTickSnapshot::capture(hub.clone()).await?;
     let preparation = mode.build_preparation(&context, args, now, pool_draining, &snapshot);
     let mut execution_outcome = ProjectTickExecutionOutcome::default();
-    let (executed_workflow_phases, failed_workflow_phases) =
-        hooks.reconcile_completed_processes(hub.clone(), root).await?;
+    let (executed_workflow_phases, failed_workflow_phases) = hooks
+        .reconcile_completed_processes(hub.clone(), root)
+        .await?;
     execution_outcome.executed_workflow_phases = executed_workflow_phases;
     execution_outcome.failed_workflow_phases = failed_workflow_phases;
 

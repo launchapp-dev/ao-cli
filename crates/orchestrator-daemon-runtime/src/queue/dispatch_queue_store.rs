@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
+use protocol::SubjectDispatch;
 use uuid::Uuid;
 
 use crate::{DispatchQueueEntry, DispatchQueueEntryStatus, DispatchQueueState};
@@ -75,7 +76,7 @@ pub fn save_dispatch_queue_state(project_root: &str, state: &DispatchQueueState)
 
 pub fn mark_dispatch_queue_entry_assigned(
     project_root: &str,
-    task_id: &str,
+    dispatch: &SubjectDispatch,
     workflow_id: &str,
 ) -> Result<bool> {
     let Some(mut state) = load_dispatch_queue_state(project_root)? else {
@@ -84,10 +85,20 @@ pub fn mark_dispatch_queue_entry_assigned(
 
     let mut updated = false;
     for entry in &mut state.entries {
-        if entry.task_id != task_id {
+        if entry.status != DispatchQueueEntryStatus::Pending {
             continue;
         }
-        if entry.status != DispatchQueueEntryStatus::Pending {
+        if entry.subject_id() != dispatch.subject_id() {
+            continue;
+        }
+        if entry
+            .dispatch
+            .as_ref()
+            .is_some_and(|existing| existing.workflow_ref != dispatch.workflow_ref)
+        {
+            continue;
+        }
+        if entry.dispatch.is_none() && entry.task_id() != dispatch.task_id() {
             continue;
         }
         entry.status = DispatchQueueEntryStatus::Assigned;
@@ -106,7 +117,8 @@ pub fn mark_dispatch_queue_entry_assigned(
 
 fn remove_terminal_dispatch_queue_entry(
     project_root: &str,
-    task_id: &str,
+    subject_id: &str,
+    workflow_ref: Option<&str>,
     workflow_id: Option<&str>,
 ) -> Result<usize> {
     let Some(mut state) = load_dispatch_queue_state(project_root)? else {
@@ -115,11 +127,20 @@ fn remove_terminal_dispatch_queue_entry(
 
     let before = state.entries.len();
     state.entries.retain(|entry| {
-        if entry.task_id != task_id {
+        if entry.subject_id() != subject_id {
             return true;
         }
         if entry.status != DispatchQueueEntryStatus::Assigned {
             return true;
+        }
+        if let Some(workflow_ref) = workflow_ref {
+            if entry
+                .dispatch
+                .as_ref()
+                .is_some_and(|dispatch| dispatch.workflow_ref != workflow_ref)
+            {
+                return true;
+            }
         }
         if let Some(workflow_id) = workflow_id {
             if entry
@@ -141,14 +162,17 @@ fn remove_terminal_dispatch_queue_entry(
 
 pub fn remove_terminal_dispatch_queue_entry_non_fatal(
     project_root: &str,
-    task_id: &str,
+    subject_id: &str,
+    workflow_ref: Option<&str>,
     workflow_id: Option<&str>,
 ) {
-    if let Err(error) = remove_terminal_dispatch_queue_entry(project_root, task_id, workflow_id) {
+    if let Err(error) =
+        remove_terminal_dispatch_queue_entry(project_root, subject_id, workflow_ref, workflow_id)
+    {
         eprintln!(
-            "{}: failed to remove terminal dispatch queue entry for task {}: {}",
+            "{}: failed to remove terminal dispatch queue entry for subject {}: {}",
             protocol::ACTOR_DAEMON,
-            task_id,
+            subject_id,
             error
         );
     }

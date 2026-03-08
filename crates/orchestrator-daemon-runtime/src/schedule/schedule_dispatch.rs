@@ -13,14 +13,12 @@ impl ScheduleDispatch {
             .unwrap_or(true)
     }
 
-    pub fn process_due_schedules<PipelineSpawner, CommandSpawner>(
+    pub fn process_due_schedules<PipelineSpawner>(
         project_root: &str,
         now: chrono::DateTime<chrono::Utc>,
         mut spawn_pipeline: PipelineSpawner,
-        mut spawn_command: CommandSpawner,
     ) where
         PipelineSpawner: FnMut(&str, &SubjectDispatch) -> Result<()>,
-        CommandSpawner: FnMut(&str, &str) -> Result<()>,
     {
         let config =
             orchestrator_core::load_workflow_config_or_default(std::path::Path::new(project_root));
@@ -50,7 +48,6 @@ impl ScheduleDispatch {
                     now,
                     "schedule",
                     &mut spawn_pipeline,
-                    &mut spawn_command,
                 );
             }
         }
@@ -58,17 +55,15 @@ impl ScheduleDispatch {
         let _ = orchestrator_core::save_schedule_state(std::path::Path::new(project_root), &state);
     }
 
-    pub fn fire_schedule<PipelineSpawner, CommandSpawner>(
+    pub fn fire_schedule<PipelineSpawner>(
         project_root: &str,
         schedule_id: &str,
         now: chrono::DateTime<chrono::Utc>,
         trigger_source: &str,
         mut spawn_pipeline: PipelineSpawner,
-        mut spawn_command: CommandSpawner,
     ) -> Result<String>
     where
         PipelineSpawner: FnMut(&str, &SubjectDispatch) -> Result<()>,
-        CommandSpawner: FnMut(&str, &str) -> Result<()>,
     {
         let config =
             orchestrator_core::load_workflow_config_or_default(std::path::Path::new(project_root));
@@ -87,7 +82,6 @@ impl ScheduleDispatch {
             now,
             trigger_source,
             &mut spawn_pipeline,
-            &mut spawn_command,
         );
 
         let _ = orchestrator_core::save_schedule_state(std::path::Path::new(project_root), &state);
@@ -104,22 +98,18 @@ impl ScheduleDispatch {
     }
 }
 
-fn dispatch_schedule<PipelineSpawner, CommandSpawner>(
+fn dispatch_schedule<PipelineSpawner>(
     state: &mut orchestrator_core::ScheduleState,
     schedule_id: &str,
     schedule: &orchestrator_core::workflow_config::WorkflowSchedule,
     now: chrono::DateTime<chrono::Utc>,
     trigger_source: &str,
     spawn_pipeline: &mut PipelineSpawner,
-    spawn_command: &mut CommandSpawner,
 ) -> String
 where
     PipelineSpawner: FnMut(&str, &SubjectDispatch) -> Result<()>,
-    CommandSpawner: FnMut(&str, &str) -> Result<()>,
 {
-    let mut status = "evaluated".to_string();
-
-    if let Some(ref workflow_ref) = schedule.workflow_ref {
+    let status = if let Some(ref workflow_ref) = schedule.workflow_ref {
         let dispatch = SubjectDispatch::for_custom(
             format!("schedule:{schedule_id}"),
             format!("Triggered by schedule '{schedule_id}'"),
@@ -128,11 +118,8 @@ where
             trigger_source.to_string(),
         );
         match spawn_pipeline(schedule_id, &dispatch) {
-            Ok(()) => {
-                status = "dispatched".to_string();
-            }
+            Ok(()) => "dispatched".to_string(),
             Err(error) => {
-                status = format!("failed: {error}");
                 eprintln!(
                     "{}: schedule '{}' workflow '{}' dispatch failed: {}",
                     protocol::ACTOR_DAEMON,
@@ -140,24 +127,17 @@ where
                     workflow_ref,
                     error
                 );
+                format!("failed: {error}")
             }
         }
-    } else if let Some(ref command) = schedule.command {
-        match spawn_command(schedule_id, command) {
-            Ok(()) => {
-                status = "dispatched".to_string();
-            }
-            Err(error) => {
-                status = format!("failed: {error}");
-                eprintln!(
-                    "{}: schedule '{}' command dispatch failed: {}",
-                    protocol::ACTOR_DAEMON,
-                    schedule_id,
-                    error
-                );
-            }
-        }
-    }
+    } else {
+        eprintln!(
+            "{}: schedule '{}' is missing workflow_ref and will not be dispatched",
+            protocol::ACTOR_DAEMON,
+            schedule_id
+        );
+        "failed: schedule is missing workflow_ref".to_string()
+    };
 
     let entry = state
         .schedules
@@ -341,7 +321,7 @@ mod tests {
         let schedules = vec![orchestrator_core::WorkflowSchedule {
             id: "disabled".to_string(),
             cron: "30 12 * * *".to_string(),
-            pipeline: Some("standard".to_string()),
+            workflow_ref: Some("standard".to_string()),
             command: None,
             input: None,
             enabled: false,
@@ -360,7 +340,7 @@ mod tests {
         let schedules = vec![orchestrator_core::WorkflowSchedule {
             id: "midday".to_string(),
             cron: "30 12 * * *".to_string(),
-            pipeline: Some("standard".to_string()),
+            workflow_ref: Some("standard".to_string()),
             command: None,
             input: None,
             enabled: true,
@@ -379,7 +359,7 @@ mod tests {
         let schedules = vec![orchestrator_core::WorkflowSchedule {
             id: "daily".to_string(),
             cron: "@daily".to_string(),
-            pipeline: Some("standard".to_string()),
+            workflow_ref: Some("standard".to_string()),
             command: None,
             input: None,
             enabled: true,
@@ -398,7 +378,7 @@ mod tests {
         let schedules = vec![orchestrator_core::WorkflowSchedule {
             id: "broken".to_string(),
             cron: "*/0 * * * *".to_string(),
-            pipeline: Some("standard".to_string()),
+            workflow_ref: Some("standard".to_string()),
             command: None,
             input: None,
             enabled: true,
@@ -417,7 +397,7 @@ mod tests {
         let schedules = vec![orchestrator_core::WorkflowSchedule {
             id: "recent".to_string(),
             cron: "30 12 * * *".to_string(),
-            pipeline: Some("standard".to_string()),
+            workflow_ref: Some("standard".to_string()),
             command: None,
             input: None,
             enabled: true,
@@ -447,7 +427,7 @@ mod tests {
         config.schedules.push(orchestrator_core::WorkflowSchedule {
             id: "nightly".to_string(),
             cron: "30 12 * * *".to_string(),
-            pipeline: Some("standard".to_string()),
+            workflow_ref: Some("standard".to_string()),
             command: None,
             input: Some(json!({"scope":"nightly"})),
             enabled: true,
@@ -469,7 +449,6 @@ mod tests {
                 ));
                 Ok(())
             },
-            |_schedule_id, _command| unreachable!("command schedule should not run"),
         );
 
         let calls = pipeline_calls.lock().expect("pipeline lock");
@@ -490,52 +469,51 @@ mod tests {
     }
 
     #[test]
-    fn process_due_schedules_records_command_dispatch() {
-        let temp = tempdir().expect("tempdir should be created");
-        let project_root = temp.path();
+    fn process_due_schedules_marks_missing_workflow_ref_as_failed() {
         let now: chrono::DateTime<chrono::Utc> = "2026-03-04T12:30:00Z"
             .parse()
             .expect("timestamp should parse");
-        let mut config = orchestrator_core::builtin_workflow_config();
-        config.schedules.push(orchestrator_core::WorkflowSchedule {
-            id: "cleanup".to_string(),
+        let schedule = orchestrator_core::WorkflowSchedule {
+            id: "broken".to_string(),
             cron: "30 12 * * *".to_string(),
-            pipeline: None,
+            workflow_ref: None,
             command: Some("echo cleanup".to_string()),
             input: None,
             enabled: true,
-        });
-        orchestrator_core::write_workflow_config(project_root, &config)
-            .expect("workflow config should be written");
+        };
+        let mut state = orchestrator_core::ScheduleState::default();
 
-        let command_calls = Arc::new(Mutex::new(Vec::new()));
-        let command_calls_ref = command_calls.clone();
+        let pipeline_calls = Arc::new(Mutex::new(Vec::new()));
+        let pipeline_calls_ref = pipeline_calls.clone();
+        let mut record_pipeline_call = move |schedule_id: &str, dispatch: &SubjectDispatch| {
+            pipeline_calls_ref
+                .lock()
+                .expect("pipeline lock")
+                .push((schedule_id.to_string(), dispatch.workflow_ref.clone()));
+            Ok(())
+        };
 
-        ScheduleDispatch::process_due_schedules(
-            project_root.to_string_lossy().as_ref(),
+        let status = dispatch_schedule(
+            &mut state,
+            "broken",
+            &schedule,
             now,
-            |_schedule_id, _dispatch| unreachable!("pipeline schedule should not run"),
-            move |schedule_id, command| {
-                command_calls_ref
-                    .lock()
-                    .expect("command lock")
-                    .push((schedule_id.to_string(), command.to_string()));
-                Ok(())
-            },
+            "schedule",
+            &mut record_pipeline_call,
         );
+        assert_eq!(status, "failed: schedule is missing workflow_ref");
 
-        let calls = command_calls.lock().expect("command lock");
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].0, "cleanup");
-        assert_eq!(calls[0].1, "echo cleanup");
+        let calls = pipeline_calls.lock().expect("pipeline lock");
+        assert!(calls.is_empty());
 
-        let state =
-            orchestrator_core::load_schedule_state(project_root).expect("schedule state loads");
         let entry = state
             .schedules
-            .get("cleanup")
-            .expect("cleanup schedule state should exist");
-        assert_eq!(entry.last_status, "dispatched");
+            .get("broken")
+            .expect("broken schedule state should exist");
+        assert_eq!(
+            entry.last_status,
+            "failed: schedule is missing workflow_ref"
+        );
         assert_eq!(entry.run_count, 1);
         assert_eq!(entry.last_run, Some(now));
     }
@@ -593,7 +571,7 @@ mod tests {
         let schedules = vec![orchestrator_core::WorkflowSchedule {
             id: "every-minute".to_string(),
             cron: "* * * * *".to_string(),
-            pipeline: None,
+            workflow_ref: None,
             command: None,
             input: None,
             enabled: true,

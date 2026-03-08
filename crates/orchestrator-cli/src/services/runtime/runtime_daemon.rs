@@ -427,8 +427,6 @@ fn spawn_autonomous_daemon_run(
         .arg("run")
         .arg("--interval-secs")
         .arg(args.interval_secs.to_string())
-        .arg("--ai-task-generation")
-        .arg(args.ai_task_generation.to_string())
         .arg("--auto-run-ready")
         .arg(args.auto_run_ready.to_string())
         .arg("--startup-cleanup")

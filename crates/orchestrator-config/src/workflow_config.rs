@@ -241,7 +241,8 @@ fn expand_workflow_phases_inner(
     for entry in &workflow.phases {
         match entry {
             WorkflowPhaseEntry::SubWorkflow(sub) => {
-                let sub_phases = expand_workflow_phases_inner(workflows, &sub.workflow_ref, visited)?;
+                let sub_phases =
+                    expand_workflow_phases_inner(workflows, &sub.workflow_ref, visited)?;
                 expanded.extend(sub_phases);
             }
             other => {
@@ -1073,7 +1074,10 @@ pub fn validate_workflow_config(config: &WorkflowConfig) -> Result<()> {
         }
 
         if workflow.name.trim().is_empty() {
-            errors.push(format!("workflow '{}' name must not be empty", workflow_ref));
+            errors.push(format!(
+                "workflow '{}' name must not be empty",
+                workflow_ref
+            ));
         }
 
         if workflow.phases.is_empty() {
@@ -1149,7 +1153,10 @@ pub fn validate_workflow_config(config: &WorkflowConfig) -> Result<()> {
         match expand_workflow_phases(&config.workflows, workflow_ref) {
             Ok(expanded) => {
                 if expanded.is_empty() {
-                    errors.push(format!("workflow '{}' expands to zero phases", workflow_ref));
+                    errors.push(format!(
+                        "workflow '{}' expands to zero phases",
+                        workflow_ref
+                    ));
                 }
 
                 let expanded_phase_ids: Vec<String> = expanded
@@ -1416,20 +1423,11 @@ pub fn validate_workflow_config(config: &WorkflowConfig) -> Result<()> {
                 schedule_id
             ));
         }
-        match (schedule.workflow_ref.as_deref(), schedule.command.as_deref()) {
-            (Some(_), Some(_)) => {
-                errors.push(format!(
-                    "schedules['{}'] must define only one of workflow_ref or command",
-                    schedule_id
-                ));
-            }
-            (None, None) => {
-                errors.push(format!(
-                    "schedules['{}'] must define a workflow_ref or command",
-                    schedule_id
-                ));
-            }
-            _ => {}
+        if schedule.workflow_ref.is_none() {
+            errors.push(format!(
+                "schedules['{}'] must define workflow_ref",
+                schedule_id
+            ));
         }
         if let Some(workflow_ref) = schedule.workflow_ref.as_deref() {
             if workflow_ref.trim().is_empty() {
@@ -1452,6 +1450,11 @@ pub fn validate_workflow_config(config: &WorkflowConfig) -> Result<()> {
             if command.trim().is_empty() {
                 errors.push(format!(
                     "schedules['{}'].command must not be empty",
+                    schedule_id
+                ));
+            } else {
+                errors.push(format!(
+                    "schedules['{}'].command is no longer supported; use workflow_ref",
                     schedule_id
                 ));
             }
@@ -3348,7 +3351,7 @@ integrations:
 schedules:
   - id: nightly
     cron: "0 2 * * *"
-    command: "echo nightly"
+    workflow_ref: standard
     enabled: true
 daemon:
   interval_secs: 300
@@ -3401,7 +3404,10 @@ workflows:
         assert_eq!(config.schedules.len(), 1);
         assert_eq!(config.schedules[0].id, "nightly");
         assert_eq!(config.schedules[0].cron, "0 2 * * *");
-        assert_eq!(config.schedules[0].command.as_deref(), Some("echo nightly"));
+        assert_eq!(
+            config.schedules[0].workflow_ref.as_deref(),
+            Some("standard")
+        );
         assert!(config.schedules[0].enabled);
         let daemon = config
             .daemon
@@ -3431,7 +3437,7 @@ tools:
 schedules:
   - id: nightly
     cron: "0 2 * * *"
-    command: "echo nightly"
+    workflow_ref: standard
 
 workflows:
   - id: standard
@@ -3451,10 +3457,10 @@ mcp_servers:
 schedules:
   - id: nightly
     cron: "0 3 * * *"
-    command: "echo updated nightly"
+    workflow_ref: ops
   - id: weekly
     cron: "0 4 * * 0"
-    command: "echo weekly"
+    workflow_ref: standard
 
 integrations:
   git:
@@ -3852,7 +3858,7 @@ workflows:
             validate_workflow_config(&config).expect_err("invalid unified config should fail");
         let message = err.to_string();
         assert!(
-            message.contains("schedules['nightly'] must define a workflow_ref or command"),
+            message.contains("schedules['nightly'] must define workflow_ref"),
             "error should mention missing schedule target: {}",
             message
         );
@@ -3884,7 +3890,7 @@ workflows:
     }
 
     #[test]
-    fn validate_rejects_schedule_with_both_pipeline_and_command() {
+    fn validate_rejects_schedule_with_command() {
         let mut config = builtin_workflow_config();
         config.schedules.push(WorkflowSchedule {
             id: "conflicting-schedule".to_string(),
@@ -3898,8 +3904,8 @@ workflows:
             .expect_err("schedules defining both workflow and command should be rejected");
         let message = err.to_string();
         assert!(
-            message.contains("must define only one of workflow_ref or command"),
-            "error should mention schedule target exclusivity: {}",
+            message.contains("command is no longer supported; use workflow_ref"),
+            "error should mention unsupported schedule command: {}",
             message
         );
     }

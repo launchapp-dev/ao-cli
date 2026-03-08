@@ -7,7 +7,6 @@ use orchestrator_daemon_runtime::{
     CompletedProcess, DispatchWorkflowStartSummary, ProcessManager, ProjectTickHooks,
     ScheduleDispatch, SubjectDispatch,
 };
-use tokio::process::Command as TokioCommand;
 
 #[async_trait::async_trait(?Send)]
 pub trait DefaultProjectTickServices {
@@ -70,51 +69,15 @@ fn spawn_schedule_pipeline(
     Ok(())
 }
 
-fn spawn_schedule_command(project_root: &str, schedule_id: &str, command: &str) -> Result<()> {
-    let mut child = TokioCommand::new("sh")
-        .arg("-c")
-        .arg(command)
-        .current_dir(project_root)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::inherit())
-        .spawn()
-        .map_err(anyhow::Error::from)?;
-
-    eprintln!(
-        "{}: schedule '{}' fired command: {}",
-        protocol::ACTOR_DAEMON,
-        schedule_id,
-        command
-    );
-
-    let root = project_root.to_string();
-    let sched_id = schedule_id.to_string();
-    tokio::spawn(async move {
-        let status = match child.wait().await {
-            Ok(exit) if exit.success() => "completed",
-            Ok(_) => "failed",
-            Err(_) => "failed",
-        };
-        ScheduleDispatch::update_completion_state(&root, &sched_id, status);
-    });
-
-    Ok(())
-}
-
 #[async_trait::async_trait(?Send)]
 impl<S> ProjectTickHooks for DefaultSlimProjectTickHooks<'_, S>
 where
     S: DefaultProjectTickServices,
 {
     fn process_due_schedules(&mut self, root: &str, now: DateTime<Utc>) {
-        ScheduleDispatch::process_due_schedules(
-            root,
-            now,
-            |schedule_id, dispatch| {
-                spawn_schedule_pipeline(self.process_manager, root, schedule_id, dispatch)
-            },
-            |schedule_id, command| spawn_schedule_command(root, schedule_id, command),
-        );
+        ScheduleDispatch::process_due_schedules(root, now, |schedule_id, dispatch| {
+            spawn_schedule_pipeline(self.process_manager, root, schedule_id, dispatch)
+        });
     }
 
     async fn reconcile_completed_processes(

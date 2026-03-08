@@ -1,15 +1,14 @@
 use super::*;
 use orchestrator_core::WorkflowRunInput;
 use orchestrator_core::{
-    dependency_blocked_reason, dependency_gate_issues_for_task, project_task_blocked_with_reason,
-    project_task_status, routing_complexity_for_task, should_skip_task_dispatch,
+    dependency_gate_issues_for_task, routing_complexity_for_task, should_skip_task_dispatch,
     workflow_ref_for_task,
 };
 pub use orchestrator_daemon_runtime::{
-    active_workflow_task_ids, load_dispatch_queue_state, mark_dispatch_queue_entry_assigned,
-    plan_ready_dispatch, workflow_current_phase_id, DispatchCandidate,
+    active_workflow_subject_ids, active_workflow_task_ids, is_terminally_completed_workflow,
+    load_dispatch_queue_state, mark_dispatch_queue_entry_assigned, plan_ready_dispatch,
+    workflow_current_phase_id, DispatchCandidate, DispatchQueueEntryStatus, DispatchQueueState,
     DispatchSelectionSource, DispatchWorkflowStart, DispatchWorkflowStartSummary, SubjectDispatch,
-    DispatchQueueEntryStatus, DispatchQueueState, is_terminally_completed_workflow,
 };
 #[cfg(test)]
 pub use orchestrator_daemon_runtime::{
@@ -67,6 +66,7 @@ pub async fn run_ready_task_workflows_for_project(
 
     let workflows = hub.workflows().list().await.unwrap_or_default();
     let candidates = hub.tasks().list_prioritized().await?;
+    let active_subject_ids = active_workflow_subject_ids(&workflows);
     let task_lookup: std::collections::HashMap<String, orchestrator_core::OrchestratorTask> =
         candidates
             .iter()
@@ -88,6 +88,7 @@ pub async fn run_ready_task_workflows_for_project(
         &candidates,
         &workflows,
         queue_state.as_ref(),
+        &active_subject_ids,
         chrono::Utc::now(),
     );
     let plan = plan_ready_dispatch(
@@ -95,10 +96,6 @@ pub async fn run_ready_task_workflows_for_project(
         &prepared.fallback_candidates,
         &prepared.completed_subject_ids,
     );
-
-    for subject_id in &plan.completed_subject_ids {
-        let _ = project_task_status(hub.clone(), subject_id, TaskStatus::Done).await;
-    }
 
     let mut started_workflows = Vec::new();
     for planned_start in plan.ordered_starts {
@@ -115,8 +112,11 @@ pub async fn run_ready_task_workflows_for_project(
         let dependency_issues =
             dependency_gate_issues_for_task(hub.clone(), project_root, &task).await;
         if !dependency_issues.is_empty() {
-            let reason = dependency_blocked_reason(&dependency_issues);
-            let _ = project_task_blocked_with_reason(hub.clone(), &task, reason, None).await;
+            eprintln!(
+                "{}: skipping queued task dispatch for {} until dependency gates clear",
+                protocol::ACTOR_DAEMON,
+                task.id
+            );
             continue;
         }
 
@@ -128,9 +128,11 @@ pub async fn run_ready_task_workflows_for_project(
             ))
             .await?;
         if planned_start.selection_source == DispatchSelectionSource::DispatchQueue {
-            if let Err(error) =
-                mark_dispatch_queue_entry_assigned(project_root, &task.id, workflow.id.as_str())
-            {
+            if let Err(error) = mark_dispatch_queue_entry_assigned(
+                project_root,
+                &planned_start.dispatch,
+                workflow.id.as_str(),
+            ) {
                 eprintln!(
                     "{}: failed to mark dispatch queue entry assigned for task {}: {}",
                     protocol::ACTOR_DAEMON,
@@ -140,14 +142,6 @@ pub async fn run_ready_task_workflows_for_project(
             }
         }
         auto_assign_task_to_daemon_agent(hub.clone(), project_root, &task, &workflow).await?;
-        sync_task_status_for_workflow_result(
-            hub.clone(),
-            project_root,
-            &task.id,
-            workflow.status,
-            Some(workflow.id.as_str()),
-        )
-        .await;
         started_workflows.push(DispatchWorkflowStart {
             dispatch: planned_start.dispatch.clone(),
             workflow_id: workflow.id.clone(),
@@ -169,6 +163,7 @@ pub async fn dispatch_ready_tasks_via_runner(
 ) -> Result<DispatchWorkflowStartSummary> {
     let candidates = hub.tasks().list_prioritized().await?;
     let workflows = hub.workflows().list().await.unwrap_or_default();
+    let active_subject_ids = process_manager.active_subject_ids();
     let queue_state = match load_dispatch_queue_state(root) {
         Ok(state) => state,
         Err(error) => {
@@ -184,6 +179,7 @@ pub async fn dispatch_ready_tasks_via_runner(
         &candidates,
         &workflows,
         queue_state.as_ref(),
+        &active_subject_ids,
         chrono::Utc::now(),
     );
     let task_lookup: std::collections::HashMap<String, orchestrator_core::OrchestratorTask> =
@@ -197,10 +193,6 @@ pub async fn dispatch_ready_tasks_via_runner(
         &prepared.fallback_candidates,
         &prepared.completed_subject_ids,
     );
-    for subject_id in &plan.completed_subject_ids {
-        let _ = project_task_status(hub.clone(), subject_id, TaskStatus::Done).await;
-    }
-
     let mut started_workflows = Vec::new();
 
     for planned_start in plan.ordered_starts {
@@ -208,43 +200,50 @@ pub async fn dispatch_ready_tasks_via_runner(
             break;
         }
 
-        let Some(task_id) = planned_start.task_id() else {
-            continue;
-        };
-        let Some(task) = task_lookup.get(task_id).cloned() else {
-            continue;
-        };
-        let dependency_issues = dependency_gate_issues_for_task(hub.clone(), root, &task).await;
-        if !dependency_issues.is_empty() {
-            let reason = dependency_blocked_reason(&dependency_issues);
-            let _ = project_task_blocked_with_reason(hub.clone(), &task, reason, None).await;
-            continue;
+        if let Some(task_id) = planned_start.task_id() {
+            let Some(task) = task_lookup.get(task_id).cloned() else {
+                continue;
+            };
+            let dependency_issues = dependency_gate_issues_for_task(hub.clone(), root, &task).await;
+            if !dependency_issues.is_empty() {
+                eprintln!(
+                    "{}: skipping queued task dispatch for {} until dependency gates clear",
+                    protocol::ACTOR_DAEMON,
+                    task.id
+                );
+                continue;
+            }
         }
 
         match process_manager.spawn_workflow_runner(&planned_start.dispatch, root) {
             Ok(_) => {
-                let _ = project_task_status(hub.clone(), &task.id, TaskStatus::InProgress).await;
                 if planned_start.selection_source == DispatchSelectionSource::DispatchQueue {
-                    if let Err(error) =
-                        mark_dispatch_queue_entry_assigned(root, &task.id, task.id.as_str())
-                    {
+                    if let Err(error) = mark_dispatch_queue_entry_assigned(
+                        root,
+                        &planned_start.dispatch,
+                        planned_start.dispatch.subject_id(),
+                    ) {
                         eprintln!(
-                            "{}: failed to mark dispatch queue entry assigned for task {}: {}",
+                            "{}: failed to mark dispatch queue entry assigned for subject {}: {}",
                             protocol::ACTOR_DAEMON,
-                            task.id,
+                            planned_start.dispatch.subject_id(),
                             error
                         );
                     }
                 }
                 started_workflows.push(DispatchWorkflowStart {
                     dispatch: planned_start.dispatch.clone(),
-                    workflow_id: task.id.clone(),
+                    workflow_id: planned_start.dispatch.subject_id().to_string(),
                     selection_source: planned_start.selection_source,
                 });
             }
             Err(error) => {
-                let reason = format!("failed to start workflow runner: {error}");
-                let _ = project_task_blocked_with_reason(hub.clone(), &task, reason, None).await;
+                eprintln!(
+                    "{}: failed to start workflow runner for subject {}: {}",
+                    protocol::ACTOR_DAEMON,
+                    planned_start.dispatch.subject_id(),
+                    error
+                );
             }
         }
     }
@@ -265,6 +264,7 @@ fn prepare_ready_dispatch_candidates(
     tasks: &[orchestrator_core::OrchestratorTask],
     workflows: &[orchestrator_core::OrchestratorWorkflow],
     queue_state: Option<&DispatchQueueState>,
+    active_subject_ids: &std::collections::HashSet<String>,
     requested_at: chrono::DateTime<chrono::Utc>,
 ) -> PreparedReadyDispatchCandidates {
     let active_task_ids = active_workflow_task_ids(workflows);
@@ -287,33 +287,33 @@ fn prepare_ready_dispatch_candidates(
                 continue;
             }
 
-            let Some(task) = entry
-                .task_id()
-                .and_then(|task_id| task_lookup.get(task_id).copied())
-            else {
+            let Some(dispatch) = entry.dispatch.clone().or_else(|| {
+                entry.task_id().and_then(|task_id| {
+                    task_lookup.get(task_id).map(|task| {
+                        SubjectDispatch::for_task_with_metadata(
+                            task.id.clone(),
+                            workflow_ref_for_task(task),
+                            "em-queue",
+                            requested_at,
+                        )
+                    })
+                })
+            }) else {
                 continue;
             };
 
-            if should_include_completed_task(
-                task,
-                &completed_task_ids,
-                &mut completed_subject_ids,
-                &mut seen_completed_ids,
-            ) {
-                continue;
-            }
-            if !is_dispatch_eligible(task, &active_task_ids) {
+            if active_subject_ids.contains(dispatch.subject_id()) {
                 continue;
             }
 
-            let dispatch = entry.dispatch.clone().unwrap_or_else(|| {
-                SubjectDispatch::for_task_with_metadata(
-                    task.id.clone(),
-                    workflow_ref_for_task(task),
-                    "em-queue",
-                    requested_at,
-                )
-            });
+            if let Some(task) = dispatch
+                .task_id()
+                .and_then(|task_id| task_lookup.get(task_id).copied())
+            {
+                if !is_queued_task_dispatch_eligible(task, &active_task_ids) {
+                    continue;
+                }
+            }
 
             queued_candidates.push(DispatchCandidate {
                 dispatch,
@@ -334,6 +334,9 @@ fn prepare_ready_dispatch_candidates(
         if !is_dispatch_eligible(task, &active_task_ids) {
             continue;
         }
+        if active_subject_ids.contains(&task.id) {
+            continue;
+        }
 
         fallback_candidates.push(DispatchCandidate {
             dispatch: SubjectDispatch::for_task_with_metadata(
@@ -351,6 +354,19 @@ fn prepare_ready_dispatch_candidates(
         fallback_candidates,
         completed_subject_ids,
     }
+}
+
+fn is_queued_task_dispatch_eligible(
+    task: &orchestrator_core::OrchestratorTask,
+    active_task_ids: &std::collections::HashSet<String>,
+) -> bool {
+    if task.cancelled || task.paused {
+        return false;
+    }
+    if active_task_ids.contains(&task.id) {
+        return false;
+    }
+    true
 }
 
 fn is_dispatch_eligible(

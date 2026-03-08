@@ -155,7 +155,7 @@ mod tests {
             Command::Queue {
                 command: QueueCommand::Enqueue(args),
             } => {
-                assert_eq!(args.task_id, "TASK-123");
+                assert_eq!(args.task_id.as_deref(), Some("TASK-123"));
                 assert_eq!(args.workflow_ref.as_deref(), Some("ops"));
             }
             _ => panic!("expected queue enqueue command"),

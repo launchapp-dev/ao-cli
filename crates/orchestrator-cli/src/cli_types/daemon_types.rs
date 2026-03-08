@@ -75,8 +75,8 @@ pub(crate) struct DaemonStartArgs {
     #[arg(
         long,
         action = ArgAction::Set,
-        default_value_t = true,
-        help = "Enable AI-generated task creation."
+        default_value_t = false,
+        help = "Deprecated no-op flag retained for CLI compatibility."
     )]
     pub(crate) ai_task_generation: bool,
     #[arg(
@@ -190,8 +190,8 @@ pub(crate) struct DaemonRunArgs {
     #[arg(
         long,
         action = ArgAction::Set,
-        default_value_t = true,
-        help = "Enable AI-generated task creation."
+        default_value_t = false,
+        help = "Deprecated no-op flag retained for CLI compatibility."
     )]
     pub(crate) ai_task_generation: bool,
     #[arg(

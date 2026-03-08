@@ -208,8 +208,9 @@ mod tests {
         crate::write_agent_runtime_config(temp.path(), &crate::builtin_agent_runtime_config())
             .expect("write runtime config");
 
-        let phases = resolve_phase_plan_for_workflow_ref(Some(temp.path()), Some(STANDARD_WORKFLOW_REF))
-            .expect("resolver should use configured standard pipeline phases");
+        let phases =
+            resolve_phase_plan_for_workflow_ref(Some(temp.path()), Some(STANDARD_WORKFLOW_REF))
+                .expect("resolver should use configured standard pipeline phases");
         assert_eq!(
             phases,
             vec![

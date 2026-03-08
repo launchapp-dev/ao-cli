@@ -1,5 +1,4 @@
 use super::*;
-use crate::services::runtime::sync_task_status_for_workflow_result;
 #[cfg(test)]
 use crate::services::runtime::runtime_daemon::canonicalize_lossy;
 use orchestrator_daemon_runtime::ProcessManager;

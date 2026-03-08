@@ -1613,6 +1613,8 @@ pub struct SubjectExecutionFact {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schedule_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,

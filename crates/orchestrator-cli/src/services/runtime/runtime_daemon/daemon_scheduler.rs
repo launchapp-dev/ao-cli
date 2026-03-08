@@ -180,7 +180,6 @@ pub(super) fn runtime_options_from_cli(args: &DaemonRunArgs) -> DaemonRuntimeOpt
         pool_size: args.pool_size,
         max_agents: args.max_agents,
         interval_secs: args.interval_secs,
-        ai_task_generation: args.ai_task_generation,
         auto_run_ready: args.auto_run_ready,
         auto_merge: args.auto_merge,
         auto_pr: args.auto_pr,

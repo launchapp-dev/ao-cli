@@ -7,8 +7,6 @@
         "-p",
         "orchestrator-cli",
         "--",
-        "--project-root",
-        ".",
         "mcp",
         "serve"
       ]

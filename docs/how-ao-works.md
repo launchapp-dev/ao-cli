@@ -2,70 +2,311 @@
 
 > From idea to shipped code — how a SaaS company uses AO to orchestrate AI agents across the entire software delivery lifecycle.
 
+## Core Principle
+
+**Everything is a YAML workflow.**
+
+The CLI doesn't contain AI logic. It dispatches YAML-defined workflows through a single execution path. Vision drafting, requirements generation, code implementation, review — they're all workflows. The CLI is the remote control. The workflows are the brains.
+
+```mermaid
+flowchart LR
+    subgraph CLI["ao CLI (thin dispatcher)"]
+        direction TB
+        cmd["Parse command"]
+        dispatch["Emit SubjectDispatch"]
+        output["Stream output"]
+    end
+
+    subgraph YAML["YAML Workflows (.ao/workflows/)"]
+        direction TB
+        builtin["Builtin Workflows<br/>vision-draft, requirements-draft<br/>requirements-refine, requirements-execute"]
+        task_wf["Task Workflows<br/>standard, hotfix, research<br/>refactor, bugfix"]
+        custom["Custom Workflows<br/>incident-response, lead-qualify<br/>nightly-ci, onboarding"]
+    end
+
+    subgraph ENGINE["Execution Engine"]
+        runner["workflow-runner<br/>Resolves YAML, executes phases"]
+        agents["AI Agents<br/>Each phase = agent + tools"]
+        tools["MCP Tools<br/>ao, github, slack, db..."]
+    end
+
+    CLI --> YAML
+    YAML --> ENGINE
+    agents --> tools
+    runner --> agents
+```
+
+---
+
 ## The Big Picture
 
 ```mermaid
 flowchart TB
     subgraph YOU["👤 You (Founder / PM)"]
-        vision["ao vision draft<br/>Define what you're building"]
-        reqs["ao requirements draft<br/>Break vision into requirements"]
-        execute["ao requirements execute<br/>Convert to tasks + start workflows"]
+        vision["ao vision draft<br/>→ dispatches builtin/vision-draft workflow"]
+        reqs["ao requirements draft<br/>→ dispatches builtin/requirements-draft workflow"]
+        execute["ao requirements execute<br/>→ dispatches builtin/requirements-execute workflow"]
     end
 
-    subgraph DAEMON["🔄 AO Daemon (Autonomous Background Process)"]
-        tick["Project Tick Loop<br/>Every 5 seconds"]
-        queue["Dispatch Queue<br/>Priority-ordered task queue"]
-        spawn["Spawn Workflow<br/>Create worktree + assign agents"]
-        reconcile["Reconcile Results<br/>Update task status, cleanup"]
+    subgraph DAEMON["🔄 AO Daemon (Dumb Scheduler)"]
+        tick["Tick Loop<br/>Consume SubjectDispatch"]
+        queue["Dispatch Queue<br/>Priority-ordered"]
+        spawn["Spawn workflow-runner<br/>Create worktree"]
+        facts["Emit execution facts"]
     end
 
-    subgraph WORKFLOW["⚙️ Workflow Pipeline (Per Task)"]
-        direction LR
-        triage["Triage"] --> research["Research"]
-        research --> plan["Plan"]
-        plan --> impl["Implement"]
-        impl --> review["Code Review"]
-        review -->|rework| impl
-        review --> security["Security Review"]
-        security --> test["Testing"]
-        test --> po["PO Review"]
+    subgraph RUNNER["⚙️ workflow-runner (Execution Host)"]
+        resolve["Resolve workflow_ref → YAML"]
+        phases["Execute phases sequentially"]
+        rework["Rework loop on failure"]
+        result["Emit workflow result"]
     end
 
-    subgraph AGENTS["🤖 AI Agents (Each Phase)"]
-        agent["Agent gets:<br/>• System prompt for role<br/>• Task description + ACs<br/>• MCP tools (AO, GitHub, Slack...)<br/>• Isolated git worktree"]
-        decision["Returns PhaseDecision:<br/>advance / rework / fail / skip"]
+    subgraph PROJECTION["📊 Projection Layer"]
+        taskp["Task projector"]
+        reqp["Requirement projector"]
+        schedp["Schedule projector"]
+        notifp["Notification projector"]
     end
 
     subgraph OUTPUT["📦 Deliverables"]
-        pr["Pull Request on GitHub"]
-        branch["Feature branch with commits"]
-        artifacts["Test results, review notes"]
-        dashboard["Web Dashboard metrics"]
+        pr["Pull Requests"]
+        state["Updated state"]
+        metrics["Dashboard metrics"]
     end
 
-    vision --> reqs --> execute
+    vision --> queue
+    reqs --> queue
     execute --> queue
     tick --> queue
     queue --> spawn
-    spawn --> WORKFLOW
-    WORKFLOW --> AGENTS
-    AGENTS --> reconcile
-    reconcile --> tick
-    reconcile --> OUTPUT
+    spawn --> resolve
+    resolve --> phases
+    phases --> rework
+    rework --> phases
+    phases --> result
+    result --> facts
+    facts --> PROJECTION
+    PROJECTION --> OUTPUT
+```
+
+---
+
+## Architecture: Three Layers
+
+AO has exactly three layers. Each has a single responsibility.
+
+### Layer 1: Surfaces (CLI, Web, MCP)
+
+Surfaces accept user input and produce `SubjectDispatch` values. They never run AI directly.
+
+```mermaid
+flowchart TB
+    subgraph SURFACES["Ingress Surfaces"]
+        cli["ao CLI commands"]
+        web["Web API / Dashboard"]
+        mcp["MCP tool calls"]
+        cron["Cron schedules"]
+        queue_in["Ready queue"]
+    end
+
+    subgraph CONTRACT["Dispatch Contract"]
+        sd["SubjectDispatch<br/>subject + workflow_ref + input + trigger"]
+    end
+
+    SURFACES --> sd
+```
+
+A `SubjectDispatch` is the universal work envelope:
+
+```
+SubjectDispatch {
+    subject: Task { id } | Requirement { id } | Custom { title, description },
+    workflow_ref: "builtin/vision-draft" | "standard-workflow" | "custom/my-workflow",
+    input: { variables, context },
+    trigger_source: Manual | Schedule | Queue,
+    priority: high,
+    requested_at: timestamp,
+}
+```
+
+Every workflow start — whether from `ao vision draft`, a cron schedule, the ready queue, or an MCP tool call — produces the same envelope.
+
+### Layer 2: Daemon Runtime (Dumb Scheduler)
+
+The daemon consumes `SubjectDispatch`, manages capacity, spawns `workflow-runner` subprocesses, and emits execution facts. It does not know about tasks, requirements, or business logic.
+
+```mermaid
+flowchart TB
+    subgraph DAEMON["orchestrator-daemon-runtime"]
+        consume["Consume SubjectDispatch"]
+        capacity["Check capacity + headroom"]
+        spawn["Spawn workflow-runner subprocess"]
+        track["Track active subjects"]
+        poll["Poll for completion"]
+        emit["Emit execution facts"]
+    end
+
+    sd["SubjectDispatch"] --> consume
+    consume --> capacity
+    capacity --> spawn
+    spawn --> track
+    track --> poll
+    poll --> emit
+    emit --> facts["Execution Facts"]
+```
+
+**The daemon knows about:** subjects, dispatch envelopes, slots, headroom, subprocess lifecycle, runner telemetry.
+
+**The daemon does NOT know about:** task status policy, backlog promotion, retry policy, requirement transitions, AI logic, git workflow policy.
+
+### Layer 3: Workflow Runner (Execution Host)
+
+`workflow-runner` resolves `workflow_ref` from YAML and executes phases. This is where all AI behavior lives.
+
+```mermaid
+flowchart TB
+    subgraph RUNNER["workflow-runner"]
+        resolve["Resolve workflow_ref → YAML definition"]
+        state["Initialize workflow state machine"]
+        loop["Phase execution loop"]
+        agent["Spawn agent for phase"]
+        decision["Collect PhaseDecision"]
+        gate["Evaluate gates + guards"]
+        transition["Apply transition<br/>advance / rework / skip / fail"]
+        complete["Emit workflow result"]
+    end
+
+    resolve --> state --> loop
+    loop --> agent --> decision --> gate --> transition
+    transition -->|"next phase"| loop
+    transition -->|"rework"| loop
+    transition -->|"done"| complete
+```
+
+---
+
+## Everything Is a Workflow
+
+### Builtin Workflows
+
+These ship with AO and handle the planning lifecycle. They are YAML workflows executed by `workflow-runner`, not hardcoded Rust operations.
+
+```mermaid
+flowchart TB
+    subgraph PLANNING["Planning Workflows (builtin/)"]
+        vd["builtin/vision-draft<br/>Generates vision document<br/>with complexity assessment"]
+        vr["builtin/vision-refine<br/>Refines existing vision<br/>based on feedback"]
+        rd["builtin/requirements-draft<br/>Scans codebase + generates<br/>requirements with ACs"]
+        rr["builtin/requirements-refine<br/>Sharpens acceptance criteria<br/>per requirement"]
+        re["builtin/requirements-execute<br/>Decomposes requirements into<br/>tasks + queues workflows"]
+    end
+
+    subgraph TASK["Task Workflows (user-defined)"]
+        std["standard-workflow<br/>triage → research → plan →<br/>implement → review → test → accept"]
+        hot["hotfix-workflow<br/>triage → implement →<br/>fast-track review → test"]
+        res["research-workflow<br/>research → document →<br/>summarize"]
+    end
+
+    subgraph CUSTOM["Custom Workflows (user-defined)"]
+        inc["incident-response<br/>investigate → hotfix → deploy"]
+        lead["lead-qualify<br/>research → score → notify"]
+        ci["nightly-ci<br/>build → test → report"]
+    end
+```
+
+**CLI commands map directly to workflow dispatches:**
+
+| Command | Dispatches | Subject |
+|---------|-----------|---------|
+| `ao vision draft` | `builtin/vision-draft` | `Custom { title: "vision-draft" }` |
+| `ao vision refine` | `builtin/vision-refine` | `Custom { title: "vision-refine" }` |
+| `ao requirements draft` | `builtin/requirements-draft` | `Custom { title: "requirements-draft" }` |
+| `ao requirements refine --ids REQ-001` | `builtin/requirements-refine` | `Requirement { id: "REQ-001" }` |
+| `ao requirements execute --ids REQ-001` | `builtin/requirements-execute` | `Requirement { id: "REQ-001" }` |
+| `ao workflow run --ref standard-workflow` | `standard-workflow` | `Task { id: "TASK-001" }` |
+
+### Example: Builtin Vision Draft Workflow
+
+```yaml
+# .ao/workflows/builtin/vision-draft.yaml
+id: builtin/vision-draft
+name: Vision Draft
+description: Generate a vision document with complexity assessment
+
+agents:
+  vision-analyst:
+    model: claude-sonnet-4-6
+    system_prompt: |
+      You are a product strategist. Analyze the project context and produce
+      a vision document covering: problem statement, target users, goals,
+      constraints, value proposition, and complexity assessment.
+    mcp_servers: [ao, web-search]
+
+pipelines:
+  default:
+    phases:
+      - id: draft
+        agent: vision-analyst
+      - id: complexity-assessment
+        agent: vision-analyst
+        system_prompt_override: |
+          Review the draft vision and produce a complexity assessment
+          (simple/medium/complex) with justification.
+    post_success:
+      save_artifact: vision.json
+```
+
+### Example: Builtin Requirements Execute Workflow
+
+```yaml
+# .ao/workflows/builtin/requirements-execute.yaml
+id: builtin/requirements-execute
+name: Requirements Execute
+description: Decompose requirements into tasks and queue workflows
+
+agents:
+  task-planner:
+    model: claude-sonnet-4-6
+    system_prompt: |
+      You are a technical project manager. Given requirements with acceptance
+      criteria, decompose them into concrete implementation tasks. Use ao MCP
+      tools to create tasks and link them to requirements.
+    mcp_servers: [ao]
+
+pipelines:
+  default:
+    phases:
+      - id: analyze
+        agent: task-planner
+      - id: create-tasks
+        agent: task-planner
+        system_prompt_override: |
+          Create tasks using ao.task.create for each work item identified.
+          Set appropriate priority, type, dependencies, and link to the
+          source requirement. Then queue workflows for ready tasks.
 ```
 
 ---
 
 ## Step-by-Step: Building Your SaaS
 
-### Phase 1: Define What You're Building
+### Step 1: Setup
+
+```bash
+ao setup    # Configure project, tech stack, MCP servers, YAML config
+```
+
+This creates `.ao/workflows/` with your workflow definitions and `.ao/state/` for runtime state.
+
+### Step 2: Define What You're Building
 
 ```mermaid
 flowchart LR
-    A["ao setup<br/>Configure project,<br/>tech stack, MCP servers"]
-    --> B["ao vision draft<br/>AI generates vision doc<br/>from your description"]
-    --> C["ao requirements draft<br/>--include-codebase-scan<br/>Scans code + generates<br/>8-16 requirements"]
-    --> D["ao requirements refine<br/>AI sharpens acceptance<br/>criteria per requirement"]
+    A["ao vision draft<br/>→ builtin/vision-draft workflow<br/>Agent generates vision doc"]
+    --> B["ao requirements draft<br/>→ builtin/requirements-draft workflow<br/>Agent scans code + generates reqs"]
+    --> C["ao requirements refine<br/>→ builtin/requirements-refine workflow<br/>Agent sharpens acceptance criteria"]
+    --> D["ao requirements execute<br/>→ builtin/requirements-execute workflow<br/>Agent creates tasks + queues work"]
 
     style A fill:#1a1a2e,stroke:#e94560,color:#fff
     style B fill:#1a1a2e,stroke:#e94560,color:#fff
@@ -73,199 +314,115 @@ flowchart LR
     style D fill:#1a1a2e,stroke:#e94560,color:#fff
 ```
 
-You describe your SaaS idea. AO generates a **vision document**, breaks it into **requirements** (REQ-001, REQ-002...) with priorities (Must/Should/Could), and refines each with acceptance criteria.
-
-**Commands:**
-
-```bash
-ao setup                                          # Interactive project setup
-ao vision draft                                   # Generate vision from description
-ao requirements draft --include-codebase-scan     # Scan code + generate requirements
-ao requirements refine --requirement-ids REQ-001  # Sharpen acceptance criteria
-```
-
-### Phase 2: Requirements Become Tasks
-
-```mermaid
-flowchart TB
-    REQ["REQ-001: User Authentication<br/>Priority: Must | Status: Planned"]
-
-    REQ --> T1["TASK-001: OAuth2 Google login<br/>Type: feature | Priority: high"]
-    REQ --> T2["TASK-002: JWT session management<br/>Type: feature | Priority: high"]
-    REQ --> T3["TASK-003: Rate limiting middleware<br/>Type: feature | Priority: medium"]
-
-    T1 --> W1["Workflow spawned →"]
-    T2 --> W2["Workflow spawned →"]
-    T3 -->|blocked by T1, T2| QUEUE["Waiting in queue"]
-
-    style REQ fill:#0f3460,stroke:#e94560,color:#fff
-    style T1 fill:#16213e,stroke:#0f3460,color:#fff
-    style T2 fill:#16213e,stroke:#0f3460,color:#fff
-    style T3 fill:#16213e,stroke:#0f3460,color:#fff
-```
-
-`ao requirements execute` creates tasks and immediately starts the daemon working on them. Tasks respect **dependency ordering** — TASK-003 waits until TASK-001 and TASK-002 are done.
+Every command dispatches a YAML workflow. The CLI streams output while the agent runs. Under the hood it's the same execution path as any other workflow.
 
 **The hierarchy:**
 
-| Level | Entity | Example |
-|-------|--------|---------|
-| Vision | Single document | "Build a project management SaaS" |
-| Requirements | REQ-001..REQ-016 | "User authentication with OAuth2" |
-| Tasks | TASK-001..TASK-040 | "Implement Google OAuth2 login flow" |
+| Level | Entity | Created By |
+|-------|--------|-----------|
+| Vision | Single document | `builtin/vision-draft` workflow |
+| Requirements | REQ-001..REQ-016 | `builtin/requirements-draft` workflow |
+| Tasks | TASK-001..TASK-040 | `builtin/requirements-execute` workflow (agent uses `ao.task.create` MCP tool) |
 
-**Task metadata includes:** type (feature/bugfix/refactor), priority (critical/high/medium/low), risk level, impact areas (frontend/backend/API/infra), assignee, dependencies, acceptance criteria, and worktree path.
+### Step 3: Daemon Picks Up Work
 
-### Phase 3: The Daemon Orchestrates Everything
+```bash
+ao daemon start --autonomous
+```
 
 ```mermaid
 flowchart TB
     subgraph TICK["Daemon Tick (every 5s)"]
         direction TB
-        load["Load tasks + queue state<br/>from .ao/state/*.json"]
-        check["Check: any tasks Ready?<br/>Check: concurrency < limit?"]
-        dispatch["Dequeue highest priority<br/>Create SubjectDispatch"]
-        worktree["Create git worktree<br/>~/.ao/project/worktrees/TASK-001/"]
-        run["Spawn: ao workflow execute<br/>as subprocess"]
-        poll["Poll running workflows<br/>for completion"]
-        update["Update task status<br/>Clean up worktree<br/>Emit events"]
+        load["Load dispatch queue"]
+        check["Check capacity"]
+        dequeue["Dequeue highest priority SubjectDispatch"]
+        spawn["Spawn workflow-runner<br/>with workflow_ref + subject"]
+        poll["Poll running subprocesses"]
+        emit["Emit execution facts"]
     end
 
-    load --> check --> dispatch --> worktree --> run --> poll --> update
-    update -->|next tick| load
+    load --> check --> dequeue --> spawn --> poll --> emit
+    emit -->|next tick| load
 
-    subgraph LIMITS["Concurrency Controls"]
-        max_wf["Max 3 workflows running"]
-        max_agents["Max 10 agents total"]
-        priority["Higher priority = dispatched first"]
+    subgraph LIMITS["Capacity Controls"]
+        slots["Max concurrent workflows"]
+        headroom["Slot headroom"]
+        priority["Priority ordering"]
     end
 
     check -.-> LIMITS
 ```
 
-The daemon is the brain. It runs autonomously in the background, picking up ready tasks, spawning workflows in isolated git worktrees, and reconciling results.
+The daemon is a dumb scheduler. It doesn't know what a "task" is or what "requirements" are. It just processes `SubjectDispatch` envelopes, manages subprocess capacity, and emits facts.
 
-**Commands:**
-
-```bash
-ao daemon start --autonomous  # Fork background daemon
-ao daemon status              # Check if running
-ao daemon pause               # Pause scheduling (finish in-flight work)
-ao daemon resume              # Resume scheduling
-ao daemon stop                # Graceful shutdown
-```
-
-**What happens each tick:**
-
-1. **Load state** — reads tasks, workflows, dispatch queue from `.ao/state/`
-2. **Queue candidates** — identifies tasks in `Ready` status
-3. **Apply limits** — respects max concurrent workflows and agents
-4. **Dispatch** — dequeues highest priority task, creates `SubjectDispatch` envelope
-5. **Spawn** — creates git worktree, launches `ao workflow execute` subprocess
-6. **Poll** — checks running workflows for completion
-7. **Reconcile** — updates task status, cleans up worktrees, emits events
-
-### Phase 4: Each Task Runs Through a Workflow Pipeline
+### Step 4: Workflow Pipeline Executes
 
 ```mermaid
 sequenceDiagram
     participant D as Daemon
-    participant W as Worktree
+    participant R as workflow-runner
     participant T as Triager Agent
-    participant R as Researcher Agent
+    participant RS as Researcher Agent
     participant E as Engineer Agent
     participant CR as Code Reviewer
     participant TE as Tester Agent
     participant PO as PO Reviewer
 
-    D->>W: Create worktree + branch task/TASK-001
-    D->>T: Phase 1: Triage
-    T->>T: Validate task, check for duplicates
-    T-->>D: verdict: advance ✓
+    D->>R: SubjectDispatch { subject: TASK-001, workflow_ref: "standard-workflow" }
+    R->>R: Resolve YAML → create worktree → init state machine
 
-    D->>R: Phase 2: Research
-    R->>R: Explore codebase, find patterns
-    R-->>D: verdict: advance ✓
+    R->>T: Phase: triage
+    T->>T: ao.task.get TASK-001 → validate, check duplicates
+    T-->>R: verdict: advance
 
-    D->>E: Phase 3: Implement
-    E->>W: Write code in worktree
-    E->>W: Run tests locally
-    E->>W: git commit + push
-    E-->>D: verdict: advance ✓
+    R->>RS: Phase: research
+    RS->>RS: Explore codebase, search docs
+    RS-->>R: verdict: advance
 
-    D->>CR: Phase 4: Code Review
-    CR->>W: Review git diff
-    CR-->>D: verdict: rework ✗ (missing error handling)
+    R->>E: Phase: implementation
+    E->>E: Write code, run tests, git commit
+    E-->>R: verdict: advance
 
-    D->>E: Phase 3 again: Rework (attempt 2/3)
-    E->>W: Fix issues, recommit
-    E-->>D: verdict: advance ✓
+    R->>CR: Phase: code-review
+    CR->>CR: Review diff
+    CR-->>R: verdict: rework (missing error handling)
 
-    D->>CR: Phase 4 again: Code Review
-    CR-->>D: verdict: advance ✓
+    R->>E: Phase: implementation (rework 2/3)
+    E->>E: Fix issues, recommit
+    E-->>R: verdict: advance
 
-    D->>TE: Phase 5: Testing
-    TE->>W: cargo test --workspace
-    TE-->>D: verdict: advance ✓
+    R->>CR: Phase: code-review (retry)
+    CR-->>R: verdict: advance
 
-    D->>PO: Phase 6: PO Review
-    PO->>PO: Verify all acceptance criteria
-    PO-->>D: verdict: advance ✓
+    R->>TE: Phase: testing
+    TE->>TE: cargo test --workspace
+    TE-->>R: verdict: advance
 
-    D->>W: Auto-create PR + merge
-    D->>D: Task status → Done
+    R->>PO: Phase: po-review
+    PO->>PO: ao.task.checklist-update → verify ACs
+    PO-->>R: verdict: advance
+
+    R->>R: post_success: create PR + merge
+    R-->>D: Execution fact: workflow completed
+    D->>D: Project fact to task projector → TASK-001 status: done
 ```
 
-Each agent is a **specialized AI persona** with its own system prompt, model, and MCP tool access. If code review fails, the engineer gets sent back to rework — up to a configurable maximum before escalating.
-
-**Workflow definitions** live in `.ao/workflows/` as YAML:
-
-```yaml
-pipelines:
-  standard-workflow:
-    phases:
-      - id: triage
-        agent: triager
-      - id: research
-        agent: researcher
-      - id: implementation
-        agent: senior-engineer
-        max_reworks: 3
-      - id: code-review
-        agent: code-reviewer
-      - id: testing
-        agent: integration-tester
-      - id: po-review
-        agent: po-reviewer
-    post_success:
-      auto_merge: true
-      auto_pr: true
-```
-
-**Phase decisions** returned by agents:
-
-| Verdict | Meaning |
-|---------|---------|
-| `advance` | Phase passed, move to next |
-| `rework` | Send back to previous phase for fixes |
-| `skip` | Phase not applicable, skip it |
-| `fail` | Unrecoverable failure, stop workflow |
-
-### Phase 5: Agents Have Superpowers via MCP
+### Step 5: Agents Use MCP Tools
 
 ```mermaid
 flowchart LR
-    subgraph AGENT["🤖 Senior Engineer Agent"]
-        prompt["System prompt:<br/>'You are a senior engineer...'"]
+    subgraph AGENT["🤖 Agent (any phase)"]
+        prompt["Role-specific system prompt<br/>+ task context + prior phase output"]
     end
 
-    subgraph MCP["MCP Tool Servers Available"]
-        ao["ao tools<br/>task.get, task.update<br/>workflow.phases, git.commit"]
+    subgraph MCP["MCP Tool Servers"]
+        ao["ao<br/>task.get, task.update<br/>task.create, requirements.list<br/>workflow.run, queue.add"]
         gh["GitHub<br/>create PR, review comments<br/>check CI status"]
-        slack["Slack<br/>notify team channel<br/>request human input"]
+        slack["Slack<br/>notify team, request input"]
         db["PostgreSQL<br/>query schema, test data"]
         search["Web Search<br/>look up docs, APIs"]
-        notion["Notion<br/>update project wiki"]
+        notion["Notion<br/>update wiki"]
     end
 
     AGENT --> ao
@@ -276,9 +433,9 @@ flowchart LR
     AGENT --> notion
 ```
 
-Agents aren't just coding — they can interact with your entire tool stack. A researcher agent can search the web, an engineer can query your database schema, and a PO reviewer can update Notion.
+Agents mutate AO state through MCP tools, not by editing JSON files. When a `requirements-execute` agent needs to create tasks, it calls `ao.task.create`. When an engineer needs to mark a checklist item done, it calls `ao.task.checklist-update`. This keeps all state changes validated and auditable.
 
-**MCP servers are configured per workflow:**
+**MCP servers are configured in workflow YAML:**
 
 ```yaml
 mcp_servers:
@@ -309,15 +466,15 @@ mcp_servers:
 | `integration-tester` | Runs test suites, checks coverage | ao |
 | `po-reviewer` | Verifies acceptance criteria are met | ao, notion |
 
-### Phase 6: Monitor Everything
+### Step 6: Monitor Everything
 
 ```mermaid
 flowchart TB
     subgraph MONITOR["How You Monitor"]
         cli["CLI<br/>ao task stats<br/>ao daemon status<br/>ao workflow list"]
-        web["Web Dashboard<br/>ao web serve<br/>Real-time Kanban board"]
-        tui["Terminal UI<br/>ao tui<br/>Ratatui dashboard"]
-        mcp_monitor["MCP in Claude Code<br/>ao.task.list<br/>ao.daemon.health"]
+        web["Web Dashboard<br/>ao web serve"]
+        tui["Terminal UI<br/>ao tui"]
+        mcp_monitor["MCP in your editor<br/>ao.task.list<br/>ao.daemon.health"]
     end
 
     subgraph METRICS["What You See"]
@@ -330,19 +487,6 @@ flowchart TB
     MONITOR --> METRICS
 ```
 
-**Monitoring commands:**
-
-```bash
-ao task stats                    # Task breakdown by status/priority/type
-ao task prioritized              # View priority-ordered task list
-ao daemon status                 # Daemon health + active workflows
-ao daemon logs                   # Review daemon log output
-ao workflow list                 # All workflows with phase progress
-ao workflow get <id>             # Full workflow with decision history
-ao web serve                     # Launch web dashboard
-ao tui                           # Terminal UI dashboard
-```
-
 ---
 
 ## The Full Lifecycle
@@ -350,19 +494,19 @@ ao tui                           # Terminal UI dashboard
 ```mermaid
 flowchart TB
     IDEA["💡 Your SaaS Idea"]
-    --> VISION["ao vision draft"]
-    --> REQS["ao requirements draft<br/>REQ-001..REQ-016"]
-    --> EXECUTE["ao requirements execute<br/>Creates TASK-001..TASK-040"]
+    --> VISION["ao vision draft<br/>→ builtin/vision-draft workflow"]
+    --> REQS["ao requirements draft<br/>→ builtin/requirements-draft workflow"]
+    --> EXECUTE["ao requirements execute<br/>→ builtin/requirements-execute workflow<br/>Agent creates tasks via ao.task.create"]
     --> DAEMON["ao daemon start --autonomous"]
 
-    DAEMON --> LOOP{"Daemon Tick Loop"}
+    DAEMON --> LOOP{"Daemon Tick"}
 
-    LOOP -->|"Ready task found"| WORKTREE["Create isolated worktree"]
-    WORKTREE --> PIPELINE["Run workflow pipeline<br/>triage → research → plan →<br/>implement → review → test → accept"]
+    LOOP -->|"SubjectDispatch dequeued"| SPAWN["Spawn workflow-runner"]
+    SPAWN --> PIPELINE["YAML workflow pipeline<br/>triage → research → plan →<br/>implement → review → test → accept"]
     PIPELINE -->|"All phases pass"| PR["Auto-create PR + merge"]
     PIPELINE -->|"Phase fails"| REWORK["Rework or escalate"]
     REWORK --> PIPELINE
-    PR --> DONE["Task → Done ✓"]
+    PR --> DONE["Execution fact → task projector → Done"]
     DONE --> LOOP
 
     LOOP -->|"All tasks done"| SHIPPED["🚀 Feature Shipped"]
@@ -374,44 +518,165 @@ flowchart TB
     style DAEMON fill:#533483,stroke:#fff,color:#fff
 ```
 
-**The short version:** You describe what to build. AO breaks it into tasks, assigns AI agents to each one, runs them through a quality pipeline (triage → research → code → review → test → accept), and delivers PRs. You review and merge.
+---
+
+## CLI Command Classification
+
+The CLI has exactly four responsibilities:
+
+### 1. Dispatch Workflows
+
+Commands that produce `SubjectDispatch` and execute workflows:
+
+```bash
+ao vision draft                    # → builtin/vision-draft
+ao vision refine                   # → builtin/vision-refine
+ao requirements draft              # → builtin/requirements-draft
+ao requirements refine             # → builtin/requirements-refine
+ao requirements execute            # → builtin/requirements-execute
+ao workflow run                    # → user-specified workflow_ref
+ao workflow execute                # → synchronous single-run execution
+```
+
+### 2. CRUD State
+
+Commands that read/write state without AI:
+
+```bash
+ao task list/get/create/update/delete/status/assign/set-priority
+ao requirements list/get/create/update/delete
+ao architecture entity list/get/create/update/delete
+ao review record/handoff
+ao qa evaluate/approve/reject
+ao workflow list/get/config/phases
+```
+
+### 3. Monitor
+
+Commands that observe system state:
+
+```bash
+ao status                          # Unified project dashboard
+ao task stats/prioritized          # Task analytics
+ao daemon status/health/logs       # Daemon observability
+ao workflow list/get/decisions      # Workflow progress
+ao output run/monitor/tail         # Agent output streaming
+ao history list/get                # Execution history
+ao errors list/get                 # Error inspection
+```
+
+### 4. Infrastructure
+
+Commands that manage the runtime:
+
+```bash
+ao setup/doctor                    # Project setup + health checks
+ao daemon start/stop/pause/resume  # Daemon lifecycle
+ao runner health/orphans           # Runner process management
+ao queue list/add/remove           # Dispatch queue management
+ao mcp start/stop/status           # MCP server lifecycle
+ao web serve                       # Web dashboard
+ao tui                             # Terminal UI
+ao config validate/compile         # YAML config management
+```
 
 ---
 
 ## Key Architecture Patterns
 
-### Isolated Worktrees
-
-Every task executes in its own git worktree — an isolated copy of the repository at `~/.ao/<repo-scope>/worktrees/<task-id>/`. Agents can write code, run tests, and commit without interfering with each other or your working directory.
-
 ### Subject Dispatch
 
-All work flows through a unified `SubjectDispatch` envelope:
+All work flows through a unified `SubjectDispatch` envelope. There is no special path for "vision" vs "task" vs "schedule" work. One envelope, one execution path.
 
-```
-SubjectDispatch {
-    subject: Task { id: "TASK-001" } | Requirement { id: "REQ-001" } | Custom { ... },
-    workflow_ref: "standard-workflow",
-    trigger: Schedule | Manual | Queue,
-}
-```
+### Dumb Daemon
 
-This means the same dispatch pipeline handles scheduled cron jobs, manual fires, and priority-queue picks.
+The daemon is a scheduler, not a feature host. It manages capacity and subprocesses. Advanced AI logic lives in YAML workflows executed by `workflow-runner`.
 
-### Atomic Persistence
+### Tool-Driven Mutation
 
-All state is persisted via atomic writes (write to temp file → sync → rename). This prevents corruption if the daemon crashes mid-write. State lives in `.ao/state/*.json`.
+Agents mutate state through MCP tools (`ao.task.create`, `ao.requirements.refine`, etc.), not through daemon-internal logic. This keeps the daemon generic and makes all state changes auditable.
+
+### Projectors
+
+Execution facts from `workflow-runner` are projected back onto domain state by projectors (task projector, requirement projector, schedule projector, notification projector). The daemon emits facts; projectors interpret them.
+
+### Isolated Worktrees
+
+Every task executes in its own git worktree at `~/.ao/<repo-scope>/worktrees/<task-id>/`. Agents can write code, run tests, and commit without interfering with each other.
 
 ### Self-Correcting Pipelines
 
-The rework loop is the quality guarantee. When a code reviewer finds issues, it sends work back to the engineer with failure context. The engineer sees exactly what went wrong and fixes it. Up to 3 rework cycles before escalating to a human.
+The rework loop is the quality guarantee. Code review sends work back to the engineer with failure context. Up to N rework cycles (configurable per phase) before escalating.
 
 ### Failure Recovery
 
 - **Phase fails** → retried up to configured max
-- **All retries exhausted** → workflow fails, task marked blocked
+- **All retries exhausted** → workflow fails, execution fact emitted, task projector marks blocked
 - **Daemon crashes** → orphan recovery on next startup
-- **Merge conflicts** → AI-powered conflict resolution attempts before escalating
+- **Merge conflicts** → AI-powered conflict resolution in workflow phases
+
+---
+
+## Workflow YAML Reference
+
+All workflows live in `.ao/workflows/`. The YAML schema supports:
+
+```yaml
+id: my-workflow
+name: My Workflow
+description: What this workflow does
+
+mcp_servers:
+  ao:
+    command: ao
+    args: [mcp, serve]
+  github:
+    command: npx
+    args: [-y, @modelcontextprotocol/server-github]
+    env:
+      GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_TOKEN}
+
+agents:
+  my-agent:
+    model: claude-sonnet-4-6
+    system_prompt: |
+      You are a specialized agent...
+    mcp_servers: [ao, github]
+
+variables:
+  - name: target_branch
+    default: main
+
+pipelines:
+  default:
+    phases:
+      - id: phase-1
+        agent: my-agent
+        max_rework_attempts: 3
+        skip_if: ["task.type == 'docs'"]
+        on_verdict:
+          rework: { target: phase-1 }
+          advance: { target: phase-2 }
+      - id: phase-2
+        agent: my-agent
+      - id: nested-pipeline
+        sub_workflow: other-workflow-ref
+    post_success:
+      auto_merge: true
+      auto_pr: true
+      cleanup_worktree: true
+```
+
+**Supported features:**
+- Sequential phase ordering
+- Conditional skipping (`skip_if` guards)
+- Verdict-based transitions (`on_verdict` routing)
+- Rework loops (`max_rework_attempts`)
+- Nested sub-workflows (`sub_workflow`)
+- Pipeline variables with defaults
+- Per-phase agent and model overrides
+- MCP server references by name
+- Post-success actions (merge, PR, cleanup)
 
 ---
 
@@ -419,25 +684,41 @@ The rework loop is the quality guarantee. When a code reviewer finds issues, it 
 
 ```
 Morning:
-  $ ao requirements execute --requirement-ids REQ-005..REQ-008 --start-workflows
-  → 12 tasks created, daemon picks them up
+  $ ao vision draft
+  → Dispatches builtin/vision-draft workflow
+  → Agent analyzes project, generates vision doc
+  → Vision saved to .ao/state/vision.json
 
-  $ ao daemon status
-  → 3 workflows running, 9 queued
+  $ ao requirements draft --include-codebase-scan
+  → Dispatches builtin/requirements-draft workflow
+  → Agent scans codebase, generates 12 requirements
+  → Requirements saved with acceptance criteria
+
+  $ ao requirements execute --requirement-ids REQ-001..REQ-005
+  → Dispatches builtin/requirements-execute workflow
+  → Agent creates 15 tasks via ao.task.create MCP tool
+  → Tasks queued with priorities and dependencies
+
+  $ ao daemon start --autonomous
+  → Daemon begins tick loop, picks up queued work
 
 Afternoon:
   $ ao task stats
-  → 7 done, 3 in-progress, 2 blocked (waiting on dependency)
+  → 9 done, 4 in-progress, 2 blocked (waiting on dependency)
 
   $ ao workflow list --status failed
   → 1 workflow failed at security-review (hardcoded API key detected)
-  → Agent auto-reworked, now passing
+  → Engineer agent auto-reworked, now passing
 
 Evening:
   $ ao task stats
-  → 11 done, 1 in-progress
+  → 14 done, 1 in-progress
 
   $ gh pr list
-  → 11 PRs ready for review
+  → 14 PRs ready for review
   → Review, approve, merge
+
+Next day:
+  $ ao requirements execute --requirement-ids REQ-006..REQ-010
+  → Repeat cycle
 ```

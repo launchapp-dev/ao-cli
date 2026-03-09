@@ -41,7 +41,7 @@ pub async fn reconcile_completed_processes(
             eprintln!(
                 "{}: workflow runner {} for subject '{}' (exit={:?})",
                 protocol::ACTOR_DAEMON,
-                if fact.success { "succeeded" } else { "failed" },
+                fact.completion_status(),
                 fact.subject_id,
                 fact.exit_code,
             );

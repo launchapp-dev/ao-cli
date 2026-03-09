@@ -199,11 +199,7 @@ impl WorkflowServiceApi for InMemoryServiceHub {
         Ok(workflow.clone())
     }
 
-    async fn mark_completed_failed(
-        &self,
-        id: &str,
-        error: String,
-    ) -> Result<OrchestratorWorkflow> {
+    async fn mark_completed_failed(&self, id: &str, error: String) -> Result<OrchestratorWorkflow> {
         let mut lock = self.state.write().await;
         let workflow = lock
             .workflows
@@ -521,11 +517,7 @@ impl WorkflowServiceApi for FileServiceHub {
         Ok(workflow)
     }
 
-    async fn mark_completed_failed(
-        &self,
-        id: &str,
-        error: String,
-    ) -> Result<OrchestratorWorkflow> {
+    async fn mark_completed_failed(&self, id: &str, error: String) -> Result<OrchestratorWorkflow> {
         let manager = self.workflow_manager();
         let mut workflow = manager.load(id)?;
         let state_machines = load_compiled_state_machines(self.project_root.as_path())?;

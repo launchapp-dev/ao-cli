@@ -186,7 +186,10 @@ fn parse_runner_events(stderr_lines: &Arc<Mutex<Vec<String>>>) -> Vec<RunnerEven
 }
 
 fn latest_runner_workflow_id(events: &[RunnerEvent]) -> Option<String> {
-    events.iter().rev().find_map(|event| event.workflow_id.clone())
+    events
+        .iter()
+        .rev()
+        .find_map(|event| event.workflow_id.clone())
 }
 
 fn latest_runner_workflow_status(events: &[RunnerEvent]) -> Option<WorkflowStatus> {

@@ -291,17 +291,31 @@ pub(crate) async fn approve_manual_phase(
         ));
     }
 
+    let approval_timestamp = Utc::now().to_rfc3339();
+    let workflow = match workflow.status {
+        orchestrator_core::WorkflowStatus::Paused => hub.workflows().resume(workflow_id).await?,
+        orchestrator_core::WorkflowStatus::Running => workflow,
+        status => {
+            return Err(anyhow!(
+                "workflow '{}' is not waiting for manual approval (status: {})",
+                workflow_id,
+                format!("{status:?}").to_ascii_lowercase()
+            ));
+        }
+    };
+
+    let updated = hub.workflows().complete_current_phase(workflow_id).await?;
+
     let mut store = read_manual_approvals(project_root)?;
     store.approvals.push(ManualApprovalRecord {
         workflow_id: workflow_id.to_string(),
         phase_id: phase_id.to_string(),
         note: note.to_string(),
-        approved_at: Utc::now().to_rfc3339(),
+        approved_at: approval_timestamp.clone(),
         approved_by: protocol::ACTOR_CLI.to_string(),
     });
     write_manual_approvals(project_root, &store)?;
 
-    let updated = hub.workflows().complete_current_phase(workflow_id).await?;
     if !workflow.task_id.trim().is_empty() {
         sync_task_status_for_workflow_result(
             hub.clone(),
@@ -328,7 +342,101 @@ pub(crate) async fn approve_manual_phase(
         "manual_approval": {
             "phase_id": phase_id,
             "note": note,
-            "approved_at": Utc::now().to_rfc3339(),
+            "approved_at": approval_timestamp,
         },
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::approve_manual_phase;
+    use orchestrator_core::{
+        load_agent_runtime_config, services::ServiceHub, write_agent_runtime_config,
+        FileServiceHub, PhaseExecutionMode, PhaseManualDefinition, Priority, TaskCreateInput,
+        TaskStatus, TaskType, WorkflowPhaseStatus, WorkflowRunInput, WorkflowStatus,
+    };
+    use std::sync::Arc;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn approve_manual_phase_resumes_paused_workflow_before_completion() {
+        let temp = TempDir::new().expect("temp dir");
+        let project_root = temp.path().to_string_lossy().to_string();
+        let hub = Arc::new(FileServiceHub::new(&project_root).expect("file service hub"));
+
+        let task = hub
+            .tasks()
+            .create(TaskCreateInput {
+                title: "manual approval".to_string(),
+                description: "resume before completing".to_string(),
+                task_type: Some(TaskType::Feature),
+                priority: Some(Priority::High),
+                created_by: Some("test".to_string()),
+                tags: Vec::new(),
+                linked_requirements: Vec::new(),
+                linked_architecture_entities: Vec::new(),
+            })
+            .await
+            .expect("task should be created");
+        hub.tasks()
+            .set_status(&task.id, TaskStatus::InProgress, false)
+            .await
+            .expect("task should be in progress");
+
+        let workflow = hub
+            .workflows()
+            .run(WorkflowRunInput::for_task(task.id.clone(), None))
+            .await
+            .expect("workflow should start");
+        let current_phase = workflow
+            .current_phase
+            .clone()
+            .expect("workflow should have current phase");
+
+        let mut runtime = load_agent_runtime_config(temp.path()).expect("runtime config");
+        let mut definition = runtime
+            .phase_execution(&current_phase)
+            .cloned()
+            .expect("current phase should exist");
+        definition.mode = PhaseExecutionMode::Manual;
+        definition.agent_id = None;
+        definition.command = None;
+        definition.manual = Some(PhaseManualDefinition {
+            instructions: "Approve this step".to_string(),
+            approval_note_required: false,
+        });
+        runtime.phases.insert(current_phase.clone(), definition);
+        write_agent_runtime_config(temp.path(), &runtime).expect("runtime config should write");
+
+        let paused = hub
+            .workflows()
+            .pause(&workflow.id)
+            .await
+            .expect("workflow should pause");
+        assert_eq!(paused.status, WorkflowStatus::Paused);
+
+        approve_manual_phase(
+            hub.clone(),
+            &project_root,
+            &workflow.id,
+            &current_phase,
+            "approved",
+        )
+        .await
+        .expect("manual approval should succeed");
+
+        let updated = hub
+            .workflows()
+            .get(&workflow.id)
+            .await
+            .expect("workflow should reload");
+        let completed_phase = updated
+            .phases
+            .iter()
+            .find(|phase| phase.phase_id == current_phase)
+            .expect("approved phase should remain in workflow");
+
+        assert_eq!(completed_phase.status, WorkflowPhaseStatus::Success);
+        assert_ne!(updated.status, WorkflowStatus::Paused);
+    }
 }

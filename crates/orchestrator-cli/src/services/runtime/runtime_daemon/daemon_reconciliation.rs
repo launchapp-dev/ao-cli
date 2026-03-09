@@ -48,17 +48,23 @@ fn workflow_is_waiting_on_manual_phase(
     project_root: &str,
     workflow: &orchestrator_core::OrchestratorWorkflow,
 ) -> bool {
-    let Some(phase_id) = workflow
-        .current_phase
-        .clone()
-        .or_else(|| workflow.phases.get(workflow.current_phase_index).map(|phase| phase.phase_id.clone()))
-    else {
+    let Some(phase_id) = workflow.current_phase.clone().or_else(|| {
+        workflow
+            .phases
+            .get(workflow.current_phase_index)
+            .map(|phase| phase.phase_id.clone())
+    }) else {
         return false;
     };
 
     orchestrator_core::load_agent_runtime_config(Path::new(project_root))
         .ok()
         .and_then(|config| config.phase_execution(&phase_id).cloned())
-        .map(|definition| matches!(definition.mode, orchestrator_core::PhaseExecutionMode::Manual))
+        .map(|definition| {
+            matches!(
+                definition.mode,
+                orchestrator_core::PhaseExecutionMode::Manual
+            )
+        })
         .unwrap_or(false)
 }

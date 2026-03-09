@@ -288,7 +288,8 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
         }
     }
 
-    let mut phases_to_run: Vec<String> = workflow.phases.iter().map(|p| p.phase_id.clone()).collect();
+    let mut phases_to_run: Vec<String> =
+        workflow.phases.iter().map(|p| p.phase_id.clone()).collect();
     if phases_to_run.is_empty() {
         return Err(anyhow!("workflow has no phases to execute"));
     }
@@ -398,10 +399,7 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
                         }));
                         break;
                     }
-                    PhaseExecutionOutcome::Completed {
-                        phase_decision,
-                        ..
-                    } => {
+                    PhaseExecutionOutcome::Completed { phase_decision, .. } => {
                         let decision = phase_decision.clone();
                         let updated = hub
                             .workflows()
@@ -409,15 +407,12 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
                             .await?;
                         let next_status = updated.status;
                         let next_phase_index = updated.current_phase_index;
-                        let next_phase_id = updated
-                            .current_phase
-                            .clone()
-                            .or_else(|| {
-                                updated
-                                    .phases
-                                    .get(updated.current_phase_index)
-                                    .map(|phase| phase.phase_id.clone())
-                            });
+                        let next_phase_id = updated.current_phase.clone().or_else(|| {
+                            updated
+                                .phases
+                                .get(updated.current_phase_index)
+                                .map(|phase| phase.phase_id.clone())
+                        });
                         let maybe_context = phase_rework_context(&result.outcome);
                         workflow = updated;
                         reported_workflow_status = next_status;
@@ -452,7 +447,9 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
 
                         if matches!(
                             workflow.status,
-                            WorkflowStatus::Failed | WorkflowStatus::Escalated | WorkflowStatus::Cancelled
+                            WorkflowStatus::Failed
+                                | WorkflowStatus::Escalated
+                                | WorkflowStatus::Cancelled
                         ) {
                             break;
                         }
@@ -489,6 +486,7 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
                         continue;
                     }
                     PhaseExecutionOutcome::ManualPending { .. } => {
+                        workflow = hub.workflows().pause(&workflow.id).await?;
                         reported_workflow_status = workflow.status;
                         emit(PhaseEvent::Completed {
                             phase_id: &phase_id,
@@ -556,13 +554,19 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
             Some("conflict") => {
                 let reason = post_success_failure_reason(&post_success)
                     .unwrap_or_else(|| "post-success merge conflict".to_string());
-                workflow = hub.workflows().mark_merge_conflict(&workflow.id, reason).await?;
+                workflow = hub
+                    .workflows()
+                    .mark_merge_conflict(&workflow.id, reason)
+                    .await?;
                 reported_workflow_status = workflow.status;
             }
             Some("failed") => {
                 let reason = post_success_failure_reason(&post_success)
                     .unwrap_or_else(|| "post-success action failed".to_string());
-                workflow = hub.workflows().mark_completed_failed(&workflow.id, reason).await?;
+                workflow = hub
+                    .workflows()
+                    .mark_completed_failed(&workflow.id, reason)
+                    .await?;
                 reported_workflow_status = workflow.status;
             }
             _ => {}
@@ -631,7 +635,10 @@ fn is_terminal_workflow_status(status: WorkflowStatus) -> bool {
 }
 
 fn workflow_exit_success(status: WorkflowStatus) -> bool {
-    !matches!(status, WorkflowStatus::Failed | WorkflowStatus::Escalated)
+    !matches!(
+        status,
+        WorkflowStatus::Failed | WorkflowStatus::Escalated | WorkflowStatus::Cancelled
+    )
 }
 
 fn phase_result_status(outcome: &PhaseExecutionOutcome) -> &'static str {
@@ -684,6 +691,169 @@ fn post_success_failure_reason(post_success: &Value) -> Option<String> {
                     })
                 })
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{execute_workflow, workflow_exit_success, WorkflowExecuteParams};
+    use orchestrator_core::{
+        load_agent_runtime_config, services::ServiceHub, write_agent_runtime_config,
+        FileServiceHub, PhaseExecutionMode, PhaseManualDefinition, Priority, TaskCreateInput,
+        TaskStatus, TaskType, WorkflowRunInput, WorkflowStatus,
+    };
+    use std::process::Command as ProcessCommand;
+    use std::sync::Arc;
+    use tempfile::TempDir;
+
+    fn init_git_repo(temp: &TempDir) {
+        let init_main = ProcessCommand::new("git")
+            .arg("init")
+            .arg("-b")
+            .arg("main")
+            .current_dir(temp.path())
+            .status()
+            .expect("git init should run");
+        if !init_main.success() {
+            let init = ProcessCommand::new("git")
+                .arg("init")
+                .current_dir(temp.path())
+                .status()
+                .expect("git init should run");
+            assert!(init.success(), "git init should succeed");
+            let rename = ProcessCommand::new("git")
+                .args(["branch", "-M", "main"])
+                .current_dir(temp.path())
+                .status()
+                .expect("git branch -M should run");
+            assert!(rename.success(), "git branch -M main should succeed");
+        }
+
+        let email = ProcessCommand::new("git")
+            .args(["config", "user.email", "ao-test@example.com"])
+            .current_dir(temp.path())
+            .status()
+            .expect("git config user.email should run");
+        assert!(email.success(), "git config user.email should succeed");
+        let name = ProcessCommand::new("git")
+            .args(["config", "user.name", "AO Test"])
+            .current_dir(temp.path())
+            .status()
+            .expect("git config user.name should run");
+        assert!(name.success(), "git config user.name should succeed");
+
+        std::fs::write(temp.path().join("README.md"), "# test\n")
+            .expect("readme should be written");
+        let add = ProcessCommand::new("git")
+            .args(["add", "README.md"])
+            .current_dir(temp.path())
+            .status()
+            .expect("git add should run");
+        assert!(add.success(), "git add should succeed");
+        let commit = ProcessCommand::new("git")
+            .args(["commit", "-m", "initial"])
+            .current_dir(temp.path())
+            .status()
+            .expect("git commit should run");
+        assert!(commit.success(), "initial commit should succeed");
+    }
+
+    #[tokio::test]
+    async fn execute_workflow_pauses_manual_pending_workflows() {
+        let temp = TempDir::new().expect("temp dir");
+        init_git_repo(&temp);
+        let project_root = temp.path().to_string_lossy().to_string();
+        let hub = Arc::new(FileServiceHub::new(&project_root).expect("file service hub"));
+
+        let task = hub
+            .tasks()
+            .create(TaskCreateInput {
+                title: "manual gate".to_string(),
+                description: "waits for approval".to_string(),
+                task_type: Some(TaskType::Feature),
+                priority: Some(Priority::High),
+                created_by: Some("test".to_string()),
+                tags: Vec::new(),
+                linked_requirements: Vec::new(),
+                linked_architecture_entities: Vec::new(),
+            })
+            .await
+            .expect("task should be created");
+        hub.tasks()
+            .set_status(&task.id, TaskStatus::InProgress, false)
+            .await
+            .expect("task should be in progress");
+
+        let workflow = hub
+            .workflows()
+            .run(WorkflowRunInput::for_task(task.id.clone(), None))
+            .await
+            .expect("workflow should start");
+
+        let current_phase = workflow
+            .current_phase
+            .clone()
+            .expect("workflow should have a current phase");
+        let mut runtime = load_agent_runtime_config(temp.path()).expect("runtime config");
+        let mut definition = runtime
+            .phase_execution(&current_phase)
+            .cloned()
+            .expect("current phase should exist");
+        definition.mode = PhaseExecutionMode::Manual;
+        definition.agent_id = None;
+        definition.command = None;
+        definition.manual = Some(PhaseManualDefinition {
+            instructions: "Wait for approval".to_string(),
+            approval_note_required: false,
+        });
+        runtime.phases.insert(current_phase.clone(), definition);
+        write_agent_runtime_config(temp.path(), &runtime).expect("runtime config should write");
+
+        let result = execute_workflow(WorkflowExecuteParams {
+            project_root: project_root.clone(),
+            task_id: Some(task.id.clone()),
+            requirement_id: None,
+            title: None,
+            description: None,
+            workflow_ref: None,
+            model: None,
+            tool: None,
+            phase_timeout_secs: None,
+            phase_filter: None,
+            stream_level: Some("quiet".to_string()),
+            on_phase_event: None,
+            hub: Some(hub.clone()),
+        })
+        .await
+        .expect("workflow execution should succeed");
+
+        assert!(
+            result.success,
+            "manual wait should not exit as a runner failure"
+        );
+        assert_eq!(result.workflow_status, WorkflowStatus::Paused);
+        assert_eq!(
+            result.phase_results[0]["status"].as_str(),
+            Some("manual_pending")
+        );
+        assert_eq!(
+            result.phase_results[0]["workflow_status"].as_str(),
+            Some("paused")
+        );
+
+        let updated = hub
+            .workflows()
+            .get(&result.workflow_id)
+            .await
+            .expect("workflow should reload");
+        assert_eq!(updated.status, WorkflowStatus::Paused);
+    }
+
+    #[test]
+    fn cancelled_workflows_exit_unsuccessfully() {
+        assert!(workflow_exit_success(WorkflowStatus::Completed));
+        assert!(workflow_exit_success(WorkflowStatus::Paused));
+        assert!(!workflow_exit_success(WorkflowStatus::Cancelled));
+    }
 }
 
 async fn execute_post_success_actions(

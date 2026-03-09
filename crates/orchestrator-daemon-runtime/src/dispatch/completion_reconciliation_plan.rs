@@ -24,7 +24,9 @@ pub fn build_completion_reconciliation_plan(
             Some(WorkflowStatus::Completed) => {
                 plan.executed_workflow_phases = plan.executed_workflow_phases.saturating_add(1);
             }
-            Some(WorkflowStatus::Failed | WorkflowStatus::Escalated | WorkflowStatus::Cancelled) => {
+            Some(
+                WorkflowStatus::Failed | WorkflowStatus::Escalated | WorkflowStatus::Cancelled,
+            ) => {
                 plan.failed_workflow_phases = plan.failed_workflow_phases.saturating_add(1);
             }
             Some(WorkflowStatus::Pending | WorkflowStatus::Running | WorkflowStatus::Paused) => {}
@@ -64,13 +66,20 @@ fn completion_reason(completed: &CompletedProcess) -> String {
 
 fn completion_failure_reason(completed: &CompletedProcess) -> Option<String> {
     match completed.workflow_status {
-        Some(WorkflowStatus::Completed | WorkflowStatus::Pending | WorkflowStatus::Running | WorkflowStatus::Paused) => None,
-        Some(WorkflowStatus::Failed | WorkflowStatus::Escalated | WorkflowStatus::Cancelled) => {
-            Some(format!(
-                "workflow runner failed: {}",
-                completion_reason(completed)
-            ))
-        }
+        Some(
+            WorkflowStatus::Completed
+            | WorkflowStatus::Pending
+            | WorkflowStatus::Running
+            | WorkflowStatus::Paused,
+        ) => None,
+        Some(WorkflowStatus::Failed | WorkflowStatus::Escalated) => Some(format!(
+            "workflow runner failed: {}",
+            completion_reason(completed)
+        )),
+        Some(WorkflowStatus::Cancelled) => Some(format!(
+            "workflow runner cancelled: {}",
+            completion_reason(completed)
+        )),
         None if completed.success => None,
         None => Some(format!(
             "workflow runner failed: {}",
@@ -86,7 +95,6 @@ fn workflow_status_is_success(status: WorkflowStatus) -> bool {
             | WorkflowStatus::Pending
             | WorkflowStatus::Running
             | WorkflowStatus::Paused
-            | WorkflowStatus::Cancelled
     )
 }
 
@@ -114,7 +122,10 @@ mod tests {
         assert_eq!(plan.failed_workflow_phases, 0);
         assert_eq!(plan.execution_facts.len(), 1);
         assert_eq!(plan.execution_facts[0].task_id.as_deref(), Some("TASK-123"));
-        assert_eq!(plan.execution_facts[0].workflow_id.as_deref(), Some("WF-123"));
+        assert_eq!(
+            plan.execution_facts[0].workflow_id.as_deref(),
+            Some("WF-123")
+        );
         assert_eq!(
             plan.execution_facts[0].workflow_ref.as_deref(),
             Some("standard")
@@ -195,5 +206,30 @@ mod tests {
         assert_eq!(plan.failed_workflow_phases, 0);
         assert_eq!(plan.execution_facts[0].completion_status(), "running");
         assert!(plan.execution_facts[0].failure_reason.is_none());
+    }
+
+    #[test]
+    fn cancelled_workflow_is_not_reported_as_success() {
+        let plan = build_completion_reconciliation_plan(vec![CompletedProcess {
+            subject_id: "TASK-404".to_string(),
+            task_id: Some("TASK-404".to_string()),
+            workflow_id: Some("WF-404".to_string()),
+            workflow_ref: Some("standard".to_string()),
+            workflow_status: Some(WorkflowStatus::Cancelled),
+            schedule_id: None,
+            exit_code: Some(1),
+            success: true,
+            failure_reason: Some("operator cancelled the workflow".to_string()),
+            events: Vec::new(),
+        }]);
+
+        assert_eq!(plan.executed_workflow_phases, 0);
+        assert_eq!(plan.failed_workflow_phases, 1);
+        assert!(!plan.execution_facts[0].success);
+        assert_eq!(plan.execution_facts[0].completion_status(), "cancelled");
+        assert_eq!(
+            plan.execution_facts[0].failure_reason.as_deref(),
+            Some("workflow runner cancelled: operator cancelled the workflow")
+        );
     }
 }

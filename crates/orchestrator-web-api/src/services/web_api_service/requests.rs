@@ -255,6 +255,10 @@ pub(super) struct WorkflowRunRequest {
     pub(super) description: Option<String>,
     #[serde(default)]
     pub(super) workflow_ref: Option<String>,
+    #[serde(default)]
+    pub(super) input: Option<Value>,
+    #[serde(default)]
+    pub(super) input_json: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -104,6 +104,7 @@ async fn run_execute(args: WorkflowExecuteArgs) -> anyhow::Result<u8> {
 
     let params = WorkflowExecuteParams {
         project_root: args.project_root,
+        workflow_id: None,
         task_id: args.task_id,
         requirement_id: args.requirement_id,
         title: args.title,

@@ -54,6 +54,7 @@ pub(crate) async fn handle_workflow_execute(
 
     let params = WorkflowExecuteParams {
         project_root: project_root.to_string(),
+        workflow_id: None,
         task_id: args.task_id,
         requirement_id: args.requirement_id,
         title: args.title,

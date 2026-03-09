@@ -1,6 +1,8 @@
 use super::*;
 use crate::services::runtime::workflow_mutation_surface::cancel_orphaned_running_workflow;
-use orchestrator_core::{services::ServiceHub, WorkflowMachineState, WorkflowStatus};
+use orchestrator_core::{
+    active_workflow_runner_ids, services::ServiceHub, WorkflowMachineState, WorkflowStatus,
+};
 use std::collections::HashSet;
 use std::path::Path;
 
@@ -13,6 +15,8 @@ pub async fn recover_orphaned_running_workflows(
         Ok(workflows) => workflows,
         Err(_) => return 0,
     };
+    let externally_active_workflows =
+        active_workflow_runner_ids(Path::new(project_root)).unwrap_or_default();
 
     let mut recovered = 0usize;
     for workflow in workflows {
@@ -26,6 +30,7 @@ pub async fn recover_orphaned_running_workflows(
             continue;
         }
         if active_subject_ids.contains(&workflow.id)
+            || externally_active_workflows.contains(&workflow.id)
             || active_subject_ids.contains(workflow.subject.id())
             || (!workflow.task_id.is_empty() && active_subject_ids.contains(&workflow.task_id))
         {

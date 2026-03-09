@@ -227,11 +227,13 @@ pub async fn recover_orphaned_running_workflows_with_active_ids(
 mod tests {
     use super::recover_orphaned_running_workflows_with_active_ids;
     use orchestrator_core::{
-        builtin_agent_runtime_config, write_agent_runtime_config, FileServiceHub,
-        InMemoryServiceHub, PhaseExecutionMode, PhaseManualDefinition, ServiceHub, TaskCreateInput,
-        TaskStatus, TaskType, WorkflowRunInput, WorkflowStatus,
+        builtin_agent_runtime_config, register_workflow_runner_pid, unregister_workflow_runner_pid,
+        write_agent_runtime_config, FileServiceHub, InMemoryServiceHub, PhaseExecutionMode,
+        PhaseManualDefinition, ServiceHub, TaskCreateInput, TaskStatus, TaskType, WorkflowRunInput,
+        WorkflowStatus,
     };
     use std::collections::HashSet;
+    use std::path::Path;
     use std::sync::Arc;
     use tempfile::TempDir;
 
@@ -276,6 +278,58 @@ mod tests {
             .await
             .expect("workflow should still be readable");
         assert_eq!(workflow_state.status, WorkflowStatus::Running);
+    }
+
+    #[tokio::test]
+    async fn registered_workflow_runner_ids_prevent_recovery() {
+        let temp = TempDir::new().expect("tempdir should be created");
+        let project_root = temp.path().to_string_lossy().to_string();
+        let hub = Arc::new(FileServiceHub::new(&project_root).expect("file service hub"));
+
+        let task = hub
+            .tasks()
+            .create(TaskCreateInput {
+                title: "externally active workflow".to_string(),
+                description: "runner registry should protect it".to_string(),
+                task_type: Some(TaskType::Feature),
+                priority: None,
+                created_by: Some("test".to_string()),
+                tags: Vec::new(),
+                linked_requirements: Vec::new(),
+                linked_architecture_entities: Vec::new(),
+            })
+            .await
+            .expect("task should be created");
+        hub.tasks()
+            .set_status(&task.id, TaskStatus::InProgress, false)
+            .await
+            .expect("task should be in progress");
+
+        let workflow = hub
+            .workflows()
+            .run(WorkflowRunInput::for_task(task.id.clone(), None))
+            .await
+            .expect("workflow should start");
+
+        register_workflow_runner_pid(Path::new(&project_root), &workflow.id, std::process::id())
+            .expect("workflow registry entry should be written");
+
+        let recovered = recover_orphaned_running_workflows_with_active_ids(
+            hub.clone(),
+            &project_root,
+            &HashSet::new(),
+        )
+        .await;
+        unregister_workflow_runner_pid(Path::new(&project_root), &workflow.id)
+            .expect("workflow registry entry should be removed");
+
+        assert_eq!(recovered, 0);
+        let reloaded = hub
+            .workflows()
+            .get(&workflow.id)
+            .await
+            .expect("workflow should still exist");
+        assert_eq!(reloaded.status, WorkflowStatus::Running);
     }
 
     #[tokio::test]

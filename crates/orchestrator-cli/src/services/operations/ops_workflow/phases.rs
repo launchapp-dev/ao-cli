@@ -6,7 +6,10 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use orchestrator_core::services::ServiceHub;
+use orchestrator_core::{
+    register_workflow_runner_pid, services::ServiceHub, unregister_workflow_runner_pid,
+};
+use workflow_runner::workflow_execute::{execute_workflow, WorkflowExecuteParams};
 
 use super::config::{manual_approvals_path, title_case_phase_id};
 use super::emit_daemon_event;
@@ -26,6 +29,27 @@ struct ManualApprovalRecord {
 struct ManualApprovalsStore {
     #[serde(default)]
     approvals: Vec<ManualApprovalRecord>,
+}
+
+struct WorkflowRunnerPidGuard {
+    project_root: String,
+    workflow_id: String,
+}
+
+impl WorkflowRunnerPidGuard {
+    fn register(project_root: &str, workflow_id: &str) -> Result<Self> {
+        register_workflow_runner_pid(Path::new(project_root), workflow_id, std::process::id())?;
+        Ok(Self {
+            project_root: project_root.to_string(),
+            workflow_id: workflow_id.to_string(),
+        })
+    }
+}
+
+impl Drop for WorkflowRunnerPidGuard {
+    fn drop(&mut self) {
+        let _ = unregister_workflow_runner_pid(Path::new(&self.project_root), &self.workflow_id);
+    }
 }
 
 pub(crate) fn resumability_to_json(status: &orchestrator_core::ResumabilityStatus) -> Value {
@@ -291,6 +315,7 @@ pub(crate) async fn approve_manual_phase(
         ));
     }
 
+    let _runner_pid_guard = WorkflowRunnerPidGuard::register(project_root, workflow_id)?;
     let approval_timestamp = Utc::now().to_rfc3339();
     let workflow = match workflow.status {
         orchestrator_core::WorkflowStatus::Paused => hub.workflows().resume(workflow_id).await?,
@@ -316,15 +341,64 @@ pub(crate) async fn approve_manual_phase(
     });
     write_manual_approvals(project_root, &store)?;
 
+    let mut continued_execution = None;
+    if updated.status == orchestrator_core::WorkflowStatus::Running {
+        let continuation = match execute_workflow(WorkflowExecuteParams {
+            project_root: project_root.to_string(),
+            workflow_id: Some(updated.id.clone()),
+            task_id: None,
+            requirement_id: None,
+            title: None,
+            description: None,
+            workflow_ref: updated.workflow_ref.clone(),
+            model: None,
+            tool: None,
+            phase_timeout_secs: None,
+            phase_filter: None,
+            stream_level: Some("quiet".to_string()),
+            on_phase_event: None,
+            hub: Some(hub.clone()),
+        })
+        .await
+        {
+            Ok(result) => result,
+            Err(error) => {
+                if let Ok(reloaded) = hub.workflows().get(workflow_id).await {
+                    project_terminal_workflow_result(
+                        hub.clone(),
+                        project_root,
+                        reloaded.subject.id(),
+                        Some(reloaded.task_id.as_str()),
+                        reloaded.workflow_ref.as_deref(),
+                        Some(reloaded.id.as_str()),
+                        reloaded.status,
+                        reloaded.failure_reason.as_deref(),
+                    )
+                    .await;
+                }
+                return Err(error.context("failed to continue workflow after manual approval"));
+            }
+        };
+
+        continued_execution = Some(serde_json::json!({
+            "workflow_id": continuation.workflow_id,
+            "workflow_status": continuation.workflow_status,
+            "phases_requested": continuation.phases_requested,
+            "phase_results": continuation.phase_results,
+            "post_success": continuation.post_success,
+        }));
+    }
+
+    let final_workflow = hub.workflows().get(workflow_id).await?;
     project_terminal_workflow_result(
         hub.clone(),
         project_root,
-        updated.subject.id(),
-        Some(updated.task_id.as_str()),
-        updated.workflow_ref.as_deref(),
-        Some(updated.id.as_str()),
-        updated.status,
-        None,
+        final_workflow.subject.id(),
+        Some(final_workflow.task_id.as_str()),
+        final_workflow.workflow_ref.as_deref(),
+        Some(final_workflow.id.as_str()),
+        final_workflow.status,
+        final_workflow.failure_reason.as_deref(),
     )
     .await;
     emit_daemon_event(
@@ -339,12 +413,13 @@ pub(crate) async fn approve_manual_phase(
     )?;
 
     Ok(serde_json::json!({
-        "workflow": updated,
+        "workflow": final_workflow,
         "manual_approval": {
             "phase_id": phase_id,
             "note": note,
             "approved_at": approval_timestamp,
         },
+        "continued_execution": continued_execution,
     }))
 }
 
@@ -356,12 +431,66 @@ mod tests {
         FileServiceHub, PhaseExecutionMode, PhaseManualDefinition, Priority, TaskCreateInput,
         TaskStatus, TaskType, WorkflowPhaseStatus, WorkflowRunInput, WorkflowStatus,
     };
+    use std::process::Command as ProcessCommand;
     use std::sync::Arc;
     use tempfile::TempDir;
 
+    fn init_git_repo(temp: &TempDir) {
+        let init_main = ProcessCommand::new("git")
+            .arg("init")
+            .arg("-b")
+            .arg("main")
+            .current_dir(temp.path())
+            .status()
+            .expect("git init should run");
+        if !init_main.success() {
+            let init = ProcessCommand::new("git")
+                .arg("init")
+                .current_dir(temp.path())
+                .status()
+                .expect("git init should run");
+            assert!(init.success(), "git init should succeed");
+            let rename = ProcessCommand::new("git")
+                .args(["branch", "-M", "main"])
+                .current_dir(temp.path())
+                .status()
+                .expect("git branch -M should run");
+            assert!(rename.success(), "git branch -M main should succeed");
+        }
+
+        let email = ProcessCommand::new("git")
+            .args(["config", "user.email", "ao-test@example.com"])
+            .current_dir(temp.path())
+            .status()
+            .expect("git config user.email should run");
+        assert!(email.success(), "git config user.email should succeed");
+        let name = ProcessCommand::new("git")
+            .args(["config", "user.name", "AO Test"])
+            .current_dir(temp.path())
+            .status()
+            .expect("git config user.name should run");
+        assert!(name.success(), "git config user.name should succeed");
+
+        std::fs::write(temp.path().join("README.md"), "# test\n")
+            .expect("readme should be written");
+        let add = ProcessCommand::new("git")
+            .args(["add", "README.md"])
+            .current_dir(temp.path())
+            .status()
+            .expect("git add should run");
+        assert!(add.success(), "git add should succeed");
+        let commit = ProcessCommand::new("git")
+            .args(["commit", "-m", "initial"])
+            .current_dir(temp.path())
+            .status()
+            .expect("git commit should run");
+        assert!(commit.success(), "initial commit should succeed");
+    }
+
     #[tokio::test]
-    async fn approve_manual_phase_resumes_paused_workflow_before_completion() {
+    async fn approve_manual_phase_continues_non_terminal_workflow() {
         let temp = TempDir::new().expect("temp dir");
+        init_git_repo(&temp);
         let project_root = temp.path().to_string_lossy().to_string();
         let hub = Arc::new(FileServiceHub::new(&project_root).expect("file service hub"));
 
@@ -393,20 +522,40 @@ mod tests {
             .current_phase
             .clone()
             .expect("workflow should have current phase");
+        let next_phase = workflow
+            .phases
+            .get(workflow.current_phase_index + 1)
+            .map(|phase| phase.phase_id.clone())
+            .expect("workflow should have a second phase");
 
         let mut runtime = load_agent_runtime_config(temp.path()).expect("runtime config");
-        let mut definition = runtime
+        let mut current_definition = runtime
             .phase_execution(&current_phase)
             .cloned()
             .expect("current phase should exist");
-        definition.mode = PhaseExecutionMode::Manual;
-        definition.agent_id = None;
-        definition.command = None;
-        definition.manual = Some(PhaseManualDefinition {
+        current_definition.mode = PhaseExecutionMode::Manual;
+        current_definition.agent_id = None;
+        current_definition.command = None;
+        current_definition.manual = Some(PhaseManualDefinition {
             instructions: "Approve this step".to_string(),
             approval_note_required: false,
         });
-        runtime.phases.insert(current_phase.clone(), definition);
+        runtime
+            .phases
+            .insert(current_phase.clone(), current_definition);
+
+        let mut next_definition = runtime
+            .phase_execution(&next_phase)
+            .cloned()
+            .expect("next phase should exist");
+        next_definition.mode = PhaseExecutionMode::Manual;
+        next_definition.agent_id = None;
+        next_definition.command = None;
+        next_definition.manual = Some(PhaseManualDefinition {
+            instructions: "Approve the resumed phase".to_string(),
+            approval_note_required: false,
+        });
+        runtime.phases.insert(next_phase.clone(), next_definition);
         write_agent_runtime_config(temp.path(), &runtime).expect("runtime config should write");
 
         let paused = hub
@@ -416,7 +565,7 @@ mod tests {
             .expect("workflow should pause");
         assert_eq!(paused.status, WorkflowStatus::Paused);
 
-        approve_manual_phase(
+        let response = approve_manual_phase(
             hub.clone(),
             &project_root,
             &workflow.id,
@@ -438,6 +587,15 @@ mod tests {
             .expect("approved phase should remain in workflow");
 
         assert_eq!(completed_phase.status, WorkflowPhaseStatus::Success);
-        assert_ne!(updated.status, WorkflowStatus::Paused);
+        assert_eq!(updated.status, WorkflowStatus::Paused);
+        assert_eq!(updated.current_phase.as_deref(), Some(next_phase.as_str()));
+        assert_eq!(
+            response["continued_execution"]["workflow_status"].as_str(),
+            Some("paused")
+        );
+        assert_eq!(
+            response["continued_execution"]["phase_results"][0]["phase_id"].as_str(),
+            Some(next_phase.as_str())
+        );
     }
 }

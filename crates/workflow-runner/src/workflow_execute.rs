@@ -10,9 +10,10 @@ use orchestrator_config::workflow_config::MergeStrategy;
 use orchestrator_core::{
     ensure_workflow_config_compiled, load_workflow_config, project_requirement_workflow_status,
     providers::{BuiltinGitProvider, GitProvider},
+    register_workflow_runner_pid,
     services::ServiceHub,
-    FileServiceHub, OrchestratorTask, PhaseDecisionVerdict, TaskStatus, WorkflowRunInput,
-    WorkflowStatus, WorkflowSubject,
+    unregister_workflow_runner_pid, FileServiceHub, OrchestratorTask, OrchestratorWorkflow,
+    PhaseDecisionVerdict, WorkflowRunInput, WorkflowStatus, WorkflowSubject,
 };
 
 use crate::executor::{
@@ -39,6 +40,7 @@ pub enum PhaseEvent<'a> {
 
 pub struct WorkflowExecuteParams {
     pub project_root: String,
+    pub workflow_id: Option<String>,
     pub task_id: Option<String>,
     pub requirement_id: Option<String>,
     pub title: Option<String>,
@@ -69,11 +71,32 @@ pub struct WorkflowExecuteResult {
 }
 
 struct ExecutionSubjectContext {
-    subject_id: String,
     subject_title: String,
     subject_description: String,
     task: Option<OrchestratorTask>,
 }
+
+struct WorkflowRunnerPidGuard {
+    project_root: String,
+    workflow_id: String,
+}
+
+impl WorkflowRunnerPidGuard {
+    fn register(project_root: &str, workflow_id: &str) -> Result<Self> {
+        register_workflow_runner_pid(Path::new(project_root), workflow_id, std::process::id())?;
+        Ok(Self {
+            project_root: project_root.to_string(),
+            workflow_id: workflow_id.to_string(),
+        })
+    }
+}
+
+impl Drop for WorkflowRunnerPidGuard {
+    fn drop(&mut self) {
+        let _ = unregister_workflow_runner_pid(Path::new(&self.project_root), &self.workflow_id);
+    }
+}
+
 pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowExecuteResult> {
     let stream_level = params.stream_level.as_deref().unwrap_or("quiet");
     std::env::set_var("AO_STREAM_PHASE_OUTPUT", stream_level);
@@ -82,38 +105,44 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
         std::env::set_var("AO_PHASE_TIMEOUT_SECS", timeout.to_string());
     }
 
-    let input = resolve_input(&params)?;
-    let subject = input.subject().clone();
-
     let hub: Arc<dyn ServiceHub> = match params.hub {
-        Some(h) => h,
+        Some(ref h) => h.clone(),
         None => Arc::new(
             FileServiceHub::new(&params.project_root)
                 .context("failed to create service hub for project")?,
         ),
     };
 
+    let mut workflow = match params.workflow_id.as_deref() {
+        Some(workflow_id) => load_existing_workflow(hub.clone(), workflow_id, &params).await?,
+        None => {
+            let input = resolve_input(&params)?;
+            let subject = input.subject().clone();
+            let subject_id = subject.id().to_string();
+            hub.workflows().run(input).await.or_else(|run_err| {
+                if matches!(subject, WorkflowSubject::Custom { .. }) {
+                    return Err(run_err);
+                }
+                let all = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(hub.workflows().list())
+                })?;
+                all.into_iter()
+                    .find(|w| w.subject.id() == subject_id || w.task_id == subject_id)
+                    .ok_or_else(|| anyhow!("no workflow found for subject '{}'", subject_id))
+            })?
+        }
+    };
+    let _runner_pid_guard = WorkflowRunnerPidGuard::register(&params.project_root, &workflow.id)
+        .context("failed to register active workflow execution")?;
+
     let mut subject_context = resolve_execution_subject_context(
         hub.clone(),
-        &subject,
+        &workflow.subject,
         params.title.as_deref(),
         params.description.as_deref(),
     )
     .await?;
     let mut task = subject_context.task.take();
-
-    let subject_id = subject.id().to_string();
-    let mut workflow = hub.workflows().run(input).await.or_else(|run_err| {
-        if matches!(subject, WorkflowSubject::Custom { .. }) {
-            return Err(run_err);
-        }
-        let all = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(hub.workflows().list())
-        })?;
-        all.into_iter()
-            .find(|w| w.subject.id() == subject_id || w.task_id == subject_id)
-            .ok_or_else(|| anyhow!("no workflow found for subject '{}'", subject_id))
-    })?;
 
     let execution_cwd = ensure_execution_cwd(hub.clone(), &params.project_root, task.as_ref())
         .await
@@ -147,7 +176,7 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
         eprintln!("warning: failed to auto-start runner for workflow execute: {err}");
     }
 
-    let subject_id_str = subject_context.subject_id.clone();
+    let subject_id_str = workflow.subject.id().to_string();
     let subject_title = subject_context.subject_title.clone();
     let subject_description = subject_context.subject_description.clone();
     let task_complexity = task.as_ref().map(|t| t.complexity);
@@ -360,54 +389,11 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
                 );
 
                 match &result.outcome {
-                    PhaseExecutionOutcome::Completed {
-                        phase_decision: Some(decision),
-                        ..
-                    } if decision.verdict == PhaseDecisionVerdict::Skip => {
-                        let close_reason = decision.reason.trim().to_lowercase();
-                        let target_status = if close_reason.contains("already_done") {
-                            TaskStatus::Done
-                        } else {
-                            TaskStatus::Cancelled
-                        };
-
-                        if let Ok(mut t) = hub.tasks().get(&subject_id_str).await {
-                            t.resolution = Some(decision.reason.clone());
-                            if target_status == TaskStatus::Cancelled {
-                                t.cancelled = true;
-                            }
-                            t.status = target_status;
-                            t.metadata.updated_by = "workflow:skip".to_string();
-                            let _ = hub.tasks().replace(t).await;
-                        }
-
-                        workflow = hub.workflows().cancel(&workflow.id).await?;
-                        reported_workflow_status = if target_status == TaskStatus::Done {
-                            WorkflowStatus::Completed
-                        } else {
-                            workflow.status
-                        };
-                        emit(PhaseEvent::Completed {
-                            phase_id: &phase_id,
-                            duration: phase_elapsed,
-                            success: true,
-                        });
-                        results.push(serde_json::json!({
-                            "phase_id": phase_id,
-                            "status": "closed",
-                            "close_reason": decision.reason,
-                            "task_status": format!("{:?}", target_status).to_lowercase(),
-                            "duration_secs": phase_elapsed.as_secs(),
-                            "outcome": result.outcome,
-                            "metadata": result.metadata,
-                        }));
-                        break;
-                    }
                     PhaseExecutionOutcome::Completed { phase_decision, .. } => {
                         let decision = phase_decision.clone();
                         let updated = hub
                             .workflows()
-                            .complete_current_phase_with_decision(&workflow.id, decision)
+                            .complete_current_phase_with_decision(&workflow.id, decision.clone())
                             .await?;
                         let next_status = updated.status;
                         let next_phase_index = updated.current_phase_index;
@@ -446,6 +432,15 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
                         });
                         if let Some(next_phase_id) = next_phase_id {
                             result_value["next_phase_id"] = serde_json::json!(next_phase_id);
+                        }
+                        if matches!(
+                            decision.as_ref().map(|value| value.verdict),
+                            Some(PhaseDecisionVerdict::Skip)
+                        ) {
+                            result_value["close_reason"] = serde_json::json!(decision
+                                .as_ref()
+                                .map(|value| value.reason.clone())
+                                .unwrap_or_default());
                         }
                         results.push(result_value);
 
@@ -538,7 +533,7 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
         "reason": "workflow did not complete all phases",
     });
     if workflow.status == WorkflowStatus::Completed {
-        project_requirement_success_status(hub.clone(), &subject, &workflow_ref).await?;
+        project_requirement_success_status(hub.clone(), &workflow.subject, &workflow_ref).await?;
         post_success = if let Some(ref t) = task {
             execute_post_success_actions(
                 &params.project_root,
@@ -598,6 +593,91 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
     })
 }
 
+async fn load_existing_workflow(
+    hub: Arc<dyn ServiceHub>,
+    workflow_id: &str,
+    params: &WorkflowExecuteParams,
+) -> Result<OrchestratorWorkflow> {
+    let workflow = hub
+        .workflows()
+        .get(workflow_id)
+        .await
+        .with_context(|| format!("workflow '{}' not found", workflow_id))?;
+
+    if workflow.status != WorkflowStatus::Running {
+        return Err(anyhow!(
+            "workflow '{}' is not runnable (status: {})",
+            workflow_id,
+            format!("{:?}", workflow.status).to_ascii_lowercase()
+        ));
+    }
+
+    validate_existing_workflow_subject(&workflow, params)?;
+    Ok(workflow)
+}
+
+fn validate_existing_workflow_subject(
+    workflow: &OrchestratorWorkflow,
+    params: &WorkflowExecuteParams,
+) -> Result<()> {
+    if let Some(task_id) = params.task_id.as_deref() {
+        let workflow_task_id = match &workflow.subject {
+            WorkflowSubject::Task { id } => id.as_str(),
+            _ => workflow.task_id.as_str(),
+        };
+        if workflow_task_id != task_id {
+            return Err(anyhow!(
+                "workflow '{}' is for task '{}' not '{}'",
+                workflow.id,
+                workflow_task_id,
+                task_id
+            ));
+        }
+    }
+
+    if let Some(requirement_id) = params.requirement_id.as_deref() {
+        match &workflow.subject {
+            WorkflowSubject::Requirement { id } if id == requirement_id => {}
+            WorkflowSubject::Requirement { id } => {
+                return Err(anyhow!(
+                    "workflow '{}' is for requirement '{}' not '{}'",
+                    workflow.id,
+                    id,
+                    requirement_id
+                ));
+            }
+            _ => {
+                return Err(anyhow!(
+                    "workflow '{}' is not a requirement workflow",
+                    workflow.id
+                ));
+            }
+        }
+    }
+
+    if let Some(title) = params.title.as_deref() {
+        match &workflow.subject {
+            WorkflowSubject::Custom { title: actual, .. } if actual == title => {}
+            WorkflowSubject::Custom { title: actual, .. } => {
+                return Err(anyhow!(
+                    "workflow '{}' is for custom subject '{}' not '{}'",
+                    workflow.id,
+                    actual,
+                    title
+                ));
+            }
+            _ => {
+                return Err(anyhow!(
+                    "workflow '{}' is not a custom workflow",
+                    workflow.id
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn resolve_input(params: &WorkflowExecuteParams) -> Result<WorkflowRunInput> {
     let workflow_ref = params.workflow_ref.clone();
     match (&params.task_id, &params.requirement_id, &params.title) {
@@ -631,7 +711,6 @@ async fn resolve_execution_subject_context(
                 .await
                 .with_context(|| format!("task '{}' not found", id))?;
             Ok(ExecutionSubjectContext {
-                subject_id: task.id.clone(),
                 subject_title: task.title.clone(),
                 subject_description: task.description.clone(),
                 task: Some(task),
@@ -644,14 +723,12 @@ async fn resolve_execution_subject_context(
                 .await
                 .with_context(|| format!("requirement '{}' not found", id))?;
             Ok(ExecutionSubjectContext {
-                subject_id: requirement.id.clone(),
                 subject_title: requirement.title.clone(),
                 subject_description: requirement.description.clone(),
                 task: None,
             })
         }
         WorkflowSubject::Custom { title, description } => Ok(ExecutionSubjectContext {
-            subject_id: subject.id().to_string(),
             subject_title: fallback_title.unwrap_or(title).to_string(),
             subject_description: fallback_description.unwrap_or(description).to_string(),
             task: None,
@@ -868,6 +945,7 @@ mod tests {
 
         let result = execute_workflow(WorkflowExecuteParams {
             project_root: project_root.clone(),
+            workflow_id: None,
             task_id: Some(task.id.clone()),
             requirement_id: None,
             title: None,

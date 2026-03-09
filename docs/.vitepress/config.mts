@@ -3,16 +3,38 @@ import { withMermaid } from 'vitepress-plugin-mermaid'
 
 export default withMermaid(
   defineConfig({
-    title: 'AO CLI',
+    title: 'AO',
     description: 'Agent Orchestrator — orchestrate AI agent workflows from the command line',
     base: '/ao-cli/',
+
+    head: [
+      ['link', { rel: 'icon', type: 'image/svg+xml', href: '/ao-cli/logo.svg' }],
+    ],
+
+    lastUpdated: true,
+    ignoreDeadLinks: [
+      /\.\.\/\.\.\/crates\//,
+    ],
+
     themeConfig: {
+      logo: '/logo.svg',
+      siteTitle: 'AO',
+
       nav: [
         { text: 'Getting Started', link: '/getting-started/' },
+        { text: 'Concepts', link: '/concepts/' },
         { text: 'Guides', link: '/guides/' },
-        { text: 'Reference', link: '/reference/' },
-        { text: 'GitHub', link: 'https://github.com/AudioGenius-ai/ao-cli' },
+        {
+          text: 'Reference',
+          items: [
+            { text: 'CLI Commands', link: '/reference/cli/' },
+            { text: 'Workflow YAML', link: '/reference/workflow-yaml' },
+            { text: 'MCP Tools', link: '/reference/mcp-tools' },
+            { text: 'Configuration', link: '/reference/configuration' },
+          ],
+        },
       ],
+
       sidebar: [
         {
           text: 'Getting Started',
@@ -107,11 +129,32 @@ export default withMermaid(
           ],
         },
       ],
+
+      socialLinks: [
+        { icon: 'github', link: 'https://github.com/AudioGenius-ai/ao-cli' },
+      ],
+
+      footer: {
+        message: 'Released under the MIT License.',
+        copyright: 'Copyright 2024-present AudioGenius',
+      },
+
+      editLink: {
+        pattern: 'https://github.com/AudioGenius-ai/ao-cli/edit/main/docs/:path',
+        text: 'Edit this page on GitHub',
+      },
+
       search: {
         provider: 'local',
       },
+
       outline: {
         level: [2, 3],
+        label: 'On this page',
+      },
+
+      lastUpdated: {
+        text: 'Last updated',
       },
     },
   })

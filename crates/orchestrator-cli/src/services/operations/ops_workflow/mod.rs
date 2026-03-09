@@ -71,43 +71,45 @@ async fn resolve_workflow_run_dispatch_from_input(
     project_root: &str,
     input: WorkflowRunInput,
 ) -> Result<protocol::SubjectDispatch> {
-    match input.subject {
+    let WorkflowRunInput {
+        subject,
+        workflow_ref,
+        input,
+        ..
+    } = input;
+    match subject {
         WorkflowSubject::Task { id } => {
             let task = hub.tasks().get(&id).await?;
             Ok(protocol::SubjectDispatch::for_task_with_metadata(
                 task.id.clone(),
-                input
-                    .workflow_ref
-                    .unwrap_or_else(|| workflow_ref_for_task(&task)),
+                workflow_ref.unwrap_or_else(|| workflow_ref_for_task(&task)),
                 "manual-cli-run",
                 Utc::now(),
-            ))
+            )
+            .with_input(input))
         }
         WorkflowSubject::Requirement { id } => {
             hub.planning().get_requirement(&id).await?;
             Ok(protocol::SubjectDispatch::for_requirement(
                 id,
-                input
-                    .workflow_ref
-                    .unwrap_or(resolve_requirement_workflow_ref(project_root)?),
+                workflow_ref.unwrap_or(resolve_requirement_workflow_ref(project_root)?),
                 "manual-cli-run",
-            ))
+            )
+            .with_input(input))
         }
         WorkflowSubject::Custom { title, description } => {
             Ok(protocol::SubjectDispatch::for_custom(
                 title,
                 description,
-                input
-                    .workflow_ref
-                    .unwrap_or_else(|| STANDARD_WORKFLOW_REF.to_string()),
-                None,
+                workflow_ref.unwrap_or_else(|| STANDARD_WORKFLOW_REF.to_string()),
+                input,
                 "manual-cli-run",
             ))
         }
     }
 }
 
-pub(super) fn resolve_requirement_workflow_ref(project_root: &str) -> Result<String> {
+pub(crate) fn resolve_requirement_workflow_ref(project_root: &str) -> Result<String> {
     let root = Path::new(project_root);
     ensure_workflow_config_compiled(root)?;
     let workflow_config = load_workflow_config(root)?;
@@ -626,5 +628,35 @@ mod tests {
             dispatch.workflow_ref,
             orchestrator_core::workflow_ref_for_task(&task)
         );
+    }
+
+    #[tokio::test]
+    async fn resolve_workflow_run_dispatch_from_input_preserves_subject_input() {
+        let hub = Arc::new(InMemoryServiceHub::new());
+        let task = hub
+            .tasks()
+            .create(TaskCreateInput {
+                title: "dispatch input".to_string(),
+                description: "workflow run input should preserve dispatch input".to_string(),
+                task_type: Some(TaskType::Feature),
+                priority: Some(Priority::Medium),
+                created_by: Some("test".to_string()),
+                tags: Vec::new(),
+                linked_requirements: Vec::new(),
+                linked_architecture_entities: Vec::new(),
+            })
+            .await
+            .expect("task should be created");
+
+        let dispatch = resolve_workflow_run_dispatch_from_input(
+            hub,
+            "/tmp/unused",
+            WorkflowRunInput::for_task(task.id, None)
+                .with_input(Some(serde_json::json!({"scope":"req-39"}))),
+        )
+        .await
+        .expect("dispatch should resolve");
+
+        assert_eq!(dispatch.input, Some(serde_json::json!({"scope":"req-39"})));
     }
 }

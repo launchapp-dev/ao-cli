@@ -1361,6 +1361,8 @@ pub struct OrchestratorWorkflow {
     pub workflow_ref: Option<String>,
     #[serde(default = "default_workflow_subject")]
     pub subject: WorkflowSubject,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<Value>,
     pub status: WorkflowStatus,
     pub current_phase_index: usize,
     #[serde(default)]
@@ -1609,6 +1611,7 @@ impl SubjectDispatch {
                 Some(self.workflow_ref.clone()),
             ),
         }
+        .with_input(self.input.clone())
     }
 }
 
@@ -1673,6 +1676,8 @@ pub struct WorkflowRunInput {
     pub subject: WorkflowSubject,
     #[serde(default)]
     pub workflow_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "input_json")]
+    pub input: Option<Value>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub task_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1691,6 +1696,7 @@ impl WorkflowRunInput {
             },
             task_id,
             workflow_ref,
+            input: None,
             requirement_id: None,
             title: None,
             description: None,
@@ -1704,6 +1710,7 @@ impl WorkflowRunInput {
             },
             task_id: String::new(),
             workflow_ref,
+            input: None,
             requirement_id: Some(requirement_id),
             title: None,
             description: None,
@@ -1718,6 +1725,7 @@ impl WorkflowRunInput {
             },
             task_id: String::new(),
             workflow_ref,
+            input: None,
             requirement_id: None,
             title: Some(title),
             description: Some(description),
@@ -1751,6 +1759,11 @@ impl WorkflowRunInput {
 
     pub fn with_optional_workflow_ref(mut self, workflow_ref: Option<String>) -> Self {
         self.workflow_ref = workflow_ref;
+        self
+    }
+
+    pub fn with_input(mut self, input: Option<Value>) -> Self {
+        self.input = input;
         self
     }
 }

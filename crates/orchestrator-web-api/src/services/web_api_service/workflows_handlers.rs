@@ -1,24 +1,59 @@
-use orchestrator_core::{FileServiceHub, ServiceHub, WorkflowRunInput};
+use orchestrator_core::{
+    workflow_ref_for_task, FileServiceHub, ServiceHub, REQUIREMENT_TASK_GENERATION_WORKFLOW_REF,
+    STANDARD_WORKFLOW_REF,
+};
 use protocol::orchestrator::WorkflowSubject;
 use serde_json::{json, Value};
 
 use super::{parsing::parse_json_body, requests::WorkflowRunRequest, WebApiError, WebApiService};
 
-fn resolve_workflow_run_input(
+async fn resolve_workflow_run_dispatch(
+    hub: &dyn ServiceHub,
+    project_root: &str,
     request: WorkflowRunRequest,
-) -> Result<WorkflowRunInput, WebApiError> {
-    match (request.task_id, request.requirement_id, request.title) {
+) -> Result<protocol::SubjectDispatch, WebApiError> {
+    let WorkflowRunRequest {
+        task_id,
+        requirement_id,
+        title,
+        description,
+        workflow_ref,
+        input,
+    } = request;
+    match (task_id, requirement_id, title) {
         (Some(task_id), None, None) => {
-            Ok(WorkflowRunInput::for_task(task_id, request.workflow_ref))
+            let task = hub.tasks().get(&task_id).await.map_err(WebApiError::from)?;
+            Ok(protocol::SubjectDispatch::for_task_with_metadata(
+                task.id.clone(),
+                workflow_ref.unwrap_or_else(|| workflow_ref_for_task(&task)),
+                "web-api-run",
+                chrono::Utc::now(),
+            )
+            .with_input(input))
         }
-        (None, Some(requirement_id), None) => Ok(WorkflowRunInput::for_requirement(
-            requirement_id,
-            request.workflow_ref,
-        )),
-        (None, None, Some(title)) => Ok(WorkflowRunInput::for_custom(
+        (None, Some(requirement_id), None) => {
+            hub.planning()
+                .get_requirement(&requirement_id)
+                .await
+                .map_err(WebApiError::from)?;
+            let workflow_ref = match workflow_ref {
+                Some(workflow_ref) => workflow_ref,
+                None => resolve_requirement_workflow_ref(project_root)
+                    .map_err(|message| WebApiError::new("invalid_input", message, 2))?,
+            };
+            Ok(protocol::SubjectDispatch::for_requirement(
+                requirement_id,
+                workflow_ref,
+                "web-api-run",
+            )
+            .with_input(input))
+        }
+        (None, None, Some(title)) => Ok(protocol::SubjectDispatch::for_custom(
             title,
-            request.description.unwrap_or_default(),
-            request.workflow_ref,
+            description.unwrap_or_default(),
+            workflow_ref.unwrap_or_else(|| STANDARD_WORKFLOW_REF.to_string()),
+            input,
+            "web-api-run",
         )),
         (None, None, None) => Err(WebApiError::new(
             "invalid_input",
@@ -31,6 +66,28 @@ fn resolve_workflow_run_input(
             2,
         )),
     }
+}
+
+fn resolve_requirement_workflow_ref(project_root: &str) -> Result<String, String> {
+    let root = std::path::Path::new(project_root);
+    orchestrator_core::ensure_workflow_config_compiled(root).map_err(|error| error.to_string())?;
+    let workflow_config =
+        orchestrator_core::load_workflow_config(root).map_err(|error| error.to_string())?;
+    workflow_config
+        .workflows
+        .iter()
+        .any(|workflow| {
+            workflow
+                .id
+                .eq_ignore_ascii_case(REQUIREMENT_TASK_GENERATION_WORKFLOW_REF)
+        })
+        .then(|| REQUIREMENT_TASK_GENERATION_WORKFLOW_REF.to_string())
+        .ok_or_else(|| {
+            format!(
+                "requirement workflow '{}' is not configured for requirement subjects",
+                REQUIREMENT_TASK_GENERATION_WORKFLOW_REF
+            )
+        })
 }
 
 impl WebApiService {
@@ -79,8 +136,18 @@ impl WebApiService {
 
     pub async fn workflows_run(&self, body: Value) -> Result<Value, WebApiError> {
         let request: WorkflowRunRequest = parse_json_body(body)?;
-        let input = resolve_workflow_run_input(request)?;
-        let workflow = self.context.hub.workflows().run(input).await?;
+        let dispatch = resolve_workflow_run_dispatch(
+            self.context.hub.as_ref(),
+            &self.context.project_root,
+            request,
+        )
+        .await?;
+        let workflow = self
+            .context
+            .hub
+            .workflows()
+            .run(dispatch.to_workflow_run_input())
+            .await?;
         let subject_id = match &workflow.subject {
             WorkflowSubject::Task { id } | WorkflowSubject::Requirement { id } => id.clone(),
             WorkflowSubject::Custom { title, .. } => title.clone(),
@@ -121,5 +188,105 @@ impl WebApiService {
             json!({ "workflow_id": workflow.id, "status": workflow.status }),
         );
         Ok(json!(workflow))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use orchestrator_core::{
+        builtin_agent_runtime_config, builtin_workflow_config, write_agent_runtime_config,
+        write_workflow_config, InMemoryServiceHub, RequirementItem, RequirementLinks,
+        RequirementPriority, RequirementStatus, WorkflowDefinition,
+        REQUIREMENT_TASK_GENERATION_WORKFLOW_REF,
+    };
+
+    use super::*;
+
+    #[tokio::test]
+    async fn resolve_workflow_run_dispatch_preserves_request_input_for_custom_subjects() {
+        let hub = InMemoryServiceHub::new();
+
+        let dispatch = resolve_workflow_run_dispatch(
+            &hub,
+            "/tmp/unused",
+            WorkflowRunRequest {
+                task_id: None,
+                requirement_id: None,
+                title: Some("custom".to_string()),
+                description: Some("custom input".to_string()),
+                workflow_ref: Some("ops".to_string()),
+                input: Some(json!({"scope":"req-39"})),
+            },
+        )
+        .await
+        .expect("dispatch should resolve");
+
+        assert_eq!(dispatch.input, Some(json!({"scope":"req-39"})));
+    }
+
+    #[tokio::test]
+    async fn resolve_workflow_run_dispatch_uses_requirement_workflow_default() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut workflow_config = builtin_workflow_config();
+        workflow_config.workflows.push(WorkflowDefinition {
+            id: REQUIREMENT_TASK_GENERATION_WORKFLOW_REF.to_string(),
+            name: "Requirement Task Generation".to_string(),
+            description: "test workflow".to_string(),
+            phases: vec!["requirements".to_string().into()],
+            post_success: None,
+            variables: Vec::new(),
+        });
+        write_workflow_config(temp.path(), &workflow_config).expect("write config");
+        write_agent_runtime_config(temp.path(), &builtin_agent_runtime_config())
+            .expect("write runtime config");
+
+        let hub = Arc::new(InMemoryServiceHub::new());
+        let now = chrono::Utc::now();
+        hub.planning()
+            .upsert_requirement(RequirementItem {
+                id: "REQ-39".to_string(),
+                title: "Dispatch requirement".to_string(),
+                description: "requirement dispatch builder test".to_string(),
+                body: None,
+                legacy_id: None,
+                category: None,
+                requirement_type: None,
+                acceptance_criteria: vec!["starts workflow".to_string()],
+                priority: RequirementPriority::Must,
+                status: RequirementStatus::Refined,
+                source: "test".to_string(),
+                tags: Vec::new(),
+                links: RequirementLinks::default(),
+                comments: Vec::new(),
+                relative_path: None,
+                linked_task_ids: Vec::new(),
+                created_at: now,
+                updated_at: now,
+            })
+            .await
+            .expect("requirement should be created");
+
+        let dispatch = resolve_workflow_run_dispatch(
+            hub.as_ref(),
+            temp.path().to_string_lossy().as_ref(),
+            WorkflowRunRequest {
+                task_id: None,
+                requirement_id: Some("REQ-39".to_string()),
+                title: None,
+                description: None,
+                workflow_ref: None,
+                input: Some(json!({"scope":"shared-ingress"})),
+            },
+        )
+        .await
+        .expect("dispatch should resolve");
+
+        assert_eq!(
+            dispatch.workflow_ref,
+            REQUIREMENT_TASK_GENERATION_WORKFLOW_REF
+        );
+        assert_eq!(dispatch.input, Some(json!({"scope":"shared-ingress"})));
     }
 }

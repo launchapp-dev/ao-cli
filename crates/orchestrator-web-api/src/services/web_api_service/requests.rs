@@ -217,6 +217,8 @@ pub(super) struct WorkflowRunRequest {
     pub(super) description: Option<String>,
     #[serde(default)]
     pub(super) workflow_ref: Option<String>,
+    #[serde(default, alias = "input_json")]
+    pub(super) input: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]

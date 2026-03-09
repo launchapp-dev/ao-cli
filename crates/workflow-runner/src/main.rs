@@ -39,6 +39,9 @@ struct WorkflowExecuteArgs {
     workflow_ref: Option<String>,
 
     #[arg(long)]
+    input_json: Option<String>,
+
+    #[arg(long)]
     project_root: String,
 
     #[arg(long)]
@@ -110,6 +113,11 @@ async fn run_execute(args: WorkflowExecuteArgs) -> anyhow::Result<u8> {
         title: args.title,
         description: args.description,
         workflow_ref: args.workflow_ref.clone(),
+        input: args
+            .input_json
+            .as_deref()
+            .map(serde_json::from_str)
+            .transpose()?,
         model: args.model,
         tool: args.tool,
         phase_timeout_secs: args.phase_timeout_secs,

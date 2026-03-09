@@ -875,6 +875,7 @@ mod tests {
             id: id.to_string(),
             task_id: task_id.to_string(),
             workflow_ref: None,
+            input: None,
             status,
             current_phase_index: 0,
             phases,

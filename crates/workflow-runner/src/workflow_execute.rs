@@ -46,6 +46,7 @@ pub struct WorkflowExecuteParams {
     pub title: Option<String>,
     pub description: Option<String>,
     pub workflow_ref: Option<String>,
+    pub input: Option<Value>,
     pub model: Option<String>,
     pub tool: Option<String>,
     pub phase_timeout_secs: Option<u64>,
@@ -97,6 +98,51 @@ impl Drop for WorkflowRunnerPidGuard {
     }
 }
 
+struct WorkflowDispatchInputGuard {
+    dispatch_input_original: Option<String>,
+    schedule_input_original: Option<String>,
+}
+
+impl WorkflowDispatchInputGuard {
+    fn install(workflow: &OrchestratorWorkflow) -> Self {
+        let dispatch_input_original = std::env::var("AO_DISPATCH_INPUT").ok();
+        let schedule_input_original = std::env::var("AO_SCHEDULE_INPUT").ok();
+
+        match &workflow.input {
+            Some(input) => {
+                std::env::set_var("AO_DISPATCH_INPUT", input.to_string());
+                if workflow.subject.id().starts_with("schedule:") {
+                    std::env::set_var("AO_SCHEDULE_INPUT", input.to_string());
+                } else {
+                    std::env::remove_var("AO_SCHEDULE_INPUT");
+                }
+            }
+            None => {
+                std::env::remove_var("AO_DISPATCH_INPUT");
+                std::env::remove_var("AO_SCHEDULE_INPUT");
+            }
+        }
+
+        Self {
+            dispatch_input_original,
+            schedule_input_original,
+        }
+    }
+}
+
+impl Drop for WorkflowDispatchInputGuard {
+    fn drop(&mut self) {
+        match &self.dispatch_input_original {
+            Some(value) => std::env::set_var("AO_DISPATCH_INPUT", value),
+            None => std::env::remove_var("AO_DISPATCH_INPUT"),
+        }
+        match &self.schedule_input_original {
+            Some(value) => std::env::set_var("AO_SCHEDULE_INPUT", value),
+            None => std::env::remove_var("AO_SCHEDULE_INPUT"),
+        }
+    }
+}
+
 pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowExecuteResult> {
     let stream_level = params.stream_level.as_deref().unwrap_or("quiet");
     std::env::set_var("AO_STREAM_PHASE_OUTPUT", stream_level);
@@ -134,6 +180,7 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
     };
     let _runner_pid_guard = WorkflowRunnerPidGuard::register(&params.project_root, &workflow.id)
         .context("failed to register active workflow execution")?;
+    let _dispatch_input_guard = WorkflowDispatchInputGuard::install(&workflow);
 
     let mut subject_context = resolve_execution_subject_context(
         hub.clone(),
@@ -681,16 +728,19 @@ fn validate_existing_workflow_subject(
 fn resolve_input(params: &WorkflowExecuteParams) -> Result<WorkflowRunInput> {
     let workflow_ref = params.workflow_ref.clone();
     match (&params.task_id, &params.requirement_id, &params.title) {
-        (Some(task_id), _, _) => Ok(WorkflowRunInput::for_task(task_id.clone(), workflow_ref)),
+        (Some(task_id), _, _) => Ok(WorkflowRunInput::for_task(task_id.clone(), workflow_ref)
+            .with_input(params.input.clone())),
         (None, Some(req_id), _) => Ok(WorkflowRunInput::for_requirement(
             req_id.clone(),
             workflow_ref,
-        )),
+        )
+        .with_input(params.input.clone())),
         (None, None, Some(title)) => Ok(WorkflowRunInput::for_custom(
             title.clone(),
             params.description.clone().unwrap_or_default(),
             workflow_ref,
-        )),
+        )
+        .with_input(params.input.clone())),
         _ => Err(anyhow!(
             "one of --task-id, --requirement-id, or --title must be provided"
         )),
@@ -930,6 +980,7 @@ mod requirement_workflow_tests {
             title: None,
             description: None,
             workflow_ref: None,
+            input: None,
             model: None,
             tool: None,
             phase_timeout_secs: None,

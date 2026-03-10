@@ -1,5 +1,6 @@
 use crate::cli_types::{
-    SkillCommand, SkillInstallArgs, SkillPublishArgs, SkillSearchArgs, SkillUpdateArgs,
+    SkillCommand, SkillInstallArgs, SkillPublishArgs, SkillRegistryAddArgs, SkillRegistryCommand,
+    SkillRegistryRemoveArgs, SkillSearchArgs, SkillUpdateArgs,
 };
 use crate::{conflict_error, invalid_input_error, not_found_error, print_value, unavailable_error};
 use anyhow::Result;
@@ -84,6 +85,7 @@ fn ensure_registry_registered(state: &mut SkillRegistryStateV1, registry: &str) 
         id: registry.to_string(),
         priority: next_priority,
         available: true,
+        url: None,
     });
 }
 
@@ -491,6 +493,69 @@ fn handle_publish(args: SkillPublishArgs, project_root: &str, json: bool) -> Res
     )
 }
 
+fn handle_registry_add(args: SkillRegistryAddArgs, project_root: &str, json: bool) -> Result<()> {
+    let id = sanitize_required(&args.id, "registry id")?;
+    let mut state = load_skill_registry_state(project_root)?;
+    let existing = state.registries.iter().find(|entry| entry.id == id).cloned();
+    let default_priority = state
+        .registries
+        .iter()
+        .map(|entry| entry.priority)
+        .max()
+        .unwrap_or(0)
+        .saturating_add(1);
+    let priority = args
+        .priority
+        .unwrap_or_else(|| existing.as_ref().map(|e| e.priority).unwrap_or(default_priority));
+    let url = args
+        .url
+        .or_else(|| existing.as_ref().and_then(|e| e.url.clone()));
+    state.registries.retain(|entry| entry.id != id);
+    state.registries.push(SkillRegistrySourceConfig {
+        id: id.clone(),
+        priority,
+        available: true,
+        url: url.clone(),
+    });
+    let changed = save_skill_registry_state_if_changed(project_root, &state)?;
+    print_value(
+        serde_json::json!({
+            "id": id,
+            "priority": priority,
+            "url": url,
+            "available": true,
+            "registry_changed": changed,
+        }),
+        json,
+    )
+}
+
+fn handle_registry_remove(
+    args: SkillRegistryRemoveArgs,
+    project_root: &str,
+    json: bool,
+) -> Result<()> {
+    let id = sanitize_required(&args.id, "registry id")?;
+    let mut state = load_skill_registry_state(project_root)?;
+    if !state.registries.iter().any(|entry| entry.id == id) {
+        return Err(not_found_error(format!("registry not found: {}", id)));
+    }
+    state.registries.retain(|entry| entry.id != id);
+    let changed = save_skill_registry_state_if_changed(project_root, &state)?;
+    print_value(
+        serde_json::json!({
+            "removed": id,
+            "registry_changed": changed,
+        }),
+        json,
+    )
+}
+
+fn handle_registry_list(project_root: &str, json: bool) -> Result<()> {
+    let state = load_skill_registry_state(project_root)?;
+    print_value(&state.registries, json)
+}
+
 pub(crate) async fn handle_skill(
     command: SkillCommand,
     project_root: &str,
@@ -502,5 +567,10 @@ pub(crate) async fn handle_skill(
         SkillCommand::List => handle_list(project_root, json),
         SkillCommand::Update(args) => handle_update(args, project_root, json),
         SkillCommand::Publish(args) => handle_publish(args, project_root, json),
+        SkillCommand::Registry { command } => match command {
+            SkillRegistryCommand::Add(args) => handle_registry_add(args, project_root, json),
+            SkillRegistryCommand::Remove(args) => handle_registry_remove(args, project_root, json),
+            SkillRegistryCommand::List => handle_registry_list(project_root, json),
+        },
     }
 }

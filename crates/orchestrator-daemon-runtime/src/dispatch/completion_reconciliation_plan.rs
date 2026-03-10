@@ -17,7 +17,7 @@ pub fn build_completion_reconciliation_plan(
         let workflow_success = completed
             .workflow_status
             .map(workflow_status_is_success)
-            .unwrap_or(false);
+            .unwrap_or(completed.success);
         let failure_reason = completion_failure_reason(&completed);
 
         match completed.workflow_status {
@@ -31,7 +31,11 @@ pub fn build_completion_reconciliation_plan(
             }
             Some(WorkflowStatus::Pending | WorkflowStatus::Running | WorkflowStatus::Paused) => {}
             None => {
-                plan.failed_workflow_phases = plan.failed_workflow_phases.saturating_add(1);
+                if completed.success {
+                    plan.executed_workflow_phases = plan.executed_workflow_phases.saturating_add(1);
+                } else {
+                    plan.failed_workflow_phases = plan.failed_workflow_phases.saturating_add(1);
+                }
             }
         }
 
@@ -77,10 +81,16 @@ fn completion_failure_reason(completed: &CompletedProcess) -> Option<String> {
             "workflow runner cancelled: {}",
             completion_reason(completed)
         )),
-        None => Some(format!(
-            "workflow runner exited without workflow status: {}",
-            completion_reason(completed)
-        )),
+        None => {
+            if completed.success {
+                None
+            } else {
+                Some(format!(
+                    "workflow runner exited without workflow status: {}",
+                    completion_reason(completed)
+                ))
+            }
+        }
     }
 }
 
@@ -244,12 +254,9 @@ mod tests {
             events: Vec::new(),
         }]);
 
-        assert_eq!(plan.executed_workflow_phases, 0);
-        assert_eq!(plan.failed_workflow_phases, 1);
-        assert!(!plan.execution_facts[0].success);
-        assert!(plan.execution_facts[0]
-            .failure_reason
-            .as_deref()
-            .is_some_and(|reason| reason.contains("without workflow status")));
+        assert_eq!(plan.executed_workflow_phases, 1);
+        assert_eq!(plan.failed_workflow_phases, 0);
+        assert!(plan.execution_facts[0].success);
+        assert!(plan.execution_facts[0].failure_reason.is_none());
     }
 }

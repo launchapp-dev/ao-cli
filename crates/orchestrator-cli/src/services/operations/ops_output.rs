@@ -18,11 +18,11 @@ struct ArtifactInfoCli {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct RunJsonlEntryCli {
-    source_file: String,
-    line: String,
+pub(crate) struct RunJsonlEntryCli {
+    pub(crate) source_file: String,
+    pub(crate) line: String,
     #[serde(default)]
-    timestamp_hint: Option<String>,
+    pub(crate) timestamp_hint: Option<String>,
 }
 
 fn run_dir_candidates(project_root: &str, run_id: &str) -> Vec<PathBuf> {
@@ -60,7 +60,10 @@ fn extract_timestamp_hint(line: &str) -> Option<String> {
         .map(|value| value.to_string())
 }
 
-fn get_run_jsonl_entries(project_root: &str, run_id: &str) -> Result<Vec<RunJsonlEntryCli>> {
+pub(crate) fn get_run_jsonl_entries(
+    project_root: &str,
+    run_id: &str,
+) -> Result<Vec<RunJsonlEntryCli>> {
     let mut rows = Vec::new();
     let Some(run_dir) = resolve_run_dir_for_lookup(project_root, run_id)? else {
         return Ok(rows);

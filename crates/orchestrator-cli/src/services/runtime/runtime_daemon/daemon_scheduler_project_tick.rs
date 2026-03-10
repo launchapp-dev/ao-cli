@@ -10,7 +10,6 @@ use orchestrator_daemon_runtime::{
 #[path = "daemon_task_dispatch.rs"]
 pub(super) mod task_dispatch;
 
-#[cfg(test)]
 #[path = "daemon_reconciliation_test_support.rs"]
 pub(super) mod reconciliation_test_support;
 
@@ -20,14 +19,9 @@ mod tick_executor;
 mod tick_wrapper;
 
 use task_dispatch::*;
-pub(crate) use tick_executor::slim_project_tick_driver;
+pub(crate) use tick_executor::{slim_project_tick_driver, SlimProjectTickDriver};
 #[cfg(test)]
-use tick_executor::SlimProjectTickDriver;
-#[cfg(test)]
-use tick_wrapper::{
-    apply_cli_pre_tick, flush_git_outbox_for_project, refresh_runtime_binaries_for_project,
-    run_cli_pre_tick,
-};
+use tick_wrapper::{flush_git_outbox_for_project, refresh_runtime_binaries_for_project};
 
 #[cfg(test)]
 pub(super) async fn slim_daemon_tick(
@@ -55,14 +49,12 @@ pub(super) async fn slim_daemon_tick_at(
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<ProjectTickSummary> {
     let root = canonicalize_lossy(root);
-    let active_subject_ids = process_manager.active_subject_ids();
-    let pre_tick = run_cli_pre_tick(&root, args, Some(&active_subject_ids)).await?;
     flush_git_outbox_for_project(&root);
     let mode = ProjectTickRunMode {
         active_process_count: process_manager.active_count(),
     };
-    let mut driver: SlimProjectTickDriver<'_> = slim_project_tick_driver(process_manager);
-    let mut summary = run_project_tick_at(
+    let mut driver: SlimProjectTickDriver<'_> = slim_project_tick_driver(args, process_manager);
+    let summary = run_project_tick_at(
         &root,
         args,
         mode,
@@ -71,7 +63,6 @@ pub(super) async fn slim_daemon_tick_at(
         ProjectTickTime::from_utc(now),
     )
     .await?;
-    apply_cli_pre_tick(&mut summary, pre_tick);
     refresh_runtime_binaries_for_project(&root).await?;
     Ok(summary)
 }

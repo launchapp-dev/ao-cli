@@ -10,7 +10,9 @@ use std::sync::Arc;
 #[cfg(test)]
 use super::canonicalize_lossy;
 use super::daemon_run_host::DefaultDaemonRunHost;
-use super::daemon_scheduler::{runtime_options_from_cli, slim_project_tick_driver};
+use super::daemon_scheduler::{
+    runtime_options_from_cli, slim_project_tick_driver, SlimProjectTickDriver,
+};
 
 fn restore_env_override(key: &str, original: Option<String>) {
     if let Some(value) = original {
@@ -125,7 +127,8 @@ pub(super) async fn handle_daemon_run(
 
     let runtime_options = runtime_options_from_cli(&args);
     let mut process_manager = ProcessManager::new();
-    let mut driver = slim_project_tick_driver(&mut process_manager);
+    let mut driver: SlimProjectTickDriver<'_> =
+        slim_project_tick_driver(&runtime_options, &mut process_manager);
     let mut host = CliDaemonRunHost::new(project_root, json);
 
     let run_result = run_daemon(
@@ -528,6 +531,12 @@ mod tests {
         let pm_config_path = PathBuf::from(&primary_root)
             .join(".ao")
             .join("pm-config.json");
+        std::fs::create_dir_all(
+            pm_config_path
+                .parent()
+                .expect("pm-config path should have parent"),
+        )
+        .expect(".ao directory should be created");
         let pm_config = serde_json::json!({
             "notification_config": {
                 "schema": "ao.daemon-notification-config.v1",

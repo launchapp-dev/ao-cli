@@ -10,6 +10,7 @@ use orchestrator_git_ops as git_ops;
 use std::collections::HashSet;
 
 #[cfg(test)]
+#[allow(dead_code)]
 #[derive(Default)]
 pub(super) struct CliPreTickOutcome {
     pub cleaned_stale_workflows: usize,
@@ -18,6 +19,7 @@ pub(super) struct CliPreTickOutcome {
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 pub(super) async fn run_cli_pre_tick(
     root: &str,
     args: &DaemonRuntimeOptions,
@@ -56,6 +58,7 @@ pub(super) async fn run_cli_pre_tick(
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 pub(super) fn apply_cli_pre_tick(summary: &mut ProjectTickSummary, pre_tick: CliPreTickOutcome) {
     summary.cleaned_stale_workflows = summary
         .cleaned_stale_workflows

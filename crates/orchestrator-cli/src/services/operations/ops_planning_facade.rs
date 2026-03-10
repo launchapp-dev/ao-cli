@@ -48,6 +48,7 @@ pub(crate) async fn handle_planning(
                 };
                 run_facade_workflow(
                     WorkflowExecuteArgs {
+                        workflow_id: None,
                         task_id: None,
                         requirement_id: None,
                         title: Some("planning:vision-draft".to_string()),
@@ -84,6 +85,7 @@ pub(crate) async fn handle_planning(
                 };
                 run_facade_workflow(
                     WorkflowExecuteArgs {
+                        workflow_id: None,
                         task_id: None,
                         requirement_id: None,
                         title: Some("planning:vision-refine".to_string()),
@@ -128,6 +130,7 @@ pub(crate) async fn handle_planning(
                 };
                 run_facade_workflow(
                     WorkflowExecuteArgs {
+                        workflow_id: None,
                         task_id: None,
                         requirement_id: None,
                         title: Some("planning:requirements-draft".to_string()),
@@ -163,6 +166,7 @@ pub(crate) async fn handle_planning(
                 };
                 run_facade_workflow(
                     WorkflowExecuteArgs {
+                        workflow_id: None,
                         task_id: None,
                         requirement_id: None,
                         title: Some("planning:requirements-refine".to_string()),
@@ -262,6 +266,7 @@ fn build_planning_requirements_execute_command(
     };
 
     Ok(WorkflowExecuteArgs {
+        workflow_id: None,
         task_id: None,
         requirement_id: Some(requirement_id),
         title: None,

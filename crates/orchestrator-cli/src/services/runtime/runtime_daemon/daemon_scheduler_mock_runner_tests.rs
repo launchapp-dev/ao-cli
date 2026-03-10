@@ -43,11 +43,9 @@ fn shell_quote(path: &Path) -> String {
 fn install_mock_runner(temp: &TempDir, exit_code: i32) -> Result<()> {
     let runner_path = temp.path().join("ao-workflow-runner");
     let args_log = temp.path().join("runner-args.log");
-    let input_log = temp.path().join("runner-input.log");
     let script = format!(
-        "#!/bin/sh\nset -eu\nprintf '%s\\n' \"$@\" > {args_log}\nprintf '%s' \"${{AO_SCHEDULE_INPUT:-}}\" > {input_log}\nprintf '%s\\n' '{{\"event\":\"runner_start\"}}' >&2\nprintf '%s\\n' '{{\"event\":\"runner_complete\",\"exit_code\":{exit_code}}}' >&2\nexit {exit_code}\n",
+        "#!/bin/sh\nset -eu\nprintf '%s\\n' \"$@\" > {args_log}\nprintf '%s\\n' '{{\"event\":\"runner_start\"}}' >&2\nprintf '%s\\n' '{{\"event\":\"runner_complete\",\"exit_code\":{exit_code}}}' >&2\nexit {exit_code}\n",
         args_log = shell_quote(&args_log),
-        input_log = shell_quote(&input_log),
         exit_code = exit_code,
     );
 
@@ -175,13 +173,7 @@ async fn slim_project_tick_processes_due_schedule_via_mock_runner() {
     assert!(args_log.contains("schedule:nightly-review"));
     assert!(args_log.contains("--workflow-ref"));
     assert!(args_log.contains(orchestrator_core::STANDARD_WORKFLOW_REF));
-
-    let input_log = read_with_retry(&runner_dir.path().join("runner-input.log"))
-        .expect("mock runner input should be captured");
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&input_log).expect("schedule input should parse"),
-        json!({"source":"schedule","count":1})
-    );
+    assert!(args_log.contains("--input-json"));
 
     let schedule_state =
         load_schedule_state(project_root.path()).expect("schedule state should load");

@@ -142,6 +142,23 @@ impl DefaultDaemonRunHost {
             }),
         )?;
 
+        for task_change in &summary.task_state_changes {
+            let mut data = json!({
+                "task_id": task_change.task_id,
+                "from_status": task_change.from_status,
+                "to_status": task_change.to_status,
+                "changed_at": task_change.changed_at,
+            });
+            if let Some(selection_source) = task_change.selection_source {
+                data["selection_source"] = json!(selection_source.as_str());
+            }
+            self.emit_daemon_event_with_notifications(
+                "task-state-change",
+                Some(summary.project_root.clone()),
+                data,
+            )?;
+        }
+
         for phase_event in &summary.phase_execution_events {
             self.emit_daemon_event_with_notifications(
                 &phase_event.event_type,

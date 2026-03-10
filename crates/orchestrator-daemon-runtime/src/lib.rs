@@ -31,5 +31,5 @@ pub use tick::{
     DefaultProjectTickServices, DefaultSlimProjectTickDriver, ProjectTickContext,
     ProjectTickExecutionOutcome, ProjectTickHooks, ProjectTickPlan, ProjectTickPreparation,
     ProjectTickRunMode, ProjectTickSnapshot, ProjectTickSummary, ProjectTickSummaryInput,
-    ProjectTickTime, TickSummaryBuilder,
+    ProjectTickTime, TaskStateChangeEvent, TickSummaryBuilder,
 };

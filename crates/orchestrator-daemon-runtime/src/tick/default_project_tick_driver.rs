@@ -4,14 +4,15 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use orchestrator_core::{
     project_schedule_dispatch_attempt, services::ServiceHub, DaemonStatus, DaemonTickMetrics,
-    FileServiceHub,
+    FileServiceHub, OrchestratorTask,
 };
 use serde_json::Value;
 
 use crate::{
-    CompletedProcess, DaemonRuntimeOptions, DispatchNotice, DispatchWorkflowStartSummary,
-    ProcessManager, ProjectTickHooks, ProjectTickSnapshot, ProjectTickSummary,
-    ProjectTickSummaryInput, ScheduleDispatch, TickSummaryBuilder,
+    CompletedProcess, DaemonRuntimeOptions, DispatchNotice, DispatchWorkflowStart,
+    DispatchWorkflowStartSummary, ProcessManager, ProjectTickHooks, ProjectTickSnapshot,
+    ProjectTickSummary, ProjectTickSummaryInput, ScheduleDispatch, TaskStateChangeEvent,
+    TickSummaryBuilder,
 };
 
 #[async_trait::async_trait(?Send)]
@@ -72,8 +73,15 @@ pub trait DefaultProjectTickServices {
         input: ProjectTickSummaryInput,
     ) -> Result<ProjectTickSummary> {
         let hub: Arc<dyn ServiceHub> = Arc::new(FileServiceHub::new(root)?);
+        let task_state_changes = collect_task_state_changes(
+            &input.tasks_before,
+            &hub.tasks().list().await.unwrap_or_default(),
+            &input.ready_started_workflows,
+        );
         let metrics = DaemonTickMetrics::collect(hub, args.stale_threshold_hours).await?;
-        TickSummaryBuilder::build(args, input, metrics)
+        let mut summary = TickSummaryBuilder::build(args, input, metrics)?;
+        summary.task_state_changes = task_state_changes;
+        Ok(summary)
     }
 
     fn record_schedule_dispatch_attempt(
@@ -87,6 +95,44 @@ pub trait DefaultProjectTickServices {
     }
 
     fn dispatch_notice(&mut self, _notice: DispatchNotice) {}
+}
+
+fn collect_task_state_changes(
+    tasks_before: &[OrchestratorTask],
+    tasks_after: &[OrchestratorTask],
+    started_workflows: &[DispatchWorkflowStart],
+) -> Vec<TaskStateChangeEvent> {
+    let before_by_id: std::collections::HashMap<&str, &OrchestratorTask> = tasks_before
+        .iter()
+        .map(|task| (task.id.as_str(), task))
+        .collect();
+    let selection_by_task_id: std::collections::HashMap<&str, crate::DispatchSelectionSource> =
+        started_workflows
+            .iter()
+            .filter_map(|started| {
+                started
+                    .task_id()
+                    .map(|task_id| (task_id, started.selection_source))
+            })
+            .collect();
+
+    tasks_after
+        .iter()
+        .filter_map(|task| {
+            let previous = before_by_id.get(task.id.as_str())?;
+            if previous.status == task.status {
+                return None;
+            }
+
+            Some(TaskStateChangeEvent {
+                task_id: task.id.clone(),
+                from_status: previous.status.to_string(),
+                to_status: task.status.to_string(),
+                changed_at: task.metadata.updated_at.to_rfc3339(),
+                selection_source: selection_by_task_id.get(task.id.as_str()).copied(),
+            })
+        })
+        .collect()
 }
 
 pub type DefaultSlimProjectTickDriver<'a, S> = DefaultSlimProjectTickHooks<'a, S>;

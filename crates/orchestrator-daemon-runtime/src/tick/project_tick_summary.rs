@@ -2,6 +2,17 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use workflow_runner::executor::PhaseExecutionEvent;
 
+use crate::DispatchSelectionSource;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskStateChangeEvent {
+    pub task_id: String,
+    pub from_status: String,
+    pub to_status: String,
+    pub changed_at: String,
+    pub selection_source: Option<DispatchSelectionSource>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectTickSummary {
     pub project_root: String,
@@ -24,5 +35,6 @@ pub struct ProjectTickSummary {
     pub started_ready_workflows: usize,
     pub executed_workflow_phases: usize,
     pub failed_workflow_phases: usize,
+    pub task_state_changes: Vec<TaskStateChangeEvent>,
     pub phase_execution_events: Vec<PhaseExecutionEvent>,
 }

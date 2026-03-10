@@ -18,7 +18,7 @@ pub use project_tick_plan::ProjectTickPlan;
 pub use project_tick_preparation::ProjectTickPreparation;
 pub use project_tick_run_mode::ProjectTickRunMode;
 pub use project_tick_snapshot::ProjectTickSnapshot;
-pub use project_tick_summary::ProjectTickSummary;
+pub use project_tick_summary::{ProjectTickSummary, TaskStateChangeEvent};
 pub use project_tick_summary_input::ProjectTickSummaryInput;
 pub use project_tick_time::ProjectTickTime;
 pub use run_project_tick::{run_project_tick, run_project_tick_at};

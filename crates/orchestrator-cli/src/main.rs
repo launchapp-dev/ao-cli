@@ -210,7 +210,13 @@ async fn run(cli: Cli) -> Result<()> {
                     services::tui::handle_tui(args, hub.clone(), &project_root, cli.json).await
                 }
                 Command::WorkflowMonitor(args) => {
-                    services::tui::handle_workflow_monitor(args, hub.clone(), cli.json).await
+                    services::tui::handle_workflow_monitor(
+                        args,
+                        hub.clone(),
+                        &project_root,
+                        cli.json,
+                    )
+                    .await
                 }
                 Command::Version => {
                     unreachable!("version command handled before runtime initialization")
@@ -266,6 +272,7 @@ fn build_workflow_execute_command(command: ExecuteCommand) -> Result<WorkflowCom
     let requirement_id = requirement_ids.remove(0);
 
     Ok(WorkflowCommand::Execute(WorkflowExecuteArgs {
+        workflow_id: None,
         task_id: None,
         requirement_id: Some(requirement_id),
         title: None,

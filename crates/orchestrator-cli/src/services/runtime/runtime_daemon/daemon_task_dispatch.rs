@@ -67,6 +67,7 @@ pub async fn run_ready_task_workflows_for_project(
         &prepared.fallback_candidates,
         &prepared.completed_subject_ids,
     );
+    reconcile_completed_subject_tasks(hub.clone(), &plan.completed_subject_ids).await;
 
     let mut started_workflows = Vec::new();
     for planned_start in plan.ordered_starts {
@@ -157,6 +158,7 @@ pub async fn dispatch_ready_tasks_via_runner(
         &prepared.fallback_candidates,
         &prepared.completed_subject_ids,
     );
+    reconcile_completed_subject_tasks(hub.clone(), &plan.completed_subject_ids).await;
     let mut planned_starts = Vec::new();
 
     for planned_start in plan.ordered_starts {
@@ -183,13 +185,24 @@ pub async fn dispatch_ready_tasks_via_runner(
     }
 
     let mut notice_sink = CliDispatchNoticeSink;
-    Ok(execute_dispatch_plan_via_runner(
+    let summary = execute_dispatch_plan_via_runner(
         root,
         process_manager,
         &planned_starts,
         limit,
         &mut notice_sink,
-    ))
+    );
+
+    for started in &summary.started_workflows {
+        if let Some(task_id) = started.task_id() {
+            let _ = hub
+                .tasks()
+                .set_status(task_id, TaskStatus::InProgress, false)
+                .await;
+        }
+    }
+
+    Ok(summary)
 }
 
 struct CliDispatchNoticeSink;
@@ -327,7 +340,13 @@ fn is_queued_task_dispatch_eligible(
     if task.cancelled || task.paused {
         return false;
     }
+    if task.status != TaskStatus::Ready {
+        return false;
+    }
     if active_task_ids.contains(&task.id) {
+        return false;
+    }
+    if should_skip_task_dispatch(task) {
         return false;
     }
     true
@@ -365,4 +384,13 @@ fn should_include_completed_subject(
         completed_targets.push(task.id.clone());
     }
     true
+}
+
+async fn reconcile_completed_subject_tasks(hub: Arc<dyn ServiceHub>, subject_ids: &[String]) {
+    for task_id in subject_ids {
+        let _ = hub
+            .tasks()
+            .set_status(task_id, TaskStatus::Done, false)
+            .await;
+    }
 }

@@ -151,6 +151,7 @@ fn build_requirements_execute_workflow_command(
     };
 
     Ok(WorkflowCommand::Execute(WorkflowExecuteArgs {
+        workflow_id: None,
         task_id: None,
         requirement_id: Some(requirement_id),
         title: None,

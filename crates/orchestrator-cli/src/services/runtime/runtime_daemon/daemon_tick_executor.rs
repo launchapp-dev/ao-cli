@@ -1,3 +1,7 @@
+use super::reconciliation_test_support::{
+    reconcile_dependency_gate_tasks_for_project, reconcile_merge_gate_tasks_for_project,
+    reconcile_stale_in_progress_tasks_for_project,
+};
 use super::*;
 use crate::services::runtime::execution_fact_projection::reconcile_completed_processes;
 use crate::services::runtime::runtime_daemon::daemon_reconciliation::reconcile_manual_phase_timeouts;
@@ -7,7 +11,19 @@ use orchestrator_daemon_runtime::{
     DefaultSlimProjectTickDriver, DispatchNotice, DispatchWorkflowStartSummary, ProcessManager,
 };
 
-pub(crate) struct CliProjectTickServices;
+pub(crate) struct CliProjectTickServices {
+    reconcile_stale: bool,
+    stale_threshold_hours: u64,
+}
+
+impl CliProjectTickServices {
+    fn new(args: &DaemonRuntimeOptions) -> Self {
+        Self {
+            reconcile_stale: args.reconcile_stale,
+            stale_threshold_hours: args.stale_threshold_hours,
+        }
+    }
+}
 
 #[async_trait::async_trait(?Send)]
 impl DefaultProjectTickServices for CliProjectTickServices {
@@ -25,7 +41,23 @@ impl DefaultProjectTickServices for CliProjectTickServices {
         hub: Arc<dyn ServiceHub>,
         root: &str,
     ) -> Result<usize> {
-        reconcile_manual_phase_timeouts(hub, root).await
+        let mut reconciled = 0usize;
+        if self.reconcile_stale {
+            reconciled = reconciled.saturating_add(
+                reconcile_stale_in_progress_tasks_for_project(
+                    hub.clone(),
+                    root,
+                    self.stale_threshold_hours,
+                )
+                .await?,
+            );
+        }
+        reconciled = reconciled
+            .saturating_add(reconcile_dependency_gate_tasks_for_project(hub.clone(), root).await?);
+        reconciled = reconciled
+            .saturating_add(reconcile_merge_gate_tasks_for_project(hub.clone(), root).await?);
+        reconciled = reconciled.saturating_add(reconcile_manual_phase_timeouts(hub, root).await?);
+        Ok(reconciled)
     }
 
     async fn dispatch_ready_tasks(
@@ -95,8 +127,9 @@ impl DefaultProjectTickServices for CliProjectTickServices {
 pub(crate) type SlimProjectTickDriver<'a> =
     DefaultSlimProjectTickDriver<'a, CliProjectTickServices>;
 
-pub(crate) fn slim_project_tick_driver(
-    process_manager: &mut ProcessManager,
-) -> SlimProjectTickDriver<'_> {
-    default_slim_project_tick_driver(CliProjectTickServices, process_manager)
+pub(crate) fn slim_project_tick_driver<'a>(
+    args: &DaemonRuntimeOptions,
+    process_manager: &'a mut ProcessManager,
+) -> SlimProjectTickDriver<'a> {
+    default_slim_project_tick_driver(CliProjectTickServices::new(args), process_manager)
 }

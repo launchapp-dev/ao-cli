@@ -210,6 +210,12 @@ pub(crate) struct WorkflowRunArgs {
 pub(crate) struct WorkflowExecuteArgs {
     #[arg(
         long,
+        value_name = "WORKFLOW_ID",
+        help = "Existing workflow id to execute from its current phase."
+    )]
+    pub(crate) workflow_id: Option<String>,
+    #[arg(
+        long,
         value_name = "TASK_ID",
         help = "Task id to execute the workflow for."
     )]

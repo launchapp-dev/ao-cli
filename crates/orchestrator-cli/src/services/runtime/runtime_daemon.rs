@@ -644,6 +644,8 @@ pub(crate) async fn handle_daemon(
                     remove_daemon_pid(project_root);
                     let _ = set_daemon_pid(project_root, None);
                 }
+            } else if matches!(status, DaemonStatus::Running | DaemonStatus::Paused) {
+                status = DaemonStatus::Crashed;
             }
             print_value(status, json)
         }
@@ -660,6 +662,9 @@ pub(crate) async fn handle_daemon(
                     remove_daemon_pid(project_root);
                     let _ = set_daemon_pid(project_root, None);
                 }
+            } else if matches!(health.status, DaemonStatus::Running | DaemonStatus::Paused) {
+                health.status = DaemonStatus::Crashed;
+                health.healthy = false;
             }
             print_value(health, json)
         }

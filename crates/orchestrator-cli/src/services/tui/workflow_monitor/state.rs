@@ -21,6 +21,10 @@ pub(super) struct WorkflowMonitorState {
     pub workflows: Vec<OrchestratorWorkflow>,
     pub selected_idx: usize,
     pub output_buffer: VecDeque<OutputLine>,
+    pub attached_workflow_id: Option<String>,
+    pub attached_run_id: Option<String>,
+    pub attached_phase_id: Option<String>,
+    pub attached_entry_count: usize,
     pub scroll_lock: bool,
     pub scroll_offset: usize,
     pub last_refresh: DateTime<Utc>,
@@ -36,6 +40,10 @@ impl WorkflowMonitorState {
             workflows: Vec::new(),
             selected_idx: 0,
             output_buffer: VecDeque::new(),
+            attached_workflow_id: None,
+            attached_run_id: None,
+            attached_phase_id: None,
+            attached_entry_count: 0,
             scroll_lock: true,
             scroll_offset: 0,
             last_refresh: Utc::now(),
@@ -60,7 +68,16 @@ impl WorkflowMonitorState {
 
     pub fn clear_output(&mut self) {
         self.output_buffer.clear();
+        self.attached_entry_count = 0;
         self.scroll_offset = 0;
+    }
+
+    pub fn detach_output(&mut self) {
+        self.attached_workflow_id = None;
+        self.attached_run_id = None;
+        self.attached_phase_id = None;
+        self.attached_entry_count = 0;
+        self.clear_output();
     }
 
     pub fn filtered_workflows(&self) -> Vec<&OrchestratorWorkflow> {
@@ -232,6 +249,24 @@ mod tests {
         state.clear_output();
         assert!(state.output_buffer.is_empty());
         assert_eq!(state.scroll_offset, 0);
+    }
+
+    #[test]
+    fn detach_output_clears_attachment_state() {
+        let mut state = WorkflowMonitorState::new(10);
+        state.attached_workflow_id = Some("wf-1".to_string());
+        state.attached_run_id = Some("run-1".to_string());
+        state.attached_phase_id = Some("triage".to_string());
+        state.attached_entry_count = 4;
+        state.push_output("test".to_string(), OutputStreamType::Stdout);
+
+        state.detach_output();
+
+        assert!(state.attached_workflow_id.is_none());
+        assert!(state.attached_run_id.is_none());
+        assert!(state.attached_phase_id.is_none());
+        assert_eq!(state.attached_entry_count, 0);
+        assert!(state.output_buffer.is_empty());
     }
 
     #[test]

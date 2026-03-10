@@ -129,11 +129,17 @@ fn render_output(frame: &mut Frame<'_>, state: &WorkflowMonitorState, area: rata
     } else {
         "[scroll-locked]"
     };
-    let para = Paragraph::new(text).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(format!("Output {scroll_indicator} (Ctrl+L=clear s=toggle)")),
-    );
+    let attachment = match (&state.attached_workflow_id, &state.attached_run_id) {
+        (Some(workflow_id), Some(run_id)) => format!(
+            "attached {} {}",
+            truncate(workflow_id, 12),
+            truncate(run_id, 24)
+        ),
+        _ => "detached".to_string(),
+    };
+    let para = Paragraph::new(text).block(Block::default().borders(Borders::ALL).title(format!(
+        "Output {scroll_indicator} [{attachment}] (Enter=attach Ctrl+L=clear s=toggle)"
+    )));
     frame.render_widget(para, area);
 }
 
@@ -145,7 +151,7 @@ fn render_footer(frame: &mut Frame<'_>, state: &WorkflowMonitorState, area: rata
         String::new()
     };
     let help = format!(
-        "q=quit  j/k=navigate  r=refresh  /=filter  s=scroll  Ctrl+L=clear  Enter=inspect | {} ({secs_ago}s ago){}",
+        "q=quit  j/k=navigate  r=refresh  /=filter  s=scroll  Ctrl+L=clear  Enter=attach | {} ({secs_ago}s ago){}",
         state.status_line,
         filter_hint,
     );

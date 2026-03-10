@@ -24,6 +24,9 @@ enum WorkflowRunnerCommand {
 #[derive(Args)]
 struct WorkflowExecuteArgs {
     #[arg(long)]
+    workflow_id: Option<String>,
+
+    #[arg(long)]
     task_id: Option<String>,
 
     #[arg(long)]
@@ -88,8 +91,9 @@ async fn main() -> ExitCode {
 
 async fn run_execute(args: WorkflowExecuteArgs) -> anyhow::Result<u8> {
     let subject_id = args
-        .task_id
+        .workflow_id
         .as_deref()
+        .or(args.task_id.as_deref())
         .or(args.requirement_id.as_deref())
         .or(args.title.as_deref())
         .unwrap_or("unknown")
@@ -98,7 +102,7 @@ async fn run_execute(args: WorkflowExecuteArgs) -> anyhow::Result<u8> {
     let startup = RunnerEvent {
         event: "runner_start",
         task_id: subject_id.clone(),
-        workflow_id: None,
+        workflow_id: args.workflow_id.clone(),
         workflow_ref: args.workflow_ref.clone(),
         workflow_status: None,
         exit_code: None,
@@ -107,7 +111,7 @@ async fn run_execute(args: WorkflowExecuteArgs) -> anyhow::Result<u8> {
 
     let params = WorkflowExecuteParams {
         project_root: args.project_root,
-        workflow_id: None,
+        workflow_id: args.workflow_id,
         task_id: args.task_id,
         requirement_id: args.requirement_id,
         title: args.title,

@@ -1,16 +1,17 @@
 use super::*;
 use crate::services::runtime::execution_fact_projection::project_terminal_workflow_result;
+#[cfg(test)]
 use crate::services::runtime::runtime_daemon::daemon_reconciliation::recover_orphaned_running_workflows;
+#[cfg(test)]
+use orchestrator_core::WorkflowResumeManager;
 use orchestrator_core::{
     dependency_blocked_reason, dependency_gate_issues_for_task, dispatch_workflow_event,
     is_dependency_gate_block, is_merge_gate_block, project_task_blocked_with_reason,
-    project_task_status, services::ServiceHub, TaskStatus, WorkflowEvent, WorkflowResumeManager,
-    WorkflowStatus,
+    project_task_status, services::ServiceHub, TaskStatus, WorkflowEvent, WorkflowStatus,
 };
 use orchestrator_daemon_runtime::{active_workflow_task_ids, is_terminally_completed_workflow};
 use orchestrator_git_ops::is_branch_merged;
 
-#[cfg(test)]
 pub async fn reconcile_dependency_gate_tasks_for_project(
     hub: Arc<dyn ServiceHub>,
     project_root: &str,
@@ -51,7 +52,6 @@ pub async fn reconcile_dependency_gate_tasks_for_project(
     Ok(changed)
 }
 
-#[cfg(test)]
 pub async fn reconcile_merge_gate_tasks_for_project(
     hub: Arc<dyn ServiceHub>,
     project_root: &str,
@@ -92,7 +92,6 @@ pub async fn reconcile_merge_gate_tasks_for_project(
     Ok(resolved)
 }
 
-#[cfg(test)]
 pub async fn reconcile_stale_in_progress_tasks_for_project(
     hub: Arc<dyn ServiceHub>,
     project_root: &str,

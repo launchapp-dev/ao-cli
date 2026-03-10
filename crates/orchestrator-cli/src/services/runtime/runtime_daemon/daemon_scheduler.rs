@@ -8,7 +8,7 @@ use orchestrator_core::{services::ServiceHub, TaskStatus};
 use orchestrator_daemon_runtime::DaemonRuntimeOptions;
 #[cfg(test)]
 use orchestrator_daemon_runtime::{ProcessManager, ProjectTickSummary};
-pub(crate) use project_tick_ops::slim_project_tick_driver;
+pub(crate) use project_tick_ops::{slim_project_tick_driver, SlimProjectTickDriver};
 #[cfg(test)]
 use std::fs;
 #[cfg(test)]
@@ -117,6 +117,7 @@ fn build_phase_prompt(
     phase_id: &str,
 ) -> String {
     ::workflow_runner::executor::build_phase_prompt(
+        project_root,
         project_root,
         workflow_id,
         task_id,

@@ -117,7 +117,6 @@ pub use workflow::{
     REQUIREMENT_TASK_GENERATION_RUN_WORKFLOW_REF, REQUIREMENT_TASK_GENERATION_WORKFLOW_REF,
     STANDARD_WORKFLOW_REF, UI_UX_WORKFLOW_REF,
 };
-pub use workflow_events::{dispatch_workflow_event, WorkflowEvent, WorkflowEventOutcome};
 pub use workflow_config::{
     builtin_workflow_config, compile_and_write_yaml_workflows, compile_yaml_workflow_files,
     ensure_workflow_config_compiled, ensure_workflow_config_file, expand_variables,
@@ -133,6 +132,7 @@ pub use workflow_config::{
     WorkflowSchedule, WorkflowVariable, WORKFLOW_CONFIG_FILE_NAME, WORKFLOW_CONFIG_SCHEMA_ID,
     WORKFLOW_CONFIG_VERSION, YAML_WORKFLOWS_DIR,
 };
+pub use workflow_events::{dispatch_workflow_event, WorkflowEvent, WorkflowEventOutcome};
 pub use workflow_runner_registry::{
     active_workflow_runner_ids, register_workflow_runner_pid, unregister_workflow_runner_pid,
 };

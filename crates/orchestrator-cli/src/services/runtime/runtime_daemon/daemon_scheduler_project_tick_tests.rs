@@ -1,8 +1,8 @@
 use super::reconciliation_test_support::reconcile_stale_in_progress_tasks_for_project;
 use super::task_dispatch::run_ready_task_workflows_for_project;
 use super::*;
-use crate::services::runtime::runtime_daemon::daemon_reconciliation::reconcile_manual_phase_timeouts;
 use crate::services::runtime::execution_fact_projection::reconcile_completed_processes;
+use crate::services::runtime::runtime_daemon::daemon_reconciliation::reconcile_manual_phase_timeouts;
 use chrono::Utc;
 use orchestrator_core::ServiceHub;
 use orchestrator_core::{
@@ -236,7 +236,10 @@ async fn run_ready_dispatches_custom_subjects_from_queue() {
         .find(|entry| entry.subject_id() == "custom-dispatch")
         .expect("custom queue entry should remain present");
     assert_eq!(queue_entry.status, DispatchQueueEntryStatus::Assigned);
-    assert_eq!(queue_entry.workflow_id.as_deref(), started.workflow_id.as_deref());
+    assert_eq!(
+        queue_entry.workflow_id.as_deref(),
+        started.workflow_id.as_deref()
+    );
 }
 
 #[tokio::test]

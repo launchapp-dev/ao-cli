@@ -100,12 +100,10 @@ async fn resolve_workflow_run_dispatch_from_input(
                 None => resolve_requirement_workflow_ref(project_root)
                     .map_err(|message| WebApiError::new("invalid_input", message, 2))?,
             };
-            Ok(protocol::SubjectDispatch::for_requirement(
-                id,
-                workflow_ref,
-                "web-api-run",
+            Ok(
+                protocol::SubjectDispatch::for_requirement(id, workflow_ref, "web-api-run")
+                    .with_input(input),
             )
-            .with_input(input))
         }
         WorkflowSubject::Custom { title, description } => {
             Ok(protocol::SubjectDispatch::for_custom(

@@ -122,26 +122,26 @@ where
 {
     fn process_due_schedules(&mut self, root: &str, now: DateTime<Utc>) {
         let outcomes =
-            ScheduleDispatch::process_due_schedules(root, now, |schedule_id, dispatch| {
-                match self
-                    .process_manager
-                    .spawn_workflow_runner(dispatch, root)
-                {
-                    Ok(()) => {
-                        self.services.dispatch_notice(DispatchNotice::ScheduleDispatched {
+            ScheduleDispatch::process_due_schedules(root, now, |schedule_id, dispatch| match self
+                .process_manager
+                .spawn_workflow_runner(dispatch, root)
+            {
+                Ok(()) => {
+                    self.services
+                        .dispatch_notice(DispatchNotice::ScheduleDispatched {
                             schedule_id: schedule_id.to_string(),
                             dispatch: dispatch.clone(),
                         });
-                        Ok(())
-                    }
-                    Err(error) => {
-                        self.services.dispatch_notice(DispatchNotice::ScheduleDispatchFailed {
+                    Ok(())
+                }
+                Err(error) => {
+                    self.services
+                        .dispatch_notice(DispatchNotice::ScheduleDispatchFailed {
                             schedule_id: schedule_id.to_string(),
                             dispatch: dispatch.clone(),
                             error: error.to_string(),
                         });
-                        Err(error)
-                    }
+                    Err(error)
                 }
             });
         for outcome in outcomes {

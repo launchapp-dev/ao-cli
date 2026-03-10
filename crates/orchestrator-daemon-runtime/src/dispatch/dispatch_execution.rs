@@ -1,6 +1,7 @@
 use crate::{
-    mark_dispatch_queue_entry_assigned, DispatchNotice, DispatchNoticeSink, DispatchSelectionSource,
-    DispatchWorkflowStart, DispatchWorkflowStartSummary, PlannedDispatchStart, ProcessManager,
+    mark_dispatch_queue_entry_assigned, DispatchNotice, DispatchNoticeSink,
+    DispatchSelectionSource, DispatchWorkflowStart, DispatchWorkflowStartSummary,
+    PlannedDispatchStart, ProcessManager,
 };
 
 pub fn execute_dispatch_plan_via_runner<S>(

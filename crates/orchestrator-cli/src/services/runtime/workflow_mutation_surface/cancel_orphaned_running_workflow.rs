@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use orchestrator_core::{dispatch_workflow_event, services::ServiceHub, OrchestratorWorkflow, WorkflowEvent};
+use orchestrator_core::{
+    dispatch_workflow_event, services::ServiceHub, OrchestratorWorkflow, WorkflowEvent,
+};
 
 use crate::services::runtime::execution_fact_projection::project_terminal_workflow_result;
 

@@ -1,7 +1,7 @@
 use super::*;
-use anyhow::Result;
 use crate::services::runtime::execution_fact_projection::project_terminal_workflow_result;
 use crate::services::runtime::workflow_mutation_surface::cancel_orphaned_running_workflow;
+use anyhow::Result;
 use orchestrator_core::{
     active_workflow_runner_ids, dispatch_workflow_event, load_agent_runtime_config,
     services::ServiceHub, WorkflowEvent, WorkflowMachineState, WorkflowStatus,
@@ -85,7 +85,10 @@ pub async fn reconcile_manual_phase_timeouts(
             Some(definition) => definition,
             None => continue,
         };
-        if !matches!(definition.mode, orchestrator_core::PhaseExecutionMode::Manual) {
+        if !matches!(
+            definition.mode,
+            orchestrator_core::PhaseExecutionMode::Manual
+        ) {
             continue;
         }
         let manual = match definition.manual.as_ref() {

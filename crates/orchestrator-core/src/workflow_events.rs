@@ -88,9 +88,8 @@ pub async fn dispatch_workflow_event(
             }
 
             let workflow = hub.workflows().get(&workflow_id).await?;
-            let current_phase = current_phase_id(&workflow).ok_or_else(|| {
-                anyhow!("workflow '{}' has no active phase", workflow_id)
-            })?;
+            let current_phase = current_phase_id(&workflow)
+                .ok_or_else(|| anyhow!("workflow '{}' has no active phase", workflow_id))?;
             if !current_phase.eq_ignore_ascii_case(&phase_id) {
                 return Err(anyhow!(
                     "workflow '{}' active phase is '{}' (requested '{}')",
@@ -136,9 +135,8 @@ pub async fn dispatch_workflow_event(
             }
 
             let workflow = hub.workflows().get(&workflow_id).await?;
-            let current_phase = current_phase_id(&workflow).ok_or_else(|| {
-                anyhow!("workflow '{}' has no active phase", workflow_id)
-            })?;
+            let current_phase = current_phase_id(&workflow)
+                .ok_or_else(|| anyhow!("workflow '{}' has no active phase", workflow_id))?;
             if !current_phase.eq_ignore_ascii_case(&phase_id) {
                 return Err(anyhow!(
                     "workflow '{}' active phase is '{}' (requested '{}')",
@@ -176,8 +174,14 @@ pub async fn dispatch_workflow_event(
                 ..WorkflowEventOutcome::default()
             })
         }
-        WorkflowEvent::ResearchRequested { workflow_id, reason } => {
-            let workflow = hub.workflows().request_research(&workflow_id, reason).await?;
+        WorkflowEvent::ResearchRequested {
+            workflow_id,
+            reason,
+        } => {
+            let workflow = hub
+                .workflows()
+                .request_research(&workflow_id, reason)
+                .await?;
             Ok(WorkflowEventOutcome {
                 workflow: Some(workflow),
                 ..WorkflowEventOutcome::default()

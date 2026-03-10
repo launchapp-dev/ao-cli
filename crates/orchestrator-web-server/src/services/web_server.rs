@@ -1361,8 +1361,8 @@ mod tests {
         }
     }
 
-    async fn seed_workflows(app: &Router, count: usize) {
-        for index in 0..count {
+    async fn seed_workflows(app: &Router, task_ids: &[String]) {
+        for (index, task_id) in task_ids.iter().enumerate() {
             let response = app
                 .clone()
                 .oneshot(
@@ -1372,7 +1372,7 @@ mod tests {
                         .header(CONTENT_TYPE, "application/json")
                         .body(Body::from(
                             serde_json::json!({
-                                "task_id": format!("TASK-{}", index + 1)
+                                "task_id": task_id
                             })
                             .to_string(),
                         ))
@@ -2271,8 +2271,17 @@ mod tests {
     #[tokio::test]
     async fn workflows_list_supports_cursor_pagination_with_page_size_cap() {
         let hub: Arc<dyn ServiceHub> = Arc::new(InMemoryServiceHub::new());
+        seed_tasks(&hub, 45).await;
+        let task_ids = hub
+            .tasks()
+            .list()
+            .await
+            .expect("tasks should list after seeding")
+            .into_iter()
+            .map(|task| task.id)
+            .collect::<Vec<_>>();
         let app = build_test_app(hub, true, 25, 30);
-        seed_workflows(&app, 45).await;
+        seed_workflows(&app, &task_ids).await;
 
         let first_page = app
             .clone()

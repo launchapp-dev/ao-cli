@@ -669,7 +669,17 @@ fn builtin_workflow_config_base() -> WorkflowConfig {
         phase_definitions: BTreeMap::new(),
         agent_profiles: BTreeMap::new(),
         tools_allowlist: Vec::new(),
-        mcp_servers: BTreeMap::new(),
+        mcp_servers: BTreeMap::from([(
+            "ao".to_string(),
+            McpServerDefinition {
+                command: "ao".to_string(),
+                args: vec!["mcp".to_string(), "serve".to_string()],
+                transport: Some("stdio".to_string()),
+                config: BTreeMap::new(),
+                tools: Vec::new(),
+                env: BTreeMap::new(),
+            },
+        )]),
         tools: BTreeMap::new(),
         integrations: None,
         schedules: Vec::new(),
@@ -4461,8 +4471,8 @@ workflows:
             "empty tools_allowlist should not be serialized"
         );
         assert!(
-            !obj.contains_key("mcp_servers"),
-            "empty mcp_servers should not be serialized"
+            obj.contains_key("mcp_servers"),
+            "builtin mcp_servers should be serialized when present"
         );
         assert!(
             !obj.contains_key("tools"),

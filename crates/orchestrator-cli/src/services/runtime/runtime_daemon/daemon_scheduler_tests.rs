@@ -1,5 +1,5 @@
 use super::*;
-use crate::shared::build_runtime_contract;
+use crate::shared::{build_runtime_contract, test_env_lock};
 use orchestrator_core::{InMemoryServiceHub, Priority, TaskCreateInput, TaskType};
 use protocol::{ModelRoutingComplexity, PhaseCapabilities};
 use std::sync::Arc;
@@ -1412,7 +1412,11 @@ fn is_branch_merged_reports_true_after_merge_commit() {
 
 #[tokio::test]
 async fn project_tick_reconciles_stale_completed_workflow_tasks() {
+    let _lock = test_env_lock()
+        .lock()
+        .expect("env lock should be available");
     let temp = TempDir::new().expect("temp dir");
+    let _home_guard = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
     let project_root = temp.path().to_string_lossy().to_string();
     let hub = Arc::new(FileServiceHub::new(&project_root).expect("file service hub"));
 

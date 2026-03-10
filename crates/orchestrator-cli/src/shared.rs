@@ -129,7 +129,11 @@ mod tests {
 
     #[test]
     fn run_dir_defaults_to_scoped_runtime_runs_root() {
+        let _lock = test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let temp = tempfile::tempdir().expect("tempdir should be created");
+        let _home = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
         let project_root = temp.path().join("project-root");
         std::fs::create_dir_all(&project_root).expect("project dir should be created");
         let run_id = RunId("trace-run-010".to_string());
@@ -152,7 +156,11 @@ mod tests {
 
     #[test]
     fn run_dir_scopes_missing_project_paths_with_protocol_fallback() {
+        let _lock = test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let temp = tempfile::tempdir().expect("tempdir should be created");
+        let _home = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
         let project_root = temp.path().join("Missing Repo 2026");
         let run_id = RunId("trace-run-missing-project-root".to_string());
 

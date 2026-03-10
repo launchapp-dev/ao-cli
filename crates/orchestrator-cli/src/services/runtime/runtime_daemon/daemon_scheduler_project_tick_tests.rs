@@ -1143,7 +1143,11 @@ async fn priority_ordering_high_first() {
 
 #[tokio::test]
 async fn reconcile_manual_phase_timeouts_fails_workflow() {
+    let _lock = crate::shared::test_env_lock()
+        .lock()
+        .expect("env lock should be available");
     let temp = TempDir::new().expect("temp dir should be created");
+    let _home_guard = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
     let project_root = temp.path().to_string_lossy().to_string();
     let hub = Arc::new(FileServiceHub::new(&project_root).expect("file service hub"));
 

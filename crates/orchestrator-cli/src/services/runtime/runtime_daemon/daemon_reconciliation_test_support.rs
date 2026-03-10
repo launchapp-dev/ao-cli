@@ -246,12 +246,14 @@ pub async fn recover_orphaned_running_workflows_with_active_ids(
 #[cfg(test)]
 mod tests {
     use super::recover_orphaned_running_workflows_with_active_ids;
+    use crate::shared::test_env_lock;
     use orchestrator_core::{
         builtin_agent_runtime_config, register_workflow_runner_pid, unregister_workflow_runner_pid,
         write_agent_runtime_config, FileServiceHub, InMemoryServiceHub, PhaseExecutionMode,
         PhaseManualDefinition, ServiceHub, TaskCreateInput, TaskStatus, TaskType, WorkflowRunInput,
         WorkflowStatus,
     };
+    use protocol::test_utils::EnvVarGuard;
     use std::collections::HashSet;
     use std::path::Path;
     use std::sync::Arc;
@@ -354,7 +356,11 @@ mod tests {
 
     #[tokio::test]
     async fn manual_phase_workflows_are_not_recovered_as_orphans() {
+        let _lock = test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let temp = TempDir::new().expect("temp dir");
+        let _home_guard = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
         let project_root = temp.path().to_string_lossy().to_string();
         let hub = Arc::new(FileServiceHub::new(&project_root).expect("file hub"));
 

@@ -437,11 +437,13 @@ pub(crate) async fn reject_manual_phase(
 #[cfg(test)]
 mod tests {
     use super::{approve_manual_phase, reject_manual_phase};
+    use crate::shared::test_env_lock;
     use orchestrator_core::{
         load_agent_runtime_config, services::ServiceHub, write_agent_runtime_config,
         FileServiceHub, PhaseExecutionMode, PhaseManualDefinition, Priority, TaskCreateInput,
         TaskStatus, TaskType, WorkflowPhaseStatus, WorkflowRunInput, WorkflowStatus,
     };
+    use protocol::test_utils::EnvVarGuard;
     use std::process::Command as ProcessCommand;
     use std::sync::Arc;
     use tempfile::TempDir;
@@ -500,7 +502,11 @@ mod tests {
 
     #[tokio::test]
     async fn approve_manual_phase_continues_non_terminal_workflow() {
+        let _lock = test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let temp = TempDir::new().expect("temp dir");
+        let _home_guard = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
         init_git_repo(&temp);
         let project_root = temp.path().to_string_lossy().to_string();
         let hub = Arc::new(FileServiceHub::new(&project_root).expect("file service hub"));
@@ -614,7 +620,11 @@ mod tests {
 
     #[tokio::test]
     async fn reject_manual_phase_fails_workflow() {
+        let _lock = test_env_lock()
+            .lock()
+            .expect("env lock should be available");
         let temp = TempDir::new().expect("temp dir");
+        let _home_guard = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
         init_git_repo(&temp);
         let project_root = temp.path().to_string_lossy().to_string();
         let hub = Arc::new(FileServiceHub::new(&project_root).expect("file service hub"));

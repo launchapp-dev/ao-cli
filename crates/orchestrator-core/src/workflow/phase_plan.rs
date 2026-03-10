@@ -170,7 +170,7 @@ mod tests {
         let err = resolve_phase_plan_for_workflow_ref(Some(temp.path()), Some("standard"))
             .expect_err("invalid config should return error");
         let message = err.to_string();
-        assert!(message.contains("invalid workflow config JSON"));
+        assert!(message.contains("workflow config JSON is no longer supported"));
         assert!(message.contains(crate::WORKFLOW_CONFIG_FILE_NAME));
     }
 
@@ -185,8 +185,8 @@ mod tests {
         let err = resolve_phase_plan_for_workflow_ref(Some(temp.path()), Some("standard"))
             .expect_err("legacy config should be rejected");
         let message = err.to_string();
-        assert!(message.contains("workflow config v2 is required"));
-        assert!(message.contains("unsupported legacy file"));
+        assert!(message.contains("workflow config v2 JSON is no longer supported"));
+        assert!(message.contains("found unsupported legacy file"));
     }
 
     #[test]
@@ -202,7 +202,7 @@ mod tests {
             .expect_err("missing pipeline should return error");
         let message = err.to_string();
         assert!(message.contains("workflow 'does-not-exist' not found"));
-        assert!(message.contains(crate::WORKFLOW_CONFIG_FILE_NAME));
+        assert!(message.contains("workflow config at"));
     }
 
     #[test]
@@ -261,10 +261,13 @@ mod tests {
 
         let ui_ux_pipeline = workflow_config
             .workflows
-            .iter_mut()
+            .iter()
             .find(|pipeline| pipeline.id == UI_UX_WORKFLOW_REF)
-            .expect("ui-ux pipeline should exist");
-        ui_ux_pipeline.id = "ui-ux".to_string();
+            .expect("ui-ux pipeline should exist")
+            .clone();
+        let mut explicit_ui_ux_pipeline = ui_ux_pipeline;
+        explicit_ui_ux_pipeline.id = "ui-ux".to_string();
+        workflow_config.workflows.push(explicit_ui_ux_pipeline);
 
         crate::write_workflow_config(temp.path(), &workflow_config).expect("write workflow config");
         crate::write_agent_runtime_config(temp.path(), &crate::builtin_agent_runtime_config())

@@ -829,6 +829,12 @@ mod tests {
             "implementation",
         )
         .expect("implementation should expose merged response schema");
+        let required_decision = phase_decision_contract_for(
+            temp.path().to_str().expect("project root"),
+            "implementation",
+        )
+        .map(|contract| !contract.allow_missing_decision)
+        .unwrap_or(false);
 
         assert_eq!(
             schema["properties"]["kind"]["const"],
@@ -838,9 +844,13 @@ mod tests {
             schema["properties"]["phase_decision"]["properties"]["kind"]["const"],
             "phase_decision"
         );
-        assert!(schema["required"]
+        let required = schema["required"]
             .as_array()
-            .expect("required array")
-            .contains(&Value::String("phase_decision".to_string())));
+            .map(|items| items.contains(&Value::String("phase_decision".to_string())))
+            .unwrap_or(false);
+        assert_eq!(
+            required, required_decision,
+            "phase_decision requiredness should follow the phase decision contract"
+        );
     }
 }

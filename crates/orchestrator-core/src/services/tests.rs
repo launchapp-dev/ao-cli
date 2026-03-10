@@ -105,6 +105,58 @@ fn file_hub_new_does_not_rewrite_existing_core_state_on_boot() {
 }
 
 #[test]
+fn file_hub_recompiles_repo_workflow_yaml_on_startup() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let _hub = file_hub(temp.path()).expect("create hub");
+
+    let workflows_dir = temp.path().join(".ao").join("workflows");
+    std::fs::create_dir_all(&workflows_dir).expect("create workflows dir");
+    std::fs::write(
+        workflows_dir.join("custom.yaml"),
+        r#"
+default_workflow_ref: yaml-standard
+
+workflows:
+  - id: yaml-standard
+    name: YAML Standard
+    description: Startup-compiled workflow from repo-local YAML.
+    phases:
+      - requirements
+      - implementation
+"#,
+    )
+    .expect("write workflow yaml");
+
+    let _reloaded = file_hub(temp.path()).expect("reload hub");
+    let workflow_config_path = scoped_ao_root(temp.path())
+        .join("state")
+        .join("workflow-config.v2.json");
+    let config_content =
+        std::fs::read_to_string(workflow_config_path).expect("workflow config should be readable");
+    let config: serde_json::Value =
+        serde_json::from_str(&config_content).expect("workflow config should parse");
+
+    assert_eq!(
+        config
+            .pointer("/default_workflow_ref")
+            .and_then(serde_json::Value::as_str),
+        Some("yaml-standard")
+    );
+    assert!(
+        config
+            .pointer("/workflows")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|workflows| workflows.iter().any(|workflow| {
+                workflow
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|id| id == "yaml-standard")
+            })),
+        "compiled workflow config should include repo-local YAML workflow"
+    );
+}
+
+#[test]
 fn file_hub_new_bootstraps_ao_without_initializing_git_repository() {
     let temp = tempfile::tempdir().expect("tempdir");
     let _hub = file_hub(temp.path()).expect("create hub");

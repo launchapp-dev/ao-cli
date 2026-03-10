@@ -1918,6 +1918,31 @@ mod tests {
     }
 
     #[test]
+    fn builtin_runtime_supports_extended_builtin_workflow_phases() {
+        let config = builtin_agent_runtime_config();
+
+        assert_eq!(config.phase_agent_id("triage"), Some("triager"));
+        assert_eq!(
+            config.phase_agent_id("refine-requirements"),
+            Some("requirements-refiner")
+        );
+        assert_eq!(
+            config.phase_agent_id("requirement-task-generation"),
+            Some("requirements-planner")
+        );
+        assert_eq!(
+            config.phase_agent_id("requirement-workflow-bootstrap"),
+            Some("requirements-planner")
+        );
+        assert_eq!(config.phase_agent_id("po-review"), Some("po-reviewer"));
+        assert_eq!(
+            config.phase_mode("unit-test"),
+            Some(PhaseExecutionMode::Command)
+        );
+        assert_eq!(config.phase_mode("lint"), Some(PhaseExecutionMode::Command));
+    }
+
+    #[test]
     fn structured_output_phase_rejects_empty_phase_even_with_structured_default() {
         let mut config = builtin_agent_runtime_config();
         let default_phase = config
@@ -2325,17 +2350,31 @@ mod tests {
     fn builtin_config_all_phases_are_agent_mode() {
         let config = builtin_agent_runtime_config();
         for (phase_id, definition) in &config.phases {
-            assert_eq!(
-                definition.mode,
-                PhaseExecutionMode::Agent,
-                "builtin phase '{}' should be agent mode",
-                phase_id
-            );
-            assert!(
-                definition.command.is_none(),
-                "builtin phase '{}' should have no command block",
-                phase_id
-            );
+            if matches!(phase_id.as_str(), "lint" | "unit-test") {
+                assert_eq!(
+                    definition.mode,
+                    PhaseExecutionMode::Command,
+                    "builtin phase '{}' should be command mode",
+                    phase_id
+                );
+                assert!(
+                    definition.command.is_some(),
+                    "builtin phase '{}' should have a command block",
+                    phase_id
+                );
+            } else {
+                assert_eq!(
+                    definition.mode,
+                    PhaseExecutionMode::Agent,
+                    "builtin phase '{}' should be agent mode",
+                    phase_id
+                );
+                assert!(
+                    definition.command.is_none(),
+                    "builtin phase '{}' should have no command block",
+                    phase_id
+                );
+            }
         }
     }
 

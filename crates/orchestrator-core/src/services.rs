@@ -849,6 +849,7 @@ impl FileServiceHub {
             crate::workflow_config::ensure_workflow_config_file(project_root)?;
             crate::agent_runtime_config::ensure_agent_runtime_config_file(project_root)?;
         }
+        crate::workflow_config::ensure_workflow_config_compiled(project_root)?;
 
         protocol::Config::load_or_default(project_root.to_string_lossy().as_ref())?;
         Ok(())

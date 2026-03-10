@@ -1,0 +1,13 @@
+phase_catalog:
+  requirement-task-generation:
+    label: Requirement Task Generation
+    description: Create or refine linked tasks for a requirement through AO MCP.
+    category: planning
+    tags: ["requirements", "planning", "builtin"]
+
+workflows:
+  - id: builtin/requirement-plan
+    name: Builtin Requirement Plan
+    description: Materialize or refine requirement-linked task plans without starting execution.
+    phases:
+      - requirement-task-generation

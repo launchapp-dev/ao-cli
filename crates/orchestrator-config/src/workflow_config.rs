@@ -675,7 +675,7 @@ fn builtin_workflow_config_base() -> WorkflowConfig {
     }
 }
 
-fn builtin_workflow_yaml_overlays() -> [(&'static str, &'static str); 5] {
+fn builtin_workflow_yaml_overlays() -> [(&'static str, &'static str); 13] {
     [
         (
             "vision-draft",
@@ -710,6 +710,62 @@ fn builtin_workflow_yaml_overlays() -> [(&'static str, &'static str); 5] {
             include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/config/builtin-workflows/requirements-execute.yaml"
+            )),
+        ),
+        (
+            "task-standard",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/config/builtin-workflows/task-standard.yaml"
+            )),
+        ),
+        (
+            "task-ui-ux",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/config/builtin-workflows/task-ui-ux.yaml"
+            )),
+        ),
+        (
+            "review-cycle",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/config/builtin-workflows/review-cycle.yaml"
+            )),
+        ),
+        (
+            "task-quick-fix",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/config/builtin-workflows/task-quick-fix.yaml"
+            )),
+        ),
+        (
+            "task-gated",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/config/builtin-workflows/task-gated.yaml"
+            )),
+        ),
+        (
+            "task-triage",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/config/builtin-workflows/task-triage.yaml"
+            )),
+        ),
+        (
+            "task-refine",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/config/builtin-workflows/task-refine.yaml"
+            )),
+        ),
+        (
+            "requirement-plan",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/config/builtin-workflows/requirement-plan.yaml"
             )),
         ),
     ]
@@ -2215,6 +2271,14 @@ mod tests {
         assert!(workflow_ids.contains(&"builtin/requirements-draft"));
         assert!(workflow_ids.contains(&"builtin/requirements-refine"));
         assert!(workflow_ids.contains(&"builtin/requirements-execute"));
+        assert!(workflow_ids.contains(&"builtin/requirement-plan"));
+        assert!(workflow_ids.contains(&"builtin/task-standard"));
+        assert!(workflow_ids.contains(&"builtin/task-ui-ux"));
+        assert!(workflow_ids.contains(&"builtin/review-cycle"));
+        assert!(workflow_ids.contains(&"builtin/task-quick-fix"));
+        assert!(workflow_ids.contains(&"builtin/task-gated"));
+        assert!(workflow_ids.contains(&"builtin/task-triage"));
+        assert!(workflow_ids.contains(&"builtin/task-refine"));
     }
 
     #[test]
@@ -4176,7 +4240,7 @@ workflows:
 
     #[test]
     fn new_fields_skip_serializing_when_empty() {
-        let config = builtin_workflow_config();
+        let config = builtin_workflow_config_base();
         let json = serde_json::to_value(&config).expect("serialize");
         let obj = json.as_object().expect("should be object");
         assert!(

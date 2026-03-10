@@ -1,0 +1,10 @@
+workflows:
+  - id: builtin/review-cycle
+    name: Builtin Review Cycle
+    description: Reusable review-and-test loop for completed implementation work.
+    phases:
+      - code-review:
+          on_verdict:
+            rework:
+              target: code-review
+      - testing

@@ -1,0 +1,7 @@
+workflows:
+  - id: builtin/task-quick-fix
+    name: Builtin Task Quick Fix
+    description: Fast workflow for small implementation fixes with validation.
+    phases:
+      - implementation
+      - testing

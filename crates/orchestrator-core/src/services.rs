@@ -846,8 +846,7 @@ impl FileServiceHub {
         )?;
         crate::state_machines::ensure_state_machines_file(project_root)?;
         if is_new_project {
-            crate::workflow_config::ensure_workflow_config_file(project_root)?;
-            crate::agent_runtime_config::ensure_agent_runtime_config_file(project_root)?;
+            crate::workflow_config::ensure_workflow_yaml_scaffold(project_root)?;
         }
         crate::workflow_config::ensure_workflow_config_compiled(project_root)?;
 

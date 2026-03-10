@@ -75,17 +75,32 @@ pub fn resolve_phase_plan_for_workflow_ref(
     };
 
     let workflow_config_path = crate::workflow_config_path(root);
+    let single_yaml = root.join(".ao").join("workflows.yaml");
+    let yaml_dir = crate::yaml_workflows_dir(root);
+    let has_yaml_workflows = single_yaml.exists()
+        || std::fs::read_dir(&yaml_dir)
+            .ok()
+            .into_iter()
+            .flat_map(|entries| entries.filter_map(|entry| entry.ok()))
+            .any(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .map(|ext| ext == "yaml" || ext == "yml")
+                    .unwrap_or(false)
+            });
     let has_legacy_workflow_config = crate::legacy_workflow_config_paths(root)
         .iter()
         .any(|candidate| candidate.exists());
-    if !workflow_config_path.exists() && !has_legacy_workflow_config {
+    if !has_yaml_workflows && !workflow_config_path.exists() && !has_legacy_workflow_config {
         return Ok(phase_plan_for_workflow_ref(
             normalized_workflow_ref.as_deref(),
         ));
     }
 
-    let workflow_config = crate::load_workflow_config(root)?;
-    let runtime_config = crate::load_agent_runtime_config(root)?;
+    let loaded_workflow = crate::load_workflow_config_with_metadata(root)?;
+    let workflow_config = loaded_workflow.config;
+    let runtime_config = crate::load_agent_runtime_config_or_default(root);
     crate::validate_workflow_and_runtime_configs(&workflow_config, &runtime_config)?;
 
     if let Some(phases) =
@@ -120,7 +135,7 @@ pub fn resolve_phase_plan_for_workflow_ref(
 
     Err(anyhow!(
         "workflow '{requested}' not found in workflow config at {} (available: {available_display})",
-        workflow_config_path.display()
+        loaded_workflow.path.display()
     ))
 }
 

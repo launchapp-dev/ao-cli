@@ -95,7 +95,7 @@ pub(crate) enum WorkflowConfigCommand {
     Get,
     /// Validate workflow config shape and references.
     Validate,
-    /// Compile YAML workflow files into workflow-config.v2.json.
+    /// Validate and resolve YAML workflow files.
     Compile,
 }
 

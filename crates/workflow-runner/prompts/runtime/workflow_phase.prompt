@@ -23,4 +23,5 @@ __PHASE_DECISION_RULE__
 - For UI phases, prioritize clarity, hierarchy, spacing, responsive behavior, and accessibility.
 - Keep behavior correct and production-ready.
 - If you run checks, fix failing issues you introduce.
-- End with a concise summary of changes and validation performed.
+- If a JSON result or phase decision is required, put any human-readable summary before it and emit the required JSON object as the FINAL line of output.
+- If no JSON result or phase decision is required, end with a concise summary of changes and validation performed.

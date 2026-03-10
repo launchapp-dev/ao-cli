@@ -30,7 +30,7 @@ use super::runtime_contract_builder::{
     inject_read_only_flag, inject_response_schema_into_launch_args, inject_workflow_mcp_servers,
     load_phase_capabilities, phase_agent_id_for, phase_decision_contract_for,
     phase_fallback_models_for, phase_model_override_for, phase_output_contract_for,
-    phase_output_json_schema_for, phase_tool_override_for,
+    phase_output_json_schema_for, phase_response_json_schema_for, phase_tool_override_for,
 };
 use crate::phase_failover::PhaseFailureClassifier;
 use crate::phase_targets::PhaseTargetPlanner;
@@ -407,7 +407,15 @@ fn parse_phase_decision_from_payload(payload: &Value) -> Option<orchestrator_cor
                 }
             }
 
-            for key in ["proposal", "data", "payload", "result", "output", "item"] {
+            for key in [
+                "proposal",
+                "data",
+                "payload",
+                "result",
+                "output",
+                "item",
+                "phase_decision",
+            ] {
                 if let Some(value) = object.get(key) {
                     if let Some(decision) = parse_phase_decision_from_payload(value) {
                         return Some(decision);
@@ -863,6 +871,7 @@ pub async fn run_workflow_phase_with_agent(
             }
             let phase_contract = phase_output_contract_for(project_root, phase_id);
             let phase_output_schema = phase_output_json_schema_for(project_root, phase_id);
+            let phase_response_schema = phase_response_json_schema_for(project_root, phase_id);
             if let Some(mut runtime_contract) = build_runtime_contract_with_resume(
                 context
                     .get("tool")
@@ -878,7 +887,10 @@ pub async fn run_workflow_phase_with_agent(
                         "required_result_kind": contract.kind.as_str(),
                         "required_result_fields": contract.required_fields.clone(),
                     });
-                    if let Some(schema) = phase_output_schema.clone() {
+                    if let Some(schema) = phase_response_schema
+                        .clone()
+                        .or(phase_output_schema.clone())
+                    {
                         policy
                             .as_object_mut()
                             .expect("json object")
@@ -890,7 +902,7 @@ pub async fn run_workflow_phase_with_agent(
                         .insert("policy".to_string(), policy);
                 }
                 let agent_config = load_agent_runtime_config(project_root);
-                if let Some(schema) = phase_output_schema.as_ref() {
+                if let Some(schema) = phase_response_schema.as_ref() {
                     inject_response_schema_into_launch_args(
                         &mut runtime_contract,
                         schema,

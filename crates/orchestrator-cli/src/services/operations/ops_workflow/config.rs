@@ -7,11 +7,21 @@ use std::path::PathBuf;
 use super::project_state_dir;
 
 pub(crate) fn workflow_config_path(project_root: &str) -> PathBuf {
-    orchestrator_core::workflow_config_path(Path::new(project_root))
+    let single_file = Path::new(project_root).join(".ao").join("workflows.yaml");
+    if single_file.exists() {
+        single_file
+    } else {
+        orchestrator_core::yaml_workflows_dir(Path::new(project_root))
+    }
 }
 
 pub(crate) fn agent_runtime_path(project_root: &str) -> PathBuf {
-    orchestrator_core::agent_runtime_config_path(Path::new(project_root))
+    let single_file = Path::new(project_root).join(".ao").join("workflows.yaml");
+    if single_file.exists() {
+        single_file
+    } else {
+        orchestrator_core::yaml_workflows_dir(Path::new(project_root))
+    }
 }
 
 pub(super) fn manual_approvals_path(project_root: &str) -> PathBuf {

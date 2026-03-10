@@ -495,6 +495,7 @@ impl Default for WorkflowConfig {
 #[serde(rename_all = "snake_case")]
 pub enum WorkflowConfigSource {
     Json,
+    Yaml,
     Builtin,
     BuiltinFallback,
 }
@@ -503,6 +504,7 @@ impl WorkflowConfigSource {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Json => "json",
+            Self::Yaml => "yaml",
             Self::Builtin => "builtin",
             Self::BuiltinFallback => "builtin_fallback",
         }
@@ -805,67 +807,15 @@ pub fn legacy_workflow_config_paths(project_root: &Path) -> [PathBuf; 2] {
 }
 
 pub fn ensure_workflow_config_file(project_root: &Path) -> Result<()> {
-    let path = workflow_config_path(project_root);
-    if path.exists() {
-        return Ok(());
-    }
-
-    write_workflow_config(project_root, &builtin_workflow_config())
+    ensure_workflow_yaml_scaffold(project_root).map(|_| ())
 }
 
 pub fn ensure_workflow_config_compiled(project_root: &Path) -> Result<()> {
-    let workflows_yaml = project_root.join(".ao").join("workflows.yaml");
-    let workflows_dir = yaml_workflows_dir(project_root);
-    let config_path = workflow_config_path(project_root);
-
-    let mut yaml_sources: Vec<PathBuf> = Vec::new();
-    if workflows_yaml.exists() {
-        yaml_sources.push(workflows_yaml);
+    if let Some(yaml_config) = compile_yaml_workflow_files(project_root)? {
+        let config = merge_yaml_into_config(builtin_workflow_config(), yaml_config);
+        validate_workflow_config(&config)?;
     }
-    if workflows_dir.is_dir() {
-        for entry in fs::read_dir(&workflows_dir)? {
-            let path = entry?.path();
-            if path
-                .extension()
-                .map(|ext| ext == "yaml" || ext == "yml")
-                .unwrap_or(false)
-            {
-                yaml_sources.push(path);
-            }
-        }
-    }
-
-    if yaml_sources.is_empty() {
-        return Ok(());
-    }
-
-    let need_recompile = if config_path.exists() {
-        let config_modified = fs::metadata(&config_path)
-            .with_context(|| format!("failed to stat {}", config_path.display()))?
-            .modified()?;
-        let mut should_recompile = false;
-        for path in &yaml_sources {
-            let yaml_modified = fs::metadata(path)
-                .with_context(|| format!("failed to stat {}", path.display()))?
-                .modified()?;
-            if yaml_modified > config_modified {
-                should_recompile = true;
-                break;
-            }
-        }
-        should_recompile
-    } else {
-        true
-    };
-
-    if !need_recompile {
-        return Ok(());
-    }
-
-    let config = compile_yaml_workflow_files(project_root)?.ok_or_else(|| {
-        anyhow!("no YAML workflow files found in .ao/workflows/ or .ao/workflows.yaml")
-    })?;
-    write_workflow_config(project_root, &config)
+    Ok(())
 }
 
 pub fn load_workflow_config(project_root: &Path) -> Result<WorkflowConfig> {
@@ -873,41 +823,52 @@ pub fn load_workflow_config(project_root: &Path) -> Result<WorkflowConfig> {
 }
 
 pub fn load_workflow_config_with_metadata(project_root: &Path) -> Result<LoadedWorkflowConfig> {
-    let path = workflow_config_path(project_root);
-    if !path.exists() {
-        if let Some(legacy_path) = legacy_workflow_config_paths(project_root)
-            .iter()
-            .find(|candidate| candidate.exists())
-        {
-            return Err(anyhow!(
-                "workflow config v2 is required at {} (found unsupported legacy file at {}). Remove the legacy file and define workflows in YAML or workflow-config.v2.json",
-                path.display(),
-                legacy_path.display()
-            ));
-        }
+    if let Some(yaml_config) = compile_yaml_workflow_files(project_root)? {
+        let config = merge_yaml_into_config(builtin_workflow_config(), yaml_config);
+        validate_workflow_config(&config)?;
 
+        let single_file = project_root.join(".ao").join("workflows.yaml");
+        let workflows_dir = yaml_workflows_dir(project_root);
+        let path = if single_file.exists() {
+            single_file
+        } else {
+            workflows_dir
+        };
+
+        return Ok(LoadedWorkflowConfig {
+            metadata: WorkflowConfigMetadata {
+                schema: config.schema.clone(),
+                version: config.version,
+                hash: workflow_config_hash(&config),
+                source: WorkflowConfigSource::Yaml,
+            },
+            config,
+            path,
+        });
+    }
+
+    let path = workflow_config_path(project_root);
+    if let Some(legacy_path) = legacy_workflow_config_paths(project_root)
+        .iter()
+        .find(|candidate| candidate.exists())
+    {
         return Err(anyhow!(
-            "workflow config v2 file is missing at {}. Define workflows in YAML or create workflow-config.v2.json",
+            "workflow config v2 JSON is no longer supported at {} (found unsupported legacy file at {}). Remove the JSON config and define workflows in .ao/workflows.yaml or .ao/workflows/*.yaml",
+            path.display(),
+            legacy_path.display()
+        ));
+    }
+
+    if path.exists() {
+        return Err(anyhow!(
+            "workflow config JSON is no longer supported at {}. Remove the JSON config and define workflows in .ao/workflows.yaml or .ao/workflows/*.yaml",
             path.display()
         ));
     }
 
-    let content = fs::read_to_string(&path)
-        .with_context(|| format!("failed to read workflow config at {}", path.display()))?;
-    let config = serde_json::from_str::<WorkflowConfig>(&content)
-        .with_context(|| format!("invalid workflow config JSON at {}", path.display()))?;
-    validate_workflow_config(&config)?;
-
-    Ok(LoadedWorkflowConfig {
-        metadata: WorkflowConfigMetadata {
-            schema: config.schema.clone(),
-            version: config.version,
-            hash: workflow_config_hash(&config),
-            source: WorkflowConfigSource::Json,
-        },
-        config,
-        path,
-    })
+    Err(anyhow!(
+        "workflow config is missing. Define workflows in .ao/workflows.yaml or .ao/workflows/*.yaml"
+    ))
 }
 
 pub fn load_workflow_config_or_default(project_root: &Path) -> LoadedWorkflowConfig {
@@ -931,8 +892,8 @@ pub fn load_workflow_config_or_default(project_root: &Path) -> LoadedWorkflowCon
 
 pub fn write_workflow_config(project_root: &Path, config: &WorkflowConfig) -> Result<()> {
     validate_workflow_config(config)?;
-    let path = workflow_config_path(project_root);
-    crate::domain_state::write_json_pretty(&path, config)
+    write_workflow_yaml_overlay(project_root, GENERATED_WORKFLOW_OVERLAY_FILE_NAME, config)
+        .map(|_| ())
 }
 
 pub fn workflow_config_hash(config: &WorkflowConfig) -> String {
@@ -1617,6 +1578,12 @@ pub fn validate_workflow_config(config: &WorkflowConfig) -> Result<()> {
 }
 
 pub const YAML_WORKFLOWS_DIR: &str = "workflows";
+pub const GENERATED_WORKFLOW_OVERLAY_FILE_NAME: &str = "generated-workflow.yaml";
+pub const GENERATED_RUNTIME_OVERLAY_FILE_NAME: &str = "generated-runtime.yaml";
+pub const DEFAULT_WORKFLOW_TEMPLATE_FILE_NAME: &str = "custom.yaml";
+pub const STANDARD_WORKFLOW_TEMPLATE_FILE_NAME: &str = "standard-workflow.yaml";
+pub const HOTFIX_WORKFLOW_TEMPLATE_FILE_NAME: &str = "hotfix-workflow.yaml";
+pub const RESEARCH_WORKFLOW_TEMPLATE_FILE_NAME: &str = "research-workflow.yaml";
 
 fn merge_strategy_is_valid(strategy: &MergeStrategy) -> bool {
     matches!(
@@ -1625,7 +1592,7 @@ fn merge_strategy_is_valid(strategy: &MergeStrategy) -> bool {
     )
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct YamlPhaseRichConfig {
     #[serde(default = "default_max_rework_attempts")]
     max_rework_attempts: u32,
@@ -1635,13 +1602,13 @@ struct YamlPhaseRichConfig {
     on_verdict: HashMap<String, PhaseTransitionConfig>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct YamlSubWorkflowRef {
     workflow_ref: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 enum YamlPhaseEntry {
     SubWorkflow(YamlSubWorkflowRef),
@@ -1649,18 +1616,18 @@ enum YamlPhaseEntry {
     Rich(HashMap<String, YamlPhaseRichConfig>),
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct YamlWorkflowDefinition {
     id: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     name: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     description: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     phases: Vec<YamlPhaseEntry>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     post_success: Option<YamlPostSuccessConfig>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     variables: Vec<WorkflowVariable>,
 }
 
@@ -1684,7 +1651,7 @@ struct YamlMergeConfig {
     cleanup_worktree: bool,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct YamlCommandDefinition {
     program: String,
     #[serde(default)]
@@ -1701,9 +1668,13 @@ struct YamlCommandDefinition {
     success_exit_codes: Option<Vec<i32>>,
     #[serde(default)]
     parse_json_output: Option<bool>,
+    #[serde(default)]
+    expected_result_kind: Option<String>,
+    #[serde(default)]
+    expected_schema: Option<Value>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct YamlManualDefinition {
     instructions: String,
     #[serde(default)]
@@ -1712,17 +1683,32 @@ struct YamlManualDefinition {
     timeout_secs: Option<u64>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct YamlPhaseDefinition {
-    mode: String,
-    #[serde(default)]
+    mode: PhaseExecutionMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "agent_id")]
+    agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     command: Option<YamlCommandDefinition>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     manual: Option<YamlManualDefinition>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     directive: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     system_prompt: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    runtime: Option<crate::agent_runtime_config::AgentRuntimeOverrides>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    capabilities: Option<protocol::PhaseCapabilities>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    output_contract: Option<crate::agent_runtime_config::PhaseOutputContract>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    output_json_schema: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    decision_contract: Option<crate::agent_runtime_config::PhaseDecisionContract>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    retry: Option<crate::agent_runtime_config::PhaseRetryConfig>,
 }
 
 fn parse_cwd_mode(value: &str) -> Result<CommandCwdMode> {
@@ -1753,23 +1739,8 @@ fn yaml_phase_to_execution_definition(
     phase_id: &str,
     yaml: YamlPhaseDefinition,
 ) -> Result<PhaseExecutionDefinition> {
-    let mode = match yaml.mode.to_ascii_lowercase().as_str() {
-        "command" => PhaseExecutionMode::Command,
-        "manual" => PhaseExecutionMode::Manual,
-        "agent" => {
-            return Err(anyhow!(
-                "phases['{}'] mode 'agent' is not supported in YAML — agent phases belong in agent-runtime-config",
-                phase_id
-            ));
-        }
-        other => {
-            return Err(anyhow!(
-                "phases['{}'] has unknown mode '{}' (expected command or manual)",
-                phase_id,
-                other
-            ));
-        }
-    };
+    let mode = yaml.mode;
+    let mode_label = format!("{:?}", mode).to_ascii_lowercase();
 
     let command = match (&mode, yaml.command) {
         (PhaseExecutionMode::Command, Some(cmd)) => Some(PhaseCommandDefinition {
@@ -1786,8 +1757,8 @@ fn yaml_phase_to_execution_definition(
             timeout_secs: cmd.timeout_secs,
             success_exit_codes: cmd.success_exit_codes.unwrap_or_else(|| vec![0]),
             parse_json_output: cmd.parse_json_output.unwrap_or(false),
-            expected_result_kind: None,
-            expected_schema: None,
+            expected_result_kind: cmd.expected_result_kind,
+            expected_schema: cmd.expected_schema,
         }),
         (PhaseExecutionMode::Command, None) => {
             return Err(anyhow!(
@@ -1799,7 +1770,7 @@ fn yaml_phase_to_execution_definition(
             return Err(anyhow!(
                 "phases['{}'] mode '{}' must not include a command block",
                 phase_id,
-                yaml.mode
+                mode_label.clone()
             ));
         }
         _ => None,
@@ -1821,7 +1792,7 @@ fn yaml_phase_to_execution_definition(
             return Err(anyhow!(
                 "phases['{}'] mode '{}' must not include a manual block",
                 phase_id,
-                yaml.mode
+                mode_label
             ));
         }
         _ => None,
@@ -1829,18 +1800,247 @@ fn yaml_phase_to_execution_definition(
 
     Ok(PhaseExecutionDefinition {
         mode,
-        agent_id: None,
+        agent_id: yaml.agent,
         directive: yaml.directive,
-        runtime: None,
-        capabilities: None,
-        output_contract: None,
-        output_json_schema: None,
-        decision_contract: None,
-        retry: None,
+        runtime: yaml.runtime,
+        capabilities: yaml.capabilities,
+        output_contract: yaml.output_contract,
+        output_json_schema: yaml.output_json_schema,
+        decision_contract: yaml.decision_contract,
+        retry: yaml.retry,
         command,
         manual,
         system_prompt: yaml.system_prompt,
     })
+}
+
+fn workflow_phase_entry_to_yaml(entry: &WorkflowPhaseEntry) -> YamlPhaseEntry {
+    match entry {
+        WorkflowPhaseEntry::Simple(id) => YamlPhaseEntry::Simple(id.clone()),
+        WorkflowPhaseEntry::SubWorkflow(sub) => YamlPhaseEntry::SubWorkflow(YamlSubWorkflowRef {
+            workflow_ref: sub.workflow_ref.clone(),
+        }),
+        WorkflowPhaseEntry::Rich(config) => {
+            let mut map = HashMap::new();
+            map.insert(
+                config.id.clone(),
+                YamlPhaseRichConfig {
+                    max_rework_attempts: config.max_rework_attempts,
+                    skip_if: config.skip_if.clone(),
+                    on_verdict: config.on_verdict.clone(),
+                },
+            );
+            YamlPhaseEntry::Rich(map)
+        }
+    }
+}
+
+fn workflow_definition_to_yaml(definition: &WorkflowDefinition) -> YamlWorkflowDefinition {
+    YamlWorkflowDefinition {
+        id: definition.id.clone(),
+        name: Some(definition.name.clone()),
+        description: Some(definition.description.clone()),
+        phases: definition
+            .phases
+            .iter()
+            .map(workflow_phase_entry_to_yaml)
+            .collect(),
+        post_success: definition
+            .post_success
+            .clone()
+            .map(post_success_config_to_yaml),
+        variables: definition.variables.clone(),
+    }
+}
+
+fn post_success_config_to_yaml(config: PostSuccessConfig) -> YamlPostSuccessConfig {
+    YamlPostSuccessConfig {
+        merge: config.merge.map(merge_config_to_yaml),
+    }
+}
+
+fn merge_config_to_yaml(config: MergeConfig) -> YamlMergeConfig {
+    YamlMergeConfig {
+        strategy: Some(match config.strategy {
+            MergeStrategy::Squash => "squash".to_string(),
+            MergeStrategy::Merge => "merge".to_string(),
+            MergeStrategy::Rebase => "rebase".to_string(),
+        }),
+        target_branch: config.target_branch,
+        create_pr: config.create_pr,
+        auto_merge: config.auto_merge,
+        cleanup_worktree: config.cleanup_worktree,
+    }
+}
+
+fn phase_execution_definition_to_yaml(
+    definition: &PhaseExecutionDefinition,
+) -> YamlPhaseDefinition {
+    YamlPhaseDefinition {
+        mode: definition.mode.clone(),
+        agent: definition.agent_id.clone(),
+        command: definition
+            .command
+            .clone()
+            .map(|command| YamlCommandDefinition {
+                program: command.program,
+                args: command.args,
+                env: command.env,
+                cwd_mode: Some(match command.cwd_mode {
+                    CommandCwdMode::ProjectRoot => "project_root".to_string(),
+                    CommandCwdMode::TaskRoot => "task_root".to_string(),
+                    CommandCwdMode::Path => "path".to_string(),
+                }),
+                cwd_path: command.cwd_path,
+                timeout_secs: command.timeout_secs,
+                success_exit_codes: Some(command.success_exit_codes),
+                parse_json_output: Some(command.parse_json_output),
+                expected_result_kind: command.expected_result_kind,
+                expected_schema: command.expected_schema,
+            }),
+        manual: definition
+            .manual
+            .clone()
+            .map(|manual| YamlManualDefinition {
+                instructions: manual.instructions,
+                approval_note_required: Some(manual.approval_note_required),
+                timeout_secs: manual.timeout_secs,
+            }),
+        directive: definition.directive.clone(),
+        system_prompt: definition.system_prompt.clone(),
+        runtime: definition.runtime.clone(),
+        capabilities: definition.capabilities.clone(),
+        output_contract: definition.output_contract.clone(),
+        output_json_schema: definition.output_json_schema.clone(),
+        decision_contract: definition.decision_contract.clone(),
+        retry: definition.retry.clone(),
+    }
+}
+
+fn workflow_config_to_yaml_file(config: &WorkflowConfig) -> YamlWorkflowFile {
+    YamlWorkflowFile {
+        default_workflow_ref: Some(config.default_workflow_ref.clone()),
+        phase_catalog: if config.phase_catalog.is_empty() {
+            None
+        } else {
+            Some(config.phase_catalog.clone())
+        },
+        workflows: config
+            .workflows
+            .iter()
+            .map(workflow_definition_to_yaml)
+            .collect(),
+        phases: config
+            .phase_definitions
+            .iter()
+            .map(|(id, definition)| (id.clone(), phase_execution_definition_to_yaml(definition)))
+            .collect(),
+        agents: config.agent_profiles.clone(),
+        tools_allowlist: config.tools_allowlist.clone(),
+        mcp_servers: config.mcp_servers.clone(),
+        tools: config.tools.clone(),
+        integrations: config.integrations.clone(),
+        schedules: config.schedules.clone(),
+        daemon: config.daemon.clone(),
+    }
+}
+
+fn write_yaml_workflow_overlay(
+    project_root: &Path,
+    file_name: &str,
+    yaml_file: &YamlWorkflowFile,
+) -> Result<PathBuf> {
+    let workflows_dir = yaml_workflows_dir(project_root);
+    fs::create_dir_all(&workflows_dir)
+        .with_context(|| format!("failed to create {}", workflows_dir.display()))?;
+    let path = workflows_dir.join(file_name);
+    let content =
+        serde_yaml::to_string(yaml_file).context("failed to serialize workflow YAML overlay")?;
+    fs::write(&path, content).with_context(|| format!("failed to write {}", path.display()))?;
+    Ok(path)
+}
+
+pub fn write_workflow_yaml_overlay(
+    project_root: &Path,
+    file_name: &str,
+    config: &WorkflowConfig,
+) -> Result<PathBuf> {
+    let yaml_file = workflow_config_to_yaml_file(config);
+    write_yaml_workflow_overlay(project_root, file_name, &yaml_file)
+}
+
+fn default_workflow_template_files() -> [(&'static str, &'static str); 4] {
+    [
+        (
+            DEFAULT_WORKFLOW_TEMPLATE_FILE_NAME,
+            r#"# Project-local workflow extensions and overrides.
+tools_allowlist:
+  - cargo
+"#,
+        ),
+        (
+            STANDARD_WORKFLOW_TEMPLATE_FILE_NAME,
+            r#"workflows:
+  - id: standard-workflow
+    name: Standard Workflow
+    description: Default task delivery workflow for this repository.
+    phases:
+      - workflow_ref: builtin/task-standard
+"#,
+        ),
+        (
+            HOTFIX_WORKFLOW_TEMPLATE_FILE_NAME,
+            r#"workflows:
+  - id: hotfix-workflow
+    name: Hotfix Workflow
+    description: Fast-track workflow for urgent fixes.
+    phases:
+      - workflow_ref: builtin/task-quick-fix
+"#,
+        ),
+        (
+            RESEARCH_WORKFLOW_TEMPLATE_FILE_NAME,
+            r#"workflows:
+  - id: research-workflow
+    name: Research Workflow
+    description: Validate scope and produce findings without landing implementation changes.
+    phases:
+      - workflow_ref: builtin/task-triage
+      - requirements
+"#,
+        ),
+    ]
+}
+
+pub fn ensure_workflow_yaml_scaffold(project_root: &Path) -> Result<Vec<PathBuf>> {
+    let workflows_dir = yaml_workflows_dir(project_root);
+    fs::create_dir_all(&workflows_dir)
+        .with_context(|| format!("failed to create {}", workflows_dir.display()))?;
+
+    let single_file = project_root.join(".ao").join("workflows.yaml");
+    let has_existing_yaml = single_file.exists()
+        || fs::read_dir(&workflows_dir)
+            .with_context(|| format!("failed to read {}", workflows_dir.display()))?
+            .filter_map(|entry| entry.ok())
+            .any(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .map(|ext| ext == "yaml" || ext == "yml")
+                    .unwrap_or(false)
+            });
+
+    if has_existing_yaml {
+        return Ok(Vec::new());
+    }
+
+    let mut created = Vec::new();
+    for (file_name, content) in default_workflow_template_files() {
+        let path = workflows_dir.join(file_name);
+        fs::write(&path, content).with_context(|| format!("failed to write {}", path.display()))?;
+        created.push(path);
+    }
+    Ok(created)
 }
 
 fn title_case_phase_id(phase_id: &str) -> String {
@@ -1862,29 +2062,29 @@ fn title_case_phase_id(phase_id: &str) -> String {
         .join(" ")
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct YamlWorkflowFile {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     default_workflow_ref: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     phase_catalog: Option<BTreeMap<String, PhaseUiDefinition>>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     workflows: Vec<YamlWorkflowDefinition>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     phases: BTreeMap<String, YamlPhaseDefinition>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     agents: BTreeMap<String, AgentProfile>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     tools_allowlist: Vec<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     mcp_servers: BTreeMap<String, McpServerDefinition>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     tools: BTreeMap<String, ToolDefinition>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     integrations: Option<IntegrationsConfig>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     schedules: Vec<WorkflowSchedule>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     daemon: Option<DaemonConfig>,
 }
 
@@ -1999,9 +2199,7 @@ fn parse_yaml_workflow_config_with_base(
         phase_definitions.insert(phase_id, definition);
     }
 
-    let default_workflow_ref = yaml_file
-        .default_workflow_ref
-        .unwrap_or_else(|| base.default_workflow_ref.clone());
+    let default_workflow_ref = yaml_file.default_workflow_ref.unwrap_or_default();
     let mut phase_catalog = yaml_file
         .phase_catalog
         .unwrap_or_else(|| base.phase_catalog.clone());
@@ -2033,7 +2231,11 @@ fn parse_yaml_workflow_config_with_base(
 
 pub fn parse_yaml_workflow_config(yaml_str: &str) -> Result<WorkflowConfig> {
     let base = builtin_workflow_config();
-    parse_yaml_workflow_config_with_base(yaml_str, &base)
+    let mut config = parse_yaml_workflow_config_with_base(yaml_str, &base)?;
+    if config.default_workflow_ref.trim().is_empty() {
+        config.default_workflow_ref = base.default_workflow_ref;
+    }
+    Ok(config)
 }
 
 pub fn yaml_workflows_dir(project_root: &Path) -> PathBuf {
@@ -2078,9 +2280,11 @@ pub fn compile_yaml_workflow_files(project_root: &Path) -> Result<Option<Workflo
         return Ok(None);
     }
 
+    let builtin = builtin_workflow_config();
     let mut merged_config: Option<WorkflowConfig> = None;
     for (path, content) in &yaml_sources {
-        let parsed = parse_yaml_workflow_config(content)
+        let overlay_base = merged_config.as_ref().unwrap_or(&builtin);
+        let parsed = parse_yaml_workflow_config_with_base(content, overlay_base)
             .with_context(|| format!("error in YAML file {}", path.display()))?;
         merged_config = Some(match merged_config {
             None => parsed,
@@ -2203,7 +2407,7 @@ pub fn compile_and_write_yaml_workflows(project_root: &Path) -> Result<Option<Co
 
     let mut source_files: Vec<PathBuf> = Vec::new();
     if single_file.exists() {
-        source_files.push(single_file);
+        source_files.push(single_file.clone());
     }
     if workflows_dir.is_dir() {
         if let Ok(entries) = fs::read_dir(&workflows_dir) {
@@ -2225,21 +2429,16 @@ pub fn compile_and_write_yaml_workflows(project_root: &Path) -> Result<Option<Co
         return Ok(None);
     }
 
-    let existing_config = load_workflow_config(project_root)
-        .ok()
-        .or_else(|| Some(builtin_workflow_config()));
     let yaml_config = compile_yaml_workflow_files(project_root)?
         .ok_or_else(|| anyhow!("no YAML workflow files found"))?;
-
-    let final_config = match existing_config {
-        Some(base) => merge_yaml_into_config(base, yaml_config),
-        None => yaml_config,
-    };
+    let final_config = merge_yaml_into_config(builtin_workflow_config(), yaml_config);
 
     validate_workflow_config(&final_config)?;
-    write_workflow_config(project_root, &final_config)?;
-
-    let output_path = workflow_config_path(project_root);
+    let output_path = if single_file.exists() {
+        single_file
+    } else {
+        workflows_dir
+    };
     Ok(Some(CompileYamlResult {
         config: final_config,
         source_files,
@@ -2286,8 +2485,8 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let err = load_workflow_config(temp.path()).expect_err("missing config should fail");
         let message = err.to_string();
-        assert!(message.contains("workflow config v2 file is missing"));
-        assert!(message.contains("Define workflows in YAML"));
+        assert!(message.contains(".ao/workflows.yaml"));
+        assert!(message.contains(".ao/workflows/*.yaml"));
     }
 
     #[test]
@@ -3744,11 +3943,13 @@ workflows:
     }
 
     #[test]
-    fn yaml_rejects_agent_mode_phase() {
+    fn yaml_accepts_agent_mode_phase() {
         let yaml = r#"
 phases:
   research:
     mode: agent
+    agent: researcher
+    directive: Gather implementation evidence
 
 workflows:
   - id: standard
@@ -3756,13 +3957,17 @@ workflows:
     phases:
       - requirements
 "#;
-        let err =
-            parse_yaml_workflow_config(yaml).expect_err("should reject agent mode in YAML phases");
-        let message = format!("{:#}", err);
-        assert!(
-            message.contains("not supported in YAML"),
-            "error should mention YAML restriction: {}",
-            message
+        let config =
+            parse_yaml_workflow_config(yaml).expect("agent phases should parse from workflow YAML");
+        let research = config
+            .phase_definitions
+            .get("research")
+            .expect("research phase should be defined");
+        assert_eq!(research.mode, PhaseExecutionMode::Agent);
+        assert_eq!(research.agent_id.as_deref(), Some("researcher"));
+        assert_eq!(
+            research.directive.as_deref(),
+            Some("Gather implementation evidence")
         );
     }
 

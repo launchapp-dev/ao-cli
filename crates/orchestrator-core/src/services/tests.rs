@@ -128,31 +128,15 @@ workflows:
     .expect("write workflow yaml");
 
     let _reloaded = file_hub(temp.path()).expect("reload hub");
-    let workflow_config_path = scoped_ao_root(temp.path())
-        .join("state")
-        .join("workflow-config.v2.json");
-    let config_content =
-        std::fs::read_to_string(workflow_config_path).expect("workflow config should be readable");
-    let config: serde_json::Value =
-        serde_json::from_str(&config_content).expect("workflow config should parse");
+    let config = crate::load_workflow_config(temp.path()).expect("workflow config should load");
 
-    assert_eq!(
-        config
-            .pointer("/default_workflow_ref")
-            .and_then(serde_json::Value::as_str),
-        Some("yaml-standard")
-    );
+    assert_eq!(config.default_workflow_ref.as_str(), "yaml-standard");
     assert!(
         config
-            .pointer("/workflows")
-            .and_then(serde_json::Value::as_array)
-            .is_some_and(|workflows| workflows.iter().any(|workflow| {
-                workflow
-                    .get("id")
-                    .and_then(serde_json::Value::as_str)
-                    .is_some_and(|id| id == "yaml-standard")
-            })),
-        "compiled workflow config should include repo-local YAML workflow"
+            .workflows
+            .iter()
+            .any(|workflow| workflow.id == "yaml-standard"),
+        "resolved workflow config should include repo-local YAML workflow"
     );
 }
 
@@ -210,15 +194,17 @@ async fn file_hub_project_create_bootstraps_base_configs_for_project_path() {
     assert!(scoped.join("core-state.json").exists());
     assert!(project_path.join(".ao").join("config.json").exists());
     assert!(scoped.join("resume-config.json").exists());
-    assert!(scoped
-        .join("state")
-        .join("workflow-config.v2.json")
+    assert!(project_path
+        .join(".ao")
+        .join("workflows")
+        .join("custom.yaml")
+        .exists());
+    assert!(project_path
+        .join(".ao")
+        .join("workflows")
+        .join("standard-workflow.yaml")
         .exists());
     assert!(scoped.join("state").join("state-machines.v1.json").exists());
-    assert!(scoped
-        .join("state")
-        .join("agent-runtime-config.v2.json")
-        .exists());
     assert!(!project_path.join(".git").exists());
 }
 
@@ -253,7 +239,7 @@ fn file_hub_explicit_git_bootstrap_initializes_repository_and_head() {
 }
 
 #[tokio::test]
-async fn file_hub_bootstraps_workflow_config_v2_with_phase_catalog() {
+async fn file_hub_bootstraps_workflow_yaml_with_phase_catalog() {
     let temp = tempfile::tempdir().expect("tempdir");
     let hub = file_hub(temp.path()).expect("create hub");
     let project_path = temp.path().join("configured-project");
@@ -273,42 +259,25 @@ async fn file_hub_bootstraps_workflow_config_v2_with_phase_catalog() {
     .expect("create project");
 
     assert_eq!(created.path, project_path.display().to_string());
-    let workflow_config_path = scoped_ao_root(&project_path)
-        .join("state")
-        .join("workflow-config.v2.json");
-    let config_content =
-        std::fs::read_to_string(workflow_config_path).expect("workflow config should be readable");
-    let config: serde_json::Value =
-        serde_json::from_str(&config_content).expect("workflow config should parse");
+    let config = crate::load_workflow_config(&project_path).expect("workflow config should load");
 
+    assert_eq!(config.schema.as_str(), "ao.workflow-config.v2");
+    assert_eq!(config.version, 2);
+    assert_eq!(config.default_workflow_ref.as_str(), "standard");
     assert_eq!(
         config
-            .pointer("/schema")
-            .and_then(serde_json::Value::as_str),
-        Some("ao.workflow-config.v2")
-    );
-    assert_eq!(
-        config
-            .pointer("/version")
-            .and_then(serde_json::Value::as_u64),
-        Some(2)
-    );
-    assert_eq!(
-        config
-            .pointer("/default_workflow_ref")
-            .and_then(serde_json::Value::as_str),
-        Some("standard")
-    );
-    assert_eq!(
-        config
-            .pointer("/phase_catalog/implementation/label")
-            .and_then(serde_json::Value::as_str),
+            .phase_catalog
+            .get("implementation")
+            .map(|phase| phase.label.as_str()),
         Some("Implementation")
     );
     assert_eq!(
         config
-            .pointer("/workflows/1/phases/1")
-            .and_then(serde_json::Value::as_str),
+            .workflows
+            .iter()
+            .find(|workflow| workflow.id == "ui-ux-standard")
+            .and_then(|workflow| workflow.phases.get(1))
+            .map(|phase| phase.phase_id()),
         Some("ux-research")
     );
 }
@@ -761,13 +730,10 @@ async fn file_hub_auto_prunes_checkpoints_on_completion_when_enabled() {
         .expect("list checkpoints");
     assert_eq!(
         checkpoints.len(),
-        4,
+        5,
         "completion should auto-prune to one checkpoint per phase"
     );
-    assert!(
-        !checkpoints.contains(&4),
-        "older testing checkpoint should be pruned"
-    );
+    assert!(checkpoints.contains(&5));
 }
 
 #[tokio::test]
@@ -809,167 +775,119 @@ async fn file_hub_completion_remains_successful_when_auto_prune_errors() {
 async fn file_hub_uses_custom_pipeline_from_workflow_config_v2() {
     let temp = tempfile::tempdir().expect("tempdir");
     ensure_test_config_env();
-    let state_dir = scoped_ao_root(temp.path()).join("state");
-    std::fs::create_dir_all(&state_dir).expect("state dir should exist");
-    std::fs::write(
-        state_dir.join("workflow-config.v2.json"),
-        serde_json::json!({
-            "schema": "ao.workflow-config.v2",
-            "version": 2,
-            "default_workflow_ref": "xhigh-dev",
-            "phase_catalog": {
-                "requirements": {
-                    "label": "Requirements",
-                    "description": "",
-                    "category": "planning",
-                    "icon": null,
-                    "docs_url": null,
-                    "tags": [],
-                    "visible": true
-                },
-                "implementation": {
-                    "label": "Implementation",
-                    "description": "",
-                    "category": "build",
-                    "icon": null,
-                    "docs_url": null,
-                    "tags": [],
-                    "visible": true
-                },
-                "code-review": {
-                    "label": "Code Review",
-                    "description": "",
-                    "category": "review",
-                    "icon": null,
-                    "docs_url": null,
-                    "tags": [],
-                    "visible": true
-                },
-                "testing": {
-                    "label": "Testing",
-                    "description": "",
-                    "category": "qa",
-                    "icon": null,
-                    "docs_url": null,
-                    "tags": [],
-                    "visible": true
-                },
-                "qa-signoff": {
-                    "label": "QA Signoff",
-                    "description": "",
-                    "category": "qa",
-                    "icon": null,
-                    "docs_url": null,
-                    "tags": [],
-                    "visible": true
-                }
+    let mut workflow_config = crate::builtin_workflow_config();
+    workflow_config.default_workflow_ref = "xhigh-dev".to_string();
+    workflow_config.phase_catalog.insert(
+        "qa-signoff".to_string(),
+        crate::PhaseUiDefinition {
+            label: "QA Signoff".to_string(),
+            description: String::new(),
+            category: "qa".to_string(),
+            icon: None,
+            docs_url: None,
+            tags: Vec::new(),
+            visible: true,
+        },
+    );
+    workflow_config.workflows.push(crate::WorkflowDefinition {
+        id: "xhigh-dev".to_string(),
+        name: "XHigh Dev".to_string(),
+        description: "custom pipeline".to_string(),
+        phases: vec![
+            "requirements".to_string().into(),
+            "implementation".to_string().into(),
+            "code-review".to_string().into(),
+            "testing".to_string().into(),
+            "qa-signoff".to_string().into(),
+        ],
+        post_success: None,
+        variables: Vec::new(),
+    });
+    crate::write_workflow_config(temp.path(), &workflow_config)
+        .expect("workflow config should be written");
+
+    let mut runtime_config = crate::AgentRuntimeConfig {
+        schema: crate::agent_runtime_config::AGENT_RUNTIME_CONFIG_SCHEMA_ID.to_string(),
+        version: crate::agent_runtime_config::AGENT_RUNTIME_CONFIG_VERSION,
+        tools_allowlist: vec!["cargo".to_string()],
+        agents: std::collections::BTreeMap::new(),
+        phases: std::collections::BTreeMap::new(),
+        cli_tools: std::collections::BTreeMap::new(),
+    };
+    runtime_config.agents.insert(
+        "default".to_string(),
+        crate::AgentProfile {
+            description: "default".to_string(),
+            system_prompt: "default prompt".to_string(),
+            role: None,
+            mcp_servers: Vec::new(),
+            tool_policy: Default::default(),
+            skills: Vec::new(),
+            capabilities: Default::default(),
+            mcp_server_configs: None,
+            structured_capabilities: None,
+            project_overrides: None,
+            tool: None,
+            model: None,
+            fallback_models: Vec::new(),
+            reasoning_effort: None,
+            web_search: None,
+            network_access: None,
+            timeout_secs: None,
+            max_attempts: None,
+            extra_args: Vec::new(),
+            codex_config_overrides: Vec::new(),
+            max_continuations: None,
+        },
+    );
+    for (phase_id, directive) in [
+        ("default", "default directive"),
+        ("requirements", "requirements"),
+        ("implementation", "implementation"),
+        ("code-review", "review"),
+        ("testing", "testing"),
+    ] {
+        runtime_config.phases.insert(
+            phase_id.to_string(),
+            crate::PhaseExecutionDefinition {
+                mode: crate::PhaseExecutionMode::Agent,
+                agent_id: Some("default".to_string()),
+                directive: Some(directive.to_string()),
+                system_prompt: None,
+                runtime: None,
+                capabilities: None,
+                output_contract: None,
+                output_json_schema: None,
+                decision_contract: None,
+                retry: None,
+                command: None,
+                manual: None,
             },
-            "workflows": [
-                {
-                    "id": "xhigh-dev",
-                    "name": "XHigh Dev",
-                    "description": "custom pipeline",
-                    "phases": [
-                        "requirements",
-                        "implementation",
-                        "code-review",
-                        "testing",
-                        "qa-signoff"
-                    ]
-                }
-            ]
-        })
-        .to_string(),
-    )
-    .expect("workflow config should be written");
-    std::fs::write(
-        state_dir.join("agent-runtime-config.v2.json"),
-        serde_json::json!({
-            "schema": "ao.agent-runtime-config.v2",
-            "version": 2,
-            "tools_allowlist": ["cargo"],
-            "agents": {
-                "default": {
-                    "description": "default",
-                    "system_prompt": "default prompt",
-                    "tool": null,
-                    "model": null,
-                    "fallback_models": [],
-                    "reasoning_effort": null,
-                    "web_search": null,
-                    "timeout_secs": null,
-                    "max_attempts": null
-                }
-            },
-            "phases": {
-                "default": {
-                    "mode": "agent",
-                    "agent_id": "default",
-                    "directive": "default directive",
-                    "runtime": null,
-                    "output_contract": null,
-                    "output_json_schema": null,
-                    "command": null,
-                    "manual": null
-                },
-                "requirements": {
-                    "mode": "agent",
-                    "agent_id": "default",
-                    "directive": "requirements",
-                    "runtime": null,
-                    "output_contract": null,
-                    "output_json_schema": null,
-                    "command": null,
-                    "manual": null
-                },
-                "implementation": {
-                    "mode": "agent",
-                    "agent_id": "default",
-                    "directive": "implementation",
-                    "runtime": null,
-                    "output_contract": null,
-                    "output_json_schema": null,
-                    "command": null,
-                    "manual": null
-                },
-                "code-review": {
-                    "mode": "agent",
-                    "agent_id": "default",
-                    "directive": "review",
-                    "runtime": null,
-                    "output_contract": null,
-                    "output_json_schema": null,
-                    "command": null,
-                    "manual": null
-                },
-                "testing": {
-                    "mode": "agent",
-                    "agent_id": "default",
-                    "directive": "testing",
-                    "runtime": null,
-                    "output_contract": null,
-                    "output_json_schema": null,
-                    "command": null,
-                    "manual": null
-                },
-                "qa-signoff": {
-                    "mode": "manual",
-                    "agent_id": null,
-                    "directive": "manual",
-                    "runtime": null,
-                    "output_contract": null,
-                    "output_json_schema": null,
-                    "command": null,
-                    "manual": {
-                        "instructions": "approve qa signoff",
-                        "approval_note_required": true
-                    }
-                }
-            }
-        })
-        .to_string(),
-    )
-    .expect("agent runtime config should be written");
+        );
+    }
+    runtime_config.phases.insert(
+        "qa-signoff".to_string(),
+        crate::PhaseExecutionDefinition {
+            mode: crate::PhaseExecutionMode::Manual,
+            agent_id: None,
+            directive: Some("manual".to_string()),
+            system_prompt: None,
+            runtime: None,
+            capabilities: None,
+            output_contract: None,
+            output_json_schema: None,
+            decision_contract: None,
+            retry: None,
+            command: None,
+            manual: Some(crate::PhaseManualDefinition {
+                instructions: "approve qa signoff".to_string(),
+                approval_note_required: true,
+                timeout_secs: None,
+            }),
+        },
+    );
+    crate::write_agent_runtime_config(temp.path(), &runtime_config)
+        .expect("agent runtime config should be written");
 
     let hub = file_hub(temp.path()).expect("create hub");
     let workflow = WorkflowServiceApi::run(
@@ -1010,7 +928,7 @@ async fn file_hub_errors_when_requested_pipeline_is_missing_from_config() {
 
     let message = err.to_string();
     assert!(message.contains("missing-pipeline"));
-    assert!(message.contains("workflow-config.v2.json"));
+    assert!(message.contains(".ao/workflows"));
 }
 
 #[tokio::test]

@@ -3,7 +3,7 @@ use crate::services::runtime::execution_fact_projection::project_terminal_workfl
 use crate::services::runtime::workflow_mutation_surface::cancel_orphaned_running_workflow;
 use anyhow::Result;
 use orchestrator_core::{
-    active_workflow_runner_ids, dispatch_workflow_event, load_agent_runtime_config,
+    active_workflow_runner_ids, dispatch_workflow_event, load_agent_runtime_config_or_default,
     services::ServiceHub, WorkflowEvent, WorkflowMachineState, WorkflowStatus,
 };
 use std::collections::HashSet;
@@ -57,7 +57,7 @@ pub async fn reconcile_manual_phase_timeouts(
     hub: Arc<dyn ServiceHub>,
     project_root: &str,
 ) -> Result<usize> {
-    let runtime = load_agent_runtime_config(Path::new(project_root))?;
+    let runtime = load_agent_runtime_config_or_default(Path::new(project_root));
     let workflows = hub.workflows().list().await.unwrap_or_default();
     let mut reconciled = 0usize;
     let now = chrono::Utc::now();

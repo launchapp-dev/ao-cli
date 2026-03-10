@@ -1,9 +1,8 @@
 use std::collections::BTreeMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -41,6 +40,8 @@ pub struct PhaseDecisionContract {
     pub max_risk: crate::types::WorkflowDecisionRisk,
     #[serde(default = "default_true")]
     pub allow_missing_decision: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_json_schema: Option<Value>,
 }
 
 pub const DEFAULT_MAX_REWORK_ATTEMPTS: u32 = 3;
@@ -384,7 +385,7 @@ impl Default for AgentRuntimeConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentRuntimeSource {
-    Json,
+    WorkflowYaml,
     Builtin,
     BuiltinFallback,
 }
@@ -392,7 +393,7 @@ pub enum AgentRuntimeSource {
 impl AgentRuntimeSource {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Json => "json",
+            Self::WorkflowYaml => "workflow_yaml",
             Self::Builtin => "builtin",
             Self::BuiltinFallback => "builtin_fallback",
         }
@@ -688,7 +689,9 @@ impl AgentRuntimeConfig {
         if self
             .phase_execution(trimmed_phase_id)
             .is_some_and(|definition| {
-                definition.output_contract.is_some() || definition.output_json_schema.is_some()
+                definition.output_contract.is_some()
+                    || definition.output_json_schema.is_some()
+                    || definition.decision_contract.is_some()
             })
         {
             return true;
@@ -1037,6 +1040,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                         min_confidence: 0.6,
                         max_risk: crate::types::WorkflowDecisionRisk::Medium,
                         allow_missing_decision: true,
+                        extra_json_schema: None,
                     }),
                     retry: None,
                     command: None,
@@ -1145,6 +1149,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                         min_confidence: 0.7,
                         max_risk: crate::types::WorkflowDecisionRisk::Medium,
                         allow_missing_decision: true,
+                        extra_json_schema: None,
                     }),
                     retry: None,
                     command: None,
@@ -1167,6 +1172,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                         min_confidence: 0.7,
                         max_risk: crate::types::WorkflowDecisionRisk::Medium,
                         allow_missing_decision: true,
+                        extra_json_schema: None,
                     }),
                     retry: None,
                     command: None,
@@ -1189,6 +1195,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                         min_confidence: 0.8,
                         max_risk: crate::types::WorkflowDecisionRisk::Medium,
                         allow_missing_decision: true,
+                        extra_json_schema: None,
                     }),
                     retry: None,
                     command: None,
@@ -1214,12 +1221,7 @@ pub fn legacy_agent_runtime_config_path(project_root: &Path) -> PathBuf {
 }
 
 pub fn ensure_agent_runtime_config_file(project_root: &Path) -> Result<()> {
-    let path = agent_runtime_config_path(project_root);
-    if path.exists() {
-        return Ok(());
-    }
-
-    write_agent_runtime_config(project_root, &builtin_agent_runtime_config())
+    crate::workflow_config::ensure_workflow_yaml_scaffold(project_root).map(|_| ())
 }
 
 pub fn load_agent_runtime_config(project_root: &Path) -> Result<AgentRuntimeConfig> {
@@ -1229,54 +1231,208 @@ pub fn load_agent_runtime_config(project_root: &Path) -> Result<AgentRuntimeConf
 pub fn load_agent_runtime_config_with_metadata(
     project_root: &Path,
 ) -> Result<LoadedAgentRuntimeConfig> {
-    let path = agent_runtime_config_path(project_root);
-    if !path.exists() {
-        let legacy = legacy_agent_runtime_config_path(project_root);
-        if legacy.exists() {
-            return Err(anyhow!(
-                "agent runtime config v2 is required at {} (found unsupported legacy file at {}). Remove the legacy file and define agent runtime in workflow-agent-runtime-config.v2.json",
-                path.display(),
-                legacy.display()
-            ));
-        }
+    if let Ok(loaded_workflow) =
+        crate::workflow_config::load_workflow_config_with_metadata(project_root)
+    {
+        let mut config = builtin_agent_runtime_config();
+        merge_workflow_runtime_overlay(&mut config, &loaded_workflow.config);
+        validate_agent_runtime_config(&config)?;
 
+        return Ok(LoadedAgentRuntimeConfig {
+            metadata: AgentRuntimeMetadata {
+                schema: config.schema.clone(),
+                version: config.version,
+                hash: agent_runtime_config_hash(&config),
+                source: AgentRuntimeSource::WorkflowYaml,
+            },
+            config,
+            path: loaded_workflow.path,
+        });
+    }
+
+    let legacy = legacy_agent_runtime_config_path(project_root);
+    if legacy.exists() {
         return Err(anyhow!(
-            "agent runtime config v2 file is missing at {}. Define agent runtime in workflow-agent-runtime-config.v2.json",
-            path.display()
+            "agent runtime config JSON is no longer supported at {}. Remove the legacy JSON config and define runtime in .ao/workflows.yaml or .ao/workflows/*.yaml",
+            legacy.display()
         ));
     }
 
-    let content = fs::read_to_string(&path)
-        .with_context(|| format!("failed to read agent runtime config at {}", path.display()))?;
+    let json_path = agent_runtime_config_path(project_root);
+    if json_path.exists() {
+        return Err(anyhow!(
+            "agent runtime config JSON is no longer supported at {}. Remove the JSON config and define runtime in .ao/workflows.yaml or .ao/workflows/*.yaml",
+            json_path.display()
+        ));
+    }
 
-    let config = serde_json::from_str::<AgentRuntimeConfig>(&content)
-        .with_context(|| format!("invalid agent runtime config JSON at {}", path.display()))?;
-
-    validate_agent_runtime_config(&config)?;
-
-    Ok(LoadedAgentRuntimeConfig {
-        metadata: AgentRuntimeMetadata {
-            schema: config.schema.clone(),
-            version: config.version,
-            hash: agent_runtime_config_hash(&config),
-            source: AgentRuntimeSource::Json,
-        },
-        config,
-        path,
-    })
+    Err(anyhow!(
+        "agent runtime config is missing. Define runtime in .ao/workflows.yaml or .ao/workflows/*.yaml"
+    ))
 }
 
 pub fn load_agent_runtime_config_or_default(project_root: &Path) -> AgentRuntimeConfig {
-    match load_agent_runtime_config(project_root) {
-        Ok(config) => config,
+    match load_agent_runtime_config_with_metadata(project_root) {
+        Ok(loaded) => loaded.config,
         Err(_) => builtin_agent_runtime_config(),
+    }
+}
+
+fn merge_workflow_runtime_overlay(
+    base: &mut AgentRuntimeConfig,
+    workflow: &crate::workflow_config::WorkflowConfig,
+) {
+    for tool in &workflow.tools_allowlist {
+        if !tool.trim().is_empty()
+            && !base
+                .tools_allowlist
+                .iter()
+                .any(|candidate| candidate.eq_ignore_ascii_case(tool))
+        {
+            base.tools_allowlist.push(tool.clone());
+        }
+    }
+    for (agent_id, profile) in &workflow.agent_profiles {
+        match base.agents.get_mut(agent_id) {
+            Some(existing) => merge_agent_profile(existing, profile),
+            None => {
+                base.agents.insert(agent_id.clone(), profile.clone());
+            }
+        }
+    }
+    for (phase_id, definition) in &workflow.phase_definitions {
+        base.phases.insert(phase_id.clone(), definition.clone());
+    }
+    for (tool_id, definition) in &workflow.tools {
+        let entry = base
+            .cli_tools
+            .entry(tool_id.clone())
+            .or_insert_with(|| CliToolConfig {
+                executable: None,
+                supports_file_editing: None,
+                supports_streaming: None,
+                supports_tool_use: None,
+                supports_vision: None,
+                supports_long_context: None,
+                max_context_tokens: None,
+                supports_mcp: None,
+                read_only_flag: None,
+                response_schema_flag: None,
+            });
+        entry.executable = Some(definition.executable.clone());
+        entry.supports_mcp = Some(definition.supports_mcp);
+        entry.supports_file_editing = Some(definition.supports_write);
+        entry.max_context_tokens = definition.context_window;
+    }
+}
+
+fn merge_agent_profile(base: &mut AgentProfile, overlay: &AgentProfile) {
+    if !overlay.description.trim().is_empty() {
+        base.description = overlay.description.clone();
+    }
+    if !overlay.system_prompt.trim().is_empty() {
+        base.system_prompt = overlay.system_prompt.clone();
+    }
+    if overlay.role.is_some() {
+        base.role = overlay.role.clone();
+    }
+    if !overlay.mcp_servers.is_empty() {
+        base.mcp_servers = overlay.mcp_servers.clone();
+    }
+    if !overlay.tool_policy.allow.is_empty() || !overlay.tool_policy.deny.is_empty() {
+        base.tool_policy = overlay.tool_policy.clone();
+    }
+    if !overlay.skills.is_empty() {
+        base.skills = overlay.skills.clone();
+    }
+    if !overlay.capabilities.is_empty() {
+        base.capabilities = overlay.capabilities.clone();
+    }
+    if overlay.mcp_server_configs.is_some() {
+        base.mcp_server_configs = overlay.mcp_server_configs.clone();
+    }
+    if overlay.structured_capabilities.is_some() {
+        base.structured_capabilities = overlay.structured_capabilities.clone();
+    }
+    if overlay.project_overrides.is_some() {
+        base.project_overrides = overlay.project_overrides.clone();
+    }
+    if overlay.tool.is_some() {
+        base.tool = overlay.tool.clone();
+    }
+    if overlay.model.is_some() {
+        base.model = overlay.model.clone();
+    }
+    if !overlay.fallback_models.is_empty() {
+        base.fallback_models = overlay.fallback_models.clone();
+    }
+    if overlay.reasoning_effort.is_some() {
+        base.reasoning_effort = overlay.reasoning_effort.clone();
+    }
+    if overlay.web_search.is_some() {
+        base.web_search = overlay.web_search;
+    }
+    if overlay.network_access.is_some() {
+        base.network_access = overlay.network_access;
+    }
+    if overlay.timeout_secs.is_some() {
+        base.timeout_secs = overlay.timeout_secs;
+    }
+    if overlay.max_attempts.is_some() {
+        base.max_attempts = overlay.max_attempts;
+    }
+    if !overlay.extra_args.is_empty() {
+        base.extra_args = overlay.extra_args.clone();
+    }
+    if !overlay.codex_config_overrides.is_empty() {
+        base.codex_config_overrides = overlay.codex_config_overrides.clone();
+    }
+    if overlay.max_continuations.is_some() {
+        base.max_continuations = overlay.max_continuations;
     }
 }
 
 pub fn write_agent_runtime_config(project_root: &Path, config: &AgentRuntimeConfig) -> Result<()> {
     validate_agent_runtime_config(config)?;
-    let path = agent_runtime_config_path(project_root);
-    crate::domain_state::write_json_pretty(&path, config)
+    let workflow_overlay = crate::workflow_config::WorkflowConfig {
+        schema: crate::workflow_config::WORKFLOW_CONFIG_SCHEMA_ID.to_string(),
+        version: crate::workflow_config::WORKFLOW_CONFIG_VERSION,
+        default_workflow_ref: String::new(),
+        phase_catalog: BTreeMap::new(),
+        workflows: Vec::new(),
+        checkpoint_retention: crate::workflow_config::WorkflowCheckpointRetentionConfig::default(),
+        phase_definitions: config.phases.clone(),
+        agent_profiles: config.agents.clone(),
+        tools_allowlist: config.tools_allowlist.clone(),
+        mcp_servers: BTreeMap::new(),
+        tools: config
+            .cli_tools
+            .iter()
+            .filter_map(|(tool_id, cli_tool)| {
+                cli_tool.executable.as_ref().map(|executable| {
+                    (
+                        tool_id.clone(),
+                        crate::workflow_config::ToolDefinition {
+                            executable: executable.clone(),
+                            supports_mcp: cli_tool.supports_mcp.unwrap_or(false),
+                            supports_write: cli_tool.supports_file_editing.unwrap_or(false),
+                            context_window: cli_tool.max_context_tokens,
+                            base_args: Vec::new(),
+                        },
+                    )
+                })
+            })
+            .collect(),
+        integrations: None,
+        schedules: Vec::new(),
+        daemon: None,
+    };
+    crate::workflow_config::write_workflow_yaml_overlay(
+        project_root,
+        crate::workflow_config::GENERATED_RUNTIME_OVERLAY_FILE_NAME,
+        &workflow_overlay,
+    )
+    .map(|_| ())
 }
 
 pub fn agent_runtime_config_hash(config: &AgentRuntimeConfig) -> String {
@@ -1332,6 +1488,23 @@ fn validate_phase_definition(
                 "phases['{}'].output_contract.required_fields must not contain empty values",
                 phase_id
             ));
+        }
+    }
+
+    if let Some(contract) = definition.decision_contract.as_ref() {
+        if !(0.0..=1.0).contains(&contract.min_confidence) {
+            return Err(anyhow!(
+                "phases['{}'].decision_contract.min_confidence must be between 0.0 and 1.0",
+                phase_id
+            ));
+        }
+        if let Some(schema) = contract.extra_json_schema.as_ref() {
+            if !schema.is_object() {
+                return Err(anyhow!(
+                    "phases['{}'].decision_contract.extra_json_schema must be a JSON object",
+                    phase_id
+                ));
+            }
         }
     }
 
@@ -1732,8 +1905,8 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let err = load_agent_runtime_config(temp.path()).expect_err("missing config should fail");
         let message = err.to_string();
-        assert!(message.contains("agent runtime config v2 file is missing"));
-        assert!(message.contains("Define agent runtime"));
+        assert!(message.contains(".ao/workflows.yaml"));
+        assert!(message.contains(".ao/workflows/*.yaml"));
     }
 
     #[test]
@@ -1741,8 +1914,81 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         ensure_agent_runtime_config_file(temp.path()).expect("ensure file");
 
-        let path = agent_runtime_config_path(temp.path());
-        assert!(path.exists());
+        let workflows_dir = crate::workflow_config::yaml_workflows_dir(temp.path());
+        assert!(workflows_dir.join("custom.yaml").exists());
+        assert!(workflows_dir.join("standard-workflow.yaml").exists());
+        assert!(workflows_dir.join("hotfix-workflow.yaml").exists());
+        assert!(workflows_dir.join("research-workflow.yaml").exists());
+    }
+
+    #[test]
+    fn runtime_resolution_merges_workflow_config_overlays() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut workflow = crate::workflow_config::builtin_workflow_config();
+        let builtin = builtin_agent_runtime_config();
+        let mut triager = builtin
+            .agent_profile("triager")
+            .expect("builtin triager profile should exist")
+            .clone();
+        triager.mcp_servers.clear();
+        workflow
+            .agent_profiles
+            .insert("triager".to_string(), triager);
+        workflow.phase_definitions.insert(
+            "triage".to_string(),
+            PhaseExecutionDefinition {
+                mode: PhaseExecutionMode::Agent,
+                agent_id: Some("triager".to_string()),
+                directive: Some("triage".to_string()),
+                system_prompt: None,
+                runtime: None,
+                capabilities: None,
+                output_contract: None,
+                output_json_schema: None,
+                decision_contract: Some(PhaseDecisionContract {
+                    required_evidence: Vec::new(),
+                    min_confidence: 0.7,
+                    max_risk: crate::types::WorkflowDecisionRisk::Medium,
+                    allow_missing_decision: false,
+                    extra_json_schema: None,
+                }),
+                retry: None,
+                command: None,
+                manual: None,
+            },
+        );
+        workflow.tools.insert(
+            "custom-runner".to_string(),
+            crate::workflow_config::ToolDefinition {
+                executable: "custom-runner-bin".to_string(),
+                supports_mcp: true,
+                supports_write: true,
+                context_window: Some(42_000),
+                base_args: vec![],
+            },
+        );
+        crate::workflow_config::write_workflow_config(temp.path(), &workflow)
+            .expect("write workflow config");
+
+        let resolved = load_agent_runtime_config_or_default(temp.path());
+        let triage = resolved
+            .phase_decision_contract("triage")
+            .expect("triage contract");
+        assert!(!triage.allow_missing_decision);
+        assert_eq!(
+            resolved
+                .cli_tools
+                .get("custom-runner")
+                .and_then(|tool| tool.executable.as_deref()),
+            Some("custom-runner-bin")
+        );
+        assert_eq!(
+            resolved
+                .cli_tools
+                .get("custom-runner")
+                .and_then(|tool| tool.supports_mcp),
+            Some(true)
+        );
     }
 
     #[test]
@@ -1782,6 +2028,18 @@ mod tests {
     fn builtin_phase_decision_contracts_match_expected_evidence_requirements() {
         let config = builtin_agent_runtime_config();
 
+        assert_eq!(
+            config
+                .phase_decision_contract("triage")
+                .map(|contract| contract.allow_missing_decision),
+            Some(false)
+        );
+        assert_eq!(
+            config
+                .phase_decision_contract("refine-requirements")
+                .map(|contract| contract.allow_missing_decision),
+            Some(false)
+        );
         assert_eq!(
             config
                 .phase_decision_contract("requirements")
@@ -1868,13 +2126,15 @@ mod tests {
                     contract.required_evidence.clone(),
                     contract.min_confidence,
                     contract.max_risk.clone(),
-                    contract.allow_missing_decision
+                    contract.allow_missing_decision,
+                    contract.extra_json_schema.clone()
                 )),
                 fallback.phase_decision_contract(phase_id).map(|contract| (
                     contract.required_evidence.clone(),
                     contract.min_confidence,
                     contract.max_risk.clone(),
-                    contract.allow_missing_decision
+                    contract.allow_missing_decision,
+                    contract.extra_json_schema.clone()
                 ))
             );
         }
@@ -1906,7 +2166,7 @@ mod tests {
         let config = builtin_agent_runtime_config();
         assert!(config.is_structured_output_phase("code-review"));
         assert!(config.is_structured_output_phase("implementation"));
-        assert!(!config.is_structured_output_phase("testing"));
+        assert!(config.is_structured_output_phase("testing"));
     }
 
     #[test]
@@ -1914,7 +2174,7 @@ mod tests {
         let config = builtin_agent_runtime_config();
         assert!(config.is_structured_output_phase(" implementation "));
         assert!(config.is_structured_output_phase(" CODE-REVIEW "));
-        assert!(!config.is_structured_output_phase(" testing "));
+        assert!(config.is_structured_output_phase(" testing "));
     }
 
     #[test]

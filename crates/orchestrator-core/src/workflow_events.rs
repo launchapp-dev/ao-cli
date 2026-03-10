@@ -4,8 +4,9 @@ use std::sync::Arc;
 use anyhow::{anyhow, Result};
 
 use crate::{
-    load_agent_runtime_config, project_task_status, services::ServiceHub, OrchestratorTask,
-    OrchestratorWorkflow, PhaseExecutionMode, PhaseManualDefinition, TaskStatus, WorkflowStatus,
+    load_agent_runtime_config_or_default, project_task_status, services::ServiceHub,
+    OrchestratorTask, OrchestratorWorkflow, PhaseExecutionMode, PhaseManualDefinition, TaskStatus,
+    WorkflowStatus,
 };
 
 #[derive(Debug, Clone)]
@@ -209,7 +210,7 @@ fn current_phase_id(workflow: &OrchestratorWorkflow) -> Option<String> {
 }
 
 fn ensure_manual_phase(project_root: &str, phase_id: &str) -> Result<PhaseManualDefinition> {
-    let runtime = load_agent_runtime_config(Path::new(project_root))?;
+    let runtime = load_agent_runtime_config_or_default(Path::new(project_root));
     let definition = runtime
         .phase_execution(phase_id)
         .ok_or_else(|| anyhow!("phase '{}' is not configured", phase_id))?;

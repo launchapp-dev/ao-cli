@@ -71,6 +71,118 @@ pub(super) fn phase_decision_contract_for(
         .cloned()
 }
 
+pub(super) fn phase_decision_json_schema_for(project_root: &str, phase_id: &str) -> Option<Value> {
+    let contract = phase_decision_contract_for(project_root, phase_id)?;
+    let allowed_risks = match contract.max_risk {
+        orchestrator_core::WorkflowDecisionRisk::Low => vec!["low"],
+        orchestrator_core::WorkflowDecisionRisk::Medium => vec!["low", "medium"],
+        orchestrator_core::WorkflowDecisionRisk::High => vec!["low", "medium", "high"],
+    };
+    let evidence_kind_schema = if contract.required_evidence.is_empty() {
+        serde_json::json!({ "type": "string" })
+    } else {
+        serde_json::json!({
+            "enum": contract.required_evidence.iter().map(|kind| serde_json::to_value(kind).unwrap_or(serde_json::json!("custom"))).collect::<Vec<_>>()
+        })
+    };
+
+    let mut schema = serde_json::json!({
+        "type": "object",
+        "required": ["kind", "phase_id", "verdict", "confidence", "risk", "reason", "evidence"],
+        "properties": {
+            "kind": { "const": "phase_decision" },
+            "phase_id": { "const": phase_id },
+            "verdict": { "enum": ["advance", "rework", "fail", "skip"] },
+            "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+            "risk": { "enum": allowed_risks },
+            "reason": { "type": "string", "minLength": 1 },
+            "evidence": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["kind", "description"],
+                    "properties": {
+                        "kind": evidence_kind_schema,
+                        "description": { "type": "string", "minLength": 1 },
+                        "file_path": { "type": "string" },
+                        "value": {}
+                    },
+                    "additionalProperties": true
+                }
+            },
+            "guardrail_violations": {
+                "type": "array",
+                "items": { "type": "string" }
+            },
+            "commit_message": { "type": "string" }
+        },
+        "additionalProperties": true
+    });
+
+    if let Some(extra_schema) = contract.extra_json_schema.as_ref() {
+        if let Some(extra_properties) = extra_schema.get("properties").and_then(Value::as_object) {
+            let properties = schema
+                .get_mut("properties")
+                .and_then(Value::as_object_mut)
+                .expect("phase decision schema properties should be an object");
+            for (key, value) in extra_properties {
+                properties.insert(key.clone(), value.clone());
+            }
+        }
+
+        if let Some(extra_required) = extra_schema.get("required").and_then(Value::as_array) {
+            let required = schema
+                .get_mut("required")
+                .and_then(Value::as_array_mut)
+                .expect("phase decision schema required should be an array");
+            for field in extra_required {
+                if !required.contains(field) {
+                    required.push(field.clone());
+                }
+            }
+        }
+    }
+
+    Some(schema)
+}
+
+pub(super) fn phase_response_json_schema_for(project_root: &str, phase_id: &str) -> Option<Value> {
+    let output_schema = phase_output_json_schema_for(project_root, phase_id);
+    let decision_schema = phase_decision_json_schema_for(project_root, phase_id);
+
+    match (output_schema, decision_schema) {
+        (Some(mut output_schema), Some(decision_schema)) => {
+            let required_decision = phase_decision_contract_for(project_root, phase_id)
+                .map(|contract| !contract.allow_missing_decision)
+                .unwrap_or(false);
+            let properties = output_schema
+                .get_mut("properties")
+                .and_then(Value::as_object_mut)?;
+            properties.insert("phase_decision".to_string(), decision_schema);
+            if required_decision {
+                let required = output_schema
+                    .get_mut("required")
+                    .and_then(Value::as_array_mut);
+                if let Some(required) = required {
+                    let field = Value::String("phase_decision".to_string());
+                    if !required.contains(&field) {
+                        required.push(field);
+                    }
+                } else if let Some(object) = output_schema.as_object_mut() {
+                    object.insert(
+                        "required".to_string(),
+                        Value::Array(vec![Value::String("phase_decision".to_string())]),
+                    );
+                }
+            }
+            Some(output_schema)
+        }
+        (Some(output_schema), None) => Some(output_schema),
+        (None, Some(decision_schema)) => Some(decision_schema),
+        (None, None) => None,
+    }
+}
+
 pub(super) fn inject_read_only_flag(
     runtime_contract: &mut Value,
     config: &orchestrator_core::AgentRuntimeConfig,
@@ -696,5 +808,39 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn phase_response_schema_for_decision_only_phase_returns_decision_schema() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let schema =
+            phase_response_json_schema_for(temp.path().to_str().expect("project root"), "triage")
+                .expect("triage should expose response schema");
+
+        assert_eq!(schema["properties"]["kind"]["const"], "phase_decision");
+        assert_eq!(schema["properties"]["phase_id"]["const"], "triage");
+    }
+
+    #[test]
+    fn phase_response_schema_merges_phase_decision_into_output_schema() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let schema = phase_response_json_schema_for(
+            temp.path().to_str().expect("project root"),
+            "implementation",
+        )
+        .expect("implementation should expose merged response schema");
+
+        assert_eq!(
+            schema["properties"]["kind"]["const"],
+            "implementation_result"
+        );
+        assert_eq!(
+            schema["properties"]["phase_decision"]["properties"]["kind"]["const"],
+            "phase_decision"
+        );
+        assert!(schema["required"]
+            .as_array()
+            .expect("required array")
+            .contains(&Value::String("phase_decision".to_string())));
     }
 }

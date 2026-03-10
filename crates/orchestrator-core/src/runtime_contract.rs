@@ -1,4 +1,6 @@
-use crate::agent_runtime_config::{AgentRuntimeConfig, CliToolConfig};
+use crate::agent_runtime_config::{
+    builtin_agent_runtime_config, AgentRuntimeConfig, CliToolConfig,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -130,9 +132,11 @@ pub fn cli_capabilities_from_config(
 
 pub fn cli_tool_executable(tool: &str, config: &AgentRuntimeConfig) -> String {
     let normalized = normalized_tool(tool);
+    let builtin = builtin_agent_runtime_config();
     config
         .cli_tools
         .get(&normalized)
+        .or_else(|| builtin.cli_tools.get(&normalized))
         .and_then(|tc| tc.executable.clone())
         .unwrap_or_else(|| {
             if normalized == "oai-runner" {
@@ -145,17 +149,21 @@ pub fn cli_tool_executable(tool: &str, config: &AgentRuntimeConfig) -> String {
 
 pub fn cli_tool_read_only_flag(tool: &str, config: &AgentRuntimeConfig) -> Option<String> {
     let normalized = normalized_tool(tool);
+    let builtin = builtin_agent_runtime_config();
     config
         .cli_tools
         .get(&normalized)
+        .or_else(|| builtin.cli_tools.get(&normalized))
         .and_then(|tc| tc.read_only_flag.clone())
 }
 
 pub fn cli_tool_response_schema_flag(tool: &str, config: &AgentRuntimeConfig) -> Option<String> {
     let normalized = normalized_tool(tool);
+    let builtin = builtin_agent_runtime_config();
     config
         .cli_tools
         .get(&normalized)
+        .or_else(|| builtin.cli_tools.get(&normalized))
         .and_then(|tc| tc.response_schema_flag.clone())
 }
 
@@ -537,5 +545,20 @@ mod tests {
             assert!(args.contains(&"--format"));
             assert!(args.contains(&"json"));
         }
+    }
+
+    #[test]
+    fn cli_tool_flags_fall_back_to_builtin_when_project_config_omits_tool_metadata() {
+        let config = AgentRuntimeConfig::default();
+
+        assert_eq!(cli_tool_executable("oai-runner", &config), "ao-oai-runner");
+        assert_eq!(
+            cli_tool_read_only_flag("oai-runner", &config),
+            Some("--read-only".to_string())
+        );
+        assert_eq!(
+            cli_tool_response_schema_flag("oai-runner", &config),
+            Some("--response-schema".to_string())
+        );
     }
 }

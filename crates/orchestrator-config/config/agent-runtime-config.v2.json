@@ -564,6 +564,12 @@
       },
       "output_contract": null,
       "output_json_schema": null,
+      "decision_contract": {
+        "required_evidence": [],
+        "min_confidence": 0.7,
+        "max_risk": "medium",
+        "allow_missing_decision": false
+      },
       "command": null,
       "manual": null
     },
@@ -577,6 +583,12 @@
       },
       "output_contract": null,
       "output_json_schema": null,
+      "decision_contract": {
+        "required_evidence": [],
+        "min_confidence": 0.7,
+        "max_risk": "medium",
+        "allow_missing_decision": false
+      },
       "command": null,
       "manual": null
     },
@@ -593,6 +605,12 @@
       },
       "output_contract": null,
       "output_json_schema": null,
+      "decision_contract": {
+        "required_evidence": [],
+        "min_confidence": 0.7,
+        "max_risk": "medium",
+        "allow_missing_decision": false
+      },
       "command": null,
       "manual": null
     },
@@ -609,6 +627,12 @@
       },
       "output_contract": null,
       "output_json_schema": null,
+      "decision_contract": {
+        "required_evidence": [],
+        "min_confidence": 0.7,
+        "max_risk": "medium",
+        "allow_missing_decision": false
+      },
       "command": null,
       "manual": null
     },

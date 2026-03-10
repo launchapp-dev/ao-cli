@@ -8,6 +8,7 @@ use super::{
 #[derive(Debug, Subcommand)]
 pub(crate) enum RequirementsCommand {
     /// Draft requirements from project context.
+    #[command(hide = true)]
     Draft(RequirementsDraftArgs),
     /// Execute requirements into implementation tasks and optional workflows.
     Execute(RequirementsExecuteArgs),
@@ -16,6 +17,7 @@ pub(crate) enum RequirementsCommand {
     /// Get a requirement by id.
     Get(IdArgs),
     /// Refine existing requirements.
+    #[command(hide = true)]
     Refine(RequirementsRefineArgs),
     /// Create a requirement.
     Create(RequirementCreateArgs),

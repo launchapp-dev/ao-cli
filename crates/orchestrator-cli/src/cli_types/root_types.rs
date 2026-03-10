@@ -52,12 +52,6 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: TaskCommand,
     },
-    /// Deprecated alias for `task`; retained for backwards compatibility.
-    #[command(name = "task-control", hide = true)]
-    TaskControl {
-        #[command(subcommand)]
-        command: TaskCommand,
-    },
     /// Run and control workflow execution.
     Workflow {
         #[command(subcommand)]
@@ -88,13 +82,6 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: ArchitectureCommand,
     },
-    /// Deprecated alias for `workflow execute`.
-    #[command(hide = true)]
-    Execute {
-        #[command(subcommand)]
-        command: ExecuteCommand,
-    },
-
     /// Record and inspect review decisions and handoffs.
     Review {
         #[command(subcommand)]

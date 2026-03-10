@@ -3,8 +3,10 @@ use clap::{ArgAction, Args, Subcommand};
 #[derive(Debug, Subcommand)]
 pub(crate) enum VisionCommand {
     /// Draft a project vision.
+    #[command(hide = true)]
     Draft(VisionDraftArgs),
     /// Refine the existing project vision.
+    #[command(hide = true)]
     Refine(VisionRefineArgs),
     /// Read the current project vision.
     Get,

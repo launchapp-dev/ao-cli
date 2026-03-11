@@ -424,7 +424,48 @@ fn tokens_from_metadata(metadata: &Value) -> Option<TokenUsage> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
     use tokio::sync::{mpsc, oneshot};
+
+    fn unique_test_dir(label: &str) -> PathBuf {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be valid")
+            .as_nanos();
+        std::env::temp_dir().join(format!("ao-agent-runner-{label}-{suffix}"))
+    }
+
+    #[cfg(unix)]
+    fn write_capture_cli_shim(
+        dir: &Path,
+        binary_name: &str,
+        fixture_path: &str,
+    ) -> std::io::Result<PathBuf> {
+        let script_path = dir.join(binary_name);
+        let script = format!(
+            "#!/bin/sh\nset -eu\nprintf '%s\\n' \"$@\" > \"$AO_TEST_ARGS_CAPTURE\"\nenv | sort > \"$AO_TEST_ENV_CAPTURE\"\ncat \"{}\"\n",
+            fixture_path
+        );
+        fs::write(&script_path, script)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = fs::metadata(&script_path)?.permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&script_path, permissions)?;
+        }
+        Ok(script_path)
+    }
+
+    fn read_capture_lines(path: &Path) -> Vec<String> {
+        fs::read_to_string(path)
+            .expect("capture file should exist")
+            .lines()
+            .map(ToString::to_string)
+            .collect()
+    }
 
     #[test]
     fn native_session_backend_enabled_when_mcp_enforced() {
@@ -636,5 +677,178 @@ mod tests {
 
         assert_eq!(exit_code, 0);
         assert!(saw_output);
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn spawn_session_process_passes_gemini_mcp_launch_env_and_args() {
+        let temp_dir = unique_test_dir("gemini-mcp");
+        fs::create_dir_all(&temp_dir).expect("temp dir should be created");
+        let args_capture = temp_dir.join("gemini.args");
+        let env_capture = temp_dir.join("gemini.env");
+        let fixture =
+            "/Users/samishukri/ao-cli/crates/llm-cli-wrapper/tests/fixtures/gemini_real.jsonl";
+        write_capture_cli_shim(&temp_dir, "gemini", fixture).expect("gemini shim should exist");
+
+        let run_id = RunId("run-gemini-mcp".to_string());
+        let runtime_contract = json!({
+            "cli": {
+                "name": "gemini",
+                "capabilities": { "supports_mcp": true },
+                "launch": {
+                    "command": "gemini",
+                    "args": ["--model", "gemini-2.5-pro", "--output-format", "json", "-p", "hello"],
+                    "prompt_via_stdin": false
+                }
+            },
+            "mcp": {
+                "stdio": {
+                    "command": "/Users/samishukri/ao-cli/target/debug/ao",
+                    "args": ["mcp", "serve", "--project-root", "/Users/samishukri/ao-cli"]
+                },
+                "agent_id": "ao",
+                "enforce_only": true
+            }
+        });
+        let mut env = HashMap::new();
+        let original_path = std::env::var("PATH").unwrap_or_default();
+        env.insert(
+            "PATH".to_string(),
+            format!("{}:{original_path}", temp_dir.display()),
+        );
+        env.insert(
+            "AO_TEST_ARGS_CAPTURE".to_string(),
+            args_capture.to_string_lossy().to_string(),
+        );
+        env.insert(
+            "AO_TEST_ENV_CAPTURE".to_string(),
+            env_capture.to_string_lossy().to_string(),
+        );
+        let (event_tx, mut event_rx) = mpsc::channel(64);
+        let (_cancel_tx, cancel_rx) = oneshot::channel();
+
+        let exit_code = spawn_session_process(
+            "gemini",
+            "gemini-2.5-pro",
+            "",
+            Some(&runtime_contract),
+            ".",
+            env,
+            Some(30),
+            &run_id,
+            event_tx,
+            cancel_rx,
+        )
+        .await
+        .expect("native gemini session should succeed");
+
+        let mut saw_output = false;
+        while let Some(event) = event_rx.recv().await {
+            if let AgentRunEvent::OutputChunk { text, .. } = event {
+                if text.contains("PINEAPPLE_42") {
+                    saw_output = true;
+                }
+            }
+        }
+
+        let args = read_capture_lines(&args_capture);
+        let env_lines = read_capture_lines(&env_capture);
+        assert_eq!(exit_code, 0);
+        assert!(saw_output, "expected gemini fixture output");
+        assert!(
+            args.windows(2)
+                .any(|pair| pair[0] == "--allowed-mcp-server-names" && pair[1] == "ao"),
+            "expected gemini launch args to include MCP allowlist, got: {args:?}"
+        );
+        assert!(
+            env_lines
+                .iter()
+                .any(|line| line.starts_with("GEMINI_CLI_SYSTEM_SETTINGS_PATH=")),
+            "expected gemini launch env to include settings path, got: {env_lines:?}"
+        );
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn spawn_session_process_passes_oai_runner_mcp_flag_after_run_subcommand() {
+        let temp_dir = unique_test_dir("oai-runner-mcp");
+        fs::create_dir_all(&temp_dir).expect("temp dir should be created");
+        let args_capture = temp_dir.join("oai-runner.args");
+        let env_capture = temp_dir.join("oai-runner.env");
+        let fixture =
+            "/Users/samishukri/ao-cli/crates/llm-cli-wrapper/tests/fixtures/oai_runner_real.jsonl";
+        write_capture_cli_shim(&temp_dir, "ao-oai-runner", fixture)
+            .expect("oai-runner shim should exist");
+
+        let run_id = RunId("run-oai-runner-mcp".to_string());
+        let runtime_contract = json!({
+            "cli": {
+                "name": "ao-oai-runner",
+                "capabilities": { "supports_mcp": true },
+                "launch": {
+                    "command": "ao-oai-runner",
+                    "args": ["run", "-m", "minimax/MiniMax-M2.5", "--format", "json", "hello"],
+                    "prompt_via_stdin": false
+                }
+            },
+            "mcp": {
+                "stdio": {
+                    "command": "/Users/samishukri/ao-cli/target/debug/ao",
+                    "args": ["mcp", "serve", "--project-root", "/Users/samishukri/ao-cli"]
+                },
+                "agent_id": "ao",
+                "enforce_only": true
+            }
+        });
+        let mut env = HashMap::new();
+        let original_path = std::env::var("PATH").unwrap_or_default();
+        env.insert(
+            "PATH".to_string(),
+            format!("{}:{original_path}", temp_dir.display()),
+        );
+        env.insert(
+            "AO_TEST_ARGS_CAPTURE".to_string(),
+            args_capture.to_string_lossy().to_string(),
+        );
+        env.insert(
+            "AO_TEST_ENV_CAPTURE".to_string(),
+            env_capture.to_string_lossy().to_string(),
+        );
+        let (event_tx, mut event_rx) = mpsc::channel(64);
+        let (_cancel_tx, cancel_rx) = oneshot::channel();
+
+        let exit_code = spawn_session_process(
+            "ao-oai-runner",
+            "minimax/MiniMax-M2.5",
+            "",
+            Some(&runtime_contract),
+            ".",
+            env,
+            Some(30),
+            &run_id,
+            event_tx,
+            cancel_rx,
+        )
+        .await
+        .expect("native oai-runner session should succeed");
+
+        let mut saw_output = false;
+        while let Some(event) = event_rx.recv().await {
+            if let AgentRunEvent::OutputChunk { text, .. } = event {
+                if text.contains("PINEAPPLE_42") {
+                    saw_output = true;
+                }
+            }
+        }
+
+        let args = read_capture_lines(&args_capture);
+        assert_eq!(exit_code, 0);
+        assert!(saw_output, "expected oai-runner fixture output");
+        assert_eq!(args.first().map(String::as_str), Some("run"));
+        let mcp_idx = args
+            .iter()
+            .position(|arg| arg == "--mcp-config")
+            .expect("oai-runner launch should include mcp config");
+        assert_eq!(mcp_idx, 1, "expected mcp flag immediately after run");
     }
 }

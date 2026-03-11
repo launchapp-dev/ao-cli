@@ -591,7 +591,12 @@ fn apply_oai_runner_native_mcp_lockdown(args: &mut Vec<String>, transport: McpSe
         }
         McpServerTransport::Http(_) => return,
     };
-    ensure_flag_value(args, "--mcp-config", &config.to_string(), 0);
+    let insert_at = args
+        .iter()
+        .position(|entry| entry == "run")
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    ensure_flag_value(args, "--mcp-config", &config.to_string(), insert_at);
 }
 
 pub(super) fn apply_native_mcp_policy(
@@ -1648,6 +1653,60 @@ mod tests {
             Some("serve")
         );
         assert!(parsed.pointer("/mcp/ao/args").is_none());
+    }
+
+    #[test]
+    fn native_mcp_policy_inserts_oai_runner_mcp_config_after_run_subcommand() {
+        let mut invocation = LaunchInvocation {
+            command: "ao-oai-runner".to_string(),
+            args: vec![
+                "run".to_string(),
+                "-m".to_string(),
+                "minimax/MiniMax-M2.5".to_string(),
+                "--format".to_string(),
+                "json".to_string(),
+                "hello".to_string(),
+            ],
+            prompt_via_stdin: false,
+        };
+        let enforcement = McpToolEnforcement {
+            enabled: true,
+            endpoint: None,
+            stdio: Some(McpStdioConfig {
+                command: "/Users/samishukri/ao-cli/target/debug/ao".to_string(),
+                args: vec![
+                    "mcp".to_string(),
+                    "serve".to_string(),
+                    "--project-root".to_string(),
+                    "/Users/samishukri/ao-cli".to_string(),
+                ],
+            }),
+            agent_id: "ao".to_string(),
+            allowed_prefixes: vec!["ao.".to_string()],
+            tool_policy_allow: Vec::new(),
+            tool_policy_deny: Vec::new(),
+            additional_servers: Vec::new(),
+        };
+        let mut env = HashMap::new();
+        let mut cleanup = TempPathCleanup::default();
+        let run_id = RunId("run-oai-runner".to_string());
+
+        apply_native_mcp_policy(
+            &mut invocation,
+            &enforcement,
+            &mut env,
+            &run_id,
+            &mut cleanup,
+        )
+        .expect("oai-runner policy should apply");
+
+        let mcp_idx = invocation
+            .args
+            .iter()
+            .position(|arg| arg == "--mcp-config")
+            .expect("mcp config flag should be present");
+        assert_eq!(invocation.args.first().map(String::as_str), Some("run"));
+        assert_eq!(mcp_idx, 1, "mcp config should follow the run subcommand");
     }
 
     fn enforcement_with_tool_policy(allow: Vec<&str>, deny: Vec<&str>) -> McpToolEnforcement {

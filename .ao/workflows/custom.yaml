@@ -170,6 +170,7 @@ phases:
 
   implementation:
     mode: agent
+    agent: default
     directive: "Implement production-quality code for this task. Keep changes focused and executable."
     output_contract:
       kind: implementation_result
@@ -202,6 +203,7 @@ phases:
 
   code-review:
     mode: agent
+    agent_id: default
     directive: "Review the implementation for defects, edge cases, and maintainability issues. Do NOT make changes yourself. If issues are found, set verdict to rework and provide an exact spec of what must be fixed in the reason field. Only advance if the code is production-ready as-is."
     decision_contract:
       required_evidence: [code_review_clean]

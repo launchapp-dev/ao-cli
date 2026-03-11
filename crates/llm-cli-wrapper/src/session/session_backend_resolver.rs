@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use super::{
-    claude_session_backend::ClaudeSessionBackend, session_backend::SessionBackend,
+    claude_session_backend::ClaudeSessionBackend, codex_session_backend::CodexSessionBackend,
+    gemini_session_backend::GeminiSessionBackend, session_backend::SessionBackend,
     session_request::SessionRequest, session_run::SessionRun,
     subprocess_session_backend::SubprocessSessionBackend,
 };
@@ -9,6 +10,8 @@ use crate::error::Result;
 
 pub struct SessionBackendResolver {
     claude: Arc<ClaudeSessionBackend>,
+    codex: Arc<CodexSessionBackend>,
+    gemini: Arc<GeminiSessionBackend>,
     subprocess: Arc<SubprocessSessionBackend>,
 }
 
@@ -16,12 +19,17 @@ impl SessionBackendResolver {
     pub fn new() -> Self {
         Self {
             claude: Arc::new(ClaudeSessionBackend::new()),
+            codex: Arc::new(CodexSessionBackend::new()),
+            gemini: Arc::new(GeminiSessionBackend::new()),
             subprocess: Arc::new(SubprocessSessionBackend::new()),
         }
     }
 
     pub fn fallback_reason(&self, request: &SessionRequest) -> Option<String> {
-        if request.tool.eq_ignore_ascii_case("claude") {
+        if request.tool.eq_ignore_ascii_case("claude")
+            || request.tool.eq_ignore_ascii_case("codex")
+            || request.tool.eq_ignore_ascii_case("gemini")
+        {
             return None;
         }
 
@@ -34,6 +42,12 @@ impl SessionBackendResolver {
     pub fn resolve(&self, request: &SessionRequest) -> Arc<dyn SessionBackend> {
         if request.tool.eq_ignore_ascii_case("claude") {
             return self.claude.clone();
+        }
+        if request.tool.eq_ignore_ascii_case("codex") {
+            return self.codex.clone();
+        }
+        if request.tool.eq_ignore_ascii_case("gemini") {
+            return self.gemini.clone();
         }
 
         self.subprocess.clone()
@@ -71,8 +85,8 @@ mod tests {
     fn resolver_reports_subprocess_fallback_reason() {
         let resolver = SessionBackendResolver::new();
         let request = SessionRequest {
-            tool: "codex".to_string(),
-            model: "gpt-5".to_string(),
+            tool: "sh".to_string(),
+            model: String::new(),
             prompt: "hello".to_string(),
             cwd: PathBuf::from("."),
             project_root: None,
@@ -105,6 +119,44 @@ mod tests {
 
         assert!(resolver.fallback_reason(&request).is_none());
         assert_eq!(resolver.resolve(&request).info().provider_tool, "claude");
+    }
+
+    #[test]
+    fn resolver_selects_codex_backend_without_fallback() {
+        let resolver = SessionBackendResolver::new();
+        let request = SessionRequest {
+            tool: "codex".to_string(),
+            model: "gpt-5".to_string(),
+            prompt: "hello".to_string(),
+            cwd: PathBuf::from("."),
+            project_root: None,
+            mcp_endpoint: None,
+            permission_mode: None,
+            timeout_secs: None,
+            extras: json!({}),
+        };
+
+        assert!(resolver.fallback_reason(&request).is_none());
+        assert_eq!(resolver.resolve(&request).info().provider_tool, "codex");
+    }
+
+    #[test]
+    fn resolver_selects_gemini_backend_without_fallback() {
+        let resolver = SessionBackendResolver::new();
+        let request = SessionRequest {
+            tool: "gemini".to_string(),
+            model: "gemini-2.5-pro".to_string(),
+            prompt: "hello".to_string(),
+            cwd: PathBuf::from("."),
+            project_root: None,
+            mcp_endpoint: None,
+            permission_mode: None,
+            timeout_secs: None,
+            extras: json!({}),
+        };
+
+        assert!(resolver.fallback_reason(&request).is_none());
+        assert_eq!(resolver.resolve(&request).info().provider_tool, "gemini");
     }
 
     #[tokio::test]

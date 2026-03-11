@@ -863,6 +863,7 @@ async fn file_hub_uses_custom_pipeline_from_workflow_config_v2() {
                 skills: Vec::new(),
                 command: None,
                 manual: None,
+                default_tool: None,
             },
         );
     }
@@ -886,6 +887,7 @@ async fn file_hub_uses_custom_pipeline_from_workflow_config_v2() {
                 approval_note_required: true,
                 timeout_secs: None,
             }),
+            default_tool: None,
         },
     );
     crate::write_agent_runtime_config(temp.path(), &runtime_config)

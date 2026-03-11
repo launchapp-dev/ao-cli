@@ -2,29 +2,29 @@ use async_trait::async_trait;
 
 use crate::error::{Error, Result};
 
-use super::{
-    claude_session_transport::start_claude_session, session_backend::SessionBackend,
-    session_backend_info::SessionBackendInfo, session_backend_kind::SessionBackendKind,
-    session_capabilities::SessionCapabilities, session_request::SessionRequest,
-    session_run::SessionRun, session_stability::SessionStability,
+use super::transport::start_codex_session;
+use crate::session::{
+    session_backend::SessionBackend, session_backend_info::SessionBackendInfo,
+    session_backend_kind::SessionBackendKind, session_capabilities::SessionCapabilities,
+    session_request::SessionRequest, session_run::SessionRun, session_stability::SessionStability,
 };
 
-pub struct ClaudeSessionBackend;
+pub struct CodexSessionBackend;
 
-impl ClaudeSessionBackend {
+impl CodexSessionBackend {
     pub fn new() -> Self {
         Self
     }
 }
 
 #[async_trait]
-impl SessionBackend for ClaudeSessionBackend {
+impl SessionBackend for CodexSessionBackend {
     fn info(&self) -> SessionBackendInfo {
         SessionBackendInfo {
-            kind: SessionBackendKind::ClaudeSdk,
-            provider_tool: "claude".to_string(),
+            kind: SessionBackendKind::CodexSdk,
+            provider_tool: "codex".to_string(),
             stability: SessionStability::Experimental,
-            display_name: "Claude Native Backend".to_string(),
+            display_name: "Codex Native Backend".to_string(),
         }
     }
 
@@ -34,7 +34,7 @@ impl SessionBackend for ClaudeSessionBackend {
             supports_terminate: false,
             supports_permissions: true,
             supports_mcp: true,
-            supports_tool_events: true,
+            supports_tool_events: false,
             supports_thinking_events: true,
             supports_artifact_events: false,
             supports_usage_metadata: true,
@@ -42,26 +42,26 @@ impl SessionBackend for ClaudeSessionBackend {
     }
 
     async fn start_session(&self, request: SessionRequest) -> Result<SessionRun> {
-        start_claude_session(request, None).await
+        start_codex_session(request, false).await
     }
 
     async fn resume_session(
         &self,
         request: SessionRequest,
-        session_id: &str,
+        _session_id: &str,
     ) -> Result<SessionRun> {
-        start_claude_session(request, Some(session_id.to_string())).await
+        start_codex_session(request, true).await
     }
 
     async fn terminate_session(&self, session_id: &str) -> Result<()> {
         Err(Error::ExecutionFailed(format!(
-            "claude backend does not track active child processes for session '{}'",
+            "codex backend does not track active child processes for session '{}'",
             session_id
         )))
     }
 }
 
-impl Default for ClaudeSessionBackend {
+impl Default for CodexSessionBackend {
     fn default() -> Self {
         Self::new()
     }
@@ -73,18 +73,15 @@ mod tests {
 
     use serde_json::json;
 
-    use super::ClaudeSessionBackend;
-    use crate::session::{
-        claude_session_parser::parse_claude_stdout_line,
-        claude_session_transport::claude_invocation_for_request, SessionBackend, SessionEvent,
-        SessionRequest,
-    };
+    use super::super::{parser::parse_codex_stdout_line, transport::codex_invocation_for_request};
+    use super::CodexSessionBackend;
+    use crate::session::{SessionBackend, SessionEvent, SessionRequest};
 
     #[test]
-    fn claude_invocation_defaults_to_machine_output_and_permissions() {
+    fn codex_invocation_defaults_to_json_and_full_auto() {
         let request = SessionRequest {
-            tool: "claude".to_string(),
-            model: "claude-sonnet-4-6".to_string(),
+            tool: "codex".to_string(),
+            model: "gpt-5".to_string(),
             prompt: "hello".to_string(),
             cwd: PathBuf::from("."),
             project_root: None,
@@ -95,52 +92,41 @@ mod tests {
         };
 
         let invocation =
-            claude_invocation_for_request(&request, None).expect("launch should build");
-        assert_eq!(invocation.command, "claude");
-        assert!(invocation.args.contains(&"--print".to_string()));
-        assert!(invocation.args.contains(&"--verbose".to_string()));
-        assert!(invocation.args.contains(&"--output-format".to_string()));
-        assert!(invocation.args.contains(&"stream-json".to_string()));
-        assert!(invocation
-            .args
-            .contains(&"--dangerously-skip-permissions".to_string()));
+            codex_invocation_for_request(&request, false).expect("launch should build");
+        assert_eq!(invocation.command, "codex");
+        assert!(invocation.args.contains(&"exec".to_string()));
+        assert!(invocation.args.contains(&"--json".to_string()));
+        assert!(invocation.args.contains(&"--full-auto".to_string()));
     }
 
     #[test]
-    fn claude_parser_emits_metadata_tool_call_and_result() {
-        let init = r#"{"type":"system","subtype":"init","session_id":"session-123","model":"claude-sonnet-4-6"}"#;
-        let tool_call = r#"{"type":"content_block_start","content_block":{"type":"tool_use","name":"Read","input":{"path":"README.md"}}}"#;
-        let result = r#"{"type":"result","subtype":"success","is_error":false,"result":"done"}"#;
+    fn codex_parser_emits_thinking_usage_and_final_text() {
+        let reasoning = r#"{"type":"item.completed","item":{"id":"item_0","type":"reasoning","text":"thinking"}}"#;
+        let message = r#"{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"done"}}"#;
+        let completed = r#"{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":2}}"#;
 
-        let init_events = parse_claude_stdout_line(init);
-        assert!(matches!(
-            init_events.first(),
-            Some(SessionEvent::Metadata { .. })
-        ));
-
-        let tool_events = parse_claude_stdout_line(tool_call);
         assert_eq!(
-            tool_events,
-            vec![SessionEvent::ToolCall {
-                tool_name: "Read".to_string(),
-                arguments: json!({"path": "README.md"}),
-                server: None,
+            parse_codex_stdout_line(reasoning),
+            vec![SessionEvent::Thinking {
+                text: "thinking".to_string(),
             }]
         );
-
-        let result_events = parse_claude_stdout_line(result);
         assert_eq!(
-            result_events,
+            parse_codex_stdout_line(message),
             vec![SessionEvent::FinalText {
                 text: "done".to_string(),
             }]
         );
+        assert!(matches!(
+            parse_codex_stdout_line(completed).first(),
+            Some(SessionEvent::Metadata { .. })
+        ));
     }
 
     #[tokio::test]
     #[cfg(unix)]
-    async fn claude_backend_uses_claude_native_label() {
-        let backend = ClaudeSessionBackend::new();
+    async fn codex_backend_uses_codex_native_label() {
+        let backend = CodexSessionBackend::new();
         let request = SessionRequest {
             tool: "sh".to_string(),
             model: String::new(),
@@ -155,7 +141,7 @@ mod tests {
                     "cli": {
                         "launch": {
                             "command": "sh",
-                            "args": ["-c", "printf 'claude-native\\n'"],
+                            "args": ["-c", "printf 'codex-native\\n'"],
                             "prompt_via_stdin": false
                         }
                     }
@@ -168,21 +154,21 @@ mod tests {
             .await
             .expect("session should start");
 
-        assert_eq!(run.selected_backend, "claude-native");
+        assert_eq!(run.selected_backend, "codex-native");
 
         let started = run.events.recv().await.expect("started event");
         assert!(matches!(
             started,
-            SessionEvent::Started { backend, .. } if backend == "claude-native"
+            SessionEvent::Started { backend, .. } if backend == "codex-native"
         ));
     }
 
     #[tokio::test]
     #[cfg(unix)]
-    async fn claude_backend_emits_metadata_and_final_text_from_fixture() {
-        let backend = ClaudeSessionBackend::new();
+    async fn codex_backend_emits_thinking_and_final_text_from_fixture() {
+        let backend = CodexSessionBackend::new();
         let fixture =
-            "/Users/samishukri/ao-cli/crates/llm-cli-wrapper/tests/fixtures/claude_real.jsonl";
+            "/Users/samishukri/ao-cli/crates/llm-cli-wrapper/tests/fixtures/codex_real.jsonl";
         let request = SessionRequest {
             tool: "sh".to_string(),
             model: String::new(),
@@ -210,21 +196,24 @@ mod tests {
             .await
             .expect("session should start");
 
-        let mut saw_metadata = false;
+        let mut saw_thinking = false;
         let mut saw_final_text = false;
+        let mut saw_metadata = false;
 
         while let Some(event) = run.events.recv().await {
             match event {
-                SessionEvent::Metadata { .. } => saw_metadata = true,
+                SessionEvent::Thinking { .. } => saw_thinking = true,
                 SessionEvent::FinalText { text } if text == "PINEAPPLE_42" => {
                     saw_final_text = true;
                 }
+                SessionEvent::Metadata { .. } => saw_metadata = true,
                 SessionEvent::Finished { .. } => break,
                 _ => {}
             }
         }
 
-        assert!(saw_metadata, "expected claude metadata event");
-        assert!(saw_final_text, "expected final text from claude fixture");
+        assert!(saw_thinking, "expected codex thinking event");
+        assert!(saw_metadata, "expected codex usage metadata");
+        assert!(saw_final_text, "expected final text from codex fixture");
     }
 }

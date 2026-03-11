@@ -2,18 +2,18 @@ use async_trait::async_trait;
 
 use crate::error::Result;
 
-use super::{
+use crate::session::{
     session_backend::SessionBackend, session_backend_info::SessionBackendInfo,
     session_backend_kind::SessionBackendKind, session_capabilities::SessionCapabilities,
     session_request::SessionRequest, session_run::SessionRun, session_stability::SessionStability,
     subprocess_session_backend::SubprocessSessionBackend,
 };
 
-pub struct CodexSessionBackend {
+pub struct GeminiSessionBackend {
     subprocess: SubprocessSessionBackend,
 }
 
-impl CodexSessionBackend {
+impl GeminiSessionBackend {
     pub fn new() -> Self {
         Self {
             subprocess: SubprocessSessionBackend::new(),
@@ -24,7 +24,7 @@ impl CodexSessionBackend {
         if let Some(extras) = request.extras.as_object_mut() {
             extras.insert(
                 "backend_label".to_string(),
-                serde_json::Value::String("codex-native".to_string()),
+                serde_json::Value::String("gemini-native".to_string()),
             );
         }
         request
@@ -32,13 +32,13 @@ impl CodexSessionBackend {
 }
 
 #[async_trait]
-impl SessionBackend for CodexSessionBackend {
+impl SessionBackend for GeminiSessionBackend {
     fn info(&self) -> SessionBackendInfo {
         SessionBackendInfo {
-            kind: SessionBackendKind::CodexSdk,
-            provider_tool: "codex".to_string(),
+            kind: SessionBackendKind::GeminiSdk,
+            provider_tool: "gemini".to_string(),
             stability: SessionStability::Experimental,
-            display_name: "Codex Native Backend".to_string(),
+            display_name: "Gemini Native Backend".to_string(),
         }
     }
 
@@ -76,7 +76,7 @@ impl SessionBackend for CodexSessionBackend {
     }
 }
 
-impl Default for CodexSessionBackend {
+impl Default for GeminiSessionBackend {
     fn default() -> Self {
         Self::new()
     }
@@ -88,13 +88,13 @@ mod tests {
 
     use serde_json::json;
 
-    use super::CodexSessionBackend;
+    use super::GeminiSessionBackend;
     use crate::session::{SessionBackend, SessionEvent, SessionRequest};
 
     #[tokio::test]
     #[cfg(unix)]
-    async fn codex_backend_uses_codex_native_label() {
-        let backend = CodexSessionBackend::new();
+    async fn gemini_backend_uses_gemini_native_label() {
+        let backend = GeminiSessionBackend::new();
         let request = SessionRequest {
             tool: "sh".to_string(),
             model: String::new(),
@@ -109,7 +109,7 @@ mod tests {
                     "cli": {
                         "launch": {
                             "command": "sh",
-                            "args": ["-c", "printf 'codex-native\\n'"],
+                            "args": ["-c", "printf 'gemini-native\\n'"],
                             "prompt_via_stdin": false
                         }
                     }
@@ -122,12 +122,12 @@ mod tests {
             .await
             .expect("session should start");
 
-        assert_eq!(run.selected_backend, "codex-native");
+        assert_eq!(run.selected_backend, "gemini-native");
 
         let started = run.events.recv().await.expect("started event");
         assert!(matches!(
             started,
-            SessionEvent::Started { backend, .. } if backend == "codex-native"
+            SessionEvent::Started { backend, .. } if backend == "gemini-native"
         ));
     }
 }

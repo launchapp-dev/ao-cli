@@ -1,6 +1,6 @@
 use serde_json::{json, Value};
 
-use super::session_event::SessionEvent;
+use crate::session::session_event::SessionEvent;
 
 pub(crate) fn parse_claude_stdout_line(line: &str) -> Vec<SessionEvent> {
     let trimmed = line.trim();

@@ -1,8 +1,6 @@
-pub mod claude_session_backend;
-mod claude_session_parser;
-mod claude_session_transport;
-pub mod codex_session_backend;
-pub mod gemini_session_backend;
+pub mod claude;
+pub mod codex;
+pub mod gemini;
 pub mod session_backend;
 pub mod session_backend_info;
 pub mod session_backend_kind;
@@ -14,9 +12,9 @@ pub mod session_run;
 pub mod session_stability;
 pub mod subprocess_session_backend;
 
-pub use claude_session_backend::ClaudeSessionBackend;
-pub use codex_session_backend::CodexSessionBackend;
-pub use gemini_session_backend::GeminiSessionBackend;
+pub use claude::ClaudeSessionBackend;
+pub use codex::CodexSessionBackend;
+pub use gemini::GeminiSessionBackend;
 pub use session_backend::SessionBackend;
 pub use session_backend_info::SessionBackendInfo;
 pub use session_backend_kind::SessionBackendKind;

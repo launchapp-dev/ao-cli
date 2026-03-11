@@ -11,9 +11,9 @@ use crate::cli::{
 };
 use crate::error::{Error, Result};
 
-use super::{
-    claude_session_parser::parse_claude_stdout_line, session_event::SessionEvent,
-    session_request::SessionRequest, session_run::SessionRun,
+use super::parser::parse_claude_stdout_line;
+use crate::session::{
+    session_event::SessionEvent, session_request::SessionRequest, session_run::SessionRun,
 };
 
 pub(crate) async fn start_claude_session(

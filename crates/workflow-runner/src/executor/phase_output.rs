@@ -81,15 +81,6 @@ pub fn persist_phase_output(
                     result_payload.clone(),
                 )
             }
-            PhaseExecutionOutcome::NeedsResearch { reason } => (
-                Some("rework".to_string()),
-                None,
-                Some(format!("Needs research: {reason}")),
-                None,
-                Vec::new(),
-                Vec::new(),
-                None,
-            ),
             PhaseExecutionOutcome::ManualPending { instructions, .. } => (
                 Some("manual_pending".to_string()),
                 None,
@@ -666,26 +657,5 @@ mod tests {
         let result = format_prior_phase_outputs(&outputs);
         assert!(result.len() <= MAX_PRIOR_CONTEXT_CHARS);
         assert!(result.contains("### recent (completed)"));
-    }
-
-    #[test]
-    fn test_persist_needs_research_outcome() {
-        let tmp =
-            std::env::temp_dir().join(format!("ao-test-phase-output-research-{}", Uuid::new_v4()));
-        let project_root = tmp.to_str().unwrap();
-        let workflow_id = "wf-test-003";
-
-        let outcome = PhaseExecutionOutcome::NeedsResearch {
-            reason: "Need API docs".to_string(),
-        };
-        persist_phase_output(project_root, workflow_id, "implementation", &outcome).unwrap();
-
-        let output_file = phase_output_dir(project_root, workflow_id).join("implementation.json");
-        let loaded: PersistedPhaseOutput =
-            serde_json::from_str(&std::fs::read_to_string(&output_file).unwrap()).unwrap();
-        assert_eq!(loaded.verdict.as_deref(), Some("rework"));
-        assert!(loaded.reason.as_deref().unwrap().contains("Need API docs"));
-
-        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

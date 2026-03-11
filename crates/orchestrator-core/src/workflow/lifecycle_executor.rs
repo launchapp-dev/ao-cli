@@ -213,11 +213,56 @@ impl WorkflowLifecycleExecutor {
         evaluate_guard("rework_budget_available", &context)
     }
 
-    fn resolve_verdict_target(&self, current_phase_id: &str, verdict: &str) -> Option<String> {
+    fn verdict_transition_config(
+        &self,
+        current_phase_id: &str,
+        verdict: &str,
+    ) -> Option<&PhaseTransitionConfig> {
         self.verdict_routing
-            .get(current_phase_id)
-            .and_then(|verdicts| verdicts.get(verdict))
-            .map(|config| config.target.clone())
+            .iter()
+            .find(|(phase_id, _)| phase_id.eq_ignore_ascii_case(current_phase_id))
+            .and_then(|(_, verdicts)| {
+                verdicts
+                    .iter()
+                    .find(|(candidate, _)| candidate.eq_ignore_ascii_case(verdict))
+                    .map(|(_, config)| config)
+            })
+    }
+
+    fn resolve_verdict_target(&self, current_phase_id: &str, verdict: &str) -> Option<String> {
+        self.verdict_transition_config(current_phase_id, verdict)
+            .map(|config| config.target.trim())
+            .filter(|target| !target.is_empty())
+            .map(ToOwned::to_owned)
+    }
+
+    fn resolve_agent_selected_target(
+        &self,
+        workflow: &OrchestratorWorkflow,
+        current_phase_id: &str,
+        verdict: &str,
+        requested_target: Option<&str>,
+    ) -> Option<String> {
+        let requested_target = requested_target
+            .map(str::trim)
+            .filter(|target| !target.is_empty())?;
+        let transition = self.verdict_transition_config(current_phase_id, verdict)?;
+        if !transition.allow_agent_target {
+            return None;
+        }
+        if !transition.allowed_targets.is_empty()
+            && !transition
+                .allowed_targets
+                .iter()
+                .any(|allowed| allowed.eq_ignore_ascii_case(requested_target))
+        {
+            return None;
+        }
+        workflow
+            .phases
+            .iter()
+            .find(|phase| phase.phase_id.eq_ignore_ascii_case(requested_target))
+            .map(|phase| phase.phase_id.clone())
     }
 
     fn state_machine(&self, initial: WorkflowMachineState) -> WorkflowStateMachine {
@@ -641,9 +686,17 @@ impl WorkflowLifecycleExecutor {
             .map(|d| d.guardrail_violations.clone())
             .unwrap_or_default();
 
-        let config_target = self.resolve_verdict_target(current_phase_id, "advance");
-        let decision_target = decision.as_ref().and_then(|d| d.target_phase.clone());
-        let target_phase_id = config_target.or(decision_target);
+        let target_phase_id = decision
+            .as_ref()
+            .and_then(|value| {
+                self.resolve_agent_selected_target(
+                    workflow,
+                    current_phase_id,
+                    "advance",
+                    value.target_phase.as_deref(),
+                )
+            })
+            .or_else(|| self.resolve_verdict_target(current_phase_id, "advance"));
         if target_phase_id.is_some() {
             machine
                 .apply(WorkflowMachineEvent::PhaseTargetSelected)
@@ -750,9 +803,7 @@ impl WorkflowLifecycleExecutor {
             .expect("rework: GatesFailed transition");
         let intermediate_machine_state = machine.state();
 
-        let config_rework_target = self.resolve_verdict_target(current_phase_id, "rework");
-        let effective_target = config_rework_target.or(target_phase.clone());
-        let rework_target_idx = match &effective_target {
+        let rework_target_idx = match target_phase {
             Some(id) => find_phase_index(&workflow.phases, id),
             None => Some(workflow.current_phase_index),
         };
@@ -774,7 +825,7 @@ impl WorkflowLifecycleExecutor {
             timestamp: Utc::now(),
             phase_id: current_phase_id.to_string(),
             decision: WorkflowDecisionAction::Rework,
-            target_phase: effective_target.or(Some(rework_phase_id.clone())),
+            target_phase: Some(rework_phase_id.clone()),
             reason: reason.to_string(),
             confidence,
             risk,
@@ -894,14 +945,22 @@ impl WorkflowLifecycleExecutor {
                     .get(workflow.current_phase_index)
                     .map(|p| p.phase_id.as_str())
                     .unwrap_or("unknown");
-                let rework_target = decision.target_phase.as_deref().unwrap_or(phase_id);
-                if !self.is_rework_budget_available(rework_target, &workflow.rework_counts) {
+                let rework_target = self
+                    .resolve_agent_selected_target(
+                        workflow,
+                        phase_id,
+                        "rework",
+                        decision.target_phase.as_deref(),
+                    )
+                    .or_else(|| self.resolve_verdict_target(phase_id, "rework"))
+                    .unwrap_or_else(|| phase_id.to_string());
+                if !self.is_rework_budget_available(&rework_target, &workflow.rework_counts) {
                     let rework_count = workflow
                         .rework_counts
-                        .get(rework_target)
+                        .get(rework_target.as_str())
                         .copied()
                         .unwrap_or(0);
-                    let max_reworks = self.max_reworks_for_phase(rework_target);
+                    let max_reworks = self.max_reworks_for_phase(rework_target.as_str());
                     return GateEvaluationResult::Fail {
                         reason: format!(
                             "rework budget exceeded for phase {} ({} reworks, max {}): {}",
@@ -922,7 +981,7 @@ impl WorkflowLifecycleExecutor {
                     } else {
                         decision.reason.clone()
                     },
-                    target_phase: decision.target_phase.clone(),
+                    target_phase: Some(rework_target),
                 };
             }
             PhaseDecisionVerdict::Advance | PhaseDecisionVerdict::Skip => {
@@ -1085,77 +1144,6 @@ impl WorkflowLifecycleExecutor {
         workflow.sync_status();
         workflow.failure_reason = None;
         workflow.completed_at = Some(Utc::now());
-    }
-
-    pub fn request_research_phase(
-        &self,
-        workflow: &mut OrchestratorWorkflow,
-        reason: String,
-    ) -> bool {
-        if !matches!(workflow.status, WorkflowStatus::Running) {
-            return false;
-        }
-
-        let Some(current_phase_id) = workflow
-            .phases
-            .get(workflow.current_phase_index)
-            .map(|phase| phase.phase_id.clone())
-        else {
-            return false;
-        };
-
-        if current_phase_id == "research" {
-            return false;
-        }
-
-        if workflow
-            .phases
-            .get(workflow.current_phase_index)
-            .is_some_and(|phase| {
-                phase.phase_id == "research"
-                    && matches!(
-                        phase.status,
-                        WorkflowPhaseStatus::Pending
-                            | WorkflowPhaseStatus::Ready
-                            | WorkflowPhaseStatus::Running
-                    )
-            })
-        {
-            return false;
-        }
-
-        if let Some(current_phase) = workflow.phases.get_mut(workflow.current_phase_index) {
-            if matches!(current_phase.status, WorkflowPhaseStatus::Running) {
-                current_phase.status = WorkflowPhaseStatus::Ready;
-                current_phase.error_message = Some(reason.clone());
-            }
-        }
-
-        let research_phase = WorkflowPhaseExecution {
-            phase_id: "research".to_string(),
-            status: WorkflowPhaseStatus::Running,
-            started_at: Some(Utc::now()),
-            completed_at: None,
-            attempt: 1,
-            error_message: None,
-        };
-        workflow
-            .phases
-            .insert(workflow.current_phase_index, research_phase);
-        workflow.current_phase = Some("research".to_string());
-        workflow.machine_state = WorkflowMachineState::RunPhase;
-        workflow.sync_status();
-        workflow.failure_reason = None;
-        workflow.completed_at = None;
-        workflow.decision_history.push(self.decision_record(
-            current_phase_id,
-            WorkflowDecisionAction::Rework,
-            Some("research".to_string()),
-            reason,
-            0.8,
-            WorkflowDecisionRisk::Medium,
-        ));
-        true
     }
 
     pub fn execute_to_terminal(&self, workflow: &mut OrchestratorWorkflow) {

@@ -168,7 +168,7 @@ The `AgentPool` in `daemon_agent_pool.rs` is where agent slots are spawned and c
 ### Phase Execution Integration
 Phase execution happens in `daemon_scheduler_phase_exec.rs`:
 - `run_workflow_phase()`: executes a single phase, returns `PhaseExecutionRunResult`
-- `PhaseExecutionOutcome`: contains `Completed`, `NeedsResearch`, `Failed` variants
+- `PhaseExecutionOutcome`: contains `Completed`, `ManualPending`, `Failed` variants
 - These are the perfect emission points for `agent-completed` and `agent-failed` events
 
 ### Pool State Tracking

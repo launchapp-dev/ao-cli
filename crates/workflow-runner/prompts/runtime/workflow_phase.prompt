@@ -15,7 +15,7 @@ __PRIOR_PHASE_OUTPUTS__
 __PHASE_ACTION_RULE__
 __PRODUCT_CHANGE_RULE__
 __IMPLEMENTATION_COMMIT_RULE__
-- If you lack critical information, emit one JSON line exactly like: {"kind":"research_required","reason":"<what to research and why>"}.
+- Do not emit out-of-band control payloads. If a phase decision is required and critical information is missing, use verdict `rework` and explain the blocker in `reason`.
 __PHASE_SAFETY_RULES__
 __PHASE_DECISION_RULE__
 - Treat `Execution cwd` as the authoritative checkout for code reads, edits, tests, and git operations.

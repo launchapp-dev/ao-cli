@@ -1,7 +1,6 @@
 use crate::cli_types::{
     SkillCommand, SkillInstallArgs, SkillListArgs, SkillPublishArgs, SkillRegistryAddArgs,
-    SkillRegistryCommand, SkillRegistryRemoveArgs, SkillSearchArgs, SkillShowArgs,
-    SkillUpdateArgs,
+    SkillRegistryCommand, SkillRegistryRemoveArgs, SkillSearchArgs, SkillShowArgs, SkillUpdateArgs,
 };
 use crate::{conflict_error, invalid_input_error, not_found_error, print_value, unavailable_error};
 use anyhow::Result;
@@ -199,13 +198,16 @@ fn build_integrity(name: &str, version: &str, source: &str, artifact: &str) -> S
 
 fn handle_search(args: SkillSearchArgs, project_root: &str, json: bool) -> Result<()> {
     let query = args.query.map(|value| value.to_ascii_lowercase());
-    let source_filter = args.source.as_deref().map(|s| s.trim().to_ascii_lowercase());
+    let source_filter = args
+        .source
+        .as_deref()
+        .map(|s| s.trim().to_ascii_lowercase());
     let registry_filter = args.registry.as_deref();
 
     let mut combined: Vec<serde_json::Value> = Vec::new();
 
-    let skip_definitions = source_filter.as_deref() == Some("installed")
-        || registry_filter.is_some();
+    let skip_definitions =
+        source_filter.as_deref() == Some("installed") || registry_filter.is_some();
     if !skip_definitions {
         let sources = load_skill_sources(Path::new(project_root), None).unwrap_or_default();
         let available = list_available_skills(&sources);
@@ -217,7 +219,12 @@ fn handle_search(args: SkillSearchArgs, project_root: &str, json: bool) -> Resul
                 }
             }
             if let Some(ref q) = query {
-                if !resolved.definition.name.to_ascii_lowercase().contains(q.as_str()) {
+                if !resolved
+                    .definition
+                    .name
+                    .to_ascii_lowercase()
+                    .contains(q.as_str())
+                {
                     continue;
                 }
             }
@@ -231,7 +238,10 @@ fn handle_search(args: SkillSearchArgs, project_root: &str, json: bool) -> Resul
         }
     }
 
-    let skip_registry = matches!(source_filter.as_deref(), Some("built-in" | "user" | "project"));
+    let skip_registry = matches!(
+        source_filter.as_deref(),
+        Some("built-in" | "user" | "project")
+    );
     if !skip_registry {
         let state = load_skill_registry_state(project_root)?;
         ensure_registry_available(&state, registry_filter)?;
@@ -337,7 +347,10 @@ fn handle_install(args: SkillInstallArgs, project_root: &str, json: bool) -> Res
 }
 
 fn handle_list(args: SkillListArgs, project_root: &str, json: bool) -> Result<()> {
-    let source_filter = args.source.as_deref().map(|s| s.trim().to_ascii_lowercase());
+    let source_filter = args
+        .source
+        .as_deref()
+        .map(|s| s.trim().to_ascii_lowercase());
     let mut items: Vec<serde_json::Value> = Vec::new();
 
     let skip_definitions = source_filter.as_deref() == Some("installed");
@@ -361,7 +374,10 @@ fn handle_list(args: SkillListArgs, project_root: &str, json: bool) -> Result<()
         }
     }
 
-    let skip_registry = matches!(source_filter.as_deref(), Some("built-in" | "user" | "project"));
+    let skip_registry = matches!(
+        source_filter.as_deref(),
+        Some("built-in" | "user" | "project")
+    );
     if !skip_registry {
         let state = load_skill_registry_state(project_root)?;
         let lock_state = load_skill_lock_state(project_root)?;

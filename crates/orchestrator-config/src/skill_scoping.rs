@@ -142,25 +142,79 @@ pub fn user_skills_dir() -> PathBuf {
 }
 
 const BUILTIN_SKILL_YAMLS: &[(&str, &str)] = &[
-    ("implementation", include_str!("../config/skills/implementation.yaml")),
+    (
+        "implementation",
+        include_str!("../config/skills/implementation.yaml"),
+    ),
     ("debugging", include_str!("../config/skills/debugging.yaml")),
-    ("refactoring", include_str!("../config/skills/refactoring.yaml")),
-    ("unit-testing", include_str!("../config/skills/unit-testing.yaml")),
-    ("code-review", include_str!("../config/skills/code-review.yaml")),
-    ("deep-search", include_str!("../config/skills/deep-search.yaml")),
-    ("code-analysis", include_str!("../config/skills/code-analysis.yaml")),
-    ("architecture-review", include_str!("../config/skills/architecture-review.yaml")),
-    ("impact-analysis", include_str!("../config/skills/impact-analysis.yaml")),
-    ("technical-writing", include_str!("../config/skills/technical-writing.yaml")),
-    ("api-documentation", include_str!("../config/skills/api-documentation.yaml")),
-    ("task-decomposition", include_str!("../config/skills/task-decomposition.yaml")),
-    ("prioritization", include_str!("../config/skills/prioritization.yaml")),
-    ("incident-response", include_str!("../config/skills/incident-response.yaml")),
-    ("ci-cd-authoring", include_str!("../config/skills/ci-cd-authoring.yaml")),
-    ("release-management", include_str!("../config/skills/release-management.yaml")),
-    ("pr-summary", include_str!("../config/skills/pr-summary.yaml")),
-    ("changelog-generation", include_str!("../config/skills/changelog-generation.yaml")),
-    ("security-audit", include_str!("../config/skills/security-audit.yaml")),
+    (
+        "refactoring",
+        include_str!("../config/skills/refactoring.yaml"),
+    ),
+    (
+        "unit-testing",
+        include_str!("../config/skills/unit-testing.yaml"),
+    ),
+    (
+        "code-review",
+        include_str!("../config/skills/code-review.yaml"),
+    ),
+    (
+        "deep-search",
+        include_str!("../config/skills/deep-search.yaml"),
+    ),
+    (
+        "code-analysis",
+        include_str!("../config/skills/code-analysis.yaml"),
+    ),
+    (
+        "architecture-review",
+        include_str!("../config/skills/architecture-review.yaml"),
+    ),
+    (
+        "impact-analysis",
+        include_str!("../config/skills/impact-analysis.yaml"),
+    ),
+    (
+        "technical-writing",
+        include_str!("../config/skills/technical-writing.yaml"),
+    ),
+    (
+        "api-documentation",
+        include_str!("../config/skills/api-documentation.yaml"),
+    ),
+    (
+        "task-decomposition",
+        include_str!("../config/skills/task-decomposition.yaml"),
+    ),
+    (
+        "prioritization",
+        include_str!("../config/skills/prioritization.yaml"),
+    ),
+    (
+        "incident-response",
+        include_str!("../config/skills/incident-response.yaml"),
+    ),
+    (
+        "ci-cd-authoring",
+        include_str!("../config/skills/ci-cd-authoring.yaml"),
+    ),
+    (
+        "release-management",
+        include_str!("../config/skills/release-management.yaml"),
+    ),
+    (
+        "pr-summary",
+        include_str!("../config/skills/pr-summary.yaml"),
+    ),
+    (
+        "changelog-generation",
+        include_str!("../config/skills/changelog-generation.yaml"),
+    ),
+    (
+        "security-audit",
+        include_str!("../config/skills/security-audit.yaml"),
+    ),
 ];
 
 pub fn load_builtin_skills() -> Result<SkillSource> {
@@ -302,7 +356,9 @@ description: Project skill
         let sources = load_skill_sources(tmp.path(), None).unwrap();
         assert!(sources.len() >= 2);
         assert_eq!(sources[0].origin, SkillSourceOrigin::Builtin);
-        let project_source = sources.iter().find(|s| s.origin == SkillSourceOrigin::Project);
+        let project_source = sources
+            .iter()
+            .find(|s| s.origin == SkillSourceOrigin::Project);
         assert!(project_source.is_some());
         assert!(project_source.unwrap().skills.contains_key("proj"));
     }

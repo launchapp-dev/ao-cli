@@ -139,8 +139,12 @@ impl orchestrator_core::PhaseExecutor for CliPhaseExecutor {
         let output_log = serde_json::to_string_pretty(&run_result)?;
 
         let mut commit_message = None;
-        let (verdict, exit_code, error) =
-            phase_execution_result_values(&request.phase_id, &run_result.outcome);
+        let (verdict, exit_code, error) = phase_execution_result_values(
+            &request.project_root,
+            &request.workflow_ref,
+            &request.phase_id,
+            &run_result.outcome,
+        );
 
         if let PhaseExecutionOutcome::Completed {
             commit_message: resolved_commit,
@@ -163,7 +167,62 @@ impl orchestrator_core::PhaseExecutor for CliPhaseExecutor {
     }
 }
 
+fn yaml_verdict_target(
+    project_root: &str,
+    workflow_ref: &str,
+    phase_id: &str,
+    verdict: &str,
+    requested_target: Option<&str>,
+) -> Option<String> {
+    let loaded_config = orchestrator_core::load_workflow_config_or_default(Path::new(project_root));
+    let routing = orchestrator_core::resolve_workflow_verdict_routing(
+        &loaded_config.config,
+        Some(workflow_ref),
+    );
+    let transition = routing
+        .iter()
+        .find(|(candidate, _)| candidate.eq_ignore_ascii_case(phase_id))
+        .and_then(|(_, transitions)| {
+            transitions
+                .iter()
+                .find(|(candidate, _)| candidate.eq_ignore_ascii_case(verdict))
+                .map(|(_, transition)| transition)
+        })?;
+    let workflow_phases = orchestrator_core::resolve_phase_plan_for_workflow_ref(
+        Some(Path::new(project_root)),
+        Some(workflow_ref),
+    )
+    .ok()?;
+    let requested_target = requested_target
+        .map(str::trim)
+        .filter(|target| !target.is_empty());
+    if transition.allow_agent_target {
+        let requested_target = requested_target?;
+        if (transition.allowed_targets.is_empty()
+            || transition
+                .allowed_targets
+                .iter()
+                .any(|allowed| allowed.eq_ignore_ascii_case(requested_target)))
+            && workflow_phases
+                .iter()
+                .any(|phase| phase.eq_ignore_ascii_case(requested_target))
+        {
+            return workflow_phases
+                .into_iter()
+                .find(|phase| phase.eq_ignore_ascii_case(requested_target));
+        }
+    }
+    let target = transition.target.trim();
+    if target.is_empty() {
+        None
+    } else {
+        Some(target.to_string())
+    }
+}
+
 fn phase_execution_result_values(
+    project_root: &str,
+    workflow_ref: &str,
     phase_id: &str,
     outcome: &PhaseExecutionOutcome,
 ) -> (orchestrator_core::PhaseVerdict, i32, Option<String>) {
@@ -175,10 +234,14 @@ fn phase_execution_result_values(
                 }
                 orchestrator_core::PhaseDecisionVerdict::Rework => (
                     orchestrator_core::PhaseVerdict::Rework {
-                        target_phase: decision
-                            .target_phase
-                            .clone()
-                            .unwrap_or_else(|| phase_id.to_string()),
+                        target_phase: yaml_verdict_target(
+                            project_root,
+                            workflow_ref,
+                            phase_id,
+                            "rework",
+                            decision.target_phase.as_deref(),
+                        )
+                        .unwrap_or_else(|| phase_id.to_string()),
                     },
                     0,
                     None,
@@ -213,13 +276,6 @@ fn phase_execution_result_values(
             },
             None => (orchestrator_core::PhaseVerdict::Advance, 0, None),
         },
-        PhaseExecutionOutcome::NeedsResearch { reason } => (
-            orchestrator_core::PhaseVerdict::Rework {
-                target_phase: phase_id.to_string(),
-            },
-            0,
-            Some(reason.clone()),
-        ),
         PhaseExecutionOutcome::ManualPending { instructions, .. } => {
             let reason = format!("manual review required: {instructions}");
             (
@@ -302,95 +358,10 @@ pub enum PhaseExecutionOutcome {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         result_payload: Option<Value>,
     },
-    NeedsResearch {
-        reason: String,
-    },
     ManualPending {
         instructions: String,
         approval_note_required: bool,
     },
-}
-
-pub fn parse_research_reason_from_payload(payload: &Value) -> Option<String> {
-    match payload {
-        Value::Array(items) => items.iter().find_map(parse_research_reason_from_payload),
-        Value::Object(object) => {
-            let is_research_signal = object
-                .get("kind")
-                .and_then(Value::as_str)
-                .map(|value| value.eq_ignore_ascii_case("research_required"))
-                .unwrap_or(false)
-                || object
-                    .get("ao_control")
-                    .and_then(Value::as_str)
-                    .map(|value| value.eq_ignore_ascii_case("research_required"))
-                    .unwrap_or(false)
-                || object
-                    .get("research_required")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false);
-            if is_research_signal {
-                if let Some(reason) = object
-                    .get("reason")
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .map(ToOwned::to_owned)
-                    .or_else(|| {
-                        object
-                            .get("research")
-                            .and_then(|value| value.get("reason"))
-                            .and_then(Value::as_str)
-                            .map(str::trim)
-                            .filter(|value| !value.is_empty())
-                            .map(ToOwned::to_owned)
-                    })
-                {
-                    return Some(reason);
-                }
-            }
-
-            for key in ["proposal", "data", "payload", "result", "output", "item"] {
-                if let Some(value) = object.get(key) {
-                    if let Some(reason) = parse_research_reason_from_payload(value) {
-                        return Some(reason);
-                    }
-                }
-            }
-
-            for key in ["text", "message", "content", "output_text", "delta"] {
-                if let Some(raw) = object.get(key).and_then(Value::as_str) {
-                    if let Some(reason) = parse_research_reason_from_text(raw) {
-                        return Some(reason);
-                    }
-                }
-            }
-
-            None
-        }
-        Value::String(text) => parse_research_reason_from_text(text),
-        _ => None,
-    }
-}
-
-pub fn parse_research_reason_from_text(text: &str) -> Option<String> {
-    for (_raw, payload) in collect_json_payload_lines(text) {
-        if let Some(reason) = parse_research_reason_from_payload(&payload) {
-            return Some(reason);
-        }
-    }
-
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if let Some(reason) = trimmed.strip_prefix("AO_RESEARCH_REQUIRED:") {
-            let reason = reason.trim();
-            if !reason.is_empty() {
-                return Some(reason.to_string());
-            }
-        }
-    }
-
-    None
 }
 
 fn normalize_phase_decision_payload(payload: &Value) -> Value {
@@ -671,6 +642,18 @@ pub fn parse_commit_message_from_text(text: &str) -> Option<String> {
     parse_commit_message_from_text_for_kind(text, "implementation_result")
 }
 
+fn outcome_verdict(outcome: &PhaseExecutionOutcome) -> orchestrator_core::PhaseDecisionVerdict {
+    match outcome {
+        PhaseExecutionOutcome::Completed { phase_decision, .. } => phase_decision
+            .as_ref()
+            .map(|decision| decision.verdict)
+            .unwrap_or(orchestrator_core::PhaseDecisionVerdict::Advance),
+        PhaseExecutionOutcome::ManualPending { .. } => {
+            orchestrator_core::PhaseDecisionVerdict::Advance
+        }
+    }
+}
+
 pub fn fallback_implementation_commit_message(task_id: &str, task_title: &str) -> String {
     let scope = task_id.trim().to_ascii_lowercase();
     let summary = task_title
@@ -703,7 +686,6 @@ pub async fn run_workflow_phase_attempt(
     workflow_id: &str,
     phase_id: &str,
     request: &AgentRunRequest,
-    parse_research_signal: bool,
 ) -> Result<PhaseExecutionOutcome> {
     let tool_id = request
         .context
@@ -722,7 +704,6 @@ pub async fn run_workflow_phase_attempt(
     write_json_line(&mut write_half, request).await?;
 
     let mut lines = BufReader::new(read_half).lines();
-    let mut pending_research_reason: Option<String> = None;
     let mut pending_commit_message: Option<String> = None;
     let mut pending_phase_decision: Option<orchestrator_core::PhaseDecision> = None;
     let mut pending_result_payload: Option<Value> = None;
@@ -759,13 +740,6 @@ pub async fn run_workflow_phase_attempt(
                         PhaseFailureClassifier::provider_exhaustion_reason_from_text(&text);
                 }
                 PhaseFailureClassifier::push_phase_diagnostic_line(&mut diagnostics, &text);
-                if parse_research_signal {
-                    if let Some(reason) = parse_research_reason_from_text(&text) {
-                        if pending_research_reason.is_none() {
-                            pending_research_reason = Some(reason);
-                        }
-                    }
-                }
                 if parse_commit_message && pending_commit_message.is_none() {
                     if let Some(commit_message) = parse_commit_message_from_text_for_kind(
                         &text,
@@ -811,13 +785,6 @@ pub async fn run_workflow_phase_attempt(
                         PhaseFailureClassifier::provider_exhaustion_reason_from_text(&content);
                 }
                 PhaseFailureClassifier::push_phase_diagnostic_line(&mut diagnostics, &content);
-                if parse_research_signal {
-                    if let Some(reason) = parse_research_reason_from_text(&content) {
-                        if pending_research_reason.is_none() {
-                            pending_research_reason = Some(reason);
-                        }
-                    }
-                }
                 if parse_commit_message && pending_commit_message.is_none() {
                     if let Some(commit_message) = parse_commit_message_from_text_for_kind(
                         &content,
@@ -891,9 +858,6 @@ pub async fn run_workflow_phase_attempt(
                             .map(|summary| format!("; diagnostics: {summary}"))
                             .unwrap_or_default(),
                     ));
-                }
-                if let Some(reason) = pending_research_reason {
-                    return Ok(PhaseExecutionOutcome::NeedsResearch { reason });
                 }
                 return Ok(PhaseExecutionOutcome::Completed {
                     commit_message: pending_commit_message,
@@ -979,7 +943,6 @@ pub async fn run_workflow_phase_with_agent(
         Some(project_root),
         &caps,
     );
-    let parse_research_signal = !caps.is_research;
     let prompt = build_phase_prompt(
         project_root,
         execution_cwd,
@@ -1096,10 +1059,14 @@ pub async fn run_workflow_phase_with_agent(
                 inject_project_mcp_servers(&mut runtime_contract, project_root, phase_id);
                 inject_workflow_mcp_servers(&mut runtime_contract, project_root, phase_id);
                 if let Some(skill_result) = crate::skill_dispatch::resolve_and_apply_phase_skills(
-                    project_root, phase_id, target_tool_id,
+                    project_root,
+                    phase_id,
+                    target_tool_id,
                 ) {
                     crate::skill_dispatch::inject_skill_overrides(
-                        &mut runtime_contract, target_tool_id, &skill_result,
+                        &mut runtime_contract,
+                        target_tool_id,
+                        &skill_result,
                     );
                 }
                 context
@@ -1126,14 +1093,8 @@ pub async fn run_workflow_phase_with_agent(
             let mut attempt_succeeded = false;
             let mut backoff = Duration::from_millis(200);
             for attempt in 1..=max_attempts {
-                match run_workflow_phase_attempt(
-                    project_root,
-                    workflow_id,
-                    phase_id,
-                    &request,
-                    parse_research_signal,
-                )
-                .await
+                match run_workflow_phase_attempt(project_root, workflow_id, phase_id, &request)
+                    .await
                 {
                     Ok(mut outcome) => {
                         if phase_requires_commit_message_with_config(project_root, phase_id) {
@@ -1208,30 +1169,17 @@ pub async fn run_workflow_phase_with_agent(
                 }) => {
                     phase_decision.is_some() || commit_message.is_some() || result_payload.is_some()
                 }
-                Some(PhaseExecutionOutcome::NeedsResearch { .. }) => true,
                 Some(PhaseExecutionOutcome::ManualPending { .. }) => true,
                 None => false,
             };
 
             if outcome_is_complete {
                 let outcome = last_outcome.take().expect("outcome verified above");
-                let verdict = match &outcome {
-                    PhaseExecutionOutcome::Completed { phase_decision, .. } => phase_decision
-                        .as_ref()
-                        .map(|d| d.verdict)
-                        .unwrap_or(orchestrator_core::PhaseDecisionVerdict::Advance),
-                    PhaseExecutionOutcome::NeedsResearch { .. } => {
-                        orchestrator_core::PhaseDecisionVerdict::Rework
-                    }
-                    PhaseExecutionOutcome::ManualPending { .. } => {
-                        orchestrator_core::PhaseDecisionVerdict::Advance
-                    }
-                };
                 orchestrator_core::record_model_phase_outcome(
                     std::path::Path::new(project_root),
                     target_model_id,
                     phase_id,
-                    verdict,
+                    outcome_verdict(&outcome),
                 );
                 return Ok(outcome);
             }
@@ -1249,23 +1197,11 @@ pub async fn run_workflow_phase_with_agent(
         }
 
         if let Some(outcome) = last_outcome {
-            let verdict = match &outcome {
-                PhaseExecutionOutcome::Completed { phase_decision, .. } => phase_decision
-                    .as_ref()
-                    .map(|d| d.verdict)
-                    .unwrap_or(orchestrator_core::PhaseDecisionVerdict::Advance),
-                PhaseExecutionOutcome::NeedsResearch { .. } => {
-                    orchestrator_core::PhaseDecisionVerdict::Rework
-                }
-                PhaseExecutionOutcome::ManualPending { .. } => {
-                    orchestrator_core::PhaseDecisionVerdict::Advance
-                }
-            };
             orchestrator_core::record_model_phase_outcome(
                 std::path::Path::new(project_root),
                 target_model_id,
                 phase_id,
-                verdict,
+                outcome_verdict(&outcome),
             );
             return Ok(outcome);
         }
@@ -2531,7 +2467,6 @@ pub async fn run_workflow_phase(
                             }),
                         });
                     }
-                    PhaseExecutionOutcome::NeedsResearch { .. } => {}
                     PhaseExecutionOutcome::ManualPending { .. } => {}
                 }
             }

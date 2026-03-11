@@ -432,7 +432,7 @@
     "research": {
       "mode": "agent",
       "agent_id": "default",
-      "directive": "Gather external and codebase evidence needed to de-risk the next implementation step. Treat greenfield repositories as valid and provide assumptions/plan artifacts when source is sparse. Keep discovery targeted to first-party code and active requirement/task docs; avoid broad scans of dependency or workflow checkpoint directories. Only emit research_required for true external blockers.",
+      "directive": "Gather external and codebase evidence needed to de-risk the next implementation step. Treat greenfield repositories as valid and provide assumptions/plan artifacts when source is sparse. Keep discovery targeted to first-party code and active requirement/task docs; avoid broad scans of dependency or workflow checkpoint directories.",
       "capabilities": {
         "is_research": true
       },

@@ -178,7 +178,6 @@ pub trait WorkflowServiceApi: Send + Sync {
     async fn resume(&self, id: &str) -> Result<OrchestratorWorkflow>;
     async fn pause(&self, id: &str) -> Result<OrchestratorWorkflow>;
     async fn cancel(&self, id: &str) -> Result<OrchestratorWorkflow>;
-    async fn request_research(&self, id: &str, reason: String) -> Result<OrchestratorWorkflow>;
     async fn complete_current_phase(&self, id: &str) -> Result<OrchestratorWorkflow>;
     async fn complete_current_phase_with_decision(
         &self,

@@ -30,10 +30,6 @@ pub enum WorkflowEvent {
         phase_id: String,
         note: Option<String>,
     },
-    ResearchRequested {
-        workflow_id: String,
-        reason: String,
-    },
     StaleReset {
         task_id: String,
         reason: Option<String>,
@@ -172,19 +168,6 @@ pub async fn dispatch_workflow_event(
                 .await?;
             Ok(WorkflowEventOutcome {
                 workflow: Some(updated),
-                ..WorkflowEventOutcome::default()
-            })
-        }
-        WorkflowEvent::ResearchRequested {
-            workflow_id,
-            reason,
-        } => {
-            let workflow = hub
-                .workflows()
-                .request_research(&workflow_id, reason)
-                .await?;
-            Ok(WorkflowEventOutcome {
-                workflow: Some(workflow),
                 ..WorkflowEventOutcome::default()
             })
         }

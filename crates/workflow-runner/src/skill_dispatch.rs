@@ -10,8 +10,7 @@ use crate::executor::phase_executor::load_agent_runtime_config;
 use crate::executor::runtime_contract_builder::phase_agent_id_for;
 
 fn collect_phase_skills(project_root: &str, phase_id: &str) -> Vec<String> {
-    let wf_config =
-        orchestrator_core::load_workflow_config_or_default(Path::new(project_root));
+    let wf_config = orchestrator_core::load_workflow_config_or_default(Path::new(project_root));
     let wf_phase_skills = wf_config
         .config
         .phase_definitions

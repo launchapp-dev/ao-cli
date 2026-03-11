@@ -515,7 +515,7 @@ fn research_prompt_includes_greenfield_safety_rules() {
 
     assert!(prompt.contains("greenfield repositories as valid"));
     assert!(prompt.contains("missing app source files is not a blocker by itself"));
-    assert!(prompt.contains("Emit `research_required` only for true external blockers"));
+    assert!(prompt.contains("Do not emit out-of-band control payloads"));
     assert!(prompt.contains("Do targeted discovery only"));
     assert!(prompt.contains("skip `node_modules/`"));
     assert!(prompt.contains("`.ao/workflow-state/checkpoints/`"));

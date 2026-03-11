@@ -1135,7 +1135,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     mode: PhaseExecutionMode::Agent,
                     agent_id: Some("default".to_string()),
                     directive: Some(
-                        "Gather external and codebase evidence needed to de-risk the next implementation step. Treat greenfield repositories as valid and provide assumptions/plan artifacts when source is sparse. Keep discovery targeted to first-party code and active requirement/task docs; avoid broad scans of dependency or workflow checkpoint directories. Only emit research_required for true external blockers."
+                        "Gather external and codebase evidence needed to de-risk the next implementation step. Treat greenfield repositories as valid and provide assumptions/plan artifacts when source is sparse. Keep discovery targeted to first-party code and active requirement/task docs; avoid broad scans of dependency or workflow checkpoint directories."
                             .to_string(),
                     ),
                     system_prompt: None,

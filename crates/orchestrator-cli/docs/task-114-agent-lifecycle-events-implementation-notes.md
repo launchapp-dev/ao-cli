@@ -19,7 +19,7 @@ The daemon already has a mature event emission system:
 
 #### 2. Phase Execution Flow (daemon_scheduler_project_tick.rs)
 - `execute_running_workflow_phases_for_project` spawns phases via `run_workflow_phase_with_agent`
-- `process_phase_execution_completion` handles outcomes (Completed, NeedsResearch, Failed)
+- `process_phase_execution_completion` handles outcomes (Completed, ManualPending, Failed)
 - Both functions return/fill `PhaseExecutionEvent` vectors
 
 #### 3. Reactive Pool Coordinator (daemon_scheduler_project_tick.rs)

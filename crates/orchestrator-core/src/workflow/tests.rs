@@ -417,33 +417,6 @@ fn resume_clears_failure_and_can_complete_after_retry() {
 }
 
 #[test]
-fn request_research_inserts_phase_before_current() {
-    let executor = WorkflowLifecycleExecutor::new(vec![
-        "requirements".to_string(),
-        "implementation".to_string(),
-    ]);
-    let mut workflow = executor.bootstrap(
-        "WF-research".to_string(),
-        WorkflowRunInput::for_task("TASK-42".to_string(), Some("standard".to_string())),
-    );
-    assert_eq!(workflow.current_phase.as_deref(), Some("requirements"));
-
-    let inserted =
-        executor.request_research_phase(&mut workflow, "missing product context".to_string());
-    assert!(inserted);
-    assert_eq!(workflow.current_phase.as_deref(), Some("research"));
-    assert_eq!(workflow.current_phase_index, 0);
-    assert_eq!(workflow.phases[0].phase_id, "research");
-    assert_eq!(workflow.phases[0].status, WorkflowPhaseStatus::Running);
-    assert_eq!(workflow.phases[1].phase_id, "requirements");
-    assert_eq!(workflow.phases[1].status, WorkflowPhaseStatus::Ready);
-    assert!(workflow
-        .decision_history
-        .iter()
-        .any(|record| record.target_phase.as_deref() == Some("research")));
-}
-
-#[test]
 fn lifecycle_marks_completed_workflow_as_merge_conflict() {
     let executor = WorkflowLifecycleExecutor::new(vec!["implementation".to_string()]);
     let mut workflow = executor.bootstrap(
@@ -557,11 +530,30 @@ fn make_task(task_type: TaskType, priority: Priority) -> OrchestratorTask {
 
 #[test]
 fn rework_routes_to_prior_phase_by_id() {
-    let executor = WorkflowLifecycleExecutor::new(vec![
-        "requirements".to_string(),
-        "implementation".to_string(),
-        "code-review".to_string(),
-    ]);
+    use crate::workflow_config::PhaseTransitionConfig;
+    use std::collections::HashMap;
+
+    let mut verdict_routing = HashMap::new();
+    let mut review_verdicts = HashMap::new();
+    review_verdicts.insert(
+        "rework".to_string(),
+        PhaseTransitionConfig {
+            target: String::new(),
+            guard: None,
+            allow_agent_target: true,
+            allowed_targets: vec!["implementation".to_string()],
+        },
+    );
+    verdict_routing.insert("code-review".to_string(), review_verdicts);
+
+    let executor = WorkflowLifecycleExecutor::with_verdict_routing(
+        vec![
+            "requirements".to_string(),
+            "implementation".to_string(),
+            "code-review".to_string(),
+        ],
+        verdict_routing,
+    );
     let mut workflow = executor.bootstrap(
         "WF-rework-target".to_string(),
         WorkflowRunInput::for_task("TASK-rework".to_string(), Some("standard".to_string())),
@@ -927,7 +919,7 @@ fn skip_guarded_phases_skips_consecutive_phases() {
 }
 
 #[test]
-fn advance_to_specific_target_phase_by_id() {
+fn advance_ignores_agent_target_phase_and_uses_default_order() {
     let executor = WorkflowLifecycleExecutor::new(vec![
         "requirements".to_string(),
         "implementation".to_string(),
@@ -958,22 +950,41 @@ fn advance_to_specific_target_phase_by_id() {
     executor.mark_current_phase_success_with_decision(&mut workflow, Some(decision));
 
     assert_eq!(workflow.status, WorkflowStatus::Running);
-    assert_eq!(workflow.current_phase_index, 2);
-    assert_eq!(workflow.current_phase.as_deref(), Some("testing"));
-    assert_eq!(workflow.phases[2].status, WorkflowPhaseStatus::Running);
-    assert_eq!(workflow.phases[1].status, WorkflowPhaseStatus::Pending);
+    assert_eq!(workflow.current_phase_index, 1);
+    assert_eq!(workflow.current_phase.as_deref(), Some("implementation"));
+    assert_eq!(workflow.phases[1].status, WorkflowPhaseStatus::Running);
+    assert_eq!(workflow.phases[2].status, WorkflowPhaseStatus::Pending);
 
     let last_decision = workflow.decision_history.last().unwrap();
     assert_eq!(last_decision.decision, WorkflowDecisionAction::Advance);
-    assert_eq!(last_decision.target_phase.as_deref(), Some("testing"));
+    assert_eq!(
+        last_decision.target_phase.as_deref(),
+        Some("implementation")
+    );
 }
 
 #[test]
 fn rework_with_nonexistent_target_falls_back_to_current_phase() {
-    let executor = WorkflowLifecycleExecutor::new(vec![
-        "implementation".to_string(),
-        "code-review".to_string(),
-    ]);
+    use crate::workflow_config::PhaseTransitionConfig;
+    use std::collections::HashMap;
+
+    let mut verdict_routing = HashMap::new();
+    let mut review_verdicts = HashMap::new();
+    review_verdicts.insert(
+        "rework".to_string(),
+        PhaseTransitionConfig {
+            target: String::new(),
+            guard: None,
+            allow_agent_target: true,
+            allowed_targets: vec!["implementation".to_string()],
+        },
+    );
+    verdict_routing.insert("code-review".to_string(), review_verdicts);
+
+    let executor = WorkflowLifecycleExecutor::with_verdict_routing(
+        vec!["implementation".to_string(), "code-review".to_string()],
+        verdict_routing,
+    );
     let mut workflow = executor.bootstrap(
         "WF-rework-bad-target".to_string(),
         WorkflowRunInput::for_task("TASK-rework-bad".to_string(), Some("standard".to_string())),
@@ -989,6 +1000,64 @@ fn rework_with_nonexistent_target_falls_back_to_current_phase() {
     assert_eq!(workflow.current_phase_index, 1);
     assert_eq!(workflow.current_phase.as_deref(), Some("code-review"));
     assert_eq!(workflow.phases[1].status, WorkflowPhaseStatus::Running);
+}
+
+#[test]
+fn advance_can_follow_agent_selected_target_when_yaml_allows_it() {
+    use crate::workflow_config::PhaseTransitionConfig;
+    use std::collections::HashMap;
+
+    let mut verdict_routing = HashMap::new();
+    let mut requirements_verdicts = HashMap::new();
+    requirements_verdicts.insert(
+        "advance".to_string(),
+        PhaseTransitionConfig {
+            target: String::new(),
+            guard: None,
+            allow_agent_target: true,
+            allowed_targets: vec!["testing".to_string()],
+        },
+    );
+    verdict_routing.insert("requirements".to_string(), requirements_verdicts);
+
+    let executor = WorkflowLifecycleExecutor::with_verdict_routing(
+        vec![
+            "requirements".to_string(),
+            "implementation".to_string(),
+            "testing".to_string(),
+            "code-review".to_string(),
+        ],
+        verdict_routing,
+    );
+    let mut workflow = executor.bootstrap(
+        "WF-advance-agent-target".to_string(),
+        WorkflowRunInput::for_task(
+            "TASK-advance-agent-target".to_string(),
+            Some("standard".to_string()),
+        ),
+    );
+
+    let decision = PhaseDecision {
+        kind: "phase_decision".to_string(),
+        phase_id: "requirements".to_string(),
+        verdict: PhaseDecisionVerdict::Advance,
+        confidence: 0.95,
+        risk: WorkflowDecisionRisk::Low,
+        reason: "testing can run next".to_string(),
+        evidence: vec![],
+        guardrail_violations: vec![],
+        commit_message: None,
+        target_phase: Some("testing".to_string()),
+    };
+    executor.mark_current_phase_success_with_decision(&mut workflow, Some(decision));
+
+    assert_eq!(workflow.status, WorkflowStatus::Running);
+    assert_eq!(workflow.current_phase_index, 2);
+    assert_eq!(workflow.current_phase.as_deref(), Some("testing"));
+
+    let last_decision = workflow.decision_history.last().unwrap();
+    assert_eq!(last_decision.decision, WorkflowDecisionAction::Advance);
+    assert_eq!(last_decision.target_phase.as_deref(), Some("testing"));
 }
 
 #[test]
@@ -1071,6 +1140,8 @@ fn on_verdict_rework_routes_to_configured_phase() {
         PhaseTransitionConfig {
             target: "requirements".to_string(),
             guard: None,
+            allow_agent_target: false,
+            allowed_targets: Vec::new(),
         },
     );
     verdict_routing.insert("code-review".to_string(), code_review_verdicts);
@@ -1190,6 +1261,8 @@ fn on_verdict_advance_skips_to_configured_phase() {
         PhaseTransitionConfig {
             target: "code-review".to_string(),
             guard: None,
+            allow_agent_target: false,
+            allowed_targets: Vec::new(),
         },
     );
     verdict_routing.insert("requirements".to_string(), requirements_verdicts);

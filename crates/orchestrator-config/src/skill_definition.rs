@@ -206,9 +206,7 @@ pub fn apply_skill_for_tool(skill: &SkillDefinition, tool_id: &str) -> SkillAppl
             if let Some(suffix) = &prompt_override.suffix {
                 result.system_prompt_fragments.push(suffix.clone());
             }
-            result
-                .directives
-                .extend(prompt_override.directives.clone());
+            result.directives.extend(prompt_override.directives.clone());
         }
     }
 
@@ -418,10 +416,7 @@ skills:
         assert_eq!(result.model.as_deref(), Some("gemini-3.1-pro-preview"));
         assert!(result.extra_args.contains(&"--verbose".to_string()));
         assert!(result.extra_args.contains(&"--sandbox=none".to_string()));
-        assert_eq!(
-            result.env.get("GEMINI_MODE"),
-            Some(&"review".to_string())
-        );
+        assert_eq!(result.env.get("GEMINI_MODE"), Some(&"review".to_string()));
         assert!(result.mcp_servers.contains(&"ao".to_string()));
         assert!(result.mcp_servers.contains(&"extra-server".to_string()));
     }

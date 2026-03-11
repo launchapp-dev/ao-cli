@@ -160,16 +160,6 @@ impl WorkflowServiceApi for InMemoryServiceHub {
         Ok(workflow.clone())
     }
 
-    async fn request_research(&self, id: &str, reason: String) -> Result<OrchestratorWorkflow> {
-        let mut lock = self.state.write().await;
-        let workflow = lock
-            .workflows
-            .get_mut(id)
-            .ok_or_else(|| anyhow!("workflow not found: {id}"))?;
-        WorkflowLifecycleExecutor::default().request_research_phase(workflow, reason);
-        Ok(workflow.clone())
-    }
-
     async fn complete_current_phase(&self, id: &str) -> Result<OrchestratorWorkflow> {
         self.complete_current_phase_with_decision(id, None).await
     }
@@ -380,29 +370,6 @@ impl WorkflowServiceApi for FileServiceHub {
         .cancel(&mut workflow);
         manager.save(&workflow)?;
         let workflow = manager.save_checkpoint(&workflow, CheckpointReason::Cancel)?;
-
-        self.mutate_persistent_state(|state| {
-            state.workflows.insert(id.to_string(), workflow.clone());
-            Ok(())
-        })
-        .await?;
-        Ok(workflow)
-    }
-
-    async fn request_research(&self, id: &str, reason: String) -> Result<OrchestratorWorkflow> {
-        let manager = self.workflow_manager();
-        let mut workflow = manager.load(id)?;
-        let state_machines = load_compiled_state_machines(self.project_root.as_path())?;
-        WorkflowLifecycleExecutor::with_state_machines(
-            crate::resolve_phase_plan_for_workflow_ref(
-                Some(self.project_root.as_path()),
-                workflow.workflow_ref.as_deref(),
-            )?,
-            state_machines,
-        )
-        .request_research_phase(&mut workflow, reason);
-        manager.save(&workflow)?;
-        let workflow = manager.save_checkpoint(&workflow, CheckpointReason::Recovery)?;
 
         self.mutate_persistent_state(|state| {
             state.workflows.insert(id.to_string(), workflow.clone());

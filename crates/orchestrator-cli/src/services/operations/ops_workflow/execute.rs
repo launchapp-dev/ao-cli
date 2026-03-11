@@ -218,7 +218,6 @@ fn emit_workflow_summary(results: &[serde_json::Value], total_duration: Duration
             "completed" => ("ok", green),
             "closed" => ("ok", green),
             "rework" => ("↻", dim),
-            "research_requested" => ("?", dim),
             "manual_pending" => ("hold", dim),
             _ => ("FAIL", red),
         };

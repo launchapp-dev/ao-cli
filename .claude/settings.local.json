@@ -101,7 +101,9 @@
       "mcp__ao__ao_workflow_config_get",
       "mcp__ao__ao_workflow_pipelines_list",
       "mcp__ao__ao_daemon_config",
-      "mcp__ao__ao_requirements_create"
+      "mcp__ao__ao_requirements_create",
+      "mcp__ao__ao_task_next",
+      "WebFetch(domain:spec.modelcontextprotocol.io)"
     ]
   },
   "enableAllProjectMcpServers": true,

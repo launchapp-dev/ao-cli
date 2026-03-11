@@ -98,7 +98,10 @@ pub(crate) struct SkillUpdateArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct SkillListArgs {
-    #[arg(long, help = "Filter by source: built-in, user, project, or installed.")]
+    #[arg(
+        long,
+        help = "Filter by source: built-in, user, project, or installed."
+    )]
     pub(crate) source: Option<String>,
 }
 

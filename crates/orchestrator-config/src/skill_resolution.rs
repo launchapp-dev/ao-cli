@@ -77,8 +77,11 @@ mod tests {
     use super::*;
 
     fn make_skill(name: &str) -> SkillDefinition {
-        serde_yaml::from_str(&format!("name: {}\ndescription: {} description\n", name, name))
-            .unwrap()
+        serde_yaml::from_str(&format!(
+            "name: {}\ndescription: {} description\n",
+            name, name
+        ))
+        .unwrap()
     }
 
     fn make_source(origin: SkillSourceOrigin, skills: &[&str]) -> SkillSource {
@@ -173,13 +176,22 @@ mod tests {
         ];
 
         let available = list_available_skills(&sources);
-        let names: Vec<&str> = available.iter().map(|r| r.definition.name.as_str()).collect();
+        let names: Vec<&str> = available
+            .iter()
+            .map(|r| r.definition.name.as_str())
+            .collect();
         assert_eq!(names, vec!["alpha", "beta", "delta", "gamma"]);
 
-        let beta = available.iter().find(|r| r.definition.name == "beta").unwrap();
+        let beta = available
+            .iter()
+            .find(|r| r.definition.name == "beta")
+            .unwrap();
         assert_eq!(beta.source, SkillSourceOrigin::User);
 
-        let gamma = available.iter().find(|r| r.definition.name == "gamma").unwrap();
+        let gamma = available
+            .iter()
+            .find(|r| r.definition.name == "gamma")
+            .unwrap();
         assert_eq!(gamma.source, SkillSourceOrigin::Project);
     }
 

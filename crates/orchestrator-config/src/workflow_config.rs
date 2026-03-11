@@ -40,6 +40,10 @@ pub struct PhaseTransitionConfig {
     pub target: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub guard: Option<String>,
+    #[serde(default)]
+    pub allow_agent_target: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_targets: Vec<String>,
 }
 
 fn default_max_rework_attempts() -> u32 {
@@ -2527,6 +2531,8 @@ mod tests {
             PhaseTransitionConfig {
                 target: "nonexistent-phase".to_string(),
                 guard: None,
+                allow_agent_target: false,
+                allowed_targets: Vec::new(),
             },
         );
         standard_pipeline.phases[0] = WorkflowPhaseEntry::Rich(WorkflowPhaseConfig {
@@ -3290,6 +3296,8 @@ workflows:
             PhaseTransitionConfig {
                 target: "implementation".to_string(),
                 guard: None,
+                allow_agent_target: false,
+                allowed_targets: Vec::new(),
             },
         );
 

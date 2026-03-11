@@ -505,41 +505,6 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
                         phase_idx = next_phase_index;
                         continue;
                     }
-                    PhaseExecutionOutcome::NeedsResearch { reason } => {
-                        let outcome = dispatch_workflow_event(
-                            hub.clone(),
-                            &params.project_root,
-                            WorkflowEvent::ResearchRequested {
-                                workflow_id: workflow.id.clone(),
-                                reason: reason.clone(),
-                            },
-                        )
-                        .await?;
-                        workflow = outcome.workflow.ok_or_else(|| {
-                            anyhow!("workflow '{}' not found for research request", workflow.id)
-                        })?;
-                        reported_workflow_status = workflow.status;
-                        phases_to_run = workflow
-                            .phases
-                            .iter()
-                            .map(|phase| phase.phase_id.clone())
-                            .collect();
-                        emit(PhaseEvent::Completed {
-                            phase_id: &phase_id,
-                            duration: phase_elapsed,
-                            success: true,
-                        });
-                        results.push(serde_json::json!({
-                            "phase_id": phase_id,
-                            "status": "research_requested",
-                            "duration_secs": phase_elapsed.as_secs(),
-                            "workflow_status": format!("{:?}", workflow.status).to_ascii_lowercase(),
-                            "outcome": result.outcome,
-                            "metadata": result.metadata,
-                        }));
-                        phase_idx = workflow.current_phase_index;
-                        continue;
-                    }
                     PhaseExecutionOutcome::ManualPending { .. } => {
                         let outcome = dispatch_workflow_event(
                             hub.clone(),
@@ -839,7 +804,6 @@ fn phase_result_status(outcome: &PhaseExecutionOutcome) -> &'static str {
             phase_decision: None,
             ..
         } => "completed",
-        PhaseExecutionOutcome::NeedsResearch { .. } => "research_requested",
         PhaseExecutionOutcome::ManualPending { .. } => "manual_pending",
     }
 }

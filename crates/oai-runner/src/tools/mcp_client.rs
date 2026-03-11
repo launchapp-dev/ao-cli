@@ -102,12 +102,10 @@ pub async fn call_tool(client: &McpClient, name: &str, args_json: &str) -> Resul
         _ => None,
     };
 
-    let params = CallToolRequestParams {
-        meta: None,
-        name: Cow::Owned(name.to_string()),
-        arguments,
-        task: None,
-    };
+    let mut params = CallToolRequestParams::new(Cow::Owned(name.to_string()));
+    if let Some(args) = arguments {
+        params = params.with_arguments(args);
+    }
 
     let result = client
         .service
@@ -149,17 +147,7 @@ mod tests {
             ("required".to_string(), serde_json::json!(["query"])),
         ]));
 
-        let tool = rmcp::model::Tool {
-            name: Cow::Borrowed("search"),
-            title: None,
-            description: Some(Cow::Borrowed("Search for files")),
-            input_schema: schema,
-            output_schema: None,
-            annotations: None,
-            execution: None,
-            icons: None,
-            meta: None,
-        };
+        let tool = rmcp::model::Tool::new("search", "Search for files", schema);
 
         let def = mcp_tool_to_openai(&tool);
         assert_eq!(def.type_, "function");
@@ -176,17 +164,7 @@ mod tests {
             ("properties".to_string(), serde_json::json!({})),
         ]));
 
-        let tool = rmcp::model::Tool {
-            name: Cow::Borrowed("noop"),
-            title: None,
-            description: None,
-            input_schema: schema,
-            output_schema: None,
-            annotations: None,
-            execution: None,
-            icons: None,
-            meta: None,
-        };
+        let tool = rmcp::model::Tool::new_with_raw("noop", None, schema);
 
         let def = mcp_tool_to_openai(&tool);
         assert_eq!(def.function.description, "");

@@ -8,9 +8,8 @@ use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
 use std::process::Stdio;
 
-use crate::config_context::RuntimeConfigContext;
 use crate::payload_traversal::parse_phase_decision_from_text;
-use crate::phase_output::{format_output_chunk_for_display, format_tool_call_for_display};
+use crate::phase_output::format_output_chunk_for_display;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct CommandExecutionContext<'a> {

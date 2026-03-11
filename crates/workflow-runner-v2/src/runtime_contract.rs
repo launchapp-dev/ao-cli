@@ -1,5 +1,4 @@
 use serde_json::Value;
-use std::path::Path;
 
 use crate::config_context::RuntimeConfigContext;
 

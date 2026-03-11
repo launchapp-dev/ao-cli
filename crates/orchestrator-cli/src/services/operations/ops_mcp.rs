@@ -232,16 +232,15 @@ fn new_ao_mcp_server(default_project_root: &str) -> AoMcpServer {
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for AoMcpServer {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            instructions: Some(
-                "Use these typed AO tools to run orchestrator CLI operations over MCP.".to_string(),
-            ),
-            capabilities: ServerCapabilities::builder()
+        ServerInfo::new(
+            ServerCapabilities::builder()
                 .enable_tools()
                 .enable_resources()
                 .build(),
-            ..Default::default()
-        }
+        )
+        .with_instructions(
+            "Use these typed AO tools to run orchestrator CLI operations over MCP.",
+        )
     }
 
     async fn list_resources(
@@ -293,15 +292,10 @@ impl ServerHandler for AoMcpServer {
                         None,
                     )
                 })?;
-                let result = ReadResourceResult {
-                    contents: vec![ResourceContents::TextResourceContents {
-                        uri: uri.clone(),
-                        mime_type: Some("application/json".to_string()),
-                        text: content,
-                        meta: None,
-                    }],
-                };
-                Ok(result)
+                Ok(ReadResourceResult::new(vec![
+                    ResourceContents::text(content, uri.clone())
+                        .with_mime_type("application/json"),
+                ]))
             }
             "ao://project/requirements" => {
                 let path =
@@ -313,15 +307,10 @@ impl ServerHandler for AoMcpServer {
                         None,
                     )
                 })?;
-                let result = ReadResourceResult {
-                    contents: vec![ResourceContents::TextResourceContents {
-                        uri: uri.clone(),
-                        mime_type: Some("application/json".to_string()),
-                        text: content,
-                        meta: None,
-                    }],
-                };
-                Ok(result)
+                Ok(ReadResourceResult::new(vec![
+                    ResourceContents::text(content, uri.clone())
+                        .with_mime_type("application/json"),
+                ]))
             }
             "ao://project/daemon-events" => {
                 let limit = query
@@ -336,15 +325,10 @@ impl ServerHandler for AoMcpServer {
                             None,
                         )
                     })?;
-                let result = ReadResourceResult {
-                    contents: vec![ResourceContents::TextResourceContents {
-                        uri: uri.clone(),
-                        mime_type: Some("application/json".to_string()),
-                        text: content,
-                        meta: None,
-                    }],
-                };
-                Ok(result)
+                Ok(ReadResourceResult::new(vec![
+                    ResourceContents::text(content, uri.clone())
+                        .with_mime_type("application/json"),
+                ]))
             }
             _ => Err(McpError::new(
                 ErrorCode::RESOURCE_NOT_FOUND,

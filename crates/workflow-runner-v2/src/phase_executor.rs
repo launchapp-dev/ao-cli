@@ -4,8 +4,8 @@ use crate::ipc::{
     event_matches_run, runner_config_dir, write_json_line,
 };
 use crate::phase_command::{
-    build_command_phase_decision, build_command_result_payload, build_command_template_vars,
-    run_workflow_phase_with_command, CommandExecutionContext, CommandExecutionResult,
+    build_command_phase_decision, build_command_result_payload,
+    run_workflow_phase_with_command, CommandExecutionContext,
 };
 use crate::phase_prompt::{
     phase_requires_commit_message_with_ctx, phase_result_kind_for_ctx, render_phase_prompt_with_ctx,
@@ -35,7 +35,7 @@ use orchestrator_core::ServiceHub;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 use std::path::Path;
 use std::time::Duration;
 use tokio::io::AsyncBufReadExt;

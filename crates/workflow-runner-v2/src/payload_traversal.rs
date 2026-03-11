@@ -120,7 +120,7 @@ fn try_parse_decision(value: &Value, phase_id: &str) -> Option<orchestrator_core
             arr.iter()
                 .filter_map(|ev| {
                     let kind_str = ev.get("kind").and_then(Value::as_str).unwrap_or("custom");
-                    let kind = orchestrator_core::parse_evidence_kind(kind_str);
+                    let kind: orchestrator_core::PhaseEvidenceKind = serde_json::from_value(Value::String(kind_str.to_string())).unwrap_or(orchestrator_core::PhaseEvidenceKind::Custom);
                     let description = ev
                         .get("description")
                         .and_then(Value::as_str)

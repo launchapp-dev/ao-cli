@@ -4,6 +4,7 @@ use tokio::sync::mpsc;
 use tracing::{error, info};
 
 use super::process::spawn_cli_process;
+use super::session_process::{spawn_session_process, use_native_session_backend};
 use crate::sandbox::{env_sanitizer, workspace_guard};
 
 pub struct Supervisor;
@@ -133,20 +134,45 @@ impl Supervisor {
             "Launching CLI process"
         );
 
-        match spawn_cli_process(
+        let use_native_sessions = use_native_session_backend(tool, runtime_contract);
+        info!(
+            run_id = %run_id.0.as_str(),
             tool,
-            model,
-            prompt,
-            runtime_contract,
-            cwd,
-            env,
-            timeout_secs,
-            &run_id,
-            event_tx.clone(),
-            cancel_rx,
-        )
-        .await
-        {
+            use_native_sessions,
+            "Selected runner execution path"
+        );
+
+        let execution_result = if use_native_sessions {
+            spawn_session_process(
+                tool,
+                model,
+                prompt,
+                runtime_contract,
+                cwd,
+                env,
+                timeout_secs,
+                &run_id,
+                event_tx.clone(),
+                cancel_rx,
+            )
+            .await
+        } else {
+            spawn_cli_process(
+                tool,
+                model,
+                prompt,
+                runtime_contract,
+                cwd,
+                env,
+                timeout_secs,
+                &run_id,
+                event_tx.clone(),
+                cancel_rx,
+            )
+            .await
+        };
+
+        match execution_result {
             Ok(exit_code) => {
                 let duration_ms = start_time.elapsed().as_millis() as u64;
                 let finished_evt = AgentRunEvent::Finished {

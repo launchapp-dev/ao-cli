@@ -1,10 +1,12 @@
+use std::collections::HashMap;
 use std::process::Stdio;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::mpsc;
-use tokio::time::timeout;
+use tokio::sync::{mpsc, oneshot};
+use uuid::Uuid;
 
 use crate::cli::{
     ensure_flag, ensure_flag_value, parse_launch_from_runtime_contract, LaunchInvocation,
@@ -21,9 +23,12 @@ pub(crate) async fn start_claude_session(
     resume_session_id: Option<String>,
 ) -> Result<SessionRun> {
     let invocation = claude_invocation_for_request(&request, resume_session_id.as_deref())?;
-    let selected_session_id = configured_claude_session_id(&request).or(resume_session_id.clone());
-    let started_session_id = selected_session_id.clone();
+    let control_session_id = Uuid::new_v4().to_string();
+    let control_session_id_for_run = control_session_id.clone();
+    let started_session_id = Some(control_session_id.clone());
     let (event_tx, event_rx) = mpsc::channel(128);
+    let (cancel_tx, cancel_rx) = oneshot::channel();
+    register_session(control_session_id.clone(), cancel_tx);
 
     tokio::spawn(async move {
         let _ = event_tx
@@ -33,7 +38,9 @@ pub(crate) async fn start_claude_session(
             })
             .await;
 
-        if let Err(error) = run_claude_session(request, invocation, event_tx.clone()).await {
+        if let Err(error) =
+            run_claude_session(request, invocation, event_tx.clone(), cancel_rx).await
+        {
             let _ = event_tx
                 .send(SessionEvent::Error {
                     message: error.to_string(),
@@ -44,14 +51,26 @@ pub(crate) async fn start_claude_session(
                 .send(SessionEvent::Finished { exit_code: Some(1) })
                 .await;
         }
+        unregister_session(&control_session_id);
     });
 
     Ok(SessionRun {
-        session_id: selected_session_id,
+        session_id: Some(control_session_id_for_run),
         events: event_rx,
         selected_backend: "claude-native".to_string(),
         fallback_reason: None,
     })
+}
+
+pub(crate) async fn terminate_claude_session(session_id: &str) -> Result<()> {
+    let Some(cancel_tx) = take_session(session_id) else {
+        return Err(Error::ExecutionFailed(format!(
+            "claude backend does not track active child process for session '{}'",
+            session_id
+        )));
+    };
+    let _ = cancel_tx.send(());
+    Ok(())
 }
 
 pub(crate) fn claude_invocation_for_request(
@@ -116,10 +135,13 @@ async fn run_claude_session(
     request: SessionRequest,
     invocation: LaunchInvocation,
     event_tx: mpsc::Sender<SessionEvent>,
+    mut cancel_rx: oneshot::Receiver<()>,
 ) -> Result<()> {
     let mut child = Command::new(&invocation.command)
         .args(&invocation.args)
         .current_dir(&request.cwd)
+        .env_clear()
+        .envs(request.env_vars.iter().cloned())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -172,7 +194,7 @@ async fn run_claude_session(
         }
     });
 
-    let exit_code = wait_for_claude_child(&mut child, request.timeout_secs).await?;
+    let exit_code = wait_for_claude_child(&mut child, request.timeout_secs, &mut cancel_rx).await?;
 
     let _ = stdout_task.await;
     let _ = stderr_task.await;
@@ -185,20 +207,61 @@ async fn run_claude_session(
 async fn wait_for_claude_child(
     child: &mut Child,
     timeout_secs: Option<u64>,
+    cancel_rx: &mut oneshot::Receiver<()>,
 ) -> Result<Option<i32>> {
     match timeout_secs {
-        Some(secs) => match timeout(Duration::from_secs(secs), child.wait()).await {
-            Ok(status) => Ok(status?.code()),
-            Err(_) => {
-                child.kill().await?;
-                Err(Error::ExecutionFailed(format!(
-                    "claude session timed out after {} seconds",
-                    secs
-                )))
+        Some(secs) => {
+            let timeout_sleep = tokio::time::sleep(Duration::from_secs(secs));
+            tokio::pin!(timeout_sleep);
+            tokio::select! {
+                status = child.wait() => Ok(status?.code()),
+                _ = &mut timeout_sleep => {
+                    child.kill().await?;
+                    Err(Error::ExecutionFailed(format!(
+                        "claude session timed out after {} seconds",
+                        secs
+                    )))
+                }
+                _ = cancel_rx => {
+                    child.kill().await?;
+                    Err(Error::ExecutionFailed("claude session cancelled".to_string()))
+                }
             }
-        },
-        None => Ok(child.wait().await?.code()),
+        }
+        None => {
+            tokio::select! {
+                status = child.wait() => Ok(status?.code()),
+                _ = cancel_rx => {
+                    child.kill().await?;
+                    Err(Error::ExecutionFailed("claude session cancelled".to_string()))
+                }
+            }
+        }
     }
+}
+
+fn session_registry() -> &'static Mutex<HashMap<String, oneshot::Sender<()>>> {
+    static REGISTRY: OnceLock<Mutex<HashMap<String, oneshot::Sender<()>>>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn register_session(session_id: String, cancel_tx: oneshot::Sender<()>) {
+    if let Ok(mut registry) = session_registry().lock() {
+        registry.insert(session_id, cancel_tx);
+    }
+}
+
+fn unregister_session(session_id: &str) {
+    if let Ok(mut registry) = session_registry().lock() {
+        registry.remove(session_id);
+    }
+}
+
+fn take_session(session_id: &str) -> Option<oneshot::Sender<()>> {
+    session_registry()
+        .lock()
+        .ok()
+        .and_then(|mut registry| registry.remove(session_id))
 }
 
 fn configured_claude_session_id(request: &SessionRequest) -> Option<String> {

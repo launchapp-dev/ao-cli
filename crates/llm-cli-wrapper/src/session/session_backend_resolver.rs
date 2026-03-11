@@ -92,6 +92,7 @@ mod tests {
             mcp_endpoint: None,
             permission_mode: None,
             timeout_secs: None,
+            env_vars: Vec::new(),
             extras: json!({}),
         };
 
@@ -113,6 +114,7 @@ mod tests {
             mcp_endpoint: None,
             permission_mode: None,
             timeout_secs: None,
+            env_vars: Vec::new(),
             extras: json!({}),
         };
 
@@ -132,6 +134,7 @@ mod tests {
             mcp_endpoint: None,
             permission_mode: None,
             timeout_secs: None,
+            env_vars: Vec::new(),
             extras: json!({}),
         };
 
@@ -151,6 +154,7 @@ mod tests {
             mcp_endpoint: None,
             permission_mode: None,
             timeout_secs: None,
+            env_vars: Vec::new(),
             extras: json!({}),
         };
 
@@ -171,6 +175,7 @@ mod tests {
             mcp_endpoint: None,
             permission_mode: None,
             timeout_secs: None,
+            env_vars: Vec::new(),
             extras: json!({
                 "runtime_contract": {
                     "cli": {

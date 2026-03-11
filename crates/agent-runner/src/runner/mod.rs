@@ -2,6 +2,7 @@ mod event_persistence;
 mod lifecycle;
 mod process;
 mod process_builder;
+mod session_process;
 mod stream;
 mod stream_bridge;
 mod supervisor;

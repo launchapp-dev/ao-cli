@@ -128,6 +128,8 @@ async fn run_subprocess_session(
     command
         .args(&invocation.args)
         .current_dir(&request.cwd)
+        .env_clear()
+        .envs(request.env_vars.iter().cloned())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -295,6 +297,7 @@ mod tests {
             mcp_endpoint: None,
             permission_mode: None,
             timeout_secs: None,
+            env_vars: Vec::new(),
             extras: json!({
                 "runtime_contract": {
                     "cli": {

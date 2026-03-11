@@ -1,13 +1,13 @@
 use async_trait::async_trait;
 
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::session::{
     session_backend::SessionBackend, session_backend_info::SessionBackendInfo,
     session_backend_kind::SessionBackendKind, session_capabilities::SessionCapabilities,
     session_request::SessionRequest, session_run::SessionRun, session_stability::SessionStability,
 };
 
-use super::transport::start_gemini_session;
+use super::transport::{start_gemini_session, terminate_gemini_session};
 
 pub struct GeminiSessionBackend;
 
@@ -31,7 +31,7 @@ impl SessionBackend for GeminiSessionBackend {
     fn capabilities(&self) -> SessionCapabilities {
         SessionCapabilities {
             supports_resume: true,
-            supports_terminate: false,
+            supports_terminate: true,
             supports_permissions: true,
             supports_mcp: true,
             supports_tool_events: false,
@@ -54,10 +54,7 @@ impl SessionBackend for GeminiSessionBackend {
     }
 
     async fn terminate_session(&self, session_id: &str) -> Result<()> {
-        Err(Error::ExecutionFailed(format!(
-            "gemini backend does not track active child processes for session '{}'",
-            session_id
-        )))
+        terminate_gemini_session(session_id).await
     }
 }
 
@@ -88,6 +85,7 @@ mod tests {
             mcp_endpoint: None,
             permission_mode: None,
             timeout_secs: None,
+            env_vars: Vec::new(),
             extras: json!({}),
         };
 
@@ -127,6 +125,7 @@ mod tests {
             mcp_endpoint: None,
             permission_mode: None,
             timeout_secs: None,
+            env_vars: Vec::new(),
             extras: json!({
                 "runtime_contract": {
                     "cli": {
@@ -169,6 +168,7 @@ mod tests {
             mcp_endpoint: None,
             permission_mode: None,
             timeout_secs: None,
+            env_vars: Vec::new(),
             extras: json!({
                 "runtime_contract": {
                     "cli": {

@@ -11,5 +11,6 @@ pub struct SessionRequest {
     pub mcp_endpoint: Option<String>,
     pub permission_mode: Option<String>,
     pub timeout_secs: Option<u64>,
+    pub env_vars: Vec<(String, String)>,
     pub extras: Value,
 }

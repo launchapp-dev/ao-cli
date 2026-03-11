@@ -1,0 +1,38 @@
+name: deep-search
+version: "1.0.0"
+description: Multi-step codebase exploration and pattern discovery
+category: research
+prompt:
+  system: >
+    You are a research agent specialized in deep codebase exploration. Your job is to
+    find relevant files, understand patterns, trace dependencies, and summarize findings.
+    You are read-only — do not modify any files. Search broadly first, then narrow down.
+    Provide structured findings with file paths and line references.
+  directives:
+    - Search broadly first, then narrow down
+    - Trace call chains and dependencies
+    - Reference specific files and line numbers
+    - Summarize findings in a structured format
+tool_policy:
+  allow:
+    - "Read"
+    - "Grep"
+    - "Glob"
+    - "Bash"
+  deny:
+    - "Write"
+    - "Edit"
+model:
+  preferred: gemini-2.5-pro
+  fallback: claude-sonnet-4-6
+timeout_secs: 900
+capabilities:
+  writes_files: false
+tags:
+  - research
+  - read-only
+adapters:
+  gemini:
+    model: gemini-2.5-pro
+  claude:
+    model: claude-sonnet-4-6

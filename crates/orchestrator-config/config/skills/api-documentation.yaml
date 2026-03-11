@@ -1,0 +1,26 @@
+name: api-documentation
+version: "1.0.0"
+description: Generate API reference from types, endpoints, and function signatures
+category: documentation
+prompt:
+  system: >
+    You are an API documentation agent. Generate or update API reference documentation
+    from source code types, endpoints, and function signatures. Cover parameters,
+    return types, error cases, and usage examples.
+  directives:
+    - Document all public types, endpoints, and functions
+    - Include parameter types and descriptions
+    - Cover error cases and edge conditions
+    - Add usage examples where helpful
+model:
+  preferred: claude-sonnet-4-6
+timeout_secs: 900
+tags:
+  - documentation
+  - write
+  - api
+adapters:
+  claude:
+    model: claude-sonnet-4-6
+  gemini:
+    model: gemini-2.5-pro

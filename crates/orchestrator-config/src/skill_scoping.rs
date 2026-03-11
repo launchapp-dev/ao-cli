@@ -141,10 +141,38 @@ pub fn user_skills_dir() -> PathBuf {
         .join("skill_definitions")
 }
 
+const BUILTIN_SKILL_YAMLS: &[(&str, &str)] = &[
+    ("implementation", include_str!("../config/skills/implementation.yaml")),
+    ("debugging", include_str!("../config/skills/debugging.yaml")),
+    ("refactoring", include_str!("../config/skills/refactoring.yaml")),
+    ("unit-testing", include_str!("../config/skills/unit-testing.yaml")),
+    ("code-review", include_str!("../config/skills/code-review.yaml")),
+    ("deep-search", include_str!("../config/skills/deep-search.yaml")),
+    ("code-analysis", include_str!("../config/skills/code-analysis.yaml")),
+    ("architecture-review", include_str!("../config/skills/architecture-review.yaml")),
+    ("impact-analysis", include_str!("../config/skills/impact-analysis.yaml")),
+    ("technical-writing", include_str!("../config/skills/technical-writing.yaml")),
+    ("api-documentation", include_str!("../config/skills/api-documentation.yaml")),
+    ("task-decomposition", include_str!("../config/skills/task-decomposition.yaml")),
+    ("prioritization", include_str!("../config/skills/prioritization.yaml")),
+    ("incident-response", include_str!("../config/skills/incident-response.yaml")),
+    ("ci-cd-authoring", include_str!("../config/skills/ci-cd-authoring.yaml")),
+    ("release-management", include_str!("../config/skills/release-management.yaml")),
+    ("pr-summary", include_str!("../config/skills/pr-summary.yaml")),
+    ("changelog-generation", include_str!("../config/skills/changelog-generation.yaml")),
+    ("security-audit", include_str!("../config/skills/security-audit.yaml")),
+];
+
 pub fn load_builtin_skills() -> Result<SkillSource> {
+    let mut skills = BTreeMap::new();
+    for (name, yaml) in BUILTIN_SKILL_YAMLS {
+        let def: SkillDefinition = serde_yaml::from_str(yaml)
+            .map_err(|e| anyhow::anyhow!("Failed to parse built-in skill '{}': {}", name, e))?;
+        skills.insert(name.to_string(), def);
+    }
     Ok(SkillSource {
         origin: SkillSourceOrigin::Builtin,
-        skills: BTreeMap::new(),
+        skills,
     })
 }
 
@@ -233,10 +261,25 @@ description: A standalone skill
     }
 
     #[test]
-    fn test_load_builtin_skills_returns_empty() {
+    fn test_load_builtin_skills() {
         let source = load_builtin_skills().unwrap();
         assert_eq!(source.origin, SkillSourceOrigin::Builtin);
-        assert!(source.skills.is_empty());
+        assert_eq!(source.skills.len(), 19);
+        assert!(source.skills.contains_key("implementation"));
+        assert!(source.skills.contains_key("code-review"));
+        assert!(source.skills.contains_key("deep-search"));
+        assert!(source.skills.contains_key("security-audit"));
+        assert!(source.skills.contains_key("prioritization"));
+    }
+
+    #[test]
+    fn test_all_builtin_skills_validate() {
+        use crate::skill_definition::validate_skill_definition;
+        let source = load_builtin_skills().unwrap();
+        for (name, def) in &source.skills {
+            validate_skill_definition(def)
+                .unwrap_or_else(|e| panic!("Built-in skill '{}' failed validation: {}", name, e));
+        }
     }
 
     #[test]

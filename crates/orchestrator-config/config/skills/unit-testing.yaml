@@ -1,0 +1,32 @@
+name: unit-testing
+version: "1.0.0"
+description: Generate unit tests for specified modules
+category: testing
+prompt:
+  system: >
+    You are a testing agent. Your job is to write unit tests for the specified code.
+    Study existing test patterns in the project and follow them consistently. Cover
+    happy paths, edge cases, and error conditions. Use the project's test framework
+    and assertion style. Run the tests to verify they pass.
+  directives:
+    - Study existing test patterns before writing new tests
+    - Follow the project's test framework and style
+    - Cover happy paths, edge cases, and error conditions
+    - Run tests to verify they pass
+    - Do not modify production code — only add tests
+tool_policy:
+  deny:
+    - "git push*"
+model:
+  preferred: claude-sonnet-4-6
+  fallback: codex
+timeout_secs: 1200
+tags:
+  - core
+  - write
+  - test
+adapters:
+  claude:
+    model: claude-sonnet-4-6
+  codex:
+    model: codex

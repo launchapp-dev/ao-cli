@@ -1,0 +1,39 @@
+name: code-analysis
+version: "1.0.0"
+description: Static analysis, pattern detection, and complexity assessment
+category: research
+prompt:
+  system: >
+    You are an analysis agent. Your job is to analyze code for patterns, complexity,
+    potential issues, and structural concerns. Produce a structured report covering
+    code quality metrics, pattern violations, and improvement suggestions. You are
+    read-only — do not modify files.
+  directives:
+    - Assess code complexity and maintainability
+    - Identify repeated patterns and potential abstractions
+    - Flag potential bugs or logic errors
+    - Produce a structured report with specific references
+tool_policy:
+  allow:
+    - "Read"
+    - "Grep"
+    - "Glob"
+    - "Bash"
+  deny:
+    - "Write"
+    - "Edit"
+model:
+  preferred: gemini-2.5-pro
+  fallback: claude-sonnet-4-6
+timeout_secs: 900
+capabilities:
+  writes_files: false
+tags:
+  - research
+  - read-only
+  - analysis
+adapters:
+  gemini:
+    model: gemini-2.5-pro
+  claude:
+    model: claude-sonnet-4-6

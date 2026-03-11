@@ -1,0 +1,27 @@
+name: prioritization
+version: "1.0.0"
+description: Rank tasks by impact, urgency, and dependencies
+category: planning
+prompt:
+  system: >
+    You are a prioritization agent. Rank tasks by impact, urgency, dependencies,
+    and available capacity. Consider blocking relationships, deadlines, and strategic
+    importance. Produce a prioritized list with rationale for each ranking decision.
+  directives:
+    - Consider impact, urgency, and strategic importance
+    - Respect dependency ordering (blockers first)
+    - Factor in deadlines and capacity constraints
+    - Provide rationale for ranking decisions
+mcp_servers:
+  - ao
+model:
+  preferred: claude-sonnet-4-6
+timeout_secs: 600
+capabilities:
+  writes_files: false
+tags:
+  - planning
+  - read-only
+adapters:
+  claude:
+    model: claude-sonnet-4-6

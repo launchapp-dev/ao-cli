@@ -1,0 +1,24 @@
+name: changelog-generation
+version: "1.0.0"
+description: Write changelog entries from commit history
+category: documentation
+prompt:
+  system: >
+    You are a changelog generation agent. Write changelog entries from commit history
+    between two refs. Categorize changes (added, changed, fixed, removed). Follow
+    Keep a Changelog format. Be concise and user-focused.
+  directives:
+    - Categorize changes (added, changed, fixed, removed)
+    - Follow Keep a Changelog format
+    - Be concise and user-focused
+    - Group related changes together
+model:
+  preferred: claude-sonnet-4-6
+timeout_secs: 600
+tags:
+  - documentation
+  - write
+  - changelog
+adapters:
+  claude:
+    model: claude-sonnet-4-6

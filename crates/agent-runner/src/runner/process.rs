@@ -24,13 +24,13 @@ fn truncate_for_log(text: &str, max_chars: usize) -> String {
 }
 
 #[derive(Debug, Clone)]
-struct McpStdioConfig {
+pub(super) struct McpStdioConfig {
     command: String,
     args: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
-struct AdditionalMcpServer {
+pub(super) struct AdditionalMcpServer {
     name: String,
     command: String,
     args: Vec<String>,
@@ -38,7 +38,7 @@ struct AdditionalMcpServer {
 }
 
 #[derive(Debug, Clone)]
-struct McpToolEnforcement {
+pub(super) struct McpToolEnforcement {
     enabled: bool,
     endpoint: Option<String>,
     stdio: Option<McpStdioConfig>,
@@ -50,12 +50,12 @@ struct McpToolEnforcement {
 }
 
 #[derive(Debug, Default)]
-struct TempPathCleanup {
+pub(super) struct TempPathCleanup {
     paths: Vec<PathBuf>,
 }
 
 impl TempPathCleanup {
-    fn track(&mut self, path: PathBuf) {
+    pub(super) fn track(&mut self, path: PathBuf) {
         self.paths.push(path);
     }
 }
@@ -68,7 +68,7 @@ impl Drop for TempPathCleanup {
     }
 }
 
-fn resolve_mcp_tool_enforcement(
+pub(super) fn resolve_mcp_tool_enforcement(
     runtime_contract: Option<&serde_json::Value>,
 ) -> McpToolEnforcement {
     let Some(contract) = runtime_contract else {
@@ -594,7 +594,7 @@ fn apply_oai_runner_native_mcp_lockdown(args: &mut Vec<String>, transport: McpSe
     ensure_flag_value(args, "--mcp-config", &config.to_string(), 0);
 }
 
-fn apply_native_mcp_policy(
+pub(super) fn apply_native_mcp_policy(
     invocation: &mut LaunchInvocation,
     enforcement: &McpToolEnforcement,
     env: &mut HashMap<String, String>,

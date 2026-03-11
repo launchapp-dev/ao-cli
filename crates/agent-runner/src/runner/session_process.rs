@@ -13,9 +13,10 @@ use tokio::sync::mpsc;
 use tokio::time::{Duration, MissedTickBehavior};
 use tracing::{debug, info};
 
+use super::process::{apply_native_mcp_policy, resolve_mcp_tool_enforcement, TempPathCleanup};
 use super::process_builder::{build_cli_invocation, resolve_idle_timeout_secs};
 
-pub(super) fn use_native_session_backend(tool: &str, runtime_contract: Option<&Value>) -> bool {
+pub(super) fn use_native_session_backend(tool: &str, _runtime_contract: Option<&Value>) -> bool {
     if !native_sessions_enabled() {
         return false;
     }
@@ -27,7 +28,7 @@ pub(super) fn use_native_session_backend(tool: &str, runtime_contract: Option<&V
         return false;
     }
 
-    !mcp_enforcement_enabled(runtime_contract)
+    true
 }
 
 pub(super) fn require_native_session_backend(
@@ -40,13 +41,6 @@ pub(super) fn require_native_session_backend(
 
     if use_native_session_backend(tool, runtime_contract) {
         return Ok(());
-    }
-
-    if mcp_enforcement_enabled(runtime_contract) {
-        bail!(
-            "native session backend is required for AI tool '{}' but MCP-only enforcement is not supported by the native path",
-            tool
-        );
     }
 
     if !native_sessions_enabled() {
@@ -74,7 +68,17 @@ pub(super) async fn spawn_session_process(
     event_tx: mpsc::Sender<AgentRunEvent>,
     mut cancel_rx: tokio::sync::oneshot::Receiver<()>,
 ) -> Result<i32> {
-    let invocation = build_cli_invocation(tool, model, prompt, runtime_contract).await?;
+    let mut invocation = build_cli_invocation(tool, model, prompt, runtime_contract).await?;
+    let mut env = env;
+    let enforcement = resolve_mcp_tool_enforcement(runtime_contract);
+    let mut temp_cleanup = TempPathCleanup::default();
+    apply_native_mcp_policy(
+        &mut invocation,
+        &enforcement,
+        &mut env,
+        run_id,
+        &mut temp_cleanup,
+    )?;
     let session_request = build_session_request(
         tool,
         model,
@@ -167,32 +171,6 @@ fn native_sessions_enabled() -> bool {
             !matches!(normalized.as_str(), "" | "0" | "false" | "off" | "no")
         })
         .unwrap_or(true)
-}
-
-fn mcp_enforcement_enabled(runtime_contract: Option<&Value>) -> bool {
-    let Some(contract) = runtime_contract else {
-        return false;
-    };
-
-    let supports_mcp = contract
-        .pointer("/cli/capabilities/supports_mcp")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    let has_endpoint = contract
-        .pointer("/mcp/endpoint")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .is_some_and(|value| !value.is_empty());
-    let has_stdio = contract
-        .pointer("/mcp/stdio/command")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .is_some_and(|value| !value.is_empty());
-    let explicit_enforce = contract
-        .pointer("/mcp/enforce_only")
-        .and_then(Value::as_bool);
-
-    explicit_enforce.unwrap_or((has_endpoint || has_stdio) && supports_mcp)
 }
 
 fn build_session_request(
@@ -449,7 +427,7 @@ mod tests {
     use tokio::sync::{mpsc, oneshot};
 
     #[test]
-    fn native_session_backend_disabled_when_mcp_enforced() {
+    fn native_session_backend_enabled_when_mcp_enforced() {
         let contract = json!({
             "cli": { "capabilities": { "supports_mcp": true } },
             "mcp": {
@@ -458,7 +436,7 @@ mod tests {
             }
         });
 
-        assert!(!use_native_session_backend("claude", Some(&contract)));
+        assert!(use_native_session_backend("claude", Some(&contract)));
     }
 
     #[test]
@@ -474,7 +452,7 @@ mod tests {
     }
 
     #[test]
-    fn require_native_session_backend_fails_closed_for_mcp_only_ai_runs() {
+    fn require_native_session_backend_accepts_mcp_only_ai_runs() {
         let contract = json!({
             "cli": { "capabilities": { "supports_mcp": true } },
             "mcp": {
@@ -483,11 +461,8 @@ mod tests {
             }
         });
 
-        let error = require_native_session_backend("claude", Some(&contract))
-            .expect_err("MCP-only AI run should fail closed");
-        assert!(error
-            .to_string()
-            .contains("MCP-only enforcement is not supported"));
+        require_native_session_backend("claude", Some(&contract))
+            .expect("MCP-only AI run should stay on native path");
     }
 
     #[tokio::test]

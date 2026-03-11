@@ -1,5 +1,7 @@
 use anyhow::{bail, Context, Result};
-use cli_wrapper::{LaunchInvocation, SessionBackendResolver, SessionEvent, SessionRequest};
+use cli_wrapper::{
+    is_ai_cli_tool, LaunchInvocation, SessionBackendResolver, SessionEvent, SessionRequest,
+};
 use protocol::{
     AgentRunEvent, ArtifactInfo, ArtifactType, OutputStreamType, RunId, Timestamp, TokenUsage,
     ToolCallInfo, ToolResultInfo,
@@ -20,12 +22,44 @@ pub(super) fn use_native_session_backend(tool: &str, runtime_contract: Option<&V
 
     if !matches!(
         tool.to_ascii_lowercase().as_str(),
-        "claude" | "codex" | "gemini"
+        "claude" | "codex" | "gemini" | "opencode" | "oai-runner" | "ao-oai-runner"
     ) {
         return false;
     }
 
     !mcp_enforcement_enabled(runtime_contract)
+}
+
+pub(super) fn require_native_session_backend(
+    tool: &str,
+    runtime_contract: Option<&Value>,
+) -> Result<()> {
+    if !is_ai_cli_tool(tool) {
+        return Ok(());
+    }
+
+    if use_native_session_backend(tool, runtime_contract) {
+        return Ok(());
+    }
+
+    if mcp_enforcement_enabled(runtime_contract) {
+        bail!(
+            "native session backend is required for AI tool '{}' but MCP-only enforcement is not supported by the native path",
+            tool
+        );
+    }
+
+    if !native_sessions_enabled() {
+        bail!(
+            "native session backend is required for AI tool '{}' but AO_AGENT_RUNNER_NATIVE_SESSIONS is disabled",
+            tool
+        );
+    }
+
+    bail!(
+        "native session backend is required for AI tool '{}' but no native backend is implemented",
+        tool
+    );
 }
 
 pub(super) async fn spawn_session_process(
@@ -435,7 +469,25 @@ mod tests {
         });
 
         assert!(use_native_session_backend("gemini", Some(&contract)));
-        assert!(!use_native_session_backend("opencode", Some(&contract)));
+        assert!(use_native_session_backend("opencode", Some(&contract)));
+        assert!(use_native_session_backend("oai-runner", Some(&contract)));
+    }
+
+    #[test]
+    fn require_native_session_backend_fails_closed_for_mcp_only_ai_runs() {
+        let contract = json!({
+            "cli": { "capabilities": { "supports_mcp": true } },
+            "mcp": {
+                "endpoint": "http://127.0.0.1:3101/mcp/ao",
+                "enforce_only": true
+            }
+        });
+
+        let error = require_native_session_backend("claude", Some(&contract))
+            .expect_err("MCP-only AI run should fail closed");
+        assert!(error
+            .to_string()
+            .contains("MCP-only enforcement is not supported"));
     }
 
     #[tokio::test]
@@ -476,7 +528,7 @@ mod tests {
         while let Some(event) = event_rx.recv().await {
             match event {
                 AgentRunEvent::Metadata { .. } => saw_metadata = true,
-                AgentRunEvent::OutputChunk { text, .. } if text == "PINEAPPLE_42" => {
+                AgentRunEvent::OutputChunk { text, .. } if text.contains("PINEAPPLE_42") => {
                     saw_output = true;
                 }
                 _ => {}
@@ -490,16 +542,24 @@ mod tests {
 
     #[tokio::test]
     #[cfg(unix)]
-    async fn spawn_session_process_bridges_codex_and_gemini_events() {
-        for (tool, fixture, expect_thinking) in [
+    async fn spawn_session_process_bridges_codex_gemini_and_oai_runner_events() {
+        for (tool, fixture, expect_metadata, expect_thinking) in [
             (
                 "codex",
                 "/Users/samishukri/ao-cli/crates/llm-cli-wrapper/tests/fixtures/codex_real.jsonl",
+                true,
                 true,
             ),
             (
                 "gemini",
                 "/Users/samishukri/ao-cli/crates/llm-cli-wrapper/tests/fixtures/gemini_real.jsonl",
+                true,
+                false,
+            ),
+            (
+                "oai-runner",
+                "/Users/samishukri/ao-cli/crates/llm-cli-wrapper/tests/fixtures/oai_runner_real.jsonl",
+                false,
                 false,
             ),
         ] {
@@ -539,7 +599,7 @@ mod tests {
             while let Some(event) = event_rx.recv().await {
                 match event {
                     AgentRunEvent::Metadata { .. } => saw_metadata = true,
-                    AgentRunEvent::OutputChunk { text, .. } if text == "PINEAPPLE_42" => {
+                    AgentRunEvent::OutputChunk { text, .. } if text.contains("PINEAPPLE_42") => {
                         saw_output = true;
                     }
                     AgentRunEvent::Thinking { .. } => saw_thinking = true,
@@ -548,12 +608,58 @@ mod tests {
             }
 
             assert_eq!(exit_code, 0, "expected successful exit for {tool}");
-            assert!(saw_metadata, "expected metadata for {tool}");
+            assert_eq!(saw_metadata, expect_metadata, "unexpected metadata for {tool}");
             assert!(saw_output, "expected output for {tool}");
             assert_eq!(
                 saw_thinking, expect_thinking,
                 "unexpected thinking signal for {tool}"
             );
         }
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn spawn_session_process_bridges_opencode_events() {
+        let run_id = RunId("run-opencode".to_string());
+        let runtime_contract = json!({
+            "cli": {
+                "name": "opencode",
+                "capabilities": { "supports_mcp": true },
+                "launch": {
+                    "command": "sh",
+                    "args": ["-c", "printf '%s\\n%s\\n' '{\"type\":\"text\",\"text\":\"PINEAPPLE_42\"}' '{\"content\":\"PINEAPPLE_42\"}'"],
+                    "prompt_via_stdin": false
+                }
+            }
+        });
+        let (event_tx, mut event_rx) = mpsc::channel(64);
+        let (_cancel_tx, cancel_rx) = oneshot::channel();
+
+        let exit_code = spawn_session_process(
+            "opencode",
+            "test-model",
+            "",
+            Some(&runtime_contract),
+            ".",
+            HashMap::new(),
+            Some(30),
+            &run_id,
+            event_tx,
+            cancel_rx,
+        )
+        .await
+        .expect("native opencode session should succeed");
+
+        let mut saw_output = false;
+        while let Some(event) = event_rx.recv().await {
+            if let AgentRunEvent::OutputChunk { text, .. } = event {
+                if text.contains("PINEAPPLE_42") {
+                    saw_output = true;
+                }
+            }
+        }
+
+        assert_eq!(exit_code, 0);
+        assert!(saw_output);
     }
 }

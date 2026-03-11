@@ -3,5 +3,7 @@ pub enum SessionBackendKind {
     ClaudeSdk,
     CodexSdk,
     GeminiSdk,
+    OpenCodeSdk,
+    OaiRunnerSdk,
     Subprocess,
 }

@@ -4,7 +4,9 @@ use tokio::sync::mpsc;
 use tracing::{error, info};
 
 use super::process::spawn_cli_process;
-use super::session_process::{spawn_session_process, use_native_session_backend};
+use super::session_process::{
+    require_native_session_backend, spawn_session_process, use_native_session_backend,
+};
 use crate::sandbox::{env_sanitizer, workspace_guard};
 
 pub struct Supervisor;
@@ -133,6 +135,22 @@ impl Supervisor {
             final_env_count = env.len(),
             "Launching CLI process"
         );
+
+        if let Err(error) = require_native_session_backend(tool, runtime_contract) {
+            let error_message = format!("Process execution failed: {}", error);
+            let error_evt = AgentRunEvent::Error {
+                run_id: run_id.clone(),
+                error: error_message.clone(),
+            };
+            let _ = event_tx.send(error_evt).await;
+            error!(
+                run_id = %run_id.0.as_str(),
+                tool,
+                error = %error,
+                "AI tool is not allowed to fall back to legacy subprocess execution"
+            );
+            return AgentStatus::Failed;
+        }
 
         let use_native_sessions = use_native_session_backend(tool, runtime_contract);
         info!(

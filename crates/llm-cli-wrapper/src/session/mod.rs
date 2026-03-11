@@ -1,6 +1,8 @@
 pub mod claude;
 pub mod codex;
 pub mod gemini;
+pub mod oai_runner;
+pub mod opencode;
 pub mod session_backend;
 pub mod session_backend_info;
 pub mod session_backend_kind;
@@ -15,6 +17,8 @@ pub mod subprocess_session_backend;
 pub use claude::ClaudeSessionBackend;
 pub use codex::CodexSessionBackend;
 pub use gemini::GeminiSessionBackend;
+pub use oai_runner::OaiRunnerSessionBackend;
+pub use opencode::OpenCodeSessionBackend;
 pub use session_backend::SessionBackend;
 pub use session_backend_info::SessionBackendInfo;
 pub use session_backend_kind::SessionBackendKind;

@@ -18,6 +18,10 @@ Practical walkthroughs for day-to-day AO operations.
 - **[Model Routing](model-routing.md)** -- How AO selects models and tools per phase, and how to override defaults.
 - **[Web Dashboard](web-dashboard.md)** -- Launching the web UI, navigating boards, and using the REST API.
 
+## MCP & Agent Integration
+
+- **[Working with AO via MCP Tools](agents.md)** -- Complete guide to all ~68 MCP tools: JSON examples, common workflows, sequencing tips, pagination, and batch operations.
+
 ## Infrastructure
 
 - **[CI/CD](ci-cd.md)** -- CI workflows, release pipelines, build commands, and test targets.

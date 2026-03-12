@@ -24,6 +24,7 @@ use tower_http::compression::CompressionLayer;
 
 use crate::models::WebServerConfig;
 use crate::services::docs_html::render_openapi_docs_html;
+use crate::services::graphql;
 use crate::services::openapi_spec::build_openapi_spec;
 
 static EMBEDDED_ASSETS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/embedded");
@@ -171,10 +172,17 @@ fn build_router(state: AppState) -> Router {
         .route("/queue/hold/{id}", post(queue_hold_handler))
         .route("/queue/release/{id}", post(queue_release_handler));
 
+    let gql_schema = graphql::build_schema(state.api.clone());
+
     Router::new()
         .nest("/api/v1", api_router)
+        .route(
+            "/graphql",
+            get(graphql::graphql_playground).post(graphql::graphql_handler),
+        )
         .route("/", get(root_handler))
         .route("/{*path}", get(static_handler))
+        .layer(axum::Extension(gql_schema))
         .layer(CompressionLayer::new())
         .with_state(state)
 }

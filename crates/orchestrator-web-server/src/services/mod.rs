@@ -1,4 +1,5 @@
 mod docs_html;
+pub mod graphql;
 mod openapi_spec;
 mod web_server;
 

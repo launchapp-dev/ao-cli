@@ -18,7 +18,7 @@ tokio = { version = "1", features = ["full"] }
 orchestrator-core = { path = "../orchestrator-core" }
 orchestrator-web-api = { path = "../orchestrator-web-api" }
 orchestrator-web-contracts = { path = "../orchestrator-web-contracts" }
-orchestrator-web-server = { path = "../orchestrator-web-server", features = ["graphql"] }
+orchestrator-web-server = { path = "../orchestrator-web-server" }
 protocol = { path = "../protocol" }
 cli-wrapper = { path = "../llm-cli-wrapper", package = "llm-cli-wrapper" }
 orchestrator-daemon-runtime = { workspace = true }

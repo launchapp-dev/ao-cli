@@ -88,6 +88,7 @@ pub struct RawWorkflow {
     #[serde(default)]
     pub phases: Vec<RawPhaseExecution>,
     #[serde(default)]
+    #[allow(dead_code)]
     pub decision_history: Vec<RawDecision>,
     #[serde(default)]
     pub total_reworks: u32,

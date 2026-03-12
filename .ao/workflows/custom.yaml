@@ -98,7 +98,7 @@ phase_catalog:
     tags: [review, quality]
   testing:
     label: "Testing"
-    description: "Validate implementation by running test suite"
+    description: "Manual testing gate — human verifies the implementation"
     category: verification
     tags: [testing, quality]
   requirements:
@@ -262,6 +262,13 @@ phases:
       args: ["run", "-p", "orchestrator-cli", "--", "--project-root", ".", "task", "next", "--json"]
       timeout_secs: 300
 
+  testing:
+    mode: manual
+    directive: "Manual testing gate — human verifies the implementation meets requirements."
+    manual:
+      instructions: "Review the implementation changes, run manual tests if needed, and approve or reject."
+      approval_note_required: false
+
   unit-test:
     mode: command
     directive: "Run the workspace test suite"
@@ -405,8 +412,10 @@ workflows:
 
   - id: review-cycle
     name: "Review Cycle"
-    description: "Reusable code review and testing sequence"
+    description: "Reusable review sequence: unit-test, lint, code-review, manual testing gate"
     phases:
+      - unit-test
+      - lint
       - code-review
       - testing
 
@@ -415,17 +424,38 @@ workflows:
     description: "Fast workflow for small bug fixes"
     phases:
       - implementation
+      - unit-test:
+          on_verdict:
+            rework:
+              target: implementation
+      - lint:
+          on_verdict:
+            rework:
+              target: implementation
       - testing
 
   - id: standard
     name: "Standard (Custom)"
-    description: "Standard workflow with reusable review sub-workflow"
+    description: "Standard workflow: requirements, implementation, unit-test, lint, code-review, manual testing"
     phases:
       - requirements
       - implementation:
           skip_if:
             - "task_type == docs"
-      - workflow_ref: review-cycle
+      - unit-test:
+          on_verdict:
+            rework:
+              target: implementation
+      - lint:
+          on_verdict:
+            rework:
+              target: implementation
+      - code-review:
+          max_rework_attempts: 3
+          on_verdict:
+            rework:
+              target: implementation
+      - testing
 
   - id: gated
     name: "Gated"

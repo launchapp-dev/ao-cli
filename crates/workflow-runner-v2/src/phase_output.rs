@@ -203,27 +203,78 @@ pub fn format_prior_phase_outputs(outputs: &[PersistedPhaseOutput]) -> String {
     result
 }
 
-pub(crate) fn pipeline_phase_order_for_workflow(
+fn load_workflow_state(
     project_root: &str,
     workflow_id: &str,
-) -> Vec<String> {
+) -> Option<orchestrator_core::OrchestratorWorkflow> {
     let workflow_path = Path::new(project_root)
         .join(".ao")
         .join("workflow-state")
         .join(format!("{workflow_id}.json"));
-    let contents = match std::fs::read_to_string(&workflow_path) {
-        Ok(c) => c,
-        Err(_) => return Vec::new(),
+    let contents = std::fs::read_to_string(&workflow_path).ok()?;
+    serde_json::from_str(&contents).ok()
+}
+
+pub(crate) fn build_workflow_pipeline_context(
+    project_root: &str,
+    workflow_id: &str,
+    current_phase_id: &str,
+) -> (String, Vec<String>) {
+    let workflow = match load_workflow_state(project_root, workflow_id) {
+        Some(w) => w,
+        None => return (String::new(), Vec::new()),
     };
-    let workflow: orchestrator_core::OrchestratorWorkflow = match serde_json::from_str(&contents) {
-        Ok(w) => w,
-        Err(_) => return Vec::new(),
-    };
-    workflow
+
+    let phase_order: Vec<String> = workflow
         .phases
         .iter()
-        .map(|phase| phase.phase_id.clone())
-        .collect()
+        .map(|p| p.phase_id.clone())
+        .collect();
+    let prior_outputs =
+        load_prior_phase_outputs(project_root, workflow_id, current_phase_id, &phase_order);
+    let output_map: std::collections::HashMap<String, &PersistedPhaseOutput> = prior_outputs
+        .iter()
+        .map(|o| (o.phase_id.clone(), o))
+        .collect();
+
+    let pipeline: Vec<serde_json::Value> = workflow
+        .phases
+        .iter()
+        .map(|phase| {
+            let status = format!("{:?}", phase.status).to_ascii_lowercase();
+            let mut entry = serde_json::json!({
+                "phase_id": phase.phase_id,
+                "status": status,
+                "attempt": phase.attempt,
+            });
+            if let Some(output) = output_map.get(&phase.phase_id) {
+                if let Some(ref payload) = output.payload {
+                    entry["output"] = payload.clone();
+                }
+            }
+            entry
+        })
+        .collect();
+
+    let rework_counts: serde_json::Value = workflow
+        .rework_counts
+        .iter()
+        .filter(|(_, &count)| count > 0)
+        .map(|(k, v)| (k.clone(), serde_json::Value::from(*v)))
+        .collect::<serde_json::Map<String, serde_json::Value>>()
+        .into();
+
+    let workflow_status = format!("{:?}", workflow.status).to_ascii_lowercase();
+
+    let context = serde_json::json!({
+        "pipeline": pipeline,
+        "current_phase": current_phase_id,
+        "rework_counts": rework_counts,
+        "workflow_status": workflow_status,
+    });
+
+    let json = serde_json::to_string(&context).unwrap_or_default();
+    (json, phase_order)
 }
 
 pub(crate) fn format_output_chunk_for_display(
@@ -625,6 +676,143 @@ mod tests {
         assert!(result.contains("Confidence: 0.9"));
         assert!(result.contains("Reasoning: Found patterns"));
         assert!(result.contains("Commit: feat: add feature"));
+    }
+
+    #[test]
+    fn test_build_workflow_pipeline_context_returns_structured_json() {
+        use protocol::orchestrator::{
+            WorkflowCheckpointMetadata, WorkflowMachineState, WorkflowPhaseExecution,
+            WorkflowPhaseStatus, WorkflowStatus, WorkflowSubject,
+        };
+
+        let tmp = std::env::temp_dir().join(format!(
+            "ao-test-pipeline-context-{}",
+            Uuid::new_v4()
+        ));
+        let project_root = tmp.to_str().unwrap();
+        let workflow_id = "wf-ctx-001";
+
+        let workflow_state_dir = tmp.join(".ao").join("workflow-state");
+        std::fs::create_dir_all(&workflow_state_dir).unwrap();
+        let mut rework_counts = std::collections::HashMap::new();
+        rework_counts.insert("code-review".to_string(), 2u32);
+        let workflow = orchestrator_core::OrchestratorWorkflow {
+            id: workflow_id.to_string(),
+            task_id: "TASK-1".to_string(),
+            workflow_ref: None,
+            subject: WorkflowSubject::Task {
+                id: "TASK-1".to_string(),
+            },
+            input: None,
+            vars: std::collections::HashMap::new(),
+            status: WorkflowStatus::Running,
+            current_phase_index: 2,
+            phases: vec![
+                WorkflowPhaseExecution {
+                    phase_id: "research".to_string(),
+                    status: WorkflowPhaseStatus::Success,
+                    started_at: None,
+                    completed_at: None,
+                    attempt: 1,
+                    error_message: None,
+                },
+                WorkflowPhaseExecution {
+                    phase_id: "implementation".to_string(),
+                    status: WorkflowPhaseStatus::Success,
+                    started_at: None,
+                    completed_at: None,
+                    attempt: 1,
+                    error_message: None,
+                },
+                WorkflowPhaseExecution {
+                    phase_id: "code-review".to_string(),
+                    status: WorkflowPhaseStatus::Running,
+                    started_at: None,
+                    completed_at: None,
+                    attempt: 3,
+                    error_message: None,
+                },
+                WorkflowPhaseExecution {
+                    phase_id: "testing".to_string(),
+                    status: WorkflowPhaseStatus::Pending,
+                    started_at: None,
+                    completed_at: None,
+                    attempt: 0,
+                    error_message: None,
+                },
+            ],
+            machine_state: WorkflowMachineState::RunPhase,
+            current_phase: Some("code-review".to_string()),
+            started_at: chrono::Utc::now(),
+            completed_at: None,
+            failure_reason: None,
+            checkpoint_metadata: WorkflowCheckpointMetadata::default(),
+            rework_counts,
+            total_reworks: 2,
+            decision_history: vec![],
+        };
+        let workflow_json = serde_json::to_string_pretty(&workflow).unwrap();
+        std::fs::write(
+            workflow_state_dir.join(format!("{workflow_id}.json")),
+            &workflow_json,
+        )
+        .unwrap();
+
+        let research_outcome = PhaseExecutionOutcome::Completed {
+            commit_message: None,
+            phase_decision: Some(orchestrator_core::PhaseDecision {
+                kind: "phase_decision".to_string(),
+                phase_id: "research".to_string(),
+                verdict: orchestrator_core::PhaseDecisionVerdict::Advance,
+                confidence: 0.9,
+                risk: orchestrator_core::WorkflowDecisionRisk::Low,
+                reason: "Done".to_string(),
+                evidence: vec![],
+                guardrail_violations: vec![],
+                commit_message: None,
+                target_phase: None,
+            }),
+            result_payload: Some(serde_json::json!({"findings": ["pattern A"]})),
+        };
+        persist_phase_output(project_root, workflow_id, "research", &research_outcome).unwrap();
+
+        let (json_str, phase_order) =
+            build_workflow_pipeline_context(project_root, workflow_id, "code-review");
+
+        assert_eq!(
+            phase_order,
+            vec!["research", "implementation", "code-review", "testing"]
+        );
+
+        let ctx: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(ctx["current_phase"], "code-review");
+        assert_eq!(ctx["workflow_status"], "running");
+        assert_eq!(ctx["rework_counts"]["code-review"], 2);
+
+        let pipeline = ctx["pipeline"].as_array().unwrap();
+        assert_eq!(pipeline.len(), 4);
+        assert_eq!(pipeline[0]["phase_id"], "research");
+        assert_eq!(pipeline[0]["status"], "success");
+        assert_eq!(pipeline[0]["attempt"], 1);
+        assert_eq!(
+            pipeline[0]["output"],
+            serde_json::json!({"findings": ["pattern A"]})
+        );
+        assert_eq!(pipeline[2]["phase_id"], "code-review");
+        assert_eq!(pipeline[2]["status"], "running");
+        assert_eq!(pipeline[2]["attempt"], 3);
+        assert!(pipeline[2].get("output").is_none());
+        assert_eq!(pipeline[3]["status"], "pending");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_build_workflow_pipeline_context_returns_empty_when_no_state() {
+        let (json_str, phase_order) =
+            build_workflow_pipeline_context("/nonexistent", "wf-missing", "impl");
+        assert!(json_str.is_empty());
+        assert!(phase_order.is_empty());
     }
 
     #[test]

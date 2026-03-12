@@ -10,6 +10,9 @@ __SUBJECT_DESCRIPTION__
 Current phase: __PHASE_ID__
 Phase directive: __PHASE_DIRECTIVE__
 
+Workflow pipeline context (JSON):
+__WORKFLOW_PIPELINE_CONTEXT__
+
 __PRIOR_PHASE_OUTPUTS__
 
 __PHASE_ACTION_RULE__

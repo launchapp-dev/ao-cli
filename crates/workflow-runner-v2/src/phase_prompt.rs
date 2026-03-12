@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 
 use crate::config_context::RuntimeConfigContext;
-use crate::phase_output::{
-    format_prior_phase_outputs, load_prior_phase_outputs, pipeline_phase_order_for_workflow,
-};
+use crate::phase_output::{build_workflow_pipeline_context, format_prior_phase_outputs, load_prior_phase_outputs};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
@@ -45,6 +43,7 @@ pub struct RenderedPhasePrompt {
     pub phase_safety_rules: String,
     pub phase_decision_rule: String,
     pub structured_result_rule: String,
+    pub pipeline_context: String,
     pub prior_phase_outputs: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub system_prompt: Option<String>,
@@ -249,7 +248,8 @@ pub fn render_phase_prompt_with_ctx(
         String::new()
     };
 
-    let phase_order = pipeline_phase_order_for_workflow(project_root, workflow_id);
+    let (pipeline_context, phase_order) =
+        build_workflow_pipeline_context(project_root, workflow_id, phase_id);
     let prior_outputs = load_prior_phase_outputs(project_root, workflow_id, phase_id, &phase_order);
     let prior_phase_context = format_prior_phase_outputs(&prior_outputs);
     let rework_context = inputs
@@ -280,6 +280,7 @@ pub fn render_phase_prompt_with_ctx(
             "__IMPLEMENTATION_COMMIT_RULE__",
             structured_result_rule.as_str(),
         )
+        .replace("__WORKFLOW_PIPELINE_CONTEXT__", &pipeline_context)
         .replace("__PRIOR_PHASE_OUTPUTS__", &prior_context);
 
     if !inputs.pipeline_vars.is_empty() {
@@ -336,6 +337,7 @@ pub fn render_phase_prompt_with_ctx(
         phase_safety_rules: phase_safety_rules.to_string(),
         phase_decision_rule,
         structured_result_rule,
+        pipeline_context,
         prior_phase_outputs: prior_context,
         system_prompt,
         phase_prompt_body: phase_prompt,

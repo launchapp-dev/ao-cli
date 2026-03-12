@@ -419,6 +419,10 @@ fn print_human_render_output(outputs: &[PromptRenderOutput]) {
         print_named_section("Decision Rule", Some(rendered.phase_decision_rule.as_str()));
         print_named_section("Result Rule", Some(rendered.structured_result_rule.as_str()));
         print_named_section(
+            "Pipeline Context",
+            Some(rendered.pipeline_context.as_str()),
+        );
+        print_named_section(
             "Prior Phase Outputs",
             Some(rendered.prior_phase_outputs.as_str()),
         );

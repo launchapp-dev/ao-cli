@@ -180,6 +180,11 @@ fn build_router(state: AppState) -> Router {
             "/graphql",
             get(graphql::graphql_playground).post(graphql::graphql_handler),
         )
+        .route_service(
+            "/graphql/ws",
+            graphql::ws_subscription(gql_schema.clone()),
+        )
+        .route("/graphql/schema", get(graphql::graphql_sdl_handler))
         .route("/", get(root_handler))
         .route("/{*path}", get(static_handler))
         .layer(axum::Extension(gql_schema))

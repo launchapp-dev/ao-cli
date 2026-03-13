@@ -46,3 +46,32 @@ pub async fn graphql_sdl_handler(
 ) -> impl axum::response::IntoResponse {
     schema_sdl(&schema)
 }
+
+pub fn export_sdl_to_file(schema: &AoSchema) -> std::io::Result<()> {
+    let sdl = schema.sdl();
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("embedded")
+        .join("schema.graphql");
+    std::fs::write(&path, sdl)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn export_schema_sdl() {
+        let schema = Schema::build(QueryRoot, MutationRoot, SubscriptionRoot)
+            .finish();
+        let result = export_sdl_to_file(&schema);
+        assert!(result.is_ok(), "Failed to export schema SDL: {:?}", result.err());
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("embedded")
+            .join("schema.graphql");
+        assert!(path.exists(), "schema.graphql should exist after export");
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert!(contents.contains("type QueryRoot"), "SDL should contain QueryRoot");
+        assert!(contents.contains("type MutationRoot"), "SDL should contain MutationRoot");
+        assert!(contents.contains("type SubscriptionRoot"), "SDL should contain SubscriptionRoot");
+    }
+}

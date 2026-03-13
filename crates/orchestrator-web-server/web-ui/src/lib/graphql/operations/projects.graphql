@@ -1,0 +1,8 @@
+query Projects {
+  projects { id name path description archived }
+  projectsActive { id name path }
+}
+
+query ProjectDetail($id: ID!) {
+  project(id: $id) { id name path description type techStack archived }
+}

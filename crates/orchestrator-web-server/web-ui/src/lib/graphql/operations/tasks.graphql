@@ -1,0 +1,73 @@
+query Tasks($status: String, $search: String) {
+  tasks(status: $status, search: $search) {
+    id title status statusRaw priority priorityRaw taskType taskTypeRaw
+    tags linkedRequirementIds
+  }
+  taskStats { total byStatus byPriority }
+}
+
+query TasksPrioritized {
+  tasksPrioritized {
+    id title status statusRaw priority priorityRaw taskType taskTypeRaw tags
+  }
+}
+
+query TaskDetail($id: ID!) {
+  task(id: $id) {
+    id title description status statusRaw priority priorityRaw
+    taskType taskTypeRaw risk scope complexity tags
+    linkedRequirementIds
+    checklist { id description completed }
+    dependencies { taskId type }
+  }
+}
+
+mutation UpdateTaskStatus($id: ID!, $status: String!) {
+  updateTaskStatus(id: $id, status: $status) { id status statusRaw }
+}
+
+mutation CreateTask($title: String!, $description: String, $taskType: String, $priority: String) {
+  createTask(title: $title, description: $description, taskType: $taskType, priority: $priority) {
+    id title status statusRaw
+  }
+}
+
+mutation UpdateTask($id: ID!, $title: String, $description: String, $taskType: String, $priority: String, $risk: String, $scope: String, $complexity: String) {
+  updateTask(id: $id, title: $title, description: $description, taskType: $taskType, priority: $priority, risk: $risk, scope: $scope, complexity: $complexity) {
+    id title status statusRaw
+  }
+}
+
+mutation DeleteTask($id: ID!) { deleteTask(id: $id) }
+
+mutation AssignAgent($id: ID!, $role: String, $model: String) {
+  assignAgent(id: $id, role: $role, model: $model) { id }
+}
+
+mutation AssignHuman($id: ID!, $name: String!) {
+  assignHuman(id: $id, name: $name) { id }
+}
+
+mutation ChecklistAdd($id: ID!, $description: String!) {
+  checklistAdd(id: $id, description: $description) {
+    id checklist { id description completed }
+  }
+}
+
+mutation ChecklistUpdate($id: ID!, $itemId: String!, $completed: Boolean, $description: String) {
+  checklistUpdate(id: $id, itemId: $itemId, completed: $completed, description: $description) {
+    id checklist { id description completed }
+  }
+}
+
+mutation DependencyAdd($id: ID!, $dependsOn: String!, $dependencyType: String) {
+  dependencyAdd(id: $id, dependsOn: $dependsOn, dependencyType: $dependencyType) {
+    id dependencies { taskId type }
+  }
+}
+
+mutation DependencyRemove($id: ID!, $dependsOn: String!) {
+  dependencyRemove(id: $id, dependsOn: $dependsOn) {
+    id dependencies { taskId type }
+  }
+}

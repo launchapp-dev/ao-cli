@@ -1,0 +1,23 @@
+query Workflows($status: String) {
+  workflows(status: $status) {
+    id taskId workflowRef status statusRaw currentPhase totalReworks
+    phases { phaseId status startedAt completedAt attempt errorMessage }
+  }
+}
+
+query WorkflowDetail($id: ID!) {
+  workflow(id: $id) {
+    id taskId workflowRef status statusRaw currentPhase totalReworks
+    phases { phaseId status startedAt completedAt attempt errorMessage }
+    decisions { timestamp phaseId source decision targetPhase reason confidence risk }
+  }
+  workflowCheckpoints(workflowId: $id) { id phase timestamp data }
+}
+
+mutation RunWorkflow($taskId: String!, $workflowRef: String) {
+  runWorkflow(taskId: $taskId, workflowRef: $workflowRef) { id taskId status statusRaw }
+}
+
+mutation PauseWorkflow($id: ID!) { pauseWorkflow(id: $id) { id status } }
+mutation ResumeWorkflow($id: ID!) { resumeWorkflow(id: $id) { id status } }
+mutation CancelWorkflow($id: ID!) { cancelWorkflow(id: $id) { id status } }

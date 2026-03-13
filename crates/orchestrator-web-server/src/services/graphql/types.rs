@@ -1,4 +1,5 @@
 use async_graphql::{Enum, Object, SimpleObject, ID};
+use orchestrator_core::{FileServiceHub, ServiceHub};
 use serde::Deserialize;
 
 // ---------------------------------------------------------------------------
@@ -740,47 +741,54 @@ impl GqlProject {
     }
     async fn tasks(
         &self,
-        ctx: &async_graphql::Context<'_>,
+        _ctx: &async_graphql::Context<'_>,
     ) -> async_graphql::Result<Vec<GqlTask>> {
-        let api = ctx.data::<orchestrator_web_api::WebApiService>()?;
-        match api
-            .tasks_list(None, None, None, None, None, vec![], None, None, None)
-            .await
-        {
-            Ok(val) => {
-                let tasks: Vec<RawTask> = serde_json::from_value(val).unwrap_or_default();
-                Ok(tasks.into_iter().map(GqlTask).collect())
-            }
-            Err(_) => Ok(vec![]),
-        }
+        let path = match self.0.get("path").and_then(|v| v.as_str()) {
+            Some(p) => p,
+            None => return Ok(vec![]),
+        };
+        let hub = FileServiceHub::new(path)?;
+        let tasks = match hub.tasks().list().await {
+            Ok(t) => t,
+            Err(_) => return Ok(vec![]),
+        };
+        let val = serde_json::to_value(&tasks).unwrap_or_default();
+        let raw: Vec<RawTask> = serde_json::from_value(val).unwrap_or_default();
+        Ok(raw.into_iter().map(GqlTask).collect())
     }
     async fn workflows(
         &self,
-        ctx: &async_graphql::Context<'_>,
+        _ctx: &async_graphql::Context<'_>,
     ) -> async_graphql::Result<Vec<GqlWorkflow>> {
-        let api = ctx.data::<orchestrator_web_api::WebApiService>()?;
-        match api.workflows_list().await {
-            Ok(val) => {
-                let workflows: Vec<RawWorkflow> =
-                    serde_json::from_value(val).unwrap_or_default();
-                Ok(workflows.into_iter().map(GqlWorkflow).collect())
-            }
-            Err(_) => Ok(vec![]),
-        }
+        let path = match self.0.get("path").and_then(|v| v.as_str()) {
+            Some(p) => p,
+            None => return Ok(vec![]),
+        };
+        let hub = FileServiceHub::new(path)?;
+        let workflows = match hub.workflows().list().await {
+            Ok(w) => w,
+            Err(_) => return Ok(vec![]),
+        };
+        let val = serde_json::to_value(&workflows).unwrap_or_default();
+        let raw: Vec<RawWorkflow> = serde_json::from_value(val).unwrap_or_default();
+        Ok(raw.into_iter().map(GqlWorkflow).collect())
     }
     async fn requirements(
         &self,
-        ctx: &async_graphql::Context<'_>,
+        _ctx: &async_graphql::Context<'_>,
     ) -> async_graphql::Result<Vec<GqlRequirement>> {
-        let api = ctx.data::<orchestrator_web_api::WebApiService>()?;
-        match api.requirements_list().await {
-            Ok(val) => {
-                let reqs: Vec<RawRequirement> =
-                    serde_json::from_value(val).unwrap_or_default();
-                Ok(reqs.into_iter().map(GqlRequirement).collect())
-            }
-            Err(_) => Ok(vec![]),
-        }
+        let path = match self.0.get("path").and_then(|v| v.as_str()) {
+            Some(p) => p,
+            None => return Ok(vec![]),
+        };
+        let hub = FileServiceHub::new(path)?;
+        let reqs = match hub.planning().list_requirements().await {
+            Ok(r) => r,
+            Err(_) => return Ok(vec![]),
+        };
+        let val = serde_json::to_value(&reqs).unwrap_or_default();
+        let raw: Vec<RawRequirement> = serde_json::from_value(val).unwrap_or_default();
+        Ok(raw.into_iter().map(GqlRequirement).collect())
     }
 }
 

@@ -11,6 +11,7 @@ async-graphql-axum = { workspace = true }
 axum = { workspace = true, features = ["macros"] }
 include_dir = "0.7"
 mime_guess = "2"
+orchestrator-core = { path = "../orchestrator-core" }
 orchestrator-web-api = { path = "../orchestrator-web-api" }
 orchestrator-web-contracts = { path = "../orchestrator-web-contracts" }
 serde = { version = "1", features = ["derive"] }
@@ -19,8 +20,7 @@ sha2 = "0.10"
 futures-core = "0.3"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
-tower-http = { version = "0.6", features = ["compression-br", "compression-gzip"] }
+tower-http = { version = "0.6", features = ["compression-br", "compression-gzip", "cors"] }
 
 [dev-dependencies]
-orchestrator-core = { path = "../orchestrator-core" }
 tower = { version = "0.5", features = ["util"] }

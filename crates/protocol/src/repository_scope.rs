@@ -63,6 +63,7 @@ pub fn repository_scope_for_path(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn sanitize_identifier_normalizes_expected_shapes() {
@@ -110,5 +111,29 @@ mod tests {
 
         let scope = repository_scope_for_path(&missing);
         assert!(scope.starts_with("missing-repo-2026-"));
+    }
+
+    proptest! {
+        #[test]
+        fn sanitize_identifier_output_contains_only_valid_chars(input in "\\PC*") {
+            let result = sanitize_identifier(&input, "fallback");
+            prop_assert!(result.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-'));
+            prop_assert!(!result.is_empty());
+            prop_assert!(!result.starts_with('-'));
+            prop_assert!(!result.ends_with('-'));
+        }
+
+        #[test]
+        fn sanitize_identifier_is_idempotent(input in "\\PC*") {
+            let once = sanitize_identifier(&input, "fallback");
+            let twice = sanitize_identifier(&once, "fallback");
+            prop_assert_eq!(once, twice);
+        }
+
+        #[test]
+        fn repository_scope_for_path_never_panics(input in "\\PC{1,200}") {
+            let path = std::path::Path::new(&input);
+            let _scope = repository_scope_for_path(path);
+        }
     }
 }

@@ -348,6 +348,7 @@ pub fn default_fallback_models_for_phase(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn canonical_model_aliases_normalize_legacy_claude_ids() {
@@ -495,6 +496,28 @@ mod tests {
                 .find_map(|(model, tool_id)| (tool_id == tool).then_some(model))
                 .expect("tool should exist in default model specs");
             assert_eq!(first_for_tool, expected);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn tool_for_model_id_never_panics(input in "\\PC*") {
+            let result = tool_for_model_id(&input);
+            prop_assert!(["claude", "codex", "gemini", "opencode", "oai-runner"].contains(&result));
+        }
+
+        #[test]
+        fn canonical_model_id_is_idempotent(input in "\\PC*") {
+            let once = canonical_model_id(&input);
+            let twice = canonical_model_id(&once);
+            prop_assert_eq!(once, twice);
+        }
+
+        #[test]
+        fn normalize_tool_id_is_idempotent(input in "\\PC*") {
+            let once = normalize_tool_id(&input);
+            let twice = normalize_tool_id(&once);
+            prop_assert_eq!(once, twice);
         }
     }
 }

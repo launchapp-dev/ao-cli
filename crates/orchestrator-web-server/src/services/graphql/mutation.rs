@@ -2,6 +2,7 @@ use async_graphql::{Context, Object, Result, ID};
 use orchestrator_web_api::WebApiService;
 use serde_json::json;
 
+use super::gql_err;
 use super::types::{
     GqlProject, GqlRequirement, GqlTask, GqlVision, GqlWorkflow, RawRequirement, RawTask,
     RawWorkflow,
@@ -33,7 +34,7 @@ impl MutationRoot {
         let val = api
             .tasks_create(body)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let raw: RawTask = serde_json::from_value(val)
             .map_err(|e| async_graphql::Error::new(format!("failed to parse task: {e}")))?;
         Ok(GqlTask(raw))
@@ -77,7 +78,7 @@ impl MutationRoot {
         let val = api
             .tasks_patch(&id, serde_json::Value::Object(body))
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let raw: RawTask = serde_json::from_value(val)
             .map_err(|e| async_graphql::Error::new(format!("failed to parse task: {e}")))?;
         Ok(GqlTask(raw))
@@ -94,7 +95,7 @@ impl MutationRoot {
         let val = api
             .tasks_status(&id, body)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let raw: RawTask = serde_json::from_value(val)
             .map_err(|e| async_graphql::Error::new(format!("failed to parse task: {e}")))?;
         Ok(GqlTask(raw))
@@ -104,7 +105,7 @@ impl MutationRoot {
         let api = ctx.data::<WebApiService>()?;
         api.tasks_delete(&id)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         Ok(true)
     }
 
@@ -120,7 +121,7 @@ impl MutationRoot {
         let val = api
             .tasks_assign_agent(&id, body)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let raw: RawTask = serde_json::from_value(val)
             .map_err(|e| async_graphql::Error::new(format!("failed to parse task: {e}")))?;
         Ok(GqlTask(raw))
@@ -137,7 +138,7 @@ impl MutationRoot {
         let val = api
             .tasks_assign_human(&id, body)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let raw: RawTask = serde_json::from_value(val)
             .map_err(|e| async_graphql::Error::new(format!("failed to parse task: {e}")))?;
         Ok(GqlTask(raw))
@@ -154,7 +155,7 @@ impl MutationRoot {
         let val = api
             .tasks_checklist_add(&id, body)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let raw: RawTask = serde_json::from_value(val)
             .map_err(|e| async_graphql::Error::new(format!("failed to parse task: {e}")))?;
         Ok(GqlTask(raw))
@@ -176,7 +177,7 @@ impl MutationRoot {
         let val = api
             .tasks_checklist_update(&id, &item_id, body)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let raw: RawTask = serde_json::from_value(val)
             .map_err(|e| async_graphql::Error::new(format!("failed to parse task: {e}")))?;
         Ok(GqlTask(raw))
@@ -197,7 +198,7 @@ impl MutationRoot {
         let val = api
             .tasks_dependency_add(&id, body)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let raw: RawTask = serde_json::from_value(val)
             .map_err(|e| async_graphql::Error::new(format!("failed to parse task: {e}")))?;
         Ok(GqlTask(raw))
@@ -213,7 +214,7 @@ impl MutationRoot {
         let val = api
             .tasks_dependency_remove(&id, &depends_on, None)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let raw: RawTask = serde_json::from_value(val)
             .map_err(|e| async_graphql::Error::new(format!("failed to parse task: {e}")))?;
         Ok(GqlTask(raw))
@@ -243,7 +244,7 @@ impl MutationRoot {
         let val = api
             .requirements_create(body)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let raw: RawRequirement = serde_json::from_value(val)
             .map_err(|e| async_graphql::Error::new(format!("failed to parse requirement: {e}")))?;
         Ok(GqlRequirement(raw))
@@ -283,7 +284,7 @@ impl MutationRoot {
         let val = api
             .requirements_patch(&id, serde_json::Value::Object(body))
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let raw: RawRequirement = serde_json::from_value(val)
             .map_err(|e| async_graphql::Error::new(format!("failed to parse requirement: {e}")))?;
         Ok(GqlRequirement(raw))
@@ -293,7 +294,7 @@ impl MutationRoot {
         let api = ctx.data::<WebApiService>()?;
         api.requirements_delete(&id)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         Ok(true)
     }
 
@@ -307,7 +308,7 @@ impl MutationRoot {
         let val = api
             .requirements_draft(body)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let raw: RawRequirement = serde_json::from_value(val)
             .map_err(|e| async_graphql::Error::new(format!("failed to parse requirement: {e}")))?;
         Ok(GqlRequirement(raw))
@@ -324,7 +325,7 @@ impl MutationRoot {
         let val = api
             .requirements_refine(body)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let raw: RawRequirement = serde_json::from_value(val)
             .map_err(|e| async_graphql::Error::new(format!("failed to parse requirement: {e}")))?;
         Ok(GqlRequirement(raw))
@@ -348,7 +349,7 @@ impl MutationRoot {
         let val = api
             .workflows_run(body)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let raw: RawWorkflow = serde_json::from_value(val)
             .map_err(|e| async_graphql::Error::new(format!("failed to parse workflow: {e}")))?;
         Ok(GqlWorkflow(raw))
@@ -359,7 +360,7 @@ impl MutationRoot {
         let val = api
             .workflows_pause(&id)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let raw: RawWorkflow = serde_json::from_value(val)
             .map_err(|e| async_graphql::Error::new(format!("failed to parse workflow: {e}")))?;
         Ok(GqlWorkflow(raw))
@@ -375,7 +376,7 @@ impl MutationRoot {
         let val = api
             .workflows_resume(&id, feedback)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let raw: RawWorkflow = serde_json::from_value(val)
             .map_err(|e| async_graphql::Error::new(format!("failed to parse workflow: {e}")))?;
         Ok(GqlWorkflow(raw))
@@ -386,7 +387,7 @@ impl MutationRoot {
         let val = api
             .workflows_cancel(&id)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let raw: RawWorkflow = serde_json::from_value(val)
             .map_err(|e| async_graphql::Error::new(format!("failed to parse workflow: {e}")))?;
         Ok(GqlWorkflow(raw))
@@ -403,7 +404,7 @@ impl MutationRoot {
         let val = api
             .workflows_phase_approve(&workflow_id, &phase_id, note)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let raw: RawWorkflow = serde_json::from_value(val)
             .map_err(|e| async_graphql::Error::new(format!("failed to parse workflow: {e}")))?;
         Ok(GqlWorkflow(raw))
@@ -417,7 +418,7 @@ impl MutationRoot {
         let api = ctx.data::<WebApiService>()?;
         api.daemon_start()
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         Ok(true)
     }
 
@@ -425,7 +426,7 @@ impl MutationRoot {
         let api = ctx.data::<WebApiService>()?;
         api.daemon_stop()
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         Ok(true)
     }
 
@@ -433,7 +434,7 @@ impl MutationRoot {
         let api = ctx.data::<WebApiService>()?;
         api.daemon_pause()
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         Ok(true)
     }
 
@@ -441,7 +442,7 @@ impl MutationRoot {
         let api = ctx.data::<WebApiService>()?;
         api.daemon_resume()
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         Ok(true)
     }
 
@@ -449,7 +450,7 @@ impl MutationRoot {
         let api = ctx.data::<WebApiService>()?;
         api.daemon_clear_logs()
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         Ok(true)
     }
 
@@ -475,7 +476,7 @@ impl MutationRoot {
         let val = api
             .projects_create(body)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         Ok(GqlProject(val))
     }
 
@@ -501,7 +502,7 @@ impl MutationRoot {
         let val = api
             .projects_patch(&id, serde_json::Value::Object(body))
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         Ok(GqlProject(val))
     }
 
@@ -509,7 +510,7 @@ impl MutationRoot {
         let api = ctx.data::<WebApiService>()?;
         api.projects_delete(&id)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         Ok(true)
     }
 
@@ -518,7 +519,7 @@ impl MutationRoot {
         let val = api
             .projects_load(&id)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         Ok(GqlProject(val))
     }
 
@@ -527,7 +528,7 @@ impl MutationRoot {
         let val = api
             .projects_archive(&id)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         Ok(GqlProject(val))
     }
 
@@ -544,7 +545,7 @@ impl MutationRoot {
         let body = json!({ "task_ids": task_ids });
         api.queue_reorder(body)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         Ok(true)
     }
 
@@ -558,7 +559,7 @@ impl MutationRoot {
         let body = json!({ "reason": reason });
         api.queue_hold(&task_id, body)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         Ok(true)
     }
 
@@ -567,7 +568,7 @@ impl MutationRoot {
         let body = json!({});
         api.queue_release(&task_id, body)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         Ok(true)
     }
 
@@ -585,7 +586,7 @@ impl MutationRoot {
         let val = api
             .vision_save(body)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         Ok(GqlVision(val))
     }
 
@@ -599,7 +600,7 @@ impl MutationRoot {
         let val = api
             .vision_refine(body)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         Ok(GqlVision(val))
     }
 
@@ -622,7 +623,7 @@ impl MutationRoot {
         });
         api.reviews_handoff(body)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         Ok(true)
     }
 }

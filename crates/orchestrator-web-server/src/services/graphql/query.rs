@@ -1,6 +1,7 @@
 use async_graphql::{Context, Object, Result, ID};
 use orchestrator_web_api::WebApiService;
 
+use super::gql_err;
 use super::types::{
     GqlAgentRun, GqlDaemonHealth, GqlDaemonLog, GqlDaemonStatus, GqlPhaseOutput, GqlProject,
     GqlQueueEntry, GqlQueueStats, GqlRequirement, GqlSystemInfo, GqlTask, GqlTaskStats, GqlVision,
@@ -33,7 +34,7 @@ impl QueryRoot {
                 search,
             )
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let tasks: Vec<RawTask> = serde_json::from_value(val).unwrap_or_default();
         Ok(tasks.into_iter().map(GqlTask).collect())
     }
@@ -48,7 +49,7 @@ impl QueryRoot {
                 Ok(Some(GqlTask(raw)))
             }
             Err(e) if e.code == "not_found" => Ok(None),
-            Err(e) => Err(async_graphql::Error::new(e.message.clone())),
+            Err(e) => Err(gql_err(e)),
         }
     }
 
@@ -57,7 +58,7 @@ impl QueryRoot {
         let val = api
             .tasks_prioritized()
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let tasks: Vec<RawTask> = serde_json::from_value(val).unwrap_or_default();
         Ok(tasks.into_iter().map(GqlTask).collect())
     }
@@ -72,7 +73,7 @@ impl QueryRoot {
                 Ok(Some(GqlTask(raw)))
             }
             Err(e) if e.code == "not_found" => Ok(None),
-            Err(e) => Err(async_graphql::Error::new(e.message.clone())),
+            Err(e) => Err(gql_err(e)),
         }
     }
 
@@ -81,7 +82,7 @@ impl QueryRoot {
         let val = api
             .tasks_stats()
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         Ok(GqlTaskStats(val))
     }
 
@@ -90,7 +91,7 @@ impl QueryRoot {
         let val = api
             .requirements_list()
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let reqs: Vec<RawRequirement> = serde_json::from_value(val).unwrap_or_default();
         Ok(reqs.into_iter().map(GqlRequirement).collect())
     }
@@ -105,7 +106,7 @@ impl QueryRoot {
                 Ok(Some(GqlRequirement(raw)))
             }
             Err(e) if e.code == "not_found" => Ok(None),
-            Err(e) => Err(async_graphql::Error::new(e.message.clone())),
+            Err(e) => Err(gql_err(e)),
         }
     }
 
@@ -118,7 +119,7 @@ impl QueryRoot {
         let val = api
             .workflows_list()
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let mut workflows: Vec<RawWorkflow> = serde_json::from_value(val).unwrap_or_default();
         if let Some(status_filter) = status {
             workflows.retain(|w| w.status == status_filter);
@@ -136,7 +137,7 @@ impl QueryRoot {
                 Ok(Some(GqlWorkflow(raw)))
             }
             Err(e) if e.code == "not_found" => Ok(None),
-            Err(e) => Err(async_graphql::Error::new(e.message.clone())),
+            Err(e) => Err(gql_err(e)),
         }
     }
 
@@ -149,7 +150,7 @@ impl QueryRoot {
         let val = api
             .workflows_checkpoints(&workflow_id)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let checkpoints: Vec<serde_json::Value> =
             serde_json::from_value(val).unwrap_or_default();
         Ok(checkpoints
@@ -182,7 +183,7 @@ impl QueryRoot {
         let val = api
             .workflows_phase_output(&workflow_id, phase_id.as_deref(), tail)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let lines: Vec<String> = val
             .get("lines")
             .and_then(|v| v.as_array())
@@ -218,7 +219,7 @@ impl QueryRoot {
         let val = api
             .tasks_list(None, None, None, None, None, vec![], None, None, search)
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let all_tasks: Vec<RawTask> = serde_json::from_value(val).unwrap_or_default();
         let priority_order = |p: &str| -> u8 {
             match p.to_lowercase().as_str() {
@@ -266,7 +267,7 @@ impl QueryRoot {
                     })
                     .collect())
             }
-            Err(e) => Err(async_graphql::Error::new(e.message.clone())),
+            Err(e) => Err(gql_err(e)),
         }
     }
 
@@ -275,7 +276,7 @@ impl QueryRoot {
         let val = api
             .daemon_health()
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let health = serde_json::from_value::<serde_json::Value>(val).unwrap_or_default();
         Ok(GqlDaemonHealth {
             healthy: health.get("healthy").and_then(|v| v.as_bool()).unwrap_or(false),
@@ -308,7 +309,7 @@ impl QueryRoot {
         let val = api
             .daemon_status()
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         Ok(GqlDaemonStatus(val))
     }
 
@@ -321,7 +322,7 @@ impl QueryRoot {
         let val = api
             .daemon_logs(limit.map(|l| l as usize))
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let logs: Vec<serde_json::Value> = serde_json::from_value(val).unwrap_or_default();
         Ok(logs
             .into_iter()
@@ -339,7 +340,7 @@ impl QueryRoot {
         let val = api
             .daemon_agents()
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let agents = val.as_array().cloned().unwrap_or_default();
         Ok(agents
             .iter()
@@ -378,7 +379,7 @@ impl QueryRoot {
         let val = api
             .projects_list()
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let projects: Vec<serde_json::Value> = serde_json::from_value(val).unwrap_or_default();
         Ok(projects.into_iter().map(GqlProject).collect())
     }
@@ -388,7 +389,7 @@ impl QueryRoot {
         match api.projects_get(&id).await {
             Ok(val) => Ok(Some(GqlProject(val))),
             Err(e) if e.code == "not_found" => Ok(None),
-            Err(e) => Err(async_graphql::Error::new(e.message.clone())),
+            Err(e) => Err(gql_err(e)),
         }
     }
 
@@ -397,7 +398,7 @@ impl QueryRoot {
         let val = api
             .projects_active()
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let projects: Vec<serde_json::Value> = serde_json::from_value(val).unwrap_or_default();
         Ok(projects.into_iter().map(GqlProject).collect())
     }
@@ -407,7 +408,7 @@ impl QueryRoot {
         match api.vision_get().await {
             Ok(val) => Ok(Some(GqlVision(val))),
             Err(e) if e.code == "not_found" => Ok(None),
-            Err(e) => Err(async_graphql::Error::new(e.message.clone())),
+            Err(e) => Err(gql_err(e)),
         }
     }
 
@@ -416,7 +417,7 @@ impl QueryRoot {
         let val = api
             .queue_list()
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         let entries: Vec<serde_json::Value> = serde_json::from_value(val).unwrap_or_default();
         Ok(entries.into_iter().map(GqlQueueEntry).collect())
     }
@@ -426,7 +427,7 @@ impl QueryRoot {
         let val = api
             .queue_stats()
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         Ok(GqlQueueStats(val))
     }
 
@@ -435,7 +436,7 @@ impl QueryRoot {
         let val = api
             .system_info()
             .await
-            .map_err(|e| async_graphql::Error::new(e.message.clone()))?;
+            .map_err(gql_err)?;
         Ok(GqlSystemInfo {
             platform: val.get("platform").and_then(|v| v.as_str()).map(String::from),
             arch: val.get("arch").and_then(|v| v.as_str()).map(String::from),

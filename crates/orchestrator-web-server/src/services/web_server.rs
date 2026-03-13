@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tower_http::compression::CompressionLayer;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use crate::models::WebServerConfig;
 use crate::services::docs_html::render_openapi_docs_html;
@@ -189,6 +190,28 @@ fn build_router(state: AppState) -> Router {
         .route("/{*path}", get(static_handler))
         .layer(axum::Extension(gql_schema))
         .layer(CompressionLayer::new())
+        .layer(
+            CorsLayer::new()
+                .allow_origin(AllowOrigin::predicate(|origin, _| {
+                    origin
+                        .to_str()
+                        .map(|o| {
+                            o.starts_with("http://localhost")
+                                || o.starts_with("http://127.0.0.1")
+                        })
+                        .unwrap_or(false)
+                }))
+                .allow_methods([
+                    axum::http::Method::GET,
+                    axum::http::Method::POST,
+                    axum::http::Method::OPTIONS,
+                ])
+                .allow_headers([
+                    axum::http::header::CONTENT_TYPE,
+                    axum::http::header::AUTHORIZATION,
+                ])
+                .max_age(Duration::from_secs(3600)),
+        )
         .with_state(state)
 }
 

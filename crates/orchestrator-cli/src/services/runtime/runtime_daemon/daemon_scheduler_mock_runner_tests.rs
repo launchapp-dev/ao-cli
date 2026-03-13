@@ -68,11 +68,13 @@ fn prepend_runner_to_path(temp: &TempDir) -> Result<EnvVarGuard> {
 }
 
 fn read_with_retry(path: &Path) -> Result<String> {
-    for _ in 0..50 {
+    let mut delay = std::time::Duration::from_millis(10);
+    for _ in 0..20 {
         if let Ok(value) = fs::read_to_string(path) {
             return Ok(value);
         }
-        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::thread::sleep(delay);
+        delay = (delay * 2).min(std::time::Duration::from_millis(500));
     }
 
     fs::read_to_string(path).with_context(|| format!("{} should be readable", path.display()))
@@ -85,7 +87,8 @@ async fn run_until_schedule_completed(
     now: chrono::DateTime<Utc>,
     schedule_id: &str,
 ) -> Result<ProjectTickSummary> {
-    for _ in 0..100 {
+    let mut delay = Duration::from_millis(10);
+    for _ in 0..20 {
         let summary = slim_project_tick_at(project_root, args, process_manager, false, now).await?;
         let state = load_schedule_state(Path::new(project_root))?;
         if state
@@ -95,7 +98,8 @@ async fn run_until_schedule_completed(
         {
             return Ok(summary);
         }
-        sleep(Duration::from_millis(25)).await;
+        sleep(delay).await;
+        delay = (delay * 2).min(Duration::from_millis(500));
     }
 
     anyhow::bail!("schedule {schedule_id} did not reach completed state in time")
@@ -108,13 +112,15 @@ async fn run_until_task_done(
     now: chrono::DateTime<Utc>,
     task_id: &str,
 ) -> Result<ProjectTickSummary> {
-    for _ in 0..100 {
+    let mut delay = Duration::from_millis(10);
+    for _ in 0..20 {
         let summary = slim_project_tick_at(project_root, args, process_manager, false, now).await?;
         let refreshed_hub = Arc::new(FileServiceHub::new(project_root)?);
         if refreshed_hub.tasks().get(task_id).await?.status == TaskStatus::Done {
             return Ok(summary);
         }
-        sleep(Duration::from_millis(25)).await;
+        sleep(delay).await;
+        delay = (delay * 2).min(Duration::from_millis(500));
     }
 
     anyhow::bail!("task {task_id} did not reach done state in time")

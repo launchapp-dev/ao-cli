@@ -3,13 +3,20 @@ mod query;
 mod subscription;
 pub(crate) mod types;
 
-use async_graphql::Schema;
+use async_graphql::{ErrorExtensions, Schema};
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse, GraphQLSubscription};
 use axum::Extension;
 use mutation::MutationRoot;
-use orchestrator_web_api::WebApiService;
+use orchestrator_web_api::{WebApiError, WebApiService};
 use query::QueryRoot;
 use subscription::SubscriptionRoot;
+
+pub(crate) fn gql_err(e: WebApiError) -> async_graphql::Error {
+    async_graphql::Error::new(&e.message).extend_with(|_, ext| {
+        ext.set("code", e.code.clone());
+        ext.set("exit_code", e.exit_code);
+    })
+}
 
 pub type AoSchema = Schema<QueryRoot, MutationRoot, SubscriptionRoot>;
 

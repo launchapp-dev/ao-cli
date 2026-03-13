@@ -142,7 +142,7 @@ describe("task and workflow control center", () => {
     renderInRouter(<WorkflowsPage />);
 
     expect(screen.getByText("No workflows yet")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "New Workflow" })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "New Workflow" }).length).toBeGreaterThan(0);
   });
 
   it("shows stat cards with workflow counts", () => {

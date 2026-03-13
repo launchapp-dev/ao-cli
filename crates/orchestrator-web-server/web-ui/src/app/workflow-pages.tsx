@@ -1,20 +1,12 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useQuery, useMutation } from "@/lib/graphql/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsTrigger, TabsList } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   WorkflowsDocument,
   WorkflowDetailDocument,
@@ -24,35 +16,152 @@ import {
   CancelWorkflowDocument,
   ApprovePhaseDocument,
 } from "@/lib/graphql/generated/graphql";
-import { statusColor, PageLoading, PageError, StatCard } from "./shared";
+import { statusColor, StatusDot, PageLoading, PageError, StatCard, SectionHeading } from "./shared";
+
+function useElapsedTime(startedAt: string | null | undefined): string {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!startedAt) return;
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [startedAt]);
+  if (!startedAt) return "";
+  const ms = Date.now() - new Date(startedAt).getTime();
+  return formatDuration(ms);
+}
+
+function formatTimeAgo(ts: string | null | undefined): string {
+  if (!ts) return "";
+  const ms = Date.now() - new Date(ts).getTime();
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 0) return "0s";
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+
+function getWorkflowStartedAt(wf: { phases?: readonly { startedAt?: string | null }[] | null }): string | null {
+  const phases = wf.phases ?? [];
+  for (const p of phases) {
+    if (p.startedAt) return p.startedAt;
+  }
+  return null;
+}
+
+function getWorkflowCompletedAt(wf: { phases?: readonly { completedAt?: string | null }[] | null }): string | null {
+  const phases = wf.phases ?? [];
+  for (let i = phases.length - 1; i >= 0; i--) {
+    if (phases[i].completedAt) return phases[i].completedAt!;
+  }
+  return null;
+}
+
+type WfPhase = { phaseId: string; status?: string | null; startedAt?: string | null; completedAt?: string | null; attempt?: number | null; errorMessage?: string | null };
+type WfSummary = { id: string; taskId: string; workflowRef?: string | null; status?: string | null; statusRaw?: string | null; currentPhase?: string | null; totalReworks?: number | null; phases?: readonly WfPhase[] | null };
+
+function ActiveWorkflowRow({ wf }: { wf: WfSummary }) {
+  const phases = wf.phases ?? [];
+  const completed = phases.filter((p) => p.status === "completed").length;
+  const total = phases.length;
+  const pct = total > 0 ? (completed / total) * 100 : 0;
+  const startedAt = getWorkflowStartedAt(wf);
+  const elapsed = useElapsedTime(startedAt);
+
+  return (
+    <Link to={`/workflows/${wf.id}`}>
+      <Card className="border-border/40 bg-card/60 p-3 hover:border-border/60 transition-colors">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 min-w-0">
+            <StatusDot status={wf.statusRaw ?? ""} />
+            <span className="font-mono text-xs text-muted-foreground">{wf.taskId}</span>
+            <span className="text-sm font-medium truncate">{wf.id}</span>
+          </div>
+          <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0">
+            {wf.currentPhase && <span className="font-mono">{wf.currentPhase}</span>}
+            <span>{completed}/{total}</span>
+            {elapsed && <span>{elapsed}</span>}
+          </div>
+        </div>
+        <div className="mt-2 h-1 rounded-full bg-muted/30">
+          <div className="h-full rounded-full bg-[var(--ao-running)] transition-all" style={{ width: `${pct}%` }} />
+        </div>
+        {phases.length > 0 && (
+          <div className="flex gap-1 mt-2 flex-wrap">
+            {phases.map((p) => (
+              <span key={p.phaseId} className="text-[10px] font-mono text-muted-foreground">
+                {p.status === "completed" ? "\u2713" : p.status === "running" ? "\u25C9" : "\u00B7"}{p.phaseId}
+              </span>
+            ))}
+          </div>
+        )}
+      </Card>
+    </Link>
+  );
+}
+
+function RecentWorkflowRow({ wf }: { wf: WfSummary }) {
+  const startedAt = getWorkflowStartedAt(wf);
+  const completedAt = getWorkflowCompletedAt(wf);
+  const duration = startedAt && completedAt ? formatDuration(new Date(completedAt).getTime() - new Date(startedAt).getTime()) : "";
+  const failedPhase = (wf.phases ?? []).find((p) => p.status === "failed");
+  const statusIcon = wf.statusRaw === "completed" ? "\u2713" : wf.statusRaw === "failed" ? "\u2717" : "\u2014";
+
+  return (
+    <Link to={`/workflows/${wf.id}`} className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-muted/20 transition-colors">
+      <span className={`text-xs w-4 text-center ${wf.statusRaw === "failed" ? "text-destructive" : "text-muted-foreground"}`}>{statusIcon}</span>
+      <span className="font-mono text-xs text-muted-foreground">{wf.taskId}</span>
+      <span className="text-sm truncate flex-1">{wf.id}</span>
+      {failedPhase && <span className="text-xs text-destructive font-mono">{failedPhase.phaseId}</span>}
+      {duration && <span className="text-xs text-muted-foreground">{duration}</span>}
+      {completedAt && <span className="text-xs text-muted-foreground">{formatTimeAgo(completedAt)}</span>}
+    </Link>
+  );
+}
 
 export function WorkflowsPage() {
-  const [statusFilter, setStatusFilter] = useState<string>("");
   const [result, reexecute] = useQuery({
     query: WorkflowsDocument,
-    variables: { status: statusFilter || undefined },
   });
   const [, runWf] = useMutation(RunWorkflowDocument);
   const [, pauseWf] = useMutation(PauseWorkflowDocument);
   const [, resumeWf] = useMutation(ResumeWorkflowDocument);
   const [, cancelWf] = useMutation(CancelWorkflowDocument);
   const [runTaskId, setRunTaskId] = useState("");
+  const [showNewForm, setShowNewForm] = useState(false);
   const [feedback, setFeedback] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
 
   const { data, fetching, error } = result;
   const workflows = data?.workflows ?? [];
 
   const counts = useMemo(() => {
-    const c = { running: 0, paused: 0, completed: 0, failed: 0 };
+    const c = { running: 0, queued: 0, completed: 0, failed: 0, paused: 0, escalated: 0 };
     for (const w of workflows) {
       const s = (w.statusRaw ?? "").toLowerCase();
       if (s === "running") c.running++;
+      else if (s === "queued") c.queued++;
       else if (s === "paused") c.paused++;
       else if (s === "completed") c.completed++;
       else if (s === "failed") c.failed++;
+      else if (s === "escalated") c.escalated++;
     }
     return c;
   }, [workflows]);
+
+  const activeWorkflows = useMemo(() => workflows.filter((w) => ["running", "paused", "queued"].includes((w.statusRaw ?? "").toLowerCase())), [workflows]);
+  const escalatedWorkflows = useMemo(() => workflows.filter((w) => (w.statusRaw ?? "").toLowerCase() === "escalated"), [workflows]);
+  const recentWorkflows = useMemo(() => workflows.filter((w) => ["completed", "failed", "cancelled"].includes((w.statusRaw ?? "").toLowerCase())).slice(0, 20), [workflows]);
 
   if (fetching) return <PageLoading />;
   if (error) return <PageError message={error.message} />;
@@ -65,99 +174,105 @@ export function WorkflowsPage() {
     else {
       setFeedback({ kind: "ok", message: `Workflow started for ${runTaskId}.` });
       setRunTaskId("");
+      setShowNewForm(false);
       reexecute({ requestPolicy: "network-only" });
     }
   };
 
-  const onAction = async (id: string, action: "pause" | "resume" | "cancel") => {
-    const fn = action === "pause" ? pauseWf : action === "resume" ? resumeWf : cancelWf;
-    const { error: err } = await fn({ id });
-    if (err) setFeedback({ kind: "error", message: err.message });
-    else {
-      setFeedback({ kind: "ok", message: `${action} applied to ${id}.` });
-      reexecute({ requestPolicy: "network-only" });
+  const onBatchAction = async (action: "pause" | "cancel") => {
+    const fn = action === "pause" ? pauseWf : cancelWf;
+    const targets = activeWorkflows.filter((w) => action === "pause" ? w.statusRaw === "running" : !["completed", "failed", "cancelled"].includes(w.statusRaw ?? ""));
+    for (const w of targets) {
+      await fn({ id: w.id });
     }
+    reexecute({ requestPolicy: "network-only" });
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Workflows</h1>
-        <span className="text-sm text-muted-foreground">{workflows.length} total</span>
-      </div>
-
-      <div className="grid grid-cols-4 gap-2">
-        <StatCard label="Running" value={counts.running} />
-        <StatCard label="Paused" value={counts.paused} />
-        <StatCard label="Completed" value={counts.completed} />
-        <StatCard label="Failed" value={counts.failed} />
-      </div>
-
-      <div className="flex gap-2 items-end">
-        <form onSubmit={onRun} className="flex gap-2 items-end">
-          <Input
-            placeholder="Task ID (e.g. TASK-014)"
-            value={runTaskId}
-            onChange={(e) => setRunTaskId(e.target.value)}
-            className="w-48"
-          />
-          <Button type="submit" size="sm">Run Workflow</Button>
-        </form>
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Workflows</h1>
+          <p className="text-sm text-muted-foreground">{counts.running} running &middot; {counts.queued} queued</p>
+        </div>
+        <div className="relative">
+          <Button onClick={() => setShowNewForm(!showNewForm)}>New Workflow</Button>
+          {showNewForm && (
+            <div className="absolute right-0 top-full mt-2 z-10">
+              <Card className="border-border/40 bg-card/60 p-3 w-64">
+                <form onSubmit={onRun} className="space-y-2">
+                  <Input
+                    placeholder="Task ID (e.g. TASK-014)"
+                    value={runTaskId}
+                    onChange={(e) => setRunTaskId(e.target.value)}
+                    autoFocus
+                  />
+                  <Button type="submit" size="sm" className="w-full">Run Workflow</Button>
+                </form>
+              </Card>
+            </div>
+          )}
+        </div>
       </div>
 
       {feedback && (
-        <Alert variant={feedback.kind === "error" ? "destructive" : "default"}>
+        <Alert variant={feedback.kind === "error" ? "destructive" : "default"} role={feedback.kind === "error" ? "alert" : "status"}>
           <AlertDescription>{feedback.message}</AlertDescription>
         </Alert>
       )}
 
-      <Tabs defaultValue="all" onValueChange={(v) => setStatusFilter(v === "all" ? "" : v)}>
-        <TabsList>
-          <TabsTrigger value="all">All</TabsTrigger>
-          <TabsTrigger value="running">Running</TabsTrigger>
-          <TabsTrigger value="paused">Paused</TabsTrigger>
-          <TabsTrigger value="completed">Completed</TabsTrigger>
-          <TabsTrigger value="failed">Failed</TabsTrigger>
-        </TabsList>
-      </Tabs>
+      {(escalatedWorkflows.length > 0) && (
+        <Card className="border-amber-500/40 bg-amber-500/5">
+          <CardContent className="pt-3 pb-3 px-4">
+            <p className="text-xs uppercase tracking-wider text-amber-500/80 font-medium mb-2">Attention Required</p>
+            <div className="space-y-1">
+              {escalatedWorkflows.map((wf) => (
+                <Link key={wf.id} to={`/workflows/${wf.id}`} className="flex items-center gap-2 text-sm hover:underline">
+                  <span className="font-mono text-xs text-muted-foreground">{wf.taskId}</span>
+                  <span>{wf.id}</span>
+                  <Badge variant="outline" className="text-amber-500 border-amber-500/40 text-[10px]">escalated</Badge>
+                </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-      {workflows.length === 0 ? (
-        <p className="text-sm text-muted-foreground py-8 text-center">No workflows found.</p>
-      ) : (
+      <div className="grid grid-cols-4 gap-2">
+        <StatCard label="Running" value={counts.running} accent />
+        <StatCard label="Queued" value={counts.queued} />
+        <StatCard label="Completed" value={counts.completed} />
+        <StatCard label="Failed" value={counts.failed} />
+      </div>
+
+      {activeWorkflows.length > 0 && (
         <div className="space-y-3">
-          {workflows.map((wf) => (
-            <Card key={wf.id}>
-              <CardContent className="pt-4">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <Link to={`/workflows/${wf.id}`} className="font-mono text-sm underline">{wf.id}</Link>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Task: <Link to={`/tasks/${wf.taskId}`} className="underline">{wf.taskId}</Link>
-                      {wf.currentPhase && <> &middot; Phase: {wf.currentPhase}</>}
-                      {(wf.totalReworks ?? 0) > 0 && <> &middot; {wf.totalReworks} reworks</>}
-                    </p>
-                  </div>
-                  <Badge variant={statusColor(wf.statusRaw ?? "")}>{wf.statusRaw}</Badge>
-                </div>
+          <div className="flex items-center justify-between">
+            <SectionHeading>Active</SectionHeading>
+            <div className="flex gap-1">
+              <Button size="sm" variant="outline" onClick={() => onBatchAction("pause")} disabled={counts.running === 0}>Pause All</Button>
+              <Button size="sm" variant="ghost" className="text-destructive/60 hover:text-destructive" onClick={() => onBatchAction("cancel")}>Cancel All</Button>
+            </div>
+          </div>
+          <div className="space-y-2">
+            {activeWorkflows.map((wf) => <ActiveWorkflowRow key={wf.id} wf={wf} />)}
+          </div>
+        </div>
+      )}
 
-                {(wf.phases ?? []).length > 0 && (
-                  <div className="flex gap-1 mt-2 flex-wrap">
-                    {wf.phases!.map((p) => (
-                      <Badge key={p.phaseId} variant={statusColor(p.status ?? "")} className="text-[10px] font-mono">
-                        {p.phaseId}
-                      </Badge>
-                    ))}
-                  </div>
-                )}
+      {recentWorkflows.length > 0 && (
+        <div className="space-y-2">
+          <SectionHeading>Recent</SectionHeading>
+          <div>
+            {recentWorkflows.map((wf) => <RecentWorkflowRow key={wf.id} wf={wf} />)}
+          </div>
+        </div>
+      )}
 
-                <div className="flex gap-1 mt-2">
-                  <Button size="sm" variant="outline" onClick={() => onAction(wf.id, "pause")} disabled={wf.statusRaw !== "running"}>Pause</Button>
-                  <Button size="sm" variant="outline" onClick={() => onAction(wf.id, "resume")} disabled={wf.statusRaw !== "paused"}>Resume</Button>
-                  <Button size="sm" variant="destructive" onClick={() => onAction(wf.id, "cancel")} disabled={["completed", "failed", "cancelled"].includes(wf.statusRaw ?? "")}>Cancel</Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+      {workflows.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-12 gap-3">
+          <p className="text-sm text-muted-foreground/60">No workflows yet</p>
+          <Button variant="outline" onClick={() => setShowNewForm(true)}>New Workflow</Button>
         </div>
       )}
     </div>
@@ -176,6 +291,8 @@ export function WorkflowDetailPage() {
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [approveTarget, setApproveTarget] = useState<string | null>(null);
   const [approveNote, setApproveNote] = useState("");
+  const [escalationFeedback, setEscalationFeedback] = useState("");
+  const [expandedDecisions, setExpandedDecisions] = useState<Set<string>>(new Set());
 
   const { data, fetching, error } = result;
   if (fetching) return <PageLoading />;
@@ -202,7 +319,19 @@ export function WorkflowDetailPage() {
 
   const isRunning = wf.statusRaw === "running";
   const isPaused = wf.statusRaw === "paused";
+  const isFailed = wf.statusRaw === "failed";
+  const isEscalated = wf.statusRaw === "escalated";
   const isTerminal = ["completed", "failed", "cancelled"].includes(wf.statusRaw ?? "");
+
+  const toggleDecision = (phaseId: string) => {
+    setExpandedDecisions((prev) => {
+      const next = new Set(prev);
+      if (next.has(phaseId)) next.delete(phaseId); else next.add(phaseId);
+      return next;
+    });
+  };
+
+  const phaseDecisions = (phaseId: string) => decisions.filter((d) => d.phaseId === phaseId);
 
   return (
     <div className="space-y-6">
@@ -218,71 +347,203 @@ export function WorkflowDetailPage() {
             {(wf.totalReworks ?? 0) > 0 && <Badge variant="outline">{wf.totalReworks} reworks</Badge>}
           </div>
         </div>
-        {!isTerminal && (
+        {!isTerminal && !isEscalated && (
           <div className="flex items-center gap-2">
             {isRunning && (
-              <Button variant="secondary" disabled={wfOperating} onClick={() => wfAction("Pause", () => pauseWf({ id: workflowId! }))}>
-                Pause
-              </Button>
+              <>
+                <Button variant="secondary" disabled={wfOperating} onClick={() => wfAction("Pause", () => pauseWf({ id: workflowId! }))}>
+                  Pause
+                </Button>
+                {confirmCancel ? (
+                  <>
+                    <Button variant="destructive" disabled={wfOperating} onClick={() => { setConfirmCancel(false); wfAction("Cancel", () => cancelWf({ id: workflowId! })); }}>
+                      Confirm Cancel
+                    </Button>
+                    <Button variant="outline" onClick={() => setConfirmCancel(false)}>Back</Button>
+                  </>
+                ) : (
+                  <Button variant="ghost" className="text-destructive/60 hover:text-destructive" disabled={wfOperating} onClick={() => setConfirmCancel(true)}>
+                    Cancel
+                  </Button>
+                )}
+              </>
             )}
             {isPaused && (
-              <Button variant="secondary" disabled={wfOperating} onClick={() => wfAction("Resume", () => resumeWf({ id: workflowId! }))}>
-                Resume
-              </Button>
-            )}
-            {confirmCancel ? (
               <>
-                <Button variant="destructive" disabled={wfOperating} onClick={() => { setConfirmCancel(false); wfAction("Cancel", () => cancelWf({ id: workflowId! })); }}>
-                  Confirm Cancel
+                <Button variant="secondary" disabled={wfOperating} onClick={() => wfAction("Resume", () => resumeWf({ id: workflowId! }))}>
+                  Resume
                 </Button>
-                <Button variant="outline" onClick={() => setConfirmCancel(false)}>Back</Button>
+                {confirmCancel ? (
+                  <>
+                    <Button variant="destructive" disabled={wfOperating} onClick={() => { setConfirmCancel(false); wfAction("Cancel", () => cancelWf({ id: workflowId! })); }}>
+                      Confirm Cancel
+                    </Button>
+                    <Button variant="outline" onClick={() => setConfirmCancel(false)}>Back</Button>
+                  </>
+                ) : (
+                  <Button variant="ghost" className="text-destructive/60 hover:text-destructive" disabled={wfOperating} onClick={() => setConfirmCancel(true)}>
+                    Cancel
+                  </Button>
+                )}
               </>
-            ) : (
-              <Button variant="destructive" disabled={wfOperating} onClick={() => setConfirmCancel(true)}>
-                Cancel Workflow
-              </Button>
+            )}
+            {isFailed && (
+              <>
+                <Button variant="secondary" disabled={wfOperating} onClick={() => wfAction("Retry", () => resumeWf({ id: workflowId! }))}>
+                  Retry
+                </Button>
+                {confirmCancel ? (
+                  <>
+                    <Button variant="destructive" disabled={wfOperating} onClick={() => { setConfirmCancel(false); wfAction("Cancel", () => cancelWf({ id: workflowId! })); }}>
+                      Confirm Cancel
+                    </Button>
+                    <Button variant="outline" onClick={() => setConfirmCancel(false)}>Back</Button>
+                  </>
+                ) : (
+                  <Button variant="ghost" className="text-destructive/60 hover:text-destructive" disabled={wfOperating} onClick={() => setConfirmCancel(true)}>
+                    Cancel
+                  </Button>
+                )}
+              </>
             )}
           </div>
         )}
       </div>
 
+      {isEscalated && (
+        <Card className="border-amber-500/40 bg-amber-500/5">
+          <CardContent className="pt-3 pb-3 px-4 space-y-3">
+            <p className="text-xs uppercase tracking-wider text-amber-500/80 font-medium">Escalated</p>
+            <Textarea
+              value={escalationFeedback}
+              onChange={(e) => setEscalationFeedback(e.target.value)}
+              placeholder="Provide feedback or instructions..."
+              rows={3}
+            />
+            <div className="flex gap-2">
+              <Button size="sm" disabled={wfOperating} onClick={() => wfAction("Resume", () => resumeWf({ id: workflowId! }))}>
+                Resume
+              </Button>
+              <Button size="sm" variant="outline" disabled={wfOperating} onClick={() => wfAction("Skip", () => approvePhase({ workflowId: workflowId!, phaseId: wf.currentPhase ?? "", note: escalationFeedback || null }))}>
+                Skip
+              </Button>
+              <Button size="sm" variant="ghost" className="text-destructive/60 hover:text-destructive" disabled={wfOperating} onClick={() => wfAction("Cancel", () => cancelWf({ id: workflowId! }))}>
+                Cancel
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {wfMessage && (
-        <Alert variant={wfMessage.startsWith("Error") ? "destructive" : "default"}>
+        <Alert variant={wfMessage.startsWith("Error") ? "destructive" : "default"} role={wfMessage.startsWith("Error") ? "alert" : "status"}>
           <AlertDescription>{wfMessage}</AlertDescription>
         </Alert>
       )}
 
-      <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Phase Timeline</CardTitle></CardHeader>
-        <CardContent>
+      <Card className="border-border/40 bg-card/60">
+        <CardHeader className="pb-2 pt-3 px-4">
+          <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground/60 font-medium">Phase Timeline</CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-3">
           <div className="space-y-2">
-            {(wf.phases ?? []).map((p, i) => (
-              <div key={p.phaseId} className="flex items-start gap-3">
-                <div className="flex flex-col items-center">
-                  <div className={`h-3 w-3 rounded-full ${
-                    p.status === "completed" ? "bg-[var(--ao-success)]" :
-                    p.status === "running" ? "bg-[var(--ao-running)] animate-pulse" :
-                    p.status === "failed" ? "bg-destructive" :
-                    "bg-muted-foreground/30"
-                  }`} />
-                  {i < (wf.phases ?? []).length - 1 && <div className="w-px h-6 bg-border" />}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-sm">{p.phaseId}</span>
-                    <Badge variant={statusColor(p.status ?? "")} className="text-[10px]">{p.status}</Badge>
-                    {(p.attempt ?? 0) > 1 && <span className="text-xs text-muted-foreground">attempt {p.attempt}</span>}
+            {(wf.phases ?? []).map((p, i) => {
+              const pDecisions = phaseDecisions(p.phaseId);
+              const isExpanded = expandedDecisions.has(p.phaseId);
+              const phaseDuration = p.startedAt && p.completedAt ? formatDuration(new Date(p.completedAt).getTime() - new Date(p.startedAt).getTime()) : null;
+              const needsApproval = wf.currentPhase === p.phaseId && !isTerminal && p.status !== "completed" && p.status !== "running" && p.status !== "failed";
+
+              return (
+                <div key={p.phaseId}>
+                  <div className="flex items-start gap-3">
+                    <div className="flex flex-col items-center">
+                      <div className={`h-3 w-3 rounded-full ${
+                        p.status === "completed" ? "bg-[var(--ao-success)]" :
+                        p.status === "running" ? "bg-[var(--ao-running)] animate-pulse" :
+                        p.status === "failed" ? "bg-destructive" :
+                        "bg-muted-foreground/30"
+                      }`} />
+                      {i < (wf.phases ?? []).length - 1 && <div className="w-px h-6 bg-border" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-sm">{p.phaseId}</span>
+                        <Badge variant={statusColor(p.status ?? "")} className="text-[10px]">{p.status}</Badge>
+                        {(p.attempt ?? 0) > 1 && <Badge variant="outline" className="text-[10px]">attempt {p.attempt}</Badge>}
+                        {phaseDuration && <span className="text-xs text-muted-foreground">{phaseDuration}</span>}
+                        {pDecisions.length > 0 && (
+                          <button type="button" onClick={() => toggleDecision(p.phaseId)} className="text-xs text-muted-foreground hover:text-foreground">
+                            {isExpanded ? "\u25BC" : "\u25B6"} {pDecisions.length} decision{pDecisions.length > 1 ? "s" : ""}
+                          </button>
+                        )}
+                      </div>
+                      {p.errorMessage && <p className="text-xs text-destructive mt-0.5">{p.errorMessage}</p>}
+                      {(p.startedAt || p.completedAt) && (
+                        <p className="text-xs text-muted-foreground">
+                          {p.startedAt && <>Started: {p.startedAt}</>}
+                          {p.completedAt && <> &middot; Completed: {p.completedAt}</>}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                  {p.errorMessage && <p className="text-xs text-destructive mt-0.5">{p.errorMessage}</p>}
-                  {(p.startedAt || p.completedAt) && (
-                    <p className="text-xs text-muted-foreground">
-                      {p.startedAt && <>Started: {p.startedAt}</>}
-                      {p.completedAt && <> &middot; Completed: {p.completedAt}</>}
-                    </p>
+
+                  {isExpanded && pDecisions.length > 0 && (
+                    <div className="ml-6 mt-1 space-y-1">
+                      {pDecisions.map((d, di) => (
+                        <Card key={di} className="border-border/30 bg-card/40 p-2">
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="font-medium">{d.decision}</span>
+                            {d.targetPhase && <span className="font-mono text-muted-foreground">&rarr; {d.targetPhase}</span>}
+                            {d.confidence != null && <span className="text-muted-foreground">{((d.confidence) * 100).toFixed(0)}%</span>}
+                            {d.risk != null && <span className="text-amber-500/80">risk: {d.risk}</span>}
+                          </div>
+                          {d.reason && <p className="text-[10px] text-muted-foreground/60 mt-0.5">{d.reason}</p>}
+                        </Card>
+                      ))}
+                    </div>
                   )}
-                  {wf.currentPhase === p.phaseId && !isTerminal && p.status !== "completed" && (
+
+                  {needsApproval && (
+                    <div className="ml-6 mt-2">
+                      <Card className="border-amber-500/40 bg-amber-500/5 p-3">
+                        <p className="text-xs uppercase tracking-wider text-amber-500/80 font-medium mb-2">Phase Approval Required</p>
+                        {approveTarget === p.phaseId ? (
+                          <div className="space-y-2">
+                            <Input
+                              value={approveNote}
+                              onChange={(e) => setApproveNote(e.target.value)}
+                              placeholder="Approval note (optional)..."
+                              className="h-7 text-xs"
+                            />
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                disabled={wfOperating}
+                                onClick={() => {
+                                  setApproveTarget(null);
+                                  wfAction("Phase approval", () => approvePhase({ workflowId: workflowId!, phaseId: p.phaseId, note: approveNote || null }));
+                                  setApproveNote("");
+                                }}
+                              >
+                                Approve
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => { setApproveTarget(null); setApproveNote(""); }}>
+                                Reject
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <Button size="sm" variant="outline" disabled={wfOperating} onClick={() => setApproveTarget(p.phaseId)}>
+                            Review Phase
+                          </Button>
+                        )}
+                      </Card>
+                    </div>
+                  )}
+
+                  {wf.currentPhase === p.phaseId && !isTerminal && (p.status === "running" || p.status === "completed") && p.status !== "completed" && (
                     approveTarget === p.phaseId ? (
-                      <div className="flex items-center gap-2 mt-1">
+                      <div className="ml-6 mt-1 flex items-center gap-2">
                         <Input
                           value={approveNote}
                           onChange={(e) => setApproveNote(e.target.value)}
@@ -305,52 +566,24 @@ export function WorkflowDetailPage() {
                         </Button>
                       </div>
                     ) : (
-                      <Button size="sm" variant="outline" className="mt-1" disabled={wfOperating} onClick={() => setApproveTarget(p.phaseId)}>
+                      <Button size="sm" variant="outline" className="ml-6 mt-1" disabled={wfOperating} onClick={() => setApproveTarget(p.phaseId)}>
                         Approve Phase
                       </Button>
                     )
                   )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </CardContent>
       </Card>
 
-      {decisions.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Decisions</CardTitle></CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Phase</TableHead>
-                  <TableHead>Decision</TableHead>
-                  <TableHead>Target</TableHead>
-                  <TableHead>Confidence</TableHead>
-                  <TableHead>Source</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {decisions.map((d, i) => (
-                  <TableRow key={i}>
-                    <TableCell className="font-mono text-xs">{d.phaseId}</TableCell>
-                    <TableCell>{d.decision}</TableCell>
-                    <TableCell className="font-mono text-xs">{d.targetPhase ?? "-"}</TableCell>
-                    <TableCell>{((d.confidence ?? 0) * 100).toFixed(0)}%</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{d.source}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
-
       {checkpoints.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Checkpoints</CardTitle></CardHeader>
-          <CardContent>
+        <Card className="border-border/40 bg-card/60">
+          <CardHeader className="pb-2 pt-3 px-4">
+            <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground/60 font-medium">Checkpoints</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-3">
             <ul className="space-y-2">
               {checkpoints.map((cp) => (
                 <li key={cp.id} className="text-sm">

@@ -1,6 +1,6 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useMutation } from "@/lib/graphql/client";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -11,7 +11,17 @@ export function ReviewHandoffPage() {
   const [targetRole, setTargetRole] = useState("em");
   const [question, setQuestion] = useState("");
   const [context, setContext] = useState("");
-  const [feedback, setFeedback] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
+  const [feedback, setFeedback] = useState<{
+    kind: "ok" | "error";
+    message: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (feedback?.kind === "ok") {
+      const timer = setTimeout(() => setFeedback(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [feedback]);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -34,17 +44,31 @@ export function ReviewHandoffPage() {
       <h1 className="text-2xl font-semibold tracking-tight">Review Handoff</h1>
 
       {feedback && (
-        <Alert variant={feedback.kind === "error" ? "destructive" : "default"}>
+        <Alert
+          variant={feedback.kind === "error" ? "destructive" : "default"}
+          role={feedback.kind === "error" ? "alert" : "status"}
+        >
           <AlertDescription>{feedback.message}</AlertDescription>
         </Alert>
       )}
 
-      <Card>
-        <CardContent className="pt-4">
+      <Card className="border-border/40 bg-card/60">
+        <CardHeader className="pb-2 pt-3 px-4">
+          <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground/60 font-medium">
+            Review Handoff
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-3">
           <form onSubmit={onSubmit} className="space-y-4">
             <div>
-              <label className="text-sm font-medium">Target Role</label>
+              <label
+                htmlFor="review-target-role"
+                className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium"
+              >
+                Target Role
+              </label>
               <select
+                id="review-target-role"
                 value={targetRole}
                 onChange={(e) => setTargetRole(e.target.value)}
                 className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
@@ -55,7 +79,9 @@ export function ReviewHandoffPage() {
               </select>
             </div>
             <div>
-              <label className="text-sm font-medium">Question</label>
+              <label className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">
+                Question
+              </label>
               <Textarea
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
@@ -65,7 +91,9 @@ export function ReviewHandoffPage() {
               />
             </div>
             <div>
-              <label className="text-sm font-medium">Context (optional)</label>
+              <label className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">
+                Context (optional)
+              </label>
               <Textarea
                 value={context}
                 onChange={(e) => setContext(e.target.value)}

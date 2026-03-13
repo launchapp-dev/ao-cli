@@ -56,14 +56,14 @@ export function ProjectsPage() {
       )}
 
       {feedback && (
-        <Alert variant={feedback.kind === "error" ? "destructive" : "default"}>
+        <Alert variant={feedback.kind === "error" ? "destructive" : "default"} role={feedback.kind === "error" ? "alert" : "status"}>
           <AlertDescription>{feedback.message}</AlertDescription>
         </Alert>
       )}
 
       {showCreate && (
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Create Project</CardTitle></CardHeader>
+        <Card className="border-border/40 bg-card/60">
+          <CardHeader className="pb-2 pt-3 px-4"><CardTitle className="text-xs uppercase tracking-wider text-muted-foreground/60 font-medium">Create Project</CardTitle></CardHeader>
           <CardContent>
             <form onSubmit={onCreateProject} className="space-y-3">
               <Input placeholder="Project name" value={name} onChange={(e) => setName(e.target.value)} required />
@@ -81,7 +81,7 @@ export function ProjectsPage() {
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
           {projects.map((p) => (
             <Link key={p.id} to={`/projects/${p.id}`}>
-              <Card className="hover:border-foreground/20 transition-colors">
+              <Card className="border-border/40 bg-card/60 hover:border-border/60 transition-colors">
                 <CardContent className="pt-4">
                   <p className="font-medium">{p.name}</p>
                   {p.path && <p className="text-xs text-muted-foreground truncate">{p.path}</p>}
@@ -163,7 +163,7 @@ export function ProjectDetailPage() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{project.name}</h1>
@@ -176,7 +176,7 @@ export function ProjectDetailPage() {
       </div>
 
       {feedback && (
-        <Alert variant={feedback.kind === "error" ? "destructive" : "default"}>
+        <Alert variant={feedback.kind === "error" ? "destructive" : "default"} role={feedback.kind === "error" ? "alert" : "status"}>
           <AlertDescription>{feedback.message}</AlertDescription>
         </Alert>
       )}
@@ -199,25 +199,25 @@ export function ProjectDetailPage() {
             <Button size="sm" variant="outline" onClick={() => setConfirmDelete(false)}>Cancel</Button>
           </>
         ) : (
-          <Button size="sm" variant="destructive" onClick={() => setConfirmDelete(true)}>Delete</Button>
+          <Button size="sm" variant="ghost" className="text-destructive/60 hover:text-destructive" onClick={() => setConfirmDelete(true)}>Delete</Button>
         )}
       </div>
 
       {editing && (
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Edit Project</CardTitle></CardHeader>
+        <Card className="border-border/40 bg-card/60">
+          <CardHeader className="pb-2 pt-3 px-4"><CardTitle className="text-xs uppercase tracking-wider text-muted-foreground/60 font-medium">Edit Project</CardTitle></CardHeader>
           <CardContent>
             <form onSubmit={onSave} className="space-y-3">
               <div>
-                <label className="text-sm font-medium">Name</label>
+                <label className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">Name</label>
                 <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
               </div>
               <div>
-                <label className="text-sm font-medium">Description</label>
+                <label className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">Description</label>
                 <Textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} rows={3} />
               </div>
               <div>
-                <label className="text-sm font-medium">Type</label>
+                <label className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">Type</label>
                 <Input value={editType} onChange={(e) => setEditType(e.target.value)} placeholder="e.g., rust, node, python" />
               </div>
               <Button type="submit" size="sm">Save Changes</Button>
@@ -255,13 +255,13 @@ export function RequirementDetailPage() {
         </div>
       </div>
       {req.description && (
-        <Card>
+        <Card className="border-border/40 bg-card/60">
           <CardContent className="pt-4 text-sm whitespace-pre-wrap">{req.description}</CardContent>
         </Card>
       )}
       {(req.linkedTaskIds ?? []).length > 0 && (
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Linked Tasks</CardTitle></CardHeader>
+        <Card className="border-border/40 bg-card/60">
+          <CardHeader className="pb-2 pt-3 px-4"><CardTitle className="text-xs uppercase tracking-wider text-muted-foreground/60 font-medium">Linked Tasks</CardTitle></CardHeader>
           <CardContent>
             <div className="flex gap-2 flex-wrap">
               {req.linkedTaskIds!.map((id) => (

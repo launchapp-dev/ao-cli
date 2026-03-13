@@ -248,7 +248,7 @@ export function PlanningVisionPage() {
       </Card>
 
       {message && (
-        <Alert variant={message.startsWith("Error") ? "destructive" : "default"} className="border-border/30">
+        <Alert variant={message.startsWith("Error") ? "destructive" : "default"} role={message.startsWith("Error") ? "alert" : "status"} className="border-border/30">
           <AlertDescription className="text-xs">{message}</AlertDescription>
         </Alert>
       )}
@@ -483,31 +483,34 @@ export function PlanningRequirementCreatePage() {
         <p className="text-sm text-muted-foreground">Create a requirement entry for the active project.</p>
       </div>
 
-      <Card>
-        <CardContent className="pt-6">
+      <Card className="border-border/40 bg-card/60">
+        <CardHeader className="pb-2 pt-3 px-4">
+          <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground/60 font-medium">Requirement Details</CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-3">
           <form onSubmit={onSubmit} className="space-y-4">
             <div>
-              <label className="text-sm font-medium">Title</label>
+              <label className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">Title</label>
               <Input required value={title} onChange={(e) => setTitle(e.target.value)} />
             </div>
             <div>
-              <label className="text-sm font-medium">Description</label>
+              <label className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">Description</label>
               <Textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium">Priority</label>
-                <select value={priority} onChange={(e) => setPriority(e.target.value)} className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm">
+                <label htmlFor="create-req-priority" className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">Priority</label>
+                <select id="create-req-priority" value={priority} onChange={(e) => setPriority(e.target.value)} className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm">
                   {PRIORITY_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
                 </select>
               </div>
               <div>
-                <label className="text-sm font-medium">Type</label>
+                <label className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">Type</label>
                 <Input value={reqType} onChange={(e) => setReqType(e.target.value)} placeholder="e.g., functional, non-functional" />
               </div>
             </div>
             <div>
-              <label className="text-sm font-medium">Acceptance Criteria</label>
+              <label className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">Acceptance Criteria</label>
               {criteria.length > 0 && (
                 <ul className="mt-1 space-y-1">
                   {criteria.map((c, i) => (
@@ -536,7 +539,7 @@ export function PlanningRequirementCreatePage() {
         </CardContent>
       </Card>
 
-      {errorMsg && <Alert variant="destructive"><AlertDescription>{errorMsg}</AlertDescription></Alert>}
+      {errorMsg && <Alert variant="destructive" role="alert"><AlertDescription>{errorMsg}</AlertDescription></Alert>}
     </div>
   );
 }
@@ -672,14 +675,14 @@ export function PlanningRequirementDetailPage() {
             </div>
             <div className="grid grid-cols-3 gap-4">
               <div>
-                <label className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">Priority</label>
-                <select value={priority} onChange={(e) => setPriority(e.target.value)} className="mt-1 w-full h-9 rounded-md border border-input bg-background px-3 text-sm">
+                <label htmlFor="edit-req-priority" className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">Priority</label>
+                <select id="edit-req-priority" value={priority} onChange={(e) => setPriority(e.target.value)} className="mt-1 w-full h-9 rounded-md border border-input bg-background px-3 text-sm">
                   {PRIORITY_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
                 </select>
               </div>
               <div>
-                <label className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">Status</label>
-                <select value={status} onChange={(e) => setStatus(e.target.value)} className="mt-1 w-full h-9 rounded-md border border-input bg-background px-3 text-sm">
+                <label htmlFor="edit-req-status" className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">Status</label>
+                <select id="edit-req-status" value={status} onChange={(e) => setStatus(e.target.value)} className="mt-1 w-full h-9 rounded-md border border-input bg-background px-3 text-sm">
                   {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
@@ -782,7 +785,7 @@ export function PlanningRequirementDetailPage() {
       </div>
 
       {message && (
-        <Alert variant={message.startsWith("Error") ? "destructive" : "default"} className="border-border/30">
+        <Alert variant={message.startsWith("Error") ? "destructive" : "default"} role={message.startsWith("Error") ? "alert" : "status"} className="border-border/30">
           <AlertDescription className="text-xs">{message}</AlertDescription>
         </Alert>
       )}

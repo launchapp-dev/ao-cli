@@ -2185,6 +2185,15 @@ export function ReviewHandoffPage() {
   );
 }
 
+export function QueuePage() {
+  return (
+    <section className="panel">
+      <h1>Queue</h1>
+      <p>Queue management page — coming soon.</p>
+    </section>
+  );
+}
+
 export function NotFoundPage() {
   return (
     <RouteSection title="Not Found" description="The requested route does not exist.">

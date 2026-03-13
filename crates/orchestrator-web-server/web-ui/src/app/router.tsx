@@ -23,6 +23,7 @@ type ScreenExport =
   | "WorkflowsPage"
   | "WorkflowDetailPage"
   | "WorkflowCheckpointPage"
+  | "QueuePage"
   | "EventsPage"
   | "ReviewHandoffPage"
   | "NotFoundPage";
@@ -40,6 +41,7 @@ const TaskDetailPage = lazyScreen("TaskDetailPage");
 const WorkflowsPage = lazyScreen("WorkflowsPage");
 const WorkflowDetailPage = lazyScreen("WorkflowDetailPage");
 const WorkflowCheckpointPage = lazyScreen("WorkflowCheckpointPage");
+const QueuePage = lazyScreen("QueuePage");
 const EventsPage = lazyScreen("EventsPage");
 const ReviewHandoffPage = lazyScreen("ReviewHandoffPage");
 const NotFoundPage = lazyScreen("NotFoundPage");
@@ -61,6 +63,7 @@ export const APP_ROUTE_PATHS = [
   "/workflows",
   "/workflows/:workflowId",
   "/workflows/:workflowId/checkpoints/:checkpoint",
+  "/queue",
   "/events",
   "/reviews/handoff",
   "*",
@@ -135,6 +138,10 @@ const router = createBrowserRouter([
       {
         path: "workflows/:workflowId/checkpoints/:checkpoint",
         element: withRouteSuspense(<WorkflowCheckpointPage />),
+      },
+      {
+        path: "queue",
+        element: withRouteSuspense(<QueuePage />),
       },
       {
         path: "events",

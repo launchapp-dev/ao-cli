@@ -315,6 +315,7 @@ export enum GqlWorkflowStatus {
 
 export type MutationRoot = {
   __typename?: 'MutationRoot';
+  approvePhase: GqlWorkflow;
   archiveProject: GqlProject;
   assignAgent: GqlTask;
   assignHuman: GqlTask;
@@ -350,6 +351,13 @@ export type MutationRoot = {
   updateRequirement: GqlRequirement;
   updateTask: GqlTask;
   updateTaskStatus: GqlTask;
+};
+
+
+export type MutationRootApprovePhaseArgs = {
+  note?: InputMaybe<Scalars['String']['input']>;
+  phaseId: Scalars['String']['input'];
+  workflowId: Scalars['ID']['input'];
 };
 
 
@@ -989,6 +997,15 @@ export type CancelWorkflowMutationVariables = Exact<{
 
 export type CancelWorkflowMutation = { __typename?: 'MutationRoot', cancelWorkflow: { __typename?: 'GqlWorkflow', id: string, status: GqlWorkflowStatus } };
 
+export type ApprovePhaseMutationVariables = Exact<{
+  workflowId: Scalars['ID']['input'];
+  phaseId: Scalars['String']['input'];
+  note?: InputMaybe<Scalars['String']['input']>;
+}>;
+
+
+export type ApprovePhaseMutation = { __typename?: 'MutationRoot', approvePhase: { __typename?: 'GqlWorkflow', id: string, status: GqlWorkflowStatus, statusRaw: string, currentPhase?: string | null } };
+
 export class TypedDocumentString<TResult, TVariables>
   extends String
   implements DocumentTypeDecoration<TResult, TVariables>
@@ -1616,3 +1633,13 @@ export const CancelWorkflowDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<CancelWorkflowMutation, CancelWorkflowMutationVariables>;
+export const ApprovePhaseDocument = new TypedDocumentString(`
+    mutation ApprovePhase($workflowId: ID!, $phaseId: String!, $note: String) {
+  approvePhase(workflowId: $workflowId, phaseId: $phaseId, note: $note) {
+    id
+    status
+    statusRaw
+    currentPhase
+  }
+}
+    `) as unknown as TypedDocumentString<ApprovePhaseMutation, ApprovePhaseMutationVariables>;

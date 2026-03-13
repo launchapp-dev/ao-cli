@@ -148,6 +148,7 @@ const RUN_WORKFLOW = `
 const PAUSE_WORKFLOW = `mutation PauseWorkflow($id: ID!) { pauseWorkflow(id: $id) { id status } }`;
 const RESUME_WORKFLOW = `mutation ResumeWorkflow($id: ID!) { resumeWorkflow(id: $id) { id status } }`;
 const CANCEL_WORKFLOW = `mutation CancelWorkflow($id: ID!) { cancelWorkflow(id: $id) { id status } }`;
+const APPROVE_PHASE = `mutation ApprovePhase($workflowId: ID!, $phaseId: String!, $note: String) { approvePhase(workflowId: $workflowId, phaseId: $phaseId, note: $note) { id status statusRaw currentPhase } }`;
 
 const DAEMON_START = `mutation { daemonStart }`;
 const DAEMON_STOP = `mutation { daemonStop }`;
@@ -1050,9 +1051,12 @@ export function WorkflowDetailPage() {
   const [, pauseWf] = useMutation(PAUSE_WORKFLOW);
   const [, resumeWf] = useMutation(RESUME_WORKFLOW);
   const [, cancelWf] = useMutation(CANCEL_WORKFLOW);
+  const [, approvePhase] = useMutation(APPROVE_PHASE);
   const [wfMessage, setWfMessage] = useState<string | null>(null);
   const [wfOperating, setWfOperating] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [approveTarget, setApproveTarget] = useState<string | null>(null);
+  const [approveNote, setApproveNote] = useState("");
 
   const { data, fetching, error } = result;
   if (fetching) return <PageLoading />;
@@ -1156,6 +1160,36 @@ export function WorkflowDetailPage() {
                       {p.startedAt && <>Started: {p.startedAt}</>}
                       {p.completedAt && <> &middot; Completed: {p.completedAt}</>}
                     </p>
+                  )}
+                  {wf.currentPhase === p.phaseId && !isTerminal && p.status !== "completed" && (
+                    approveTarget === p.phaseId ? (
+                      <div className="flex items-center gap-2 mt-1">
+                        <Input
+                          value={approveNote}
+                          onChange={(e) => setApproveNote(e.target.value)}
+                          placeholder="Approval note (optional)..."
+                          className="h-7 text-xs max-w-xs"
+                        />
+                        <Button
+                          size="sm"
+                          disabled={wfOperating}
+                          onClick={() => {
+                            setApproveTarget(null);
+                            wfAction("Phase approval", () => approvePhase({ workflowId, phaseId: p.phaseId, note: approveNote || null }));
+                            setApproveNote("");
+                          }}
+                        >
+                          Confirm Approve
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => { setApproveTarget(null); setApproveNote(""); }}>
+                          Cancel
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button size="sm" variant="outline" className="mt-1" disabled={wfOperating} onClick={() => setApproveTarget(p.phaseId)}>
+                        Approve Phase
+                      </Button>
+                    )
                   )}
                 </div>
               </div>

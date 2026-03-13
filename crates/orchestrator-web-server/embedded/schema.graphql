@@ -296,6 +296,7 @@ type MutationRoot {
 	pauseWorkflow(id: ID!): GqlWorkflow!
 	resumeWorkflow(id: ID!): GqlWorkflow!
 	cancelWorkflow(id: ID!): GqlWorkflow!
+	approvePhase(workflowId: ID!, phaseId: String!, note: String): GqlWorkflow!
 	daemonStart: Boolean!
 	daemonStop: Boolean!
 	daemonPause: Boolean!

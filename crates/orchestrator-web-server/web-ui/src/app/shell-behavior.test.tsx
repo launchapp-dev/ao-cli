@@ -1,11 +1,27 @@
 // @vitest-environment jsdom
 
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { AppShellLayout } from "./shell";
+const mocks = vi.hoisted(() => ({
+  useQuery: vi.fn(),
+  useMutation: vi.fn(),
+}));
+
+vi.mock("urql", async () => {
+  const actual = await vi.importActual("urql");
+  return {
+    ...actual,
+    useQuery: mocks.useQuery.mockReturnValue([{ data: null, fetching: false, error: null }, vi.fn()]),
+    useMutation: mocks.useMutation.mockReturnValue([{ fetching: false }, vi.fn()]),
+  };
+});
+
+vi.mock("@/lib/graphql/provider", () => ({
+  GraphQLProvider: ({ children }: { children: ReactNode }) => children,
+}));
 
 vi.mock("./project-context", () => ({
   ProjectContextProvider: ({ children }: { children: ReactNode }) => children,
@@ -17,130 +33,46 @@ vi.mock("./project-context", () => ({
   }),
 }));
 
-type MatchMediaController = {
-  setMatches: (nextValue: boolean) => void;
-};
+import { AppShellLayout, MAIN_CONTENT_ID, PRIMARY_NAV_ITEMS } from "./shell";
 
-describe("AppShellLayout keyboard and responsive behavior", () => {
-  beforeEach(() => {
-    Object.defineProperty(window, "scrollTo", {
-      configurable: true,
-      value: vi.fn(),
-    });
-  });
-
+describe("AppShellLayout structure and navigation", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("keeps primary navigation inert in compact mode until menu opens and restores focus on Escape", async () => {
-    installMatchMedia(true);
+  it("renders main content area with stable id", () => {
     renderShell();
 
-    const menuButton = screen.getByRole("button", { name: "Open primary navigation" });
-    const primaryNav = getPrimaryNav();
-    const firstNavLink = screen.getByRole("link", { name: "Dashboard", hidden: true });
-
-    expect(primaryNav.getAttribute("aria-hidden")).toBe("true");
-    expect(firstNavLink.getAttribute("tabindex")).toBe("-1");
-
-    fireEvent.click(menuButton);
-
-    await waitFor(() => {
-      expect(primaryNav.hasAttribute("aria-hidden")).toBe(false);
-      expect(firstNavLink.getAttribute("tabindex")).toBeNull();
-    });
-    expect(document.activeElement).toBe(firstNavLink);
-
-    fireEvent.keyDown(window, { key: "Escape" });
-
-    await waitFor(() => {
-      expect(menuButton.getAttribute("aria-expanded")).toBe("false");
-      expect(primaryNav.getAttribute("aria-hidden")).toBe("true");
-      expect(document.activeElement).toBe(menuButton);
-    });
+    const main = document.getElementById(MAIN_CONTENT_ID);
+    expect(main).toBeTruthy();
+    expect(main?.tagName).toBe("MAIN");
   });
 
-  it("traps tab focus within the open compact navigation menu", async () => {
-    installMatchMedia(true);
+  it("renders all primary nav links in desktop sidebar", () => {
     renderShell();
 
-    fireEvent.click(screen.getByRole("button", { name: "Open primary navigation" }));
-
-    const firstNavLink = screen.getByRole("link", { name: "Dashboard", hidden: true });
-    const lastNavLink = screen.getByRole("link", { name: "Review Handoff", hidden: true });
-
-    await waitFor(() => {
-      expect(document.activeElement).toBe(firstNavLink);
-    });
-
-    lastNavLink.focus();
-    fireEvent.keyDown(window, { key: "Tab" });
-    expect(document.activeElement).toBe(firstNavLink);
-
-    firstNavLink.focus();
-    fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
-    expect(document.activeElement).toBe(lastNavLink);
+    for (const item of PRIMARY_NAV_ITEMS) {
+      const links = screen.getAllByText(item.label);
+      expect(links.length).toBeGreaterThan(0);
+    }
   });
 
-  it("moves focus into compact navigation when tabbing from outside the nav", async () => {
-    installMatchMedia(true);
+  it("renders breadcrumb navigation", () => {
     renderShell();
 
-    const menuButton = screen.getByRole("button", { name: "Open primary navigation" });
-    fireEvent.click(menuButton);
-
-    const firstNavLink = screen.getByRole("link", { name: "Dashboard", hidden: true });
-    await waitFor(() => {
-      expect(document.activeElement).toBe(firstNavLink);
-    });
-
-    menuButton.focus();
-    expect(document.activeElement).toBe(menuButton);
-
-    fireEvent.keyDown(window, { key: "Tab" });
-    expect(document.activeElement).toBe(firstNavLink);
+    expect(screen.getByLabelText("Breadcrumb")).toBeTruthy();
   });
 
-  it("closes the mobile menu when viewport changes from compact to wide", async () => {
-    const mediaQuery = installMatchMedia(true);
+  it("renders command palette trigger button", () => {
     renderShell();
 
-    const menuButton = screen.getByRole("button", { name: "Open primary navigation" });
-    const primaryNav = getPrimaryNav();
-    const firstNavLink = screen.getByRole("link", { name: "Dashboard", hidden: true });
-
-    fireEvent.click(menuButton);
-    await waitFor(() => {
-      expect(menuButton.getAttribute("aria-expanded")).toBe("true");
-    });
-
-    act(() => {
-      mediaQuery.setMatches(false);
-    });
-
-    await waitFor(() => {
-      expect(menuButton.getAttribute("aria-expanded")).toBe("false");
-      expect(primaryNav.hasAttribute("aria-hidden")).toBe(false);
-      expect(firstNavLink.getAttribute("tabindex")).toBeNull();
-    });
-    expect(screen.queryByRole("button", { name: "Close navigation menu" })).toBeNull();
+    expect(screen.getByText("Search...")).toBeTruthy();
   });
 
-  it("locks body scroll while compact navigation is open and restores it on close", async () => {
-    installMatchMedia(true);
-    document.body.style.overflow = "auto";
+  it("renders project selector", () => {
     renderShell();
 
-    fireEvent.click(screen.getByRole("button", { name: "Open primary navigation" }));
-    await waitFor(() => {
-      expect(document.body.style.overflow).toBe("hidden");
-    });
-
-    fireEvent.keyDown(window, { key: "Escape" });
-    await waitFor(() => {
-      expect(document.body.style.overflow).toBe("auto");
-    });
+    expect(screen.getByText("No project")).toBeTruthy();
   });
 });
 
@@ -168,62 +100,4 @@ function renderShell() {
   );
 
   return render(<RouterProvider router={router} />);
-}
-
-function installMatchMedia(initialValue: boolean): MatchMediaController {
-  let currentValue = initialValue;
-  const listeners = new Set<(event: MediaQueryListEvent) => void>();
-
-  const mediaQueryList = {
-    get matches() {
-      return currentValue;
-    },
-    media: "(max-width: 960px)",
-    onchange: null,
-    addEventListener: (_eventType: string, listener: EventListenerOrEventListenerObject) => {
-      if (typeof listener === "function") {
-        listeners.add(listener as (event: MediaQueryListEvent) => void);
-      }
-    },
-    removeEventListener: (_eventType: string, listener: EventListenerOrEventListenerObject) => {
-      if (typeof listener === "function") {
-        listeners.delete(listener as (event: MediaQueryListEvent) => void);
-      }
-    },
-    addListener: (listener: (event: MediaQueryListEvent) => void) => {
-      listeners.add(listener);
-    },
-    removeListener: (listener: (event: MediaQueryListEvent) => void) => {
-      listeners.delete(listener);
-    },
-    dispatchEvent: () => true,
-  } as MediaQueryList;
-
-  Object.defineProperty(window, "matchMedia", {
-    configurable: true,
-    value: vi.fn().mockImplementation(() => mediaQueryList),
-  });
-
-  return {
-    setMatches: (nextValue: boolean) => {
-      currentValue = nextValue;
-      const event = {
-        matches: nextValue,
-        media: mediaQueryList.media,
-      } as MediaQueryListEvent;
-
-      for (const listener of listeners) {
-        listener(event);
-      }
-    },
-  };
-}
-
-function getPrimaryNav() {
-  const primaryNav = document.getElementById("primary-navigation");
-  if (!primaryNav) {
-    throw new Error("Expected primary navigation element to exist");
-  }
-
-  return primaryNav;
 }

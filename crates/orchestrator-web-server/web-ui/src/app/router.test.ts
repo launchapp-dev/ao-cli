@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { APP_ROUTE_PATHS } from "./router";
 
 describe("APP_ROUTE_PATHS", () => {
-  it("contains required task-011 route architecture", () => {
+  it("contains required route architecture", () => {
     const requiredPaths = [
       "/",
       "/dashboard",
@@ -17,10 +17,12 @@ describe("APP_ROUTE_PATHS", () => {
       "/planning/requirements/new",
       "/planning/requirements/:requirementId",
       "/tasks",
+      "/tasks/new",
       "/tasks/:taskId",
       "/workflows",
       "/workflows/:workflowId",
       "/workflows/:workflowId/checkpoints/:checkpoint",
+      "/queue",
       "/events",
       "/reviews/handoff",
       "*",

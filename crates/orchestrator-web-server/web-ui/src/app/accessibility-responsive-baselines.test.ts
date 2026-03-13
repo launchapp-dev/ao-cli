@@ -4,24 +4,16 @@ import { resolve } from "node:path";
 
 const shellPath = resolve(import.meta.dirname, "./shell.tsx");
 const routerPath = resolve(import.meta.dirname, "./router.tsx");
-const stylesPath = resolve(import.meta.dirname, "../styles.css");
 
 describe("accessibility and responsive baselines", () => {
   it("keeps keyboard navigation landmarks and controls in the shell", () => {
     const shellSource = readFileSync(shellPath, "utf8");
 
     expect(shellSource).toContain('const MAIN_CONTENT_ID = "main-content"');
-    expect(shellSource).toContain('<a className="skip-link" href={`#${MAIN_CONTENT_ID}`}>');
-    expect(shellSource).toContain('<main className="content-scroll" id={MAIN_CONTENT_ID}');
+    expect(shellSource).toContain("id={MAIN_CONTENT_ID}");
     expect(shellSource).toContain("tabIndex={-1}");
-    expect(shellSource).toContain('aria-label="Primary navigation"');
     expect(shellSource).toContain('aria-label="Primary"');
-    expect(shellSource).toContain("aria-hidden={!isPrimaryNavigationVisible ? true : undefined}");
-    expect(shellSource).toContain('className="primary-nav"');
-    expect(shellSource).toContain("tabIndex={!isPrimaryNavigationVisible ? -1 : undefined}");
-    expect(shellSource).toContain("aria-expanded={isMobileMenuOpen}");
-    expect(shellSource).toContain('aria-controls="primary-navigation"');
-    expect(shellSource).toContain('if (event.key === "Escape")');
+    expect(shellSource).toContain('aria-label="Breadcrumb"');
   });
 
   it("keeps route-level suspense and lazy loading to protect route performance", () => {
@@ -32,21 +24,7 @@ describe("accessibility and responsive baselines", () => {
     expect(routerSource).toContain("withRouteSuspense(<DashboardPage />)");
     expect(routerSource).toContain("withRouteSuspense(<ReviewHandoffPage />)");
     expect(routerSource).toContain("<Suspense");
-    expect(routerSource).toContain('className="loading-box"');
     expect(routerSource).toContain('role="status"');
     expect(routerSource).toContain('aria-live="polite"');
-  });
-
-  it("keeps focus visibility, responsive breakpoints, and reduced-motion safeguards", () => {
-    const stylesSource = readFileSync(stylesPath, "utf8");
-
-    expect(stylesSource).toContain(".skip-link:focus-visible");
-    expect(stylesSource).toContain("outline: 3px solid var(--focus);");
-    expect(stylesSource).toContain("@media (width <= 960px)");
-    expect(stylesSource).toContain(".sidebar[data-open=\"true\"]");
-    expect(stylesSource).toContain("visibility: hidden;");
-    expect(stylesSource).toContain("pointer-events: none;");
-    expect(stylesSource).toContain("@media (width <= 680px)");
-    expect(stylesSource).toContain("@media (prefers-reduced-motion: reduce)");
   });
 });

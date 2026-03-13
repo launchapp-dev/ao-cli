@@ -3,149 +3,131 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const apiMocks = vi.hoisted(() => ({
-  daemonHealth: vi.fn(),
-  daemonLogs: vi.fn(),
-  daemonStart: vi.fn(),
-  daemonPause: vi.fn(),
-  daemonResume: vi.fn(),
-  daemonStop: vi.fn(),
-  daemonClearLogs: vi.fn(),
+const mocks = vi.hoisted(() => ({
+  useQuery: vi.fn(),
+  useMutation: vi.fn(),
 }));
 
-vi.mock("../lib/api/client", () => ({
-  api: {
-    daemonHealth: apiMocks.daemonHealth,
-    daemonLogs: apiMocks.daemonLogs,
-    daemonStart: apiMocks.daemonStart,
-    daemonPause: apiMocks.daemonPause,
-    daemonResume: apiMocks.daemonResume,
-    daemonStop: apiMocks.daemonStop,
-    daemonClearLogs: apiMocks.daemonClearLogs,
-  },
-  firstApiError: (...results: Array<{ kind: "ok" | "error" }>) =>
-    results.find((result) => result.kind === "error") ?? null,
+vi.mock("urql", async () => {
+  const actual = await vi.importActual("urql");
+  return {
+    ...actual,
+    useQuery: mocks.useQuery,
+    useMutation: mocks.useMutation,
+  };
+});
+
+vi.mock("@/lib/graphql/provider", () => ({
+  GraphQLProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
 import { DaemonPage } from "./screens";
 
-function okResult<TData>(data: TData) {
-  return Promise.resolve({
-    kind: "ok" as const,
-    data,
-  });
-}
+describe("DaemonPage", () => {
+  let executeMutation: ReturnType<typeof vi.fn>;
 
-function errorResult(code: string, message: string, exitCode = 1) {
-  return Promise.resolve({
-    kind: "error" as const,
-    code,
-    message,
-    exitCode,
-  });
-}
-
-async function renderDaemonPage() {
-  render(<DaemonPage />);
-  await waitFor(() => {
-    expect(apiMocks.daemonHealth).toHaveBeenCalledTimes(1);
-    expect(apiMocks.daemonLogs).toHaveBeenCalledTimes(1);
-  });
-}
-
-describe("DaemonPage high-risk safeguards", () => {
   beforeEach(() => {
-    for (const mock of Object.values(apiMocks)) {
-      mock.mockReset();
-    }
-
-    apiMocks.daemonHealth.mockReturnValue(okResult({ status: "healthy" }));
-    apiMocks.daemonLogs.mockReturnValue(
-      okResult([
-        {
-          timestamp: "2026-02-25T10:00:00.000Z",
-          level: "info",
-          message: "daemon booted",
+    executeMutation = vi.fn().mockResolvedValue({ data: {} });
+    mocks.useMutation.mockReturnValue([{ fetching: false }, executeMutation]);
+    mocks.useQuery.mockReturnValue([
+      {
+        data: {
+          daemonStatus: {
+            healthy: true,
+            status: "Healthy",
+            statusRaw: "healthy",
+            runnerConnected: true,
+            activeAgents: 1,
+            maxAgents: 4,
+            projectRoot: "/repo",
+          },
+          daemonHealth: {
+            healthy: true,
+            status: "Healthy",
+            runnerConnected: true,
+            runnerPid: 1234,
+            activeAgents: 1,
+            daemonPid: 5678,
+          },
+          agentRuns: [],
+          daemonLogs: [
+            { timestamp: "2026-02-25T10:00:00Z", level: "info", message: "daemon booted" },
+          ],
         },
-      ]),
-    );
-    apiMocks.daemonStart.mockReturnValue(okResult({ message: "start ok" }));
-    apiMocks.daemonPause.mockReturnValue(okResult({ message: "pause ok" }));
-    apiMocks.daemonResume.mockReturnValue(okResult({ message: "resume ok" }));
-    apiMocks.daemonStop.mockReturnValue(okResult({ message: "stop ok" }));
-    apiMocks.daemonClearLogs.mockReturnValue(okResult({ message: "clear ok" }));
+        fetching: false,
+        error: null,
+      },
+      vi.fn(),
+    ]);
   });
 
-  it("gates high-risk stop action with typed confirmation and does not execute immediately", async () => {
-    await renderDaemonPage();
+  it("renders daemon status and controls", () => {
+    render(<DaemonPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
-
-    expect(screen.getByRole("heading", { name: "Review High-Risk Action" })).toBeTruthy();
-    expect(screen.getByText(/Type/i)).toBeTruthy();
-    expect(screen.getByText("STOP")).toBeTruthy();
-    expect(apiMocks.daemonStop).not.toHaveBeenCalled();
-
-    const confirmButton = screen.getByRole("button", { name: "Run Dry-Run Preview" }) as HTMLButtonElement;
-    expect(confirmButton.disabled).toBe(true);
-
-    fireEvent.change(screen.getByLabelText("Confirmation phrase"), {
-      target: { value: "  stop  " },
-    });
-
-    expect(confirmButton.disabled).toBe(false);
+    expect(screen.getByText("Daemon")).toBeTruthy();
+    expect(screen.getByText("healthy")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Start" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Pause" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Clear Logs" })).toBeTruthy();
   });
 
-  it("records dry-run preview for high-risk actions without mutating API calls", async () => {
-    await renderDaemonPage();
+  it("renders log entries", () => {
+    render(<DaemonPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Clear Logs" }));
-    fireEvent.change(screen.getByLabelText("Confirmation phrase"), {
-      target: { value: "CLEAR LOGS" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Run Dry-Run Preview" }));
-
-    expect(apiMocks.daemonClearLogs).not.toHaveBeenCalled();
-    expect(screen.getByRole("status").textContent).toContain("Dry-run preview completed for Clear Logs.");
-    expect(screen.queryByRole("heading", { name: "Review High-Risk Action" })).toBeNull();
-    expect(screen.getByText(/"outcome": "preview"/)).toBeTruthy();
-    expect(screen.getByText(/"action": "clear"/)).toBeTruthy();
+    expect(screen.getByText("daemon booted")).toBeTruthy();
   });
 
-  it("executes confirmed high-risk actions and records successful audit entries", async () => {
-    await renderDaemonPage();
+  it("executes start mutation on button click", async () => {
+    render(<DaemonPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
-    fireEvent.change(screen.getByLabelText("Confirmation phrase"), {
-      target: { value: "STOP" },
-    });
-    fireEvent.click(screen.getByRole("checkbox", { name: "Preview only (dry-run, no API call)" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm and Execute" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
 
     await waitFor(() => {
-      expect(apiMocks.daemonStop).toHaveBeenCalledTimes(1);
+      expect(executeMutation).toHaveBeenCalledWith({});
     });
-
-    expect(screen.getByRole("status").textContent).toContain("Stop completed.");
-    expect(screen.getByText(/"mode": "execute"/)).toBeTruthy();
-    expect(screen.getByText(/"outcome": "ok"/)).toBeTruthy();
-    expect(screen.getByText(/"action": "stop"/)).toBeTruthy();
   });
 
-  it("executes medium-risk actions directly and renders auditable failures", async () => {
-    apiMocks.daemonPause.mockReturnValue(errorResult("conflict", "daemon already paused", 4));
-    await renderDaemonPage();
+  it("shows error feedback when mutation fails", async () => {
+    executeMutation.mockResolvedValue({ error: { message: "daemon already running" } });
+
+    render(<DaemonPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("daemon already running")).toBeTruthy();
+    });
+  });
+
+  it("shows success feedback when mutation succeeds", async () => {
+    render(<DaemonPage />);
 
     fireEvent.click(screen.getByRole("button", { name: "Pause" }));
 
     await waitFor(() => {
-      expect(apiMocks.daemonPause).toHaveBeenCalledTimes(1);
+      expect(screen.getByText("Pause successful.")).toBeTruthy();
     });
+  });
 
-    expect(screen.queryByRole("heading", { name: "Review High-Risk Action" })).toBeNull();
-    expect(screen.getByRole("alert").textContent).toContain("Error: daemon_action_failed");
-    expect(screen.getByRole("alert").textContent).toContain("conflict: daemon already paused");
-    expect(screen.getByText(/"outcome": "error"/)).toBeTruthy();
-    expect(screen.getByText(/"action": "pause"/)).toBeTruthy();
+  it("shows loading state while fetching", () => {
+    mocks.useQuery.mockReturnValue([{ data: null, fetching: true, error: null }, vi.fn()]);
+
+    render(<DaemonPage />);
+
+    const skeletons = document.querySelectorAll('[data-slot="skeleton"]');
+    expect(skeletons.length).toBeGreaterThan(0);
+  });
+
+  it("shows error state when query fails", () => {
+    mocks.useQuery.mockReturnValue([
+      { data: null, fetching: false, error: { message: "Connection refused" } },
+      vi.fn(),
+    ]);
+
+    render(<DaemonPage />);
+
+    expect(screen.getByText("Connection refused")).toBeTruthy();
   });
 });

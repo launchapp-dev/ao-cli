@@ -5,15 +5,16 @@ import { MAIN_CONTENT_ID, PRIMARY_NAV_ITEMS } from "./shell";
 
 describe("PRIMARY_NAV_ITEMS", () => {
   it("matches required top-level navigation order", () => {
-    expect(PRIMARY_NAV_ITEMS).toEqual([
-      { to: "/dashboard", label: "Dashboard" },
-      { to: "/daemon", label: "Daemon" },
-      { to: "/projects", label: "Projects" },
-      { to: "/planning", label: "Planning" },
-      { to: "/tasks", label: "Tasks" },
-      { to: "/workflows", label: "Workflows" },
-      { to: "/events", label: "Events" },
-      { to: "/reviews/handoff", label: "Review Handoff" },
+    const labels = PRIMARY_NAV_ITEMS.map((item) => item.label);
+    expect(labels).toEqual([
+      "Dashboard",
+      "Tasks",
+      "Workflows",
+      "Queue",
+      "Planning",
+      "Daemon",
+      "Events",
+      "Review",
     ]);
   });
 

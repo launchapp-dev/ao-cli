@@ -10,7 +10,7 @@ use orchestrator_core::{
     dispatch_workflow_event, register_workflow_runner_pid, services::ServiceHub,
     unregister_workflow_runner_pid, WorkflowEvent,
 };
-use workflow_runner::workflow_execute::{execute_workflow, WorkflowExecuteParams};
+use workflow_runner_v2::workflow_execute::{execute_workflow, WorkflowExecuteParams};
 
 use super::config::{manual_approvals_path, title_case_phase_id};
 use super::emit_daemon_event;

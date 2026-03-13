@@ -23,11 +23,11 @@ mod mock_runner_tests;
 mod project_tick_ops;
 
 #[cfg(test)]
-use ::workflow_runner::phase_failover::PhaseFailureClassifier;
+use ::workflow_runner_v2::phase_failover::PhaseFailureClassifier;
 #[cfg(test)]
-use ::workflow_runner::phase_targets::PhaseTargetPlanner;
+use ::workflow_runner_v2::phase_targets::PhaseTargetPlanner;
 #[cfg(test)]
-use ::workflow_runner::runtime_support;
+use ::workflow_runner_v2::runtime_support;
 
 #[cfg(test)]
 use orchestrator_core::FileServiceHub;
@@ -49,7 +49,7 @@ fn resolve_phase_runtime_settings(
     workflow_ref: Option<&str>,
     phase_id: &str,
 ) -> Option<WorkflowPhaseRuntimeSettings> {
-    ::workflow_runner::runtime_support::resolve_phase_runtime_settings(
+    ::workflow_runner_v2::runtime_support::resolve_phase_runtime_settings(
         config,
         workflow_ref,
         phase_id,
@@ -116,7 +116,7 @@ fn build_phase_prompt(
     task_description: &str,
     phase_id: &str,
 ) -> String {
-    ::workflow_runner::executor::build_phase_prompt(
+    ::workflow_runner_v2::build_phase_prompt(
         project_root,
         project_root,
         workflow_id,
@@ -131,12 +131,12 @@ fn build_phase_prompt(
 
 #[cfg(test)]
 fn parse_commit_message_from_text(text: &str) -> Option<String> {
-    ::workflow_runner::executor::parse_commit_message_from_text(text)
+    ::workflow_runner_v2::parse_commit_message_from_text(text)
 }
 
 #[cfg(test)]
-fn fallback_implementation_commit_message(task_id: &str, task_title: &str) -> String {
-    ::workflow_runner::executor::fallback_implementation_commit_message(task_id, task_title)
+fn fallback_implementation_commit_message(phase_id: &str, subject_title: &str) -> String {
+    ::workflow_runner_v2::fallback_implementation_commit_message(phase_id, subject_title)
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
-import { useQuery, useMutation } from "urql";
+import { useQuery, useMutation } from "@/lib/graphql/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -68,25 +68,60 @@ export function PlanningVisionPage() {
   const [{ data, fetching, error }, reexecute] = useQuery({ query: VISION_QUERY });
   const [, saveVision] = useMutation(SAVE_VISION);
   const [, refineVision] = useMutation(REFINE_VISION);
-  const [content, setContent] = useState("");
-  const [feedback, setFeedback] = useState("");
+  const [title, setTitle] = useState("");
+  const [summary, setSummary] = useState("");
+  const [targetAudience, setTargetAudience] = useState("");
+  const [goals, setGoals] = useState<string[]>([]);
+  const [successCriteria, setSuccessCriteria] = useState<string[]>([]);
+  const [constraints, setConstraints] = useState<string[]>([]);
+  const [newGoal, setNewGoal] = useState("");
+  const [newCriterion, setNewCriterion] = useState("");
+  const [newConstraint, setNewConstraint] = useState("");
+  const [refineFeedback, setRefineFeedback] = useState("");
   const [saving, setSaving] = useState(false);
   const [refining, setRefining] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [initialized, setInitialized] = useState(false);
 
   const vision = data?.vision;
+  const visionRaw = vision?.raw ?? "";
 
-  if (vision && !initialized) {
-    setContent(vision.raw || "");
-    setInitialized(true);
-  }
+  useEffect(() => {
+    if (!vision) return;
+    setTitle(vision.title ?? "");
+    setSummary(vision.summary ?? "");
+    setTargetAudience(vision.targetAudience ?? "");
+    setGoals(vision.goals ?? []);
+    setSuccessCriteria(vision.successCriteria ?? []);
+    setConstraints(vision.constraints ?? []);
+  }, [visionRaw]);
+
+  const addListItem = (list: string[], setList: (v: string[]) => void, value: string, clear: () => void) => {
+    const v = value.trim();
+    if (!v) return;
+    setList([...list, v]);
+    clear();
+  };
+
+  const removeListItem = (list: string[], setList: (v: string[]) => void, index: number) => {
+    setList(list.filter((_, i) => i !== index));
+  };
+
+  const buildContent = () => {
+    const obj: Record<string, unknown> = {};
+    if (title.trim()) obj.title = title.trim();
+    if (summary.trim()) obj.summary = summary.trim();
+    if (targetAudience.trim()) obj.target_audience = targetAudience.trim();
+    if (goals.length > 0) obj.goals = goals;
+    if (successCriteria.length > 0) obj.success_criteria = successCriteria;
+    if (constraints.length > 0) obj.constraints = constraints;
+    return JSON.stringify(obj, null, 2);
+  };
 
   const onSave = async (e: FormEvent) => {
     e.preventDefault();
     setSaving(true);
     setMessage(null);
-    const result = await saveVision({ content });
+    const result = await saveVision({ content: buildContent() });
     setSaving(false);
     if (result.error) {
       setMessage(`Error: ${result.error.message}`);
@@ -99,13 +134,12 @@ export function PlanningVisionPage() {
   const onRefine = async () => {
     setRefining(true);
     setMessage(null);
-    const result = await refineVision({ feedback: feedback || null });
+    const result = await refineVision({ feedback: refineFeedback || null });
     setRefining(false);
     if (result.error) {
       setMessage(`Error: ${result.error.message}`);
     } else {
       setMessage("Vision refined.");
-      setInitialized(false);
       reexecute({ requestPolicy: "network-only" });
     }
   };
@@ -116,69 +150,159 @@ export function PlanningVisionPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Planning Vision</h1>
-        <p className="text-sm text-muted-foreground">Author product vision and refine it iteratively.</p>
+        <h1 className="text-xl font-semibold tracking-tight">Planning Vision</h1>
+        <p className="text-xs text-muted-foreground/60">Define the product vision and refine it iteratively.</p>
       </div>
 
-      {vision && (
-        <Card>
-          <CardHeader><CardTitle>Current Vision</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
-            {vision.title && <p className="font-medium">{vision.title}</p>}
-            {vision.summary && <p className="text-sm text-muted-foreground">{vision.summary}</p>}
-            {vision.goals?.length > 0 && (
-              <div>
-                <p className="text-sm font-medium mb-1">Goals</p>
-                <ul className="list-disc list-inside text-sm space-y-0.5">
-                  {vision.goals.map((g: string, i: number) => <li key={i}>{g}</li>)}
-                </ul>
-              </div>
-            )}
-            {vision.constraints?.length > 0 && (
-              <div>
-                <p className="text-sm font-medium mb-1">Constraints</p>
-                <ul className="list-disc list-inside text-sm space-y-0.5">
-                  {vision.constraints.map((c: string, i: number) => <li key={i}>{c}</li>)}
-                </ul>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      <Card className="border-border/40 bg-card/60">
+        <CardContent className="pt-5 pb-4">
+          <form onSubmit={onSave} className="space-y-5">
+            <div>
+              <label className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">Title</label>
+              <Input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Project vision title..."
+                className="mt-1"
+              />
+            </div>
 
-      <Card>
-        <CardHeader><CardTitle>{vision ? "Edit Vision" : "Create Vision"}</CardTitle></CardHeader>
-        <CardContent>
-          <form onSubmit={onSave} className="space-y-4">
-            <Textarea
-              rows={12}
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder="Enter vision content (markdown supported)..."
-              className="font-mono text-sm"
+            <div>
+              <label className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">Summary</label>
+              <Textarea
+                rows={3}
+                value={summary}
+                onChange={(e) => setSummary(e.target.value)}
+                placeholder="A concise summary of the product vision..."
+                className="mt-1"
+              />
+            </div>
+
+            <div>
+              <label className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">Target Audience</label>
+              <Input
+                value={targetAudience}
+                onChange={(e) => setTargetAudience(e.target.value)}
+                placeholder="Who is this product for?"
+                className="mt-1"
+              />
+            </div>
+
+            <ListFieldEditor
+              label="Goals"
+              items={goals}
+              newValue={newGoal}
+              setNewValue={setNewGoal}
+              placeholder="Add a goal..."
+              onAdd={() => addListItem(goals, setGoals, newGoal, () => setNewGoal(""))}
+              onRemove={(i) => removeListItem(goals, setGoals, i)}
             />
+
+            <ListFieldEditor
+              label="Success Criteria"
+              items={successCriteria}
+              newValue={newCriterion}
+              setNewValue={setNewCriterion}
+              placeholder="Add a success criterion..."
+              onAdd={() => addListItem(successCriteria, setSuccessCriteria, newCriterion, () => setNewCriterion(""))}
+              onRemove={(i) => removeListItem(successCriteria, setSuccessCriteria, i)}
+            />
+
+            <ListFieldEditor
+              label="Constraints"
+              items={constraints}
+              newValue={newConstraint}
+              setNewValue={setNewConstraint}
+              placeholder="Add a constraint..."
+              onAdd={() => addListItem(constraints, setConstraints, newConstraint, () => setNewConstraint(""))}
+              onRemove={(i) => removeListItem(constraints, setConstraints, i)}
+            />
+
+            <Separator className="border-border/30" />
+
             <div className="flex items-center gap-3">
               <Button type="submit" disabled={saving}>{saving ? "Saving..." : "Save Vision"}</Button>
-              <Separator orientation="vertical" className="h-6" />
-              <Input
-                value={feedback}
-                onChange={(e) => setFeedback(e.target.value)}
-                placeholder="Optional refinement focus..."
-                className="max-w-xs"
-              />
-              <Button type="button" variant="secondary" onClick={onRefine} disabled={refining}>
-                {refining ? "Refining..." : "Refine Vision"}
-              </Button>
             </div>
           </form>
         </CardContent>
       </Card>
 
+      <Card className="border-border/40 bg-card/60">
+        <CardHeader className="pb-2 pt-3 px-4">
+          <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground/60 font-medium">AI Refinement</CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-3">
+          <div className="flex items-center gap-3">
+            <Input
+              value={refineFeedback}
+              onChange={(e) => setRefineFeedback(e.target.value)}
+              placeholder="Optional focus area for refinement..."
+              className="flex-1"
+            />
+            <Button variant="secondary" onClick={onRefine} disabled={refining}>
+              {refining ? "Refining..." : "Refine Vision"}
+            </Button>
+          </div>
+          <p className="text-[10px] text-muted-foreground/40 mt-2">Uses AI to expand and improve the current vision based on your feedback.</p>
+        </CardContent>
+      </Card>
+
       {message && (
-        <Alert variant={message.startsWith("Error") ? "destructive" : "default"}>
-          <AlertDescription>{message}</AlertDescription>
+        <Alert variant={message.startsWith("Error") ? "destructive" : "default"} className="border-border/30">
+          <AlertDescription className="text-xs">{message}</AlertDescription>
         </Alert>
       )}
+    </div>
+  );
+}
+
+function ListFieldEditor({
+  label,
+  items,
+  newValue,
+  setNewValue,
+  placeholder,
+  onAdd,
+  onRemove,
+}: {
+  label: string;
+  items: string[];
+  newValue: string;
+  setNewValue: (v: string) => void;
+  placeholder: string;
+  onAdd: () => void;
+  onRemove: (i: number) => void;
+}) {
+  return (
+    <div>
+      <label className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">{label}</label>
+      {items.length > 0 && (
+        <ul className="mt-1.5 space-y-1">
+          {items.map((item, i) => (
+            <li key={i} className="flex items-center gap-2 group">
+              <span className="text-[10px] font-mono text-muted-foreground/40 w-4 text-right shrink-0">{i + 1}</span>
+              <span className="text-sm flex-1">{item}</span>
+              <button
+                type="button"
+                onClick={() => onRemove(i)}
+                className="text-[10px] text-destructive/60 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex items-center gap-2 mt-1.5">
+        <Input
+          value={newValue}
+          onChange={(e) => setNewValue(e.target.value)}
+          placeholder={placeholder}
+          className="text-sm"
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); onAdd(); } }}
+        />
+        <Button type="button" variant="outline" size="sm" onClick={onAdd}>Add</Button>
+      </div>
     </div>
   );
 }
@@ -239,7 +363,7 @@ export function PlanningRequirementsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Planning Requirements</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Planning Requirements</h1>
           <p className="text-sm text-muted-foreground">Browse, draft, and refine requirements.</p>
         </div>
         <div className="flex items-center gap-2">
@@ -355,7 +479,7 @@ export function PlanningRequirementCreatePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">New Requirement</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">New Requirement</h1>
         <p className="text-sm text-muted-foreground">Create a requirement entry for the active project.</p>
       </div>
 
@@ -438,19 +562,19 @@ export function PlanningRequirementDetailPage() {
   const [operating, setOperating] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [initialized, setInitialized] = useState(false);
 
   const req = data?.requirement;
+  const reqKey = req ? `${req.id}-${req.title}-${req.statusRaw}-${req.priorityRaw}` : "";
 
-  if (req && !initialized) {
+  useEffect(() => {
+    if (!req) return;
     setTitle(req.title);
     setDescription(req.description);
     setPriority(req.priorityRaw);
     setStatus(req.statusRaw);
     setReqType(req.requirementType ?? "");
     setDetailCriteria(req.acceptanceCriteria ?? []);
-    setInitialized(true);
-  }
+  }, [reqKey]);
 
   const addDetailCriterion = () => {
     const val = detailNewCriterion.trim();
@@ -482,7 +606,6 @@ export function PlanningRequirementDetailPage() {
       setMessage(`Error: ${result.error.message}`);
     } else {
       setMessage("Requirement updated.");
-      setInitialized(false);
       reexecute({ requestPolicy: "network-only" });
     }
   };
@@ -507,7 +630,6 @@ export function PlanningRequirementDetailPage() {
       setMessage(`Error: ${result.error.message}`);
     } else {
       setMessage("Requirement refined.");
-      setInitialized(false);
       reexecute({ requestPolicy: "network-only" });
     }
   };
@@ -525,7 +647,7 @@ export function PlanningRequirementDetailPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">{req.id}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{req.id}</h1>
           <p className="text-sm text-muted-foreground">{req.title}</p>
         </div>
         <div className="flex items-center gap-2">
@@ -534,34 +656,36 @@ export function PlanningRequirementDetailPage() {
         </div>
       </div>
 
-      <Card>
-        <CardHeader><CardTitle>Edit Requirement</CardTitle></CardHeader>
-        <CardContent>
+      <Card className="border-border/40 bg-card/60">
+        <CardHeader className="pb-2 pt-3 px-4">
+          <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground/60 font-medium">Edit Requirement</CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-3">
           <form onSubmit={onSave} className="space-y-4">
             <div>
-              <label className="text-sm font-medium">Title</label>
-              <Input required value={title} onChange={(e) => setTitle(e.target.value)} />
+              <label className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">Title</label>
+              <Input required value={title} onChange={(e) => setTitle(e.target.value)} className="mt-1" />
             </div>
             <div>
-              <label className="text-sm font-medium">Description</label>
-              <Textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)} />
+              <label className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">Description</label>
+              <Textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)} className="mt-1" />
             </div>
             <div className="grid grid-cols-3 gap-4">
               <div>
-                <label className="text-sm font-medium">Priority</label>
-                <select value={priority} onChange={(e) => setPriority(e.target.value)} className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm">
+                <label className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">Priority</label>
+                <select value={priority} onChange={(e) => setPriority(e.target.value)} className="mt-1 w-full h-9 rounded-md border border-input bg-background px-3 text-sm">
                   {PRIORITY_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
                 </select>
               </div>
               <div>
-                <label className="text-sm font-medium">Status</label>
-                <select value={status} onChange={(e) => setStatus(e.target.value)} className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm">
+                <label className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">Status</label>
+                <select value={status} onChange={(e) => setStatus(e.target.value)} className="mt-1 w-full h-9 rounded-md border border-input bg-background px-3 text-sm">
                   {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
               <div>
-                <label className="text-sm font-medium">Type</label>
-                <Input value={reqType} onChange={(e) => setReqType(e.target.value)} />
+                <label className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">Type</label>
+                <Input value={reqType} onChange={(e) => setReqType(e.target.value)} className="mt-1" />
               </div>
             </div>
             <Button type="submit" disabled={operating !== null}>
@@ -571,83 +695,95 @@ export function PlanningRequirementDetailPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader><CardTitle>Acceptance Criteria</CardTitle></CardHeader>
-        <CardContent>
+      <Card className="border-border/40 bg-card/60">
+        <CardHeader className="pb-2 pt-3 px-4">
+          <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground/60 font-medium">Acceptance Criteria</CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-3">
           {detailCriteria.length > 0 ? (
             <ol className="space-y-1 mb-3">
               {detailCriteria.map((c, i) => (
-                <li key={i} className="flex items-center gap-2 text-sm">
-                  <span className="flex-1">{i + 1}. {c}</span>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => removeDetailCriterion(i)}>Remove</Button>
+                <li key={i} className="flex items-center gap-2 text-sm group">
+                  <span className="text-[10px] font-mono text-muted-foreground/40 w-4 text-right shrink-0">{i + 1}</span>
+                  <span className="flex-1">{c}</span>
+                  <button type="button" onClick={() => removeDetailCriterion(i)} className="text-[10px] text-destructive/60 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity">remove</button>
                 </li>
               ))}
             </ol>
           ) : (
-            <p className="text-sm text-muted-foreground mb-3">No acceptance criteria defined.</p>
+            <p className="text-xs text-muted-foreground/50 mb-3">No acceptance criteria defined.</p>
           )}
           <div className="flex items-center gap-2">
             <Input
               value={detailNewCriterion}
               onChange={(e) => setDetailNewCriterion(e.target.value)}
               placeholder="Add acceptance criterion..."
+              className="text-sm"
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addDetailCriterion(); } }}
             />
-            <Button type="button" variant="secondary" onClick={addDetailCriterion}>Add</Button>
+            <Button type="button" variant="outline" size="sm" onClick={addDetailCriterion}>Add</Button>
           </div>
-          <p className="text-xs text-muted-foreground mt-2">Changes are saved when you click &quot;Save Changes&quot; above.</p>
+          <p className="text-[10px] text-muted-foreground/40 mt-2">Saved with &quot;Save Changes&quot; above.</p>
         </CardContent>
       </Card>
 
-      {req.linkedTaskIds?.length > 0 && (
-        <Card>
-          <CardHeader><CardTitle>Linked Tasks</CardTitle></CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-2">
-              {req.linkedTaskIds.map((id: string) => (
-                <Link key={id} to={`/tasks/${id}`}>
-                  <Badge variant="outline" className="hover:bg-accent cursor-pointer">{id}</Badge>
-                </Link>
-              ))}
+      <div className="grid md:grid-cols-2 gap-4">
+        {req.linkedTaskIds?.length > 0 && (
+          <Card className="border-border/40 bg-card/60">
+            <CardHeader className="pb-2 pt-3 px-4">
+              <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground/60 font-medium">Linked Tasks</CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-3">
+              <div className="flex flex-wrap gap-2">
+                {req.linkedTaskIds.map((id: string) => (
+                  <Link key={id} to={`/tasks/${id}`}>
+                    <Badge variant="outline" className="font-mono text-[10px] hover:bg-accent/50 transition-colors cursor-pointer">{id}</Badge>
+                  </Link>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        <Card className="border-border/40 bg-card/60">
+          <CardHeader className="pb-2 pt-3 px-4">
+            <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground/60 font-medium">AI Refinement</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-3">
+            <div className="flex items-center gap-2">
+              <Input
+                value={refineFeedback}
+                onChange={(e) => setRefineFeedback(e.target.value)}
+                placeholder="Optional refinement feedback..."
+                className="flex-1 text-sm"
+              />
+              <Button variant="secondary" size="sm" onClick={onRefine} disabled={operating !== null}>
+                {operating === "refining" ? "Refining..." : "Refine"}
+              </Button>
             </div>
           </CardContent>
         </Card>
-      )}
-
-      <Card>
-        <CardHeader><CardTitle>Refine</CardTitle></CardHeader>
-        <CardContent className="flex items-center gap-3">
-          <Input
-            value={refineFeedback}
-            onChange={(e) => setRefineFeedback(e.target.value)}
-            placeholder="Optional refinement feedback..."
-            className="max-w-sm"
-          />
-          <Button variant="secondary" onClick={onRefine} disabled={operating !== null}>
-            {operating === "refining" ? "Refining..." : "Refine Requirement"}
-          </Button>
-        </CardContent>
-      </Card>
+      </div>
 
       <div className="flex items-center gap-3">
-        <Link to="/planning/requirements"><Button variant="outline">Back to List</Button></Link>
+        <Link to="/planning/requirements"><Button variant="outline" size="sm">Back to List</Button></Link>
         {confirmDelete ? (
           <>
-            <Button variant="destructive" onClick={onDelete} disabled={operating !== null}>
+            <Button size="sm" variant="destructive" onClick={onDelete} disabled={operating !== null}>
               {operating === "deleting" ? "Deleting..." : "Confirm Delete"}
             </Button>
-            <Button variant="outline" onClick={() => setConfirmDelete(false)}>Cancel</Button>
+            <Button size="sm" variant="outline" onClick={() => setConfirmDelete(false)}>Cancel</Button>
           </>
         ) : (
-          <Button variant="destructive" onClick={() => setConfirmDelete(true)} disabled={operating !== null}>
-            Delete Requirement
+          <Button size="sm" variant="ghost" className="text-destructive/60 hover:text-destructive" onClick={() => setConfirmDelete(true)} disabled={operating !== null}>
+            Delete
           </Button>
         )}
       </div>
 
       {message && (
-        <Alert variant={message.startsWith("Error") ? "destructive" : "default"}>
-          <AlertDescription>{message}</AlertDescription>
+        <Alert variant={message.startsWith("Error") ? "destructive" : "default"} className="border-border/30">
+          <AlertDescription className="text-xs">{message}</AlertDescription>
         </Alert>
       )}
     </div>

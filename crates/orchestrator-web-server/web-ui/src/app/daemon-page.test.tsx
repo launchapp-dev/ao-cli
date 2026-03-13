@@ -8,8 +8,8 @@ const mocks = vi.hoisted(() => ({
   useMutation: vi.fn(),
 }));
 
-vi.mock("urql", async () => {
-  const actual = await vi.importActual("urql");
+vi.mock("@/lib/graphql/client", async () => {
+  const actual = await vi.importActual("@/lib/graphql/client");
   return {
     ...actual,
     useQuery: mocks.useQuery,
@@ -21,7 +21,7 @@ vi.mock("@/lib/graphql/provider", () => ({
   GraphQLProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
-import { DaemonPage } from "./screens";
+import { DaemonPage } from "./daemon-page";
 
 describe("DaemonPage", () => {
   let executeMutation: ReturnType<typeof vi.fn>;
@@ -70,7 +70,7 @@ describe("DaemonPage", () => {
     expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Pause" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Clear Logs" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Clear" })).toBeTruthy();
   });
 
   it("renders log entries", () => {

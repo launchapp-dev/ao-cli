@@ -677,6 +677,13 @@ export type DashboardQueryVariables = Exact<{ [key: string]: never; }>;
 
 export type DashboardQuery = { __typename?: 'QueryRoot', taskStats: { __typename?: 'GqlTaskStats', total: number, byStatus?: string | null, byPriority?: string | null }, daemonHealth: { __typename?: 'GqlDaemonHealth', healthy: boolean, status: string, runnerConnected: boolean, daemonPid?: number | null, activeDaemons: number }, agentRuns: Array<{ __typename?: 'GqlAgentRun', runId: string, taskId?: string | null, taskTitle?: string | null, workflowId?: string | null, phaseId?: string | null, status: string }>, systemInfo: { __typename?: 'GqlSystemInfo', platform?: string | null, version?: string | null, daemonStatus?: string | null, projectRoot?: string | null } };
 
+export type DaemonEventsSubscriptionVariables = Exact<{
+  eventType?: InputMaybe<Scalars['String']['input']>;
+}>;
+
+
+export type DaemonEventsSubscription = { __typename?: 'SubscriptionRoot', daemonEvents: { __typename?: 'GqlDaemonEvent', id: string, seq: number, timestamp: string, eventType: string, data: string } };
+
 export type VisionQueryVariables = Exact<{ [key: string]: never; }>;
 
 
@@ -833,6 +840,13 @@ export type QueueReleaseMutationVariables = Exact<{
 
 
 export type QueueReleaseMutation = { __typename?: 'MutationRoot', queueRelease: boolean };
+
+export type QueueReorderMutationVariables = Exact<{
+  taskIds: Array<Scalars['String']['input']> | Scalars['String']['input'];
+}>;
+
+
+export type QueueReorderMutation = { __typename?: 'MutationRoot', queueReorder: boolean };
 
 export type ReviewHandoffMutationVariables = Exact<{
   targetRole: Scalars['String']['input'];
@@ -1114,6 +1128,17 @@ export const DashboardDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<DashboardQuery, DashboardQueryVariables>;
+export const DaemonEventsDocument = new TypedDocumentString(`
+    subscription DaemonEvents($eventType: String) {
+  daemonEvents(eventType: $eventType) {
+    id
+    seq
+    timestamp
+    eventType
+    data
+  }
+}
+    `) as unknown as TypedDocumentString<DaemonEventsSubscription, DaemonEventsSubscriptionVariables>;
 export const VisionDocument = new TypedDocumentString(`
     query Vision {
   vision {
@@ -1358,6 +1383,11 @@ export const QueueReleaseDocument = new TypedDocumentString(`
   queueRelease(taskId: $taskId)
 }
     `) as unknown as TypedDocumentString<QueueReleaseMutation, QueueReleaseMutationVariables>;
+export const QueueReorderDocument = new TypedDocumentString(`
+    mutation QueueReorder($taskIds: [String!]!) {
+  queueReorder(taskIds: $taskIds)
+}
+    `) as unknown as TypedDocumentString<QueueReorderMutation, QueueReorderMutationVariables>;
 export const ReviewHandoffDocument = new TypedDocumentString(`
     mutation ReviewHandoff($targetRole: String!, $question: String!, $context: String) {
   reviewHandoff(targetRole: $targetRole, question: $question, context: $context)

@@ -9,8 +9,8 @@ const mocks = vi.hoisted(() => ({
   useMutation: vi.fn(),
 }));
 
-vi.mock("urql", async () => {
-  const actual = await vi.importActual("urql");
+vi.mock("@/lib/graphql/client", async () => {
+  const actual = await vi.importActual("@/lib/graphql/client");
   return {
     ...actual,
     useQuery: mocks.useQuery,
@@ -66,7 +66,7 @@ describe("planning screens", () => {
     );
 
     expect(screen.getByText("Planning Vision")).toBeTruthy();
-    expect(screen.getByText("AO Platform")).toBeTruthy();
+    expect(screen.getByDisplayValue("AO Platform")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Save Vision" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Refine Vision" })).toBeTruthy();
   });
@@ -158,8 +158,8 @@ describe("planning screens", () => {
 
     expect(screen.getByText("REQ-1")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Save Changes" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Delete Requirement" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Refine Requirement" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Refine" })).toBeTruthy();
   });
 
   it("renders not found state when requirement is missing", () => {
@@ -224,7 +224,7 @@ describe("planning screens", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete Requirement" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     expect(screen.getByRole("button", { name: "Confirm Delete" })).toBeTruthy();
   });
 

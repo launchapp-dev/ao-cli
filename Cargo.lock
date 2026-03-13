@@ -2438,7 +2438,7 @@ dependencies = [
  "toml",
  "uuid",
  "webbrowser",
- "workflow-runner",
+ "workflow-runner-v2",
 ]
 
 [[package]]
@@ -2499,7 +2499,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "uuid",
- "workflow-runner",
+ "workflow-runner-v2",
 ]
 
 [[package]]

@@ -10,8 +10,8 @@ const mocks = vi.hoisted(() => ({
   useMutation: vi.fn(),
 }));
 
-vi.mock("urql", async () => {
-  const actual = await vi.importActual("urql");
+vi.mock("@/lib/graphql/client", async () => {
+  const actual = await vi.importActual("@/lib/graphql/client");
   return {
     ...actual,
     useQuery: mocks.useQuery.mockReturnValue([{ data: null, fetching: false, error: null }, vi.fn()]),
@@ -66,7 +66,7 @@ describe("AppShellLayout structure and navigation", () => {
   it("renders command palette trigger button", () => {
     renderShell();
 
-    expect(screen.getByText("Search...")).toBeTruthy();
+    expect(screen.getByText("Search")).toBeTruthy();
   });
 
   it("renders project selector", () => {

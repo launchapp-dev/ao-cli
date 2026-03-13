@@ -1,6 +1,6 @@
-import { Provider } from "urql";
-import { graphqlClient } from "./client";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { queryClient } from "./client";
 
 export function GraphQLProvider({ children }: { children: React.ReactNode }) {
-  return <Provider value={graphqlClient}>{children}</Provider>;
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
 }

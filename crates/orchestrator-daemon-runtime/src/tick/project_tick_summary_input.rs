@@ -1,6 +1,6 @@
 use orchestrator_core::{OrchestratorTask, RequirementItem};
 use serde_json::Value;
-use workflow_runner::executor::PhaseExecutionEvent;
+use workflow_runner_v2::PhaseExecutionEvent;
 
 use crate::DispatchWorkflowStart;
 

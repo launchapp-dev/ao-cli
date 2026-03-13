@@ -1,4 +1,4 @@
-use workflow_runner::executor::PhaseExecutionEvent;
+use workflow_runner_v2::PhaseExecutionEvent;
 
 use crate::DispatchWorkflowStartSummary;
 

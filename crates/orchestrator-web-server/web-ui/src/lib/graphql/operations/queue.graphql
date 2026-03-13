@@ -5,3 +5,4 @@ query Queue {
 
 mutation QueueHold($taskId: String!, $reason: String) { queueHold(taskId: $taskId, reason: $reason) }
 mutation QueueRelease($taskId: String!) { queueRelease(taskId: $taskId) }
+mutation QueueReorder($taskIds: [String!]!) { queueReorder(taskIds: $taskIds) }

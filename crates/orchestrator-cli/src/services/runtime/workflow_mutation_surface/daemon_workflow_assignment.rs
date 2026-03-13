@@ -2,7 +2,7 @@ use std::path::Path;
 
 use orchestrator_core::{routing_complexity_for_task, OrchestratorTask, OrchestratorWorkflow};
 use orchestrator_daemon_runtime::workflow_current_phase_id;
-use workflow_runner::phase_targets::PhaseTargetPlanner;
+use workflow_runner_v2::phase_targets::PhaseTargetPlanner;
 
 pub(crate) fn daemon_workflow_assignment(
     project_root: &str,

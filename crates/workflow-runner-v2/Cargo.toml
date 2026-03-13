@@ -8,7 +8,7 @@ name = "workflow_runner_v2"
 path = "src/lib.rs"
 
 [[bin]]
-name = "ao-workflow-runner-v2"
+name = "ao-workflow-runner"
 path = "src/main.rs"
 
 [dependencies]

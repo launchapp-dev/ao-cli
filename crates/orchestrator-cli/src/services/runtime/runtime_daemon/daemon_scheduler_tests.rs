@@ -441,19 +441,19 @@ fn parse_commit_message_from_text_extracts_contract_payload() {
 }
 
 #[test]
-fn parse_commit_message_from_text_extracts_payload_from_nested_result() {
-    let text = r#"{"type":"result","result":"{\"kind\":\"implementation_result\",\"commit_message\":\"feat(task-123): nested payload\"}"}"#;
+fn parse_commit_message_from_text_extracts_payload_from_nested_decision() {
+    let text = r#"{"phase_decision":{"kind":"phase_decision","verdict":"advance","commit_message":"feat(task-123): nested payload"}}"#;
     let message =
         parse_commit_message_from_text(text).expect("nested commit message should be parsed");
     assert_eq!(message, "feat(task-123): nested payload");
 }
 
 #[test]
-fn parse_commit_message_from_text_extracts_payload_from_array_envelope() {
-    let text = r#"[{"type":"system"},{"type":"result","result":"{\"kind\":\"implementation_result\",\"commit_message\":\"feat(task-123): array envelope\"}"}]"#;
+fn parse_commit_message_from_text_extracts_payload_from_decision_key() {
+    let text = r#"{"decision":{"kind":"phase_decision","verdict":"advance","commit_message":"feat(task-123): decision key"}}"#;
     let message =
-        parse_commit_message_from_text(text).expect("array envelope commit should be parsed");
-    assert_eq!(message, "feat(task-123): array envelope");
+        parse_commit_message_from_text(text).expect("decision key commit should be parsed");
+    assert_eq!(message, "feat(task-123): decision key");
 }
 
 #[test]
@@ -465,17 +465,17 @@ fn parse_commit_message_from_text_ignores_non_contract_payload() {
 #[test]
 fn fallback_implementation_commit_message_uses_task_context() {
     let message =
-        fallback_implementation_commit_message("TASK-123", "Implement   image   upload endpoint");
-    assert_eq!(message, "feat(task-123): Implement image upload endpoint");
+        fallback_implementation_commit_message("implementation", "Implement image upload endpoint");
+    assert_eq!(message, "feat(implementation): Implement image upload endpoint");
 }
 
 #[test]
 fn fallback_implementation_commit_message_handles_empty_values() {
-    let scoped = fallback_implementation_commit_message("TASK-123", "");
-    assert_eq!(scoped, "feat(task-123): apply implementation changes");
+    let scoped = fallback_implementation_commit_message("implementation", "");
+    assert_eq!(scoped, "chore: implementation phase completed");
 
     let unscoped = fallback_implementation_commit_message("", "");
-    assert_eq!(unscoped, "feat: apply implementation changes");
+    assert_eq!(unscoped, "chore:  phase completed");
 }
 
 #[test]

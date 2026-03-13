@@ -4,7 +4,7 @@ import {
   useContext,
   useMemo,
 } from "react";
-import { useQuery } from "urql";
+import { useQuery } from "@/lib/graphql/client";
 
 type ProjectSummary = {
   id: string;

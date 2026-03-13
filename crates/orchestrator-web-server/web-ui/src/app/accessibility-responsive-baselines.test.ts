@@ -19,8 +19,7 @@ describe("accessibility and responsive baselines", () => {
   it("keeps route-level suspense and lazy loading to protect route performance", () => {
     const routerSource = readFileSync(routerPath, "utf8");
 
-    expect(routerSource).toContain("const lazyScreen = (name: ScreenExport) =>");
-    expect(routerSource).toContain("lazy(async () => import(\"./screens\")");
+    expect(routerSource).toContain("lazy(");
     expect(routerSource).toContain("withRouteSuspense(<DashboardPage />)");
     expect(routerSource).toContain("withRouteSuspense(<ReviewHandoffPage />)");
     expect(routerSource).toContain("<Suspense");

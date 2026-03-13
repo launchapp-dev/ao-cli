@@ -11,42 +11,21 @@ import {
 } from "./planning-screens";
 import { AppShellLayout } from "./shell";
 
-type ScreensModule = typeof import("./screens");
-type ScreenExport =
-  | "DashboardPage"
-  | "DaemonPage"
-  | "ProjectsPage"
-  | "ProjectDetailPage"
-  | "RequirementDetailPage"
-  | "TasksPage"
-  | "TaskCreatePage"
-  | "TaskDetailPage"
-  | "WorkflowsPage"
-  | "WorkflowDetailPage"
-  | "WorkflowCheckpointPage"
-  | "QueuePage"
-  | "EventsPage"
-  | "ReviewHandoffPage"
-  | "NotFoundPage";
-
-const lazyScreen = (name: ScreenExport) =>
-  lazy(async () => import("./screens").then((module: ScreensModule) => ({ default: module[name] })));
-
-const DashboardPage = lazyScreen("DashboardPage");
-const DaemonPage = lazyScreen("DaemonPage");
-const ProjectsPage = lazyScreen("ProjectsPage");
-const ProjectDetailPage = lazyScreen("ProjectDetailPage");
-const RequirementDetailPage = lazyScreen("RequirementDetailPage");
-const TasksPage = lazyScreen("TasksPage");
-const TaskCreatePage = lazyScreen("TaskCreatePage");
-const TaskDetailPage = lazyScreen("TaskDetailPage");
-const WorkflowsPage = lazyScreen("WorkflowsPage");
-const WorkflowDetailPage = lazyScreen("WorkflowDetailPage");
-const WorkflowCheckpointPage = lazyScreen("WorkflowCheckpointPage");
-const QueuePage = lazyScreen("QueuePage");
-const EventsPage = lazyScreen("EventsPage");
-const ReviewHandoffPage = lazyScreen("ReviewHandoffPage");
-const NotFoundPage = lazyScreen("NotFoundPage");
+const DashboardPage = lazy(() => import("./dashboard-page").then((m) => ({ default: m.DashboardPage })));
+const DaemonPage = lazy(() => import("./daemon-page").then((m) => ({ default: m.DaemonPage })));
+const ProjectsPage = lazy(() => import("./projects-pages").then((m) => ({ default: m.ProjectsPage })));
+const ProjectDetailPage = lazy(() => import("./projects-pages").then((m) => ({ default: m.ProjectDetailPage })));
+const RequirementDetailPage = lazy(() => import("./projects-pages").then((m) => ({ default: m.RequirementDetailPage })));
+const TasksPage = lazy(() => import("./tasks-pages").then((m) => ({ default: m.TasksPage })));
+const TaskCreatePage = lazy(() => import("./tasks-pages").then((m) => ({ default: m.TaskCreatePage })));
+const TaskDetailPage = lazy(() => import("./tasks-pages").then((m) => ({ default: m.TaskDetailPage })));
+const WorkflowsPage = lazy(() => import("./workflow-pages").then((m) => ({ default: m.WorkflowsPage })));
+const WorkflowDetailPage = lazy(() => import("./workflow-pages").then((m) => ({ default: m.WorkflowDetailPage })));
+const WorkflowCheckpointPage = lazy(() => import("./workflow-pages").then((m) => ({ default: m.WorkflowCheckpointPage })));
+const QueuePage = lazy(() => import("./queue-page").then((m) => ({ default: m.QueuePage })));
+const EventsPage = lazy(() => import("./events-page").then((m) => ({ default: m.EventsPage })));
+const ReviewHandoffPage = lazy(() => import("./review-page").then((m) => ({ default: m.ReviewHandoffPage })));
+const NotFoundPage = lazy(() => import("./not-found-page").then((m) => ({ default: m.NotFoundPage })));
 
 export const APP_ROUTE_PATHS = [
   "/",

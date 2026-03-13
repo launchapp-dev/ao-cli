@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
-use workflow_runner::executor::phase_output::{phase_output_dir, PersistedPhaseOutput};
+use workflow_runner_v2::phase_output::{phase_output_dir, PersistedPhaseOutput};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ArtifactInfoCli {

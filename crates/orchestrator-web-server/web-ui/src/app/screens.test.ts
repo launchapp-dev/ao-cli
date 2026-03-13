@@ -1,41 +1,43 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 
-const screensPath = resolve(import.meta.dirname, "./screens.tsx");
+const dir = import.meta.dirname;
 
-describe("screens module", () => {
-  it("exports all required page components", () => {
-    const source = readFileSync(screensPath, "utf8");
+const featureFiles = [
+  { file: "dashboard-page.tsx", exports: ["DashboardPage"] },
+  { file: "tasks-pages.tsx", exports: ["TasksPage", "TaskCreatePage", "TaskDetailPage"] },
+  { file: "workflow-pages.tsx", exports: ["WorkflowsPage", "WorkflowDetailPage", "WorkflowCheckpointPage"] },
+  { file: "queue-page.tsx", exports: ["QueuePage"] },
+  { file: "daemon-page.tsx", exports: ["DaemonPage"] },
+  { file: "projects-pages.tsx", exports: ["ProjectsPage", "ProjectDetailPage", "RequirementDetailPage"] },
+  { file: "events-page.tsx", exports: ["EventsPage"] },
+  { file: "review-page.tsx", exports: ["ReviewHandoffPage"] },
+  { file: "not-found-page.tsx", exports: ["NotFoundPage"] },
+];
 
-    const requiredExports = [
-      "DashboardPage",
-      "TasksPage",
-      "TaskCreatePage",
-      "TaskDetailPage",
-      "WorkflowsPage",
-      "WorkflowDetailPage",
-      "WorkflowCheckpointPage",
-      "QueuePage",
-      "DaemonPage",
-      "ProjectsPage",
-      "ProjectDetailPage",
-      "RequirementDetailPage",
-      "EventsPage",
-      "ReviewHandoffPage",
-      "NotFoundPage",
-    ];
+describe("feature page modules", () => {
+  for (const { file, exports: requiredExports } of featureFiles) {
+    describe(file, () => {
+      it("exists", () => {
+        expect(existsSync(resolve(dir, file))).toBe(true);
+      });
 
-    for (const name of requiredExports) {
-      expect(source).toContain(`export function ${name}(`);
-    }
-  });
+      it("exports all required page components", () => {
+        const source = readFileSync(resolve(dir, file), "utf8");
+        for (const name of requiredExports) {
+          expect(source).toContain(`export function ${name}(`);
+        }
+      });
 
-  it("uses GraphQL queries via urql hooks", () => {
-    const source = readFileSync(screensPath, "utf8");
-
-    expect(source).toContain("useQuery");
-    expect(source).toContain("useMutation");
-    expect(source).toContain('from "urql"');
-  });
+      it("imports hooks from @/lib/graphql/client", () => {
+        const source = readFileSync(resolve(dir, file), "utf8");
+        const usesHooks = source.includes("useQuery") || source.includes("useMutation") || source.includes("useSubscription");
+        if (usesHooks) {
+          expect(source).toContain('@/lib/graphql/client');
+          expect(source).not.toMatch(/from ["']urql["']/);
+        }
+      });
+    });
+  }
 });

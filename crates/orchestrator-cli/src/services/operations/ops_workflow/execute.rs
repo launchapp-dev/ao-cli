@@ -6,7 +6,7 @@ use orchestrator_core::services::ServiceHub;
 
 use crate::services::runtime::execution_fact_projection::project_terminal_workflow_result;
 use crate::{print_value, WorkflowExecuteArgs};
-use ::workflow_runner::workflow_execute::{execute_workflow, PhaseEvent, WorkflowExecuteParams};
+use ::workflow_runner_v2::workflow_execute::{execute_workflow, PhaseEvent, WorkflowExecuteParams};
 
 pub(crate) async fn handle_workflow_execute(
     mut args: WorkflowExecuteArgs,

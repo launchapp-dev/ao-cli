@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::{print_value, WorkflowPromptRenderArgs};
 
-use ::workflow_runner::executor::{
+use ::workflow_runner_v2::{
     ensure_execution_cwd, render_phase_prompt, PhasePromptInputs, RenderedPhasePrompt,
 };
 

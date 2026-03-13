@@ -14,7 +14,7 @@ use serde_json::json;
 use std::path::Path;
 use std::time::Duration;
 use tempfile::TempDir;
-use workflow_runner::executor::parse_merge_conflict_recovery_response;
+use workflow_runner_v2::workflow_merge_recovery::parse_merge_conflict_recovery_response;
 
 use protocol::test_utils::EnvVarGuard;
 

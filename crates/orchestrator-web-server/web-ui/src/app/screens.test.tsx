@@ -8,8 +8,8 @@ const mocks = vi.hoisted(() => ({
   useMutation: vi.fn(),
 }));
 
-vi.mock("urql", async () => {
-  const actual = await vi.importActual("urql");
+vi.mock("@/lib/graphql/client", async () => {
+  const actual = await vi.importActual("@/lib/graphql/client");
   return {
     ...actual,
     useQuery: mocks.useQuery,
@@ -21,7 +21,7 @@ vi.mock("@/lib/graphql/provider", () => ({
   GraphQLProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
-import { ReviewHandoffPage } from "./screens";
+import { ReviewHandoffPage } from "./review-page";
 
 describe("ReviewHandoffPage", () => {
   let executeMutation: ReturnType<typeof vi.fn>;

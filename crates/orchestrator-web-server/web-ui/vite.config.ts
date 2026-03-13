@@ -10,6 +10,18 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  server: {
+    port: 5174,
+    proxy: {
+      "/graphql/ws": {
+        target: "http://localhost:3847",
+        ws: true,
+      },
+      "/graphql": {
+        target: "http://localhost:3847",
+      },
+    },
+  },
   test: {
     environment: "jsdom",
     setupFiles: [],

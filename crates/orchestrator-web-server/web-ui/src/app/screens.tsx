@@ -1,5 +1,5 @@
-import { FormEvent, ReactNode, useMemo, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { FormEvent, ReactNode, useCallback, useMemo, useState } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation } from "urql";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -151,6 +151,68 @@ const QUEUE_RELEASE = `mutation QueueRelease($taskId: String!) { queueRelease(ta
 const REVIEW_HANDOFF = `
   mutation ReviewHandoff($targetRole: String!, $question: String!, $context: String) {
     reviewHandoff(targetRole: $targetRole, question: $question, context: $context)
+  }
+`;
+
+const CREATE_TASK = `
+  mutation CreateTask($title: String!, $description: String, $taskType: String, $priority: String) {
+    createTask(title: $title, description: $description, taskType: $taskType, priority: $priority) {
+      id title status statusRaw
+    }
+  }
+`;
+
+const UPDATE_TASK = `
+  mutation UpdateTask($id: ID!, $title: String, $description: String, $taskType: String, $priority: String, $risk: String, $scope: String, $complexity: String) {
+    updateTask(id: $id, title: $title, description: $description, taskType: $taskType, priority: $priority, risk: $risk, scope: $scope, complexity: $complexity) {
+      id title status statusRaw
+    }
+  }
+`;
+
+const DELETE_TASK = `mutation DeleteTask($id: ID!) { deleteTask(id: $id) }`;
+
+const ASSIGN_AGENT = `
+  mutation AssignAgent($id: ID!, $role: String, $model: String) {
+    assignAgent(id: $id, role: $role, model: $model) { id }
+  }
+`;
+
+const ASSIGN_HUMAN = `
+  mutation AssignHuman($id: ID!, $name: String!) {
+    assignHuman(id: $id, name: $name) { id }
+  }
+`;
+
+const CHECKLIST_ADD = `
+  mutation ChecklistAdd($id: ID!, $description: String!) {
+    checklistAdd(id: $id, description: $description) {
+      id checklist { id description completed }
+    }
+  }
+`;
+
+const CHECKLIST_UPDATE = `
+  mutation ChecklistUpdate($id: ID!, $itemId: String!, $completed: Boolean, $description: String) {
+    checklistUpdate(id: $id, itemId: $itemId, completed: $completed, description: $description) {
+      id checklist { id description completed }
+    }
+  }
+`;
+
+const DEPENDENCY_ADD = `
+  mutation DependencyAdd($id: ID!, $dependsOn: String!, $dependencyType: String) {
+    dependencyAdd(id: $id, dependsOn: $dependsOn, dependencyType: $dependencyType) {
+      id dependencies { taskId type }
+    }
+  }
+`;
+
+const DEPENDENCY_REMOVE = `
+  mutation DependencyRemove($id: ID!, $dependsOn: String!) {
+    dependencyRemove(id: $id, dependsOn: $dependsOn) {
+      id dependencies { taskId type }
+    }
   }
 `;
 
@@ -317,7 +379,10 @@ export function TasksPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Tasks</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight">Tasks</h1>
+          <Link to="/tasks/new"><Button size="sm">Create Task</Button></Link>
+        </div>
         <span className="text-sm text-muted-foreground">{tasks.length} tasks</span>
       </div>
 
@@ -387,14 +452,112 @@ export function TasksPage() {
   );
 }
 
+export function TaskCreatePage() {
+  const navigate = useNavigate();
+  const [, createTask] = useMutation(CREATE_TASK);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [priority, setPriority] = useState("medium");
+  const [taskType, setTaskType] = useState("feature");
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) { setErrorMsg("Title is required."); return; }
+    setSubmitting(true);
+    setErrorMsg(null);
+    const result = await createTask({
+      title: title.trim(),
+      description: description.trim() || null,
+      priority,
+      taskType,
+    });
+    setSubmitting(false);
+    if (result.error) {
+      setErrorMsg(result.error.message);
+    } else {
+      navigate(`/tasks/${result.data.createTask.id}`, { replace: true });
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <h1 className="text-2xl font-semibold tracking-tight">Create Task</h1>
+      <Card>
+        <CardContent className="pt-6">
+          <form onSubmit={onSubmit} className="space-y-4">
+            <div>
+              <label className="text-sm font-medium">Title</label>
+              <Input required value={title} onChange={(e) => setTitle(e.target.value)} className="mt-1" />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Description</label>
+              <Textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)} className="mt-1" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium">Priority</label>
+                <select value={priority} onChange={(e) => setPriority(e.target.value)} className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm">
+                  {["critical", "high", "medium", "low"].map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-sm font-medium">Type</label>
+                <select value={taskType} onChange={(e) => setTaskType(e.target.value)} className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm">
+                  {["feature", "bug", "chore", "refactor", "test", "docs"].map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <Button type="submit" disabled={submitting}>{submitting ? "Creating..." : "Create Task"}</Button>
+              <Link to="/tasks"><Button variant="outline" type="button">Cancel</Button></Link>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+      {errorMsg && <Alert variant="destructive"><AlertDescription>{errorMsg}</AlertDescription></Alert>}
+    </div>
+  );
+}
+
 export function TaskDetailPage() {
+  const navigate = useNavigate();
   const { taskId } = useParams();
-  const [result] = useQuery({ query: TASK_DETAIL_QUERY, variables: { id: taskId } });
+  const [result, reexecute] = useQuery({ query: TASK_DETAIL_QUERY, variables: { id: taskId } });
   const [, updateStatus] = useMutation(UPDATE_TASK_STATUS);
+  const [, updateTask] = useMutation(UPDATE_TASK);
+  const [, deleteTask] = useMutation(DELETE_TASK);
+  const [, assignAgent] = useMutation(ASSIGN_AGENT);
+  const [, assignHuman] = useMutation(ASSIGN_HUMAN);
+  const [, checklistAdd] = useMutation(CHECKLIST_ADD);
+  const [, checklistUpdate] = useMutation(CHECKLIST_UPDATE);
+  const [, depAdd] = useMutation(DEPENDENCY_ADD);
+  const [, depRemove] = useMutation(DEPENDENCY_REMOVE);
+
   const [targetStatus, setTargetStatus] = useState("");
   const [feedback, setFeedback] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+  const [editPriority, setEditPriority] = useState("");
+  const [editType, setEditType] = useState("");
+  const [editRisk, setEditRisk] = useState("");
+  const [editScope, setEditScope] = useState("");
+  const [editComplexity, setEditComplexity] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [newChecklistItem, setNewChecklistItem] = useState("");
+  const [newDepId, setNewDepId] = useState("");
+  const [assignMode, setAssignMode] = useState<"" | "agent" | "human">("");
+  const [assignRole, setAssignRole] = useState("default");
+  const [assignModel, setAssignModel] = useState("");
+  const [assignName, setAssignName] = useState("");
 
   const { data, fetching, error } = result;
+
+  const reload = useCallback(() => reexecute({ requestPolicy: "network-only" }), [reexecute]);
+
+  const showFeedback = (kind: "ok" | "error", message: string) => setFeedback({ kind, message });
 
   if (fetching) return <PageLoading />;
   if (error) return <PageError message={error.message} />;
@@ -402,29 +565,162 @@ export function TaskDetailPage() {
   const task = data?.task;
   if (!task) return <PageError message={`Task ${taskId} not found.`} />;
 
+  const startEdit = () => {
+    setEditTitle(task.title);
+    setEditDesc(task.description ?? "");
+    setEditPriority(task.priorityRaw);
+    setEditType(task.taskTypeRaw);
+    setEditRisk(task.risk ?? "");
+    setEditScope(task.scope ?? "");
+    setEditComplexity(task.complexity ?? "");
+    setEditing(true);
+  };
+
+  const saveEdit = async () => {
+    const { error: err } = await updateTask({
+      id: taskId,
+      title: editTitle.trim() || null,
+      description: editDesc.trim() || null,
+      taskType: editType || null,
+      priority: editPriority || null,
+      risk: editRisk || null,
+      scope: editScope || null,
+      complexity: editComplexity || null,
+    });
+    if (err) showFeedback("error", err.message);
+    else { showFeedback("ok", "Task updated."); setEditing(false); reload(); }
+  };
+
   const applyStatus = async () => {
     if (!targetStatus) return;
-    const { error: mutErr } = await updateStatus({ id: taskId, status: targetStatus });
-    if (mutErr) {
-      setFeedback({ kind: "error", message: mutErr.message });
-    } else {
-      setFeedback({ kind: "ok", message: `Status updated to ${targetStatus}.` });
+    const { error: err } = await updateStatus({ id: taskId, status: targetStatus });
+    if (err) showFeedback("error", err.message);
+    else { showFeedback("ok", `Status updated to ${targetStatus}.`); reload(); }
+  };
+
+  const onDelete = async () => {
+    const { error: err } = await deleteTask({ id: taskId });
+    if (err) showFeedback("error", err.message);
+    else navigate("/tasks", { replace: true });
+  };
+
+  const onChecklistToggle = async (itemId: string, completed: boolean) => {
+    const { error: err } = await checklistUpdate({ id: taskId, itemId, completed: !completed });
+    if (err) showFeedback("error", err.message);
+    else reload();
+  };
+
+  const onChecklistAdd = async () => {
+    if (!newChecklistItem.trim()) return;
+    const { error: err } = await checklistAdd({ id: taskId, description: newChecklistItem.trim() });
+    if (err) showFeedback("error", err.message);
+    else { setNewChecklistItem(""); reload(); }
+  };
+
+  const onDepAdd = async () => {
+    if (!newDepId.trim()) return;
+    const { error: err } = await depAdd({ id: taskId, dependsOn: newDepId.trim() });
+    if (err) showFeedback("error", err.message);
+    else { setNewDepId(""); reload(); }
+  };
+
+  const onDepRemove = async (depTaskId: string) => {
+    const { error: err } = await depRemove({ id: taskId, dependsOn: depTaskId });
+    if (err) showFeedback("error", err.message);
+    else reload();
+  };
+
+  const onAssign = async () => {
+    if (assignMode === "agent") {
+      const { error: err } = await assignAgent({ id: taskId, role: assignRole || null, model: assignModel || null });
+      if (err) showFeedback("error", err.message);
+      else { showFeedback("ok", "Assigned to agent."); setAssignMode(""); reload(); }
+    } else if (assignMode === "human") {
+      if (!assignName.trim()) return;
+      const { error: err } = await assignHuman({ id: taskId, name: assignName.trim() });
+      if (err) showFeedback("error", err.message);
+      else { showFeedback("ok", `Assigned to ${assignName}.`); setAssignMode(""); reload(); }
     }
   };
 
   return (
     <div className="space-y-6">
-      <div>
-        <p className="text-sm text-muted-foreground font-mono">{task.id}</p>
-        <h1 className="text-2xl font-semibold tracking-tight">{task.title}</h1>
-        <div className="flex gap-2 mt-2">
-          <Badge variant={statusColor(task.statusRaw)}>{task.statusRaw}</Badge>
-          <Badge variant={priorityColor(task.priorityRaw)}>{task.priorityRaw}</Badge>
-          <Badge variant="outline">{task.taskTypeRaw}</Badge>
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-sm text-muted-foreground font-mono">{task.id}</p>
+          <h1 className="text-2xl font-semibold tracking-tight">{task.title}</h1>
+          <div className="flex gap-2 mt-2">
+            <Badge variant={statusColor(task.statusRaw)}>{task.statusRaw}</Badge>
+            <Badge variant={priorityColor(task.priorityRaw)}>{task.priorityRaw}</Badge>
+            <Badge variant="outline">{task.taskTypeRaw}</Badge>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={startEdit}>Edit</Button>
+          {confirmDelete ? (
+            <>
+              <Button size="sm" variant="destructive" onClick={onDelete}>Confirm Delete</Button>
+              <Button size="sm" variant="outline" onClick={() => setConfirmDelete(false)}>Cancel</Button>
+            </>
+          ) : (
+            <Button size="sm" variant="destructive" onClick={() => setConfirmDelete(true)}>Delete</Button>
+          )}
         </div>
       </div>
 
-      {task.description && (
+      {feedback && (
+        <Alert variant={feedback.kind === "error" ? "destructive" : "default"}>
+          <AlertDescription>{feedback.message}</AlertDescription>
+        </Alert>
+      )}
+
+      {editing && (
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Edit Task</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            <div>
+              <label className="text-sm font-medium">Title</label>
+              <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} className="mt-1" />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Description</label>
+              <Textarea rows={3} value={editDesc} onChange={(e) => setEditDesc(e.target.value)} className="mt-1" />
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div>
+                <label className="text-xs font-medium">Priority</label>
+                <select value={editPriority} onChange={(e) => setEditPriority(e.target.value)} className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm">
+                  {["critical", "high", "medium", "low"].map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium">Type</label>
+                <select value={editType} onChange={(e) => setEditType(e.target.value)} className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm">
+                  {["feature", "bug", "chore", "refactor", "test", "docs"].map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium">Risk</label>
+                <select value={editRisk} onChange={(e) => setEditRisk(e.target.value)} className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm">
+                  {["low", "medium", "high"].map((r) => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium">Scope</label>
+                <select value={editScope} onChange={(e) => setEditScope(e.target.value)} className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm">
+                  {["small", "medium", "large"].map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={saveEdit}>Save</Button>
+              <Button size="sm" variant="outline" onClick={() => setEditing(false)}>Cancel</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {task.description && !editing && (
         <Card>
           <CardContent className="pt-4 text-sm whitespace-pre-wrap">{task.description}</CardContent>
         </Card>
@@ -447,8 +743,6 @@ export function TaskDetailPage() {
             <Button size="sm" onClick={applyStatus} disabled={!targetStatus || targetStatus === task.statusRaw}>
               Apply
             </Button>
-            {feedback?.kind === "ok" && <p className="text-sm text-green-600">{feedback.message}</p>}
-            {feedback?.kind === "error" && <p className="text-sm text-destructive">{feedback.message}</p>}
           </CardContent>
         </Card>
 
@@ -467,39 +761,109 @@ export function TaskDetailPage() {
         </Card>
       </div>
 
-      {task.checklist.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Checklist</CardTitle></CardHeader>
-          <CardContent>
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-medium">Assignment</CardTitle>
+            {assignMode === "" && (
+              <div className="flex gap-1">
+                <Button size="sm" variant="outline" className="h-6 text-xs" onClick={() => setAssignMode("agent")}>Assign Agent</Button>
+                <Button size="sm" variant="outline" className="h-6 text-xs" onClick={() => setAssignMode("human")}>Assign Human</Button>
+              </div>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {assignMode === "agent" && (
+            <div className="flex items-end gap-2">
+              <div>
+                <label className="text-xs font-medium">Role</label>
+                <Input value={assignRole} onChange={(e) => setAssignRole(e.target.value)} className="mt-1 h-8 w-32 text-xs" />
+              </div>
+              <div>
+                <label className="text-xs font-medium">Model</label>
+                <Input value={assignModel} onChange={(e) => setAssignModel(e.target.value)} placeholder="e.g. claude-sonnet-4-6" className="mt-1 h-8 w-48 text-xs" />
+              </div>
+              <Button size="sm" className="h-8" onClick={onAssign}>Assign</Button>
+              <Button size="sm" variant="outline" className="h-8" onClick={() => setAssignMode("")}>Cancel</Button>
+            </div>
+          )}
+          {assignMode === "human" && (
+            <div className="flex items-end gap-2">
+              <div>
+                <label className="text-xs font-medium">Name</label>
+                <Input value={assignName} onChange={(e) => setAssignName(e.target.value)} className="mt-1 h-8 w-48 text-xs" />
+              </div>
+              <Button size="sm" className="h-8" onClick={onAssign}>Assign</Button>
+              <Button size="sm" variant="outline" className="h-8" onClick={() => setAssignMode("")}>Cancel</Button>
+            </div>
+          )}
+          {assignMode === "" && (
+            <p className="text-sm text-muted-foreground">
+              {task.assignee ? `Assigned: ${JSON.stringify(task.assignee)}` : "Unassigned"}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Checklist</CardTitle></CardHeader>
+        <CardContent className="space-y-2">
+          {task.checklist.length > 0 && (
             <ul className="space-y-1">
               {task.checklist.map((item: any) => (
                 <li key={item.id} className="flex items-center gap-2 text-sm">
-                  <span className={item.completed ? "text-green-600" : "text-muted-foreground"}>
-                    {item.completed ? "✓" : "○"}
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onChecklistToggle(item.id, item.completed)}
+                    className="shrink-0 text-lg leading-none hover:opacity-70"
+                  >
+                    {item.completed ? <span className="text-green-600">&#x2611;</span> : <span className="text-muted-foreground">&#x2610;</span>}
+                  </button>
                   <span className={item.completed ? "line-through text-muted-foreground" : ""}>{item.description}</span>
                 </li>
               ))}
             </ul>
-          </CardContent>
-        </Card>
-      )}
+          )}
+          <div className="flex gap-2">
+            <Input
+              value={newChecklistItem}
+              onChange={(e) => setNewChecklistItem(e.target.value)}
+              placeholder="Add checklist item..."
+              className="h-8 text-sm"
+              onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), onChecklistAdd())}
+            />
+            <Button size="sm" variant="outline" className="h-8" onClick={onChecklistAdd}>Add</Button>
+          </div>
+        </CardContent>
+      </Card>
 
-      {task.dependencies.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Dependencies</CardTitle></CardHeader>
-          <CardContent>
+      <Card>
+        <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Dependencies</CardTitle></CardHeader>
+        <CardContent className="space-y-2">
+          {task.dependencies.length > 0 && (
             <ul className="space-y-1">
               {task.dependencies.map((dep: any) => (
-                <li key={dep.taskId} className="text-sm">
+                <li key={dep.taskId} className="flex items-center gap-2 text-sm">
                   <Link to={`/tasks/${dep.taskId}`} className="font-mono underline">{dep.taskId}</Link>
-                  <span className="text-muted-foreground ml-2">{dep.type}</span>
+                  <span className="text-muted-foreground">{dep.type}</span>
+                  <Button size="sm" variant="ghost" className="h-5 px-1 text-xs text-destructive" onClick={() => onDepRemove(dep.taskId)}>remove</Button>
                 </li>
               ))}
             </ul>
-          </CardContent>
-        </Card>
-      )}
+          )}
+          <div className="flex gap-2">
+            <Input
+              value={newDepId}
+              onChange={(e) => setNewDepId(e.target.value)}
+              placeholder="TASK-XXX"
+              className="h-8 w-40 text-sm font-mono"
+              onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), onDepAdd())}
+            />
+            <Button size="sm" variant="outline" className="h-8" onClick={onDepAdd}>Add Dependency</Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {task.linkedRequirementIds.length > 0 && (
         <Card>

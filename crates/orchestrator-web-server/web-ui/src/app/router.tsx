@@ -19,6 +19,7 @@ type ScreenExport =
   | "ProjectDetailPage"
   | "RequirementDetailPage"
   | "TasksPage"
+  | "TaskCreatePage"
   | "TaskDetailPage"
   | "WorkflowsPage"
   | "WorkflowDetailPage"
@@ -37,6 +38,7 @@ const ProjectsPage = lazyScreen("ProjectsPage");
 const ProjectDetailPage = lazyScreen("ProjectDetailPage");
 const RequirementDetailPage = lazyScreen("RequirementDetailPage");
 const TasksPage = lazyScreen("TasksPage");
+const TaskCreatePage = lazyScreen("TaskCreatePage");
 const TaskDetailPage = lazyScreen("TaskDetailPage");
 const WorkflowsPage = lazyScreen("WorkflowsPage");
 const WorkflowDetailPage = lazyScreen("WorkflowDetailPage");
@@ -59,6 +61,7 @@ export const APP_ROUTE_PATHS = [
   "/planning/requirements/new",
   "/planning/requirements/:requirementId",
   "/tasks",
+  "/tasks/new",
   "/tasks/:taskId",
   "/workflows",
   "/workflows/:workflowId",
@@ -122,6 +125,10 @@ const router = createBrowserRouter([
       {
         path: "tasks",
         element: withRouteSuspense(<TasksPage />),
+      },
+      {
+        path: "tasks/new",
+        element: withRouteSuspense(<TaskCreatePage />),
       },
       {
         path: "tasks/:taskId",

@@ -1,612 +1,383 @@
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
+import { useQuery, useMutation } from "urql";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Separator } from "@/components/ui/separator";
 
-import { api } from "../lib/api/client";
-import type { ApiError } from "../lib/api/envelope";
-import type {
-  PlanningRequirementCreateInput,
-  PlanningRequirementItem,
-  PlanningRequirementUpdateInput,
-  PlanningRequirementsRefineResult,
-  PlanningVisionDocument,
-} from "../lib/api/contracts/models";
-import { useApiResource } from "../lib/api/use-api-resource";
+const VISION_QUERY = `
+  query Vision {
+    vision { title summary goals targetAudience successCriteria constraints raw }
+  }
+`;
 
-type RequirementFormValues = {
-  title: string;
-  description: string;
-  body: string;
-  acceptanceCriteria: string;
-  priority: "must" | "should" | "could" | "wont";
-  status:
-    | "draft"
-    | "refined"
-    | "planned"
-    | "in-progress"
-    | "done"
-    | "po-review"
-    | "em-review"
-    | "needs-rework"
-    | "approved"
-    | "implemented"
-    | "deprecated";
-  source: string;
-};
+const SAVE_VISION = `mutation SaveVision($content: String!) { saveVision(content: $content) { title summary goals targetAudience successCriteria constraints raw } }`;
+const REFINE_VISION = `mutation RefineVision($feedback: String) { refineVision(feedback: $feedback) { title summary goals targetAudience successCriteria constraints raw } }`;
 
-type VisionFormValues = {
-  projectName: string;
-  problemStatement: string;
-  targetUsers: string;
-  goals: string;
-  constraints: string;
-  valueProposition: string;
-};
+const REQUIREMENTS_QUERY = `
+  query Requirements {
+    requirements { id title description priority priorityRaw status statusRaw requirementType tags linkedTaskIds }
+  }
+`;
 
-const REQUIREMENT_PRIORITY_OPTIONS = [
-  { value: "must", label: "Must" },
-  { value: "should", label: "Should" },
-  { value: "could", label: "Could" },
-  { value: "wont", label: "Won't" },
-] as const;
+const REQUIREMENT_QUERY = `
+  query Requirement($id: ID!) {
+    requirement(id: $id) { id title description priority priorityRaw status statusRaw requirementType tags linkedTaskIds }
+  }
+`;
 
-const REQUIREMENT_STATUS_OPTIONS = [
-  { value: "draft", label: "Draft" },
-  { value: "refined", label: "Refined" },
-  { value: "planned", label: "Planned" },
-  { value: "in-progress", label: "In Progress" },
-  { value: "done", label: "Done" },
-  { value: "po-review", label: "PO Review" },
-  { value: "em-review", label: "EM Review" },
-  { value: "needs-rework", label: "Needs Rework" },
-  { value: "approved", label: "Approved" },
-  { value: "implemented", label: "Implemented" },
-  { value: "deprecated", label: "Deprecated" },
-] as const;
+const CREATE_REQUIREMENT = `mutation CreateRequirement($title: String!, $description: String, $priority: String, $requirementType: String) { createRequirement(title: $title, description: $description, priority: $priority, requirementType: $requirementType) { id } }`;
+const UPDATE_REQUIREMENT = `mutation UpdateRequirement($id: ID!, $title: String, $description: String, $priority: String, $status: String, $requirementType: String) { updateRequirement(id: $id, title: $title, description: $description, priority: $priority, status: $status, requirementType: $requirementType) { id } }`;
+const DELETE_REQUIREMENT = `mutation DeleteRequirement($id: ID!) { deleteRequirement(id: $id) }`;
+const DRAFT_REQUIREMENT = `mutation DraftRequirement($context: String) { draftRequirement(context: $context) { id title } }`;
+const REFINE_REQUIREMENT = `mutation RefineRequirement($id: String!, $feedback: String) { refineRequirement(id: $id, feedback: $feedback) { id } }`;
+
+const PRIORITY_OPTIONS = ["must", "should", "could", "wont"] as const;
+const STATUS_OPTIONS = ["draft", "refined", "planned", "in-progress", "done", "po-review", "em-review", "needs-rework", "approved", "implemented", "deprecated"] as const;
+
+function priorityColor(p: string) {
+  switch (p) {
+    case "must": return "destructive" as const;
+    case "should": return "default" as const;
+    case "could": return "secondary" as const;
+    case "wont": return "outline" as const;
+    default: return "secondary" as const;
+  }
+}
+
+function statusColor(s: string) {
+  switch (s) {
+    case "done": case "approved": case "implemented": return "default" as const;
+    case "in-progress": return "default" as const;
+    case "draft": return "secondary" as const;
+    case "deprecated": return "outline" as const;
+    default: return "secondary" as const;
+  }
+}
 
 export function PlanningEntryRedirectPage() {
   return <Navigate to="/planning/vision" replace />;
 }
 
 export function PlanningVisionPage() {
-  const [refreshNonce, setRefreshNonce] = useState(0);
-  const [formValues, setFormValues] = useState<VisionFormValues>(defaultVisionFormValues());
-  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
-  const [saveError, setSaveError] = useState<ApiError | null>(null);
-  const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const [refineError, setRefineError] = useState<ApiError | null>(null);
-  const [refineMessage, setRefineMessage] = useState<string | null>(null);
-  const [refineFocus, setRefineFocus] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
-  const [isRefining, setIsRefining] = useState(false);
+  const [{ data, fetching, error }, reexecute] = useQuery({ query: VISION_QUERY });
+  const [, saveVision] = useMutation(SAVE_VISION);
+  const [, refineVision] = useMutation(REFINE_VISION);
+  const [content, setContent] = useState("");
+  const [feedback, setFeedback] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [refining, setRefining] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [initialized, setInitialized] = useState(false);
 
-  const visionState = useApiResource(
-    async () => api.visionGet(),
-    [refreshNonce],
-    {
-      isEmpty: (data) => data === null,
-    },
-  );
+  const vision = data?.vision;
 
-  useEffect(() => {
-    if (visionState.status === "ready") {
-      setFormValues(visionToFormValues(visionState.data));
-      setValidationErrors({});
-      setSaveError(null);
-      setRefineError(null);
-      return;
-    }
-
-    if (visionState.status === "empty") {
-      setFormValues(defaultVisionFormValues());
-      setValidationErrors({});
-      setSaveError(null);
-      setRefineError(null);
-    }
-  }, [
-    visionState.status,
-    visionState.status === "ready" ? visionState.data.updated_at : "",
-  ]);
-
-  const onSave = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setSaveMessage(null);
-    setSaveError(null);
-
-    const errors = validateVisionForm(formValues);
-    setValidationErrors(errors);
-    if (Object.keys(errors).length > 0) {
-      return;
-    }
-
-    const payload = visionFormToPayload(formValues);
-    setIsSaving(true);
-    void api.visionSave(payload).then((result) => {
-      setIsSaving(false);
-
-      if (result.kind === "error") {
-        setSaveError(result);
-        return;
-      }
-
-      setFormValues(visionToFormValues(result.data));
-      setSaveMessage("Vision saved.");
-      setRefreshNonce((current) => current + 1);
-    });
-  };
-
-  const onRefine = () => {
-    setRefineError(null);
-    setRefineMessage(null);
-    setIsRefining(true);
-
-    const focus = normalizeOptionalText(refineFocus);
-    void api.visionRefine({ focus }).then((result) => {
-      setIsRefining(false);
-
-      if (result.kind === "error") {
-        setRefineError(result);
-        return;
-      }
-
-      setFormValues(visionToFormValues(result.data.updated_vision));
-      setRefineMessage(
-        result.data.refinement.rationale ?? "Vision refined heuristically.",
-      );
-      setRefreshNonce((current) => current + 1);
-    });
-  };
-
-  if (visionState.status === "loading") {
-    return (
-      <PlanningRouteSection
-        title="Planning Vision"
-        description="Author product vision and refine it iteratively."
-      >
-        <LoadingState message="Loading vision..." />
-      </PlanningRouteSection>
-    );
+  if (vision && !initialized) {
+    setContent(vision.raw || "");
+    setInitialized(true);
   }
 
-  if (visionState.status === "error") {
-    return (
-      <PlanningRouteSection
-        title="Planning Vision"
-        description="Author product vision and refine it iteratively."
-      >
-        <ErrorState error={visionState.error} />
-      </PlanningRouteSection>
-    );
-  }
+  const onSave = async (e: FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setMessage(null);
+    const result = await saveVision({ content });
+    setSaving(false);
+    if (result.error) {
+      setMessage(`Error: ${result.error.message}`);
+    } else {
+      setMessage("Vision saved.");
+      reexecute({ requestPolicy: "network-only" });
+    }
+  };
+
+  const onRefine = async () => {
+    setRefining(true);
+    setMessage(null);
+    const result = await refineVision({ feedback: feedback || null });
+    setRefining(false);
+    if (result.error) {
+      setMessage(`Error: ${result.error.message}`);
+    } else {
+      setMessage("Vision refined.");
+      setInitialized(false);
+      reexecute({ requestPolicy: "network-only" });
+    }
+  };
+
+  if (fetching) return <div className="space-y-3"><Skeleton className="h-8 w-48" /><Skeleton className="h-40 w-full" /></div>;
+  if (error) return <Alert variant="destructive"><AlertDescription>{error.message}</AlertDescription></Alert>;
 
   return (
-    <PlanningRouteSection
-      title="Planning Vision"
-      description="Author product vision and refine it iteratively."
-    >
-      {visionState.status === "empty" ? (
-        <EmptyState message="No vision exists yet. Fill in the form to create your first draft." />
-      ) : null}
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold">Planning Vision</h1>
+        <p className="text-sm text-muted-foreground">Author product vision and refine it iteratively.</p>
+      </div>
 
-      <form className="planning-form" onSubmit={onSave}>
-        <div className="planning-form-grid">
-          <label>
-            Project Name
-            <input
-              value={formValues.projectName}
-              onChange={(event) =>
-                setFormValues((current) => ({
-                  ...current,
-                  projectName: event.target.value,
-                }))
-              }
+      {vision && (
+        <Card>
+          <CardHeader><CardTitle>Current Vision</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            {vision.title && <p className="font-medium">{vision.title}</p>}
+            {vision.summary && <p className="text-sm text-muted-foreground">{vision.summary}</p>}
+            {vision.goals?.length > 0 && (
+              <div>
+                <p className="text-sm font-medium mb-1">Goals</p>
+                <ul className="list-disc list-inside text-sm space-y-0.5">
+                  {vision.goals.map((g: string, i: number) => <li key={i}>{g}</li>)}
+                </ul>
+              </div>
+            )}
+            {vision.constraints?.length > 0 && (
+              <div>
+                <p className="text-sm font-medium mb-1">Constraints</p>
+                <ul className="list-disc list-inside text-sm space-y-0.5">
+                  {vision.constraints.map((c: string, i: number) => <li key={i}>{c}</li>)}
+                </ul>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader><CardTitle>{vision ? "Edit Vision" : "Create Vision"}</CardTitle></CardHeader>
+        <CardContent>
+          <form onSubmit={onSave} className="space-y-4">
+            <Textarea
+              rows={12}
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder="Enter vision content (markdown supported)..."
+              className="font-mono text-sm"
             />
-            {validationErrors.projectName ? (
-              <span role="alert" className="field-error">
-                {validationErrors.projectName}
-              </span>
-            ) : null}
-          </label>
+            <div className="flex items-center gap-3">
+              <Button type="submit" disabled={saving}>{saving ? "Saving..." : "Save Vision"}</Button>
+              <Separator orientation="vertical" className="h-6" />
+              <Input
+                value={feedback}
+                onChange={(e) => setFeedback(e.target.value)}
+                placeholder="Optional refinement focus..."
+                className="max-w-xs"
+              />
+              <Button type="button" variant="secondary" onClick={onRefine} disabled={refining}>
+                {refining ? "Refining..." : "Refine Vision"}
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
 
-          <label>
-            Value Proposition
-            <input
-              value={formValues.valueProposition}
-              onChange={(event) =>
-                setFormValues((current) => ({
-                  ...current,
-                  valueProposition: event.target.value,
-                }))
-              }
-            />
-            {validationErrors.valueProposition ? (
-              <span role="alert" className="field-error">
-                {validationErrors.valueProposition}
-              </span>
-            ) : null}
-          </label>
-        </div>
-
-        <label>
-          Problem Statement
-          <textarea
-            rows={3}
-            value={formValues.problemStatement}
-            onChange={(event) =>
-              setFormValues((current) => ({
-                ...current,
-                problemStatement: event.target.value,
-              }))
-            }
-          />
-          {validationErrors.problemStatement ? (
-            <span role="alert" className="field-error">
-              {validationErrors.problemStatement}
-            </span>
-          ) : null}
-        </label>
-
-        <div className="planning-form-grid">
-          <label>
-            Target Users (one per line)
-            <textarea
-              rows={5}
-              value={formValues.targetUsers}
-              onChange={(event) =>
-                setFormValues((current) => ({
-                  ...current,
-                  targetUsers: event.target.value,
-                }))
-              }
-            />
-            {validationErrors.targetUsers ? (
-              <span role="alert" className="field-error">
-                {validationErrors.targetUsers}
-              </span>
-            ) : null}
-          </label>
-
-          <label>
-            Goals (one per line)
-            <textarea
-              rows={5}
-              value={formValues.goals}
-              onChange={(event) =>
-                setFormValues((current) => ({
-                  ...current,
-                  goals: event.target.value,
-                }))
-              }
-            />
-            {validationErrors.goals ? (
-              <span role="alert" className="field-error">
-                {validationErrors.goals}
-              </span>
-            ) : null}
-          </label>
-
-          <label>
-            Constraints (one per line)
-            <textarea
-              rows={5}
-              value={formValues.constraints}
-              onChange={(event) =>
-                setFormValues((current) => ({
-                  ...current,
-                  constraints: event.target.value,
-                }))
-              }
-            />
-            {validationErrors.constraints ? (
-              <span role="alert" className="field-error">
-                {validationErrors.constraints}
-              </span>
-            ) : null}
-          </label>
-        </div>
-
-        <div className="planning-inline">
-          <button type="submit" disabled={isSaving}>
-            {isSaving ? "Saving..." : "Save Vision"}
-          </button>
-          <label className="compact-field">
-            <span>Refine Focus</span>
-            <input
-              value={refineFocus}
-              onChange={(event) => setRefineFocus(event.target.value)}
-              placeholder="Optional focus area"
-            />
-          </label>
-          <button type="button" onClick={onRefine} disabled={isRefining}>
-            {isRefining ? "Refining..." : "Refine Vision"}
-          </button>
-        </div>
-      </form>
-
-      {saveMessage ? <StatusState message={saveMessage} /> : null}
-      {saveError ? <ErrorState error={saveError} /> : null}
-      {refineMessage ? <StatusState message={refineMessage} /> : null}
-      {refineError ? <ErrorState error={refineError} /> : null}
-    </PlanningRouteSection>
+      {message && (
+        <Alert variant={message.startsWith("Error") ? "destructive" : "default"}>
+          <AlertDescription>{message}</AlertDescription>
+        </Alert>
+      )}
+    </div>
   );
 }
 
 export function PlanningRequirementsPage() {
-  const [refreshNonce, setRefreshNonce] = useState(0);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [{ data, fetching, error }, reexecute] = useQuery({ query: REQUIREMENTS_QUERY });
+  const [, draftRequirement] = useMutation(DRAFT_REQUIREMENT);
+  const [, refineRequirement] = useMutation(REFINE_REQUIREMENT);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [refineFocus, setRefineFocus] = useState("");
-  const [isRefining, setIsRefining] = useState(false);
-  const [isDrafting, setIsDrafting] = useState(false);
-  const [refineError, setRefineError] = useState<ApiError | null>(null);
-  const [refineResult, setRefineResult] =
-    useState<PlanningRequirementsRefineResult | null>(null);
-  const [draftError, setDraftError] = useState<ApiError | null>(null);
-  const [draftMessage, setDraftMessage] = useState<string | null>(null);
-  const [confirmRefineAll, setConfirmRefineAll] = useState(false);
+  const [operating, setOperating] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
 
-  const requirementsState = useApiResource(
-    async () => api.requirementsList(),
-    [refreshNonce],
-    {
-      isEmpty: (data) => data.length === 0,
-    },
-  );
+  const requirements = useMemo(() => {
+    const list = data?.requirements ?? [];
+    return [...list].sort((a: { id: string }, b: { id: string }) => a.id.localeCompare(b.id));
+  }, [data]);
 
-  const sortedRequirements = useMemo(() => {
-    if (requirementsState.status !== "ready") {
-      return [] as PlanningRequirementItem[];
-    }
-
-    return [...requirementsState.data].sort((left, right) =>
-      left.id.localeCompare(right.id),
-    );
-  }, [requirementsState]);
-
-  useEffect(() => {
-    if (requirementsState.status !== "ready") {
-      if (requirementsState.status === "empty") {
-        setSelectedIds([]);
-      }
-      return;
-    }
-
-    const available = new Set(requirementsState.data.map((requirement) => requirement.id));
-    setSelectedIds((current) => current.filter((id) => available.has(id)));
-  }, [requirementsState]);
-
-  const toggleSelection = (requirementId: string, checked: boolean) => {
-    setSelectedIds((current) => {
-      if (checked) {
-        if (current.includes(requirementId)) {
-          return current;
-        }
-        return [...current, requirementId];
-      }
-
-      return current.filter((id) => id !== requirementId);
+  const toggleSelection = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
     });
   };
 
-  const runRefine = (requirementIds: string[]) => {
-    setRefineError(null);
-    setRefineResult(null);
-    setIsRefining(true);
-    setConfirmRefineAll(false);
-
-    void api
-      .requirementsRefine({
-        requirement_ids: requirementIds,
-        focus: normalizeOptionalText(refineFocus),
-      })
-      .then((result) => {
-        setIsRefining(false);
-        if (result.kind === "error") {
-          setRefineError(result);
-          return;
-        }
-
-        setRefineResult(result.data);
-        setRefreshNonce((current) => current + 1);
-      });
+  const onDraft = async () => {
+    setOperating("drafting");
+    setMessage(null);
+    const result = await draftRequirement({ context: null });
+    setOperating(null);
+    if (result.error) {
+      setMessage(`Error: ${result.error.message}`);
+    } else {
+      setMessage(`Drafted requirement ${result.data?.draftRequirement?.id ?? ""}.`);
+      reexecute({ requestPolicy: "network-only" });
+    }
   };
 
-  const runDraft = () => {
-    setDraftError(null);
-    setDraftMessage(null);
-    setIsDrafting(true);
-
-    void api
-      .requirementsDraft({
-        append_only: true,
-      })
-      .then((result) => {
-        setIsDrafting(false);
-        if (result.kind === "error") {
-          setDraftError(result);
-          return;
-        }
-
-        setDraftMessage(
-          `Drafted ${result.data.appended_count} requirement(s).`,
-        );
-        setRefreshNonce((current) => current + 1);
-      });
+  const onRefineSelected = async () => {
+    if (selectedIds.size === 0) return;
+    setOperating("refining");
+    setMessage(null);
+    let refined = 0;
+    for (const id of selectedIds) {
+      const result = await refineRequirement({ id, feedback: refineFocus || null });
+      if (!result.error) refined++;
+    }
+    setOperating(null);
+    setMessage(`Refined ${refined} requirement(s).`);
+    reexecute({ requestPolicy: "network-only" });
   };
+
+  if (fetching) return <div className="space-y-3"><Skeleton className="h-8 w-48" /><Skeleton className="h-20 w-full" /><Skeleton className="h-20 w-full" /></div>;
+  if (error) return <Alert variant="destructive"><AlertDescription>{error.message}</AlertDescription></Alert>;
 
   return (
-    <PlanningRouteSection
-      title="Planning Requirements"
-      description="Browse, draft, and refine requirements with stable deep links."
-    >
-      <div className="planning-inline">
-        <Link to="/planning/requirements/new" className="action-link">
-          New Requirement
-        </Link>
-        <button type="button" onClick={runDraft} disabled={isDrafting || isRefining}>
-          {isDrafting ? "Drafting..." : "Draft Suggestions"}
-        </button>
-        <label className="compact-field">
-          <span>Refine Focus</span>
-          <input
-            value={refineFocus}
-            onChange={(event) => setRefineFocus(event.target.value)}
-            placeholder="Optional focus area"
-          />
-        </label>
-        <button
-          type="button"
-          onClick={() => runRefine(selectedIds)}
-          disabled={selectedIds.length === 0 || isRefining || isDrafting}
-        >
-          {isRefining ? "Refining..." : "Refine Selected"}
-        </button>
-        <button
-          type="button"
-          onClick={() => setConfirmRefineAll(true)}
-          disabled={isRefining || isDrafting}
-        >
-          Refine All
-        </button>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Planning Requirements</h1>
+          <p className="text-sm text-muted-foreground">Browse, draft, and refine requirements.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link to="/planning/requirements/new">
+            <Button>New Requirement</Button>
+          </Link>
+          <Button variant="secondary" onClick={onDraft} disabled={operating !== null}>
+            {operating === "drafting" ? "Drafting..." : "Draft Suggestion"}
+          </Button>
+        </div>
       </div>
 
-      {confirmRefineAll ? (
-        <div className="confirmation-box" role="alertdialog" aria-modal="false">
-          <strong>Refine all requirements?</strong>
-          <p>
-            This will run refinement across the full list. Continue only if the
-            current vision baseline is ready.
-          </p>
-          <div className="planning-inline">
-            <button type="button" onClick={() => runRefine([])} disabled={isRefining}>
-              Confirm Refine All
-            </button>
-            <button
-              type="button"
-              onClick={() => setConfirmRefineAll(false)}
-              disabled={isRefining}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {draftMessage ? <StatusState message={draftMessage} /> : null}
-      {draftError ? <ErrorState error={draftError} /> : null}
-      {refineError ? <ErrorState error={refineError} /> : null}
-      {refineResult ? (
-        <StatusState
-          message={`Refined ${refineResult.updated_ids.length} requirement(s) in ${refineResult.scope} scope.`}
+      <div className="flex items-center gap-3">
+        <Input
+          value={refineFocus}
+          onChange={(e) => setRefineFocus(e.target.value)}
+          placeholder="Refine focus (optional)..."
+          className="max-w-xs"
         />
-      ) : null}
+        <Button
+          variant="secondary"
+          onClick={onRefineSelected}
+          disabled={selectedIds.size === 0 || operating !== null}
+        >
+          {operating === "refining" ? "Refining..." : `Refine Selected (${selectedIds.size})`}
+        </Button>
+      </div>
 
-      {requirementsState.status === "loading" ? (
-        <LoadingState message="Loading requirements..." />
-      ) : null}
-      {requirementsState.status === "error" ? (
-        <ErrorState error={requirementsState.error} />
-      ) : null}
-      {requirementsState.status === "empty" ? (
-        <EmptyState message="No requirements yet. Create one or run draft suggestions." />
-      ) : null}
+      {message && (
+        <Alert variant={message.startsWith("Error") ? "destructive" : "default"}>
+          <AlertDescription>{message}</AlertDescription>
+        </Alert>
+      )}
 
-      {requirementsState.status === "ready" ? (
-        <ul className="planning-requirement-list">
-          {sortedRequirements.map((requirement) => (
-            <li key={requirement.id} className="planning-requirement-row">
-              <label className="row-select">
-                <span className="visually-hidden">Select {requirement.id}</span>
+      {requirements.length === 0 ? (
+        <Card>
+          <CardContent className="py-8 text-center text-muted-foreground">
+            No requirements yet. Create one or run draft suggestions.
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {requirements.map((req: { id: string; title: string; description: string; priorityRaw: string; statusRaw: string }) => (
+            <Card key={req.id} className="hover:bg-accent/50 transition-colors">
+              <CardContent className="flex items-center gap-3 py-3">
                 <input
                   type="checkbox"
-                  checked={selectedIds.includes(requirement.id)}
-                  onChange={(event) =>
-                    toggleSelection(requirement.id, event.target.checked)
-                  }
+                  checked={selectedIds.has(req.id)}
+                  onChange={() => toggleSelection(req.id)}
+                  className="h-4 w-4 shrink-0"
+                  aria-label={`Select ${req.id}`}
                 />
-              </label>
-
-              <div className="row-content">
-                <p className="row-title">
-                  <Link to={planningRequirementPath(requirement.id)}>
-                    {requirement.id} · {requirement.title}
+                <div className="flex-1 min-w-0">
+                  <Link to={`/planning/requirements/${encodeURIComponent(req.id)}`} className="font-medium hover:underline">
+                    {req.id} · {req.title}
                   </Link>
-                </p>
-                <p className="row-description">{requirement.description}</p>
-                <p className="row-meta">
-                  status <code>{requirement.status}</code> · priority{" "}
-                  <code>{requirement.priority}</code>
-                </p>
-              </div>
-
-              <Link to={planningRequirementPath(requirement.id)} className="action-link">
-                Open
-              </Link>
-            </li>
+                  {req.description && <p className="text-sm text-muted-foreground truncate">{req.description}</p>}
+                </div>
+                <Badge variant={priorityColor(req.priorityRaw)}>{req.priorityRaw}</Badge>
+                <Badge variant={statusColor(req.statusRaw)}>{req.statusRaw}</Badge>
+              </CardContent>
+            </Card>
           ))}
-        </ul>
-      ) : null}
-    </PlanningRouteSection>
+        </div>
+      )}
+    </div>
   );
 }
 
 export function PlanningRequirementCreatePage() {
   const navigate = useNavigate();
-  const [formValues, setFormValues] = useState<RequirementFormValues>(
-    defaultRequirementFormValues(),
-  );
-  const [validationError, setValidationError] = useState<string | null>(null);
-  const [submitError, setSubmitError] = useState<ApiError | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [, createRequirement] = useMutation(CREATE_REQUIREMENT);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [priority, setPriority] = useState("should");
+  const [reqType, setReqType] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const onSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setValidationError(null);
-    setSubmitError(null);
-
-    const payload = requirementCreatePayloadFromForm(formValues);
-    if (!payload.title || payload.title.trim().length === 0) {
-      setValidationError("Title is required.");
-      return;
-    }
-
-    setIsSubmitting(true);
-    void api.requirementsCreate(payload).then((result) => {
-      setIsSubmitting(false);
-
-      if (result.kind === "error") {
-        setSubmitError(result);
-        return;
-      }
-
-      navigate(planningRequirementPath(result.data.id), { replace: true });
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) { setErrorMsg("Title is required."); return; }
+    setSubmitting(true);
+    setErrorMsg(null);
+    const result = await createRequirement({
+      title: title.trim(),
+      description: description.trim() || null,
+      priority,
+      requirementType: reqType || null,
     });
+    setSubmitting(false);
+    if (result.error) {
+      setErrorMsg(result.error.message);
+    } else {
+      navigate(`/planning/requirements/${encodeURIComponent(result.data.createRequirement.id)}`, { replace: true });
+    }
   };
 
   return (
-    <PlanningRouteSection
-      title="New Requirement"
-      description="Create a requirement entry for the active project context."
-    >
-      <RequirementEditorForm
-        formValues={formValues}
-        onChange={setFormValues}
-        onSubmit={onSubmit}
-        submitLabel={isSubmitting ? "Creating..." : "Create Requirement"}
-        submitDisabled={isSubmitting}
-      />
-
-      <div className="planning-inline">
-        <Link to="/planning/requirements" className="action-link">
-          Back to Requirements
-        </Link>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold">New Requirement</h1>
+        <p className="text-sm text-muted-foreground">Create a requirement entry for the active project.</p>
       </div>
 
-      {validationError ? (
-        <div className="error-box" role="alert">
-          {validationError}
-        </div>
-      ) : null}
-      {submitError ? <ErrorState error={submitError} /> : null}
-    </PlanningRouteSection>
+      <Card>
+        <CardContent className="pt-6">
+          <form onSubmit={onSubmit} className="space-y-4">
+            <div>
+              <label className="text-sm font-medium">Title</label>
+              <Input required value={title} onChange={(e) => setTitle(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Description</label>
+              <Textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium">Priority</label>
+                <select value={priority} onChange={(e) => setPriority(e.target.value)} className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm">
+                  {PRIORITY_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-sm font-medium">Type</label>
+                <Input value={reqType} onChange={(e) => setReqType(e.target.value)} placeholder="e.g., functional, non-functional" />
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <Button type="submit" disabled={submitting}>{submitting ? "Creating..." : "Create Requirement"}</Button>
+              <Link to="/planning/requirements"><Button variant="outline">Cancel</Button></Link>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      {errorMsg && <Alert variant="destructive"><AlertDescription>{errorMsg}</AlertDescription></Alert>}
+    </div>
   );
 }
 
@@ -615,536 +386,191 @@ export function PlanningRequirementDetailPage() {
   const params = useParams();
   const requirementId = params.requirementId ?? "";
 
-  const [refreshNonce, setRefreshNonce] = useState(0);
-  const [formValues, setFormValues] = useState<RequirementFormValues>(
-    defaultRequirementFormValues(),
-  );
-  const [validationError, setValidationError] = useState<string | null>(null);
-  const [saveError, setSaveError] = useState<ApiError | null>(null);
-  const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const [refineError, setRefineError] = useState<ApiError | null>(null);
-  const [refineMessage, setRefineMessage] = useState<string | null>(null);
-  const [refineFocus, setRefineFocus] = useState("");
+  const [{ data, fetching, error }, reexecute] = useQuery({ query: REQUIREMENT_QUERY, variables: { id: requirementId } });
+  const [, updateRequirement] = useMutation(UPDATE_REQUIREMENT);
+  const [, deleteRequirement] = useMutation(DELETE_REQUIREMENT);
+  const [, refineRequirement] = useMutation(REFINE_REQUIREMENT);
+
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [priority, setPriority] = useState("should");
+  const [status, setStatus] = useState("draft");
+  const [reqType, setReqType] = useState("");
+  const [refineFeedback, setRefineFeedback] = useState("");
+  const [operating, setOperating] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [deleteError, setDeleteError] = useState<ApiError | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [isRefining, setIsRefining] = useState(false);
+  const [initialized, setInitialized] = useState(false);
 
-  const requirementState = useApiResource(
-    async () => api.requirementsById(requirementId),
-    [requirementId, refreshNonce],
-  );
+  const req = data?.requirement;
 
-  useEffect(() => {
-    if (requirementState.status !== "ready") {
-      return;
-    }
+  if (req && !initialized) {
+    setTitle(req.title);
+    setDescription(req.description);
+    setPriority(req.priorityRaw);
+    setStatus(req.statusRaw);
+    setReqType(req.requirementType ?? "");
+    setInitialized(true);
+  }
 
-    setFormValues(requirementToFormValues(requirementState.data));
-    setValidationError(null);
-    setSaveError(null);
-    setRefineError(null);
-    setDeleteError(null);
-  }, [
-    requirementState.status,
-    requirementState.status === "ready" ? requirementState.data.updated_at : "",
-  ]);
-
-  const onSave = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setValidationError(null);
-    setSaveError(null);
-    setSaveMessage(null);
-
-    const payload = requirementUpdatePayloadFromForm(formValues);
-    if (!payload.title || payload.title.trim().length === 0) {
-      setValidationError("Title is required.");
-      return;
-    }
-
-    setIsSaving(true);
-    void api.requirementsUpdate(requirementId, payload).then((result) => {
-      setIsSaving(false);
-
-      if (result.kind === "error") {
-        setSaveError(result);
-        return;
-      }
-
-      setFormValues(requirementToFormValues(result.data));
-      setSaveMessage("Requirement updated.");
-      setRefreshNonce((current) => current + 1);
+  const onSave = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) { setMessage("Error: Title is required."); return; }
+    setOperating("saving");
+    setMessage(null);
+    const result = await updateRequirement({
+      id: requirementId,
+      title: title.trim(),
+      description: description.trim(),
+      priority,
+      status,
+      requirementType: reqType || null,
     });
+    setOperating(null);
+    if (result.error) {
+      setMessage(`Error: ${result.error.message}`);
+    } else {
+      setMessage("Requirement updated.");
+      setInitialized(false);
+      reexecute({ requestPolicy: "network-only" });
+    }
   };
 
-  const onDelete = () => {
-    setDeleteError(null);
-    setIsDeleting(true);
-
-    void api.requirementsDelete(requirementId).then((result) => {
-      setIsDeleting(false);
-
-      if (result.kind === "error") {
-        setDeleteError(result);
-        return;
-      }
-
+  const onDelete = async () => {
+    setOperating("deleting");
+    const result = await deleteRequirement({ id: requirementId });
+    setOperating(null);
+    if (result.error) {
+      setMessage(`Error: ${result.error.message}`);
+    } else {
       navigate("/planning/requirements", { replace: true });
-    });
+    }
   };
 
-  const onRefineSingle = () => {
-    setRefineError(null);
-    setRefineMessage(null);
-    setIsRefining(true);
-
-    void api
-      .requirementsRefine({
-        requirement_ids: [requirementId],
-        focus: normalizeOptionalText(refineFocus),
-      })
-      .then((result) => {
-        setIsRefining(false);
-
-        if (result.kind === "error") {
-          setRefineError(result);
-          return;
-        }
-
-        setRefineMessage(
-          `Refined ${result.data.updated_ids.length} requirement(s).`,
-        );
-        setRefreshNonce((current) => current + 1);
-      });
+  const onRefine = async () => {
+    setOperating("refining");
+    setMessage(null);
+    const result = await refineRequirement({ id: requirementId, feedback: refineFeedback || null });
+    setOperating(null);
+    if (result.error) {
+      setMessage(`Error: ${result.error.message}`);
+    } else {
+      setMessage("Requirement refined.");
+      setInitialized(false);
+      reexecute({ requestPolicy: "network-only" });
+    }
   };
 
-  if (requirementState.status === "loading") {
-    return (
-      <PlanningRouteSection
-        title="Requirement Detail"
-        description={`Requirement ${requirementId}`}
-      >
-        <LoadingState message="Loading requirement..." />
-      </PlanningRouteSection>
-    );
-  }
-
-  if (requirementState.status === "error" && requirementState.error.code === "not_found") {
-    return (
-      <PlanningRouteSection
-        title="Requirement Detail"
-        description={`Requirement ${requirementId}`}
-      >
-        <EmptyState message="Requirement not found. It may have been deleted or moved." />
-        <p>
-          <Link to="/planning/requirements" className="action-link">
-            Back to Requirements List
-          </Link>
-        </p>
-      </PlanningRouteSection>
-    );
-  }
-
-  if (requirementState.status === "error") {
-    return (
-      <PlanningRouteSection
-        title="Requirement Detail"
-        description={`Requirement ${requirementId}`}
-      >
-        <ErrorState error={requirementState.error} />
-      </PlanningRouteSection>
-    );
-  }
+  if (fetching) return <div className="space-y-3"><Skeleton className="h-8 w-48" /><Skeleton className="h-40 w-full" /></div>;
+  if (error) return <Alert variant="destructive"><AlertDescription>{error.message}</AlertDescription></Alert>;
+  if (!req) return (
+    <div className="space-y-4">
+      <Alert><AlertDescription>Requirement {requirementId} not found.</AlertDescription></Alert>
+      <Link to="/planning/requirements"><Button variant="outline">Back to Requirements</Button></Link>
+    </div>
+  );
 
   return (
-    <PlanningRouteSection
-      title="Requirement Detail"
-      description={`Requirement ${requirementId}`}
-    >
-      <RequirementEditorForm
-        formValues={formValues}
-        onChange={setFormValues}
-        onSubmit={onSave}
-        submitLabel={isSaving ? "Saving..." : "Save Requirement"}
-        submitDisabled={isSaving || isDeleting}
-      />
-
-      <div className="planning-inline">
-        <label className="compact-field">
-          <span>Refine Focus</span>
-          <input
-            value={refineFocus}
-            onChange={(event) => setRefineFocus(event.target.value)}
-            placeholder="Optional focus area"
-          />
-        </label>
-        <button type="button" onClick={onRefineSingle} disabled={isRefining || isDeleting}>
-          {isRefining ? "Refining..." : "Refine Requirement"}
-        </button>
-        <Link to="/planning/requirements" className="action-link">
-          Back to List
-        </Link>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">{req.id}</h1>
+          <p className="text-sm text-muted-foreground">{req.title}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge variant={priorityColor(req.priorityRaw)}>{req.priorityRaw}</Badge>
+          <Badge variant={statusColor(req.statusRaw)}>{req.statusRaw}</Badge>
+        </div>
       </div>
 
-      {confirmDelete ? (
-        <div className="danger-box" role="alertdialog" aria-modal="false">
-          <strong>Delete requirement {requirementId}?</strong>
-          <p>This operation cannot be undone.</p>
-          <div className="planning-inline">
-            <button type="button" onClick={onDelete} disabled={isDeleting}>
-              {isDeleting ? "Deleting..." : "Confirm Delete"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setConfirmDelete(false)}
-              disabled={isDeleting}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="planning-inline">
-          <button
-            type="button"
-            onClick={() => setConfirmDelete(true)}
-            className="danger-button"
-            disabled={isSaving || isDeleting}
-          >
-            Delete Requirement
-          </button>
-        </div>
+      <Card>
+        <CardHeader><CardTitle>Edit Requirement</CardTitle></CardHeader>
+        <CardContent>
+          <form onSubmit={onSave} className="space-y-4">
+            <div>
+              <label className="text-sm font-medium">Title</label>
+              <Input required value={title} onChange={(e) => setTitle(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Description</label>
+              <Textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)} />
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="text-sm font-medium">Priority</label>
+                <select value={priority} onChange={(e) => setPriority(e.target.value)} className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm">
+                  {PRIORITY_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-sm font-medium">Status</label>
+                <select value={status} onChange={(e) => setStatus(e.target.value)} className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm">
+                  {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-sm font-medium">Type</label>
+                <Input value={reqType} onChange={(e) => setReqType(e.target.value)} />
+              </div>
+            </div>
+            <Button type="submit" disabled={operating !== null}>
+              {operating === "saving" ? "Saving..." : "Save Changes"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      {req.linkedTaskIds?.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle>Linked Tasks</CardTitle></CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              {req.linkedTaskIds.map((id: string) => (
+                <Link key={id} to={`/tasks/${id}`}>
+                  <Badge variant="outline" className="hover:bg-accent cursor-pointer">{id}</Badge>
+                </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
-      {validationError ? (
-        <div className="error-box" role="alert">
-          {validationError}
-        </div>
-      ) : null}
-      {saveMessage ? <StatusState message={saveMessage} /> : null}
-      {saveError ? <ErrorState error={saveError} /> : null}
-      {refineMessage ? <StatusState message={refineMessage} /> : null}
-      {refineError ? <ErrorState error={refineError} /> : null}
-      {deleteError ? <ErrorState error={deleteError} /> : null}
-    </PlanningRouteSection>
-  );
-}
-
-function PlanningRouteSection(props: {
-  title: string;
-  description: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="panel planning-surface" aria-label={props.title}>
-      <h1>{props.title}</h1>
-      <p>{props.description}</p>
-      {props.children}
-    </section>
-  );
-}
-
-function RequirementEditorForm(props: {
-  formValues: RequirementFormValues;
-  onChange: (nextValues: RequirementFormValues) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  submitLabel: string;
-  submitDisabled: boolean;
-}) {
-  return (
-    <form className="planning-form" onSubmit={props.onSubmit}>
-      <label>
-        Title
-        <input
-          required
-          value={props.formValues.title}
-          onChange={(event) =>
-            props.onChange({
-              ...props.formValues,
-              title: event.target.value,
-            })
-          }
-        />
-      </label>
-
-      <label>
-        Description
-        <textarea
-          rows={3}
-          value={props.formValues.description}
-          onChange={(event) =>
-            props.onChange({
-              ...props.formValues,
-              description: event.target.value,
-            })
-          }
-        />
-      </label>
-
-      <label>
-        Body
-        <textarea
-          rows={6}
-          value={props.formValues.body}
-          onChange={(event) =>
-            props.onChange({
-              ...props.formValues,
-              body: event.target.value,
-            })
-          }
-        />
-      </label>
-
-      <div className="planning-form-grid">
-        <label>
-          Priority
-          <select
-            value={props.formValues.priority}
-            onChange={(event) =>
-              props.onChange({
-                ...props.formValues,
-                priority: event.target.value as RequirementFormValues["priority"],
-              })
-            }
-          >
-            {REQUIREMENT_PRIORITY_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label>
-          Status
-          <select
-            value={props.formValues.status}
-            onChange={(event) =>
-              props.onChange({
-                ...props.formValues,
-                status: event.target.value as RequirementFormValues["status"],
-              })
-            }
-          >
-            {REQUIREMENT_STATUS_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label>
-          Source
-          <input
-            value={props.formValues.source}
-            onChange={(event) =>
-              props.onChange({
-                ...props.formValues,
-                source: event.target.value,
-              })
-            }
+      <Card>
+        <CardHeader><CardTitle>Refine</CardTitle></CardHeader>
+        <CardContent className="flex items-center gap-3">
+          <Input
+            value={refineFeedback}
+            onChange={(e) => setRefineFeedback(e.target.value)}
+            placeholder="Optional refinement feedback..."
+            className="max-w-sm"
           />
-        </label>
+          <Button variant="secondary" onClick={onRefine} disabled={operating !== null}>
+            {operating === "refining" ? "Refining..." : "Refine Requirement"}
+          </Button>
+        </CardContent>
+      </Card>
+
+      <div className="flex items-center gap-3">
+        <Link to="/planning/requirements"><Button variant="outline">Back to List</Button></Link>
+        {confirmDelete ? (
+          <>
+            <Button variant="destructive" onClick={onDelete} disabled={operating !== null}>
+              {operating === "deleting" ? "Deleting..." : "Confirm Delete"}
+            </Button>
+            <Button variant="outline" onClick={() => setConfirmDelete(false)}>Cancel</Button>
+          </>
+        ) : (
+          <Button variant="destructive" onClick={() => setConfirmDelete(true)} disabled={operating !== null}>
+            Delete Requirement
+          </Button>
+        )}
       </div>
 
-      <label>
-        Acceptance Criteria (one per line)
-        <textarea
-          rows={5}
-          value={props.formValues.acceptanceCriteria}
-          onChange={(event) =>
-            props.onChange({
-              ...props.formValues,
-              acceptanceCriteria: event.target.value,
-            })
-          }
-        />
-      </label>
-
-      <div className="planning-inline">
-        <button type="submit" disabled={props.submitDisabled}>
-          {props.submitLabel}
-        </button>
-      </div>
-    </form>
-  );
-}
-
-function LoadingState(props: { message: string }) {
-  return <div className="loading-box">{props.message}</div>;
-}
-
-function EmptyState(props: { message: string }) {
-  return <div className="empty-box">{props.message}</div>;
-}
-
-function StatusState(props: { message: string }) {
-  return (
-    <div className="status-box" role="status" aria-live="polite">
-      {props.message}
+      {message && (
+        <Alert variant={message.startsWith("Error") ? "destructive" : "default"}>
+          <AlertDescription>{message}</AlertDescription>
+        </Alert>
+      )}
     </div>
   );
-}
-
-function ErrorState(props: { error: ApiError }) {
-  return (
-    <div className="error-box" role="alert">
-      <strong>Error:</strong> {props.error.code}
-      <div>{props.error.message}</div>
-      <div>exit code {props.error.exitCode}</div>
-    </div>
-  );
-}
-
-function planningRequirementPath(requirementId: string): string {
-  return `/planning/requirements/${encodeURIComponent(requirementId)}`;
-}
-
-function parseMultiline(value: string): string[] {
-  return value
-    .split(/\r?\n/g)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-}
-
-function joinMultiline(values: string[]): string {
-  return values.join("\n");
-}
-
-function normalizeOptionalText(value: string): string | undefined {
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function defaultVisionFormValues(): VisionFormValues {
-  return {
-    projectName: "",
-    problemStatement: "",
-    targetUsers: "",
-    goals: "",
-    constraints: "",
-    valueProposition: "",
-  };
-}
-
-function visionToFormValues(vision: PlanningVisionDocument): VisionFormValues {
-  return {
-    projectName: extractVisionProjectName(vision),
-    problemStatement: vision.problem_statement,
-    targetUsers: joinMultiline(vision.target_users),
-    goals: joinMultiline(vision.goals),
-    constraints: joinMultiline(vision.constraints),
-    valueProposition: vision.value_proposition ?? "",
-  };
-}
-
-function extractVisionProjectName(vision: PlanningVisionDocument): string {
-  const markdownLines = vision.markdown.split(/\r?\n/g);
-  const nameLine = markdownLines.find((line) => line.trim().startsWith("- Name:"));
-  if (!nameLine) {
-    return "";
-  }
-
-  return nameLine.replace("- Name:", "").trim();
-}
-
-function visionFormToPayload(values: VisionFormValues) {
-  return {
-    project_name: normalizeOptionalText(values.projectName),
-    problem_statement: values.problemStatement.trim(),
-    target_users: parseMultiline(values.targetUsers),
-    goals: parseMultiline(values.goals),
-    constraints: parseMultiline(values.constraints),
-    value_proposition: normalizeOptionalText(values.valueProposition),
-  };
-}
-
-function validateVisionForm(values: VisionFormValues): Record<string, string> {
-  const errors: Record<string, string> = {};
-
-  if (!normalizeOptionalText(values.projectName)) {
-    errors.projectName = "Project name is required.";
-  }
-  if (!normalizeOptionalText(values.problemStatement)) {
-    errors.problemStatement = "Problem statement is required.";
-  }
-  if (parseMultiline(values.targetUsers).length === 0) {
-    errors.targetUsers = "At least one target user is required.";
-  }
-  if (parseMultiline(values.goals).length === 0) {
-    errors.goals = "At least one goal is required.";
-  }
-  if (parseMultiline(values.constraints).length === 0) {
-    errors.constraints = "At least one constraint is required.";
-  }
-  if (!normalizeOptionalText(values.valueProposition)) {
-    errors.valueProposition = "Value proposition is required.";
-  }
-
-  return errors;
-}
-
-function defaultRequirementFormValues(): RequirementFormValues {
-  return {
-    title: "",
-    description: "",
-    body: "",
-    acceptanceCriteria: "",
-    priority: "should",
-    status: "draft",
-    source: "ao-web",
-  };
-}
-
-function requirementToFormValues(
-  requirement: PlanningRequirementItem,
-): RequirementFormValues {
-  return {
-    title: requirement.title,
-    description: requirement.description,
-    body: requirement.body ?? "",
-    acceptanceCriteria: joinMultiline(requirement.acceptance_criteria),
-    priority:
-      requirement.priority === "must" ||
-      requirement.priority === "could" ||
-      requirement.priority === "wont"
-        ? requirement.priority
-        : "should",
-    status:
-      requirement.status === "refined" ||
-      requirement.status === "planned" ||
-      requirement.status === "in-progress" ||
-      requirement.status === "done" ||
-      requirement.status === "po-review" ||
-      requirement.status === "em-review" ||
-      requirement.status === "needs-rework" ||
-      requirement.status === "approved" ||
-      requirement.status === "implemented" ||
-      requirement.status === "deprecated"
-        ? requirement.status
-        : "draft",
-    source: requirement.source,
-  };
-}
-
-function requirementCreatePayloadFromForm(
-  values: RequirementFormValues,
-): PlanningRequirementCreateInput {
-  return {
-    title: values.title.trim(),
-    description: values.description.trim(),
-    body: normalizeOptionalText(values.body),
-    acceptance_criteria: parseMultiline(values.acceptanceCriteria),
-    priority: values.priority,
-    status: values.status,
-    source: normalizeOptionalText(values.source),
-  };
-}
-
-function requirementUpdatePayloadFromForm(
-  values: RequirementFormValues,
-): PlanningRequirementUpdateInput {
-  return requirementCreatePayloadFromForm(values);
 }

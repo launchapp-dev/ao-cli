@@ -1,2326 +1,1276 @@
-import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-
-import { ActionGateConfig, ActionGateDialog, matchesConfirmationPhrase } from "./action-gate-dialog";
-import { useProjectContext } from "./project-context";
-import { DiagnosticsPanel } from "./diagnostics-panel";
-import { api, firstApiError, RequestJsonValue } from "../lib/api/client";
-import { ApiError } from "../lib/api/envelope";
-import type {
-  PriorityValue,
-  TaskDetail,
-  TaskStatsPayload,
-  TaskStatusValue,
-  TaskSummary,
-  WorkflowCheckpoint,
-  WorkflowDecision,
-  WorkflowStatusValue,
-  WorkflowSummary,
-} from "../lib/api/contracts/models";
-import { ResourceState, useApiResource } from "../lib/api/use-api-resource";
+import { FormEvent, ReactNode, useMemo, useState } from "react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
+import { useQuery, useMutation } from "urql";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useDaemonEvents } from "../lib/events/use-daemon-events";
 
-type DaemonAction = "start" | "pause" | "resume" | "stop" | "clear";
+const DASHBOARD_QUERY = `
+  query Dashboard {
+    taskStats { total byStatus byPriority }
+    daemonHealth { healthy status runnerConnected activeDaemons: activeAgents daemonPid }
+    agentRuns { runId taskId taskTitle workflowId phaseId status }
+    systemInfo { platform version daemonStatus projectRoot }
+  }
+`;
 
-type DaemonActionConfig = {
-  label: string;
-  method: "POST" | "DELETE";
-  path: string;
-  impact: string;
-  confirmationPhrase?: string;
-};
+const TASKS_QUERY = `
+  query Tasks($status: String, $search: String) {
+    tasks(status: $status, search: $search) {
+      id title status statusRaw priority priorityRaw taskType taskTypeRaw
+      tags linkedRequirementIds
+    }
+    taskStats { total byStatus byPriority }
+  }
+`;
 
-type ActionRecord = {
-  id: string;
-  action: DaemonAction;
-  mode: "execute" | "dry-run";
-  outcome: "ok" | "error" | "preview";
-  timestamp: string;
-  detail: string;
-};
+const TASKS_PRIORITIZED_QUERY = `
+  query TasksPrioritized {
+    tasksPrioritized {
+      id title status statusRaw priority priorityRaw taskType taskTypeRaw tags
+    }
+  }
+`;
 
-const DAEMON_ACTION_CONFIG: Record<DaemonAction, DaemonActionConfig> = {
-  start: {
-    label: "Start",
-    method: "POST",
-    path: "/api/v1/daemon/start",
-    impact: "Starts daemon processing.",
-  },
-  pause: {
-    label: "Pause",
-    method: "POST",
-    path: "/api/v1/daemon/pause",
-    impact: "Pauses new daemon scheduling work.",
-  },
-  resume: {
-    label: "Resume",
-    method: "POST",
-    path: "/api/v1/daemon/resume",
-    impact: "Resumes daemon scheduling work.",
-  },
-  stop: {
-    label: "Stop",
-    method: "POST",
-    path: "/api/v1/daemon/stop",
-    impact: "Stops the daemon and can interrupt active scheduling.",
-    confirmationPhrase: "STOP",
-  },
-  clear: {
-    label: "Clear Logs",
-    method: "DELETE",
-    path: "/api/v1/daemon/logs",
-    impact: "Permanently clears daemon log history shown in the UI.",
-    confirmationPhrase: "CLEAR LOGS",
-  },
-};
+const TASK_DETAIL_QUERY = `
+  query TaskDetail($id: ID!) {
+    task(id: $id) {
+      id title description status statusRaw priority priorityRaw
+      taskType taskTypeRaw risk scope complexity tags
+      linkedRequirementIds
+      checklist { id description completed }
+      dependencies { taskId type }
+    }
+  }
+`;
 
-const CONTROL_FEEDBACK_LIMIT = 20;
+const WORKFLOWS_QUERY = `
+  query Workflows($status: String) {
+    workflows(status: $status) {
+      id taskId workflowRef status statusRaw currentPhase totalReworks
+      phases { phaseId status startedAt completedAt attempt errorMessage }
+    }
+  }
+`;
 
-const TASK_STATUS_OPTIONS = [
-  "backlog",
-  "ready",
-  "in-progress",
-  "blocked",
-  "on-hold",
-  "done",
-  "cancelled",
-] as const;
+const WORKFLOW_DETAIL_QUERY = `
+  query WorkflowDetail($id: ID!) {
+    workflow(id: $id) {
+      id taskId workflowRef status statusRaw currentPhase totalReworks
+      phases { phaseId status startedAt completedAt attempt errorMessage }
+      decisions { timestamp phaseId source decision targetPhase reason confidence risk }
+    }
+    workflowCheckpoints(workflowId: $id) { id phase timestamp data }
+  }
+`;
 
-type QueueTaskStatus = (typeof TASK_STATUS_OPTIONS)[number];
+const QUEUE_QUERY = `
+  query Queue {
+    queue { taskId title priority status waitTime position }
+    queueStats { depth readyCount heldCount avgWait throughput }
+  }
+`;
 
-const ACTIVE_TASK_STATUSES = new Set<QueueTaskStatus>([
-  "backlog",
-  "ready",
-  "in-progress",
-  "blocked",
-  "on-hold",
-]);
+const DAEMON_QUERY = `
+  query Daemon {
+    daemonStatus { healthy status statusRaw runnerConnected activeAgents maxAgents projectRoot }
+    daemonHealth { healthy status runnerConnected runnerPid activeAgents daemonPid }
+    agentRuns { runId taskId taskTitle workflowId phaseId status }
+    daemonLogs(limit: 50) { timestamp level message }
+  }
+`;
 
-const PRIORITY_ORDER: Record<Exclude<PriorityValue, "unknown">, number> = {
-  critical: 0,
-  high: 1,
-  medium: 2,
-  low: 3,
-};
+const PROJECTS_QUERY = `
+  query Projects {
+    projects { id name path description archived }
+    projectsActive { id name path }
+  }
+`;
 
-type ControlFeedbackEntry = {
-  id: string;
-  action: string;
-  targetId: string;
-  outcome: "success" | "error";
-  timestamp: string;
-  message: string;
-  correlationId?: string;
-};
+const PROJECT_DETAIL_QUERY = `
+  query ProjectDetail($id: ID!) {
+    project(id: $id) { id name path description type techStack archived }
+  }
+`;
+
+const REQUIREMENT_DETAIL_QUERY = `
+  query RequirementDetail($id: ID!) {
+    requirement(id: $id) {
+      id title description priority priorityRaw status statusRaw
+      requirementType tags linkedTaskIds
+    }
+  }
+`;
+
+const VISION_QUERY = `
+  query Vision {
+    vision { title summary goals targetAudience successCriteria constraints raw }
+  }
+`;
+
+const UPDATE_TASK_STATUS = `
+  mutation UpdateTaskStatus($id: ID!, $status: String!) {
+    updateTaskStatus(id: $id, status: $status) { id status statusRaw }
+  }
+`;
+
+const RUN_WORKFLOW = `
+  mutation RunWorkflow($taskId: String!, $workflowRef: String) {
+    runWorkflow(taskId: $taskId, workflowRef: $workflowRef) { id taskId status statusRaw }
+  }
+`;
+
+const PAUSE_WORKFLOW = `mutation PauseWorkflow($id: ID!) { pauseWorkflow(id: $id) { id status } }`;
+const RESUME_WORKFLOW = `mutation ResumeWorkflow($id: ID!) { resumeWorkflow(id: $id) { id status } }`;
+const CANCEL_WORKFLOW = `mutation CancelWorkflow($id: ID!) { cancelWorkflow(id: $id) { id status } }`;
+
+const DAEMON_START = `mutation { daemonStart }`;
+const DAEMON_STOP = `mutation { daemonStop }`;
+const DAEMON_PAUSE = `mutation { daemonPause }`;
+const DAEMON_RESUME = `mutation { daemonResume }`;
+const DAEMON_CLEAR_LOGS = `mutation { daemonClearLogs }`;
+
+const QUEUE_HOLD = `mutation QueueHold($taskId: String!, $reason: String) { queueHold(taskId: $taskId, reason: $reason) }`;
+const QUEUE_RELEASE = `mutation QueueRelease($taskId: String!) { queueRelease(taskId: $taskId) }`;
+
+const REVIEW_HANDOFF = `
+  mutation ReviewHandoff($targetRole: String!, $question: String!, $context: String) {
+    reviewHandoff(targetRole: $targetRole, question: $question, context: $context)
+  }
+`;
+
+function statusColor(status: string): "default" | "secondary" | "destructive" | "outline" {
+  const s = status.toLowerCase().replace(/[_\s]/g, "-");
+  if (["done", "completed", "approved", "implemented"].includes(s)) return "default";
+  if (["in-progress", "running", "inprogress"].includes(s)) return "secondary";
+  if (["blocked", "failed", "cancelled", "crashed"].includes(s)) return "destructive";
+  return "outline";
+}
+
+function priorityColor(p: string): "default" | "secondary" | "destructive" | "outline" {
+  const v = (p || "").toLowerCase();
+  if (v === "critical") return "destructive";
+  if (v === "high") return "secondary";
+  return "outline";
+}
+
+function PageLoading() {
+  return (
+    <div className="space-y-4">
+      <Skeleton className="h-8 w-48" />
+      <Skeleton className="h-32 w-full" />
+      <Skeleton className="h-32 w-full" />
+    </div>
+  );
+}
+
+function PageError({ message }: { message: string }) {
+  return (
+    <Alert variant="destructive">
+      <AlertTitle>Error</AlertTitle>
+      <AlertDescription>{message}</AlertDescription>
+    </Alert>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard
+// ---------------------------------------------------------------------------
 
 export function DashboardPage() {
-  const state = useApiResource(
-    async () => {
-      const [systemInfo, daemonStatus, activeProject, taskStats] = await Promise.all([
-        api.systemInfo(),
-        api.daemonStatus(),
-        api.projectsActive(),
-        api.tasksStats(),
-      ]);
+  const [result] = useQuery({ query: DASHBOARD_QUERY });
+  const { data, fetching, error } = result;
 
-      const error = firstApiError(systemInfo, daemonStatus, activeProject, taskStats);
-      if (error) {
-        return error;
-      }
+  if (fetching) return <PageLoading />;
+  if (error) return <PageError message={error.message} />;
 
-      return {
-        kind: "ok" as const,
-        data: {
-          systemInfo: systemInfo.data,
-          daemonStatus: daemonStatus.data,
-          activeProject: activeProject.data,
-          taskStats: taskStats.data,
-        },
-      };
-    },
-    [],
-  );
+  const stats = data?.taskStats;
+  const health = data?.daemonHealth;
+  const agents = data?.agentRuns ?? [];
+  const sys = data?.systemInfo;
+
+  const byStatus: Record<string, number> = stats?.byStatus ? JSON.parse(stats.byStatus) : {};
 
   return (
-    <RouteSection title="Dashboard" description="Global status overview for AO daemon and workspace.">
-      <ResourceStateView
-        state={state}
-        emptyMessage="No dashboard data returned."
-        render={(data) => (
-          <div className="grid two">
-            <JsonPanel title="System Info" data={data.systemInfo} />
-            <JsonPanel title="Daemon Status" data={data.daemonStatus} />
-            <JsonPanel title="Active Project" data={data.activeProject} />
-            <JsonPanel title="Task Stats" data={data.taskStats} />
-          </div>
-        )}
+    <div className="space-y-6">
+      <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard label="Total Tasks" value={stats?.total ?? 0} />
+        <StatCard label="In Progress" value={byStatus["in-progress"] ?? 0} />
+        <StatCard label="Ready" value={byStatus["ready"] ?? 0} />
+        <StatCard label="Blocked" value={byStatus["blocked"] ?? 0} />
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Daemon</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1 text-sm">
+            <div className="flex items-center gap-2">
+              <Badge variant={health?.healthy ? "default" : "destructive"}>
+                {health?.status ?? "unknown"}
+              </Badge>
+              {health?.runnerConnected && <span className="text-muted-foreground">runner connected</span>}
+            </div>
+            <p className="text-muted-foreground">Active agents: {health?.activeDaemons ?? 0}</p>
+            {health?.daemonPid && <p className="text-muted-foreground">PID: {health.daemonPid}</p>}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">System</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1 text-sm text-muted-foreground">
+            {sys?.version && <p>Version: {sys.version}</p>}
+            {sys?.platform && <p>Platform: {sys.platform}</p>}
+            {sys?.projectRoot && <p className="truncate">Root: {sys.projectRoot}</p>}
+          </CardContent>
+        </Card>
+      </div>
+
+      {agents.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Active Agents</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Run</TableHead>
+                  <TableHead>Task</TableHead>
+                  <TableHead>Phase</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {agents.map((a: any) => (
+                  <TableRow key={a.runId}>
+                    <TableCell className="font-mono text-xs">{a.runId}</TableCell>
+                    <TableCell>
+                      {a.taskId ? <Link to={`/tasks/${a.taskId}`} className="underline">{a.taskTitle ?? a.taskId}</Link> : "-"}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">{a.phaseId ?? "-"}</TableCell>
+                    <TableCell><Badge variant={statusColor(a.status)}>{a.status}</Badge></TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function StatCard({ label, value }: { label: string; value: number | string }) {
+  return (
+    <Card>
+      <CardContent className="pt-4">
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className="text-2xl font-bold">{value}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Tasks
+// ---------------------------------------------------------------------------
+
+export function TasksPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const statusFilter = searchParams.get("status") ?? "";
+  const searchQuery = searchParams.get("search") ?? "";
+
+  const [result] = useQuery({
+    query: TASKS_QUERY,
+    variables: { status: statusFilter || undefined, search: searchQuery || undefined },
+  });
+  const { data, fetching, error } = result;
+
+  if (fetching) return <PageLoading />;
+  if (error) return <PageError message={error.message} />;
+
+  const tasks = data?.tasks ?? [];
+  const stats = data?.taskStats;
+  const byStatus: Record<string, number> = stats?.byStatus ? JSON.parse(stats.byStatus) : {};
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold tracking-tight">Tasks</h1>
+        <span className="text-sm text-muted-foreground">{tasks.length} tasks</span>
+      </div>
+
+      <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+        {["backlog", "ready", "in-progress", "blocked", "done", "cancelled"].map((s) => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => {
+              const next = new URLSearchParams(searchParams);
+              if (statusFilter === s) next.delete("status");
+              else next.set("status", s);
+              setSearchParams(next);
+            }}
+            className={`rounded-md border px-2 py-1 text-xs text-center transition-colors ${
+              statusFilter === s ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
+            }`}
+          >
+            {s} ({byStatus[s] ?? 0})
+          </button>
+        ))}
+      </div>
+
+      <Input
+        placeholder="Search tasks..."
+        value={searchQuery}
+        onChange={(e) => {
+          const next = new URLSearchParams(searchParams);
+          if (e.target.value) next.set("search", e.target.value);
+          else next.delete("search");
+          setSearchParams(next);
+        }}
+        className="max-w-sm"
       />
-    </RouteSection>
+
+      {tasks.length === 0 ? (
+        <p className="text-sm text-muted-foreground py-8 text-center">No tasks match filters.</p>
+      ) : (
+        <Card>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-28">ID</TableHead>
+                <TableHead>Title</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Priority</TableHead>
+                <TableHead>Type</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {tasks.map((t: any) => (
+                <TableRow key={t.id}>
+                  <TableCell>
+                    <Link to={`/tasks/${t.id}`} className="font-mono text-xs underline">{t.id}</Link>
+                  </TableCell>
+                  <TableCell className="font-medium">{t.title}</TableCell>
+                  <TableCell><Badge variant={statusColor(t.statusRaw)}>{t.statusRaw}</Badge></TableCell>
+                  <TableCell><Badge variant={priorityColor(t.priorityRaw)}>{t.priorityRaw}</Badge></TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{t.taskTypeRaw}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Card>
+      )}
+    </div>
   );
 }
 
-export function DaemonPage() {
-  const [refreshNonce, setRefreshNonce] = useState(0);
-  const [pendingAction, setPendingAction] = useState<DaemonAction | null>(null);
-  const [confirmationInput, setConfirmationInput] = useState("");
-  const [dryRunMode, setDryRunMode] = useState(true);
-  const [actionRecords, setActionRecords] = useState<ActionRecord[]>([]);
-  const [actionState, setActionState] = useState<
-    { kind: "idle" } | { kind: "ok"; message: string } | { kind: "error"; message: string }
-  >({ kind: "idle" });
+export function TaskDetailPage() {
+  const { taskId } = useParams();
+  const [result] = useQuery({ query: TASK_DETAIL_QUERY, variables: { id: taskId } });
+  const [, updateStatus] = useMutation(UPDATE_TASK_STATUS);
+  const [targetStatus, setTargetStatus] = useState("");
+  const [feedback, setFeedback] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
 
-  const healthState = useApiResource(
-    async () => api.daemonHealth(),
-    [refreshNonce],
-  );
+  const { data, fetching, error } = result;
 
-  const logsState = useApiResource(
-    async () => api.daemonLogs(100),
-    [refreshNonce],
-    {
-      isEmpty: (data) => Array.isArray(data) && data.length === 0,
-    },
-  );
+  if (fetching) return <PageLoading />;
+  if (error) return <PageError message={error.message} />;
 
-  const runAction = (action: DaemonAction, runAsDryRun = false) => {
-    const config = DAEMON_ACTION_CONFIG[action];
-    if (runAsDryRun) {
-      const previewMessage = `Dry-run preview completed for ${config.label}.`;
-      setActionState({ kind: "ok", message: previewMessage });
-      setActionRecords((current) => [
-        {
-          id: `${Date.now()}-${action}-preview`,
-          action,
-          mode: "dry-run",
-          outcome: "preview",
-          timestamp: new Date().toISOString(),
-          detail: `${config.method} ${config.path} (${config.impact})`,
-        },
-        ...current,
-      ]);
-      setPendingAction(null);
-      setConfirmationInput("");
-      return;
+  const task = data?.task;
+  if (!task) return <PageError message={`Task ${taskId} not found.`} />;
+
+  const applyStatus = async () => {
+    if (!targetStatus) return;
+    const { error: mutErr } = await updateStatus({ id: taskId, status: targetStatus });
+    if (mutErr) {
+      setFeedback({ kind: "error", message: mutErr.message });
+    } else {
+      setFeedback({ kind: "ok", message: `Status updated to ${targetStatus}.` });
     }
-
-    const request =
-      action === "start"
-        ? api.daemonStart()
-        : action === "pause"
-          ? api.daemonPause()
-          : action === "resume"
-            ? api.daemonResume()
-            : action === "stop"
-              ? api.daemonStop()
-              : api.daemonClearLogs();
-
-    void request
-      .then((result) => {
-        if (result.kind === "error") {
-          setActionState({ kind: "error", message: `${result.code}: ${result.message}` });
-          setActionRecords((current) => [
-            {
-              id: `${Date.now()}-${action}-error`,
-              action,
-              mode: "execute",
-              outcome: "error",
-              timestamp: new Date().toISOString(),
-              detail: `${result.code}: ${result.message}`,
-            },
-            ...current,
-          ]);
-          return;
-        }
-
-        setActionState({ kind: "ok", message: `${config.label} completed.` });
-        setActionRecords((current) => [
-          {
-            id: `${Date.now()}-${action}-ok`,
-            action,
-            mode: "execute",
-            outcome: "ok",
-            timestamp: new Date().toISOString(),
-            detail: `${config.method} ${config.path}`,
-          },
-          ...current,
-        ]);
-        setRefreshNonce((current) => current + 1);
-        setPendingAction(null);
-        setConfirmationInput("");
-      })
-      .catch((error: unknown) => {
-        setActionState({
-          kind: "error",
-          message: formatUnexpectedError("Daemon action failed unexpectedly", error),
-        });
-      });
   };
-
-  const requestAction = (action: DaemonAction) => {
-    const config = DAEMON_ACTION_CONFIG[action];
-    if (!config.confirmationPhrase) {
-      runAction(action, false);
-      return;
-    }
-
-    setPendingAction(action);
-    setConfirmationInput("");
-    setDryRunMode(true);
-  };
-
-  const pendingConfig = pendingAction ? DAEMON_ACTION_CONFIG[pendingAction] : null;
-  const canConfirm = pendingConfig?.confirmationPhrase
-    ? matchesConfirmationPhrase(confirmationInput, pendingConfig.confirmationPhrase)
-    : false;
 
   return (
-    <RouteSection title="Daemon" description="Control daemon state, health, and log stream.">
-      <div className="panel-actions">
-        <button type="button" onClick={() => requestAction("start")}>
-          Start
-        </button>
-        <button type="button" onClick={() => requestAction("pause")}>
-          Pause
-        </button>
-        <button type="button" onClick={() => requestAction("resume")}>
-          Resume
-        </button>
-        <button type="button" className="danger-action" onClick={() => requestAction("stop")}>
-          Stop
-        </button>
-        <button type="button" className="danger-action" onClick={() => requestAction("clear")}>
-          Clear Logs
-        </button>
-      </div>
-
-      {pendingConfig ? (
-        <section className="safeguard-panel" aria-label="Action safeguards">
-          <h2>Review High-Risk Action</h2>
-          <p>
-            <strong>Action:</strong> {pendingConfig.label}
-          </p>
-          <p>
-            <strong>Preview:</strong> <code>{pendingConfig.method}</code> <code>{pendingConfig.path}</code>
-          </p>
-          <p>{pendingConfig.impact}</p>
-          <label>
-            Confirmation phrase
-            <input
-              value={confirmationInput}
-              onChange={(event) => setConfirmationInput(event.target.value)}
-              placeholder={pendingConfig.confirmationPhrase}
-              aria-describedby="confirmation-help"
-            />
-          </label>
-          <p id="confirmation-help">
-            Type <code>{pendingConfig.confirmationPhrase}</code> to enable confirmation.
-          </p>
-          <label className="inline-checkbox">
-            <input
-              type="checkbox"
-              checked={dryRunMode}
-              onChange={(event) => setDryRunMode(event.target.checked)}
-            />
-            Preview only (dry-run, no API call)
-          </label>
-          <div className="panel-actions">
-            <button type="button" disabled={!canConfirm} onClick={() => runAction(pendingAction!, dryRunMode)}>
-              {dryRunMode ? "Run Dry-Run Preview" : "Confirm and Execute"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setPendingAction(null);
-                setConfirmationInput("");
-              }}
-            >
-              Cancel
-            </button>
-          </div>
-        </section>
-      ) : null}
-
-      {actionState.kind === "ok" ? (
-        <p className="status-box" role="status" aria-live="polite" aria-atomic="true">
-          {actionState.message}
-        </p>
-      ) : null}
-      {actionState.kind === "error" ? (
-        <ErrorState
-          error={{
-            kind: "error",
-            code: "daemon_action_failed",
-            message: actionState.message,
-            exitCode: 1,
-          }}
-        />
-      ) : null}
-
-      <DiagnosticsPanel title="Daemon Diagnostics" actionPrefixes={["daemon."]} />
-
-      <div className="grid two">
-        <div className="panel">
-          <h2>Action Audit Trail</h2>
-          {actionRecords.length === 0 ? (
-            <EmptyState message="No daemon actions recorded in this session." />
-          ) : (
-            <pre>{JSON.stringify(actionRecords.slice(0, 20), null, 2)}</pre>
-          )}
+    <div className="space-y-6">
+      <div>
+        <p className="text-sm text-muted-foreground font-mono">{task.id}</p>
+        <h1 className="text-2xl font-semibold tracking-tight">{task.title}</h1>
+        <div className="flex gap-2 mt-2">
+          <Badge variant={statusColor(task.statusRaw)}>{task.statusRaw}</Badge>
+          <Badge variant={priorityColor(task.priorityRaw)}>{task.priorityRaw}</Badge>
+          <Badge variant="outline">{task.taskTypeRaw}</Badge>
         </div>
-
-        <ResourceStateView
-          state={healthState}
-          emptyMessage="No daemon health response available."
-          render={(data) => <JsonPanel title="Health" data={data} />}
-        />
-
-        <ResourceStateView
-          state={logsState}
-          emptyMessage="No daemon logs returned yet."
-          render={(data) => <JsonPanel title="Logs" data={data} />}
-        />
       </div>
-    </RouteSection>
-  );
-}
 
-export function ProjectsPage() {
-  const { activeProjectId, projects, source } = useProjectContext();
+      {task.description && (
+        <Card>
+          <CardContent className="pt-4 text-sm whitespace-pre-wrap">{task.description}</CardContent>
+        </Card>
+      )}
 
-  const requirementsState = useApiResource(
-    async () => api.projectsRequirementsSummary(),
-    [],
-    {
-      isEmpty: (data) => Array.isArray(data) && data.length === 0,
-    },
-  );
+      <div className="grid md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Status Transition</CardTitle></CardHeader>
+          <CardContent className="space-y-2">
+            <select
+              value={targetStatus}
+              onChange={(e) => setTargetStatus(e.target.value)}
+              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+            >
+              <option value="">Select status...</option>
+              {["backlog", "ready", "in-progress", "blocked", "on-hold", "done", "cancelled"].map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+            <Button size="sm" onClick={applyStatus} disabled={!targetStatus || targetStatus === task.statusRaw}>
+              Apply
+            </Button>
+            {feedback?.kind === "ok" && <p className="text-sm text-green-600">{feedback.message}</p>}
+            {feedback?.kind === "error" && <p className="text-sm text-destructive">{feedback.message}</p>}
+          </CardContent>
+        </Card>
 
-  return (
-    <RouteSection
-      title="Projects"
-      description="Workspace projects with context selection and requirement summaries."
-    >
-      <p>
-        Active context: <code>{activeProjectId ?? "none"}</code> (<code>{source}</code>)
-      </p>
-      <div className="grid two">
-        <div className="panel">
-          <h2>Projects</h2>
-          {projects.length === 0 ? (
-            <EmptyState message="No projects available in context." />
-          ) : (
-            <ul>
-              {projects.map((project) => (
-                <li key={project.id}>
-                  <Link to={`/projects/${project.id}`}>{project.name}</Link>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Details</CardTitle></CardHeader>
+          <CardContent className="text-sm space-y-1">
+            <p>Risk: <Badge variant="outline">{task.risk}</Badge></p>
+            <p>Scope: <Badge variant="outline">{task.scope}</Badge></p>
+            <p>Complexity: <Badge variant="outline">{task.complexity}</Badge></p>
+            {task.tags.length > 0 && (
+              <div className="flex gap-1 flex-wrap pt-1">
+                {task.tags.map((t: string) => <Badge key={t} variant="outline" className="text-xs">{t}</Badge>)}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {task.checklist.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Checklist</CardTitle></CardHeader>
+          <CardContent>
+            <ul className="space-y-1">
+              {task.checklist.map((item: any) => (
+                <li key={item.id} className="flex items-center gap-2 text-sm">
+                  <span className={item.completed ? "text-green-600" : "text-muted-foreground"}>
+                    {item.completed ? "✓" : "○"}
+                  </span>
+                  <span className={item.completed ? "line-through text-muted-foreground" : ""}>{item.description}</span>
                 </li>
               ))}
             </ul>
-          )}
-        </div>
+          </CardContent>
+        </Card>
+      )}
 
-        <ResourceStateView
-          state={requirementsState}
-          emptyMessage="No requirement summary data found."
-          render={(data) => <JsonPanel title="Requirement Summary" data={data} />}
-        />
+      {task.dependencies.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Dependencies</CardTitle></CardHeader>
+          <CardContent>
+            <ul className="space-y-1">
+              {task.dependencies.map((dep: any) => (
+                <li key={dep.taskId} className="text-sm">
+                  <Link to={`/tasks/${dep.taskId}`} className="font-mono underline">{dep.taskId}</Link>
+                  <span className="text-muted-foreground ml-2">{dep.type}</span>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {task.linkedRequirementIds.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Linked Requirements</CardTitle></CardHeader>
+          <CardContent>
+            <div className="flex gap-2 flex-wrap">
+              {task.linkedRequirementIds.map((id: string) => (
+                <Link key={id} to={`/planning/requirements/${id}`}>
+                  <Badge variant="outline" className="font-mono">{id}</Badge>
+                </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Workflows
+// ---------------------------------------------------------------------------
+
+export function WorkflowsPage() {
+  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [result, reexecute] = useQuery({
+    query: WORKFLOWS_QUERY,
+    variables: { status: statusFilter || undefined },
+  });
+  const [, runWf] = useMutation(RUN_WORKFLOW);
+  const [, pauseWf] = useMutation(PAUSE_WORKFLOW);
+  const [, resumeWf] = useMutation(RESUME_WORKFLOW);
+  const [, cancelWf] = useMutation(CANCEL_WORKFLOW);
+  const [runTaskId, setRunTaskId] = useState("");
+  const [feedback, setFeedback] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
+
+  const { data, fetching, error } = result;
+  if (fetching) return <PageLoading />;
+  if (error) return <PageError message={error.message} />;
+
+  const workflows = data?.workflows ?? [];
+
+  const onRun = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!runTaskId.trim()) return;
+    const { error: err } = await runWf({ taskId: runTaskId.trim() });
+    if (err) setFeedback({ kind: "error", message: err.message });
+    else {
+      setFeedback({ kind: "ok", message: `Workflow started for ${runTaskId}.` });
+      setRunTaskId("");
+      reexecute({ requestPolicy: "network-only" });
+    }
+  };
+
+  const onAction = async (id: string, action: "pause" | "resume" | "cancel") => {
+    const fn = action === "pause" ? pauseWf : action === "resume" ? resumeWf : cancelWf;
+    const { error: err } = await fn({ id });
+    if (err) setFeedback({ kind: "error", message: err.message });
+    else {
+      setFeedback({ kind: "ok", message: `${action} applied to ${id}.` });
+      reexecute({ requestPolicy: "network-only" });
+    }
+  };
+
+  const counts = useMemo(() => {
+    const c = { running: 0, paused: 0, completed: 0, failed: 0 };
+    for (const w of workflows) {
+      const s = (w.statusRaw || "").toLowerCase();
+      if (s === "running") c.running++;
+      else if (s === "paused") c.paused++;
+      else if (s === "completed") c.completed++;
+      else if (s === "failed") c.failed++;
+    }
+    return c;
+  }, [workflows]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold tracking-tight">Workflows</h1>
+        <span className="text-sm text-muted-foreground">{workflows.length} total</span>
       </div>
-    </RouteSection>
+
+      <div className="grid grid-cols-4 gap-2">
+        <StatCard label="Running" value={counts.running} />
+        <StatCard label="Paused" value={counts.paused} />
+        <StatCard label="Completed" value={counts.completed} />
+        <StatCard label="Failed" value={counts.failed} />
+      </div>
+
+      <div className="flex gap-2 items-end">
+        <form onSubmit={onRun} className="flex gap-2 items-end">
+          <Input
+            placeholder="Task ID (e.g. TASK-014)"
+            value={runTaskId}
+            onChange={(e) => setRunTaskId(e.target.value)}
+            className="w-48"
+          />
+          <Button type="submit" size="sm">Run Workflow</Button>
+        </form>
+      </div>
+
+      {feedback && (
+        <Alert variant={feedback.kind === "error" ? "destructive" : "default"}>
+          <AlertDescription>{feedback.message}</AlertDescription>
+        </Alert>
+      )}
+
+      <Tabs defaultValue="all" onValueChange={(v) => setStatusFilter(v === "all" ? "" : v)}>
+        <TabsList>
+          <TabsTrigger value="all">All</TabsTrigger>
+          <TabsTrigger value="running">Running</TabsTrigger>
+          <TabsTrigger value="paused">Paused</TabsTrigger>
+          <TabsTrigger value="completed">Completed</TabsTrigger>
+          <TabsTrigger value="failed">Failed</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {workflows.length === 0 ? (
+        <p className="text-sm text-muted-foreground py-8 text-center">No workflows found.</p>
+      ) : (
+        <div className="space-y-3">
+          {workflows.map((wf: any) => (
+            <Card key={wf.id}>
+              <CardContent className="pt-4">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <Link to={`/workflows/${wf.id}`} className="font-mono text-sm underline">{wf.id}</Link>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Task: <Link to={`/tasks/${wf.taskId}`} className="underline">{wf.taskId}</Link>
+                      {wf.currentPhase && <> &middot; Phase: {wf.currentPhase}</>}
+                      {wf.totalReworks > 0 && <> &middot; {wf.totalReworks} reworks</>}
+                    </p>
+                  </div>
+                  <Badge variant={statusColor(wf.statusRaw)}>{wf.statusRaw}</Badge>
+                </div>
+
+                {wf.phases?.length > 0 && (
+                  <div className="flex gap-1 mt-2 flex-wrap">
+                    {wf.phases.map((p: any) => (
+                      <span
+                        key={p.phaseId}
+                        className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-mono ${
+                          p.status === "completed" ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" :
+                          p.status === "running" ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" :
+                          p.status === "failed" ? "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200" :
+                          "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {p.phaseId}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex gap-1 mt-2">
+                  <Button size="sm" variant="outline" onClick={() => onAction(wf.id, "pause")} disabled={wf.statusRaw !== "running"}>Pause</Button>
+                  <Button size="sm" variant="outline" onClick={() => onAction(wf.id, "resume")} disabled={wf.statusRaw !== "paused"}>Resume</Button>
+                  <Button size="sm" variant="destructive" onClick={() => onAction(wf.id, "cancel")} disabled={["completed", "failed", "cancelled"].includes(wf.statusRaw)}>Cancel</Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function WorkflowDetailPage() {
+  const { workflowId } = useParams();
+  const [result] = useQuery({ query: WORKFLOW_DETAIL_QUERY, variables: { id: workflowId } });
+
+  const { data, fetching, error } = result;
+  if (fetching) return <PageLoading />;
+  if (error) return <PageError message={error.message} />;
+
+  const wf = data?.workflow;
+  if (!wf) return <PageError message={`Workflow ${workflowId} not found.`} />;
+
+  const checkpoints = data?.workflowCheckpoints ?? [];
+  const decisions = wf.decisions ?? [];
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <p className="text-sm text-muted-foreground font-mono">{wf.id}</p>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Workflow for <Link to={`/tasks/${wf.taskId}`} className="underline">{wf.taskId}</Link>
+        </h1>
+        <div className="flex gap-2 mt-2">
+          <Badge variant={statusColor(wf.statusRaw)}>{wf.statusRaw}</Badge>
+          {wf.workflowRef && <Badge variant="outline">{wf.workflowRef}</Badge>}
+          {wf.totalReworks > 0 && <Badge variant="outline">{wf.totalReworks} reworks</Badge>}
+        </div>
+      </div>
+
+      <Card>
+        <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Phase Timeline</CardTitle></CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            {wf.phases.map((p: any, i: number) => (
+              <div key={p.phaseId} className="flex items-start gap-3">
+                <div className="flex flex-col items-center">
+                  <div className={`h-3 w-3 rounded-full ${
+                    p.status === "completed" ? "bg-green-500" :
+                    p.status === "running" ? "bg-blue-500 animate-pulse" :
+                    p.status === "failed" ? "bg-red-500" :
+                    "bg-muted-foreground/30"
+                  }`} />
+                  {i < wf.phases.length - 1 && <div className="w-px h-6 bg-border" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-sm">{p.phaseId}</span>
+                    <Badge variant={statusColor(p.status)} className="text-[10px]">{p.status}</Badge>
+                    {p.attempt > 1 && <span className="text-xs text-muted-foreground">attempt {p.attempt}</span>}
+                  </div>
+                  {p.errorMessage && <p className="text-xs text-destructive mt-0.5">{p.errorMessage}</p>}
+                  {(p.startedAt || p.completedAt) && (
+                    <p className="text-xs text-muted-foreground">
+                      {p.startedAt && <>Started: {p.startedAt}</>}
+                      {p.completedAt && <> &middot; Completed: {p.completedAt}</>}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {decisions.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Decisions</CardTitle></CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Phase</TableHead>
+                  <TableHead>Decision</TableHead>
+                  <TableHead>Target</TableHead>
+                  <TableHead>Confidence</TableHead>
+                  <TableHead>Source</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {decisions.map((d: any, i: number) => (
+                  <TableRow key={i}>
+                    <TableCell className="font-mono text-xs">{d.phaseId}</TableCell>
+                    <TableCell>{d.decision}</TableCell>
+                    <TableCell className="font-mono text-xs">{d.targetPhase ?? "-"}</TableCell>
+                    <TableCell>{(d.confidence * 100).toFixed(0)}%</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{d.source}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {checkpoints.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Checkpoints</CardTitle></CardHeader>
+          <CardContent>
+            <ul className="space-y-2">
+              {checkpoints.map((cp: any) => (
+                <li key={cp.id} className="text-sm">
+                  <Link
+                    to={`/workflows/${workflowId}/checkpoints/${cp.id}`}
+                    className="font-mono underline"
+                  >
+                    {cp.id}
+                  </Link>
+                  <span className="text-muted-foreground ml-2">{cp.phase}</span>
+                  {cp.timestamp && <span className="text-muted-foreground ml-2">{cp.timestamp}</span>}
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+export function WorkflowCheckpointPage() {
+  const { workflowId, checkpoint } = useParams();
+  const [result] = useQuery({
+    query: WORKFLOW_DETAIL_QUERY,
+    variables: { id: workflowId },
+  });
+
+  const { data, fetching, error } = result;
+  if (fetching) return <PageLoading />;
+  if (error) return <PageError message={error.message} />;
+
+  const checkpoints = data?.workflowCheckpoints ?? [];
+  const cp = checkpoints.find((c: any) => c.id === checkpoint);
+
+  return (
+    <div className="space-y-4">
+      <h1 className="text-2xl font-semibold tracking-tight">Checkpoint {checkpoint}</h1>
+      <p className="text-sm text-muted-foreground">
+        Workflow: <Link to={`/workflows/${workflowId}`} className="underline font-mono">{workflowId}</Link>
+      </p>
+      {cp ? (
+        <Card>
+          <CardContent className="pt-4">
+            <pre className="text-xs overflow-auto">{cp.data ?? "No data"}</pre>
+          </CardContent>
+        </Card>
+      ) : (
+        <PageError message={`Checkpoint ${checkpoint} not found.`} />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Queue
+// ---------------------------------------------------------------------------
+
+export function QueuePage() {
+  const [result, reexecute] = useQuery({ query: QUEUE_QUERY });
+  const [, holdMut] = useMutation(QUEUE_HOLD);
+  const [, releaseMut] = useMutation(QUEUE_RELEASE);
+  const [feedback, setFeedback] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
+
+  const { data, fetching, error } = result;
+  if (fetching) return <PageLoading />;
+  if (error) return <PageError message={error.message} />;
+
+  const entries = data?.queue ?? [];
+  const stats = data?.queueStats;
+
+  const onHold = async (taskId: string) => {
+    const { error: err } = await holdMut({ taskId });
+    if (err) setFeedback({ kind: "error", message: err.message });
+    else {
+      setFeedback({ kind: "ok", message: `Held ${taskId}.` });
+      reexecute({ requestPolicy: "network-only" });
+    }
+  };
+
+  const onRelease = async (taskId: string) => {
+    const { error: err } = await releaseMut({ taskId });
+    if (err) setFeedback({ kind: "error", message: err.message });
+    else {
+      setFeedback({ kind: "ok", message: `Released ${taskId}.` });
+      reexecute({ requestPolicy: "network-only" });
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <h1 className="text-2xl font-semibold tracking-tight">Queue</h1>
+
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+        <StatCard label="Depth" value={stats?.depth ?? 0} />
+        <StatCard label="Ready" value={stats?.readyCount ?? 0} />
+        <StatCard label="Held" value={stats?.heldCount ?? 0} />
+        <StatCard label="Avg Wait" value={stats?.avgWait != null ? `${stats.avgWait.toFixed(1)}s` : "-"} />
+        <StatCard label="Throughput" value={stats?.throughput != null ? `${stats.throughput.toFixed(1)}/hr` : "-"} />
+      </div>
+
+      {feedback && (
+        <Alert variant={feedback.kind === "error" ? "destructive" : "default"}>
+          <AlertDescription>{feedback.message}</AlertDescription>
+        </Alert>
+      )}
+
+      {entries.length === 0 ? (
+        <p className="text-sm text-muted-foreground py-8 text-center">Queue is empty.</p>
+      ) : (
+        <Card>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-8">#</TableHead>
+                <TableHead>Task</TableHead>
+                <TableHead>Title</TableHead>
+                <TableHead>Priority</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Wait</TableHead>
+                <TableHead className="w-32">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {entries.map((entry: any) => (
+                <TableRow key={entry.taskId}>
+                  <TableCell className="text-xs text-muted-foreground">{entry.position ?? "-"}</TableCell>
+                  <TableCell>
+                    <Link to={`/tasks/${entry.taskId}`} className="font-mono text-xs underline">{entry.taskId}</Link>
+                  </TableCell>
+                  <TableCell>{entry.title ?? "-"}</TableCell>
+                  <TableCell>{entry.priority && <Badge variant={priorityColor(entry.priority)}>{entry.priority}</Badge>}</TableCell>
+                  <TableCell>{entry.status && <Badge variant={statusColor(entry.status)}>{entry.status}</Badge>}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{entry.waitTime != null ? `${entry.waitTime.toFixed(0)}s` : "-"}</TableCell>
+                  <TableCell>
+                    <div className="flex gap-1">
+                      <Button size="sm" variant="outline" className="h-6 text-xs" onClick={() => onHold(entry.taskId)}>Hold</Button>
+                      <Button size="sm" variant="outline" className="h-6 text-xs" onClick={() => onRelease(entry.taskId)}>Release</Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Daemon
+// ---------------------------------------------------------------------------
+
+export function DaemonPage() {
+  const [result, reexecute] = useQuery({ query: DAEMON_QUERY });
+  const [, startMut] = useMutation(DAEMON_START);
+  const [, stopMut] = useMutation(DAEMON_STOP);
+  const [, pauseMut] = useMutation(DAEMON_PAUSE);
+  const [, resumeMut] = useMutation(DAEMON_RESUME);
+  const [, clearLogsMut] = useMutation(DAEMON_CLEAR_LOGS);
+  const [feedback, setFeedback] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
+
+  const { data, fetching, error } = result;
+  if (fetching) return <PageLoading />;
+  if (error) return <PageError message={error.message} />;
+
+  const status = data?.daemonStatus;
+  const health = data?.daemonHealth;
+  const agents = data?.agentRuns ?? [];
+  const logs = data?.daemonLogs ?? [];
+
+  const runAction = async (label: string, fn: () => Promise<any>) => {
+    const { error: err } = await fn();
+    if (err) setFeedback({ kind: "error", message: err.message });
+    else {
+      setFeedback({ kind: "ok", message: `${label} successful.` });
+      reexecute({ requestPolicy: "network-only" });
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <h1 className="text-2xl font-semibold tracking-tight">Daemon</h1>
+
+      {feedback && (
+        <Alert variant={feedback.kind === "error" ? "destructive" : "default"}>
+          <AlertDescription>{feedback.message}</AlertDescription>
+        </Alert>
+      )}
+
+      <div className="grid md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Status</CardTitle></CardHeader>
+          <CardContent className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Badge variant={status?.healthy ? "default" : "destructive"}>{status?.statusRaw ?? "unknown"}</Badge>
+              {status?.runnerConnected && <span className="text-xs text-muted-foreground">runner connected</span>}
+            </div>
+            <p className="text-sm text-muted-foreground">Active agents: {status?.activeAgents ?? 0}{status?.maxAgents ? ` / ${status.maxAgents}` : ""}</p>
+            {status?.projectRoot && <p className="text-xs text-muted-foreground truncate">Root: {status.projectRoot}</p>}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Controls</CardTitle></CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" onClick={() => runAction("Start", () => startMut({}))}>Start</Button>
+              <Button size="sm" variant="outline" onClick={() => runAction("Pause", () => pauseMut({}))}>Pause</Button>
+              <Button size="sm" variant="outline" onClick={() => runAction("Resume", () => resumeMut({}))}>Resume</Button>
+              <Button size="sm" variant="destructive" onClick={() => runAction("Stop", () => stopMut({}))}>Stop</Button>
+              <Button size="sm" variant="outline" onClick={() => runAction("Clear Logs", () => clearLogsMut({}))}>Clear Logs</Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {agents.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Active Agents</CardTitle></CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Run</TableHead>
+                  <TableHead>Task</TableHead>
+                  <TableHead>Phase</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {agents.map((a: any) => (
+                  <TableRow key={a.runId}>
+                    <TableCell className="font-mono text-xs">{a.runId}</TableCell>
+                    <TableCell>{a.taskId ? <Link to={`/tasks/${a.taskId}`} className="underline">{a.taskTitle ?? a.taskId}</Link> : "-"}</TableCell>
+                    <TableCell className="font-mono text-xs">{a.phaseId ?? "-"}</TableCell>
+                    <TableCell><Badge variant={statusColor(a.status)}>{a.status}</Badge></TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {logs.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Logs</CardTitle></CardHeader>
+          <CardContent>
+            <div className="max-h-80 overflow-y-auto font-mono text-xs space-y-0.5">
+              {logs.map((log: any, i: number) => (
+                <div key={i} className="flex gap-2">
+                  <span className="text-muted-foreground shrink-0">{log.timestamp ?? ""}</span>
+                  <span className={log.level === "ERROR" ? "text-destructive" : "text-foreground"}>{log.message ?? ""}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Projects
+// ---------------------------------------------------------------------------
+
+export function ProjectsPage() {
+  const [result] = useQuery({ query: PROJECTS_QUERY });
+  const { data, fetching, error } = result;
+
+  if (fetching) return <PageLoading />;
+  if (error) return <PageError message={error.message} />;
+
+  const projects = data?.projects ?? [];
+  const active = data?.projectsActive ?? [];
+
+  return (
+    <div className="space-y-4">
+      <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
+      {active.length > 0 && (
+        <p className="text-sm text-muted-foreground">Active: {active.map((p: any) => p.name).join(", ")}</p>
+      )}
+      {projects.length === 0 ? (
+        <p className="text-sm text-muted-foreground py-8 text-center">No projects found.</p>
+      ) : (
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {projects.map((p: any) => (
+            <Link key={p.id} to={`/projects/${p.id}`}>
+              <Card className="hover:border-foreground/20 transition-colors">
+                <CardContent className="pt-4">
+                  <p className="font-medium">{p.name}</p>
+                  {p.path && <p className="text-xs text-muted-foreground truncate">{p.path}</p>}
+                  {p.description && <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{p.description}</p>}
+                  {p.archived && <Badge variant="outline" className="mt-1">archived</Badge>}
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
 export function ProjectDetailPage() {
-  const params = useParams();
-  const projectId = params.projectId ?? "";
+  const { projectId } = useParams();
+  const [result] = useQuery({ query: PROJECT_DETAIL_QUERY, variables: { id: projectId } });
 
-  const state = useApiResource(
-    async () => {
-      const [project, tasks, workflows, requirements] = await Promise.all([
-        api.projectsById(projectId),
-        api.projectTasks(projectId),
-        api.projectWorkflows(projectId),
-        api.projectsRequirementsById(projectId),
-      ]);
+  const { data, fetching, error } = result;
+  if (fetching) return <PageLoading />;
+  if (error) return <PageError message={error.message} />;
 
-      const error = firstApiError(project, tasks, workflows, requirements);
-      if (error) {
-        return error;
-      }
-
-      return {
-        kind: "ok" as const,
-        data: {
-          project: project.data,
-          tasks: tasks.data,
-          workflows: workflows.data,
-          requirements: requirements.data,
-        },
-      };
-    },
-    [projectId],
-  );
+  const project = data?.project;
+  if (!project) return <PageError message={`Project ${projectId} not found.`} />;
 
   return (
-    <RouteSection title="Project Detail" description={`Project scope for ${projectId}.`}>
-      <ResourceStateView
-        state={state}
-        emptyMessage="Project details are empty."
-        render={(data) => (
-          <div className="grid two">
-            <JsonPanel title="Project" data={data.project} />
-            <JsonPanel title="Tasks" data={data.tasks} />
-            <JsonPanel title="Workflows" data={data.workflows} />
-            <JsonPanel title="Requirements" data={data.requirements} />
-          </div>
-        )}
-      />
-    </RouteSection>
+    <div className="space-y-4">
+      <h1 className="text-2xl font-semibold tracking-tight">{project.name}</h1>
+      {project.path && <p className="text-sm text-muted-foreground">{project.path}</p>}
+      {project.description && <p className="text-sm">{project.description}</p>}
+      <div className="flex gap-2 flex-wrap">
+        {project.type && <Badge variant="outline">{project.type}</Badge>}
+        {project.archived && <Badge variant="outline">archived</Badge>}
+        {(project.techStack ?? []).map((t: string) => <Badge key={t} variant="outline">{t}</Badge>)}
+      </div>
+    </div>
   );
 }
 
 export function RequirementDetailPage() {
   const params = useParams();
-  const projectId = params.projectId ?? "";
-  const requirementId = params.requirementId ?? "";
+  const requirementId = params.requirementId ?? params.projectId ?? "";
+  const [result] = useQuery({ query: REQUIREMENT_DETAIL_QUERY, variables: { id: requirementId } });
 
-  const state = useApiResource(
-    async () => api.projectRequirementDetail(projectId, requirementId),
-    [projectId, requirementId],
-  );
+  const { data, fetching, error } = result;
+  if (fetching) return <PageLoading />;
+  if (error) return <PageError message={error.message} />;
+
+  const req = data?.requirement;
+  if (!req) return <PageError message={`Requirement ${requirementId} not found.`} />;
 
   return (
-    <RouteSection
-      title="Requirement Detail"
-      description={`Requirement ${requirementId} within project ${projectId}.`}
-    >
-      <ResourceStateView
-        state={state}
-        emptyMessage="Requirement detail payload is empty."
-        render={(data) => (
-          <div className="grid">
-            <JsonPanel title="Requirement" data={data} />
-            <p>
-              <Link to={`/planning/requirements/${encodeURIComponent(requirementId)}`}>
-                Edit in Planning Workspace
-              </Link>
-            </p>
-          </div>
-        )}
-      />
-    </RouteSection>
-  );
-}
-
-export function TasksPage() {
-  return <TaskControlCenter />;
-}
-
-export function TaskDetailPage() {
-  const params = useParams();
-  const taskId = params.taskId ?? "";
-
-  return <TaskControlCenter taskId={taskId} />;
-}
-
-function TaskControlCenter(props: { taskId?: string }) {
-  const [refreshNonce, setRefreshNonce] = useState(0);
-  const [statusFilter, setStatusFilter] = useState<"all" | QueueTaskStatus>("all");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(props.taskId ?? null);
-  const [targetStatus, setTargetStatus] = useState<QueueTaskStatus>("ready");
-  const [pendingTransition, setPendingTransition] = useState<string | null>(null);
-  const [taskFeedback, setTaskFeedback] = useState<ControlFeedbackEntry[]>([]);
-  const [transitionState, setTransitionState] = useState<
-    { kind: "idle" } | { kind: "ok"; message: string } | { kind: "error"; message: string }
-  >({ kind: "idle" });
-  const [taskGate, setTaskGate] = useState<ActionGateConfig | null>(null);
-  const [queuedGateTransition, setQueuedGateTransition] = useState<
-    { taskId: string; status: QueueTaskStatus } | null
-  >(null);
-
-  const state = useApiResource(
-    async () => {
-      const detailPromise = props.taskId ? api.tasksById(props.taskId) : Promise.resolve(null);
-      const [tasks, stats, selectedTask] = await Promise.all([
-        api.tasksPrioritized(),
-        api.tasksStats(),
-        detailPromise,
-      ]);
-
-      const error = selectedTask
-        ? firstApiError(tasks, stats, selectedTask)
-        : firstApiError(tasks, stats);
-      if (error) {
-        return error;
-      }
-
-      const queue = [...tasks.data];
-      if (
-        selectedTask &&
-        selectedTask.kind === "ok" &&
-        !queue.some((task) => task.id === selectedTask.data.id)
-      ) {
-        queue.push(selectedTask.data as TaskSummary);
-      }
-
-      return {
-        kind: "ok" as const,
-        data: {
-          tasks: queue,
-          stats: stats.data,
-        },
-      };
-    },
-    [props.taskId, refreshNonce],
-  );
-
-  const queue = useMemo(() => {
-    if (state.status !== "ready") {
-      return [] as TaskSummary[];
-    }
-
-    return sortTaskQueue(state.data.tasks);
-  }, [state]);
-
-  useEffect(() => {
-    if (props.taskId) {
-      setSelectedTaskId(props.taskId);
-      return;
-    }
-
-    if (queue.length === 0) {
-      setSelectedTaskId(null);
-      return;
-    }
-
-    setSelectedTaskId((current) => {
-      if (current && queue.some((task) => task.id === current)) {
-        return current;
-      }
-      return queue[0].id;
-    });
-  }, [props.taskId, queue]);
-
-  const filteredQueue = useMemo(() => {
-    const normalizedSearch = searchQuery.trim().toLowerCase();
-    return queue.filter((task) => {
-      const canonicalStatus = toQueueTaskStatus(task.status);
-      if (statusFilter !== "all" && canonicalStatus !== statusFilter) {
-        return false;
-      }
-
-      if (!normalizedSearch) {
-        return true;
-      }
-
-      const haystack = `${task.id} ${taskTitle(task)} ${taskDescription(task)}`.toLowerCase();
-      return haystack.includes(normalizedSearch);
-    });
-  }, [queue, statusFilter, searchQuery]);
-
-  const selectedTask = useMemo(() => {
-    if (selectedTaskId) {
-      const matched = queue.find((task) => task.id === selectedTaskId);
-      if (matched) {
-        return matched;
-      }
-    }
-    return filteredQueue[0] ?? queue[0] ?? null;
-  }, [queue, filteredQueue, selectedTaskId]);
-
-  useEffect(() => {
-    if (!selectedTask) {
-      return;
-    }
-
-    setTargetStatus(toQueueTaskStatus(selectedTask.status));
-  }, [selectedTask?.id, selectedTask?.status]);
-
-  const summary = useMemo(() => summarizeTaskQueue(queue, state.status === "ready" ? state.data.stats : null), [
-    queue,
-    state,
-  ]);
-
-  const appendTaskFeedback = (entry: Omit<ControlFeedbackEntry, "id">) => {
-    setTaskFeedback((current) => {
-      const next: ControlFeedbackEntry = {
-        id: `${Date.now()}-${entry.targetId}-${entry.action}`,
-        ...entry,
-      };
-      return [next, ...current].slice(0, CONTROL_FEEDBACK_LIMIT);
-    });
-  };
-
-  const runTaskTransition = (taskId: string, status: QueueTaskStatus) => {
-    if (pendingTransition) {
-      return;
-    }
-
-    setPendingTransition(`${taskId}:${status}`);
-    setTransitionState({ kind: "idle" });
-
-    void api.taskSetStatus(taskId, { status }).then((result) => {
-      if (result.kind === "error") {
-        const message = formatApiError(result);
-        setTransitionState({ kind: "error", message });
-        appendTaskFeedback({
-          action: "tasks.set_status",
-          targetId: taskId,
-          outcome: "error",
-          timestamp: new Date().toISOString(),
-          message,
-          correlationId: result.correlationId,
-        });
-        setPendingTransition(null);
-        return;
-      }
-
-      const nextStatus = toQueueTaskStatus(result.data.status);
-      setTransitionState({
-        kind: "ok",
-        message: `${taskId} moved to ${formatStatusToken(nextStatus)}.`,
-      });
-      appendTaskFeedback({
-        action: "tasks.set_status",
-        targetId: taskId,
-        outcome: "success",
-        timestamp: new Date().toISOString(),
-        message: `Status updated to ${nextStatus}.`,
-      });
-      setPendingTransition(null);
-      setTaskGate(null);
-      setQueuedGateTransition(null);
-      setRefreshNonce((current) => current + 1);
-    });
-  };
-
-  const requestTaskTransition = () => {
-    if (!selectedTask) {
-      return;
-    }
-
-    const currentStatus = toQueueTaskStatus(selectedTask.status);
-    if (targetStatus === currentStatus) {
-      setTransitionState({
-        kind: "error",
-        message: `${selectedTask.id} is already ${formatStatusToken(currentStatus)}.`,
-      });
-      return;
-    }
-
-    if (targetStatus === "cancelled" && ACTIVE_TASK_STATUSES.has(currentStatus)) {
-      setQueuedGateTransition({ taskId: selectedTask.id, status: targetStatus });
-      setTaskGate({
-        actionKey: "tasks.set_status.cancelled",
-        targetId: selectedTask.id,
-        confirmationPhrase: `CANCEL ${selectedTask.id}`,
-        impactSummary: `Cancelling ${selectedTask.id} marks this active task as terminal and removes it from active queue execution.`,
-        submitLabel: "Confirm Task Cancellation",
-      });
-      return;
-    }
-
-    runTaskTransition(selectedTask.id, targetStatus);
-  };
-
-  const disableTransition =
-    !selectedTask ||
-    pendingTransition !== null ||
-    targetStatus === toQueueTaskStatus(selectedTask.status);
-
-  const transitionDisabledMessage = !selectedTask
-    ? "Select a task to run transitions."
-    : pendingTransition !== null
-      ? "Task transition request in progress."
-      : targetStatus === toQueueTaskStatus(selectedTask.status)
-        ? "Choose a different status to apply."
-        : null;
-
-  const renderTaskSurface = (data: { tasks: TaskSummary[]; stats: TaskStatsPayload }) => (
-    <div className="task-control-surface">
-      <QueueSummaryStrip
-        title="Task Queue Summary"
-        values={[
-          { label: "Total", value: summary.total.toString() },
-          { label: "In Progress", value: summary.inProgress.toString() },
-          { label: "Blocked", value: summary.blocked.toString() },
-          { label: "Done", value: summary.done.toString() },
-          { label: "Filtered", value: filteredQueue.length.toString() },
-        ]}
-      />
-
-      <div className="task-control-grid">
-        <section className="panel" aria-label="Task queue">
-          <div className="panel-head">
-            <h2>Queue</h2>
-            <span className="muted-text">{data.tasks.length} tasks</span>
-          </div>
-          <div className="task-queue-toolbar">
-            <label>
-              Status filter
-              <select
-                value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value as "all" | QueueTaskStatus)}
-              >
-                <option value="all">All statuses</option>
-                {TASK_STATUS_OPTIONS.map((status) => (
-                  <option key={status} value={status}>
-                    {formatStatusToken(status)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Search
-              <input
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Search by id, title, description"
-              />
-            </label>
-          </div>
-
-          {filteredQueue.length === 0 ? (
-            <EmptyState
-              message={
-                queue.length === 0
-                  ? "No tasks returned."
-                  : "No tasks match the active filters."
-              }
-            />
-          ) : (
-            <ul className="task-queue-list">
-              {filteredQueue.map((task) => {
-                const selected = selectedTask?.id === task.id;
-                return (
-                  <li key={task.id}>
-                    <button
-                      type="button"
-                      className={`task-queue-row${selected ? " selected" : ""}`}
-                      onClick={() => setSelectedTaskId(task.id)}
-                      aria-pressed={selected}
-                      aria-label={`Select task ${task.id}`}
-                    >
-                      <span className="task-id">{task.id}</span>
-                      <span className="task-title">{taskTitle(task)}</span>
-                      <span className="task-meta">
-                        {formatStatusToken(toQueueTaskStatus(task.status))} | {formatPriority(task.priority)} |{" "}
-                        {formatTimestamp(taskUpdatedAt(task))}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
-
-        <section className="panel" aria-label="Task controls">
-          <div className="panel-head">
-            <h2>Task Controls</h2>
-            {selectedTask ? <code>{selectedTask.id}</code> : <span className="muted-text">No selection</span>}
-          </div>
-          {!selectedTask ? (
-            <EmptyState message="Select a task from the queue to view controls." />
-          ) : (
-            <div className="task-detail-content">
-              <p className="task-detail-title">{taskTitle(selectedTask)}</p>
-              <p className="muted-text">{taskDescription(selectedTask)}</p>
-              <p className="muted-text">
-                Status: <strong>{formatStatusToken(toQueueTaskStatus(selectedTask.status))}</strong> | Priority:{" "}
-                <strong>{formatPriority(selectedTask.priority)}</strong>
-              </p>
-              <p className="muted-text">
-                Checklist: <strong>{checklistCompletedCount(selectedTask)}</strong> /{" "}
-                <strong>{checklistTotalCount(selectedTask)}</strong> complete | Dependencies:{" "}
-                <strong>{dependencyCount(selectedTask)}</strong>
-              </p>
-
-              <label>
-                Next status
-                <select
-                  value={targetStatus}
-                  onChange={(event) => setTargetStatus(event.target.value as QueueTaskStatus)}
-                  disabled={pendingTransition !== null}
-                >
-                  {TASK_STATUS_OPTIONS.map((status) => (
-                    <option key={status} value={status}>
-                      {formatStatusToken(status)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <div className="panel-actions">
-                <button type="button" onClick={requestTaskTransition} disabled={disableTransition}>
-                  {pendingTransition ? "Updating..." : "Apply Status Transition"}
-                </button>
-                <Link className="action-link" to={`/tasks/${encodeURIComponent(selectedTask.id)}`}>
-                  Open Task Route
-                </Link>
-              </div>
-
-              {transitionDisabledMessage ? <p className="muted-text">{transitionDisabledMessage}</p> : null}
-              {transitionState.kind === "ok" ? (
-                <p role="status" aria-live="polite" className="status-box">
-                  {transitionState.message}
-                </p>
-              ) : null}
-              {transitionState.kind === "error" ? (
-                <ErrorState
-                  error={{
-                    kind: "error",
-                    code: "task_transition_failed",
-                    message: transitionState.message,
-                    exitCode: 1,
-                  }}
-                />
-              ) : null}
-            </div>
-          )}
-        </section>
+    <div className="space-y-4">
+      <div>
+        <p className="text-sm text-muted-foreground font-mono">{req.id}</p>
+        <h1 className="text-2xl font-semibold tracking-tight">{req.title}</h1>
+        <div className="flex gap-2 mt-2">
+          <Badge variant={statusColor(req.statusRaw)}>{req.statusRaw}</Badge>
+          <Badge variant={priorityColor(req.priorityRaw)}>{req.priorityRaw}</Badge>
+          {req.requirementType && <Badge variant="outline">{req.requirementType}</Badge>}
+        </div>
       </div>
-
-      <ControlFeedbackLog title="Task Action Feedback" entries={taskFeedback} emptyMessage="No task actions yet." />
-      <DiagnosticsPanel title="Task Diagnostics" actionPrefixes={["tasks."]} />
-      <ActionGateDialog
-        gate={taskGate}
-        pending={pendingTransition !== null}
-        onClose={() => {
-          if (pendingTransition) {
-            return;
-          }
-          setTaskGate(null);
-          setQueuedGateTransition(null);
-        }}
-        onConfirm={() => {
-          if (!queuedGateTransition) {
-            return;
-          }
-          runTaskTransition(queuedGateTransition.taskId, queuedGateTransition.status);
-        }}
-      />
+      {req.description && (
+        <Card>
+          <CardContent className="pt-4 text-sm whitespace-pre-wrap">{req.description}</CardContent>
+        </Card>
+      )}
+      {req.linkedTaskIds?.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Linked Tasks</CardTitle></CardHeader>
+          <CardContent>
+            <div className="flex gap-2 flex-wrap">
+              {req.linkedTaskIds.map((id: string) => (
+                <Link key={id} to={`/tasks/${id}`}><Badge variant="outline" className="font-mono">{id}</Badge></Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
-
-  return (
-    <RouteSection
-      title={props.taskId ? "Task Detail" : "Tasks"}
-      description={
-        props.taskId
-          ? `Control center for task ${props.taskId}.`
-          : "Queue-first task control center with deterministic transitions."
-      }
-    >
-      <ResourceStateView
-        state={state}
-        emptyMessage="No task records returned."
-        render={renderTaskSurface}
-      />
-    </RouteSection>
-  );
 }
 
-export function WorkflowsPage() {
-  const [refreshNonce, setRefreshNonce] = useState(0);
-  const [runTaskId, setRunTaskId] = useState("");
-  const [runPipelineId, setRunPipelineId] = useState("");
-  const [pendingAction, setPendingAction] = useState<string | null>(null);
-  const [actionState, setActionState] = useState<
-    { kind: "idle" } | { kind: "ok"; message: string } | { kind: "error"; message: string }
-  >({ kind: "idle" });
-  const [workflowFeedback, setWorkflowFeedback] = useState<ControlFeedbackEntry[]>([]);
-  const [workflowGate, setWorkflowGate] = useState<ActionGateConfig | null>(null);
-  const [queuedCancelWorkflowId, setQueuedCancelWorkflowId] = useState<string | null>(null);
-
-  const state = useApiResource(
-    async () => api.workflowsList(),
-    [refreshNonce],
-  );
-
-  const appendWorkflowFeedback = (entry: Omit<ControlFeedbackEntry, "id">) => {
-    setWorkflowFeedback((current) => {
-      const next: ControlFeedbackEntry = {
-        id: `${Date.now()}-${entry.targetId}-${entry.action}`,
-        ...entry,
-      };
-      return [next, ...current].slice(0, CONTROL_FEEDBACK_LIMIT);
-    });
-  };
-
-  const runWorkflow = (taskId: string, workflowRef: string | null) => {
-    if (pendingAction) {
-      return;
-    }
-
-    setPendingAction("run");
-    setActionState({ kind: "idle" });
-    void api
-      .workflowRun({
-        task_id: taskId,
-        ...(workflowRef ? { workflow_ref: workflowRef } : {}),
-      })
-      .then((result) => {
-        if (result.kind === "error") {
-          const message = formatApiError(result);
-          setActionState({ kind: "error", message });
-          appendWorkflowFeedback({
-            action: "workflows.run",
-            targetId: taskId,
-            outcome: "error",
-            timestamp: new Date().toISOString(),
-            message,
-            correlationId: result.correlationId,
-          });
-          setPendingAction(null);
-          return;
-        }
-
-        setActionState({
-          kind: "ok",
-          message: `Workflow ${result.data.id} started for task ${result.data.task_id ?? taskId}.`,
-        });
-        appendWorkflowFeedback({
-          action: "workflows.run",
-          targetId: result.data.id,
-          outcome: "success",
-          timestamp: new Date().toISOString(),
-          message: "Workflow run started.",
-        });
-        setPendingAction(null);
-        setRefreshNonce((current) => current + 1);
-      });
-  };
-
-  const runWorkflowAction = (workflowId: string, action: "pause" | "resume" | "cancel") => {
-    if (pendingAction) {
-      return;
-    }
-
-    setPendingAction(`${action}:${workflowId}`);
-    setActionState({ kind: "idle" });
-    const request =
-      action === "pause"
-        ? api.workflowPause(workflowId)
-        : action === "resume"
-          ? api.workflowResume(workflowId)
-          : api.workflowCancel(workflowId);
-
-    void request.then((result) => {
-      if (result.kind === "error") {
-        const message = formatApiError(result);
-        setActionState({ kind: "error", message });
-        appendWorkflowFeedback({
-          action: `workflows.${action}`,
-          targetId: workflowId,
-          outcome: "error",
-          timestamp: new Date().toISOString(),
-          message,
-          correlationId: result.correlationId,
-        });
-        setPendingAction(null);
-        return;
-      }
-
-      setActionState({
-        kind: "ok",
-        message: `Workflow ${workflowId} ${action} request completed.`,
-      });
-      appendWorkflowFeedback({
-        action: `workflows.${action}`,
-        targetId: workflowId,
-        outcome: "success",
-        timestamp: new Date().toISOString(),
-        message: `Workflow status is ${formatStatusToken(result.data.status)}.`,
-      });
-      setPendingAction(null);
-      setWorkflowGate(null);
-      setQueuedCancelWorkflowId(null);
-      setRefreshNonce((current) => current + 1);
-    });
-  };
-
-  const onRunSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const taskId = runTaskId.trim();
-    if (!taskId) {
-      setActionState({
-        kind: "error",
-        message: "Task ID is required to run a workflow.",
-      });
-      return;
-    }
-    runWorkflow(taskId, normalizeOptionalString(runPipelineId));
-  };
-
-  const renderWorkflowList = (workflows: WorkflowSummary[]) => {
-    const summary = summarizeWorkflowList(workflows);
-
-    return (
-      <div className="workflow-control-surface">
-        <QueueSummaryStrip
-          title="Workflow Summary"
-          values={[
-            { label: "Total", value: summary.total.toString() },
-            { label: "Running", value: summary.running.toString() },
-            { label: "Paused", value: summary.paused.toString() },
-            { label: "Pending", value: summary.pending.toString() },
-            { label: "Terminal", value: summary.terminal.toString() },
-          ]}
-        />
-
-        <div className="grid two">
-          <form className="panel workflow-run-form" onSubmit={onRunSubmit}>
-            <h2>Run Workflow</h2>
-            <label>
-              Task ID
-              <input
-                required
-                value={runTaskId}
-                onChange={(event) => setRunTaskId(event.target.value)}
-                placeholder="TASK-014"
-              />
-            </label>
-            <label>
-              Pipeline ID (optional)
-              <input
-                value={runPipelineId}
-                onChange={(event) => setRunPipelineId(event.target.value)}
-                placeholder="default"
-              />
-            </label>
-            <div className="panel-actions">
-              <button type="submit" disabled={pendingAction !== null}>
-                {pendingAction === "run" ? "Starting..." : "Run Workflow"}
-              </button>
-            </div>
-          </form>
-
-          <section className="panel" aria-label="Workflow list">
-            <h2>Workflow Queue</h2>
-            {workflows.length === 0 ? (
-              <EmptyState message="No workflow records returned." />
-            ) : (
-              <ul className="workflow-list">
-                {workflows.map((workflow) => {
-                  const availability = workflowAvailability(workflow.status);
-                  return (
-                    <li key={workflow.id} className="workflow-card">
-                      <div className="workflow-card-header">
-                        <div>
-                          <p className="task-detail-title">{workflow.id}</p>
-                          <p className="muted-text">
-                            Task: <code>{workflow.task_id ?? "unknown"}</code>
-                          </p>
-                        </div>
-                        <span className={`status-chip status-${toWorkflowStatus(workflow.status)}`}>
-                          {formatStatusToken(toWorkflowStatus(workflow.status))}
-                        </span>
-                      </div>
-                      <p className="muted-text">
-                        Phase: <code>{workflow.current_phase ?? "none"}</code>
-                      </p>
-                      <div className="panel-actions">
-                        <button
-                          type="button"
-                          disabled={pendingAction !== null || !availability.pause}
-                          onClick={() => runWorkflowAction(workflow.id, "pause")}
-                          aria-label={`Pause workflow ${workflow.id}`}
-                        >
-                          Pause
-                        </button>
-                        <button
-                          type="button"
-                          disabled={pendingAction !== null || !availability.resume}
-                          onClick={() => runWorkflowAction(workflow.id, "resume")}
-                          aria-label={`Resume workflow ${workflow.id}`}
-                        >
-                          Resume
-                        </button>
-                        <button
-                          type="button"
-                          className="danger-button"
-                          disabled={pendingAction !== null || !availability.cancel}
-                          onClick={() => {
-                            setQueuedCancelWorkflowId(workflow.id);
-                            setWorkflowGate({
-                              actionKey: "workflows.cancel",
-                              targetId: workflow.id,
-                              confirmationPhrase: `CANCEL ${workflow.id}`,
-                              impactSummary: `Cancelling ${workflow.id} can interrupt active phase execution and stops further progression.`,
-                              submitLabel: "Confirm Workflow Cancellation",
-                            });
-                          }}
-                          aria-label={`Cancel workflow ${workflow.id}`}
-                        >
-                          Cancel
-                        </button>
-                        <Link className="action-link" to={`/workflows/${encodeURIComponent(workflow.id)}`}>
-                          Open
-                        </Link>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
-        </div>
-
-        {actionState.kind === "ok" ? (
-          <p role="status" aria-live="polite" className="status-box">
-            {actionState.message}
-          </p>
-        ) : null}
-        {actionState.kind === "error" ? (
-          <ErrorState
-            error={{
-              kind: "error",
-              code: "workflow_action_failed",
-              message: actionState.message,
-              exitCode: 1,
-            }}
-          />
-        ) : null}
-
-        <ControlFeedbackLog
-          title="Workflow Action Feedback"
-          entries={workflowFeedback}
-          emptyMessage="No workflow actions yet."
-        />
-        <DiagnosticsPanel title="Workflow Diagnostics" actionPrefixes={["workflows."]} />
-        <ActionGateDialog
-          gate={workflowGate}
-          pending={pendingAction !== null}
-          onClose={() => {
-            if (pendingAction) {
-              return;
-            }
-            setWorkflowGate(null);
-            setQueuedCancelWorkflowId(null);
-          }}
-          onConfirm={() => {
-            if (!queuedCancelWorkflowId) {
-              return;
-            }
-            runWorkflowAction(queuedCancelWorkflowId, "cancel");
-          }}
-        />
-      </div>
-    );
-  };
-
-  return (
-    <RouteSection title="Workflows" description="Workflow run controls and lifecycle queue.">
-      <ResourceStateView
-        state={state}
-        emptyMessage="No workflow records returned."
-        render={renderWorkflowList}
-      />
-    </RouteSection>
-  );
-}
-
-export function WorkflowDetailPage() {
-  const params = useParams();
-  const workflowId = params.workflowId ?? "";
-  const [refreshNonce, setRefreshNonce] = useState(0);
-  const [runTaskId, setRunTaskId] = useState("");
-  const [runPipelineId, setRunPipelineId] = useState("");
-  const [pendingAction, setPendingAction] = useState<string | null>(null);
-  const [actionState, setActionState] = useState<
-    { kind: "idle" } | { kind: "ok"; message: string } | { kind: "error"; message: string }
-  >({ kind: "idle" });
-  const [workflowFeedback, setWorkflowFeedback] = useState<ControlFeedbackEntry[]>([]);
-  const [workflowGate, setWorkflowGate] = useState<ActionGateConfig | null>(null);
-  const [queuedCancelWorkflowId, setQueuedCancelWorkflowId] = useState<string | null>(null);
-
-  const state = useApiResource(
-    async () => {
-      const [workflow, decisions, checkpoints] = await Promise.all([
-        api.workflowsById(workflowId),
-        api.workflowDecisions(workflowId),
-        api.workflowCheckpoints(workflowId),
-      ]);
-      const error = firstApiError(workflow, decisions, checkpoints);
-      if (error) {
-        return error;
-      }
-
-      return {
-        kind: "ok" as const,
-        data: {
-          workflow: workflow.data,
-          decisions: decisions.data,
-          checkpoints: checkpoints.data,
-        },
-      };
-    },
-    [workflowId, refreshNonce],
-  );
-
-  useEffect(() => {
-    if (state.status !== "ready") {
-      return;
-    }
-
-    setRunTaskId((current) =>
-      current.length > 0 ? current : (state.data.workflow.task_id ?? ""),
-    );
-    setRunPipelineId((current) =>
-      current.length > 0 ? current : (state.data.workflow.workflow_ref ?? ""),
-    );
-  }, [state]);
-
-  const appendWorkflowFeedback = (entry: Omit<ControlFeedbackEntry, "id">) => {
-    setWorkflowFeedback((current) => {
-      const next: ControlFeedbackEntry = {
-        id: `${Date.now()}-${entry.targetId}-${entry.action}`,
-        ...entry,
-      };
-      return [next, ...current].slice(0, CONTROL_FEEDBACK_LIMIT);
-    });
-  };
-
-  const runWorkflow = (taskId: string, workflowRef: string | null) => {
-    if (pendingAction) {
-      return;
-    }
-
-    setPendingAction("run");
-    setActionState({ kind: "idle" });
-    void api
-      .workflowRun({
-        task_id: taskId,
-        ...(workflowRef ? { workflow_ref: workflowRef } : {}),
-      })
-      .then((result) => {
-        if (result.kind === "error") {
-          const message = formatApiError(result);
-          setActionState({ kind: "error", message });
-          appendWorkflowFeedback({
-            action: "workflows.run",
-            targetId: taskId,
-            outcome: "error",
-            timestamp: new Date().toISOString(),
-            message,
-            correlationId: result.correlationId,
-          });
-          setPendingAction(null);
-          return;
-        }
-
-        setActionState({
-          kind: "ok",
-          message: `Workflow ${result.data.id} started for task ${result.data.task_id ?? taskId}.`,
-        });
-        appendWorkflowFeedback({
-          action: "workflows.run",
-          targetId: result.data.id,
-          outcome: "success",
-          timestamp: new Date().toISOString(),
-          message: "Workflow run started.",
-        });
-        setPendingAction(null);
-        setRefreshNonce((current) => current + 1);
-      });
-  };
-
-  const runWorkflowAction = (action: "pause" | "resume" | "cancel") => {
-    if (pendingAction) {
-      return;
-    }
-
-    setPendingAction(`${action}:${workflowId}`);
-    setActionState({ kind: "idle" });
-    const request =
-      action === "pause"
-        ? api.workflowPause(workflowId)
-        : action === "resume"
-          ? api.workflowResume(workflowId)
-          : api.workflowCancel(workflowId);
-
-    void request.then((result) => {
-      if (result.kind === "error") {
-        const message = formatApiError(result);
-        setActionState({ kind: "error", message });
-        appendWorkflowFeedback({
-          action: `workflows.${action}`,
-          targetId: workflowId,
-          outcome: "error",
-          timestamp: new Date().toISOString(),
-          message,
-          correlationId: result.correlationId,
-        });
-        setPendingAction(null);
-        return;
-      }
-
-      setActionState({
-        kind: "ok",
-        message: `Workflow ${workflowId} ${action} request completed.`,
-      });
-      appendWorkflowFeedback({
-        action: `workflows.${action}`,
-        targetId: workflowId,
-        outcome: "success",
-        timestamp: new Date().toISOString(),
-        message: `Workflow status is ${formatStatusToken(result.data.status)}.`,
-      });
-      setPendingAction(null);
-      setWorkflowGate(null);
-      setQueuedCancelWorkflowId(null);
-      setRefreshNonce((current) => current + 1);
-    });
-  };
-
-  const onRunSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const taskId = runTaskId.trim();
-    if (!taskId) {
-      setActionState({
-        kind: "error",
-        message: "Task ID is required to run a workflow.",
-      });
-      return;
-    }
-    runWorkflow(taskId, normalizeOptionalString(runPipelineId));
-  };
-
-  return (
-    <RouteSection title="Workflow Detail" description={`Workflow ${workflowId}.`}>
-      <ResourceStateView
-        state={state}
-        emptyMessage="Workflow detail payload is empty."
-        render={(data) => {
-          const availability = workflowAvailability(data.workflow.status);
-          const timelineEntries = buildTimelineEntries(data.checkpoints, data.decisions);
-          return (
-            <div className="workflow-control-surface">
-              <QueueSummaryStrip
-                title="Workflow Status"
-                values={[
-                  { label: "Workflow", value: data.workflow.id },
-                  { label: "Status", value: formatStatusToken(toWorkflowStatus(data.workflow.status)) },
-                  { label: "Current Phase", value: data.workflow.current_phase ?? "none" },
-                  { label: "Task", value: data.workflow.task_id ?? "unknown" },
-                ]}
-              />
-
-              <div className="grid two">
-                <form className="panel workflow-run-form" onSubmit={onRunSubmit}>
-                  <h2>Workflow Controls</h2>
-                  <label>
-                    Task ID
-                    <input
-                      required
-                      value={runTaskId}
-                      onChange={(event) => setRunTaskId(event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    Pipeline ID (optional)
-                    <input
-                      value={runPipelineId}
-                      onChange={(event) => setRunPipelineId(event.target.value)}
-                    />
-                  </label>
-
-                  <div className="panel-actions">
-                    <button type="submit" disabled={pendingAction !== null}>
-                      {pendingAction === "run" ? "Starting..." : "Run"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => runWorkflowAction("pause")}
-                      disabled={pendingAction !== null || !availability.pause}
-                    >
-                      Pause
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => runWorkflowAction("resume")}
-                      disabled={pendingAction !== null || !availability.resume}
-                    >
-                      Resume
-                    </button>
-                    <button
-                      type="button"
-                      className="danger-button"
-                      onClick={() => {
-                        setQueuedCancelWorkflowId(data.workflow.id);
-                        setWorkflowGate({
-                          actionKey: "workflows.cancel",
-                          targetId: data.workflow.id,
-                          confirmationPhrase: `CANCEL ${data.workflow.id}`,
-                          impactSummary: `Cancelling ${data.workflow.id} can interrupt active phase execution and stops further progression.`,
-                          submitLabel: "Confirm Workflow Cancellation",
-                        });
-                      }}
-                      disabled={pendingAction !== null || !availability.cancel}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                  <p className="muted-text">
-                    Started: {formatTimestamp(data.workflow.started_at)} | Completed:{" "}
-                    {formatTimestamp(data.workflow.completed_at)}
-                  </p>
-                </form>
-
-                <section className="panel" aria-label="Phase timeline">
-                  <h2>Phase Timeline</h2>
-                  {timelineEntries.length === 0 ? (
-                    <EmptyState message="No checkpoints or decisions recorded yet." />
-                  ) : (
-                    <ol className="workflow-timeline">
-                      {timelineEntries.map((entry) => (
-                        <li key={entry.key} className="workflow-timeline-entry">
-                          <div className="workflow-timeline-head">
-                            <strong>{entry.heading}</strong>
-                            <span className="muted-text">{entry.timestampLabel}</span>
-                          </div>
-                          <p className="muted-text">{entry.detail}</p>
-                          {entry.checkpointNumber !== undefined ? (
-                            <Link
-                              className="action-link"
-                              to={`/workflows/${encodeURIComponent(workflowId)}/checkpoints/${entry.checkpointNumber}`}
-                            >
-                              Open checkpoint {entry.checkpointNumber}
-                            </Link>
-                          ) : null}
-                        </li>
-                      ))}
-                    </ol>
-                  )}
-                </section>
-              </div>
-
-              {actionState.kind === "ok" ? (
-                <p role="status" aria-live="polite" className="status-box">
-                  {actionState.message}
-                </p>
-              ) : null}
-              {actionState.kind === "error" ? (
-                <ErrorState
-                  error={{
-                    kind: "error",
-                    code: "workflow_action_failed",
-                    message: actionState.message,
-                    exitCode: 1,
-                  }}
-                />
-              ) : null}
-
-              <ControlFeedbackLog
-                title="Workflow Action Feedback"
-                entries={workflowFeedback}
-                emptyMessage="No workflow actions yet."
-              />
-              <DiagnosticsPanel title="Workflow Diagnostics" actionPrefixes={["workflows."]} />
-              <ActionGateDialog
-                gate={workflowGate}
-                pending={pendingAction !== null}
-                onClose={() => {
-                  if (pendingAction) {
-                    return;
-                  }
-                  setWorkflowGate(null);
-                  setQueuedCancelWorkflowId(null);
-                }}
-                onConfirm={() => {
-                  if (!queuedCancelWorkflowId) {
-                    return;
-                  }
-                  runWorkflowAction("cancel");
-                }}
-              />
-            </div>
-          );
-        }}
-      />
-    </RouteSection>
-  );
-}
-
-export function WorkflowCheckpointPage() {
-  const params = useParams();
-  const workflowId = params.workflowId ?? "";
-  const checkpoint = params.checkpoint ?? "";
-
-  const state = useApiResource(
-    async () => api.workflowCheckpointById(workflowId, checkpoint),
-    [workflowId, checkpoint],
-  );
-
-  return (
-    <RouteSection
-      title="Checkpoint Detail"
-      description={`Checkpoint ${checkpoint} for workflow ${workflowId}.`}
-    >
-      <ResourceStateView
-        state={state}
-        emptyMessage="Checkpoint payload is empty."
-        render={(data) => <JsonPanel title="Checkpoint" data={data} />}
-      />
-    </RouteSection>
-  );
-}
-
-function QueueSummaryStrip(props: {
-  title: string;
-  values: Array<{ label: string; value: string }>;
-}) {
-  return (
-    <section className="queue-summary" aria-label={props.title}>
-      <h2>{props.title}</h2>
-      <ul className="queue-summary-list">
-        {props.values.map((item) => (
-          <li key={item.label}>
-            <span>{item.label}</span>
-            <strong>{item.value}</strong>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-function ControlFeedbackLog(props: {
-  title: string;
-  entries: ControlFeedbackEntry[];
-  emptyMessage: string;
-}) {
-  return (
-    <section className="panel" aria-label={props.title}>
-      <h2>{props.title}</h2>
-      {props.entries.length === 0 ? (
-        <EmptyState message={props.emptyMessage} />
-      ) : (
-        <ul className="feedback-list">
-          {props.entries.map((entry) => (
-            <li key={entry.id} className={`feedback-item feedback-${entry.outcome}`}>
-              <div className="feedback-head">
-                <strong>{entry.action}</strong>
-                <span className="muted-text">{formatTimestamp(entry.timestamp)}</span>
-              </div>
-              <p className="muted-text">
-                Target: <code>{entry.targetId}</code> | Outcome: {entry.outcome}
-              </p>
-              <p>{entry.message}</p>
-              {entry.correlationId ? (
-                <p className="muted-text">
-                  Correlation: <code>{entry.correlationId}</code>
-                </p>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
-
-type TimelineEntry = {
-  key: string;
-  heading: string;
-  detail: string;
-  timestampLabel: string;
-  order: number;
-  timestamp: number;
-  checkpointNumber?: number;
-};
-
-function buildTimelineEntries(
-  checkpoints: WorkflowCheckpoint[],
-  decisions: WorkflowDecision[],
-): TimelineEntry[] {
-  const entries: TimelineEntry[] = [];
-
-  checkpoints.forEach((checkpoint, index) => {
-    const record = asRecord(checkpoint);
-    const number = readNumber(record, ["number", "checkpoint", "order"]);
-    const timestamp = readString(record, ["timestamp", "created_at"]);
-    const reason = readString(record, ["reason"]) ?? "manual";
-    const status = readString(record, ["status"]) ?? "unknown";
-    const machineState = readString(record, ["machine_state"]);
-
-    entries.push({
-      key: `checkpoint-${number ?? "na"}-${timestamp ?? "na"}-${index}`,
-      heading: `Checkpoint ${number ?? "?"} · ${formatStatusToken(status)}`,
-      detail: [machineState ? `Machine ${machineState}` : null, `Reason ${reason}`]
-        .filter((value): value is string => value !== null)
-        .join(" | "),
-      timestampLabel: formatTimestamp(timestamp),
-      order: number ?? Number.MAX_SAFE_INTEGER - 1,
-      timestamp: toEpoch(timestamp),
-      ...(number !== null ? { checkpointNumber: number } : {}),
-    });
-  });
-
-  decisions.forEach((decision, index) => {
-    const record = asRecord(decision);
-    const phase = readString(record, ["phase_id", "phase"]) ?? "unknown phase";
-    const decisionText = readString(record, ["decision"]) ?? "decision";
-    const timestamp = readString(record, ["timestamp", "created_at"]);
-    const risk = readString(record, ["risk"]);
-    const source = readString(record, ["source"]);
-    const reason = readString(record, ["reason"]);
-
-    entries.push({
-      key: `decision-${phase}-${timestamp ?? "na"}-${index}`,
-      heading: `Decision · ${phase} · ${decisionText}`,
-      detail: [risk ? `Risk ${risk}` : null, source ? `Source ${source}` : null, reason ?? null]
-        .filter((value): value is string => value !== null)
-        .join(" | "),
-      timestampLabel: formatTimestamp(timestamp),
-      order:
-        readNumber(record, [
-          "checkpoint_order",
-          "checkpoint",
-          "order",
-          "phase_index",
-          "current_phase_index",
-        ]) ?? Number.MAX_SAFE_INTEGER,
-      timestamp: toEpoch(timestamp),
-    });
-  });
-
-  return entries.sort((left, right) => {
-    if (left.order !== right.order) {
-      return left.order - right.order;
-    }
-    if (left.timestamp !== right.timestamp) {
-      return left.timestamp - right.timestamp;
-    }
-    return left.key.localeCompare(right.key);
-  });
-}
-
-function summarizeTaskQueue(tasks: TaskSummary[], stats: TaskStatsPayload | null) {
-  const fallback = {
-    total: tasks.length,
-    inProgress: tasks.filter((task) => toQueueTaskStatus(task.status) === "in-progress").length,
-    blocked: tasks.filter((task) => {
-      const status = toQueueTaskStatus(task.status);
-      return status === "blocked" || status === "on-hold";
-    }).length,
-    done: tasks.filter((task) => toQueueTaskStatus(task.status) === "done").length,
-  };
-
-  if (!stats) {
-    return fallback;
-  }
-
-  return {
-    total: stats.total ?? fallback.total,
-    inProgress: stats.in_progress ?? fallback.inProgress,
-    blocked: stats.blocked ?? fallback.blocked,
-    done: stats.completed ?? fallback.done,
-  };
-}
-
-function summarizeWorkflowList(workflows: WorkflowSummary[]) {
-  let running = 0;
-  let paused = 0;
-  let pending = 0;
-  let terminal = 0;
-
-  workflows.forEach((workflow) => {
-    const status = toWorkflowStatus(workflow.status);
-    if (status === "running") {
-      running += 1;
-    } else if (status === "paused") {
-      paused += 1;
-    } else if (status === "pending") {
-      pending += 1;
-    } else if (status === "completed" || status === "failed" || status === "cancelled") {
-      terminal += 1;
-    }
-  });
-
-  return {
-    total: workflows.length,
-    running,
-    paused,
-    pending,
-    terminal,
-  };
-}
-
-function workflowAvailability(status: WorkflowStatusValue | undefined) {
-  const normalized = toWorkflowStatus(status);
-  return {
-    pause: normalized === "running",
-    resume: normalized === "paused",
-    cancel: normalized === "running" || normalized === "paused",
-  };
-}
-
-function taskTitle(task: TaskSummary | TaskDetail): string {
-  return (typeof task.title === "string" && task.title.trim().length > 0 ? task.title : "Untitled task").trim();
-}
-
-function taskDescription(task: TaskSummary | TaskDetail): string {
-  return typeof task.description === "string" && task.description.trim().length > 0
-    ? task.description
-    : "No description provided.";
-}
-
-function taskUpdatedAt(task: TaskSummary | TaskDetail): string | null {
-  if (typeof task.updated_at === "string" && task.updated_at.trim().length > 0) {
-    return task.updated_at;
-  }
-
-  const metadata = asRecord(task.metadata);
-  const metadataUpdatedAt = readString(metadata, ["updated_at"]);
-  return metadataUpdatedAt;
-}
-
-function checklistTotalCount(task: TaskSummary | TaskDetail): number {
-  return Array.isArray(task.checklist) ? task.checklist.length : 0;
-}
-
-function checklistCompletedCount(task: TaskSummary | TaskDetail): number {
-  if (!Array.isArray(task.checklist)) {
-    return 0;
-  }
-
-  return task.checklist.filter((entry) => {
-    const record = asRecord(entry);
-    return record["completed"] === true;
-  }).length;
-}
-
-function dependencyCount(task: TaskSummary | TaskDetail): number {
-  return Array.isArray(task.dependencies) ? task.dependencies.length : 0;
-}
-
-function sortTaskQueue(tasks: TaskSummary[]): TaskSummary[] {
-  return [...tasks].sort((left, right) => {
-    const leftPriority = priorityRank(left.priority);
-    const rightPriority = priorityRank(right.priority);
-    if (leftPriority !== rightPriority) {
-      return leftPriority - rightPriority;
-    }
-
-    const leftUpdatedAt = toEpoch(taskUpdatedAt(left));
-    const rightUpdatedAt = toEpoch(taskUpdatedAt(right));
-    if (leftUpdatedAt !== rightUpdatedAt) {
-      return rightUpdatedAt - leftUpdatedAt;
-    }
-
-    return left.id.localeCompare(right.id);
-  });
-}
-
-function toQueueTaskStatus(status: TaskStatusValue | undefined): QueueTaskStatus {
-  if (status && TASK_STATUS_OPTIONS.includes(status as QueueTaskStatus)) {
-    return status as QueueTaskStatus;
-  }
-  return "backlog";
-}
-
-function toWorkflowStatus(status: WorkflowStatusValue | undefined): WorkflowStatusValue {
-  return status ?? "unknown";
-}
-
-function priorityRank(priority: PriorityValue | undefined): number {
-  if (priority && priority !== "unknown") {
-    return PRIORITY_ORDER[priority];
-  }
-  return Number.MAX_SAFE_INTEGER;
-}
-
-function formatPriority(priority: PriorityValue | undefined): string {
-  if (!priority || priority === "unknown") {
-    return "Unknown";
-  }
-  return formatStatusToken(priority);
-}
-
-function formatStatusToken(status: string | undefined): string {
-  if (!status || status.trim().length === 0) {
-    return "Unknown";
-  }
-  return status
-    .replace(/[_-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function formatTimestamp(value: string | null | undefined): string {
-  if (!value || value.trim().length === 0) {
-    return "Unknown time";
-  }
-  return value;
-}
-
-function formatApiError(error: ApiError): string {
-  const correlation = error.correlationId ? ` (correlation ${error.correlationId})` : "";
-  return `${error.code}: ${error.message}${correlation}`;
-}
-
-function normalizeOptionalString(value: string): string | null {
-  const trimmed = value.trim();
-  return trimmed.length === 0 ? null : trimmed;
-}
-
-function toEpoch(value: string | null | undefined): number {
-  if (!value) {
-    return Number.MAX_SAFE_INTEGER;
-  }
-
-  const parsed = Date.parse(value);
-  if (Number.isNaN(parsed)) {
-    return Number.MAX_SAFE_INTEGER;
-  }
-  return parsed;
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  if (typeof value === "object" && value !== null) {
-    return value as Record<string, unknown>;
-  }
-  return {};
-}
-
-function readString(record: Record<string, unknown>, keys: string[]): string | null {
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "string" && value.trim().length > 0) {
-      return value;
-    }
-  }
-  return null;
-}
-
-function readNumber(record: Record<string, unknown>, keys: string[]): number | null {
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return value;
-    }
-    if (typeof value === "string" && value.trim().length > 0) {
-      const parsed = Number(value);
-      if (Number.isFinite(parsed)) {
-        return parsed;
-      }
-    }
-  }
-  return null;
-}
-
-export { matchesConfirmationPhrase };
+// ---------------------------------------------------------------------------
+// Events
+// ---------------------------------------------------------------------------
 
 export function EventsPage() {
   const { connectionState, events } = useDaemonEvents();
 
-  const mostRecentEvents = useMemo(() => {
-    return [...events].reverse().slice(0, 25);
-  }, [events]);
+  const mostRecent = useMemo(() => [...events].reverse().slice(0, 50), [events]);
 
   return (
-    <RouteSection
-      title="Events"
-      description="Live daemon event stream with reconnect and Last-Event-ID resume."
-    >
-      <p>
-        Stream state: <code>{connectionState}</code>
-      </p>
-      <div aria-live="polite" aria-atomic="false" className="panel">
-        <h2>Latest Events</h2>
-        {mostRecentEvents.length === 0 ? (
-          <EmptyState message="No daemon events have been received yet." />
-        ) : (
-          <pre>{JSON.stringify(mostRecentEvents, null, 2)}</pre>
-        )}
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold tracking-tight">Events</h1>
+        <Badge variant={connectionState === "open" ? "default" : "outline"}>{connectionState}</Badge>
       </div>
-    </RouteSection>
+      {mostRecent.length === 0 ? (
+        <p className="text-sm text-muted-foreground py-8 text-center">No events received yet.</p>
+      ) : (
+        <Card>
+          <CardContent className="pt-4">
+            <div className="max-h-[600px] overflow-y-auto space-y-2">
+              {mostRecent.map((evt: any, i: number) => (
+                <div key={evt.id ?? i} className="border-b border-border pb-2 last:border-0">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="text-[10px]">{evt.event_type ?? "event"}</Badge>
+                    <span className="text-xs text-muted-foreground">{evt.timestamp ?? ""}</span>
+                  </div>
+                  <pre className="text-xs mt-1 overflow-x-auto">{JSON.stringify(evt.data ?? evt, null, 2)}</pre>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Review Handoff
+// ---------------------------------------------------------------------------
 
 export function ReviewHandoffPage() {
-  const [runId, setRunId] = useState("");
+  const [, handoff] = useMutation(REVIEW_HANDOFF);
   const [targetRole, setTargetRole] = useState("em");
   const [question, setQuestion] = useState("");
-  const [contextJson, setContextJson] = useState("{}");
-  const [validationErrors, setValidationErrors] = useState<{
-    runId?: string;
-    question?: string;
-    contextJson?: string;
-  }>({});
-  const [submitState, setSubmitState] = useState<
-    { kind: "idle" } | { kind: "ok"; data: unknown } | { kind: "error"; error: ApiError }
-  >({ kind: "idle" });
-  const runIdHintId = "review-handoff-run-id-hint";
-  const runIdErrorId = "review-handoff-run-id-error";
-  const questionHintId = "review-handoff-question-hint";
-  const questionErrorId = "review-handoff-question-error";
-  const contextHintId = "review-handoff-context-hint";
-  const contextErrorId = "review-handoff-context-error";
-  const runIdInputRef = useRef<HTMLInputElement | null>(null);
-  const questionInputRef = useRef<HTMLTextAreaElement | null>(null);
-  const contextInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const [context, setContext] = useState("");
+  const [feedback, setFeedback] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
 
-  const focusFirstInvalidField = (errors: {
-    runId?: string;
-    question?: string;
-    contextJson?: string;
-  }) => {
-    if (errors.runId) {
-      runIdInputRef.current?.focus();
-      return;
-    }
-
-    if (errors.question) {
-      questionInputRef.current?.focus();
-      return;
-    }
-
-    if (errors.contextJson) {
-      contextInputRef.current?.focus();
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!question.trim()) return;
+    const { error } = await handoff({
+      targetRole,
+      question: question.trim(),
+      context: context.trim() || undefined,
+    });
+    if (error) setFeedback({ kind: "error", message: error.message });
+    else {
+      setFeedback({ kind: "ok", message: "Review handoff submitted." });
+      setQuestion("");
+      setContext("");
     }
   };
 
-  const onSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    const nextValidationErrors: {
-      runId?: string;
-      question?: string;
-      contextJson?: string;
-    } = {};
-
-    const normalizedRunId = runId.trim();
-    if (normalizedRunId.length === 0) {
-      nextValidationErrors.runId = "Run ID is required.";
-    }
-
-    const normalizedQuestion = question.trim();
-    if (normalizedQuestion.length === 0) {
-      nextValidationErrors.question = "Question is required.";
-    }
-
-    let contextPayload: unknown;
-    try {
-      contextPayload = JSON.parse(contextJson || "{}");
-    } catch {
-      nextValidationErrors.contextJson = "Context JSON must be valid JSON.";
-      contextPayload = undefined;
-    }
-
-    if (contextPayload !== undefined && !isJsonValue(contextPayload)) {
-      nextValidationErrors.contextJson = "Context JSON must resolve to a valid JSON value.";
-    }
-
-    if (hasValidationErrors(nextValidationErrors)) {
-      setValidationErrors(nextValidationErrors);
-      setSubmitState({ kind: "idle" });
-      focusFirstInvalidField(nextValidationErrors);
-      return;
-    }
-
-    setValidationErrors({});
-
-    void api
-      .reviewHandoff({
-        run_id: normalizedRunId,
-        target_role: targetRole,
-        question: normalizedQuestion,
-        context: contextPayload,
-      })
-      .then((result) => {
-        if (result.kind === "error") {
-          setSubmitState({ kind: "error", error: result });
-          return;
-        }
-
-        setSubmitState({ kind: "ok", data: result.data });
-      })
-      .catch((error: unknown) => {
-        setSubmitState({
-          kind: "error",
-          error: {
-            kind: "error",
-            code: "review_handoff_unexpected_error",
-            message: formatUnexpectedError("Review handoff failed unexpectedly", error),
-            exitCode: 1,
-          },
-        });
-      });
-  };
-
   return (
-    <RouteSection title="Review Handoff" description="Submit review handoff payloads to AO.">
-      <form className="panel grid" noValidate onSubmit={onSubmit}>
-        <label>
-          Run ID
-          <span className="field-hint" id={runIdHintId}>
-            Use the AO run identifier for the handoff target.
-          </span>
-          <input
-            id="review-handoff-run-id"
-            name="runId"
-            value={runId}
-            required
-            aria-invalid={validationErrors.runId ? true : undefined}
-            aria-describedby={buildDescribedBy(
-              runIdHintId,
-              validationErrors.runId ? runIdErrorId : undefined,
-            )}
-            ref={runIdInputRef}
-            onChange={(event) => {
-              setRunId(event.target.value);
-              setValidationErrors((current) => ({
-                ...current,
-                runId: undefined,
-              }));
-            }}
-          />
-          {validationErrors.runId ? (
-            <span className="field-error" id={runIdErrorId}>
-              {validationErrors.runId}
-            </span>
-          ) : null}
-        </label>
+    <div className="space-y-4">
+      <h1 className="text-2xl font-semibold tracking-tight">Review Handoff</h1>
 
-        <label>
-          Target Role
-          <select
-            id="review-handoff-target-role"
-            name="targetRole"
-            value={targetRole}
-            onChange={(event) => setTargetRole(event.target.value)}
-          >
-            <option value="em">em</option>
-            <option value="reviewer">reviewer</option>
-            <option value="qa">qa</option>
-          </select>
-        </label>
+      {feedback && (
+        <Alert variant={feedback.kind === "error" ? "destructive" : "default"}>
+          <AlertDescription>{feedback.message}</AlertDescription>
+        </Alert>
+      )}
 
-        <label>
-          Question
-          <span className="field-hint" id={questionHintId}>
-            Explain what decision or feedback you need from the reviewer.
-          </span>
-          <textarea
-            id="review-handoff-question"
-            name="question"
-            rows={3}
-            required
-            aria-invalid={validationErrors.question ? true : undefined}
-            aria-describedby={buildDescribedBy(
-              questionHintId,
-              validationErrors.question ? questionErrorId : undefined,
-            )}
-            ref={questionInputRef}
-            value={question}
-            onChange={(event) => {
-              setQuestion(event.target.value);
-              setValidationErrors((current) => ({
-                ...current,
-                question: undefined,
-              }));
-            }}
-          />
-          {validationErrors.question ? (
-            <span className="field-error" id={questionErrorId}>
-              {validationErrors.question}
-            </span>
-          ) : null}
-        </label>
-
-        <label>
-          Context JSON
-          <span className="field-hint" id={contextHintId}>
-            Optional metadata in valid JSON format. Defaults to an empty object.
-          </span>
-          <textarea
-            id="review-handoff-context-json"
-            name="contextJson"
-            rows={4}
-            aria-invalid={validationErrors.contextJson ? true : undefined}
-            aria-describedby={buildDescribedBy(
-              contextHintId,
-              validationErrors.contextJson ? contextErrorId : undefined,
-            )}
-            ref={contextInputRef}
-            value={contextJson}
-            onChange={(event) => {
-              setContextJson(event.target.value);
-              setValidationErrors((current) => ({
-                ...current,
-                contextJson: undefined,
-              }));
-            }}
-          />
-          {validationErrors.contextJson ? (
-            <span className="field-error" id={contextErrorId}>
-              {validationErrors.contextJson}
-            </span>
-          ) : null}
-        </label>
-
-        <div className="panel-actions">
-          <button type="submit">Submit Handoff</button>
-        </div>
-      </form>
-
-      {submitState.kind === "error" ? <ErrorState error={submitState.error} /> : null}
-      {submitState.kind === "ok" ? (
-        <>
-          <p className="status-box" role="status" aria-live="polite" aria-atomic="true">
-            Review handoff submitted successfully.
-          </p>
-          <JsonPanel title="Response" data={submitState.data} />
-        </>
-      ) : null}
-      <DiagnosticsPanel
-        title="Review Handoff Diagnostics"
-        actionPrefixes={["reviews.handoff"]}
-      />
-    </RouteSection>
+      <Card>
+        <CardContent className="pt-4">
+          <form onSubmit={onSubmit} className="space-y-4">
+            <div>
+              <label className="text-sm font-medium">Target Role</label>
+              <select
+                value={targetRole}
+                onChange={(e) => setTargetRole(e.target.value)}
+                className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="em">em</option>
+                <option value="reviewer">reviewer</option>
+                <option value="qa">qa</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-sm font-medium">Question</label>
+              <Textarea
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                rows={3}
+                required
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Context (optional)</label>
+              <Textarea
+                value={context}
+                onChange={(e) => setContext(e.target.value)}
+                rows={3}
+                className="mt-1"
+              />
+            </div>
+            <Button type="submit">Submit Handoff</Button>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
-export function QueuePage() {
-  return (
-    <section className="panel">
-      <h1>Queue</h1>
-      <p>Queue management page — coming soon.</p>
-    </section>
-  );
-}
+// ---------------------------------------------------------------------------
+// Not Found
+// ---------------------------------------------------------------------------
 
 export function NotFoundPage() {
   return (
-    <RouteSection title="Not Found" description="The requested route does not exist.">
-      <ErrorState
-        error={{
-          kind: "error",
-          code: "not_found",
-          message: "Unknown route. Return to the dashboard.",
-          exitCode: 3,
-        }}
-      />
-      <p>
-        <Link to="/dashboard">Go to dashboard</Link>
-      </p>
-    </RouteSection>
-  );
-}
-
-function RouteSection(props: {
-  title: string;
-  description: string;
-  children: ReactNode;
-}) {
-  const sectionIdPrefix =
-    props.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "route-section";
-  const headingId = `${sectionIdPrefix}-heading`;
-  const descriptionId = `${sectionIdPrefix}-description`;
-
-  return (
-    <section className="panel" aria-labelledby={headingId} aria-describedby={descriptionId}>
-      <h1 id={headingId}>{props.title}</h1>
-      <p id={descriptionId}>{props.description}</p>
-      {props.children}
-    </section>
-  );
-}
-
-function ResourceStateView<TData>(props: {
-  state: ResourceState<TData>;
-  emptyMessage: string;
-  render: (data: TData) => ReactNode;
-}) {
-  if (props.state.status === "loading") {
-    return <LoadingState message="Loading data..." />;
-  }
-
-  if (props.state.status === "error") {
-    return <ErrorState error={props.state.error} />;
-  }
-
-  if (props.state.status === "empty") {
-    return <EmptyState message={props.emptyMessage} />;
-  }
-
-  return <>{props.render(props.state.data)}</>;
-}
-
-function LoadingState(props: { message: string }) {
-  return (
-    <div className="loading-box" role="status" aria-live="polite" aria-atomic="true">
-      {props.message}
+    <div className="space-y-4 py-12 text-center">
+      <h1 className="text-4xl font-bold">404</h1>
+      <p className="text-muted-foreground">The requested page does not exist.</p>
+      <Link to="/dashboard">
+        <Button variant="outline">Go to Dashboard</Button>
+      </Link>
     </div>
   );
-}
-
-function EmptyState(props: { message: string }) {
-  return (
-    <div className="empty-box" role="status" aria-live="polite" aria-atomic="true">
-      {props.message}
-    </div>
-  );
-}
-
-function ErrorState(props: { error: ApiError }) {
-  return (
-    <div className="error-box" role="alert">
-      <strong>Error:</strong> {props.error.code}
-      <div>{props.error.message}</div>
-      <div>exit code {props.error.exitCode}</div>
-    </div>
-  );
-}
-
-function JsonPanel(props: { title: string; data: unknown }) {
-  return (
-    <div className="panel">
-      <h2>{props.title}</h2>
-      <pre>{JSON.stringify(props.data, null, 2)}</pre>
-    </div>
-  );
-}
-
-function isJsonValue(value: unknown): value is RequestJsonValue {
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  ) {
-    return true;
-  }
-
-  if (Array.isArray(value)) {
-    return value.every((item) => isJsonValue(item));
-  }
-
-  if (typeof value === "object" && value !== null) {
-    return Object.values(value).every((item) => isJsonValue(item));
-  }
-
-  return false;
-}
-
-function hasValidationErrors(errors: {
-  runId?: string;
-  question?: string;
-  contextJson?: string;
-}) {
-  return Boolean(errors.runId || errors.question || errors.contextJson);
-}
-
-function buildDescribedBy(...ids: Array<string | undefined>) {
-  const resolvedIds = ids.filter((id): id is string => typeof id === "string" && id.length > 0);
-  return resolvedIds.length > 0 ? resolvedIds.join(" ") : undefined;
-}
-
-function formatUnexpectedError(prefix: string, error: unknown): string {
-  const suffix = error instanceof Error ? error.message : "Unknown error.";
-  return `${prefix}: ${suffix}`;
 }

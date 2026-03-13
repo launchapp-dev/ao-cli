@@ -2597,6 +2597,7 @@ dependencies = [
  "async-graphql-axum",
  "async-stream",
  "axum",
+ "futures-core",
  "include_dir",
  "mime_guess",
  "orchestrator-core",
@@ -2606,6 +2607,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tokio",
+ "tokio-stream",
  "tower",
  "tower-http",
 ]
@@ -4059,6 +4061,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]

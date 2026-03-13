@@ -2,12 +2,15 @@ import {
   createContext,
   ReactNode,
   useContext,
-  useEffect,
   useMemo,
-  useState,
 } from "react";
+import { useQuery } from "urql";
 
-import { api, ProjectSummary } from "../lib/api/client";
+type ProjectSummary = {
+  id: string;
+  name: string;
+  path?: string;
+};
 
 type ProjectContextSource = "route-param" | "cached-selection" | "server-active" | "none";
 
@@ -25,6 +28,13 @@ export type ResolveProjectContextInput = {
 };
 
 const STORAGE_KEY = "ao.web.active_project";
+
+const PROJECTS_QUERY = `
+  query Projects {
+    projects { id name path }
+    projectsActive { id name path }
+  }
+`;
 
 const ProjectContext = createContext<ProjectContextValue | null>(null);
 
@@ -62,38 +72,15 @@ export function ProjectContextProvider(props: {
   routeProjectId: string | null;
   children: ReactNode;
 }) {
-  const [projects, setProjects] = useState<ProjectSummary[]>([]);
-  const [serverActiveProjectId, setServerActiveProjectId] = useState<string | null>(null);
-  const [cachedProjectId, setCachedProjectId] = useState<string | null>(() => {
-    if (typeof window === "undefined") {
-      return null;
-    }
+  const [{ data }] = useQuery({ query: PROJECTS_QUERY });
 
+  const projects: ProjectSummary[] = data?.projects ?? [];
+  const activeProjects: ProjectSummary[] = data?.projectsActive ?? [];
+  const serverActiveProjectId = activeProjects.length > 0 ? activeProjects[0].id : null;
+
+  const cachedProjectId = useMemo(() => {
+    if (typeof window === "undefined") return null;
     return window.localStorage.getItem(STORAGE_KEY);
-  });
-
-  useEffect(() => {
-    let isCancelled = false;
-
-    void api.projectsList().then((result) => {
-      if (isCancelled || result.kind === "error") {
-        return;
-      }
-
-      setProjects(result.data);
-    });
-
-    void api.projectsActive().then((result) => {
-      if (isCancelled || result.kind === "error") {
-        return;
-      }
-
-      setServerActiveProjectId(result.data?.id ?? null);
-    });
-
-    return () => {
-      isCancelled = true;
-    };
   }, []);
 
   const resolved = resolveProjectContext({
@@ -108,8 +95,6 @@ export function ProjectContextProvider(props: {
       source: resolved.source,
       projects,
       setActiveProjectId: (projectId) => {
-        setCachedProjectId(projectId);
-
         if (typeof window !== "undefined") {
           if (projectId) {
             window.localStorage.setItem(STORAGE_KEY, projectId);

@@ -122,10 +122,6 @@ impl Config {
     }
 
     pub fn get_token(&self) -> Result<String> {
-        if let Ok(token) = std::env::var("AGENT_RUNNER_TOKEN") {
-            return normalize_token("AGENT_RUNNER_TOKEN", token);
-        }
-
         normalize_token(
             "agent_runner_token",
             self.agent_runner_token.clone().unwrap_or_default(),

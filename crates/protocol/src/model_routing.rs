@@ -208,15 +208,8 @@ pub fn tool_supports_repository_writes(tool_id: &str) -> bool {
     )
 }
 
-pub fn required_api_keys_for_tool(tool_id: &str) -> &'static [&'static str] {
-    match normalize_tool_id(tool_id).as_str() {
-        "claude" => &["ANTHROPIC_API_KEY"],
-        "codex" | "openai" => &["OPENAI_API_KEY"],
-        "gemini" => &["GEMINI_API_KEY", "GOOGLE_API_KEY"],
-        "opencode" => &["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"],
-        "oai-runner" => &["MINIMAX_API_KEY", "ZAI_API_KEY", "OPENAI_API_KEY"],
-        _ => &[],
-    }
+pub fn required_api_keys_for_tool(_tool_id: &str) -> &'static [&'static str] {
+    &[]
 }
 
 pub fn default_model_specs() -> Vec<(String, String)> {

@@ -4,7 +4,6 @@ use serde_json::Value;
 #[derive(Debug, Clone)]
 pub enum ParsedEvent {
     Output {
-        #[allow(dead_code)]
         text: String,
     },
     ToolCall {

@@ -21,16 +21,6 @@ pub const AI_RECOVERY_MARKER: &str = "ai-failure-recovery";
 pub const MAX_DECOMPOSE_SUBTASKS: usize = 3;
 
 #[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
-pub struct AiRecoveryResponse {
-    pub action: String,
-    #[serde(default)]
-    pub reason: String,
-    #[serde(default)]
-    pub subtasks: Vec<AiRecoverySubtask>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
 pub struct AiRecoverySubtask {
     pub title: String,
     #[serde(default)]
@@ -204,7 +194,17 @@ Rules:
     }
 }
 
-pub fn parse_ai_recovery_response(text: &str) -> Option<AiRecoveryResponse> {
+#[derive(Debug, Clone, Deserialize)]
+struct AiRecoveryResponse {
+    action: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    reason: String,
+    #[serde(default)]
+    subtasks: Vec<AiRecoverySubtask>,
+}
+
+fn parse_ai_recovery_response(text: &str) -> Option<AiRecoveryResponse> {
     for (_raw, payload) in collect_json_payload_lines(text) {
         if let Ok(response) = serde_json::from_value::<AiRecoveryResponse>(payload) {
             if !response.action.is_empty() {

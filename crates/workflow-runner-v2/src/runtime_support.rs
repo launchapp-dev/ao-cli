@@ -105,10 +105,6 @@ pub fn resolve_phase_runtime_settings(
         .map(|(_, settings)| settings.clone())
 }
 
-pub fn phase_timeout_secs() -> Option<u64> {
-    None
-}
-
 fn parse_env_usize(key: &str) -> Option<usize> {
     std::env::var(key)
         .ok()

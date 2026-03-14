@@ -42,7 +42,6 @@ struct WorkflowPhaseRuntimeSettings {
 
 #[derive(Debug, Clone, Deserialize, Default)]
 struct WorkflowPipelineRuntimeRecord {
-    #[allow(dead_code)]
     id: String,
     #[serde(default)]
     phase_settings: std::collections::HashMap<String, WorkflowPhaseRuntimeSettings>,
@@ -59,8 +58,6 @@ struct WorkflowRuntimeConfigLite {
 struct HandoffConfig {
     timeout_secs: u64,
     max_depth: usize,
-    global_tool: Option<String>,
-    global_model: Option<String>,
 }
 
 impl HandoffConfig {
@@ -68,8 +65,6 @@ impl HandoffConfig {
         Self {
             timeout_secs: DEFAULT_HANDOFF_TIMEOUT_SECS,
             max_depth: DEFAULT_HANDOFF_MAX_DEPTH,
-            global_tool: None,
-            global_model: None,
         }
     }
 

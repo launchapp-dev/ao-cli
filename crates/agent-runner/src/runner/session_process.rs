@@ -17,18 +17,10 @@ use super::mcp_policy::{apply_native_mcp_policy, resolve_mcp_tool_enforcement, T
 use super::process_builder::{build_cli_invocation, resolve_idle_timeout_secs};
 
 pub(super) fn use_native_session_backend(tool: &str, _runtime_contract: Option<&Value>) -> bool {
-    if !native_sessions_enabled() {
-        return false;
-    }
-
-    if !matches!(
+    matches!(
         tool.to_ascii_lowercase().as_str(),
         "claude" | "codex" | "gemini" | "opencode" | "oai-runner" | "ao-oai-runner"
-    ) {
-        return false;
-    }
-
-    true
+    )
 }
 
 pub(super) fn require_native_session_backend(
@@ -43,15 +35,8 @@ pub(super) fn require_native_session_backend(
         return Ok(());
     }
 
-    if !native_sessions_enabled() {
-        bail!(
-            "native session backend is required for AI tool '{}' but AO_AGENT_RUNNER_NATIVE_SESSIONS is disabled",
-            tool
-        );
-    }
-
     bail!(
-        "native session backend is required for AI tool '{}' but no native backend is implemented",
+        "native session backend is required for AI tool '{}' but is not available",
         tool
     );
 }
@@ -162,10 +147,6 @@ pub(super) async fn spawn_session_process(
             }
         }
     }
-}
-
-fn native_sessions_enabled() -> bool {
-    true
 }
 
 #[allow(clippy::too_many_arguments)]

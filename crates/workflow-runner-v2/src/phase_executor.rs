@@ -24,7 +24,7 @@ use crate::phase_targets::PhaseTargetPlanner;
 use crate::phase_git::commit_implementation_changes;
 use crate::runtime_support::{
     inject_cli_launch_overrides, phase_max_continuations, phase_runner_attempts,
-    phase_timeout_secs, WorkflowPhaseRuntimeSettings,
+    WorkflowPhaseRuntimeSettings,
 };
 use crate::payload_traversal::{parse_phase_decision_from_text, parse_commit_message_from_text};
 use crate::skill_dispatch;
@@ -939,8 +939,7 @@ async fn run_workflow_phase_with_agent(
                 model: ModelId(target_model_id.clone()),
                 context,
                 timeout_secs: phase_runtime_settings
-                    .and_then(|settings| settings.timeout_secs)
-                    .or_else(phase_timeout_secs),
+                    .and_then(|settings| settings.timeout_secs),
             };
 
             let mut attempt_succeeded = false;

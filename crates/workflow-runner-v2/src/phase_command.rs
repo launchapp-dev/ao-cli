@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use tokio::process::Command as TokioCommand;
@@ -105,10 +105,17 @@ fn resolve_command_cwd(
             {
                 return Err(anyhow!("command.cwd_path cannot contain '..' components"));
             }
-            Ok(Path::new(context.project_root)
-                .join(relative)
-                .display()
-                .to_string())
+            let resolved = Path::new(context.project_root).join(relative);
+            let canonical = std::fs::canonicalize(&resolved).unwrap_or_else(|_| resolved.clone());
+            let canonical_root = std::fs::canonicalize(context.project_root)
+                .unwrap_or_else(|_| PathBuf::from(context.project_root));
+            if !canonical.starts_with(&canonical_root) {
+                return Err(anyhow!(
+                    "command cwd_path escapes project root: {}",
+                    raw
+                ));
+            }
+            Ok(resolved.display().to_string())
         }
     }
 }

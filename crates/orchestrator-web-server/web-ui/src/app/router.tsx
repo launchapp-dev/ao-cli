@@ -32,6 +32,7 @@ const AgentManagementPage = lazy(() => import("./agent-page").then((m) => ({ def
 const TaskOutputPage = lazy(() => import("./output-page").then((m) => ({ default: m.TaskOutputPage })));
 const McpServersPage = lazy(() => import("./settings-pages").then((m) => ({ default: m.McpServersPage })));
 const AgentProfilesPage = lazy(() => import("./settings-pages").then((m) => ({ default: m.AgentProfilesPage })));
+const ErrorBrowserPage = lazy(() => import("./errors-page").then((m) => ({ default: m.ErrorBrowserPage })));
 const NotFoundPage = lazy(() => import("./not-found-page").then((m) => ({ default: m.NotFoundPage })));
 const TaskDispatchPage = lazy(() => import("./dispatch-pages").then((m) => ({ default: m.TaskDispatchPage })));
 const RequirementDispatchPage = lazy(() => import("./dispatch-pages").then((m) => ({ default: m.RequirementDispatchPage })));
@@ -66,6 +67,7 @@ export const APP_ROUTE_PATHS = [
   "/queue",
   "/events",
   "/reviews/handoff",
+  "/errors",
   "/settings/mcp",
   "/settings/agents",
   "*",
@@ -188,6 +190,10 @@ const router = createBrowserRouter([
       {
         path: "reviews/handoff",
         element: withRouteSuspense(<ReviewHandoffPage />),
+      },
+      {
+        path: "errors",
+        element: withRouteSuspense(<ErrorBrowserPage />),
       },
       {
         path: "settings/mcp",

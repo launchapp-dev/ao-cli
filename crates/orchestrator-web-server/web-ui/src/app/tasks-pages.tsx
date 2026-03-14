@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useState } from "react";
+import { FormEvent, useCallback, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation } from "@/lib/graphql/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,26 +28,93 @@ import {
   ChecklistUpdateDocument,
   DependencyAddDocument,
   DependencyRemoveDocument,
+  RunWorkflowDocument,
 } from "@/lib/graphql/generated/graphql";
+import { toast } from "sonner";
 import { statusColor, priorityColor, PageLoading, PageError, SectionHeading } from "./shared";
 
 export function TasksPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const statusFilter = searchParams.get("status") ?? "";
   const searchQuery = searchParams.get("search") ?? "";
+  const [page, setPage] = useState(0);
+  const [pageSize] = useState(25);
+  const [sortBy, setSortBy] = useState("id");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkStatus, setBulkStatus] = useState("");
 
   const [result] = useQuery({
     query: TasksDocument,
     variables: { status: statusFilter || undefined, search: searchQuery || undefined },
   });
+  const [, updateStatus] = useMutation(UpdateTaskStatusDocument);
+  const [, runWorkflow] = useMutation(RunWorkflowDocument);
   const { data, fetching, error } = result;
-
-  if (fetching) return <PageLoading />;
-  if (error) return <PageError message={error.message} />;
 
   const tasks = data?.tasks ?? [];
   const stats = data?.taskStats;
   const byStatus: Record<string, number> = stats?.byStatus ? JSON.parse(stats.byStatus) : {};
+
+  const sortedTasks = useMemo(() => {
+    const sorted = [...tasks].sort((a, b) => {
+      const aVal = (a as Record<string, unknown>)[sortBy] ?? "";
+      const bVal = (b as Record<string, unknown>)[sortBy] ?? "";
+      const cmp = String(aVal).localeCompare(String(bVal));
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return sorted;
+  }, [tasks, sortBy, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedTasks.length / pageSize));
+  const paginatedTasks = useMemo(
+    () => sortedTasks.slice(page * pageSize, (page + 1) * pageSize),
+    [sortedTasks, page, pageSize],
+  );
+
+  const toggleSort = (col: string) => {
+    if (sortBy === col) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortBy(col); setSortDir("asc"); }
+  };
+
+  const sortArrow = (col: string) => (sortBy === col ? (sortDir === "asc" ? " \u2191" : " \u2193") : "");
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    if (selectedIds.size === paginatedTasks.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(paginatedTasks.map((t) => t.id)));
+  };
+
+  const applyBulkStatus = async () => {
+    if (!bulkStatus || selectedIds.size === 0) return;
+    for (const id of selectedIds) {
+      const { error: err } = await updateStatus({ id, status: bulkStatus });
+      if (err) { toast.error(`Failed ${id}: ${err.message}`); return; }
+    }
+    toast.success(`Updated ${selectedIds.size} tasks to ${bulkStatus}`);
+    setSelectedIds(new Set());
+    setBulkStatus("");
+  };
+
+  const dispatchBulkWorkflows = async () => {
+    if (selectedIds.size === 0) return;
+    for (const id of selectedIds) {
+      const { error: err } = await runWorkflow({ taskId: id });
+      if (err) { toast.error(`Failed ${id}: ${err.message}`); return; }
+    }
+    toast.success(`Dispatched workflows for ${selectedIds.size} tasks`);
+    setSelectedIds(new Set());
+  };
+
+  if (fetching) return <PageLoading />;
+  if (error) return <PageError message={error.message} />;
 
   return (
     <div className="space-y-4">
@@ -69,6 +136,7 @@ export function TasksPage() {
               if (statusFilter === s) next.delete("status");
               else next.set("status", s);
               setSearchParams(next);
+              setPage(0);
             }}
             className={`rounded-md border px-2 py-1 text-xs text-center transition-colors ${
               statusFilter === s ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
@@ -87,9 +155,29 @@ export function TasksPage() {
           if (e.target.value) next.set("search", e.target.value);
           else next.delete("search");
           setSearchParams(next);
+          setPage(0);
         }}
         className="max-w-sm"
       />
+
+      {selectedIds.size > 0 && (
+        <div className="border border-primary/20 bg-primary/5 rounded-md px-3 py-2 flex items-center gap-3">
+          <span className="text-xs text-muted-foreground">{selectedIds.size} selected</span>
+          <select
+            value={bulkStatus}
+            onChange={(e) => setBulkStatus(e.target.value)}
+            className="h-6 rounded-md border border-input bg-background px-2 text-xs"
+          >
+            <option value="">Set status...</option>
+            {["backlog", "ready", "in-progress", "blocked", "done", "cancelled"].map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+          <Button size="sm" variant="outline" className="h-6 text-xs" onClick={applyBulkStatus} disabled={!bulkStatus}>Apply</Button>
+          <Button size="sm" variant="outline" className="h-6 text-xs" onClick={dispatchBulkWorkflows}>Run Workflows</Button>
+          <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={() => setSelectedIds(new Set())}>Clear</Button>
+        </div>
+      )}
 
       {tasks.length === 0 ? (
         <p className="text-sm text-muted-foreground py-8 text-center">No tasks match filters.</p>
@@ -98,16 +186,22 @@ export function TasksPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-28">ID</TableHead>
-                <TableHead>Title</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Priority</TableHead>
-                <TableHead>Type</TableHead>
+                <TableHead className="w-8">
+                  <input type="checkbox" className="h-4 w-4" checked={selectedIds.size === paginatedTasks.length && paginatedTasks.length > 0} onChange={toggleAll} />
+                </TableHead>
+                <TableHead className="w-28 cursor-pointer select-none" onClick={() => toggleSort("id")}>ID{sortArrow("id")}</TableHead>
+                <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("title")}>Title{sortArrow("title")}</TableHead>
+                <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("statusRaw")}>Status{sortArrow("statusRaw")}</TableHead>
+                <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("priorityRaw")}>Priority{sortArrow("priorityRaw")}</TableHead>
+                <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("taskTypeRaw")}>Type{sortArrow("taskTypeRaw")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {tasks.map((t) => (
+              {paginatedTasks.map((t) => (
                 <TableRow key={t.id}>
+                  <TableCell>
+                    <input type="checkbox" className="h-4 w-4" checked={selectedIds.has(t.id)} onChange={() => toggleSelect(t.id)} />
+                  </TableCell>
                   <TableCell>
                     <Link to={`/tasks/${t.id}`} className="font-mono text-xs underline">{t.id}</Link>
                   </TableCell>
@@ -120,6 +214,16 @@ export function TasksPage() {
             </TableBody>
           </Table>
         </Card>
+      )}
+
+      {sortedTasks.length > pageSize && (
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-muted-foreground">Page {page + 1} of {totalPages}</span>
+          <div className="flex gap-1">
+            <Button size="sm" variant="outline" className="h-6" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>Prev</Button>
+            <Button size="sm" variant="outline" className="h-6" disabled={page >= totalPages - 1} onClick={() => setPage((p) => p + 1)}>Next</Button>
+          </div>
+        </div>
       )}
     </div>
   );

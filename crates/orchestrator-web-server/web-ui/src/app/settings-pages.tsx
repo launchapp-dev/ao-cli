@@ -2,7 +2,15 @@ import { Link, useLocation } from "react-router-dom";
 import { useQuery } from "@/lib/graphql/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { WorkflowDefinitionsDocument } from "@/lib/graphql/generated/graphql";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { WorkflowConfigDocument } from "@/lib/graphql/generated/graphql";
 import { PageLoading, PageError, SectionHeading } from "./shared";
 
 function SettingsNav() {
@@ -30,23 +38,16 @@ function SettingsNav() {
   );
 }
 
-const MCP_YAML_EXAMPLE = `mcp_servers:
-  filesystem:
-    command: "npx"
-    args: ["-y", "@anthropic/mcp-filesystem"]
-    env:
-      ROOT_DIR: "."
-  custom-tools:
-    command: "./tools/mcp-server"
-    args: ["--port", "3100"]`;
-
 export function McpServersPage() {
-  const [result] = useQuery({ query: WorkflowDefinitionsDocument });
+  const [result] = useQuery({ query: WorkflowConfigDocument });
   const { data, fetching, error } = result;
   if (fetching) return <PageLoading />;
   if (error) return <PageError message={error.message} />;
 
-  const definitions = data?.workflowDefinitions ?? [];
+  const config = data?.workflowConfig;
+  const mcpServers = config?.mcpServers ?? [];
+  const tools = config?.tools ?? [];
+  const schedules = config?.schedules ?? [];
 
   return (
     <div className="space-y-6">
@@ -57,54 +58,90 @@ export function McpServersPage() {
 
       <SettingsNav />
 
-      <Card className="border-border/40 bg-card/60">
-        <CardHeader className="pb-2 pt-3 px-4">
-          <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground/60 font-medium">Configuration</CardTitle>
-        </CardHeader>
-        <CardContent className="px-4 pb-4 space-y-3">
-          <p className="text-sm text-muted-foreground">
-            MCP servers are configured in <code className="font-mono text-[11px] text-foreground/70 bg-background/50 px-1 py-0.5 rounded">.ao/workflows/custom.yaml</code> under the <code className="font-mono text-[11px] text-foreground/70 bg-background/50 px-1 py-0.5 rounded">mcp_servers</code> key.
-          </p>
-          <pre className="font-mono text-[11px] text-foreground/70 bg-background/50 p-3 rounded-md overflow-x-auto">
-            {MCP_YAML_EXAMPLE}
-          </pre>
-          <p className="text-xs text-muted-foreground/60">
-            Visual MCP server management coming soon. Use the{" "}
-            <Link to="/workflows/builder" className="text-primary/80 hover:text-primary transition-colors">
-              workflow builder
-            </Link>{" "}
-            to configure workflows that reference MCP servers.
-          </p>
-        </CardContent>
-      </Card>
-
-      {definitions.length > 0 && (
-        <div className="space-y-3">
-          <SectionHeading>Workflows Using MCP</SectionHeading>
-          <div className="grid gap-3 md:grid-cols-2">
-            {definitions.map((def) => (
-              <Card key={def.id} className="border-border/40 bg-card/60">
-                <CardContent className="pt-3 pb-3 px-4 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-foreground/90">{def.name}</span>
-                    <Badge variant="outline" className="text-[10px] h-4 px-1.5 font-mono border-border/40">
-                      {def.id}
-                    </Badge>
-                  </div>
-                  {def.description && (
-                    <p className="text-xs text-muted-foreground">{def.description}</p>
-                  )}
+      {mcpServers.length === 0 ? (
+        <Card className="border-border/40 bg-card/60">
+          <CardContent className="pt-3 pb-3 px-4">
+            <p className="text-sm text-muted-foreground text-center py-4">No MCP servers configured.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-3 md:grid-cols-2">
+          {mcpServers.map((srv) => (
+            <Card key={srv.name} className="border-border/40 bg-card/60">
+              <CardHeader className="pb-2 pt-3 px-4">
+                <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground/60 font-medium">MCP Server</CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-4 space-y-3">
+                <p className="font-mono text-primary text-sm">{srv.name}</p>
+                <p className="font-mono text-xs text-foreground/70">{srv.command} {srv.args.join(" ")}</p>
+                {srv.transport && (
+                  <Badge variant="outline" className="text-[10px] h-4 px-1.5">{srv.transport}</Badge>
+                )}
+                {srv.tools.length > 0 && (
                   <div className="flex flex-wrap gap-1">
-                    {def.phases.map((phase) => (
-                      <Badge
-                        key={phase}
-                        variant="secondary"
-                        className="text-[10px] h-4 px-1.5 font-mono"
-                      >
-                        {phase}
-                      </Badge>
+                    {srv.tools.map((t) => (
+                      <Badge key={t} variant="secondary" className="text-[10px] h-4 px-1.5 font-mono">{t}</Badge>
                     ))}
                   </div>
+                )}
+                {srv.env.length > 0 && (
+                  <div className="space-y-1">
+                    {srv.env.map((e) => (
+                      <div key={e.key} className="flex items-center gap-2 text-xs">
+                        <span className="text-muted-foreground/60 font-mono">{e.key}</span>
+                        <span className="text-foreground/70 font-mono">{e.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {tools.length > 0 && (
+        <div className="space-y-3">
+          <SectionHeading>Tools</SectionHeading>
+          <div className="grid gap-3 md:grid-cols-2">
+            {tools.map((t) => (
+              <Card key={t.name} className="border-border/40 bg-card/60">
+                <CardContent className="pt-3 pb-3 px-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-sm text-foreground/90">{t.name}</span>
+                    <span className="text-xs text-muted-foreground font-mono">{t.executable}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {t.supportsMcp && <Badge variant="secondary" className="text-[10px] h-4 px-1.5">MCP</Badge>}
+                    {t.supportsWrite && <Badge variant="secondary" className="text-[10px] h-4 px-1.5">Write</Badge>}
+                    {t.contextWindow != null && (
+                      <span className="text-xs text-muted-foreground">{t.contextWindow.toLocaleString()} ctx</span>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {schedules.length > 0 && (
+        <div className="space-y-3">
+          <SectionHeading>Schedules</SectionHeading>
+          <div className="grid gap-3 md:grid-cols-2">
+            {schedules.map((s) => (
+              <Card key={s.id} className="border-border/40 bg-card/60">
+                <CardContent className="pt-3 pb-3 px-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-foreground/90">{s.id}</span>
+                    <Badge variant={s.enabled ? "secondary" : "outline"} className="text-[10px] h-4 px-1.5">
+                      {s.enabled ? "enabled" : "disabled"}
+                    </Badge>
+                  </div>
+                  <p className="font-mono text-xs text-foreground/70">{s.cron}</p>
+                  {s.workflowRef && (
+                    <span className="text-xs text-muted-foreground">{s.workflowRef}</span>
+                  )}
                 </CardContent>
               </Card>
             ))}
@@ -116,12 +153,14 @@ export function McpServersPage() {
 }
 
 export function AgentProfilesPage() {
-  const [result] = useQuery({ query: WorkflowDefinitionsDocument });
+  const [result] = useQuery({ query: WorkflowConfigDocument });
   const { data, fetching, error } = result;
   if (fetching) return <PageLoading />;
   if (error) return <PageError message={error.message} />;
 
-  const definitions = data?.workflowDefinitions ?? [];
+  const config = data?.workflowConfig;
+  const profiles = config?.agentProfiles ?? [];
+  const catalog = config?.phaseCatalog ?? [];
 
   return (
     <div className="space-y-6">
@@ -132,68 +171,91 @@ export function AgentProfilesPage() {
 
       <SettingsNav />
 
-      <Card className="border-border/40 bg-card/60">
-        <CardHeader className="pb-2 pt-3 px-4">
-          <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground/60 font-medium">Configuration</CardTitle>
-        </CardHeader>
-        <CardContent className="px-4 pb-4 space-y-3">
-          <p className="text-sm text-muted-foreground">
-            Agent profiles are defined in <code className="font-mono text-[11px] text-foreground/70 bg-background/50 px-1 py-0.5 rounded">.ao/state/agent-runtime-config.v2.json</code> and control which models and tools agents use per workflow phase.
-          </p>
-          <p className="text-xs text-muted-foreground/60">
-            Each profile specifies a <code className="font-mono text-[10px] text-foreground/60 bg-background/50 px-1 py-0.5 rounded">model</code> and <code className="font-mono text-[10px] text-foreground/60 bg-background/50 px-1 py-0.5 rounded">tool</code> that override compiled defaults. Set fields to <code className="font-mono text-[10px] text-foreground/60 bg-background/50 px-1 py-0.5 rounded">null</code> to use compiled defaults.
-          </p>
-        </CardContent>
-      </Card>
-
-      {definitions.length > 0 && (
-        <div className="space-y-3">
-          <SectionHeading>Workflow Phase Sequences</SectionHeading>
-          <div className="space-y-3">
-            {definitions.map((def) => (
-              <Card key={def.id} className="border-border/40 bg-card/60">
-                <CardHeader className="pb-2 pt-3 px-4">
-                  <CardTitle className="text-sm font-medium text-foreground/90 flex items-center justify-between">
-                    {def.name}
-                    <Badge variant="outline" className="text-[10px] h-4 px-1.5 font-mono border-border/40 font-normal">
-                      {def.id}
-                    </Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="px-4 pb-3 space-y-2">
-                  {def.description && (
-                    <p className="text-xs text-muted-foreground">{def.description}</p>
+      {profiles.length === 0 ? (
+        <Card className="border-border/40 bg-card/60">
+          <CardContent className="pt-3 pb-3 px-4">
+            <p className="text-sm text-muted-foreground text-center py-4">No agent profiles configured.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-3 md:grid-cols-2">
+          {profiles.map((p) => (
+            <Card key={p.name} className="border-border/40 bg-card/60">
+              <CardHeader className="pb-2 pt-3 px-4">
+                <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground/60 font-medium">Agent Profile</CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-4 space-y-3">
+                <p className="font-mono text-primary text-sm">{p.name}</p>
+                {p.description && <p className="text-xs text-muted-foreground">{p.description}</p>}
+                {p.role && <Badge variant="outline" className="text-[10px] h-4 px-1.5">{p.role}</Badge>}
+                <div className="space-y-1">
+                  {p.model && (
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="text-muted-foreground/60">model</span>
+                      <span className="text-foreground/70 font-mono">{p.model}</span>
+                    </div>
                   )}
-                  <div className="flex items-center gap-1 flex-wrap">
-                    {def.phases.map((phase, i) => (
-                      <span key={phase} className="flex items-center gap-1">
-                        <Badge variant="secondary" className="text-[10px] h-5 px-2 font-mono">
-                          {phase}
-                        </Badge>
-                        {i < def.phases.length - 1 && (
-                          <span className="text-muted-foreground/30 text-xs">&rarr;</span>
-                        )}
-                      </span>
+                  {p.tool && (
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="text-muted-foreground/60">tool</span>
+                      <span className="text-foreground/70 font-mono">{p.tool}</span>
+                    </div>
+                  )}
+                </div>
+                {p.mcpServers.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {p.mcpServers.map((s) => (
+                      <Badge key={s} variant="secondary" className="text-[10px] h-4 px-1.5 font-mono">{s}</Badge>
                     ))}
                   </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                )}
+                {p.skills.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {p.skills.map((s) => (
+                      <Badge key={s} variant="outline" className="text-[10px] h-4 px-1.5 font-mono">{s}</Badge>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ))}
         </div>
       )}
 
-      {definitions.length === 0 && (
-        <Card className="border-border/40 bg-card/60">
-          <CardContent className="pt-3 pb-3 px-4">
-            <p className="text-sm text-muted-foreground text-center py-4">
-              No workflow definitions found. Create workflows in the{" "}
-              <Link to="/workflows/builder" className="text-primary/80 hover:text-primary transition-colors">
-                workflow builder
-              </Link>.
-            </p>
-          </CardContent>
-        </Card>
+      {catalog.length > 0 && (
+        <div className="space-y-3">
+          <SectionHeading>Phase Catalog</SectionHeading>
+          <Card className="border-border/40 bg-card/60">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-36">ID</TableHead>
+                  <TableHead>Label</TableHead>
+                  <TableHead>Description</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>Tags</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {catalog.map((c) => (
+                  <TableRow key={c.id}>
+                    <TableCell className="font-mono text-xs">{c.id}</TableCell>
+                    <TableCell className="text-sm">{c.label}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{c.description}</TableCell>
+                    <TableCell><Badge variant="outline" className="text-[10px] h-4 px-1.5">{c.category}</Badge></TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {c.tags.map((t) => (
+                          <Badge key={t} variant="secondary" className="text-[10px] h-4 px-1.5">{t}</Badge>
+                        ))}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Card>
+        </div>
       )}
     </div>
   );

@@ -194,6 +194,7 @@ export function WorkflowsPage() {
   const [runTaskId, setRunTaskId] = useState("");
   const [showNewForm, setShowNewForm] = useState(false);
   const [feedback, setFeedback] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
+  const [recentPage, setRecentPage] = useState(0);
 
   const { data, fetching, error } = result;
   const workflows = data?.workflows ?? [];
@@ -214,7 +215,9 @@ export function WorkflowsPage() {
 
   const activeWorkflows = useMemo(() => workflows.filter((w) => ["running", "paused", "queued"].includes((w.statusRaw ?? "").toLowerCase())), [workflows]);
   const escalatedWorkflows = useMemo(() => workflows.filter((w) => (w.statusRaw ?? "").toLowerCase() === "escalated"), [workflows]);
-  const recentWorkflows = useMemo(() => workflows.filter((w) => ["completed", "failed", "cancelled"].includes((w.statusRaw ?? "").toLowerCase())).slice(0, 20), [workflows]);
+  const allRecentWorkflows = useMemo(() => workflows.filter((w) => ["completed", "failed", "cancelled"].includes((w.statusRaw ?? "").toLowerCase())), [workflows]);
+  const recentTotalPages = Math.max(1, Math.ceil(allRecentWorkflows.length / 10));
+  const recentWorkflows = useMemo(() => allRecentWorkflows.slice(recentPage * 10, (recentPage + 1) * 10), [allRecentWorkflows, recentPage]);
 
   if (fetching) return <PageLoading />;
   if (error) return <PageError message={error.message} />;
@@ -319,6 +322,15 @@ export function WorkflowsPage() {
           <div>
             {recentWorkflows.map((wf) => <RecentWorkflowRow key={wf.id} wf={wf} />)}
           </div>
+          {allRecentWorkflows.length > 10 && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">Page {recentPage + 1} of {recentTotalPages}</span>
+              <div className="flex gap-1">
+                <Button size="sm" variant="outline" className="h-6" disabled={recentPage === 0} onClick={() => setRecentPage((p) => p - 1)}>Prev</Button>
+                <Button size="sm" variant="outline" className="h-6" disabled={recentPage >= recentTotalPages - 1} onClick={() => setRecentPage((p) => p + 1)}>Next</Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

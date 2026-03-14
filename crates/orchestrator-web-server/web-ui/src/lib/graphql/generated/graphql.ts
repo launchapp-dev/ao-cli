@@ -16,6 +16,17 @@ export type Scalars = {
   Float: { input: number; output: number; }
 };
 
+export type GqlAgentProfile = {
+  __typename?: 'GqlAgentProfile';
+  description: Scalars['String']['output'];
+  mcpServers: Array<Scalars['String']['output']>;
+  model?: Maybe<Scalars['String']['output']>;
+  name: Scalars['String']['output'];
+  role?: Maybe<Scalars['String']['output']>;
+  skills: Array<Scalars['String']['output']>;
+  tool?: Maybe<Scalars['String']['output']>;
+};
+
 export type GqlAgentRun = {
   __typename?: 'GqlAgentRun';
   phaseId?: Maybe<Scalars['String']['output']>;
@@ -102,6 +113,31 @@ export type GqlDependency = {
   __typename?: 'GqlDependency';
   taskId: Scalars['String']['output'];
   type: Scalars['String']['output'];
+};
+
+export type GqlKeyValue = {
+  __typename?: 'GqlKeyValue';
+  key: Scalars['String']['output'];
+  value: Scalars['String']['output'];
+};
+
+export type GqlMcpServer = {
+  __typename?: 'GqlMcpServer';
+  args: Array<Scalars['String']['output']>;
+  command: Scalars['String']['output'];
+  env: Array<GqlKeyValue>;
+  name: Scalars['String']['output'];
+  tools: Array<Scalars['String']['output']>;
+  transport?: Maybe<Scalars['String']['output']>;
+};
+
+export type GqlPhaseCatalogEntry = {
+  __typename?: 'GqlPhaseCatalogEntry';
+  category: Scalars['String']['output'];
+  description: Scalars['String']['output'];
+  id: Scalars['String']['output'];
+  label: Scalars['String']['output'];
+  tags: Array<Scalars['String']['output']>;
 };
 
 export type GqlPhaseExecution = {
@@ -290,6 +326,15 @@ export enum GqlTaskType {
   Test = 'TEST'
 }
 
+export type GqlToolDefinition = {
+  __typename?: 'GqlToolDefinition';
+  contextWindow?: Maybe<Scalars['Int']['output']>;
+  executable: Scalars['String']['output'];
+  name: Scalars['String']['output'];
+  supportsMcp: Scalars['Boolean']['output'];
+  supportsWrite: Scalars['Boolean']['output'];
+};
+
 export type GqlVision = {
   __typename?: 'GqlVision';
   constraints: Array<Scalars['String']['output']>;
@@ -322,6 +367,15 @@ export type GqlWorkflowCheckpoint = {
   timestamp?: Maybe<Scalars['String']['output']>;
 };
 
+export type GqlWorkflowConfig = {
+  __typename?: 'GqlWorkflowConfig';
+  agentProfiles: Array<GqlAgentProfile>;
+  mcpServers: Array<GqlMcpServer>;
+  phaseCatalog: Array<GqlPhaseCatalogEntry>;
+  schedules: Array<GqlWorkflowSchedule>;
+  tools: Array<GqlToolDefinition>;
+};
+
 export type GqlWorkflowConnection = {
   __typename?: 'GqlWorkflowConnection';
   items: Array<GqlWorkflow>;
@@ -334,6 +388,15 @@ export type GqlWorkflowDefinition = {
   id: Scalars['String']['output'];
   name: Scalars['String']['output'];
   phases: Array<Scalars['String']['output']>;
+};
+
+export type GqlWorkflowSchedule = {
+  __typename?: 'GqlWorkflowSchedule';
+  command?: Maybe<Scalars['String']['output']>;
+  cron: Scalars['String']['output'];
+  enabled: Scalars['Boolean']['output'];
+  id: Scalars['String']['output'];
+  workflowRef?: Maybe<Scalars['String']['output']>;
 };
 
 export enum GqlWorkflowStatus {
@@ -628,6 +691,7 @@ export type QueryRoot = {
   vision?: Maybe<GqlVision>;
   workflow?: Maybe<GqlWorkflow>;
   workflowCheckpoints: Array<GqlWorkflowCheckpoint>;
+  workflowConfig: GqlWorkflowConfig;
   workflowDefinitions: Array<GqlWorkflowDefinition>;
   workflows: Array<GqlWorkflow>;
   workflowsPaginated: GqlWorkflowConnection;
@@ -984,6 +1048,11 @@ export type ReviewHandoffMutationVariables = Exact<{
 
 
 export type ReviewHandoffMutation = { __typename?: 'MutationRoot', reviewHandoff: boolean };
+
+export type WorkflowConfigQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type WorkflowConfigQuery = { __typename?: 'QueryRoot', workflowConfig: { __typename?: 'GqlWorkflowConfig', mcpServers: Array<{ __typename?: 'GqlMcpServer', name: string, command: string, args: Array<string>, transport?: string | null, tools: Array<string>, env: Array<{ __typename?: 'GqlKeyValue', key: string, value: string }> }>, phaseCatalog: Array<{ __typename?: 'GqlPhaseCatalogEntry', id: string, label: string, description: string, category: string, tags: Array<string> }>, tools: Array<{ __typename?: 'GqlToolDefinition', name: string, executable: string, supportsMcp: boolean, supportsWrite: boolean, contextWindow?: number | null }>, agentProfiles: Array<{ __typename?: 'GqlAgentProfile', name: string, description: string, role?: string | null, mcpServers: Array<string>, skills: Array<string>, tool?: string | null, model?: string | null }>, schedules: Array<{ __typename?: 'GqlWorkflowSchedule', id: string, cron: string, workflowRef?: string | null, command?: string | null, enabled: boolean }> } };
 
 export type TasksQueryVariables = Exact<{
   status?: InputMaybe<Scalars['String']['input']>;
@@ -1574,6 +1643,53 @@ export const ReviewHandoffDocument = new TypedDocumentString(`
   reviewHandoff(targetRole: $targetRole, question: $question, context: $context)
 }
     `) as unknown as TypedDocumentString<ReviewHandoffMutation, ReviewHandoffMutationVariables>;
+export const WorkflowConfigDocument = new TypedDocumentString(`
+    query WorkflowConfig {
+  workflowConfig {
+    mcpServers {
+      name
+      command
+      args
+      transport
+      tools
+      env {
+        key
+        value
+      }
+    }
+    phaseCatalog {
+      id
+      label
+      description
+      category
+      tags
+    }
+    tools {
+      name
+      executable
+      supportsMcp
+      supportsWrite
+      contextWindow
+    }
+    agentProfiles {
+      name
+      description
+      role
+      mcpServers
+      skills
+      tool
+      model
+    }
+    schedules {
+      id
+      cron
+      workflowRef
+      command
+      enabled
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<WorkflowConfigQuery, WorkflowConfigQueryVariables>;
 export const TasksDocument = new TypedDocumentString(`
     query Tasks($status: String, $search: String) {
   tasks(status: $status, search: $search) {

@@ -113,9 +113,7 @@ impl Supervisor {
         if supports_mcp {
             if let Some(endpoint) = mcp_endpoint {
                 // Keep names generic so different CLIs can opt in without per-vendor wiring.
-                env.insert("MCP_ENDPOINT".to_string(), endpoint.to_string());
                 env.insert("AO_MCP_ENDPOINT".to_string(), endpoint.to_string());
-                env.insert("OPENCODE_MCP_ENDPOINT".to_string(), endpoint.to_string());
                 info!(
                     run_id = %run_id.0.as_str(),
                     endpoint,

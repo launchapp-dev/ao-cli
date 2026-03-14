@@ -8,6 +8,7 @@ describe("APP_ROUTE_PATHS", () => {
       "/",
       "/dashboard",
       "/daemon",
+      "/agents",
       "/projects",
       "/projects/:projectId",
       "/projects/:projectId/requirements/:requirementId",

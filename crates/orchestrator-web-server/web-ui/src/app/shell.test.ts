@@ -13,6 +13,7 @@ describe("PRIMARY_NAV_ITEMS", () => {
       "Queue",
       "Planning",
       "Daemon",
+      "Agents",
       "Events",
       "Review",
     ]);

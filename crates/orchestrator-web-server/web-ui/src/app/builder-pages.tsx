@@ -290,7 +290,7 @@ function PhaseDetailPanel({
   };
 
   return (
-    <div className="w-72 shrink-0 space-y-4 ao-fade-in">
+    <div className="w-full md:w-72 shrink-0 space-y-4 ao-fade-in">
       <Card className="border-border/40 bg-card/60">
         <CardHeader className="pb-2 pt-3 px-4">
           <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground/60 font-medium">Phase Config</CardTitle>
@@ -641,17 +641,17 @@ function EditorCore({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
           <Link to="/workflows/builder" className="text-muted-foreground hover:text-foreground transition-colors">
             <ArrowLeft className="h-4 w-4" />
           </Link>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-semibold tracking-tight">{def.name || "Untitled Workflow"}</h1>
-            {dirty && <span className="h-2 w-2 rounded-full bg-amber-500" title="Unsaved changes" />}
+          <div className="flex items-center gap-2 min-w-0">
+            <h1 className="text-2xl font-semibold tracking-tight truncate">{def.name || "Untitled Workflow"}</h1>
+            {dirty && <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" title="Unsaved changes" />}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <Button size="sm" variant="outline" onClick={() => setShowPreview(!showPreview)}>
             <Eye className="h-3.5 w-3.5 mr-1.5" />
             Preview
@@ -697,7 +697,7 @@ function EditorCore({
 
       <Card className="border-border/40 bg-card/60">
         <CardContent className="pt-4 pb-4 px-4">
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">Workflow ID</label>
               <Input
@@ -738,7 +738,7 @@ function EditorCore({
         </TabsList>
 
         <TabsContent value={0}>
-          <div className="flex gap-4 mt-4">
+          <div className="flex flex-col md:flex-row gap-4 mt-4">
             <div className="flex-1 space-y-4">
               <div className="flex items-center flex-wrap gap-0">
                 {def.phases.map((phase, i) => (
@@ -865,7 +865,7 @@ export function WorkflowBuilderBrowsePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Workflow Builder</h1>
           <p className="text-sm text-muted-foreground">Create and manage workflow definitions</p>

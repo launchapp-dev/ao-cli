@@ -256,9 +256,9 @@ export function TaskDispatchPage() {
                       : "border-transparent hover:bg-accent/30"
                   }`}
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 flex-wrap">
                     <span className="font-mono text-xs text-muted-foreground shrink-0">{t.id}</span>
-                    <span className="text-sm flex-1 truncate">{t.title}</span>
+                    <span className="text-sm flex-1 truncate min-w-0">{t.title}</span>
                     <Badge variant={priorityColor(t.priorityRaw ?? "")} className="text-[10px]">{t.priorityRaw}</Badge>
                     <Badge variant={statusColor(t.statusRaw ?? "")} className="text-[10px]">{t.statusRaw}</Badge>
                   </div>
@@ -530,7 +530,7 @@ export function RequirementDispatchPage() {
                     className="h-4 w-4 shrink-0"
                   />
                   <span className="font-mono text-xs text-muted-foreground shrink-0">{req.id}</span>
-                  <span className="text-sm flex-1 truncate">{req.title}</span>
+                  <span className="text-sm flex-1 truncate min-w-0">{req.title}</span>
                   <Badge variant={req.priorityRaw === "must" ? "destructive" : req.priorityRaw === "should" ? "default" : "secondary"} className="text-[10px]">
                     {req.priorityRaw}
                   </Badge>

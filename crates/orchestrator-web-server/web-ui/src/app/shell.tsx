@@ -13,6 +13,7 @@ import {
   Layers,
   FileText,
   Server,
+  Bot,
   Activity,
   ClipboardCheck,
   Search,
@@ -38,6 +39,7 @@ export const PRIMARY_NAV_ITEMS = [
   { to: "/queue", label: "Queue", icon: Layers },
   { to: "/planning", label: "Planning", icon: FileText },
   { to: "/daemon", label: "Daemon", icon: Server },
+  { to: "/agents", label: "Agents", icon: Bot },
   { to: "/events", label: "Events", icon: Activity },
   { to: "/reviews/handoff", label: "Review", icon: ClipboardCheck },
 ] as const;

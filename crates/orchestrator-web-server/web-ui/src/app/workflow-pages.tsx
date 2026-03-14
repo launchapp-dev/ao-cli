@@ -135,13 +135,13 @@ function ActiveWorkflowRow({ wf }: { wf: WfSummary }) {
   return (
     <Link to={`/workflows/${wf.id}`}>
       <Card className="border-border/40 bg-card/60 p-3 hover:border-border/60 transition-colors">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <StatusDot status={wf.statusRaw ?? ""} />
-            <span className="font-mono text-xs text-muted-foreground">{wf.taskId}</span>
+            <span className="font-mono text-xs text-muted-foreground shrink-0">{wf.taskId}</span>
             <span className="text-sm font-medium truncate">{wf.id}</span>
           </div>
-          <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0">
+          <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0 hidden sm:flex">
             {wf.currentPhase && <span className="font-mono">{wf.currentPhase}</span>}
             <span>{completed}/{total}</span>
             {elapsed && <span>{elapsed}</span>}
@@ -243,7 +243,7 @@ export function WorkflowsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Workflows</h1>
           <p className="text-sm text-muted-foreground">{counts.running} running &middot; {counts.queued} queued</p>
@@ -291,7 +291,7 @@ export function WorkflowsPage() {
         </Card>
       )}
 
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
         <StatCard label="Running" value={counts.running} accent />
         <StatCard label="Queued" value={counts.queued} />
         <StatCard label="Completed" value={counts.completed} />
@@ -388,9 +388,9 @@ export function WorkflowDetailPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col sm:flex-row items-start justify-between gap-3">
         <div>
-          <p className="text-sm text-muted-foreground font-mono">{wf.id}</p>
+          <p className="text-sm text-muted-foreground font-mono break-all">{wf.id}</p>
           <h1 className="text-2xl font-semibold tracking-tight">
             Workflow for <Link to={`/tasks/${wf.taskId}`} className="underline">{wf.taskId}</Link>
           </h1>
@@ -401,7 +401,7 @@ export function WorkflowDetailPage() {
           </div>
         </div>
         {!isTerminal && !isEscalated && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {isRunning && (
               <>
                 <Button variant="secondary" disabled={wfOperating} onClick={() => wfAction("Pause", () => pauseWf({ id: workflowId! }))}>

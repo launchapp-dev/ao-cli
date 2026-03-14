@@ -28,6 +28,7 @@ const ReviewHandoffPage = lazy(() => import("./review-page").then((m) => ({ defa
 const WorkflowBuilderBrowsePage = lazy(() => import("./builder-pages").then((m) => ({ default: m.WorkflowBuilderBrowsePage })));
 const WorkflowBuilderNewPage = lazy(() => import("./builder-pages").then((m) => ({ default: m.WorkflowBuilderNewPage })));
 const WorkflowBuilderEditPage = lazy(() => import("./builder-pages").then((m) => ({ default: m.WorkflowBuilderEditPage })));
+const AgentManagementPage = lazy(() => import("./agent-page").then((m) => ({ default: m.AgentManagementPage })));
 const NotFoundPage = lazy(() => import("./not-found-page").then((m) => ({ default: m.NotFoundPage })));
 const TaskDispatchPage = lazy(() => import("./dispatch-pages").then((m) => ({ default: m.TaskDispatchPage })));
 const RequirementDispatchPage = lazy(() => import("./dispatch-pages").then((m) => ({ default: m.RequirementDispatchPage })));
@@ -37,6 +38,7 @@ export const APP_ROUTE_PATHS = [
   "/",
   "/dashboard",
   "/daemon",
+  "/agents",
   "/projects",
   "/projects/:projectId",
   "/projects/:projectId/requirements/:requirementId",
@@ -80,6 +82,10 @@ const router = createBrowserRouter([
       {
         path: "daemon",
         element: withRouteSuspense(<DaemonPage />),
+      },
+      {
+        path: "agents",
+        element: withRouteSuspense(<AgentManagementPage />),
       },
       {
         path: "projects",

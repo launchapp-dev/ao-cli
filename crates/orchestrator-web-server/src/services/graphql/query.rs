@@ -725,7 +725,11 @@ impl QueryRoot {
             .queue_list()
             .await
             .map_err(gql_err)?;
-        let entries: Vec<serde_json::Value> = serde_json::from_value(val).unwrap_or_default();
+        let entries: Vec<serde_json::Value> = val
+            .get("entries")
+            .cloned()
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default();
         Ok(entries.into_iter().map(GqlQueueEntry).collect())
     }
 

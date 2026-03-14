@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { useQuery, useMutation } from "@/lib/graphql/client";
 import { toast } from "sonner";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,7 +18,8 @@ import {
   QueueReleaseDocument,
   QueueReorderDocument,
 } from "@/lib/graphql/generated/graphql";
-import { statusColor, priorityColor, PageLoading, PageError, StatCard } from "./shared";
+import { statusColor, priorityColor, StatusDot, PageLoading, PageError, StatCard } from "./shared";
+import { ArrowUp, ArrowDown, Pause, Play, ArrowUpDown, RefreshCw, Layers } from "lucide-react";
 
 export function QueuePage() {
   const [result, reexecute] = useQuery({ query: QueueDocument });
@@ -31,6 +32,11 @@ export function QueuePage() {
 
   const entries = data?.queue ?? [];
   const stats = data?.queueStats;
+
+  const heldCount = stats?.heldCount ?? 0;
+  const readyCount = stats?.readyCount ?? 0;
+  const isHeld = (status: string | null | undefined) =>
+    status?.toLowerCase() === "held" || status?.toLowerCase() === "on-hold";
 
   const onHold = async (taskId: string) => {
     const { error: err } = await holdMut({ taskId });
@@ -72,59 +78,197 @@ export function QueuePage() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Queue</h1>
-        {entries.length > 1 && <Button size="sm" variant="outline" onClick={sortByPriority}>Sort by Priority</Button>}
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-semibold tracking-tight">Dispatch Queue</h1>
+            <StatusDot status={entries.length > 0 ? "running" : "idle"} />
+            <span className="text-xs text-muted-foreground">
+              {entries.length > 0 ? `${entries.length} enqueued` : "idle"}
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground/60 mt-0.5">
+            Task execution order and hold management
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {entries.length > 1 && (
+            <Button size="sm" variant="outline" onClick={sortByPriority} className="h-7 text-xs gap-1.5">
+              <ArrowUpDown className="h-3 w-3" />
+              Sort by Priority
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => reexecute({ requestPolicy: "network-only" })}
+            className="h-7 w-7 p-0"
+            aria-label="Refresh queue"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+          </Button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-        <StatCard label="Depth" value={stats?.depth ?? 0} />
-        <StatCard label="Ready" value={stats?.readyCount ?? 0} />
-        <StatCard label="Held" value={stats?.heldCount ?? 0} />
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <StatCard label="Depth" value={stats?.depth ?? 0} accent={(stats?.depth ?? 0) > 0} />
+        <StatCard label="Ready" value={readyCount} />
+        <StatCard label="Held" value={heldCount} accent={heldCount > 0} />
         <StatCard label="Avg Wait" value={stats?.avgWait != null ? `${stats.avgWait.toFixed(1)}s` : "-"} />
         <StatCard label="Throughput" value={stats?.throughput != null ? `${stats.throughput.toFixed(1)}/hr` : "-"} />
       </div>
 
+      {heldCount > 0 && (
+        <Card className="border-[var(--ao-amber-border)] bg-[var(--ao-amber-bg)]">
+          <CardContent className="pt-3 pb-3 px-4">
+            <p className="text-xs uppercase tracking-wider text-[var(--ao-amber)] font-medium mb-1">Held Tasks</p>
+            <p className="text-sm text-foreground/70">
+              {heldCount} task{heldCount !== 1 ? "s" : ""} paused in queue. Release to resume processing.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       {entries.length === 0 ? (
-        <p className="text-sm text-muted-foreground py-8 text-center">Queue is empty.</p>
+        <Card className="border-border/40 bg-card/60">
+          <CardContent className="px-4 pb-4 pt-4">
+            <div className="flex flex-col items-center justify-center py-10 gap-3">
+              <div className="h-12 w-12 rounded-xl bg-muted/30 border border-border/40 flex items-center justify-center">
+                <Layers className="h-6 w-6 text-muted-foreground/40" />
+              </div>
+              <div className="text-center">
+                <p className="text-sm text-muted-foreground/60">Queue is empty</p>
+                <p className="text-xs text-muted-foreground/40 mt-1">Tasks will appear here when workflows are dispatched</p>
+              </div>
+              <Button variant="outline" size="sm" asChild className="mt-2">
+                <Link to="/workflows/dispatch/task">Dispatch Workflow</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       ) : (
-        <Card>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-8">#</TableHead>
-                <TableHead>Task</TableHead>
-                <TableHead>Title</TableHead>
-                <TableHead>Priority</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Wait</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {entries.map((entry, i) => (
-                <TableRow key={entry.taskId}>
-                  <TableCell className="text-xs text-muted-foreground">{entry.position ?? i + 1}</TableCell>
-                  <TableCell>
-                    <Link to={`/tasks/${entry.taskId}`} className="font-mono text-xs underline">{entry.taskId}</Link>
-                  </TableCell>
-                  <TableCell>{entry.title ?? "-"}</TableCell>
-                  <TableCell>{entry.priority && <Badge variant={priorityColor(entry.priority)}>{entry.priority}</Badge>}</TableCell>
-                  <TableCell>{entry.status && <Badge variant={statusColor(entry.status)}>{entry.status}</Badge>}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{entry.waitTime != null ? `${entry.waitTime.toFixed(0)}s` : "-"}</TableCell>
-                  <TableCell>
-                    <div className="flex gap-1">
-                      <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => moveEntry(i, -1)} disabled={i === 0} aria-label={`Move ${entry.taskId} up`}>↑</Button>
-                      <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => moveEntry(i, 1)} disabled={i === entries.length - 1} aria-label={`Move ${entry.taskId} down`}>↓</Button>
-                      <Button size="sm" variant="outline" className="h-6 text-xs" onClick={() => onHold(entry.taskId)}>Hold</Button>
-                      <Button size="sm" variant="outline" className="h-6 text-xs" onClick={() => onRelease(entry.taskId)}>Release</Button>
-                    </div>
-                  </TableCell>
+        <Card className="border-border/40 bg-card/60 overflow-hidden">
+          <CardHeader className="pb-2 pt-3 px-4">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground/60 font-medium">Queue Entries</CardTitle>
+              <Badge variant="outline" className="text-[10px] h-4 px-1.5 font-mono border-primary/20 text-primary/70">
+                {entries.length}
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="px-0 pb-0">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-border/30 hover:bg-transparent">
+                  <TableHead className="text-[10px] uppercase tracking-wider h-7 w-12 text-center">#</TableHead>
+                  <TableHead className="text-[10px] uppercase tracking-wider h-7">Task</TableHead>
+                  <TableHead className="text-[10px] uppercase tracking-wider h-7">Title</TableHead>
+                  <TableHead className="text-[10px] uppercase tracking-wider h-7">Priority</TableHead>
+                  <TableHead className="text-[10px] uppercase tracking-wider h-7">Status</TableHead>
+                  <TableHead className="text-[10px] uppercase tracking-wider h-7">Wait</TableHead>
+                  <TableHead className="text-[10px] uppercase tracking-wider h-7 text-right pr-4">Actions</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {entries.map((entry, i) => {
+                  const held = isHeld(entry.status);
+                  return (
+                    <TableRow
+                      key={entry.taskId}
+                      className={`border-border/20 transition-colors ${
+                        held
+                          ? "bg-[var(--ao-amber-bg)] hover:bg-[var(--ao-amber-bg)]"
+                          : i === 0
+                            ? "bg-primary/[0.03] hover:bg-primary/[0.06]"
+                            : "hover:bg-accent/30"
+                      }`}
+                      style={{ animationDelay: `${i * 30}ms` }}
+                    >
+                      <TableCell className="text-center py-2">
+                        <span className={`inline-flex items-center justify-center h-5 w-5 rounded text-[10px] font-mono font-medium ${
+                          i === 0
+                            ? "bg-primary/10 text-primary border border-primary/20"
+                            : held
+                              ? "bg-[var(--ao-amber-bg)] text-[var(--ao-amber)] border border-[var(--ao-amber-border)]"
+                              : "text-muted-foreground/50"
+                        }`}>
+                          {entry.position ?? i + 1}
+                        </span>
+                      </TableCell>
+                      <TableCell className="py-2">
+                        <Link to={`/tasks/${entry.taskId}`} className="text-primary/80 hover:text-primary text-xs font-mono transition-colors">
+                          {entry.taskId}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="py-2 text-sm text-foreground/80 max-w-[200px] truncate">{entry.title ?? "-"}</TableCell>
+                      <TableCell className="py-2">
+                        {entry.priority && <Badge variant={priorityColor(entry.priority)} className="text-[10px] h-4 px-1.5">{entry.priority}</Badge>}
+                      </TableCell>
+                      <TableCell className="py-2">
+                        {entry.status && (
+                          <div className="flex items-center gap-1.5">
+                            <StatusDot status={entry.status} />
+                            <span className="text-[11px]">{entry.status}</span>
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell className="py-2">
+                        <span className="text-[11px] font-mono text-muted-foreground">
+                          {entry.waitTime != null ? `${entry.waitTime.toFixed(0)}s` : "-"}
+                        </span>
+                      </TableCell>
+                      <TableCell className="py-2 text-right pr-4">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 w-6 p-0 text-muted-foreground/60 hover:text-foreground"
+                            onClick={() => moveEntry(i, -1)}
+                            disabled={i === 0}
+                            aria-label={`Move ${entry.taskId} up`}
+                          >
+                            <ArrowUp className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 w-6 p-0 text-muted-foreground/60 hover:text-foreground"
+                            onClick={() => moveEntry(i, 1)}
+                            disabled={i === entries.length - 1}
+                            aria-label={`Move ${entry.taskId} down`}
+                          >
+                            <ArrowDown className="h-3 w-3" />
+                          </Button>
+                          {held ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-6 text-[10px] gap-1 border-[var(--ao-success-border)] text-[var(--ao-success)] hover:bg-[var(--ao-success-bg)]"
+                              onClick={() => onRelease(entry.taskId)}
+                            >
+                              <Play className="h-2.5 w-2.5" />
+                              Release
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-6 text-[10px] gap-1 border-[var(--ao-amber-border)] text-[var(--ao-amber)] hover:bg-[var(--ao-amber-bg)]"
+                              onClick={() => onHold(entry.taskId)}
+                            >
+                              <Pause className="h-2.5 w-2.5" />
+                              Hold
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </CardContent>
         </Card>
       )}
     </div>

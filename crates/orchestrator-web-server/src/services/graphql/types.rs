@@ -956,19 +956,22 @@ impl GqlQueueEntry {
     }
     async fn title(&self) -> Option<String> {
         self.0
-            .get("title")
+            .get("task")
+            .and_then(|t| t.get("title"))
             .and_then(|v| v.as_str())
             .map(String::from)
     }
     async fn priority(&self) -> Option<GqlPriority> {
         self.0
-            .get("priority")
+            .get("task")
+            .and_then(|t| t.get("priority"))
             .and_then(|v| v.as_str())
             .map(GqlPriority::from_str_val)
     }
     async fn status(&self) -> Option<GqlTaskStatus> {
         self.0
-            .get("status")
+            .get("task")
+            .and_then(|t| t.get("status"))
             .and_then(|v| v.as_str())
             .map(GqlTaskStatus::from_str_val)
     }
@@ -997,21 +1000,21 @@ impl GqlQueueStats {
     }
     async fn ready_count(&self) -> i32 {
         self.0
-            .get("ready_count")
+            .get("pending")
             .and_then(|v| v.as_i64())
             .unwrap_or(0) as i32
     }
     async fn held_count(&self) -> i32 {
         self.0
-            .get("held_count")
+            .get("held")
             .and_then(|v| v.as_i64())
             .unwrap_or(0) as i32
     }
     async fn avg_wait(&self) -> Option<f64> {
-        self.0.get("avg_wait").and_then(|v| v.as_f64())
+        self.0.get("avg_wait_time_secs").and_then(|v| v.as_f64())
     }
     async fn throughput(&self) -> Option<f64> {
-        self.0.get("throughput").and_then(|v| v.as_f64())
+        self.0.get("throughput_last_hour").and_then(|v| v.as_f64())
     }
 }
 

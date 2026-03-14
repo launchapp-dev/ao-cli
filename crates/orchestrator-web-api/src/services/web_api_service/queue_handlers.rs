@@ -53,11 +53,22 @@ fn avg_wait_time_secs(snapshot: &QueueSnapshot, now: DateTime<Utc>) -> i64 {
 fn queue_entry_json(
     entry: &QueueEntrySnapshot,
     task_lookup: &std::collections::HashMap<&str, &OrchestratorTask>,
+    position: usize,
+    now: DateTime<Utc>,
 ) -> serde_json::Value {
     let task = entry
         .task_id
         .as_deref()
         .and_then(|task_id| task_lookup.get(task_id));
+
+    let wait_time = entry
+        .dispatch
+        .as_ref()
+        .map(|d| {
+            now.signed_duration_since(d.requested_at)
+                .num_seconds()
+                .max(0) as f64
+        });
 
     serde_json::json!({
         "subject_id": entry.subject_id,
@@ -67,6 +78,8 @@ fn queue_entry_json(
         "workflow_id": entry.workflow_id,
         "assigned_at": entry.assigned_at,
         "held_at": entry.held_at,
+        "position": position,
+        "wait_time": wait_time,
         "task": task.map(|t| serde_json::json!({
             "id": t.id,
             "title": t.title,
@@ -90,10 +103,12 @@ impl WebApiService {
             .map(|task| (task.id.as_str(), task))
             .collect::<std::collections::HashMap<_, _>>();
 
+        let now = Utc::now();
         let entries = snapshot
             .entries
             .iter()
-            .map(|entry| queue_entry_json(entry, &task_lookup))
+            .enumerate()
+            .map(|(i, entry)| queue_entry_json(entry, &task_lookup, i + 1, now))
             .collect::<Vec<_>>();
 
         Ok(serde_json::json!({

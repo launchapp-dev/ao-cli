@@ -857,8 +857,8 @@ async fn run_workflow_phase_with_agent(
                     .insert("agent_id".to_string(), serde_json::json!(agent_id));
             }
             let phase_contract = ctx.phase_output_contract(phase_id).cloned();
-            let phase_output_schema = phase_output_json_schema_for(ctx, phase_id);
-            let phase_response_schema = phase_response_json_schema_for(ctx, phase_id);
+            let phase_output_schema = phase_output_json_schema_for(ctx, phase_id)?;
+            let phase_response_schema = phase_response_json_schema_for(ctx, phase_id)?;
             if let Some(mut runtime_contract) = build_runtime_contract_with_resume(
                 context
                     .get("tool")
@@ -1329,8 +1329,10 @@ pub async fn run_workflow_phase(params: &PhaseRunParams<'_>) -> Result<PhaseRunR
                         ));
                     }
 
-                    let phase_schema = phase_response_json_schema_for(&ctx, phase_id)
-                        .or_else(|| phase_output_json_schema_for(&ctx, phase_id));
+                    let phase_schema = match phase_response_json_schema_for(&ctx, phase_id)? {
+                        Some(s) => Some(s),
+                        None => phase_output_json_schema_for(&ctx, phase_id)?,
+                    };
                     if let Some(schema) = phase_schema.as_ref() {
                         let payload = result_payload.clone().unwrap_or_else(|| {
                             serde_json::json!({

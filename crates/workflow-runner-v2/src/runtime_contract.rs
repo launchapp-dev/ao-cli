@@ -1,13 +1,14 @@
+use anyhow::{anyhow, Result};
 use serde_json::Value;
 
 use crate::config_context::RuntimeConfigContext;
 
-fn merge_schema_into(base: &mut Value, overlay: &Value) {
+fn merge_schema_into(base: &mut Value, overlay: &Value) -> Result<()> {
     if let Some(extra_properties) = overlay.get("properties").and_then(Value::as_object) {
         let properties = base
             .get_mut("properties")
             .and_then(Value::as_object_mut)
-            .expect("schema properties should be an object");
+            .ok_or_else(|| anyhow!("schema properties should be an object"))?;
         for (key, value) in extra_properties {
             properties.insert(key.clone(), value.clone());
         }
@@ -17,18 +18,19 @@ fn merge_schema_into(base: &mut Value, overlay: &Value) {
         let required = base
             .get_mut("required")
             .and_then(Value::as_array_mut)
-            .expect("schema required should be an array");
+            .ok_or_else(|| anyhow!("schema required should be an array"))?;
         for field in extra_required {
             if !required.contains(field) {
                 required.push(field.clone());
             }
         }
     }
+    Ok(())
 }
 
 fn phase_field_schema(
     definition: &orchestrator_core::agent_runtime_config::PhaseFieldDefinition,
-) -> Value {
+) -> Result<Value> {
     let mut schema = serde_json::json!({
         "type": definition.field_type
     });
@@ -36,7 +38,7 @@ fn phase_field_schema(
     if !definition.enum_values.is_empty() {
         schema
             .as_object_mut()
-            .expect("field schema should be object")
+            .ok_or_else(|| anyhow!("field schema should be object"))?
             .insert(
                 "enum".to_string(),
                 Value::Array(
@@ -53,22 +55,22 @@ fn phase_field_schema(
     if let Some(items) = definition.items.as_ref() {
         schema
             .as_object_mut()
-            .expect("field schema should be object")
-            .insert("items".to_string(), phase_field_schema(items));
+            .ok_or_else(|| anyhow!("field schema should be object"))?
+            .insert("items".to_string(), phase_field_schema(items)?);
     }
 
     if !definition.fields.is_empty() {
         let mut properties = serde_json::Map::new();
         let mut required = Vec::new();
         for (name, nested) in &definition.fields {
-            properties.insert(name.clone(), phase_field_schema(nested));
+            properties.insert(name.clone(), phase_field_schema(nested)?);
             if nested.required {
                 required.push(Value::String(name.clone()));
             }
         }
         let object = schema
             .as_object_mut()
-            .expect("field schema should be object");
+            .ok_or_else(|| anyhow!("field schema should be object"))?;
         object.insert("properties".to_string(), Value::Object(properties));
         if !required.is_empty() {
             object.insert("required".to_string(), Value::Array(required));
@@ -76,7 +78,7 @@ fn phase_field_schema(
         object.insert("additionalProperties".to_string(), Value::Bool(true));
     }
 
-    schema
+    Ok(schema)
 }
 
 fn apply_contract_fields(
@@ -86,7 +88,7 @@ fn apply_contract_fields(
         orchestrator_core::agent_runtime_config::PhaseFieldDefinition,
     >,
     required_fields: &[String],
-) {
+) -> Result<()> {
     let mut property_updates: Vec<(String, Value)> = Vec::new();
     let mut required_updates: Vec<String> = Vec::new();
 
@@ -96,7 +98,7 @@ fn apply_contract_fields(
     }
 
     for (field_name, field) in fields {
-        property_updates.push((field_name.clone(), phase_field_schema(field)));
+        property_updates.push((field_name.clone(), phase_field_schema(field)?));
         if field.required {
             required_updates.push(field_name.clone());
         }
@@ -106,7 +108,7 @@ fn apply_contract_fields(
         let properties = schema
             .get_mut("properties")
             .and_then(Value::as_object_mut)
-            .expect("schema properties should be an object");
+            .ok_or_else(|| anyhow!("schema properties should be an object"))?;
         for (field_name, field_schema) in property_updates {
             properties.insert(field_name, field_schema);
         }
@@ -116,7 +118,7 @@ fn apply_contract_fields(
         let required = schema
             .get_mut("required")
             .and_then(Value::as_array_mut)
-            .expect("schema required should be an array");
+            .ok_or_else(|| anyhow!("schema required should be an array"))?;
         for field_name in required_updates {
             let entry = Value::String(field_name);
             if !required.contains(&entry) {
@@ -124,14 +126,15 @@ fn apply_contract_fields(
             }
         }
     }
+    Ok(())
 }
 
-pub fn phase_output_json_schema_for(ctx: &RuntimeConfigContext, phase_id: &str) -> Option<Value> {
+pub fn phase_output_json_schema_for(ctx: &RuntimeConfigContext, phase_id: &str) -> Result<Option<Value>> {
     let contract = ctx.phase_output_contract(phase_id).cloned();
     let explicit_schema = ctx.phase_output_json_schema(phase_id).cloned();
 
     match (contract, explicit_schema) {
-        (None, None) => None,
+        (None, None) => Ok(None),
         (Some(contract), explicit_schema) => {
             let mut schema = serde_json::json!({
                 "type": "object",
@@ -141,21 +144,24 @@ pub fn phase_output_json_schema_for(ctx: &RuntimeConfigContext, phase_id: &str) 
                 },
                 "additionalProperties": true
             });
-            apply_contract_fields(&mut schema, &contract.fields, &contract.required_fields);
+            apply_contract_fields(&mut schema, &contract.fields, &contract.required_fields)?;
             if let Some(explicit_schema) = explicit_schema.as_ref() {
-                merge_schema_into(&mut schema, explicit_schema);
+                merge_schema_into(&mut schema, explicit_schema)?;
             }
-            Some(schema)
+            Ok(Some(schema))
         }
-        (None, Some(explicit_schema)) => Some(explicit_schema),
+        (None, Some(explicit_schema)) => Ok(Some(explicit_schema)),
     }
 }
 
 pub fn phase_decision_json_schema_for(
     ctx: &RuntimeConfigContext,
     phase_id: &str,
-) -> Option<Value> {
-    let contract = ctx.phase_decision_contract(phase_id)?;
+) -> Result<Option<Value>> {
+    let contract = match ctx.phase_decision_contract(phase_id) {
+        Some(c) => c,
+        None => return Ok(None),
+    };
     let allowed_risks = match contract.max_risk {
         orchestrator_core::WorkflowDecisionRisk::Low => vec!["low"],
         orchestrator_core::WorkflowDecisionRisk::Medium => vec!["low", "medium"],
@@ -202,20 +208,20 @@ pub fn phase_decision_json_schema_for(
         "additionalProperties": true
     });
 
-    apply_contract_fields(&mut schema, &contract.fields, &[]);
+    apply_contract_fields(&mut schema, &contract.fields, &[])?;
     if let Some(extra_schema) = contract.extra_json_schema.as_ref() {
-        merge_schema_into(&mut schema, extra_schema);
+        merge_schema_into(&mut schema, extra_schema)?;
     }
 
-    Some(schema)
+    Ok(Some(schema))
 }
 
 pub fn phase_response_json_schema_for(
     ctx: &RuntimeConfigContext,
     phase_id: &str,
-) -> Option<Value> {
-    let output_schema = phase_output_json_schema_for(ctx, phase_id);
-    let decision_schema = phase_decision_json_schema_for(ctx, phase_id);
+) -> Result<Option<Value>> {
+    let output_schema = phase_output_json_schema_for(ctx, phase_id)?;
+    let decision_schema = phase_decision_json_schema_for(ctx, phase_id)?;
 
     match (output_schema, decision_schema) {
         (Some(mut output_schema), Some(decision_schema)) => {
@@ -225,7 +231,8 @@ pub fn phase_response_json_schema_for(
                 .unwrap_or(false);
             let properties = output_schema
                 .get_mut("properties")
-                .and_then(Value::as_object_mut)?;
+                .and_then(Value::as_object_mut)
+                .ok_or_else(|| anyhow!("output schema properties should be an object"))?;
             properties.insert("phase_decision".to_string(), decision_schema);
             if required_decision {
                 let required = output_schema
@@ -243,11 +250,11 @@ pub fn phase_response_json_schema_for(
                     );
                 }
             }
-            Some(output_schema)
+            Ok(Some(output_schema))
         }
-        (Some(output_schema), None) => Some(output_schema),
-        (None, Some(decision_schema)) => Some(decision_schema),
-        (None, None) => None,
+        (Some(output_schema), None) => Ok(Some(output_schema)),
+        (None, Some(decision_schema)) => Ok(Some(decision_schema)),
+        (None, None) => Ok(None),
     }
 }
 

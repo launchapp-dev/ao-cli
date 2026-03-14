@@ -442,6 +442,7 @@ pub(crate) async fn run_workflow_phase_with_command(
     process
         .args(&args)
         .current_dir(&cwd)
+        .env_remove("CLAUDECODE")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

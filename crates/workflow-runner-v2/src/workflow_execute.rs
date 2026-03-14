@@ -1030,6 +1030,7 @@ async fn run_git_output(program: &str, cwd: &str, args: &[&str]) -> Result<std::
     Command::new(program)
         .current_dir(cwd)
         .args(args)
+        .env_remove("CLAUDECODE")
         .output()
         .await
         .with_context(|| format!("failed to run command {program} in {cwd}"))

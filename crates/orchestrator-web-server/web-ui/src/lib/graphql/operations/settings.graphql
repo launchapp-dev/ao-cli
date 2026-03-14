@@ -1,0 +1,9 @@
+query WorkflowConfig {
+  workflowConfig {
+    mcpServers { name command args transport tools env { key value } }
+    phaseCatalog { id label description category tags }
+    tools { name executable supportsMcp supportsWrite contextWindow }
+    agentProfiles { name description role mcpServers skills tool model }
+    schedules { id cron workflowRef command enabled }
+  }
+}

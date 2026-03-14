@@ -9,4 +9,3 @@ mod task_snapshot;
 mod workflow_monitor;
 
 pub(crate) use handle_tui::handle_tui;
-pub(crate) use workflow_monitor::handle_workflow_monitor;

@@ -52,31 +52,15 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: TaskCommand,
     },
-    /// Deprecated alias for `task`; retained for backwards compatibility.
-    #[command(name = "task-control", hide = true)]
-    TaskControl {
-        #[command(subcommand)]
-        command: TaskCommand,
-    },
     /// Run and control workflow execution.
     Workflow {
         #[command(subcommand)]
         command: WorkflowCommand,
     },
-    /// Manage workflow schedules.
-    Schedule {
-        #[command(subcommand)]
-        command: ScheduleCommand,
-    },
     /// Draft and refine project vision artifacts.
     Vision {
         #[command(subcommand)]
         command: VisionCommand,
-    },
-    /// Planning facade spanning vision and requirements workflows.
-    Planning {
-        #[command(subcommand)]
-        command: PlanningCommand,
     },
     /// Draft and manage project requirements.
     Requirements {
@@ -88,19 +72,14 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: ArchitectureCommand,
     },
-    /// Deprecated alias for `workflow execute`.
-    #[command(hide = true)]
-    Execute {
-        #[command(subcommand)]
-        command: ExecuteCommand,
-    },
-
     /// Record and inspect review decisions and handoffs.
+    #[command(hide = true)]
     Review {
         #[command(subcommand)]
         command: ReviewCommand,
     },
     /// Run and inspect QA evaluations and approvals.
+    #[command(hide = true)]
     Qa {
         #[command(subcommand)]
         command: QaCommand,
@@ -156,8 +135,6 @@ pub(crate) enum Command {
     Setup(SetupArgs),
     /// Launch the terminal UI.
     Tui(TuiArgs),
-    /// Live workflow phase monitor with agent output streaming.
-    WorkflowMonitor(WorkflowMonitorArgs),
     /// Run environment and configuration diagnostics.
     Doctor(DoctorArgs),
 }

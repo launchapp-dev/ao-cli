@@ -3,13 +3,11 @@ mod architecture_types;
 mod daemon_types;
 mod doctor_types;
 mod errors_types;
-mod execute_types;
 mod git_types;
 mod history_types;
 mod mcp_types;
 mod model_types;
 mod output_types;
-mod planning_types;
 mod queue_types;
 
 mod project_types;
@@ -18,7 +16,6 @@ mod requirements_types;
 mod review_types;
 mod root_types;
 mod runner_types;
-mod schedule_types;
 mod setup_types;
 mod shared_types;
 mod skill_types;
@@ -33,13 +30,11 @@ pub(crate) use architecture_types::*;
 pub(crate) use daemon_types::*;
 pub(crate) use doctor_types::*;
 pub(crate) use errors_types::*;
-pub(crate) use execute_types::*;
 pub(crate) use git_types::*;
 pub(crate) use history_types::*;
 pub(crate) use mcp_types::*;
 pub(crate) use model_types::*;
 pub(crate) use output_types::*;
-pub(crate) use planning_types::*;
 pub(crate) use queue_types::*;
 
 pub(crate) use project_types::*;
@@ -48,7 +43,6 @@ pub(crate) use requirements_types::*;
 pub(crate) use review_types::*;
 pub(crate) use root_types::*;
 pub(crate) use runner_types::*;
-pub(crate) use schedule_types::*;
 pub(crate) use setup_types::*;
 pub(crate) use shared_types::*;
 pub(crate) use skill_types::*;
@@ -184,22 +178,6 @@ mod tests {
                 assert_eq!(args.subject_ids, vec!["TASK-2", "TASK-1"]);
             }
             _ => panic!("expected queue reorder command"),
-        }
-    }
-
-    #[test]
-    fn parses_planning_vision_draft_facade_command() {
-        let cli = Cli::try_parse_from(["ao", "planning", "vision", "draft"])
-            .expect("planning vision draft should parse");
-
-        match cli.command {
-            Command::Planning {
-                command:
-                    PlanningCommand::Vision {
-                        command: VisionCommand::Draft(_),
-                    },
-            } => {}
-            _ => panic!("expected planning vision draft command"),
         }
     }
 

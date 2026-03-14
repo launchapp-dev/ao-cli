@@ -75,12 +75,13 @@ pub(super) async fn handle_daemon_run(
     project_root: &str,
     json: bool,
 ) -> Result<()> {
-    let auto_merge_override = args.auto_merge;
-    let auto_pr_override = args.auto_pr;
-    let auto_commit_before_merge_override = args.auto_commit_before_merge;
-    let auto_prune_worktrees_after_merge_override = args.auto_prune_worktrees_after_merge;
-    let phase_timeout_override = args.phase_timeout_secs;
-    let idle_timeout_override = args.idle_timeout_secs;
+    let auto_merge_override = args.scheduler.auto_merge;
+    let auto_pr_override = args.scheduler.auto_pr;
+    let auto_commit_before_merge_override = args.scheduler.auto_commit_before_merge;
+    let auto_prune_worktrees_after_merge_override =
+        args.scheduler.auto_prune_worktrees_after_merge;
+    let phase_timeout_override = args.scheduler.phase_timeout_secs;
+    let idle_timeout_override = args.scheduler.idle_timeout_secs;
     let auto_merge_original = auto_merge_override
         .and_then(|_| std::env::var("AO_AUTO_MERGE_ENABLED").ok());
     let auto_pr_original = auto_pr_override
@@ -164,6 +165,7 @@ pub(super) async fn handle_daemon_run(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::DaemonSchedulerArgs;
     use crate::services::runtime::runtime_daemon::{daemon_events_log_path, DaemonEventRecord};
     use std::path::PathBuf;
     use std::sync::MutexGuard;
@@ -196,22 +198,23 @@ mod tests {
         let primary_root = primary.path().to_string_lossy().to_string();
 
         let args = DaemonRunArgs {
-            pool_size: None,
-            max_agents: None,
-            interval_secs: 1,
-            ai_task_generation: false,
-            auto_run_ready: false,
-            auto_merge: None,
-            auto_pr: None,
-            auto_commit_before_merge: None,
-            auto_prune_worktrees_after_merge: None,
-            startup_cleanup: true,
-            resume_interrupted: false,
-            reconcile_stale: false,
-            stale_threshold_hours: 24,
-            max_tasks_per_tick: 1,
-            phase_timeout_secs: None,
-            idle_timeout_secs: None,
+            scheduler: DaemonSchedulerArgs {
+                pool_size: None,
+                interval_secs: 1,
+                ai_task_generation: false,
+                auto_run_ready: false,
+                auto_merge: None,
+                auto_pr: None,
+                auto_commit_before_merge: None,
+                auto_prune_worktrees_after_merge: None,
+                startup_cleanup: true,
+                resume_interrupted: false,
+                reconcile_stale: false,
+                stale_threshold_hours: 24,
+                max_tasks_per_tick: 1,
+                phase_timeout_secs: None,
+                idle_timeout_secs: None,
+            },
             once: true,
         };
         handle_daemon_run(args, &primary_root, true)
@@ -325,22 +328,23 @@ mod tests {
             .expect("task should be stale in-progress");
 
         let args = DaemonRunArgs {
-            pool_size: None,
-            max_agents: None,
-            interval_secs: 1,
-            ai_task_generation: false,
-            auto_run_ready: false,
-            auto_merge: None,
-            auto_pr: None,
-            auto_commit_before_merge: None,
-            auto_prune_worktrees_after_merge: None,
-            startup_cleanup: false,
-            resume_interrupted: false,
-            reconcile_stale: true,
-            stale_threshold_hours: 24,
-            max_tasks_per_tick: 1,
-            phase_timeout_secs: None,
-            idle_timeout_secs: None,
+            scheduler: DaemonSchedulerArgs {
+                pool_size: None,
+                interval_secs: 1,
+                ai_task_generation: false,
+                auto_run_ready: false,
+                auto_merge: None,
+                auto_pr: None,
+                auto_commit_before_merge: None,
+                auto_prune_worktrees_after_merge: None,
+                startup_cleanup: false,
+                resume_interrupted: false,
+                reconcile_stale: true,
+                stale_threshold_hours: 24,
+                max_tasks_per_tick: 1,
+                phase_timeout_secs: None,
+                idle_timeout_secs: None,
+            },
             once: true,
         };
         handle_daemon_run(args, &primary_root, true)
@@ -444,22 +448,23 @@ mod tests {
             .expect("task should be ready");
 
         let args = DaemonRunArgs {
-            pool_size: None,
-            max_agents: None,
-            interval_secs: 1,
-            ai_task_generation: false,
-            auto_run_ready: true,
-            auto_merge: None,
-            auto_pr: None,
-            auto_commit_before_merge: None,
-            auto_prune_worktrees_after_merge: None,
-            startup_cleanup: false,
-            resume_interrupted: false,
-            reconcile_stale: false,
-            stale_threshold_hours: 24,
-            max_tasks_per_tick: 1,
-            phase_timeout_secs: None,
-            idle_timeout_secs: None,
+            scheduler: DaemonSchedulerArgs {
+                pool_size: None,
+                interval_secs: 1,
+                ai_task_generation: false,
+                auto_run_ready: true,
+                auto_merge: None,
+                auto_pr: None,
+                auto_commit_before_merge: None,
+                auto_prune_worktrees_after_merge: None,
+                startup_cleanup: false,
+                resume_interrupted: false,
+                reconcile_stale: false,
+                stale_threshold_hours: 24,
+                max_tasks_per_tick: 1,
+                phase_timeout_secs: None,
+                idle_timeout_secs: None,
+            },
             once: true,
         };
         handle_daemon_run(args, &primary_root, true)
@@ -569,22 +574,23 @@ mod tests {
         .expect("pm-config should be written");
 
         let args = DaemonRunArgs {
-            pool_size: None,
-            max_agents: None,
-            interval_secs: 1,
-            ai_task_generation: false,
-            auto_run_ready: false,
-            auto_merge: None,
-            auto_pr: None,
-            auto_commit_before_merge: None,
-            auto_prune_worktrees_after_merge: None,
-            startup_cleanup: true,
-            resume_interrupted: false,
-            reconcile_stale: false,
-            stale_threshold_hours: 24,
-            max_tasks_per_tick: 1,
-            phase_timeout_secs: None,
-            idle_timeout_secs: None,
+            scheduler: DaemonSchedulerArgs {
+                pool_size: None,
+                interval_secs: 1,
+                ai_task_generation: false,
+                auto_run_ready: false,
+                auto_merge: None,
+                auto_pr: None,
+                auto_commit_before_merge: None,
+                auto_prune_worktrees_after_merge: None,
+                startup_cleanup: true,
+                resume_interrupted: false,
+                reconcile_stale: false,
+                stale_threshold_hours: 24,
+                max_tasks_per_tick: 1,
+                phase_timeout_secs: None,
+                idle_timeout_secs: None,
+            },
             once: true,
         };
         handle_daemon_run(args, &primary_root, true)

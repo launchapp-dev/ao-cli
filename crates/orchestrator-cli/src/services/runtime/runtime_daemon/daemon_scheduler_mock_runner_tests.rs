@@ -1,6 +1,7 @@
 #![cfg(unix)]
 
 use super::*;
+use crate::DaemonSchedulerArgs;
 use anyhow::{Context, Result};
 use chrono::{TimeZone, Utc};
 use orchestrator_core::{
@@ -15,22 +16,23 @@ use tokio::time::{sleep, Duration};
 
 fn daemon_args(auto_run_ready: bool) -> DaemonRunArgs {
     DaemonRunArgs {
-        pool_size: Some(2),
-        max_agents: Some(2),
-        interval_secs: 1,
-        ai_task_generation: false,
-        auto_run_ready,
-        auto_merge: None,
-        auto_pr: None,
-        auto_commit_before_merge: None,
-        auto_prune_worktrees_after_merge: None,
-        startup_cleanup: false,
-        resume_interrupted: false,
-        reconcile_stale: false,
-        stale_threshold_hours: 24,
-        max_tasks_per_tick: 2,
-        phase_timeout_secs: None,
-        idle_timeout_secs: None,
+        scheduler: DaemonSchedulerArgs {
+            pool_size: Some(2),
+            interval_secs: 1,
+            ai_task_generation: false,
+            auto_run_ready,
+            auto_merge: None,
+            auto_pr: None,
+            auto_commit_before_merge: None,
+            auto_prune_worktrees_after_merge: None,
+            startup_cleanup: false,
+            resume_interrupted: false,
+            reconcile_stale: false,
+            stale_threshold_hours: 24,
+            max_tasks_per_tick: 2,
+            phase_timeout_secs: None,
+            idle_timeout_secs: None,
+        },
         once: true,
     }
 }

@@ -180,18 +180,21 @@ pub(crate) struct WorkflowRunArgs {
     #[arg(
         long,
         value_name = "TASK_ID",
+        group = "subject",
         help = "Task id to run the workflow for."
     )]
     pub(crate) task_id: Option<String>,
     #[arg(
         long,
         value_name = "REQ_ID",
+        group = "subject",
         help = "Requirement id to run the workflow for (alternative to --task-id)."
     )]
     pub(crate) requirement_id: Option<String>,
     #[arg(
         long,
         value_name = "TITLE",
+        group = "subject",
         help = "Custom workflow title (alternative to --task-id / --requirement-id)."
     )]
     pub(crate) title: Option<String>,
@@ -222,24 +225,28 @@ pub(crate) struct WorkflowExecuteArgs {
     #[arg(
         long,
         value_name = "WORKFLOW_ID",
+        group = "subject",
         help = "Existing workflow id to execute from its current phase."
     )]
     pub(crate) workflow_id: Option<String>,
     #[arg(
         long,
         value_name = "TASK_ID",
+        group = "subject",
         help = "Task id to execute the workflow for."
     )]
     pub(crate) task_id: Option<String>,
     #[arg(
         long,
         value_name = "REQ_ID",
+        group = "subject",
         help = "Requirement id to execute the workflow for (alternative to --task-id)."
     )]
     pub(crate) requirement_id: Option<String>,
     #[arg(
         long,
         value_name = "TITLE",
+        group = "subject",
         help = "Custom workflow title (alternative to --task-id / --requirement-id)."
     )]
     pub(crate) title: Option<String>,
@@ -282,12 +289,14 @@ pub(crate) struct WorkflowExecuteArgs {
     )]
     pub(crate) input_json: Option<String>,
     #[arg(
+        short,
         long,
         default_value_t = false,
         help = "Suppress agent output streaming; only show phase summaries."
     )]
     pub(crate) quiet: bool,
     #[arg(
+        short,
         long,
         default_value_t = false,
         help = "Show all agent output including thinking blocks and raw JSON."
@@ -306,24 +315,28 @@ pub(crate) struct WorkflowPromptRenderArgs {
     #[arg(
         long,
         value_name = "WORKFLOW_ID",
+        group = "subject",
         help = "Existing workflow id to render from persisted workflow state."
     )]
     pub(crate) workflow_id: Option<String>,
     #[arg(
         long,
         value_name = "TASK_ID",
+        group = "subject",
         help = "Task id for ad-hoc prompt rendering."
     )]
     pub(crate) task_id: Option<String>,
     #[arg(
         long,
         value_name = "REQ_ID",
+        group = "subject",
         help = "Requirement id for ad-hoc prompt rendering (alternative to --task-id)."
     )]
     pub(crate) requirement_id: Option<String>,
     #[arg(
         long,
         value_name = "TITLE",
+        group = "subject",
         help = "Custom workflow title for ad-hoc prompt rendering."
     )]
     pub(crate) title: Option<String>,
@@ -409,7 +422,7 @@ pub(crate) struct WorkflowPhaseApproveArgs {
     pub(crate) id: String,
     #[arg(long, value_name = "PHASE_ID", help = "Phase identifier.")]
     pub(crate) phase: String,
-    #[arg(long, value_name = "TEXT", help = "Approval note for the phase gate.")]
+    #[arg(long, value_name = "TEXT", default_value = "Approved", help = "Approval note for the phase gate.")]
     pub(crate) note: String,
 }
 

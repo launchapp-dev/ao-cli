@@ -218,7 +218,7 @@ pub(crate) async fn handle_task(
             let input = parse_input_json_or(args.input_json, || {
                 Ok(TaskCreateInput {
                     title: args.title,
-                    description: args.description,
+                    description: args.description.unwrap_or_default(),
                     task_type: parse_task_type_opt(args.task_type.as_deref())?,
                     priority: parse_priority_opt(args.priority.as_deref())?,
                     created_by: Some(protocol::ACTOR_CLI.to_string()),
@@ -389,7 +389,7 @@ pub(crate) async fn handle_task(
         }
         TaskCommand::Pause(args) => {
             let mut task = tasks
-                .get(&args.task_id)
+                .get(&args.id)
                 .await
                 .map_err(classify_task_service_error)?;
             if task.paused {
@@ -397,7 +397,7 @@ pub(crate) async fn handle_task(
                     serde_json::json!({
                         "success": false,
                         "message": "task is already paused",
-                        "task_id": args.task_id,
+                        "task_id": args.id,
                     }),
                     json,
                 );
@@ -408,14 +408,14 @@ pub(crate) async fn handle_task(
             print_value(
                 serde_json::json!({
                     "success": true,
-                    "message": format!("task {} paused", args.task_id),
+                    "message": format!("task {} paused", args.id),
                 }),
                 json,
             )
         }
         TaskCommand::Resume(args) => {
             let mut task = tasks
-                .get(&args.task_id)
+                .get(&args.id)
                 .await
                 .map_err(classify_task_service_error)?;
             if !task.paused {
@@ -423,7 +423,7 @@ pub(crate) async fn handle_task(
                     serde_json::json!({
                         "success": false,
                         "message": "task is not paused",
-                        "task_id": args.task_id,
+                        "task_id": args.id,
                     }),
                     json,
                 );
@@ -434,14 +434,14 @@ pub(crate) async fn handle_task(
             print_value(
                 serde_json::json!({
                     "success": true,
-                    "message": format!("task {} resumed", args.task_id),
+                    "message": format!("task {} resumed", args.id),
                 }),
                 json,
             )
         }
         TaskCommand::Cancel(args) => {
             let mut task = tasks
-                .get(&args.task_id)
+                .get(&args.id)
                 .await
                 .map_err(classify_task_service_error)?;
             if task.cancelled {
@@ -449,7 +449,7 @@ pub(crate) async fn handle_task(
                     serde_json::json!({
                         "success": false,
                         "message": "task is already cancelled",
-                        "task_id": args.task_id,
+                        "task_id": args.id,
                     }),
                     json,
                 );
@@ -469,7 +469,7 @@ pub(crate) async fn handle_task(
                             "set task status to cancelled",
                         ],
                         "next_step": format!(
-                            "rerun 'ao task cancel --task-id {} --confirm {}' to apply",
+                            "rerun 'ao task cancel --id {} --confirm {}' to apply",
                             task_id, task_id
                         ),
                     }),
@@ -478,9 +478,9 @@ pub(crate) async fn handle_task(
             }
             ensure_destructive_confirmation(
                 args.confirm.as_deref(),
-                &args.task_id,
+                &args.id,
                 "task cancel",
-                "--task-id",
+                "--id",
             )?;
             task.cancelled = true;
             task.status = TaskStatus::Cancelled;
@@ -489,14 +489,14 @@ pub(crate) async fn handle_task(
             print_value(
                 serde_json::json!({
                     "success": true,
-                    "message": format!("task {} cancelled", args.task_id),
+                    "message": format!("task {} cancelled", args.id),
                 }),
                 json,
             )
         }
         TaskCommand::Reopen(args) => {
             let mut task = tasks
-                .get(&args.task_id)
+                .get(&args.id)
                 .await
                 .map_err(classify_task_service_error)?;
             if !task.status.is_terminal() {
@@ -504,7 +504,7 @@ pub(crate) async fn handle_task(
                     serde_json::json!({
                         "success": false,
                         "message": "task is not in a terminal state (done or cancelled)",
-                        "task_id": args.task_id,
+                        "task_id": args.id,
                         "current_status": task.status.to_string(),
                     }),
                     json,
@@ -512,9 +512,9 @@ pub(crate) async fn handle_task(
             }
             ensure_destructive_confirmation(
                 args.confirm.as_deref(),
-                &args.task_id,
+                &args.id,
                 "task reopen",
-                "--task-id",
+                "--id",
             )?;
             // Reopen bypasses terminal state validation by using validate: false
             // and explicitly setting status to Backlog
@@ -526,7 +526,7 @@ pub(crate) async fn handle_task(
             print_value(
                 serde_json::json!({
                     "success": true,
-                    "message": format!("task {} reopened to backlog", args.task_id),
+                    "message": format!("task {} reopened to backlog", args.id),
                 }),
                 json,
             )
@@ -535,7 +535,7 @@ pub(crate) async fn handle_task(
             let priority = parse_priority_opt(Some(args.priority.as_str()))?
                 .ok_or_else(|| anyhow!("priority is required"))?;
             let mut task = tasks
-                .get(&args.task_id)
+                .get(&args.id)
                 .await
                 .map_err(classify_task_service_error)?;
             task.priority = priority;
@@ -544,14 +544,14 @@ pub(crate) async fn handle_task(
             print_value(
                 serde_json::json!({
                     "success": true,
-                    "message": format!("task {} priority set to {}", args.task_id, args.priority),
+                    "message": format!("task {} priority set to {}", args.id, args.priority),
                 }),
                 json,
             )
         }
         TaskCommand::SetDeadline(args) => {
             let mut task = tasks
-                .get(&args.task_id)
+                .get(&args.id)
                 .await
                 .map_err(classify_task_service_error)?;
             let normalized = args
@@ -573,7 +573,7 @@ pub(crate) async fn handle_task(
             print_value(
                 serde_json::json!({
                     "success": true,
-                    "message": format!("task {} deadline updated", args.task_id),
+                    "message": format!("task {} deadline updated", args.id),
                 }),
                 json,
             )

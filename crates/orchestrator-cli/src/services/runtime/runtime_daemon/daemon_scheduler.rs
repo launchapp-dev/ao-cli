@@ -179,17 +179,17 @@ pub(super) async fn slim_project_tick_at(
 
 pub(super) fn runtime_options_from_cli(args: &DaemonRunArgs) -> DaemonRuntimeOptions {
     DaemonRuntimeOptions {
-        pool_size: args.pool_size,
-        max_agents: args.max_agents,
-        interval_secs: args.interval_secs,
-        auto_run_ready: args.auto_run_ready,
-        startup_cleanup: args.startup_cleanup,
-        resume_interrupted: args.resume_interrupted,
-        reconcile_stale: args.reconcile_stale,
-        stale_threshold_hours: args.stale_threshold_hours,
-        max_tasks_per_tick: args.max_tasks_per_tick,
-        phase_timeout_secs: args.phase_timeout_secs,
-        idle_timeout_secs: args.idle_timeout_secs,
+        pool_size: args.scheduler.pool_size,
+        max_agents: None,
+        interval_secs: args.scheduler.interval_secs,
+        auto_run_ready: args.scheduler.auto_run_ready,
+        startup_cleanup: args.scheduler.startup_cleanup,
+        resume_interrupted: args.scheduler.resume_interrupted,
+        reconcile_stale: args.scheduler.reconcile_stale,
+        stale_threshold_hours: args.scheduler.stale_threshold_hours,
+        max_tasks_per_tick: args.scheduler.max_tasks_per_tick,
+        phase_timeout_secs: args.scheduler.phase_timeout_secs,
+        idle_timeout_secs: args.scheduler.idle_timeout_secs,
         once: args.once,
     }
 }

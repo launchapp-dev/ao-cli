@@ -23,17 +23,16 @@ pub(crate) struct AgentRunArgs {
     #[arg(
         long,
         value_name = "TOOL",
-        default_value = "codex",
-        help = "CLI provider to execute, for example codex or claude."
+        default_value = "claude",
+        help = "CLI provider to execute, for example claude, codex, or gemini."
     )]
     pub(crate) tool: String,
     #[arg(
         long,
         value_name = "MODEL",
-        default_value = "codex",
-        help = "Model identifier passed to the selected tool."
+        help = "Model identifier passed to the selected tool. Defaults to the configured model for the selected --tool."
     )]
-    pub(crate) model: String,
+    pub(crate) model: Option<String>,
     #[arg(long, value_name = "TEXT", help = "Prompt text to send to the agent.")]
     pub(crate) prompt: Option<String>,
     #[arg(

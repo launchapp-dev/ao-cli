@@ -71,7 +71,7 @@ mod tests {
         assert_eq!(error.kind(), ErrorKind::DisplayHelp);
         let help = error.to_string();
         assert!(help.contains("Run identifier. Omit to auto-generate a UUID."));
-        assert!(help.contains("CLI provider to execute, for example codex or claude."));
+        assert!(help.contains("CLI provider to execute, for example claude, codex, or gemini."));
         assert!(help.contains("Runner config scope: project or global."));
     }
 

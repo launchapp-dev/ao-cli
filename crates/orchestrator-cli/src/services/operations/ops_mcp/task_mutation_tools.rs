@@ -155,7 +155,7 @@ impl AoMcpServer {
         let mut args = vec![
             "task".to_string(),
             "cancel".to_string(),
-            "--task-id".to_string(),
+            "--id".to_string(),
             input.task_id,
         ];
         push_opt(&mut args, "--confirm", input.confirm);
@@ -179,7 +179,7 @@ impl AoMcpServer {
         let args = vec![
             "task".to_string(),
             "set-priority".to_string(),
-            "--task-id".to_string(),
+            "--id".to_string(),
             input.task_id,
             "--priority".to_string(),
             input.priority,
@@ -201,7 +201,7 @@ impl AoMcpServer {
         let mut args = vec![
             "task".to_string(),
             "set-deadline".to_string(),
-            "--task-id".to_string(),
+            "--id".to_string(),
             input.task_id,
         ];
         push_opt(&mut args, "--deadline", input.deadline);

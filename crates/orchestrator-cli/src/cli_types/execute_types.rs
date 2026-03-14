@@ -16,6 +16,7 @@ pub(crate) struct ExecuteArgs {
     pub(crate) workflow_ref: Option<String>,
     #[arg(
         long,
+        hide = true,
         action = ArgAction::Set,
         default_value_t = false,
         help = "Deprecated no-op flag retained for CLI compatibility."

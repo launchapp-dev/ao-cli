@@ -56,13 +56,13 @@ pub(crate) fn parse_percentage_u8(value: &str) -> Result<u8, String> {
 
 #[derive(Debug, Args)]
 pub(crate) struct IdArgs {
-    #[arg(long, value_name = "ID", help = "Entity identifier.")]
+    #[arg(short, long, value_name = "ID", help = "Entity identifier.")]
     pub(crate) id: String,
 }
 
 #[derive(Debug, Args)]
 pub(crate) struct TaskIdArgs {
-    #[arg(long, value_name = "TASK_ID", help = "Task identifier.")]
+    #[arg(short, long, value_name = "TASK_ID", help = "Task identifier.")]
     pub(crate) task_id: String,
 }
 

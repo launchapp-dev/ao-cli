@@ -26,10 +26,8 @@ mod tests {
     fn make_agent_run_args() -> AgentRunArgs {
         AgentRunArgs {
             run_id: None,
-            tool: "codex".to_string(),
-            model: protocol::default_model_for_tool("codex")
-                .expect("default model for codex should be configured")
-                .to_string(),
+            tool: "claude".to_string(),
+            model: Some("claude-sonnet-4-6".to_string()),
             prompt: Some("test".to_string()),
             cwd: None,
             timeout_secs: None,

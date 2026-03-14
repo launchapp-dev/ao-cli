@@ -31,39 +31,15 @@ pub(crate) enum DaemonCommand {
 }
 
 #[derive(Debug, Args)]
-pub(crate) struct DaemonStartArgs {
+pub(crate) struct DaemonSchedulerArgs {
     #[arg(
         long,
+        visible_alias = "max-agents",
         value_name = "COUNT",
         value_parser = parse_positive_usize,
         help = "Maximum number of concurrent agents (agent pool size)."
     )]
     pub(crate) pool_size: Option<usize>,
-    #[arg(
-        long,
-        value_name = "COUNT",
-        value_parser = parse_positive_usize,
-        help = "Maximum number of concurrent agents (alias for --pool-size, deprecated)."
-    )]
-    pub(crate) max_agents: Option<usize>,
-    #[arg(
-        long,
-        default_value_t = false,
-        help = "Do not auto-start the runner process."
-    )]
-    pub(crate) skip_runner: bool,
-    #[arg(
-        long,
-        value_name = "SCOPE",
-        help = "Runner config scope: project or global."
-    )]
-    pub(crate) runner_scope: Option<RunnerScopeArg>,
-    #[arg(
-        long,
-        default_value_t = false,
-        help = "Run daemon in detached/background mode."
-    )]
-    pub(crate) autonomous: bool,
     #[arg(
         long,
         value_name = "SECONDS",
@@ -72,13 +48,6 @@ pub(crate) struct DaemonStartArgs {
         help = "Housekeeping timer interval in seconds (agent scheduling is reactive)."
     )]
     pub(crate) interval_secs: u64,
-    #[arg(
-        long,
-        action = ArgAction::Set,
-        default_value_t = false,
-        help = "Deprecated no-op flag retained for CLI compatibility."
-    )]
-    pub(crate) ai_task_generation: bool,
     #[arg(
         long,
         action = ArgAction::Set,
@@ -141,10 +110,11 @@ pub(crate) struct DaemonStartArgs {
     pub(crate) stale_threshold_hours: u64,
     #[arg(
         long,
+        hide = true,
         value_name = "COUNT",
         default_value_t = 2,
         value_parser = parse_positive_usize,
-        help = "Maximum task workflows or phases to execute per scheduler tick. (Deprecated: use --pool-size / --max-agents to control agent concurrency)."
+        help = "Deprecated: use --pool-size to control agent concurrency."
     )]
     pub(crate) max_tasks_per_tick: usize,
     #[arg(
@@ -161,121 +131,44 @@ pub(crate) struct DaemonStartArgs {
         help = "Override workflow idle timeout in seconds."
     )]
     pub(crate) idle_timeout_secs: Option<u64>,
-}
-
-#[derive(Debug, Args)]
-pub(crate) struct DaemonRunArgs {
     #[arg(
         long,
-        value_name = "COUNT",
-        value_parser = parse_positive_usize,
-        help = "Maximum number of concurrent agents (agent pool size)."
-    )]
-    pub(crate) pool_size: Option<usize>,
-    #[arg(
-        long,
-        value_name = "COUNT",
-        value_parser = parse_positive_usize,
-        help = "Maximum number of concurrent agents (alias for --pool-size, deprecated)."
-    )]
-    pub(crate) max_agents: Option<usize>,
-    #[arg(
-        long,
-        value_name = "SECONDS",
-        default_value_t = 5,
-        value_parser = parse_positive_u64,
-        help = "Housekeeping timer interval in seconds (agent scheduling is reactive)."
-    )]
-    pub(crate) interval_secs: u64,
-    #[arg(
-        long,
+        hide = true,
         action = ArgAction::Set,
         default_value_t = false,
         help = "Deprecated no-op flag retained for CLI compatibility."
     )]
     pub(crate) ai_task_generation: bool,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct DaemonStartArgs {
+    #[command(flatten)]
+    pub(crate) scheduler: DaemonSchedulerArgs,
     #[arg(
         long,
-        action = ArgAction::Set,
-        default_value_t = true,
-        help = "Automatically run ready tasks."
+        default_value_t = false,
+        help = "Do not auto-start the runner process."
     )]
-    pub(crate) auto_run_ready: bool,
+    pub(crate) skip_runner: bool,
     #[arg(
         long,
-        action = ArgAction::Set,
-        help = "Override auto-merge behavior for this daemon run."
+        value_name = "SCOPE",
+        help = "Runner config scope: project or global."
     )]
-    pub(crate) auto_merge: Option<bool>,
+    pub(crate) runner_scope: Option<RunnerScopeArg>,
     #[arg(
         long,
-        action = ArgAction::Set,
-        help = "Override auto-PR behavior for this daemon run."
+        default_value_t = false,
+        help = "Run daemon in detached/background mode."
     )]
-    pub(crate) auto_pr: Option<bool>,
-    #[arg(
-        long,
-        action = ArgAction::Set,
-        help = "Override auto-commit-before-merge behavior for this daemon run."
-    )]
-    pub(crate) auto_commit_before_merge: Option<bool>,
-    #[arg(
-        long,
-        action = ArgAction::Set,
-        help = "Override automatic pruning of completed task worktrees after successful merges."
-    )]
-    pub(crate) auto_prune_worktrees_after_merge: Option<bool>,
-    #[arg(
-        long,
-        action = ArgAction::Set,
-        default_value_t = true,
-        help = "Run startup cleanup before scheduling."
-    )]
-    pub(crate) startup_cleanup: bool,
-    #[arg(
-        long,
-        action = ArgAction::Set,
-        default_value_t = true,
-        help = "Attempt to resume interrupted workflows."
-    )]
-    pub(crate) resume_interrupted: bool,
-    #[arg(
-        long,
-        action = ArgAction::Set,
-        default_value_t = true,
-        help = "Reconcile stale task/workflow runtime state."
-    )]
-    pub(crate) reconcile_stale: bool,
-    #[arg(
-        long,
-        value_name = "HOURS",
-        default_value_t = 24,
-        value_parser = parse_positive_u64,
-        help = "Flag in-progress tasks as stale when updated_at age is at least this many hours."
-    )]
-    pub(crate) stale_threshold_hours: u64,
-    #[arg(
-        long,
-        value_name = "COUNT",
-        default_value_t = 2,
-        value_parser = parse_positive_usize,
-        help = "Maximum task workflows or phases to execute per scheduler tick. (Deprecated: use --pool-size / --max-agents to control agent concurrency)."
-    )]
-    pub(crate) max_tasks_per_tick: usize,
-    #[arg(
-        long,
-        value_name = "SECONDS",
-        value_parser = parse_positive_u64,
-        help = "Override phase timeout in seconds."
-    )]
-    pub(crate) phase_timeout_secs: Option<u64>,
-    #[arg(
-        long,
-        value_name = "SECONDS",
-        value_parser = parse_positive_u64,
-        help = "Override workflow idle timeout in seconds."
-    )]
-    pub(crate) idle_timeout_secs: Option<u64>,
+    pub(crate) autonomous: bool,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct DaemonRunArgs {
+    #[command(flatten)]
+    pub(crate) scheduler: DaemonSchedulerArgs,
     #[arg(
         long,
         default_value_t = false,

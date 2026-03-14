@@ -35,6 +35,7 @@ pub(crate) async fn handle_requirements(
 
     match command {
         RequirementsCommand::Draft(args) => {
+            let resolved_model = args.model.unwrap_or_else(|| protocol::default_model_for_tool(&args.tool).unwrap_or("claude-sonnet-4-6").to_string());
             let input = parse_input_json_or(args.input_json, || {
                 Ok(RequirementsDraftInputPayload {
                     include_codebase_scan: args.include_codebase_scan,
@@ -45,7 +46,7 @@ pub(crate) async fn handle_requirements(
                     quality_repair_attempts: args.quality_repair_attempts,
                     allow_heuristic_complexity: args.allow_heuristic_complexity,
                     tool: args.tool,
-                    model: args.model,
+                    model: resolved_model,
                     timeout_secs: args.timeout_secs,
                     start_runner: args.start_runner,
                 })
@@ -64,13 +65,14 @@ pub(crate) async fn handle_requirements(
             print_value(planning.get_requirement(&args.id).await?, json)
         }
         RequirementsCommand::Refine(args) => {
+            let resolved_model = args.model.unwrap_or_else(|| protocol::default_model_for_tool(&args.tool).unwrap_or("claude-sonnet-4-6").to_string());
             let input = parse_input_json_or(args.input_json, || {
                 Ok(RequirementsRefineInputPayload {
                     requirement_ids: args.requirement_ids,
                     focus: args.focus,
                     use_ai: args.use_ai,
                     tool: args.tool,
-                    model: args.model,
+                    model: resolved_model,
                     timeout_secs: args.timeout_secs,
                     start_runner: args.start_runner,
                 })

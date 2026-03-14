@@ -907,7 +907,7 @@ fn e2e_task_control_cancel_requires_confirmation_and_supports_dry_run() -> Resul
     assert_eq!(
         confirmation_message,
         format!(
-            "CONFIRMATION_REQUIRED: rerun 'ao task cancel --task-id {} --confirm {}'; use --dry-run to preview changes",
+            "CONFIRMATION_REQUIRED: rerun 'ao task cancel --id {} --confirm {}'; use --dry-run to preview changes",
             task_id, task_id
         ),
         "task cancel confirmation message should use canonical token order"

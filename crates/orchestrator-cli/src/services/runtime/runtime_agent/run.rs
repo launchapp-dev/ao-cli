@@ -28,7 +28,7 @@ pub(super) async fn handle_agent_run(
     let request = AgentRunRequest {
         protocol_version: PROTOCOL_VERSION.to_string(),
         run_id: run_id.clone(),
-        model: ModelId(args.model.clone()),
+        model: ModelId(args.model.clone().unwrap_or_else(|| protocol::default_model_for_tool(&args.tool).unwrap_or("claude-sonnet-4-6").to_string())),
         context,
         timeout_secs: args.timeout_secs,
     };

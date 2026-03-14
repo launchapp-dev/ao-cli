@@ -29,6 +29,7 @@ pub(crate) async fn handle_planning(
     match command {
         PlanningCommand::Vision { command } => match command {
             VisionCommand::Draft(args) => {
+                let resolved_model = args.model.unwrap_or_else(|| protocol::default_model_for_tool(&args.tool).unwrap_or("claude-sonnet-4-6").to_string());
                 let input_json = match args.input_json {
                     Some(raw) => Some(raw),
                     None => Some(serde_json::to_string(&VisionDraftInputPayload {
@@ -40,7 +41,7 @@ pub(crate) async fn handle_planning(
                         value_proposition: args.value_proposition,
                         use_ai_complexity: args.use_ai_complexity,
                         tool: args.tool,
-                        model: args.model,
+                        model: resolved_model,
                         timeout_secs: args.timeout_secs,
                         start_runner: args.start_runner,
                         allow_heuristic_fallback: args.allow_heuristic_fallback,
@@ -70,13 +71,14 @@ pub(crate) async fn handle_planning(
                 .await
             }
             VisionCommand::Refine(args) => {
+                let resolved_model = args.model.unwrap_or_else(|| protocol::default_model_for_tool(&args.tool).unwrap_or("claude-sonnet-4-6").to_string());
                 let input_json = match args.input_json {
                     Some(raw) => Some(raw),
                     None => Some(serde_json::to_string(&VisionRefineInputPayload {
                         focus: args.focus,
                         use_ai: args.use_ai,
                         tool: args.tool,
-                        model: args.model,
+                        model: resolved_model,
                         timeout_secs: args.timeout_secs,
                         start_runner: args.start_runner,
                         allow_heuristic_fallback: args.allow_heuristic_fallback,
@@ -112,6 +114,7 @@ pub(crate) async fn handle_planning(
         },
         PlanningCommand::Requirements { command } => match command {
             PlanningRequirementsCommand::Draft(args) => {
+                let resolved_model = args.model.unwrap_or_else(|| protocol::default_model_for_tool(&args.tool).unwrap_or("claude-sonnet-4-6").to_string());
                 let input_json = match args.input_json {
                     Some(raw) => Some(raw),
                     None => Some(serde_json::to_string(&RequirementsDraftInputPayload {
@@ -123,7 +126,7 @@ pub(crate) async fn handle_planning(
                         quality_repair_attempts: args.quality_repair_attempts,
                         allow_heuristic_complexity: args.allow_heuristic_complexity,
                         tool: args.tool,
-                        model: args.model,
+                        model: resolved_model,
                         timeout_secs: args.timeout_secs,
                         start_runner: args.start_runner,
                     })?),
@@ -152,6 +155,7 @@ pub(crate) async fn handle_planning(
                 .await
             }
             PlanningRequirementsCommand::Refine(args) => {
+                let resolved_model = args.model.unwrap_or_else(|| protocol::default_model_for_tool(&args.tool).unwrap_or("claude-sonnet-4-6").to_string());
                 let input_json = match args.input_json {
                     Some(raw) => Some(raw),
                     None => Some(serde_json::to_string(&RequirementsRefineInputPayload {
@@ -159,7 +163,7 @@ pub(crate) async fn handle_planning(
                         focus: args.focus,
                         use_ai: args.use_ai,
                         tool: args.tool,
-                        model: args.model,
+                        model: resolved_model,
                         timeout_secs: args.timeout_secs,
                         start_runner: args.start_runner,
                     })?),

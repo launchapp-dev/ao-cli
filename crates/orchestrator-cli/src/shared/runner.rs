@@ -182,7 +182,8 @@ pub(crate) fn build_agent_context(args: &AgentRunArgs, project_root: &str) -> Re
             .get("prompt")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        if let Some(runtime_contract) = build_runtime_contract(&args.tool, &args.model, prompt) {
+        let resolved_model = args.model.as_deref().unwrap_or_else(|| protocol::default_model_for_tool(&args.tool).unwrap_or("claude-sonnet-4-6"));
+        if let Some(runtime_contract) = build_runtime_contract(&args.tool, resolved_model, prompt) {
             context_obj.insert("runtime_contract".to_string(), runtime_contract);
         }
     }
@@ -422,7 +423,7 @@ mod tests {
         let args = AgentRunArgs {
             run_id: None,
             tool: "claude".to_string(),
-            model: "claude-sonnet-4-6".to_string(),
+            model: Some("claude-sonnet-4-6".to_string()),
             prompt: Some("hello".to_string()),
             cwd: Some(worktree.to_string_lossy().to_string()),
             context_json: None,

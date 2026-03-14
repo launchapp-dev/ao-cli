@@ -1,7 +1,7 @@
 use clap::{Args, Subcommand};
 
 use super::{
-    parse_percentage_u8, parse_positive_u64, parse_positive_usize, IdArgs, TaskIdArgs,
+    parse_percentage_u8, parse_positive_u64, parse_positive_usize, IdArgs,
     DEPENDENCY_TYPE_HELP, INPUT_JSON_PRECEDENCE_HELP, TASK_PRIORITY_FILTER_HELP,
     TASK_PRIORITY_HELP, TASK_RISK_FILTER_HELP, TASK_STATUS_FILTER_HELP, TASK_STATUS_HELP,
     TASK_TYPE_FILTER_HELP, TASK_TYPE_HELP,
@@ -40,9 +40,9 @@ pub(crate) enum TaskCommand {
     /// Show workflow dispatch history for a task.
     History(IdArgs),
     /// Pause a task.
-    Pause(TaskIdArgs),
+    Pause(IdArgs),
     /// Resume a paused task.
-    Resume(TaskIdArgs),
+    Resume(IdArgs),
     /// Cancel a task (confirmation required).
     Cancel(TaskCancelArgs),
     /// Reopen a task from terminal state (Done/Cancelled) back to Backlog.
@@ -57,12 +57,12 @@ pub(crate) enum TaskCommand {
 
 #[derive(Debug, Args)]
 pub(crate) struct TaskCancelArgs {
-    #[arg(long, value_name = "TASK_ID", help = "Task identifier.")]
-    pub(crate) task_id: String,
+    #[arg(short, long, visible_alias = "task-id", value_name = "TASK_ID", help = "Task identifier.")]
+    pub(crate) id: String,
     #[arg(
         long,
         value_name = "TASK_ID",
-        help = "Confirmation token; must match --task-id."
+        help = "Confirmation token; must match --id."
     )]
     pub(crate) confirm: Option<String>,
     #[arg(
@@ -75,28 +75,28 @@ pub(crate) struct TaskCancelArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct TaskReopenArgs {
-    #[arg(long, value_name = "TASK_ID", help = "Task identifier.")]
-    pub(crate) task_id: String,
+    #[arg(short, long, visible_alias = "task-id", value_name = "TASK_ID", help = "Task identifier.")]
+    pub(crate) id: String,
     #[arg(
         long,
         value_name = "TASK_ID",
-        help = "Confirmation token; must match --task-id."
+        help = "Confirmation token; must match --id."
     )]
     pub(crate) confirm: Option<String>,
 }
 
 #[derive(Debug, Args)]
 pub(crate) struct TaskSetPriorityArgs {
-    #[arg(long, value_name = "TASK_ID", help = "Task identifier.")]
-    pub(crate) task_id: String,
-    #[arg(long, value_name = "PRIORITY", help = TASK_PRIORITY_HELP)]
+    #[arg(short, long, visible_alias = "task-id", value_name = "TASK_ID", help = "Task identifier.")]
+    pub(crate) id: String,
+    #[arg(short, long, value_name = "PRIORITY", help = TASK_PRIORITY_HELP)]
     pub(crate) priority: String,
 }
 
 #[derive(Debug, Args)]
 pub(crate) struct TaskSetDeadlineArgs {
-    #[arg(long, value_name = "TASK_ID", help = "Task identifier.")]
-    pub(crate) task_id: String,
+    #[arg(short, long, visible_alias = "task-id", value_name = "TASK_ID", help = "Task identifier.")]
+    pub(crate) id: String,
     #[arg(
         long,
         value_name = "RFC3339",
@@ -245,15 +245,10 @@ pub(crate) struct TaskPrioritizedArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct TaskCreateArgs {
-    #[arg(long, value_name = "TITLE", help = "Task title.")]
+    #[arg(short, long, value_name = "TITLE", help = "Task title.")]
     pub(crate) title: String,
-    #[arg(
-        long,
-        value_name = "TEXT",
-        default_value = "",
-        help = "Task description."
-    )]
-    pub(crate) description: String,
+    #[arg(long, value_name = "TEXT", help = "Task description.")]
+    pub(crate) description: Option<String>,
     #[arg(long, value_name = "TYPE", help = TASK_TYPE_HELP)]
     pub(crate) task_type: Option<String>,
     #[arg(long, value_name = "PRIORITY", help = TASK_PRIORITY_HELP)]
@@ -439,6 +434,6 @@ pub(crate) struct TaskDependencyRemoveArgs {
 pub(crate) struct TaskStatusArgs {
     #[arg(long, value_name = "TASK_ID", help = "Task identifier.")]
     pub(crate) id: String,
-    #[arg(long, value_name = "STATUS", help = TASK_STATUS_HELP)]
+    #[arg(short, long, value_name = "STATUS", help = TASK_STATUS_HELP)]
     pub(crate) status: String,
 }

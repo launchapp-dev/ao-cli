@@ -277,7 +277,7 @@ fn build_task_control_args_emits_pause() {
         vec![
             "task".to_string(),
             "pause".to_string(),
-            "--task-id".to_string(),
+            "--id".to_string(),
             "TASK-123".to_string(),
         ]
     );
@@ -291,7 +291,7 @@ fn build_task_control_args_emits_resume() {
         vec![
             "task".to_string(),
             "resume".to_string(),
-            "--task-id".to_string(),
+            "--id".to_string(),
             "TASK-456".to_string(),
         ]
     );

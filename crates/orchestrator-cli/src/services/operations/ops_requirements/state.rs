@@ -410,7 +410,7 @@ pub(super) fn create_requirement_cli(
     let input = parse_input_json_or(args.input_json, || {
         Ok(RequirementCreateInputCli {
             title: args.title,
-            description: args.description,
+            description: args.description.unwrap_or_default(),
             acceptance_criteria: args.acceptance_criterion,
             category: args.category,
             requirement_type: args.requirement_type,

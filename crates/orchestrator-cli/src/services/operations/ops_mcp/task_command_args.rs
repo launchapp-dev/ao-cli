@@ -56,7 +56,7 @@ pub(super) fn build_task_control_args(action: &str, task_id: String) -> Vec<Stri
     vec![
         "task".to_string(),
         action.to_string(),
-        "--task-id".to_string(),
+        "--id".to_string(),
         task_id,
     ]
 }

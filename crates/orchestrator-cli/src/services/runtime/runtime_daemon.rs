@@ -427,57 +427,56 @@ fn spawn_autonomous_daemon_run(
         .arg("daemon")
         .arg("run")
         .arg("--interval-secs")
-        .arg(args.interval_secs.to_string())
+        .arg(args.scheduler.interval_secs.to_string())
         .arg("--auto-run-ready")
-        .arg(args.auto_run_ready.to_string())
+        .arg(args.scheduler.auto_run_ready.to_string())
         .arg("--startup-cleanup")
-        .arg(args.startup_cleanup.to_string())
+        .arg(args.scheduler.startup_cleanup.to_string())
         .arg("--resume-interrupted")
-        .arg(args.resume_interrupted.to_string())
+        .arg(args.scheduler.resume_interrupted.to_string())
         .arg("--reconcile-stale")
-        .arg(args.reconcile_stale.to_string())
+        .arg(args.scheduler.reconcile_stale.to_string())
         .arg("--stale-threshold-hours")
-        .arg(args.stale_threshold_hours.to_string())
+        .arg(args.scheduler.stale_threshold_hours.to_string())
         .arg("--max-tasks-per-tick")
-        .arg(args.max_tasks_per_tick.to_string());
-    if let Some(pool_size) = args.pool_size {
+        .arg(args.scheduler.max_tasks_per_tick.to_string());
+    if let Some(pool_size) = args.scheduler.pool_size {
         command.arg("--pool-size").arg(pool_size.to_string());
-    } else if let Some(max_agents) = args.max_agents {
-        command.arg("--max-agents").arg(max_agents.to_string());
     }
     command
         .stdout(Stdio::from(stdout_log))
         .stderr(Stdio::from(stderr_log))
         .stdin(Stdio::null());
-    if let Some(auto_merge) = args.auto_merge {
+    if let Some(auto_merge) = args.scheduler.auto_merge {
         command.arg("--auto-merge").arg(auto_merge.to_string());
     }
-    if let Some(auto_pr) = args.auto_pr {
+    if let Some(auto_pr) = args.scheduler.auto_pr {
         command.arg("--auto-pr").arg(auto_pr.to_string());
     }
-    if let Some(auto_commit_before_merge) = args.auto_commit_before_merge {
+    if let Some(auto_commit_before_merge) = args.scheduler.auto_commit_before_merge {
         command
             .arg("--auto-commit-before-merge")
             .arg(auto_commit_before_merge.to_string());
     }
-    if let Some(auto_prune_worktrees_after_merge) = args.auto_prune_worktrees_after_merge {
+    if let Some(auto_prune_worktrees_after_merge) =
+        args.scheduler.auto_prune_worktrees_after_merge
+    {
         command
             .arg("--auto-prune-worktrees-after-merge")
             .arg(auto_prune_worktrees_after_merge.to_string());
     }
-    if let Some(phase_timeout_secs) = args.phase_timeout_secs {
+    if let Some(phase_timeout_secs) = args.scheduler.phase_timeout_secs {
         command
             .arg("--phase-timeout-secs")
             .arg(phase_timeout_secs.to_string());
     }
-    if let Some(idle_timeout_secs) = args.idle_timeout_secs {
+    if let Some(idle_timeout_secs) = args.scheduler.idle_timeout_secs {
         command
             .arg("--idle-timeout-secs")
             .arg(idle_timeout_secs.to_string());
     }
 
-    let pool_size = args.pool_size.or(args.max_agents);
-    if let Some(pool_size) = pool_size {
+    if let Some(pool_size) = args.scheduler.pool_size {
         command.env("AO_MAX_AGENTS", pool_size.to_string());
     }
     if args.skip_runner {
@@ -585,7 +584,7 @@ pub(crate) async fn handle_daemon(
                 );
             }
 
-            if let Some(pool_size) = args.pool_size.or(args.max_agents) {
+            if let Some(pool_size) = args.scheduler.pool_size {
                 std::env::set_var("AO_MAX_AGENTS", pool_size.to_string());
             } else {
                 std::env::remove_var("AO_MAX_AGENTS");

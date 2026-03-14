@@ -77,10 +77,10 @@ pub(crate) struct RequirementsDraftArgs {
     pub(crate) quality_repair_attempts: usize,
     #[arg(long, action = ArgAction::Set, default_value_t = false)]
     pub(crate) allow_heuristic_complexity: bool,
-    #[arg(long, default_value = "codex")]
+    #[arg(long, default_value = "claude")]
     pub(crate) tool: String,
-    #[arg(long, default_value_t = protocol::default_model_for_tool("codex").expect("default model for codex should be configured").to_string())]
-    pub(crate) model: String,
+    #[arg(long, help = "Model identifier. Defaults to the configured model for the selected --tool.")]
+    pub(crate) model: Option<String>,
     #[arg(long)]
     pub(crate) timeout_secs: Option<u64>,
     #[arg(long, action = ArgAction::Set, default_value_t = true)]
@@ -103,10 +103,10 @@ pub(crate) struct RequirementsRefineArgs {
     pub(crate) focus: Option<String>,
     #[arg(long, action = ArgAction::Set, default_value_t = true)]
     pub(crate) use_ai: bool,
-    #[arg(long, default_value = "codex")]
+    #[arg(long, default_value = "claude")]
     pub(crate) tool: String,
-    #[arg(long, default_value_t = protocol::default_model_for_tool("codex").expect("default model for codex should be configured").to_string())]
-    pub(crate) model: String,
+    #[arg(long, help = "Model identifier. Defaults to the configured model for the selected --tool.")]
+    pub(crate) model: Option<String>,
     #[arg(long)]
     pub(crate) timeout_secs: Option<u64>,
     #[arg(long, action = ArgAction::Set, default_value_t = true)]
@@ -119,13 +119,8 @@ pub(crate) struct RequirementsRefineArgs {
 pub(crate) struct RequirementCreateArgs {
     #[arg(long, value_name = "TITLE", help = "Requirement title.")]
     pub(crate) title: String,
-    #[arg(
-        long,
-        value_name = "TEXT",
-        default_value = "",
-        help = "Requirement description."
-    )]
-    pub(crate) description: String,
+    #[arg(long, value_name = "TEXT", help = "Requirement description.")]
+    pub(crate) description: Option<String>,
     #[arg(long, value_name = "PRIORITY", help = REQUIREMENT_PRIORITY_HELP)]
     pub(crate) priority: Option<String>,
     #[arg(long, value_name = "CATEGORY", help = REQUIREMENT_CATEGORY_HELP)]

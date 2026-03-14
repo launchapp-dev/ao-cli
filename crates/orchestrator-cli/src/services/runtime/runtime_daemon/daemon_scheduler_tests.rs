@@ -1,4 +1,5 @@
 use super::*;
+use crate::DaemonSchedulerArgs;
 use crate::shared::{build_runtime_contract, test_env_lock};
 use orchestrator_core::{InMemoryServiceHub, Priority, TaskCreateInput, TaskType};
 use protocol::{ModelRoutingComplexity, PhaseCapabilities};
@@ -34,13 +35,31 @@ async fn run_ready_task_workflows_for_project(
     project_root: &str,
     max_tasks_per_tick: usize,
 ) -> Result<usize> {
-    project_tick_ops::task_dispatch::run_ready_task_workflows_for_project(
-        hub,
-        project_root,
-        max_tasks_per_tick,
-    )
-    .await
-    .map(|summary| summary.started)
+    use crate::services::runtime::workflow_mutation_surface::start_workflow_for_dispatch;
+    use orchestrator_core::{should_skip_task_dispatch, workflow_ref_for_task};
+    let candidates = hub.tasks().list_prioritized().await?;
+    let workflows = hub.workflows().list().await?;
+    let active_ids: std::collections::HashSet<String> = workflows
+        .iter()
+        .filter(|w| matches!(w.status, orchestrator_core::WorkflowStatus::Running))
+        .map(|w| w.subject.id().to_string())
+        .collect();
+    let mut started = 0usize;
+    for task in &candidates {
+        if started >= max_tasks_per_tick {
+            break;
+        }
+        if task.paused || task.cancelled || task.status != orchestrator_core::TaskStatus::Ready {
+            continue;
+        }
+        if active_ids.contains(&task.id) || should_skip_task_dispatch(task) {
+            continue;
+        }
+        let dispatch = protocol::SubjectDispatch::for_task(&task.id, workflow_ref_for_task(task));
+        start_workflow_for_dispatch(hub.clone(), project_root, &dispatch).await?;
+        started += 1;
+    }
+    Ok(started)
 }
 
 use protocol::test_utils::EnvVarGuard;
@@ -1475,22 +1494,23 @@ async fn project_tick_reconciles_stale_completed_workflow_tasks() {
     .expect("core state should be writable");
 
     let args = DaemonRunArgs {
-        pool_size: None,
-        max_agents: None,
-        interval_secs: 1,
-        ai_task_generation: false,
-        auto_run_ready: false,
-        auto_merge: None,
-        auto_pr: None,
-        auto_commit_before_merge: None,
-        auto_prune_worktrees_after_merge: None,
-        startup_cleanup: false,
-        resume_interrupted: false,
-        reconcile_stale: true,
-        stale_threshold_hours: 24,
-        max_tasks_per_tick: 2,
-        phase_timeout_secs: None,
-        idle_timeout_secs: None,
+        scheduler: DaemonSchedulerArgs {
+            pool_size: None,
+            interval_secs: 1,
+            ai_task_generation: false,
+            auto_run_ready: false,
+            auto_merge: None,
+            auto_pr: None,
+            auto_commit_before_merge: None,
+            auto_prune_worktrees_after_merge: None,
+            startup_cleanup: false,
+            resume_interrupted: false,
+            reconcile_stale: true,
+            stale_threshold_hours: 24,
+            max_tasks_per_tick: 2,
+            phase_timeout_secs: None,
+            idle_timeout_secs: None,
+        },
         once: true,
     };
     let mut process_manager = ProcessManager::new();

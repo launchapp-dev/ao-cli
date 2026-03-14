@@ -23,18 +23,21 @@ pub(crate) struct QueueEnqueueArgs {
     #[arg(
         long,
         value_name = "TASK_ID",
+        group = "subject",
         help = "Task subject to enqueue (mutually exclusive with --requirement-id / --title)."
     )]
     pub(crate) task_id: Option<String>,
     #[arg(
         long,
         value_name = "REQ_ID",
+        group = "subject",
         help = "Requirement subject to enqueue (mutually exclusive with --task-id / --title)."
     )]
     pub(crate) requirement_id: Option<String>,
     #[arg(
         long,
         value_name = "TITLE",
+        group = "subject",
         help = "Custom subject title (mutually exclusive with --task-id / --requirement-id)."
     )]
     pub(crate) title: Option<String>,

@@ -35,6 +35,7 @@ pub(crate) async fn handle_vision(
 
     match command {
         VisionCommand::Draft(args) => {
+            let resolved_model = args.model.unwrap_or_else(|| protocol::default_model_for_tool(&args.tool).unwrap_or("claude-sonnet-4-6").to_string());
             let input = parse_input_json_or(args.input_json, || {
                 Ok(VisionDraftInput {
                     project_name: args.project_name,
@@ -49,7 +50,7 @@ pub(crate) async fn handle_vision(
             let options = VisionDraftAiOptions {
                 use_ai_complexity: args.use_ai_complexity,
                 tool: args.tool,
-                model: args.model,
+                model: resolved_model,
                 timeout_secs: args.timeout_secs,
                 start_runner: args.start_runner,
                 allow_heuristic_fallback: args.allow_heuristic_fallback,
@@ -60,12 +61,13 @@ pub(crate) async fn handle_vision(
             )
         }
         VisionCommand::Refine(args) => {
+            let resolved_model = args.model.unwrap_or_else(|| protocol::default_model_for_tool(&args.tool).unwrap_or("claude-sonnet-4-6").to_string());
             let input = parse_input_json_or(args.input_json, || {
                 Ok(VisionRefineInputPayload {
                     focus: args.focus,
                     use_ai: args.use_ai,
                     tool: args.tool,
-                    model: args.model,
+                    model: resolved_model,
                     timeout_secs: args.timeout_secs,
                     start_runner: args.start_runner,
                     allow_heuristic_fallback: args.allow_heuristic_fallback,

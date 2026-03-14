@@ -14,9 +14,6 @@ chrono = { version = "0.4", features = ["serde"] }
 croner = { workspace = true }
 fs2 = "0.4"
 orchestrator-core = { workspace = true }
-orchestrator-git-ops = { workspace = true }
-orchestrator-notifications = { workspace = true }
-orchestrator-providers = { workspace = true }
 protocol = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

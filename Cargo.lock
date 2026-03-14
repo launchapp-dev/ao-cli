@@ -23,13 +23,9 @@ dependencies = [
  "dirs",
  "fs2",
  "llm-cli-wrapper",
- "nix 0.31.2",
- "once_cell",
  "protocol",
  "serde",
  "serde_json",
- "sha2",
- "thiserror 2.0.18",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -672,19 +668,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "console"
-version = "0.16.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03e45a4a8926227e4197636ba97a9fc9b00477e9f4bd711395687c5f0734bec4"
-dependencies = [
- "encode_unicode",
- "libc",
- "once_cell",
- "unicode-width 0.2.0",
- "windows-sys 0.61.2",
-]
-
-[[package]]
 name = "convert_case"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1087,12 +1070,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "downcast"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1435fa1053d8b2fbbe9be7e97eca7f33d37b28409959813daefc1446a14247f1"
-
-[[package]]
 name = "dyn-clone"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1103,12 +1080,6 @@ name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
-
-[[package]]
-name = "encode_unicode"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34aa73646ffb006b8f5147f3dc182bd4bcb190227ce861fc4a4844bf8e3cb2c0"
 
 [[package]]
 name = "encoding_rs"
@@ -1249,12 +1220,6 @@ checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
 dependencies = [
  "percent-encoding",
 ]
-
-[[package]]
-name = "fragile"
-version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28dd6caf6059519a65843af8fe2a3ae298b14b80179855aeb4adc2c1934ee619"
 
 [[package]]
 name = "fs2"
@@ -1789,19 +1754,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "indicatif"
-version = "0.18.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25470f23803092da7d239834776d653104d551bc4d7eacaf31e6837854b8e9eb"
-dependencies = [
- "console",
- "portable-atomic",
- "unicode-width 0.2.0",
- "unit-prefix",
- "web-time",
-]
-
-[[package]]
 name = "indoc"
 version = "2.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1995,8 +1947,6 @@ dependencies = [
  "chrono",
  "clap",
  "colored",
- "indicatif",
- "mockall",
  "protocol",
  "regex",
  "serde",
@@ -2147,33 +2097,6 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "mockall"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43766c2b5203b10de348ffe19f7e54564b64f3d6018ff7648d1e2d6d3a0f0a48"
-dependencies = [
- "cfg-if",
- "downcast",
- "fragile",
- "lazy_static",
- "mockall_derive",
- "predicates",
- "predicates-tree",
-]
-
-[[package]]
-name = "mockall_derive"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af7cbce79ec385a1d4f54baa90a76401eb15d9cab93685f62e7e9f942aa00ae2"
-dependencies = [
- "cfg-if",
- "proc-macro2",
- "quote",
- "syn 2.0.117",
 ]
 
 [[package]]
@@ -2435,17 +2358,14 @@ dependencies = [
  "orchestrator-git-ops",
  "orchestrator-notifications",
  "orchestrator-web-api",
- "orchestrator-web-contracts",
  "orchestrator-web-server",
  "protocol",
  "ratatui",
- "reqwest",
  "rmcp",
  "schemars 1.2.1",
  "semver",
  "serde",
  "serde_json",
- "serde_yaml",
  "sha2",
  "tempfile",
  "termimad 0.34.1",
@@ -2487,7 +2407,6 @@ dependencies = [
  "protocol",
  "serde",
  "serde_json",
- "serde_yaml",
  "sha2",
  "tempfile",
  "tokio",
@@ -2505,9 +2424,6 @@ dependencies = [
  "croner",
  "fs2",
  "orchestrator-core",
- "orchestrator-git-ops",
- "orchestrator-notifications",
- "orchestrator-providers",
  "protocol",
  "serde",
  "serde_json",
@@ -2581,7 +2497,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
- "dirs",
  "orchestrator-config",
  "orchestrator-core",
  "orchestrator-daemon-runtime",
@@ -2601,7 +2516,6 @@ dependencies = [
  "http",
  "protocol",
  "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -4393,12 +4307,6 @@ name = "unicode-xid"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
-
-[[package]]
-name = "unit-prefix"
-version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81e544489bf3d8ef66c953931f56617f423cd4b5494be343d9b9d3dda037b9a3"
 
 [[package]]
 name = "unsafe-libyaml"

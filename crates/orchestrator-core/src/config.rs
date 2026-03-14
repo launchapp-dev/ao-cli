@@ -15,7 +15,6 @@ pub struct RuntimeConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProjectRootSource {
     CliArg,
-    EnvVar,
     GitRepoRoot,
     CurrentDir,
 }
@@ -28,13 +27,6 @@ pub fn resolve_project_root(config: &RuntimeConfig) -> (String, ProjectRootSourc
         .filter(|root| !root.is_empty())
     {
         return (normalize_project_root(root), ProjectRootSource::CliArg);
-    }
-
-    if let Ok(root) = std::env::var("PROJECT_ROOT") {
-        let root = root.trim();
-        if !root.is_empty() {
-            return (normalize_project_root(root), ProjectRootSource::EnvVar);
-        }
     }
 
     let cwd = std::env::current_dir().expect("Failed to get current directory");
@@ -100,35 +92,8 @@ fn absolutize_path(base: &Path, path: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::ffi::OsString;
     use std::path::Path;
     use std::sync::{Mutex, OnceLock};
-
-    struct EnvVarGuard {
-        key: &'static str,
-        previous: Option<OsString>,
-    }
-
-    impl EnvVarGuard {
-        fn set(key: &'static str, value: Option<&str>) -> Self {
-            let previous = std::env::var_os(key);
-            match value {
-                Some(value) => std::env::set_var(key, value),
-                None => std::env::remove_var(key),
-            }
-            Self { key, previous }
-        }
-    }
-
-    impl Drop for EnvVarGuard {
-        fn drop(&mut self) {
-            if let Some(previous) = &self.previous {
-                std::env::set_var(self.key, previous);
-            } else {
-                std::env::remove_var(self.key);
-            }
-        }
-    }
 
     struct CurrentDirGuard {
         original: PathBuf,
@@ -155,13 +120,12 @@ mod tests {
 
     fn run_with_test_process_state<T>(
         cwd: &Path,
-        project_root: Option<&str>,
+        _project_root: Option<&str>,
         test: impl FnOnce() -> T,
     ) -> T {
         let _guard = resolver_test_lock()
             .lock()
             .expect("project root resolver test lock should acquire");
-        let _project_root_guard = EnvVarGuard::set("PROJECT_ROOT", project_root);
         let _cwd_guard = CurrentDirGuard::set(cwd);
         test()
     }
@@ -243,12 +207,11 @@ mod tests {
     }
 
     #[test]
-    fn env_project_root_wins_when_cli_arg_missing() {
+    fn falls_through_to_cwd_when_cli_arg_missing() {
         let temp = tempfile::tempdir().expect("tempdir");
-        run_with_test_process_state(temp.path(), Some("/tmp/from-env"), || {
-            let (root, source) = resolve_project_root(&RuntimeConfig::default());
-            assert_eq!(root, "/tmp/from-env");
-            assert_eq!(source, ProjectRootSource::EnvVar);
+        run_with_test_process_state(temp.path(), None, || {
+            let (_, source) = resolve_project_root(&RuntimeConfig::default());
+            assert_eq!(source, ProjectRootSource::CurrentDir);
         });
     }
 

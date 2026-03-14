@@ -1143,35 +1143,4 @@ impl WorkflowLifecycleExecutor {
         workflow.completed_at = Some(Utc::now());
     }
 
-    pub fn execute_to_terminal(&self, workflow: &mut OrchestratorWorkflow) {
-        while matches!(workflow.status, WorkflowStatus::Running) {
-            let Some(phase) = workflow.phases.get(workflow.current_phase_index) else {
-                workflow.machine_state = WorkflowMachineState::Completed;
-                workflow.sync_status();
-                workflow.completed_at = Some(Utc::now());
-                workflow.current_phase = None;
-                break;
-            };
-
-            let fail_phase = std::env::var("AO_FAIL_PHASE").ok();
-            if fail_phase.as_deref() == Some(phase.phase_id.as_str()) {
-                self.mark_current_phase_failed(
-                    workflow,
-                    format!("phase {} failed due to AO_FAIL_PHASE", phase.phase_id),
-                );
-                break;
-            }
-
-            self.mark_current_phase_success(workflow);
-            if matches!(
-                workflow.status,
-                WorkflowStatus::Completed
-                    | WorkflowStatus::Failed
-                    | WorkflowStatus::Escalated
-                    | WorkflowStatus::Cancelled
-            ) {
-                break;
-            }
-        }
-    }
 }

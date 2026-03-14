@@ -6,13 +6,7 @@ use std::hash::{Hash, Hasher};
 const RUNNER_IPC_TIMEOUT: Duration = Duration::from_millis(900);
 
 pub(super) fn should_skip_runner_start() -> bool {
-    std::env::var("AO_SKIP_RUNNER_START")
-        .ok()
-        .map(|value| {
-            let normalized = value.trim().to_ascii_lowercase();
-            normalized == "1" || normalized == "true" || normalized == "yes"
-        })
-        .unwrap_or(false)
+    false
 }
 
 pub(super) fn default_global_config_dir() -> PathBuf {
@@ -39,28 +33,13 @@ pub(super) fn default_global_config_dir() -> PathBuf {
 }
 
 pub(super) fn runner_scope_from_env() -> String {
-    std::env::var("AO_RUNNER_SCOPE")
-        .ok()
-        .map(|value| value.trim().to_ascii_lowercase())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "project".to_string())
+    "project".to_string()
 }
 
 pub(super) fn runner_config_dir(project_root: &Path) -> PathBuf {
-    let config_dir = if let Some(override_path) = std::env::var("AO_RUNNER_CONFIG_DIR")
-        .ok()
-        .or_else(|| std::env::var("AO_CONFIG_DIR").ok())
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-    {
-        PathBuf::from(override_path)
-    } else if runner_scope_from_env() == "global" {
-        default_global_config_dir()
-    } else {
-        project_runtime_root(project_root)
-            .unwrap_or_else(|| project_root.join(".ao"))
-            .join("runner")
-    };
+    let config_dir = project_runtime_root(project_root)
+        .unwrap_or_else(|| project_root.join(".ao"))
+        .join("runner");
 
     normalize_runner_config_dir(config_dir)
 }
@@ -509,7 +488,10 @@ pub(super) async fn ensure_agent_runner_running(project_root: &Path) -> Result<O
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
-        // Detach from the parent session so runner survives short-lived CLI invocations.
+        // SAFETY: setsid() creates a new session for the child process so it survives
+        // after the parent CLI exits. The closure runs between fork and exec — no heap
+        // allocations or async-signal-unsafe functions are called.
+        #[allow(unsafe_code)]
         unsafe {
             command.pre_exec(|| {
                 if libc::setsid() == -1 {

@@ -25,7 +25,7 @@ pub trait DefaultProjectTickServices {
         let status = daemon.status().await?;
         let mut started_daemon = false;
         if !matches!(status, DaemonStatus::Running | DaemonStatus::Paused) {
-            daemon.start().await?;
+            daemon.start(Default::default()).await?;
             started_daemon = true;
         }
         let daemon_health = daemon.health().await.ok();

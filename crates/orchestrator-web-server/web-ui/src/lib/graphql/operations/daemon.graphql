@@ -1,0 +1,12 @@
+query Daemon {
+  daemonStatus { healthy status statusRaw runnerConnected activeAgents maxAgents projectRoot }
+  daemonHealth { healthy status runnerConnected runnerPid activeAgents daemonPid }
+  agentRuns { runId taskId taskTitle workflowId phaseId status }
+  daemonLogs(limit: 50) { timestamp level message }
+}
+
+mutation DaemonStart { daemonStart }
+mutation DaemonStop { daemonStop }
+mutation DaemonPause { daemonPause }
+mutation DaemonResume { daemonResume }
+mutation DaemonClearLogs { daemonClearLogs }

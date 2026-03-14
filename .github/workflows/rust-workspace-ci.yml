@@ -1,0 +1,96 @@
+name: Rust Workspace CI
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-workspace-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rustfmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets --locked
+
+  cargo-check:
+    name: cargo-check (${{ matrix.package }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - protocol
+          - orchestrator-cli
+          - orchestrator-core
+          - agent-runner
+          - llm-cli-wrapper
+          - orchestrator-web-contracts
+          - orchestrator-web-api
+          - orchestrator-web-server
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check package
+        run: cargo check --locked --all-targets -p ${{ matrix.package }}
+
+  smoke-help:
+    name: smoke-help
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: cargo-check
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Smoke test ao help
+        run: cargo run --locked -p orchestrator-cli --bin ao -- --help
+
+      - name: Smoke test llm-cli-wrapper help
+        run: cargo run --locked -p llm-cli-wrapper --bin llm-cli-wrapper -- --help

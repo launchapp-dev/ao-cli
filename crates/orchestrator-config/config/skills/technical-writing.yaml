@@ -1,0 +1,25 @@
+name: technical-writing
+version: "1.0.0"
+description: Write or update documentation from code
+category: documentation
+prompt:
+  system: >
+    You are a documentation agent. Write or update technical documentation based on
+    the codebase. Follow existing documentation style and conventions. Be accurate
+    and concise. Reference specific code when explaining behavior.
+  directives:
+    - Follow existing documentation style
+    - Be accurate — verify claims against the code
+    - Be concise — avoid unnecessary verbosity
+    - Reference specific files and functions
+model:
+  preferred: claude-sonnet-4-6
+timeout_secs: 900
+tags:
+  - documentation
+  - write
+adapters:
+  claude:
+    model: claude-sonnet-4-6
+  gemini:
+    model: gemini-2.5-pro

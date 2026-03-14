@@ -1,0 +1,40 @@
+phase_catalog:
+  unit-test:
+    label: Unit Test
+    description: Run the workspace test suite as a deterministic gate.
+    category: verification
+    tags: ["testing", "gate", "builtin"]
+  lint:
+    label: Lint
+    description: Run the linter as a deterministic gate.
+    category: verification
+    tags: ["lint", "gate", "builtin"]
+  po-review:
+    label: PO Review
+    description: Validate the delivered work against product intent and acceptance criteria.
+    category: review
+    tags: ["review", "acceptance", "builtin"]
+
+workflows:
+  - id: builtin/task-gated
+    name: Builtin Task Gated
+    description: Full delivery workflow with deterministic gates and product sign-off.
+    phases:
+      - requirements
+      - implementation
+      - unit-test:
+          on_verdict:
+            rework:
+              target: implementation
+      - lint:
+          on_verdict:
+            rework:
+              target: implementation
+      - code-review:
+          on_verdict:
+            rework:
+              target: implementation
+      - po-review:
+          on_verdict:
+            rework:
+              target: implementation

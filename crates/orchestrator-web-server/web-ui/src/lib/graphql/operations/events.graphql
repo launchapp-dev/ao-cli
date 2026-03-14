@@ -1,0 +1,3 @@
+subscription DaemonEvents($eventType: String) {
+  daemonEvents(eventType: $eventType) { id seq timestamp eventType data }
+}

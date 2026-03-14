@@ -1,0 +1,45 @@
+[package]
+name = "llm-cli-wrapper"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "llm-cli-wrapper"
+path = "src/main.rs"
+
+[lib]
+name = "cli_wrapper"
+path = "src/lib.rs"
+
+[dependencies]
+# Core
+anyhow = "1.0"
+thiserror = "2.0"
+tokio = { version = "1.35", features = ["full"] }
+async-trait = "0.1"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "1.0"
+
+# CLI & Output
+clap = { version = "4.4", features = ["derive", "color"] }
+colored = "3.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Utilities
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.6", features = ["v4", "serde"] }
+regex = "1.10"
+which = "8.0"
+
+[dev-dependencies]
+protocol = { path = "../protocol", features = ["test-utils"] }
+tempfile = "3.8"
+
+[lints]
+workspace = true

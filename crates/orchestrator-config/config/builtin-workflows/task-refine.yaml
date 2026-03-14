@@ -1,0 +1,13 @@
+phase_catalog:
+  refine-requirements:
+    label: Refine Requirements
+    description: Turn vague tasks into implementation-ready work with concrete acceptance criteria.
+    category: planning
+    tags: ["requirements", "planning", "builtin"]
+
+workflows:
+  - id: builtin/task-refine
+    name: Builtin Task Refine
+    description: Refine task scope and acceptance criteria before implementation.
+    phases:
+      - refine-requirements

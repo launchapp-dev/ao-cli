@@ -1,0 +1,12 @@
+[package]
+name = "orchestrator-web-contracts"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+http = "1"
+serde = { version = "1", features = ["derive"] }
+protocol = { path = "../protocol" }
+
+[lints]
+workspace = true

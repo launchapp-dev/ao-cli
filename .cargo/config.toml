@@ -1,0 +1,47 @@
+# Cargo Configuration for Agent Orchestrator
+
+[build]
+# Use shared target directory to save disk space
+# All worktrees will share this cache
+# target-dir = "/Users/samishukri/.cargo-target-cache"
+
+# Uncomment the line above to enable shared target directory.
+# This will save significant disk space but may cause conflicts
+# if building in multiple worktrees simultaneously.
+
+# For now, keeping separate targets per worktree.
+# Use scripts/cleanup-build-targets.sh regularly to prevent buildup.
+
+[profile.dev]
+# Keep backtraces and line info for local debugging without full symbol bloat.
+debug = 1
+
+[profile.dev.package."*"]
+# Dependency debuginfo dominates target size and is rarely what we step through.
+debug = 0
+
+[profile.test]
+# Integration tests create many one-off crates; disable incremental to avoid
+# leaving a large trail of stale test caches behind.
+debug = 1
+incremental = false
+
+[profile.test.package."*"]
+debug = 0
+
+[alias]
+# Useful aliases for worktree development
+wt-clean = "clean --manifest-path"
+wt-build = "build --manifest-path"
+wt-test = "test --manifest-path"
+
+# Runtime binary set used by ao in local dev and release packaging
+ao-bin-build = "build -p orchestrator-cli -p agent-runner -p llm-cli-wrapper"
+ao-bin-build-release = "build --release -p orchestrator-cli -p agent-runner -p llm-cli-wrapper"
+ao-bin-check = "check -p orchestrator-cli -p agent-runner -p llm-cli-wrapper"
+
+# Linting
+ao-lint = "clippy --workspace --all-targets"
+ao-lint-strict = "clippy --workspace --all-targets -- -D warnings"
+ao-fmt = "fmt --all"
+ao-fmt-check = "fmt --all -- --check"

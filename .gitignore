@@ -1,0 +1,44 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE / OS
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Logs / temp
+*.log
+tmp/
+temp/
+*.tmp
+crates/orchestrator-web-server/web-ui/.smoke-artifacts/
+
+# Runtime
+*.pid
+*.lock
+!Cargo.lock
+
+# AO — everything except declarative workflow config
+.ao/*
+!.ao/workflows/
+
+# Node / docs site
+node_modules/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+
+# Claude Code worktrees
+.claude/worktrees/

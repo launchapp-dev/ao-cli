@@ -1,0 +1,24 @@
+name: release-management
+version: "1.0.0"
+description: Cut releases — update versions, generate changelogs, create tags
+category: operations
+prompt:
+  system: >
+    You are a release management agent. Handle version bumps, changelog generation,
+    and release tagging. Follow semantic versioning. Update version numbers in all
+    relevant files. Generate changelog entries from commit history.
+  directives:
+    - Follow semantic versioning strictly
+    - Update version numbers in all relevant files
+    - Generate changelog from commit history
+    - Verify the build succeeds before tagging
+model:
+  preferred: claude-sonnet-4-6
+timeout_secs: 900
+tags:
+  - operations
+  - write
+  - release
+adapters:
+  claude:
+    model: claude-sonnet-4-6

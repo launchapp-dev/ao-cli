@@ -1,0 +1,19 @@
+phase_catalog:
+  requirement-task-generation:
+    label: Requirement Task Generation
+    description: Create or refine linked tasks for a requirement through AO MCP.
+    category: planning
+    tags: ["requirements", "planning", "builtin"]
+  requirement-workflow-bootstrap:
+    label: Requirement Workflow Bootstrap
+    description: Start or enqueue execution for eligible tasks linked to the requirement.
+    category: planning
+    tags: ["requirements", "orchestration", "builtin"]
+
+workflows:
+  - id: builtin/requirements-execute
+    name: Builtin Requirements Execute
+    description: Materialize requirement-linked tasks and bootstrap execution through AO MCP.
+    phases:
+      - requirement-task-generation
+      - requirement-workflow-bootstrap

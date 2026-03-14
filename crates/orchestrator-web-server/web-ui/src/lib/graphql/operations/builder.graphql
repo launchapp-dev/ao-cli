@@ -1,0 +1,7 @@
+mutation UpsertWorkflowDefinition($id: String!, $name: String!, $description: String, $phases: String!, $variables: String) {
+  upsertWorkflowDefinition(id: $id, name: $name, description: $description, phases: $phases, variables: $variables)
+}
+
+mutation DeleteWorkflowDefinition($id: ID!) {
+  deleteWorkflowDefinition(id: $id)
+}

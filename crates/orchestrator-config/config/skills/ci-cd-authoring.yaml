@@ -1,0 +1,26 @@
+name: ci-cd-authoring
+version: "1.0.0"
+description: Write or fix CI pipeline configurations
+category: operations
+prompt:
+  system: >
+    You are a CI/CD authoring agent. Write or fix CI pipeline configurations (GitHub
+    Actions, GitLab CI, etc). Follow the project's existing CI patterns and conventions.
+    Ensure pipelines are efficient, correct, and well-structured.
+  directives:
+    - Follow existing CI pipeline patterns
+    - Keep pipelines efficient — avoid redundant steps
+    - Use caching where appropriate
+    - Ensure correct trigger conditions
+model:
+  preferred: claude-sonnet-4-6
+timeout_secs: 900
+tags:
+  - operations
+  - write
+  - ci
+adapters:
+  claude:
+    model: claude-sonnet-4-6
+  codex:
+    model: codex

@@ -1,0 +1,13 @@
+phase_catalog:
+  triage:
+    label: Triage
+    description: Evaluate whether a task is still valid, already done, or obsolete.
+    category: planning
+    tags: ["triage", "planning", "builtin"]
+
+workflows:
+  - id: builtin/task-triage
+    name: Builtin Task Triage
+    description: Single-phase triage workflow for validating task relevance.
+    phases:
+      - triage

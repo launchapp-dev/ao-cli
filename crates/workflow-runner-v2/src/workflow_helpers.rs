@@ -1,5 +1,5 @@
 use crate::ipc::{collect_json_payload_lines, run_prompt_against_runner};
-use crate::phase_executor::{PhaseExecutionMetadata, PhaseExecutionSignal};
+use crate::phase_executor::PhaseExecutionMetadata;
 use protocol::{default_primary_model_for_phase, tool_for_model_id};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -81,27 +81,6 @@ pub fn workflow_has_active_research(workflow: &orchestrator_core::OrchestratorWo
                     | orchestrator_core::WorkflowPhaseStatus::Running
             )
     })
-}
-
-pub fn phase_execution_events_from_signals(
-    project_root: &str,
-    workflow: &orchestrator_core::OrchestratorWorkflow,
-    metadata: &PhaseExecutionMetadata,
-    signals: &[PhaseExecutionSignal],
-) -> Vec<PhaseExecutionEvent> {
-    signals
-        .iter()
-        .map(|signal| PhaseExecutionEvent {
-            event_type: signal.event_type.clone(),
-            project_root: project_root.to_string(),
-            workflow_id: workflow.id.clone(),
-            task_id: workflow.task_id.clone(),
-            phase_id: metadata.phase_id.clone(),
-            phase_mode: metadata.phase_mode.clone(),
-            metadata: metadata.clone(),
-            payload: signal.payload.clone(),
-        })
-        .collect()
 }
 
 pub async fn attempt_ai_failure_recovery(

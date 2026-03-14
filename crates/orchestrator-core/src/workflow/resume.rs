@@ -150,19 +150,4 @@ impl WorkflowResumeManager {
             .collect())
     }
 
-    pub fn cleanup_stale_workflows(&self) -> Result<usize> {
-        let interrupted = self.detect_interrupted_workflows()?;
-        let mut removed = 0usize;
-
-        for workflow in interrupted {
-            if let ResumabilityStatus::Stale { workflow_id, .. } =
-                self.validate_resumability(&workflow)
-            {
-                self.state_manager.delete(&workflow_id)?;
-                removed = removed.saturating_add(1);
-            }
-        }
-
-        Ok(removed)
-    }
 }

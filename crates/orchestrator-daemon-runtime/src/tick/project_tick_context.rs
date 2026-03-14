@@ -55,15 +55,6 @@ impl ProjectTickContext {
         )
     }
 
-    pub fn active_hours_skip_message(&self) -> Option<String> {
-        self.active_hours.as_ref().map(|spec| {
-            format!(
-                "{}: outside active_hours ({}), skipping schedule dispatch",
-                protocol::ACTOR_DAEMON,
-                spec
-            )
-        })
-    }
 }
 
 fn load_active_hours(project_root: &str) -> Option<String> {

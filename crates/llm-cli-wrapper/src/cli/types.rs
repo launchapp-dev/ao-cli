@@ -94,9 +94,6 @@ impl CliMetadata {
         }
     }
 
-    pub fn is_usable(&self) -> bool {
-        matches!(self.status, CliStatus::Available)
-    }
 }
 
 impl CliCapability {

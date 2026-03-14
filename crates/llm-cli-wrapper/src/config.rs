@@ -45,9 +45,4 @@ impl Config {
         Ok(config)
     }
 
-    pub fn save_to_file(&self, path: &PathBuf) -> Result<()> {
-        let contents = toml::to_string_pretty(self)?;
-        std::fs::write(path, contents)?;
-        Ok(())
-    }
 }

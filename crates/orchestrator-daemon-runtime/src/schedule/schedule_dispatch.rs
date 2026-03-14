@@ -56,34 +56,6 @@ impl ScheduleDispatch {
         outcomes
     }
 
-    pub fn fire_schedule<PipelineSpawner>(
-        project_root: &str,
-        schedule_id: &str,
-        now: chrono::DateTime<chrono::Utc>,
-        trigger_source: &str,
-        mut spawn_pipeline: PipelineSpawner,
-    ) -> Result<String>
-    where
-        PipelineSpawner: FnMut(&str, &SubjectDispatch) -> Result<()>,
-    {
-        let config =
-            orchestrator_core::load_workflow_config_or_default(std::path::Path::new(project_root));
-        let schedule = config
-            .config
-            .schedules
-            .iter()
-            .find(|schedule| schedule.id == schedule_id)
-            .ok_or_else(|| anyhow::anyhow!("schedule not found: {schedule_id}"))?;
-        let status = dispatch_schedule(
-            schedule_id,
-            schedule,
-            now,
-            trigger_source,
-            &mut spawn_pipeline,
-        );
-
-        Ok(status)
-    }
 }
 
 fn dispatch_schedule<PipelineSpawner>(

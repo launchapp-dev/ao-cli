@@ -74,20 +74,6 @@ impl DaemonEventLog {
         append_line(&path, &serde_json::to_string(record)?)
     }
 
-    pub fn append_or_warn(event_type: &str, project_root: Option<String>, data: Value) {
-        let record = DaemonEventRecord {
-            schema: "ao.daemon.event.v1".to_string(),
-            id: Uuid::new_v4().to_string(),
-            seq: 0,
-            timestamp: Utc::now().to_rfc3339(),
-            event_type: event_type.to_string(),
-            project_root,
-            data,
-        };
-        if let Err(e) = Self::append(&record) {
-            eprintln!("[daemon-event-log] failed to append event '{}': {}", event_type, e);
-        }
-    }
 }
 
 const MAX_LOG_SIZE_BYTES: u64 = 10 * 1024 * 1024; // 10 MB

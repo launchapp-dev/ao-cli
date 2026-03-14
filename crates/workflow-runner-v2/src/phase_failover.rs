@@ -17,14 +17,6 @@ impl PhaseFailureKind {
         matches!(self, PhaseFailureKind::TransientRunner)
     }
 
-    pub fn is_provider_exhaustion(&self) -> bool {
-        matches!(self, PhaseFailureKind::ProviderExhaustion { .. })
-    }
-
-    pub fn is_target_unavailable(&self) -> bool {
-        matches!(self, PhaseFailureKind::TargetUnavailable)
-    }
-
     pub fn should_failover_target(&self) -> bool {
         matches!(
             self,
@@ -114,10 +106,6 @@ fn extract_provider_exhaustion_reason(text: &str) -> Option<String> {
 pub struct PhaseFailureClassifier;
 
 impl PhaseFailureClassifier {
-    pub fn classify(message: &str) -> PhaseFailureKind {
-        classify_phase_failure(message)
-    }
-
     pub fn is_transient_runner_error_message(message: &str) -> bool {
         classify_phase_failure(message).is_transient_runner()
     }

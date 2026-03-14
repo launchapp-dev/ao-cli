@@ -1,6 +1,45 @@
 use super::reconciliation_test_support::reconcile_stale_in_progress_tasks_for_project;
-use super::task_dispatch::run_ready_task_workflows_for_project;
 use super::*;
+
+async fn run_ready_task_workflows_for_project(
+    hub: Arc<dyn ServiceHub>,
+    project_root: &str,
+    max_tasks_per_tick: usize,
+) -> Result<orchestrator_daemon_runtime::DispatchWorkflowStartSummary> {
+    use crate::services::runtime::workflow_mutation_surface::start_workflow_for_dispatch;
+    use orchestrator_core::{should_skip_task_dispatch, workflow_ref_for_task};
+    use orchestrator_daemon_runtime::{DispatchWorkflowStart, DispatchSelectionSource};
+    let candidates = hub.tasks().list_prioritized().await?;
+    let workflows = hub.workflows().list().await?;
+    let active_ids: std::collections::HashSet<String> = workflows
+        .iter()
+        .filter(|w| matches!(w.status, orchestrator_core::WorkflowStatus::Running))
+        .map(|w| w.subject.id().to_string())
+        .collect();
+    let mut started_workflows = Vec::new();
+    for task in &candidates {
+        if started_workflows.len() >= max_tasks_per_tick {
+            break;
+        }
+        if task.paused || task.cancelled || task.status != orchestrator_core::TaskStatus::Ready {
+            continue;
+        }
+        if active_ids.contains(&task.id) || should_skip_task_dispatch(task) {
+            continue;
+        }
+        let dispatch = protocol::SubjectDispatch::for_task(&task.id, workflow_ref_for_task(task));
+        let workflow = start_workflow_for_dispatch(hub.clone(), project_root, &dispatch).await?;
+        started_workflows.push(DispatchWorkflowStart {
+            dispatch,
+            workflow_id: Some(workflow.id),
+            selection_source: DispatchSelectionSource::FallbackPicker,
+        });
+    }
+    Ok(orchestrator_daemon_runtime::DispatchWorkflowStartSummary {
+        started: started_workflows.len(),
+        started_workflows,
+    })
+}
 use crate::services::runtime::execution_fact_projection::reconcile_completed_processes;
 use crate::services::runtime::runtime_daemon::daemon_reconciliation::reconcile_manual_phase_timeouts;
 use chrono::Utc;

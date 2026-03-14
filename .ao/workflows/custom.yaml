@@ -6,6 +6,32 @@ agents:
     model: claude-sonnet-4-6
     tool: claude
 
+  work-planner:
+    system_prompt: |
+      You are the AO work planner. Your job is to scan the task backlog, determine what is ready to execute, and enqueue work for the daemon.
+
+      On each run you MUST:
+      1. Call ao.task.list with status "backlog" to find promotable tasks. For each with no unsatisfied dependencies, call ao.task.status to set it to "ready".
+      2. Call ao.task.list with status "blocked" to find unblockable tasks. If blocking condition resolved, set to "ready".
+      3. Call ao.task.prioritized to get highest priority ready tasks.
+      4. Call ao.queue.stats to check queue depth and daemon capacity.
+      5. For each eligible ready task (up to capacity), call ao.queue.enqueue with --task-id.
+
+      Do NOT enqueue tasks that have unsatisfied dependencies, are paused/cancelled, already in queue, or have consecutive_dispatch_failures > 3.
+      Check ao.daemon.health for pool capacity. Be conservative.
+    model: claude-sonnet-4-6
+    tool: claude
+
+  reconciler:
+    system_prompt: |
+      You are the AO task reconciler. Detect and fix task state inconsistencies.
+
+      Check for: (1) stale in-progress tasks with no active workflow — set back to ready, (2) blocked tasks whose dependencies are now done — unblock to ready, (3) tasks with completed workflows still marked in-progress — set to done.
+
+      Use ao.task.list and ao.task.get to inspect, ao.task.status to fix. Be precise.
+    model: claude-sonnet-4-6
+    tool: claude
+
   po-reviewer:
     system_prompt: |
       You are a Product Owner reviewing completed development work.
@@ -116,6 +142,16 @@ phase_catalog:
     description: "Start task workflows for linked requirement tasks"
     category: planning
     tags: [requirements, planning, orchestration]
+  work-planning:
+    label: "Work Planning"
+    description: "Scan tasks, check eligibility, and enqueue dispatches for the daemon"
+    category: planning
+    tags: [planning, dispatch, queue]
+  task-reconciliation:
+    label: "Task Reconciliation"
+    description: "Detect and fix task state inconsistencies"
+    category: operations
+    tags: [reconciliation, state-management]
   brain-requirement-scan:
     label: "Brain Requirement Scan"
     description: "List requirement candidates that still need planning work"
@@ -269,6 +305,14 @@ phases:
       instructions: "Review the implementation changes, run manual tests if needed, and approve or reject."
       approval_note_required: false
 
+  work-planning:
+    mode: agent
+    agent: work-planner
+    directive: "Scan the task backlog, check eligibility and dependencies, and enqueue ready work for the daemon via ao.queue.enqueue."
+  task-reconciliation:
+    mode: agent
+    agent: reconciler
+    directive: "Detect and fix task state inconsistencies: stale in-progress tasks, resolved dependency gates, and completed-but-unmarked tasks."
   unit-test:
     mode: command
     directive: "Run the workspace test suite"
@@ -488,3 +532,26 @@ workflows:
       - refine-requirements
       - brain-requirement-scan
       - brain-task-next
+
+  - id: work-planner
+    name: "Work Planner"
+    description: "Scans tasks, validates eligibility and dependencies, and enqueues ready work for daemon dispatch"
+    phases:
+      - work-planning
+
+  - id: task-reconciler
+    name: "Task Reconciler"
+    description: "Detects and fixes task state inconsistencies: stale tasks, resolved gates, completed projections"
+    phases:
+      - task-reconciliation
+
+schedules:
+  - id: work-planner
+    cron: "*/5 * * * *"
+    workflow_ref: work-planner
+    enabled: true
+
+  - id: task-reconciler
+    cron: "*/10 * * * *"
+    workflow_ref: task-reconciler
+    enabled: true

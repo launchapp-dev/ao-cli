@@ -392,53 +392,20 @@ fn default_target_branch() -> String {
     "main".to_string()
 }
 
-fn validate_cron_field(value: &str, name: &str, min: i32, max: i32) -> Result<()> {
-    if value == "*" {
-        return Ok(());
-    }
-
-    let parsed = value
-        .parse::<i32>()
-        .with_context(|| format!("{} '{}' is not a valid cron number", name, value))?;
-    if !(min..=max).contains(&parsed) {
-        anyhow::bail!(
-            "{} '{}' is out of range (expected {}-{})",
-            name,
-            parsed,
-            min,
-            max
-        );
-    }
-
-    Ok(())
-}
-
 fn validate_cron_expression(expression: &str) -> Result<()> {
     let expression = expression.trim();
     if expression.is_empty() {
         anyhow::bail!("cron expression must not be empty");
     }
 
-    if expression.starts_with('@') {
-        match expression.to_ascii_lowercase().as_str() {
-            "@hourly" | "@daily" | "@weekly" | "@monthly" => Ok(()),
-            _ => anyhow::bail!("unsupported cron shortcut '{}'", expression),
-        }
-    } else {
-        let fields: Vec<&str> = expression.split_whitespace().collect();
-        if fields.len() != 5 {
-            anyhow::bail!(
-                "cron expression '{}' must have 5 space-separated fields",
-                expression
-            );
-        }
-        validate_cron_field(fields[0], "minute", 0, 59)?;
-        validate_cron_field(fields[1], "hour", 0, 23)?;
-        validate_cron_field(fields[2], "day-of-month", 1, 31)?;
-        validate_cron_field(fields[3], "month", 1, 12)?;
-        validate_cron_field(fields[4], "day-of-week", 0, 7)?;
-        Ok(())
-    }
+    let parser = croner::parser::CronParser::builder()
+        .seconds(croner::parser::Seconds::Disallowed)
+        .year(croner::parser::Year::Disallowed)
+        .build();
+    parser
+        .parse(expression)
+        .map_err(|error| anyhow::anyhow!("invalid cron expression '{}': {}", expression, error))?;
+    Ok(())
 }
 
 fn is_supported_shortcut_cron(expression: &str) -> bool {

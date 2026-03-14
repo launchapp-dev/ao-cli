@@ -14,56 +14,14 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader
 use tokio::time::Duration;
 use uuid::Uuid;
 
-fn runner_scope_from_env() -> String {
-    std::env::var("AO_RUNNER_SCOPE")
-        .ok()
-        .map(|value| value.trim().to_ascii_lowercase())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "project".to_string())
-}
-
-fn default_global_config_dir() -> PathBuf {
-    #[cfg(target_os = "macos")]
-    {
-        dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("com.launchpad.agent-orchestrator")
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("com.launchpad.agent-orchestrator")
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("agent-orchestrator")
-    }
-}
-
 fn scoped_ao_root(project_root: &Path) -> Option<PathBuf> {
     protocol::scoped_state_root(project_root)
 }
 
 pub fn runner_config_dir(project_root: &Path) -> PathBuf {
-    let config_dir = if let Some(override_path) = std::env::var("AO_RUNNER_CONFIG_DIR")
-        .ok()
-        .or_else(|| std::env::var("AO_CONFIG_DIR").ok())
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-    {
-        PathBuf::from(override_path)
-    } else if runner_scope_from_env() == "global" {
-        default_global_config_dir()
-    } else {
-        scoped_ao_root(project_root)
-            .unwrap_or_else(|| project_root.join(".ao"))
-            .join("runner")
-    };
+    let config_dir = scoped_ao_root(project_root)
+        .unwrap_or_else(|| project_root.join(".ao"))
+        .join("runner");
 
     normalize_runner_config_dir(config_dir)
 }

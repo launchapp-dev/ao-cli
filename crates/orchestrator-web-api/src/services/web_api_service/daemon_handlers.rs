@@ -19,7 +19,7 @@ impl WebApiService {
     }
 
     pub async fn daemon_start(&self) -> Result<Value, WebApiError> {
-        self.context.hub.daemon().start().await?;
+        self.context.hub.daemon().start(Default::default()).await?;
         self.publish_event("daemon-start", json!({ "message": "daemon started" }));
         Ok(json!({ "message": "daemon started" }))
     }

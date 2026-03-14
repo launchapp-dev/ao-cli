@@ -195,7 +195,7 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
         return Err(anyhow!("workflow has no phases to execute"));
     }
 
-    if let Err(err) = hub.daemon().start().await {
+    if let Err(err) = hub.daemon().start(Default::default()).await {
         eprintln!("warning: failed to auto-start runner for workflow execute: {err}");
     }
 

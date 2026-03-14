@@ -253,7 +253,7 @@ async fn refresh_runner_after_runtime_binary_build(hub: Arc<dyn ServiceHub>) -> 
             .unwrap_or(orchestrator_core::DaemonStatus::Running);
         let _ = daemon.stop().await;
         daemon
-            .start()
+            .start(Default::default())
             .await
             .context("failed to restart runner after runtime binary refresh")?;
         if previous_status == orchestrator_core::DaemonStatus::Paused {

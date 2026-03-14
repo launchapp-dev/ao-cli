@@ -44,11 +44,6 @@ impl CliValidator {
         Self { rules: Vec::new() }
     }
 
-    pub fn add_rule(mut self, rule: ValidationRule) -> Self {
-        self.rules.push(rule);
-        self
-    }
-
     pub fn validate(&self, output: &CliOutput) -> ValidationResult {
         let mut failures = Vec::new();
 

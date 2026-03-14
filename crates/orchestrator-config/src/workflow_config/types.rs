@@ -192,15 +192,6 @@ impl WorkflowDefinition {
             .collect()
     }
 
-    pub fn on_verdict_for_phase(
-        &self,
-        phase_id: &str,
-    ) -> Option<&HashMap<String, PhaseTransitionConfig>> {
-        self.phases
-            .iter()
-            .find(|entry| entry.phase_id().eq_ignore_ascii_case(phase_id))
-            .and_then(|entry| entry.on_verdict())
-    }
 }
 
 pub fn expand_workflow_phases(

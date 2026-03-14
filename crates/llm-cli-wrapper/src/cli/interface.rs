@@ -31,11 +31,6 @@ impl CliCommand {
         }
     }
 
-    pub fn with_file(mut self, file: PathBuf) -> Self {
-        self.files.push(file);
-        self
-    }
-
     pub fn with_working_dir(mut self, dir: PathBuf) -> Self {
         self.working_dir = Some(dir);
         self

@@ -110,9 +110,4 @@ impl RuntimeConfigContext {
         self.phase_execution(phase_id)
             .and_then(|def| def.command.as_ref())
     }
-
-    pub fn phase_default_tool(&self, phase_id: &str) -> Option<String> {
-        self.phase_execution(phase_id)
-            .and_then(|def| def.default_tool.clone())
-    }
 }

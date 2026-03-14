@@ -765,20 +765,9 @@ impl AgentRuntimeConfig {
             .and_then(|def| def.decision_contract.as_ref())
     }
 
-    pub fn phase_retry_config(&self, phase_id: &str) -> PhaseRetryConfig {
-        self.phase_execution(phase_id)
-            .and_then(|definition| definition.retry.clone())
-            .unwrap_or_default()
-    }
-
     pub fn phase_command(&self, phase_id: &str) -> Option<&PhaseCommandDefinition> {
         self.phase_execution(phase_id)
             .and_then(|definition| definition.command.as_ref())
-    }
-
-    pub fn phase_manual(&self, phase_id: &str) -> Option<&PhaseManualDefinition> {
-        self.phase_execution(phase_id)
-            .and_then(|definition| definition.manual.as_ref())
     }
 
     pub fn is_structured_output_phase(&self, phase_id: &str) -> bool {
@@ -828,25 +817,6 @@ impl AgentRuntimeConfig {
             .collect()
     }
 
-    pub fn structured_output_default_tool(&self) -> String {
-        let allowlist = self.structured_output_allowed_tools();
-        if allowlist
-            .iter()
-            .any(|tool| tool.eq_ignore_ascii_case("claude"))
-        {
-            return "claude".to_string();
-        }
-        if allowlist
-            .iter()
-            .any(|tool| tool.eq_ignore_ascii_case("codex"))
-        {
-            return "codex".to_string();
-        }
-        allowlist
-            .first()
-            .cloned()
-            .unwrap_or_else(|| "claude".to_string())
-    }
 }
 
 pub fn builtin_agent_runtime_config() -> AgentRuntimeConfig {

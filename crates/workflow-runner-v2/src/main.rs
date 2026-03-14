@@ -58,6 +58,15 @@ struct WorkflowExecuteArgs {
 
     #[arg(long)]
     phase_timeout_secs: Option<u64>,
+
+    #[arg(long)]
+    phase_routing_json: Option<String>,
+
+    #[arg(long)]
+    mcp_config_json: Option<String>,
+
+    #[arg(long)]
+    stream_level: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -109,6 +118,11 @@ async fn run_execute(args: WorkflowExecuteArgs) -> anyhow::Result<u8> {
     };
     eprintln!("{}", serde_json::to_string(&startup).unwrap_or_default());
 
+    let phase_routing = args.phase_routing_json.as_deref()
+        .and_then(|json| serde_json::from_str(json).ok());
+    let mcp_config = args.mcp_config_json.as_deref()
+        .and_then(|json| serde_json::from_str(json).ok());
+
     let params = WorkflowExecuteParams {
         project_root: args.project_root,
         workflow_id: args.workflow_id,
@@ -127,9 +141,11 @@ async fn run_execute(args: WorkflowExecuteArgs) -> anyhow::Result<u8> {
         tool: args.tool,
         phase_timeout_secs: args.phase_timeout_secs,
         phase_filter: None,
-        stream_level: None,
+        stream_level: args.stream_level,
         on_phase_event: None,
         hub: None,
+        phase_routing,
+        mcp_config,
     };
 
     let result = execute_workflow(params).await;

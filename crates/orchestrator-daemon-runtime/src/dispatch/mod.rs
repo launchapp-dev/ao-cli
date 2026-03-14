@@ -10,7 +10,7 @@ mod dispatch_workflow_start_summary;
 mod process_manager;
 mod ready_dispatch_plan;
 
-pub use build_runner_command_from_dispatch::build_runner_command_from_dispatch;
+pub use build_runner_command_from_dispatch::{build_runner_command, build_runner_command_from_dispatch};
 pub use completed_process::CompletedProcess;
 pub use completion_reconciliation_plan::{
     build_completion_reconciliation_plan, CompletionReconciliationPlan,

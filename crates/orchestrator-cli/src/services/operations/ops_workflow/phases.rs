@@ -316,6 +316,8 @@ pub(crate) async fn approve_manual_phase(
             stream_level: Some("quiet".to_string()),
             on_phase_event: None,
             hub: Some(hub.clone()),
+            phase_routing: None,
+            mcp_config: None,
         })
         .await
         {

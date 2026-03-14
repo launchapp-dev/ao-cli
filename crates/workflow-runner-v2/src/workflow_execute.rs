@@ -58,6 +58,8 @@ pub struct WorkflowExecuteParams {
     pub stream_level: Option<String>,
     pub on_phase_event: Option<PhaseEventCallback>,
     pub hub: Option<Arc<dyn ServiceHub>>,
+    pub phase_routing: Option<protocol::PhaseRoutingConfig>,
+    pub mcp_config: Option<protocol::McpRuntimeConfig>,
 }
 
 pub struct WorkflowExecuteResult {
@@ -122,9 +124,9 @@ fn workflow_phase_inputs(workflow: &OrchestratorWorkflow) -> WorkflowPhaseInputs
     }
 }
 
-pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowExecuteResult> {
+pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<WorkflowExecuteResult> {
     let stream_level = params.stream_level.as_deref().unwrap_or("quiet").to_string();
-    let routing = protocol::PhaseRoutingConfig::from_env();
+    let routing = params.phase_routing.take().unwrap_or_else(protocol::PhaseRoutingConfig::from_env);
     let phase_timeout_secs = params.phase_timeout_secs;
 
     let hub: Arc<dyn ServiceHub> = match params.hub {
@@ -1528,6 +1530,8 @@ mod requirement_workflow_tests {
             stream_level: Some("quiet".to_string()),
             on_phase_event: None,
             hub: Some(hub.clone()),
+            phase_routing: None,
+            mcp_config: None,
         })
         .await
         .expect("workflow execution should succeed");

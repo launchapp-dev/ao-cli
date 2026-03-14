@@ -77,6 +77,8 @@ pub(crate) async fn handle_workflow_execute(
         stream_level: Some(stream_level.to_string()),
         on_phase_event: Some(on_phase_event),
         hub: Some(hub.clone()),
+        phase_routing: None,
+        mcp_config: None,
     };
 
     let result = execute_workflow(params).await?;

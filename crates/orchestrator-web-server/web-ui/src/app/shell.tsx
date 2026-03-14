@@ -20,6 +20,9 @@ import {
   Menu,
   ChevronRight,
   X,
+  Sun,
+  Moon,
+  Monitor,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -30,6 +33,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { GraphQLProvider } from "@/lib/graphql/provider";
 import { Toaster } from "@/components/ui/sonner";
+import { useTheme } from "./theme-provider";
 
 export const PRIMARY_NAV_ITEMS = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -126,6 +130,7 @@ function AppShellFrame() {
                 {"\u2318"}K
               </kbd>
             </Button>
+            <ThemeToggle />
           </div>
         </header>
 
@@ -145,7 +150,7 @@ function AppShellFrame() {
         onOpenChange={setCommandOpen}
         navigate={navigate}
       />
-      <Toaster theme="dark" position="bottom-right" richColors />
+      <ThemedToaster />
     </div>
   );
 }
@@ -190,6 +195,27 @@ function SidebarContent() {
       </nav>
     </div>
   );
+}
+
+function ThemeToggle() {
+  const { theme, setTheme } = useTheme();
+  const cycle = () => {
+    if (theme === "system") setTheme("dark");
+    else if (theme === "dark") setTheme("light");
+    else setTheme("system");
+  };
+  return (
+    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={cycle} aria-label="Toggle theme">
+      {theme === "dark" ? <Moon className="h-3.5 w-3.5" /> :
+       theme === "light" ? <Sun className="h-3.5 w-3.5" /> :
+       <Monitor className="h-3.5 w-3.5" />}
+    </Button>
+  );
+}
+
+function ThemedToaster() {
+  const { resolvedTheme } = useTheme();
+  return <Toaster theme={resolvedTheme} position="bottom-right" richColors />;
 }
 
 function CommandPalette({

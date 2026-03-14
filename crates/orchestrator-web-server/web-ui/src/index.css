@@ -46,8 +46,17 @@
     --ao-surface: oklch(0.15 0.012 260);
     --ao-surface-hover: oklch(0.18 0.015 260);
     --ao-amber: oklch(0.80 0.16 75);
+    --ao-amber-bg: oklch(0.80 0.16 75 / 8%);
+    --ao-amber-border: oklch(0.80 0.16 75 / 25%);
     --ao-success: oklch(0.72 0.19 155);
+    --ao-success-bg: oklch(0.72 0.19 155 / 8%);
+    --ao-success-border: oklch(0.72 0.19 155 / 25%);
     --ao-running: oklch(0.70 0.15 250);
+    --ao-running-bg: oklch(0.70 0.15 250 / 8%);
+    --ao-running-border: oklch(0.70 0.15 250 / 25%);
+    --ao-info: oklch(0.72 0.14 230);
+    --ao-info-bg: oklch(0.72 0.14 230 / 8%);
+    --ao-info-border: oklch(0.72 0.14 230 / 25%);
 }
 
 @theme inline {
@@ -138,24 +147,24 @@
   }
 
   .ao-status-dot--live {
-    background: oklch(0.72 0.19 155);
-    box-shadow: 0 0 6px oklch(0.72 0.19 155 / 60%);
+    background: var(--ao-success);
+    box-shadow: 0 0 6px var(--ao-success-border);
     animation: ao-pulse 2s ease-in-out infinite;
   }
 
   .ao-status-dot--running {
-    background: oklch(0.70 0.15 250);
-    box-shadow: 0 0 6px oklch(0.70 0.15 250 / 60%);
+    background: var(--ao-running);
+    box-shadow: 0 0 6px var(--ao-running-border);
     animation: ao-pulse 2s ease-in-out infinite;
   }
 
   .ao-status-dot--error {
-    background: oklch(0.65 0.22 25);
+    background: var(--destructive);
     box-shadow: 0 0 6px oklch(0.65 0.22 25 / 50%);
   }
 
   .ao-status-dot--idle {
-    background: oklch(0.55 0.02 260);
+    background: var(--muted-foreground);
   }
 
   .ao-fade-in {

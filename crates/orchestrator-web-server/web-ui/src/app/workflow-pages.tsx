@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useQuery, useMutation } from "@/lib/graphql/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,6 +17,8 @@ import {
   ApprovePhaseDocument,
 } from "@/lib/graphql/generated/graphql";
 import { statusColor, StatusDot, PageLoading, PageError, StatCard, SectionHeading } from "./shared";
+
+const PHASE_OUTPUT_QUERY = `query PhaseOutput($workflowId: ID!, $phaseId: String, $tail: Int) { phaseOutput(workflowId: $workflowId, phaseId: $phaseId, tail: $tail) { lines phaseId hasMore } }`;
 
 function useElapsedTime(startedAt: string | null | undefined): string {
   const [, setTick] = useState(0);
@@ -66,6 +68,57 @@ function getWorkflowCompletedAt(wf: { phases?: readonly { completedAt?: string |
     if (phases[i].completedAt) return phases[i].completedAt!;
   }
   return null;
+}
+
+function PhaseOutputPanel({ workflowId, currentPhase, isRunning }: { workflowId: string; currentPhase: string | null | undefined; isRunning: boolean }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const outputRef = useRef<HTMLPreElement>(null);
+  const phaseId = currentPhase ?? undefined;
+
+  const [result, reexecute] = useQuery<{ phaseOutput: { lines: string[]; phaseId: string; hasMore: boolean } }>({
+    query: PHASE_OUTPUT_QUERY,
+    variables: { workflowId, phaseId, tail: 200 },
+  });
+
+  useEffect(() => {
+    if (!isRunning) return;
+    const id = setInterval(() => reexecute(), 3000);
+    return () => clearInterval(id);
+  }, [isRunning, reexecute]);
+
+  useEffect(() => {
+    if (outputRef.current) {
+      outputRef.current.scrollTop = outputRef.current.scrollHeight;
+    }
+  }, [result.data?.phaseOutput?.lines]);
+
+  const output = result.data?.phaseOutput;
+
+  return (
+    <Card className="border-border/40 bg-card/60">
+      <CardHeader className="pb-2 pt-3 px-4">
+        <button type="button" onClick={() => setCollapsed(!collapsed)} className="flex items-center justify-between w-full">
+          <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground/60 font-medium">
+            Agent Output
+            {output && <span className="ml-2 normal-case tracking-normal text-muted-foreground/40">{output.phaseId} &middot; {output.lines.length} line{output.lines.length !== 1 ? "s" : ""}{output.hasMore ? "+" : ""}</span>}
+          </CardTitle>
+          <span className="text-xs text-muted-foreground">{collapsed ? "\u25B6" : "\u25BC"}</span>
+        </button>
+      </CardHeader>
+      {!collapsed && (
+        <CardContent className="px-4 pb-3">
+          {result.fetching && !output && <p className="text-xs text-muted-foreground">Loading...</p>}
+          {result.error && <p className="text-xs text-destructive">{result.error.message}</p>}
+          {output && output.lines.length === 0 && <p className="text-xs text-muted-foreground/60">No output yet</p>}
+          {output && output.lines.length > 0 && (
+            <pre ref={outputRef} className="text-xs font-mono overflow-auto max-h-80 p-3 rounded bg-muted/20 whitespace-pre-wrap">
+              {output.lines.join("\n")}
+            </pre>
+          )}
+        </CardContent>
+      )}
+    </Card>
+  );
 }
 
 type WfPhase = { phaseId: string; status?: string | null; startedAt?: string | null; completedAt?: string | null; attempt?: number | null; errorMessage?: string | null };
@@ -421,7 +474,7 @@ export function WorkflowDetailPage() {
               rows={3}
             />
             <div className="flex gap-2">
-              <Button size="sm" disabled={wfOperating} onClick={() => wfAction("Resume", () => resumeWf({ id: workflowId! }))}>
+              <Button size="sm" disabled={wfOperating} onClick={() => wfAction("Resume", () => resumeWf({ id: workflowId!, feedback: escalationFeedback || null }))}>
                 Resume
               </Button>
               <Button size="sm" variant="outline" disabled={wfOperating} onClick={() => wfAction("Skip", () => approvePhase({ workflowId: workflowId!, phaseId: wf.currentPhase ?? "", note: escalationFeedback || null }))}>
@@ -577,6 +630,8 @@ export function WorkflowDetailPage() {
           </div>
         </CardContent>
       </Card>
+
+      <PhaseOutputPanel workflowId={workflowId!} currentPhase={wf.currentPhase} isRunning={isRunning} />
 
       {checkpoints.length > 0 && (
         <Card className="border-border/40 bg-card/60">

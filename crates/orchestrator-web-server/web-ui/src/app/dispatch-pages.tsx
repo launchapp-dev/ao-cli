@@ -12,14 +12,10 @@ import {
   WorkflowDefinitionsDocument,
   DaemonDocument,
   RunWorkflowDocument,
+  DispatchRequirementsDocument,
 } from "@/lib/graphql/generated/graphql";
 import { statusColor, priorityColor, PageLoading, PageError } from "./shared";
 
-const REQUIREMENTS_QUERY = `
-  query Requirements {
-    requirements { id title description priority priorityRaw status statusRaw requirementType tags linkedTaskIds acceptanceCriteria }
-  }
-`;
 
 function WorkflowTypeSelector({
   value,
@@ -411,12 +407,16 @@ export function TaskDispatchPage() {
 }
 
 export function RequirementDispatchPage() {
-  const [{ data, fetching, error }] = useQuery({ query: REQUIREMENTS_QUERY });
+  const [{ data, fetching, error }] = useQuery({ query: DispatchRequirementsDocument });
   const [defsResult] = useQuery({ query: WorkflowDefinitionsDocument });
+  const [, runWorkflow] = useMutation(RunWorkflowDocument);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [autoStart, setAutoStart] = useState(true);
   const [includeWont, setIncludeWont] = useState(false);
   const [workflowType, setWorkflowType] = useState<string>("standard");
+  const [executing, setExecuting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [results, setResults] = useState<{ dispatched: number; errors: string[] } | null>(null);
 
   const definitions = defsResult.data?.workflowDefinitions ?? [];
 
@@ -427,12 +427,7 @@ export function RequirementDispatchPage() {
   }, [definitions, workflowType]);
 
   const requirements = useMemo(() => {
-    const list = (data?.requirements ?? []) as Array<{
-      id: string;
-      title: string;
-      priorityRaw: string;
-      statusRaw: string;
-    }>;
+    const list = data?.requirements ?? [];
     if (includeWont) return list;
     return list.filter((r) => r.priorityRaw !== "wont");
   }, [data, includeWont]);
@@ -451,6 +446,46 @@ export function RequirementDispatchPage() {
 
   const selectMust = () => {
     setSelectedIds(new Set(requirements.filter((r) => r.priorityRaw === "must").map((r) => r.id)));
+  };
+
+  const selectedDef = useMemo(
+    () => definitions.find((d) => d.id === workflowType),
+    [definitions, workflowType]
+  );
+
+  const onExecute = async () => {
+    const selected = requirements.filter((r) => selectedIds.has(r.id));
+    const taskIds = new Set<string>();
+    for (const req of selected) {
+      for (const tid of req.linkedTaskIds) {
+        taskIds.add(tid);
+      }
+    }
+
+    if (!autoStart || taskIds.size === 0) {
+      setResults({ dispatched: 0, errors: taskIds.size === 0 ? ["No linked tasks found for selected requirements"] : [] });
+      return;
+    }
+
+    setExecuting(true);
+    setErrorMsg(null);
+    setResults(null);
+
+    const workflowRef = selectedDef && selectedDef.id !== "standard" ? selectedDef.id : null;
+    const errors: string[] = [];
+    let dispatched = 0;
+
+    for (const taskId of taskIds) {
+      const { error: err } = await runWorkflow({ taskId, workflowRef });
+      if (err) {
+        errors.push(`${taskId}: ${err.message}`);
+      } else {
+        dispatched++;
+      }
+    }
+
+    setExecuting(false);
+    setResults({ dispatched, errors });
   };
 
   if (fetching || defsResult.fetching) return <PageLoading />;
@@ -556,10 +591,35 @@ export function RequirementDispatchPage() {
         </CardContent>
       </Card>
 
-      <div className="space-y-2">
-        <Button disabled>Execute Requirements</Button>
-        <ComingSoonNotice command="ao workflow run --requirement-id" />
-      </div>
+      {errorMsg && (
+        <Alert variant="destructive" className="ao-fade-in border-destructive/30 bg-destructive/8">
+          <AlertDescription>{errorMsg}</AlertDescription>
+        </Alert>
+      )}
+
+      {results && (
+        <Card className="border-border/40 bg-card/60 ao-fade-in">
+          <CardContent className="px-4 py-4 space-y-2">
+            <p className="text-sm">
+              Workflows dispatched: <span className="font-mono font-semibold">{results.dispatched}</span>
+            </p>
+            {results.errors.length > 0 && (
+              <div className="space-y-1">
+                {results.errors.map((err, i) => (
+                  <p key={i} className="text-sm text-destructive">{err}</p>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      <Button
+        onClick={onExecute}
+        disabled={selectedIds.size === 0 || executing}
+      >
+        {executing ? "Executing..." : "Execute Requirements"}
+      </Button>
     </div>
   );
 }

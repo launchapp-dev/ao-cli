@@ -16,3 +16,17 @@ query WorkflowDefinitions {
     phases
   }
 }
+
+query DispatchRequirements {
+  requirements {
+    id
+    title
+    description
+    priorityRaw
+    statusRaw
+    requirementType
+    tags
+    linkedTaskIds
+    acceptanceCriteria
+  }
+}

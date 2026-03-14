@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { useQuery } from "@/lib/graphql/client";
+import { useQuery, useMutation } from "@/lib/graphql/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -530,6 +530,8 @@ function TransitionsTable({ phases }: { phases: PhaseEntry[] }) {
   );
 }
 
+const UPSERT_MUTATION = `mutation UpsertWorkflowDefinition($id: String!, $name: String!, $description: String, $phases: String!, $variables: String) { upsertWorkflowDefinition(id: $id, name: $name, description: $description, phases: $phases, variables: $variables) }`;
+
 function EditorCore({
   initial,
   isNew,
@@ -543,7 +545,9 @@ function EditorCore({
   const [showPreview, setShowPreview] = useState(false);
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState(0);
+  const [, upsertDef] = useMutation(UPSERT_MUTATION);
 
   const errorPhaseIds = useMemo(() => {
     if (!validation) return new Set<string>();
@@ -592,12 +596,44 @@ function EditorCore({
     setValidation(validateDef(def));
   };
 
-  const onSave = () => {
+  const onSave = async () => {
     const result = validateDef(def);
     setValidation(result);
     if (!result.valid) return;
-    setSaveMsg("Workflow definition ready \u2014 use `ao workflow definitions upsert` to save");
-    setTimeout(() => setSaveMsg(null), 5000);
+    setSaveError(null);
+    const phasesJson = JSON.stringify(def.phases.map((p) => ({
+      id: p.id,
+      max_rework_attempts: p.maxReworkAttempts,
+      skip_if: p.skipIf.length > 0 ? p.skipIf : undefined,
+      on_verdict: {
+        advance: p.onVerdict.advance.target ? { target: p.onVerdict.advance.target } : undefined,
+        rework: p.onVerdict.rework.target || p.onVerdict.rework.allowAgentTarget ? {
+          target: p.onVerdict.rework.target ?? undefined,
+          allow_agent_target: p.onVerdict.rework.allowAgentTarget || undefined,
+        } : undefined,
+        fail: p.onVerdict.fail.target ? { target: p.onVerdict.fail.target } : undefined,
+      },
+    })));
+    const variablesJson = def.variables.length > 0 ? JSON.stringify(def.variables.map((v) => ({
+      name: v.name,
+      description: v.description || undefined,
+      required: v.required || undefined,
+      default: v.default || undefined,
+    }))) : undefined;
+    const { error: err } = await upsertDef({
+      id: def.id,
+      name: def.name,
+      description: def.description || null,
+      phases: phasesJson,
+      variables: variablesJson,
+    });
+    if (err) {
+      setSaveError(err.message);
+    } else {
+      setDirty(false);
+      setSaveMsg("Workflow saved");
+      setTimeout(() => setSaveMsg(null), 3000);
+    }
   };
 
   const selectedPhase = selectedPhaseIdx !== null ? def.phases[selectedPhaseIdx] : null;
@@ -634,6 +670,12 @@ function EditorCore({
       {saveMsg && (
         <Alert className="ao-fade-in">
           <AlertDescription>{saveMsg}</AlertDescription>
+        </Alert>
+      )}
+
+      {saveError && (
+        <Alert variant="destructive" role="alert" className="ao-fade-in">
+          <AlertDescription>{saveError}</AlertDescription>
         </Alert>
       )}
 
@@ -804,11 +846,15 @@ function EditorCore({
   );
 }
 
+const DELETE_MUTATION = `mutation DeleteWorkflowDefinition($id: ID!) { deleteWorkflowDefinition(id: $id) }`;
+
 export function WorkflowBuilderBrowsePage() {
   const navigate = useNavigate();
-  const [result] = useQuery({ query: WorkflowDefinitionsDocument });
+  const [result, reexecute] = useQuery({ query: WorkflowDefinitionsDocument });
+  const [, deleteDef] = useMutation(DELETE_MUTATION);
   const [duplicateTarget, setDuplicateTarget] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const { data, fetching, error } = result;
 
@@ -914,9 +960,24 @@ export function WorkflowBuilderBrowsePage() {
           <Card className="border-border/40 bg-card w-80">
             <CardContent className="pt-4 pb-4 px-4 space-y-3">
               <p className="text-sm font-medium">Delete Workflow</p>
-              <p className="text-xs text-muted-foreground">Coming soon</p>
-              <div className="flex justify-end">
-                <Button size="sm" variant="outline" onClick={() => setDeleteTarget(null)}>Close</Button>
+              <p className="text-xs text-muted-foreground">Are you sure you want to delete <span className="font-mono">{deleteTarget}</span>? This cannot be undone.</p>
+              {deleteError && (
+                <Alert variant="destructive" role="alert">
+                  <AlertDescription>{deleteError}</AlertDescription>
+                </Alert>
+              )}
+              <div className="flex justify-end gap-2">
+                <Button size="sm" variant="outline" onClick={() => { setDeleteTarget(null); setDeleteError(null); }}>Cancel</Button>
+                <Button size="sm" variant="destructive" onClick={async () => {
+                  const { error: err } = await deleteDef({ id: deleteTarget });
+                  if (err) {
+                    setDeleteError(err.message);
+                  } else {
+                    setDeleteTarget(null);
+                    setDeleteError(null);
+                    reexecute();
+                  }
+                }}>Delete</Button>
               </div>
             </CardContent>
           </Card>

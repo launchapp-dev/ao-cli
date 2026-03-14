@@ -177,6 +177,12 @@ export type GqlRequirement = {
   title: Scalars['String']['output'];
 };
 
+export type GqlRequirementConnection = {
+  __typename?: 'GqlRequirementConnection';
+  items: Array<GqlRequirement>;
+  totalCount: Scalars['Int']['output'];
+};
+
 export enum GqlRequirementPriority {
   Could = 'COULD',
   Must = 'MUST',
@@ -248,6 +254,12 @@ export type GqlTask = {
   title: Scalars['String']['output'];
 };
 
+export type GqlTaskConnection = {
+  __typename?: 'GqlTaskConnection';
+  items: Array<GqlTask>;
+  totalCount: Scalars['Int']['output'];
+};
+
 export type GqlTaskStats = {
   __typename?: 'GqlTaskStats';
   byPriority?: Maybe<Scalars['String']['output']>;
@@ -310,6 +322,12 @@ export type GqlWorkflowCheckpoint = {
   timestamp?: Maybe<Scalars['String']['output']>;
 };
 
+export type GqlWorkflowConnection = {
+  __typename?: 'GqlWorkflowConnection';
+  items: Array<GqlWorkflow>;
+  totalCount: Scalars['Int']['output'];
+};
+
 export type GqlWorkflowDefinition = {
   __typename?: 'GqlWorkflowDefinition';
   description?: Maybe<Scalars['String']['output']>;
@@ -348,6 +366,7 @@ export type MutationRoot = {
   deleteProject: Scalars['Boolean']['output'];
   deleteRequirement: Scalars['Boolean']['output'];
   deleteTask: Scalars['Boolean']['output'];
+  deleteWorkflowDefinition: Scalars['Boolean']['output'];
   dependencyAdd: GqlTask;
   dependencyRemove: GqlTask;
   draftRequirement: GqlRequirement;
@@ -366,6 +385,7 @@ export type MutationRoot = {
   updateRequirement: GqlRequirement;
   updateTask: GqlTask;
   updateTaskStatus: GqlTask;
+  upsertWorkflowDefinition: Scalars['Boolean']['output'];
 };
 
 
@@ -449,6 +469,11 @@ export type MutationRootDeleteRequirementArgs = {
 
 
 export type MutationRootDeleteTaskArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationRootDeleteWorkflowDefinitionArgs = {
   id: Scalars['ID']['input'];
 };
 
@@ -568,6 +593,15 @@ export type MutationRootUpdateTaskStatusArgs = {
   status: Scalars['String']['input'];
 };
 
+
+export type MutationRootUpsertWorkflowDefinitionArgs = {
+  description?: InputMaybe<Scalars['String']['input']>;
+  id: Scalars['String']['input'];
+  name: Scalars['String']['input'];
+  phases: Scalars['String']['input'];
+  variables?: InputMaybe<Scalars['String']['input']>;
+};
+
 export type QueryRoot = {
   __typename?: 'QueryRoot';
   agentRuns: Array<GqlAgentRun>;
@@ -583,17 +617,20 @@ export type QueryRoot = {
   readyTasks: Array<GqlTask>;
   requirement?: Maybe<GqlRequirement>;
   requirements: Array<GqlRequirement>;
+  requirementsPaginated: GqlRequirementConnection;
   systemInfo: GqlSystemInfo;
   task?: Maybe<GqlTask>;
   taskStats: GqlTaskStats;
   tasks: Array<GqlTask>;
   tasksNext?: Maybe<GqlTask>;
+  tasksPaginated: GqlTaskConnection;
   tasksPrioritized: Array<GqlTask>;
   vision?: Maybe<GqlVision>;
   workflow?: Maybe<GqlWorkflow>;
   workflowCheckpoints: Array<GqlWorkflowCheckpoint>;
   workflowDefinitions: Array<GqlWorkflowDefinition>;
   workflows: Array<GqlWorkflow>;
+  workflowsPaginated: GqlWorkflowConnection;
 };
 
 
@@ -625,12 +662,28 @@ export type QueryRootRequirementArgs = {
 };
 
 
+export type QueryRootRequirementsPaginatedArgs = {
+  limit?: Scalars['Int']['input'];
+  offset?: Scalars['Int']['input'];
+};
+
+
 export type QueryRootTaskArgs = {
   id: Scalars['ID']['input'];
 };
 
 
 export type QueryRootTasksArgs = {
+  priority?: InputMaybe<Scalars['String']['input']>;
+  search?: InputMaybe<Scalars['String']['input']>;
+  status?: InputMaybe<Scalars['String']['input']>;
+  taskType?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type QueryRootTasksPaginatedArgs = {
+  limit?: Scalars['Int']['input'];
+  offset?: Scalars['Int']['input'];
   priority?: InputMaybe<Scalars['String']['input']>;
   search?: InputMaybe<Scalars['String']['input']>;
   status?: InputMaybe<Scalars['String']['input']>;
@@ -649,6 +702,13 @@ export type QueryRootWorkflowCheckpointsArgs = {
 
 
 export type QueryRootWorkflowsArgs = {
+  status?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type QueryRootWorkflowsPaginatedArgs = {
+  limit?: Scalars['Int']['input'];
+  offset?: Scalars['Int']['input'];
   status?: InputMaybe<Scalars['String']['input']>;
 };
 
@@ -673,6 +733,24 @@ export type SubscriptionRootTaskEventsArgs = {
 export type SubscriptionRootWorkflowEventsArgs = {
   workflowId?: InputMaybe<Scalars['String']['input']>;
 };
+
+export type UpsertWorkflowDefinitionMutationVariables = Exact<{
+  id: Scalars['String']['input'];
+  name: Scalars['String']['input'];
+  description?: InputMaybe<Scalars['String']['input']>;
+  phases: Scalars['String']['input'];
+  variables?: InputMaybe<Scalars['String']['input']>;
+}>;
+
+
+export type UpsertWorkflowDefinitionMutation = { __typename?: 'MutationRoot', upsertWorkflowDefinition: boolean };
+
+export type DeleteWorkflowDefinitionMutationVariables = Exact<{
+  id: Scalars['ID']['input'];
+}>;
+
+
+export type DeleteWorkflowDefinitionMutation = { __typename?: 'MutationRoot', deleteWorkflowDefinition: boolean };
 
 export type DaemonQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -721,6 +799,11 @@ export type WorkflowDefinitionsQueryVariables = Exact<{ [key: string]: never; }>
 
 
 export type WorkflowDefinitionsQuery = { __typename?: 'QueryRoot', workflowDefinitions: Array<{ __typename?: 'GqlWorkflowDefinition', id: string, name: string, description?: string | null, phases: Array<string> }> };
+
+export type DispatchRequirementsQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type DispatchRequirementsQuery = { __typename?: 'QueryRoot', requirements: Array<{ __typename?: 'GqlRequirement', id: string, title: string, description: string, priorityRaw: string, statusRaw: string, requirementType?: GqlRequirementType | null, tags: Array<string>, linkedTaskIds: Array<string>, acceptanceCriteria: Array<string> }> };
 
 export type DaemonEventsSubscriptionVariables = Exact<{
   eventType?: InputMaybe<Scalars['String']['input']>;
@@ -1044,6 +1127,7 @@ export type PauseWorkflowMutation = { __typename?: 'MutationRoot', pauseWorkflow
 
 export type ResumeWorkflowMutationVariables = Exact<{
   id: Scalars['ID']['input'];
+  feedback?: InputMaybe<Scalars['String']['input']>;
 }>;
 
 
@@ -1084,6 +1168,22 @@ export class TypedDocumentString<TResult, TVariables>
   }
 }
 
+export const UpsertWorkflowDefinitionDocument = new TypedDocumentString(`
+    mutation UpsertWorkflowDefinition($id: String!, $name: String!, $description: String, $phases: String!, $variables: String) {
+  upsertWorkflowDefinition(
+    id: $id
+    name: $name
+    description: $description
+    phases: $phases
+    variables: $variables
+  )
+}
+    `) as unknown as TypedDocumentString<UpsertWorkflowDefinitionMutation, UpsertWorkflowDefinitionMutationVariables>;
+export const DeleteWorkflowDefinitionDocument = new TypedDocumentString(`
+    mutation DeleteWorkflowDefinition($id: ID!) {
+  deleteWorkflowDefinition(id: $id)
+}
+    `) as unknown as TypedDocumentString<DeleteWorkflowDefinitionMutation, DeleteWorkflowDefinitionMutationVariables>;
 export const DaemonDocument = new TypedDocumentString(`
     query Daemon {
   daemonStatus {
@@ -1194,6 +1294,21 @@ export const WorkflowDefinitionsDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<WorkflowDefinitionsQuery, WorkflowDefinitionsQueryVariables>;
+export const DispatchRequirementsDocument = new TypedDocumentString(`
+    query DispatchRequirements {
+  requirements {
+    id
+    title
+    description
+    priorityRaw
+    statusRaw
+    requirementType
+    tags
+    linkedTaskIds
+    acceptanceCriteria
+  }
+}
+    `) as unknown as TypedDocumentString<DispatchRequirementsQuery, DispatchRequirementsQueryVariables>;
 export const DaemonEventsDocument = new TypedDocumentString(`
     subscription DaemonEvents($eventType: String) {
   daemonEvents(eventType: $eventType) {
@@ -1714,8 +1829,8 @@ export const PauseWorkflowDocument = new TypedDocumentString(`
 }
     `) as unknown as TypedDocumentString<PauseWorkflowMutation, PauseWorkflowMutationVariables>;
 export const ResumeWorkflowDocument = new TypedDocumentString(`
-    mutation ResumeWorkflow($id: ID!) {
-  resumeWorkflow(id: $id) {
+    mutation ResumeWorkflow($id: ID!, $feedback: String) {
+  resumeWorkflow(id: $id, feedback: $feedback) {
     id
     status
   }

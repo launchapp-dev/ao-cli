@@ -317,10 +317,7 @@ fn normalize_terminal_status_for_cleanup(status: AgentStatus, run_id: &RunId) ->
 }
 
 fn runner_build_id() -> Option<String> {
-    std::env::var("AO_RUNNER_BUILD_ID")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
+    option_env!("AO_RUNNER_BUILD_ID").map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
 }
 
 #[cfg(test)]

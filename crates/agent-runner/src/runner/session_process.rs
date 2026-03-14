@@ -165,13 +165,7 @@ pub(super) async fn spawn_session_process(
 }
 
 fn native_sessions_enabled() -> bool {
-    std::env::var("AO_AGENT_RUNNER_NATIVE_SESSIONS")
-        .ok()
-        .map(|value| {
-            let normalized = value.trim().to_ascii_lowercase();
-            !matches!(normalized.as_str(), "" | "0" | "false" | "off" | "no")
-        })
-        .unwrap_or(true)
+    true
 }
 
 #[allow(clippy::too_many_arguments)]

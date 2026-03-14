@@ -18,14 +18,7 @@ pub struct McpRuntimeConfig {
 
 impl McpRuntimeConfig {
     pub fn from_env() -> Self {
-        Self {
-            endpoint: std::env::var("AO_MCP_ENDPOINT").ok().filter(|v| !v.is_empty()),
-            transport: std::env::var("AO_MCP_TRANSPORT").ok().filter(|v| !v.is_empty()),
-            stdio_command: std::env::var("AO_MCP_STDIO_COMMAND").ok().filter(|v| !v.is_empty()),
-            stdio_args_json: std::env::var("AO_MCP_STDIO_ARGS_JSON").ok().filter(|v| !v.is_empty()),
-            agent_id: std::env::var("AO_MCP_AGENT_ID").ok().filter(|v| !v.is_empty()),
-            schema_draft: std::env::var("AO_MCP_SCHEMA_DRAFT").ok().filter(|v| !v.is_empty()),
-        }
+        Self::default()
     }
 
     pub fn is_http_transport(&self) -> bool {
@@ -77,29 +70,7 @@ pub struct PhaseOverride {
 
 impl PhaseRoutingConfig {
     pub fn from_env() -> Self {
-        let mut config = Self::default();
-        config.global_model = std::env::var("AO_PHASE_MODEL").ok().filter(|v| !v.is_empty());
-        config.global_tool = std::env::var("AO_PHASE_TOOL").ok().filter(|v| !v.is_empty());
-        config.research_model = std::env::var("AO_PHASE_MODEL_RESEARCH").ok().filter(|v| !v.is_empty());
-        config.research_tool = std::env::var("AO_PHASE_TOOL_RESEARCH").ok().filter(|v| !v.is_empty());
-        config.ui_ux_model = std::env::var("AO_PHASE_MODEL_UI_UX").ok().filter(|v| !v.is_empty());
-        config.ui_ux_tool = std::env::var("AO_PHASE_TOOL_UI_UX").ok().filter(|v| !v.is_empty());
-        config.file_edit_model = std::env::var("AO_PHASE_MODEL_FILE_EDIT").ok().filter(|v| !v.is_empty());
-        config.file_edit_tool = std::env::var("AO_PHASE_TOOL_FILE_EDIT").ok().filter(|v| !v.is_empty());
-        config.global_fallback_models = std::env::var("AO_PHASE_FALLBACK_MODELS")
-            .ok()
-            .map(|v| v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
-            .unwrap_or_default();
-        config.research_fallback_models = std::env::var("AO_PHASE_FALLBACK_MODELS_RESEARCH")
-            .ok()
-            .map(|v| v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
-            .unwrap_or_default();
-        config.ui_ux_fallback_models = std::env::var("AO_PHASE_FALLBACK_MODELS_UI_UX")
-            .ok()
-            .map(|v| v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
-            .unwrap_or_default();
-        config.complexity = std::env::var("AO_PHASE_COMPLEXITY").ok().filter(|v| !v.is_empty());
-        config
+        Self::default()
     }
 }
 

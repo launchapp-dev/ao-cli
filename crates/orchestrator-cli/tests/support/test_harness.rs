@@ -133,6 +133,7 @@ impl CliHarness {
             .env("XDG_CONFIG_HOME", self.config_root.path())
             .env("AO_CONFIG_DIR", self.config_root.path())
             .env("AGENT_ORCHESTRATOR_CONFIG_DIR", self.config_root.path())
+            .env("AO_SKIP_RUNNER_START", "1")
             .output()
             .with_context(|| format!("failed to execute ao command: {}", args.join(" ")))
     }

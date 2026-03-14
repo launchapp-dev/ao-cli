@@ -4,6 +4,7 @@ use crate::services::runtime::runtime_daemon::daemon_reconciliation::reconcile_m
 use orchestrator_daemon_runtime::{
     default_slim_project_tick_driver, CompletedProcess, DefaultProjectTickServices,
     DefaultSlimProjectTickDriver, DispatchNotice, DispatchWorkflowStartSummary, ProcessManager,
+    ProjectTickSnapshot,
 };
 
 pub(crate) struct CliProjectTickServices;
@@ -16,6 +17,22 @@ impl CliProjectTickServices {
 
 #[async_trait::async_trait(?Send)]
 impl DefaultProjectTickServices for CliProjectTickServices {
+    async fn capture_snapshot(&mut self, root: &str) -> Result<ProjectTickSnapshot> {
+        let hub: Arc<dyn ServiceHub> =
+            Arc::new(orchestrator_core::FileServiceHub::new(root)?);
+        let requirements_before = hub.planning().list_requirements().await?;
+        let tasks_before = hub.tasks().list().await?;
+        let daemon = hub.daemon();
+        let daemon_health = daemon.health().await.ok();
+
+        Ok(ProjectTickSnapshot {
+            requirements_before,
+            tasks_before,
+            started_daemon: false,
+            daemon_health,
+        })
+    }
+
     async fn reconcile_completed_processes(
         &mut self,
         hub: Arc<dyn ServiceHub>,

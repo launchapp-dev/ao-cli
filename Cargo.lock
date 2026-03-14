@@ -2381,6 +2381,7 @@ name = "orchestrator-config"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "croner",
  "protocol",
  "serde",
  "serde_json",

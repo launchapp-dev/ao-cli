@@ -58,11 +58,7 @@ fn runtime_binary_refresh_supported(project_root: &str) -> bool {
 }
 
 fn runtime_binary_refresh_retry_backoff_secs() -> i64 {
-    std::env::var("AO_RUNTIME_BINARY_REFRESH_RETRY_SECS")
-        .ok()
-        .and_then(|raw| raw.trim().parse::<i64>().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(RUNTIME_BINARY_REFRESH_RETRY_BACKOFF_SECS)
+    RUNTIME_BINARY_REFRESH_RETRY_BACKOFF_SECS
 }
 
 fn runtime_binary_refresh_state_path(project_root: &str) -> Result<PathBuf> {

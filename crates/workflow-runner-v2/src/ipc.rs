@@ -53,7 +53,6 @@ pub fn runner_config_dir(project_root: &Path) -> PathBuf {
     let config_dir = if let Some(override_path) = std::env::var("AO_RUNNER_CONFIG_DIR")
         .ok()
         .or_else(|| std::env::var("AO_CONFIG_DIR").ok())
-        .or_else(|| std::env::var("AGENT_ORCHESTRATOR_CONFIG_DIR").ok())
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
     {
@@ -106,11 +105,7 @@ fn shorten_runner_config_dir_if_needed(config_dir: PathBuf) -> PathBuf {
 #[cfg(unix)]
 pub async fn connect_runner(config_dir: &Path) -> Result<tokio::net::UnixStream> {
     let socket_path = config_dir.join("agent-runner.sock");
-    let connect_timeout_secs = std::env::var("AO_RUNNER_CONNECT_TIMEOUT_SECS")
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .map(|secs| secs.clamp(1, 30))
-        .unwrap_or(5);
+    let connect_timeout_secs: u64 = 5;
     let connect_future = tokio::net::UnixStream::connect(&socket_path);
     match tokio::time::timeout(Duration::from_secs(connect_timeout_secs), connect_future).await {
         Ok(Ok(mut stream)) => {
@@ -260,10 +255,7 @@ fn claude_bypass_permissions_enabled() -> bool {
 }
 
 fn env_codex_reasoning_effort_override() -> Option<String> {
-    std::env::var("AO_CODEX_REASONING_EFFORT")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
+    None
 }
 
 fn parse_env_string_list_json(

@@ -106,23 +106,7 @@ pub fn resolve_phase_runtime_settings(
 }
 
 pub fn phase_timeout_secs() -> Option<u64> {
-    if std::env::var("AO_PHASE_WAIT_FOR_COMPLETION")
-        .ok()
-        .map(|value| value.trim().to_ascii_lowercase())
-        .map(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
-        .unwrap_or(false)
-    {
-        return None;
-    }
-
-    match std::env::var("AO_PHASE_TIMEOUT_SECS")
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-    {
-        Some(0) => None,
-        Some(value) => Some(value),
-        None => None,
-    }
+    None
 }
 
 fn parse_env_usize(key: &str) -> Option<usize> {
@@ -178,10 +162,7 @@ fn claude_bypass_permissions_enabled() -> bool {
 }
 
 fn env_codex_reasoning_effort_override() -> Option<String> {
-    std::env::var("AO_CODEX_REASONING_EFFORT")
-        .ok()
-        .map(|value| value.trim().to_ascii_lowercase())
-        .filter(|value| !value.is_empty())
+    None
 }
 
 fn codex_reasoning_effort(reasoning_override: Option<&str>) -> Option<String> {

@@ -30,15 +30,7 @@ pub enum StateMachineMode {
 
 impl StateMachineMode {
     pub fn from_env() -> Self {
-        match std::env::var("AO_STATE_MACHINE_MODE")
-            .ok()
-            .map(|value| value.trim().to_ascii_lowercase())
-            .as_deref()
-        {
-            Some("builtin") => Self::Builtin,
-            Some("json-strict") => Self::JsonStrict,
-            _ => Self::Json,
-        }
+        Self::Json
     }
 }
 

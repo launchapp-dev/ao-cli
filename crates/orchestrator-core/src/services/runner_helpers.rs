@@ -57,7 +57,6 @@ pub(super) fn runner_config_dir(project_root: &Path) -> PathBuf {
     let config_dir = if let Some(override_path) = std::env::var("AO_RUNNER_CONFIG_DIR")
         .ok()
         .or_else(|| std::env::var("AO_CONFIG_DIR").ok())
-        .or_else(|| std::env::var("AGENT_ORCHESTRATOR_CONFIG_DIR").ok())
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
     {

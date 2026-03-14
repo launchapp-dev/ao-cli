@@ -12,57 +12,6 @@ pub struct PostSuccessGitConfig {
     pub auto_prune_worktrees_after_merge: bool,
 }
 
-pub fn load_post_success_git_config(project_root: &str) -> PostSuccessGitConfig {
-    let mut cfg = PostSuccessGitConfig {
-        auto_merge_enabled: false,
-        auto_pr_enabled: false,
-        auto_commit_before_merge: false,
-        auto_merge_target_branch: "main".to_string(),
-        auto_merge_no_ff: true,
-        auto_push_remote: "origin".to_string(),
-        auto_cleanup_worktree_enabled: true,
-        auto_prune_worktrees_after_merge: false,
-    };
-
-    if let Ok(value) = orchestrator_core::load_daemon_project_config(Path::new(project_root)) {
-        cfg.auto_merge_enabled = value.auto_merge_enabled;
-        cfg.auto_pr_enabled = value.auto_pr_enabled;
-        cfg.auto_commit_before_merge = value.auto_commit_before_merge;
-        if let Some(branch) = Some(value.auto_merge_target_branch.trim()).filter(|v| !v.is_empty())
-        {
-            cfg.auto_merge_target_branch = branch.to_string();
-        }
-        cfg.auto_merge_no_ff = value.auto_merge_no_ff;
-        if let Some(remote) = Some(value.auto_push_remote.trim()).filter(|v| !v.is_empty()) {
-            cfg.auto_push_remote = remote.to_string();
-        }
-        cfg.auto_cleanup_worktree_enabled = value.auto_cleanup_worktree_enabled;
-        cfg.auto_prune_worktrees_after_merge = value.auto_prune_worktrees_after_merge;
-    }
-
-    if let Some(enabled) = protocol::parse_env_bool_opt("AO_AUTO_MERGE_ENABLED") {
-        cfg.auto_merge_enabled = enabled;
-    }
-    if let Some(enabled) = protocol::parse_env_bool_opt("AO_AUTO_PR_ENABLED") {
-        cfg.auto_pr_enabled = enabled;
-    }
-    if let Some(enabled) = protocol::parse_env_bool_opt("AO_AUTO_COMMIT_BEFORE_MERGE") {
-        cfg.auto_commit_before_merge = enabled;
-    }
-    if let Some(enabled) = protocol::parse_env_bool_opt("AO_AUTO_PRUNE_WORKTREES_AFTER_MERGE") {
-        cfg.auto_prune_worktrees_after_merge = enabled;
-    }
-
-    if cfg.auto_push_remote != "origin" {
-        cfg.auto_push_remote = "origin".to_string();
-    }
-    if cfg.auto_merge_target_branch != "main" {
-        cfg.auto_merge_target_branch = "main".to_string();
-    }
-
-    cfg
-}
-
 pub fn resolve_task_source_branch(task: &orchestrator_core::OrchestratorTask) -> Option<String> {
     if let Some(branch_name) = task
         .branch_name

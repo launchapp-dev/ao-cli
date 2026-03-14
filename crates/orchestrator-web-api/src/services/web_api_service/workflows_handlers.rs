@@ -269,6 +269,7 @@ impl WebApiService {
                     "name": if d.name.is_empty() { &d.id } else { &d.name },
                     "description": d.description,
                     "phases": d.phase_ids(),
+                    "is_builtin": d.is_builtin,
                 })
             })
             .collect();

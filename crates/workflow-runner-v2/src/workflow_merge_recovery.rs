@@ -8,6 +8,8 @@ use protocol::{
     RunId, PROTOCOL_VERSION,
 };
 use serde::Deserialize;
+
+const MAX_TASK_DESCRIPTION_CHARS: usize = 2000;
 use serde::Serialize;
 use std::path::Path;
 use std::process::{Command as ProcessCommand, Stdio};
@@ -62,7 +64,7 @@ pub fn build_merge_conflict_recovery_prompt(
             "__TASK_DESCRIPTION__",
             task.description
                 .chars()
-                .take(2000)
+                .take(MAX_TASK_DESCRIPTION_CHARS)
                 .collect::<String>()
                 .as_str(),
         )

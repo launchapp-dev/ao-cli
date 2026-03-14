@@ -3020,6 +3020,46 @@ workflows:
     }
 
     #[test]
+    fn builtin_workflows_have_is_builtin_true() {
+        let config = builtin_workflow_config();
+        assert!(!config.workflows.is_empty(), "should have at least one builtin workflow");
+        for wf in &config.workflows {
+            assert!(wf.is_builtin, "builtin workflow '{}' must have is_builtin=true", wf.id);
+        }
+    }
+
+    #[test]
+    fn project_override_clears_is_builtin() {
+        let base = builtin_workflow_config();
+        let first_builtin_id = base.workflows[0].id.clone();
+        let yaml = format!(
+            "workflows:\n  - id: {first_builtin_id}\n    name: Local Override\n    phases:\n      - implementation\n"
+        );
+        let yaml_config = parse_yaml_workflow_config(&yaml).expect("parse yaml");
+        let merged = merge_yaml_into_config(base, yaml_config);
+        let overridden = merged
+            .workflows
+            .iter()
+            .find(|wf| wf.id == first_builtin_id)
+            .expect("overridden workflow present");
+        assert!(!overridden.is_builtin, "project-local override of builtin must have is_builtin=false");
+        let ids = builtin_workflow_ids();
+        for wf in merged.workflows.iter().filter(|wf| ids.contains(&wf.id) && wf.id != first_builtin_id) {
+            assert!(wf.is_builtin, "non-overridden builtin '{}' must retain is_builtin=true", wf.id);
+        }
+    }
+
+    #[test]
+    fn builtin_workflow_ids_matches_config() {
+        let ids = builtin_workflow_ids();
+        let config = builtin_workflow_config();
+        assert_eq!(ids.len(), config.workflows.len());
+        for id in &ids {
+            assert!(config.workflows.iter().any(|wf| &wf.id == id), "id '{id}' missing from config");
+        }
+    }
+
+    #[test]
     fn yaml_missing_files_returns_none() {
         let temp = tempfile::tempdir().expect("tempdir");
         let result = compile_yaml_workflow_files(temp.path()).expect("should not error");

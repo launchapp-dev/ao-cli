@@ -10,8 +10,6 @@ pub(crate) enum OutputCommand {
     Artifacts(OutputArtifactsArgs),
     /// Download an artifact payload.
     Download(OutputDownloadArgs),
-    /// List artifact file ids for an execution.
-    Files(OutputFilesArgs),
     /// Read aggregated JSONL output streams for a run.
     Jsonl(OutputJsonlArgs),
     /// Inspect run output with optional task/phase filtering.
@@ -46,12 +44,6 @@ pub(crate) struct OutputDownloadArgs {
     pub(crate) execution_id: String,
     #[arg(long)]
     pub(crate) artifact_id: String,
-}
-
-#[derive(Debug, Args)]
-pub(crate) struct OutputFilesArgs {
-    #[arg(long)]
-    pub(crate) execution_id: String,
 }
 
 #[derive(Debug, Args)]

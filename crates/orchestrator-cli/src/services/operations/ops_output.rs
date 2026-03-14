@@ -259,13 +259,6 @@ pub(crate) async fn handle_output(
                 json,
             )
         }
-        OutputCommand::Files(args) => {
-            let files: Vec<String> = list_artifact_infos(project_root, &args.execution_id)?
-                .into_iter()
-                .map(|artifact| artifact.artifact_id)
-                .collect();
-            print_value(files, json)
-        }
         OutputCommand::Jsonl(args) => {
             let entries = get_run_jsonl_entries(project_root, &args.run_id)?;
             if args.entries {

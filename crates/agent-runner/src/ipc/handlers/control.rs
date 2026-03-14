@@ -20,28 +20,36 @@ pub(crate) async fn handle_control_request<W: AsyncWrite + Unpin>(
         "Handling agent control request"
     );
 
-    let mut runner_lock = runner.lock().await;
-    let success = match req.action {
-        AgentControlAction::Terminate => runner_lock.stop_agent(&req.run_id),
+    let response = match req.action {
         AgentControlAction::Pause | AgentControlAction::Resume => {
             warn!(
                 connection_id,
                 run_id = %req.run_id.0.as_str(),
                 action = ?req.action,
-                "Pause/Resume not implemented"
+                "Pause/Resume not supported"
             );
-            false
+            AgentControlResponse {
+                run_id: req.run_id,
+                success: false,
+                message: Some(format!(
+                    "{:?} is not supported by the agent runner",
+                    req.action
+                )),
+            }
         }
-    };
-
-    let response = AgentControlResponse {
-        run_id: req.run_id,
-        success,
-        message: Some(if success {
-            format!("Agent {:?} successful", req.action)
-        } else {
-            format!("Agent {:?} failed or already stopped", req.action)
-        }),
+        AgentControlAction::Terminate => {
+            let mut runner_lock = runner.lock().await;
+            let success = runner_lock.stop_agent(&req.run_id);
+            AgentControlResponse {
+                run_id: req.run_id,
+                success,
+                message: Some(if success {
+                    "Agent Terminate successful".to_string()
+                } else {
+                    "Agent Terminate failed or already stopped".to_string()
+                }),
+            }
+        }
     };
 
     info!(

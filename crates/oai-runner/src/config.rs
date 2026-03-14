@@ -58,31 +58,6 @@ fn infer_api_base(normalized_model: &str) -> Result<String> {
 }
 
 fn resolve_api_key(normalized_model: &str, api_base: &str) -> Result<String> {
-    if normalized_model.starts_with("minimax") || normalized_model.contains("minimax") {
-        if let Ok(key) = std::env::var("MINIMAX_API_KEY") {
-            return Ok(key);
-        }
-    }
-
-    if normalized_model.starts_with("zai")
-        || normalized_model.starts_with("glm")
-        || normalized_model.contains("glm")
-    {
-        if let Ok(key) = std::env::var("ZAI_API_KEY") {
-            return Ok(key);
-        }
-    }
-
-    if normalized_model.starts_with("deepseek") || normalized_model.contains("deepseek") {
-        if let Ok(key) = std::env::var("DEEPSEEK_API_KEY") {
-            return Ok(key);
-        }
-    }
-
-    if let Ok(key) = std::env::var("OPENAI_API_KEY") {
-        return Ok(key);
-    }
-
     if let Some(key) =
         protocol::credentials::Credentials::load_global().resolve(normalized_model, api_base)
     {
@@ -94,7 +69,7 @@ fn resolve_api_key(normalized_model: &str, api_base: &str) -> Result<String> {
     }
 
     bail!(
-        "No API key found for model '{}'. Set the appropriate env var, add to AO credentials, or use --api-key.",
+        "No API key found for model '{}'. Add to AO credentials (`ao setup credentials`) or configure in your provider's auth.",
         normalized_model
     )
 }

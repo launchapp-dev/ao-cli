@@ -393,6 +393,32 @@ impl MutationRoot {
         Ok(GqlWorkflow(raw))
     }
 
+    async fn upsert_workflow_definition(
+        &self,
+        ctx: &Context<'_>,
+        id: String,
+        name: String,
+        description: Option<String>,
+        phases: String,
+        variables: Option<String>,
+    ) -> Result<bool> {
+        let api = ctx.data::<WebApiService>()?;
+        api.upsert_workflow_definition(id, name, description, phases, variables)
+            .await
+            .map_err(gql_err)
+    }
+
+    async fn delete_workflow_definition(
+        &self,
+        ctx: &Context<'_>,
+        id: ID,
+    ) -> Result<bool> {
+        let api = ctx.data::<WebApiService>()?;
+        api.delete_workflow_definition(&id)
+            .await
+            .map_err(gql_err)
+    }
+
     async fn approve_phase(
         &self,
         ctx: &Context<'_>,

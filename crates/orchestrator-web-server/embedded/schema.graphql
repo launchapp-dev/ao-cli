@@ -145,6 +145,11 @@ type GqlRequirement {
 	acceptanceCriteria: [String!]!
 }
 
+type GqlRequirementConnection {
+	items: [GqlRequirement!]!
+	totalCount: Int!
+}
+
 enum GqlRequirementPriority {
 	MUST
 	SHOULD
@@ -214,6 +219,11 @@ type GqlTask {
 	requirements: [GqlRequirement!]!
 }
 
+type GqlTaskConnection {
+	items: [GqlTask!]!
+	totalCount: Int!
+}
+
 type GqlTaskStats {
 	total: Int!
 	byStatus: String
@@ -272,6 +282,11 @@ type GqlWorkflowCheckpoint {
 	data: String
 }
 
+type GqlWorkflowConnection {
+	items: [GqlWorkflow!]!
+	totalCount: Int!
+}
+
 type GqlWorkflowDefinition {
 	id: String!
 	name: String!
@@ -309,6 +324,8 @@ type MutationRoot {
 	pauseWorkflow(id: ID!): GqlWorkflow!
 	resumeWorkflow(id: ID!, feedback: String): GqlWorkflow!
 	cancelWorkflow(id: ID!): GqlWorkflow!
+	upsertWorkflowDefinition(id: String!, name: String!, description: String, phases: String!, variables: String): Boolean!
+	deleteWorkflowDefinition(id: ID!): Boolean!
 	approvePhase(workflowId: ID!, phaseId: String!, note: String): GqlWorkflow!
 	daemonStart: Boolean!
 	daemonStop: Boolean!
@@ -338,6 +355,9 @@ type QueryRoot {
 	requirement(id: ID!): GqlRequirement
 	workflows(status: String): [GqlWorkflow!]!
 	workflow(id: ID!): GqlWorkflow
+	tasksPaginated(status: String, taskType: String, priority: String, search: String, limit: Int! = 50, offset: Int! = 0): GqlTaskConnection!
+	requirementsPaginated(limit: Int! = 50, offset: Int! = 0): GqlRequirementConnection!
+	workflowsPaginated(status: String, limit: Int! = 50, offset: Int! = 0): GqlWorkflowConnection!
 	workflowCheckpoints(workflowId: ID!): [GqlWorkflowCheckpoint!]!
 	phaseOutput(workflowId: ID!, phaseId: String, tail: Int): GqlPhaseOutput!
 	readyTasks(search: String, limit: Int): [GqlTask!]!

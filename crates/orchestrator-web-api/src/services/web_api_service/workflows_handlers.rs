@@ -1,9 +1,14 @@
+use orchestrator_config::workflow_config::{
+    load_workflow_config_or_default, write_workflow_config, WorkflowPhaseConfig,
+    WorkflowPhaseEntry, WorkflowVariable,
+};
 use orchestrator_core::{
-    dispatch_workflow_event, workflow_ref_for_task, FileServiceHub, ServiceHub, WorkflowEvent,
-    REQUIREMENT_TASK_GENERATION_WORKFLOW_REF, STANDARD_WORKFLOW_REF,
+    dispatch_workflow_event, workflow_ref_for_task, FileServiceHub, ServiceHub, WorkflowDefinition,
+    WorkflowEvent, REQUIREMENT_TASK_GENERATION_WORKFLOW_REF, STANDARD_WORKFLOW_REF,
 };
 use protocol::orchestrator::{WorkflowRunInput, WorkflowSubject};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 
 use super::{parsing::parse_json_body, requests::WorkflowRunRequest, WebApiError, WebApiService};
 
@@ -331,6 +336,127 @@ impl WebApiService {
             json!({ "workflow_id": workflow.id, "phase_id": phase_id, "status": workflow.status }),
         );
         Ok(json!(workflow))
+    }
+
+    pub async fn upsert_workflow_definition(
+        &self,
+        id: String,
+        name: String,
+        description: Option<String>,
+        phases_json: String,
+        variables_json: Option<String>,
+    ) -> Result<bool, WebApiError> {
+        let project_root = std::path::Path::new(&self.context.project_root);
+        let loaded = load_workflow_config_or_default(project_root);
+        let mut config = loaded.config;
+
+        let phase_values: Vec<Value> = serde_json::from_str(&phases_json).map_err(|e| {
+            WebApiError::new("invalid_input", format!("invalid phases JSON: {e}"), 2)
+        })?;
+
+        let phases: Vec<WorkflowPhaseEntry> = phase_values
+            .into_iter()
+            .map(|v| {
+                if let Some(s) = v.as_str() {
+                    return Ok(WorkflowPhaseEntry::Simple(s.to_string()));
+                }
+                let obj = v
+                    .as_object()
+                    .ok_or_else(|| {
+                        WebApiError::new(
+                            "invalid_input",
+                            "each phase must be a string or object".to_string(),
+                            2,
+                        )
+                    })?;
+                let phase_id = obj
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        WebApiError::new(
+                            "invalid_input",
+                            "phase object must have an 'id' field".to_string(),
+                            2,
+                        )
+                    })?
+                    .to_string();
+                let has_extra_fields = obj.contains_key("on_verdict")
+                    || obj.contains_key("max_rework_attempts")
+                    || obj.contains_key("skip_if");
+                if !has_extra_fields {
+                    return Ok(WorkflowPhaseEntry::Simple(phase_id));
+                }
+                let max_rework_attempts = obj
+                    .get("max_rework_attempts")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(3) as u32;
+                let skip_if: Vec<String> = obj
+                    .get("skip_if")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    .unwrap_or_default();
+                let on_verdict: HashMap<String, orchestrator_config::workflow_config::PhaseTransitionConfig> = obj
+                    .get("on_verdict")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    .unwrap_or_default();
+                Ok(WorkflowPhaseEntry::Rich(WorkflowPhaseConfig {
+                    id: phase_id,
+                    max_rework_attempts,
+                    on_verdict,
+                    skip_if,
+                }))
+            })
+            .collect::<Result<Vec<_>, WebApiError>>()?;
+
+        let variables: Vec<WorkflowVariable> = match variables_json {
+            Some(vj) => serde_json::from_str(&vj).map_err(|e| {
+                WebApiError::new("invalid_input", format!("invalid variables JSON: {e}"), 2)
+            })?,
+            None => Vec::new(),
+        };
+
+        let definition = WorkflowDefinition {
+            id: id.clone(),
+            name,
+            description: description.unwrap_or_default(),
+            phases,
+            post_success: None,
+            variables,
+        };
+
+        if let Some(pos) = config.workflows.iter().position(|w| w.id == id) {
+            config.workflows[pos] = definition;
+        } else {
+            config.workflows.push(definition);
+        }
+
+        write_workflow_config(project_root, &config).map_err(|e| {
+            WebApiError::new("internal", format!("failed to write workflow config: {e}"), 1)
+        })?;
+
+        Ok(true)
+    }
+
+    pub async fn delete_workflow_definition(&self, id: &str) -> Result<bool, WebApiError> {
+        let project_root = std::path::Path::new(&self.context.project_root);
+        let loaded = load_workflow_config_or_default(project_root);
+        let mut config = loaded.config;
+
+        let original_len = config.workflows.len();
+        config.workflows.retain(|w| w.id != id);
+
+        if config.workflows.len() == original_len {
+            return Err(WebApiError::new(
+                "not_found",
+                format!("workflow definition '{id}' not found"),
+                3,
+            ));
+        }
+
+        write_workflow_config(project_root, &config).map_err(|e| {
+            WebApiError::new("internal", format!("failed to write workflow config: {e}"), 1)
+        })?;
+
+        Ok(true)
     }
 
     pub async fn workflows_phase_output(

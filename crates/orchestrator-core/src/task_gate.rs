@@ -143,17 +143,18 @@ pub async fn promote_backlog_tasks_to_ready(
     Ok(promoted)
 }
 
+pub const DEFAULT_RETRY_COOLDOWN_SECS: i64 = 300;
+pub const DEFAULT_MAX_TASK_RETRIES: usize = 3;
+
 pub async fn retry_failed_task_workflows(hub: Arc<dyn ServiceHub>) -> Result<usize> {
-    let cooldown_secs = std::env::var("AO_RETRY_COOLDOWN_SECS")
-        .ok()
-        .and_then(|v| v.trim().parse::<i64>().ok())
-        .filter(|v| *v > 0)
-        .unwrap_or(300);
-    let max_retries = std::env::var("AO_MAX_TASK_RETRIES")
-        .ok()
-        .and_then(|v| v.trim().parse::<usize>().ok())
-        .filter(|v| *v > 0)
-        .unwrap_or(3);
+    retry_failed_task_workflows_with_config(hub, DEFAULT_RETRY_COOLDOWN_SECS, DEFAULT_MAX_TASK_RETRIES).await
+}
+
+pub async fn retry_failed_task_workflows_with_config(
+    hub: Arc<dyn ServiceHub>,
+    cooldown_secs: i64,
+    max_retries: usize,
+) -> Result<usize> {
 
     let tasks = hub.tasks().list().await?;
     let workflows = hub.workflows().list().await.unwrap_or_default();

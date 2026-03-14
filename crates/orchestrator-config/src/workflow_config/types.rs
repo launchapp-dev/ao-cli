@@ -427,6 +427,22 @@ pub struct DaemonConfig {
     pub active_hours: Option<String>,
     #[serde(default)]
     pub auto_run_ready: bool,
+    #[serde(default)]
+    pub max_task_retries: Option<u32>,
+    #[serde(default)]
+    pub retry_cooldown_secs: Option<u64>,
+    #[serde(default)]
+    pub stream_phase_output: Option<String>,
+    #[serde(default)]
+    pub cancel_on_disconnect: Option<bool>,
+    #[serde(default)]
+    pub auto_merge: Option<bool>,
+    #[serde(default)]
+    pub auto_pr: Option<bool>,
+    #[serde(default)]
+    pub auto_commit_before_merge: Option<bool>,
+    #[serde(default)]
+    pub auto_prune_worktrees: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

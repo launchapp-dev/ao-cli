@@ -23,6 +23,8 @@ import {
   Sun,
   Moon,
   Monitor,
+  AlertTriangle,
+  Wrench,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -34,19 +36,44 @@ import { Input } from "@/components/ui/input";
 import { GraphQLProvider } from "@/lib/graphql/provider";
 import { Toaster } from "@/components/ui/sonner";
 import { useTheme } from "./theme-provider";
+import { useQuery } from "@/lib/graphql/client";
+import { DashboardDocument } from "@/lib/graphql/generated/graphql";
 
-export const PRIMARY_NAV_ITEMS = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/tasks", label: "Tasks", icon: ListTodo },
-  { to: "/workflows", label: "Workflows", icon: GitBranch },
-  { to: "/queue", label: "Queue", icon: Layers },
-  { to: "/planning", label: "Planning", icon: FileText },
-  { to: "/daemon", label: "Daemon", icon: Server },
-  { to: "/agents", label: "Agents", icon: Bot },
-  { to: "/events", label: "Events", icon: Activity },
-  { to: "/reviews/handoff", label: "Review", icon: ClipboardCheck },
-  { to: "/settings/mcp", label: "Settings", icon: Settings },
+export const NAV_GROUPS = [
+  {
+    label: "Operate",
+    items: [
+      { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, badgeKey: null },
+      { to: "/tasks", label: "Tasks", icon: ListTodo, badgeKey: "tasks" as const },
+      { to: "/workflows", label: "Workflows", icon: GitBranch, badgeKey: "workflows" as const },
+      { to: "/queue", label: "Queue", icon: Layers, badgeKey: "queue" as const },
+      { to: "/agents", label: "Agents", icon: Bot, badgeKey: "agents" as const },
+    ],
+  },
+  {
+    label: "Plan",
+    items: [
+      { to: "/planning", label: "Planning", icon: FileText, badgeKey: null },
+    ],
+  },
+  {
+    label: "Monitor",
+    items: [
+      { to: "/events", label: "Events", icon: Activity, badgeKey: "events" as const },
+      { to: "/errors", label: "Errors", icon: AlertTriangle, badgeKey: "errors" as const },
+      { to: "/daemon", label: "Daemon", icon: Server, badgeKey: null },
+    ],
+  },
+  {
+    label: "Configure",
+    items: [
+      { to: "/workflows/builder", label: "Builder", icon: Wrench, badgeKey: null },
+      { to: "/settings/mcp", label: "Settings", icon: Settings, badgeKey: null },
+    ],
+  },
 ] as const;
+
+export const PRIMARY_NAV_ITEMS = NAV_GROUPS.flatMap(g => g.items);
 
 export const MAIN_CONTENT_ID = "main-content";
 
@@ -130,7 +157,6 @@ function AppShellFrame() {
                 {"\u2318"}K
               </kbd>
             </Button>
-            <ThemeToggle />
           </div>
         </header>
 
@@ -155,61 +181,150 @@ function AppShellFrame() {
   );
 }
 
-function SidebarContent() {
+function useSidebarData() {
+  const [result] = useQuery({ query: DashboardDocument });
+  const data = result.data;
+
+  const taskStats = data?.taskStats;
+  const health = data?.daemonHealth;
+  const agents = data?.agentRuns ?? [];
+
+  const byStatus: Record<string, number> = taskStats?.byStatus ? JSON.parse(taskStats.byStatus) : {};
+  const inProgress = byStatus["in-progress"] ?? 0;
+  const blocked = byStatus["blocked"] ?? 0;
+
+  return {
+    daemonHealthy: health?.healthy ?? false,
+    daemonStatus: health?.status ?? "unknown",
+    agentCount: agents.length,
+    badges: {
+      tasks: taskStats?.total ?? 0,
+      workflows: inProgress,
+      queue: 0,
+      agents: agents.length > 0 ? `${agents.length}/${health?.activeDaemons ?? "?"}` : null,
+      events: null,
+      errors: blocked > 0 ? blocked : null,
+    } as Record<string, number | string | null>,
+  };
+}
+
+function SidebarBadge({ value, badgeKey }: { value: number | string; badgeKey: string }) {
+  if (value === 0 || value === "0") return null;
+  const isError = badgeKey === "errors";
   return (
-    <div className="flex h-full flex-col">
-      <div className="px-4 py-4 flex items-center gap-2">
-        <div className="h-7 w-7 rounded-md bg-primary/15 border border-primary/25 flex items-center justify-center">
-          <span className="text-[11px] font-mono font-bold text-primary">ao</span>
-        </div>
-        <div>
-          <h1 className="text-sm font-semibold tracking-tight leading-none">AO</h1>
-          <p className="text-[10px] text-muted-foreground leading-none mt-0.5">Agent Orchestrator</p>
-        </div>
-      </div>
-      <div className="h-px bg-border/50 mx-3" />
-      <nav className="flex-1 px-2 py-2 space-y-0.5" aria-label="Primary">
-        {PRIMARY_NAV_ITEMS.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            className={({ isActive }) =>
-              `group flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] transition-all duration-150 relative ${
-                isActive
-                  ? "text-primary font-medium bg-primary/8"
-                  : "text-muted-foreground hover:text-foreground/80 hover:bg-accent/40"
-              }`
-            }
-          >
-            {({ isActive }) => (
-              <>
-                {isActive && (
-                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-4 rounded-full bg-primary" />
-                )}
-                <item.icon className={`h-3.5 w-3.5 shrink-0 transition-colors ${isActive ? "text-primary" : "text-muted-foreground/60 group-hover:text-muted-foreground"}`} />
-                {item.label}
-              </>
-            )}
-          </NavLink>
-        ))}
-      </nav>
-    </div>
+    <span className={`text-[10px] font-mono tabular-nums ${
+      isError ? "text-destructive" : "text-muted-foreground/50"
+    }`}>
+      {value}
+    </span>
   );
 }
 
-function ThemeToggle() {
+function SidebarContent() {
+  const sidebarData = useSidebarData();
   const { theme, setTheme } = useTheme();
-  const cycle = () => {
-    if (theme === "system") setTheme("dark");
-    else if (theme === "dark") setTheme("light");
-    else setTheme("system");
-  };
+
   return (
-    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={cycle} aria-label="Toggle theme">
-      {theme === "dark" ? <Moon className="h-3.5 w-3.5" /> :
-       theme === "light" ? <Sun className="h-3.5 w-3.5" /> :
-       <Monitor className="h-3.5 w-3.5" />}
-    </Button>
+    <div className="flex h-full flex-col">
+      <div className="px-4 pt-4 pb-3">
+        <div className="flex items-center gap-2.5">
+          <div className="h-8 w-8 rounded-lg bg-primary/15 border border-primary/25 flex items-center justify-center">
+            <span className="text-xs font-mono font-bold text-primary">ao</span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-sm font-semibold tracking-tight leading-none">AO</h1>
+            <p className="text-[10px] text-muted-foreground/60 leading-none mt-0.5">Agent Orchestrator</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 mt-3 px-1">
+          <span className={`h-1.5 w-1.5 rounded-full ${sidebarData.daemonHealthy ? "bg-[var(--ao-success)]" : "bg-destructive"}`} />
+          <span className="text-[10px] text-muted-foreground/50">
+            {sidebarData.daemonStatus}
+          </span>
+          {sidebarData.agentCount > 0 && (
+            <span className="text-[10px] text-muted-foreground/30 ml-auto font-mono">
+              {sidebarData.agentCount} agent{sidebarData.agentCount !== 1 ? "s" : ""}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="h-px bg-border/50 mx-3" />
+
+      <nav className="flex-1 overflow-y-auto px-2 py-2" aria-label="Primary">
+        {NAV_GROUPS.map((group) => (
+          <div key={group.label} className="mb-3">
+            <p className="px-2.5 mb-1 text-[10px] uppercase tracking-wider text-muted-foreground/40 font-medium">
+              {group.label}
+            </p>
+            <div className="space-y-0.5">
+              {group.items.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  className={({ isActive }) =>
+                    `group flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] transition-all duration-150 relative ${
+                      isActive
+                        ? "text-primary font-medium bg-primary/8"
+                        : "text-muted-foreground hover:text-foreground/80 hover:bg-accent/40"
+                    }`
+                  }
+                >
+                  {({ isActive }) => (
+                    <>
+                      {isActive && (
+                        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-4 rounded-full bg-primary" />
+                      )}
+                      <item.icon className={`h-3.5 w-3.5 shrink-0 transition-colors ${isActive ? "text-primary" : "text-muted-foreground/60 group-hover:text-muted-foreground"}`} />
+                      <span className="flex-1">{item.label}</span>
+                      {item.badgeKey && sidebarData.badges[item.badgeKey] != null && (
+                        <SidebarBadge value={sidebarData.badges[item.badgeKey]!} badgeKey={item.badgeKey} />
+                      )}
+                    </>
+                  )}
+                </NavLink>
+              ))}
+            </div>
+          </div>
+        ))}
+      </nav>
+
+      <div className="h-px bg-border/50 mx-3" />
+
+      <div className="px-3 py-2.5 space-y-2">
+        <NavLink
+          to="/reviews/handoff"
+          className={({ isActive }) =>
+            `flex items-center gap-2 text-[11px] transition-colors ${
+              isActive ? "text-primary" : "text-muted-foreground/60 hover:text-foreground/70"
+            }`
+          }
+        >
+          <ClipboardCheck className="h-3 w-3" />
+          Review Handoff
+        </NavLink>
+
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1">
+            {(["system", "dark", "light"] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTheme(t)}
+                className={`h-6 w-6 rounded-md flex items-center justify-center transition-colors ${
+                  theme === t ? "bg-accent text-foreground" : "text-muted-foreground/40 hover:text-muted-foreground"
+                }`}
+                aria-label={`${t} theme`}
+              >
+                {t === "system" ? <Monitor className="h-3 w-3" /> :
+                 t === "dark" ? <Moon className="h-3 w-3" /> :
+                 <Sun className="h-3 w-3" />}
+              </button>
+            ))}
+          </div>
+          <span className="text-[9px] text-muted-foreground/30 font-mono">v0.1.0</span>
+        </div>
+      </div>
+    </div>
   );
 }
 

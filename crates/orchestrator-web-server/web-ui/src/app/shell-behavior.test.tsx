@@ -3,7 +3,7 @@
 import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   useQuery: vi.fn(),
@@ -27,6 +27,11 @@ vi.mock("@/lib/graphql/provider", () => ({
 import { AppShellLayout, MAIN_CONTENT_ID, PRIMARY_NAV_ITEMS } from "./shell";
 
 describe("AppShellLayout structure and navigation", () => {
+  beforeEach(() => {
+    mocks.useQuery.mockReturnValue([{ data: null, fetching: false, error: null }, vi.fn()]);
+    mocks.useMutation.mockReturnValue([{ fetching: false }, vi.fn()]);
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });

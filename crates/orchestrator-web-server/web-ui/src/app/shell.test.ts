@@ -11,11 +11,12 @@ describe("PRIMARY_NAV_ITEMS", () => {
       "Tasks",
       "Workflows",
       "Queue",
-      "Planning",
-      "Daemon",
       "Agents",
+      "Planning",
       "Events",
-      "Review",
+      "Errors",
+      "Daemon",
+      "Builder",
       "Settings",
     ]);
   });

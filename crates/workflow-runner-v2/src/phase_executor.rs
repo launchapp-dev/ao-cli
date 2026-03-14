@@ -76,15 +76,7 @@ impl orchestrator_core::PhaseExecutor for CliPhaseExecutor {
             request.project_root.clone()
         };
 
-        let timeout_override = request.timeout;
-        let previous_timeout = if timeout_override.is_some() {
-            std::env::var_os("AO_PHASE_TIMEOUT_SECS")
-        } else {
-            None
-        };
-        if let Some(timeout_secs) = timeout_override {
-            std::env::set_var("AO_PHASE_TIMEOUT_SECS", timeout_secs.to_string());
-        }
+        let phase_timeout_secs = request.timeout;
 
         let overrides = if request.tool_override.is_some() || request.model_override.is_some() {
             Some(PhaseExecuteOverrides {
@@ -97,6 +89,7 @@ impl orchestrator_core::PhaseExecutor for CliPhaseExecutor {
         };
 
         let routing = protocol::PhaseRoutingConfig::from_env();
+        let stream_level = std::env::var("AO_STREAM_PHASE_OUTPUT").unwrap_or_default();
         let run_result = run_workflow_phase(&PhaseRunParams {
             project_root: &request.project_root,
             execution_cwd: &execution_cwd,
@@ -113,19 +106,10 @@ impl orchestrator_core::PhaseExecutor for CliPhaseExecutor {
             dispatch_input: None,
             schedule_input: None,
             routing: &routing,
+            stream_level: &stream_level,
+            phase_timeout_secs: phase_timeout_secs,
         })
         .await;
-
-        match previous_timeout {
-            Some(previous_timeout) => {
-                std::env::set_var("AO_PHASE_TIMEOUT_SECS", previous_timeout);
-            }
-            None => {
-                if timeout_override.is_some() {
-                    std::env::remove_var("AO_PHASE_TIMEOUT_SECS");
-                }
-            }
-        }
 
         let run_result = run_result?;
         let output_log = serde_json::to_string_pretty(&run_result)?;
@@ -760,6 +744,7 @@ struct PhaseAgentParams<'a> {
     dispatch_input: Option<&'a str>,
     schedule_input: Option<&'a str>,
     routing: &'a protocol::PhaseRoutingConfig,
+    stream_level: &'a str,
 }
 
 async fn run_workflow_phase_with_agent(
@@ -1151,6 +1136,8 @@ pub struct PhaseRunParams<'a> {
     pub dispatch_input: Option<&'a str>,
     pub schedule_input: Option<&'a str>,
     pub routing: &'a protocol::PhaseRoutingConfig,
+    pub stream_level: &'a str,
+    pub phase_timeout_secs: Option<u64>,
 }
 
 pub async fn run_workflow_phase(params: &PhaseRunParams<'_>) -> Result<PhaseRunResult> {
@@ -1308,6 +1295,7 @@ pub async fn run_workflow_phase(params: &PhaseRunParams<'_>) -> Result<PhaseRunR
                 dispatch_input,
                 schedule_input,
                 routing: params.routing,
+                stream_level: params.stream_level,
             })
             .await?;
 

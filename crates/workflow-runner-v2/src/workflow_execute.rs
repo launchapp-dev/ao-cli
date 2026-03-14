@@ -123,13 +123,9 @@ fn workflow_phase_inputs(workflow: &OrchestratorWorkflow) -> WorkflowPhaseInputs
 }
 
 pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowExecuteResult> {
-    let stream_level = params.stream_level.as_deref().unwrap_or("quiet");
-    std::env::set_var("AO_STREAM_PHASE_OUTPUT", stream_level);
+    let stream_level = params.stream_level.as_deref().unwrap_or("quiet").to_string();
     let routing = protocol::PhaseRoutingConfig::from_env();
-
-    if let Some(timeout) = params.phase_timeout_secs {
-        std::env::set_var("AO_PHASE_TIMEOUT_SECS", timeout.to_string());
-    }
+    let phase_timeout_secs = params.phase_timeout_secs;
 
     let hub: Arc<dyn ServiceHub> = match params.hub {
         Some(ref h) => h.clone(),
@@ -264,6 +260,8 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
             dispatch_input: phase_inputs.dispatch_input.as_deref(),
             schedule_input: phase_inputs.schedule_input.as_deref(),
             routing: &routing,
+            stream_level: &stream_level,
+            phase_timeout_secs,
         })
         .await;
 
@@ -404,6 +402,8 @@ pub async fn execute_workflow(params: WorkflowExecuteParams) -> Result<WorkflowE
             dispatch_input: phase_inputs.dispatch_input.as_deref(),
             schedule_input: phase_inputs.schedule_input.as_deref(),
             routing: &routing,
+            stream_level: &stream_level,
+            phase_timeout_secs,
         })
         .await;
 

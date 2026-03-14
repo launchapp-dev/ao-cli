@@ -15,7 +15,7 @@ pub(crate) enum WorkflowCommand {
         #[command(subcommand)]
         command: WorkflowCheckpointCommand,
     },
-    /// Start a workflow for a task.
+    /// Run a workflow. Enqueues to daemon by default; use --sync to run in terminal.
     Run(WorkflowRunArgs),
     /// Resume a paused workflow.
     Resume(IdArgs),
@@ -60,7 +60,8 @@ pub(crate) enum WorkflowCommand {
         #[command(subcommand)]
         command: WorkflowPromptCommand,
     },
-    /// Execute a workflow synchronously (no daemon required).
+    /// Deprecated: use `workflow run --sync` instead.
+    #[command(hide = true)]
     Execute(WorkflowExecuteArgs),
     /// Update a workflow definition by id.
     UpdateDefinition(WorkflowDefinitionUpdateArgs),
@@ -178,6 +179,11 @@ pub(crate) struct WorkflowCheckpointPruneArgs {
 #[derive(Debug, Args)]
 pub(crate) struct WorkflowRunArgs {
     #[arg(
+        value_name = "PIPELINE",
+        help = "Workflow definition name (e.g. standard, ui-ux, builtin/vision-draft). Defaults to 'standard' when --task-id is provided."
+    )]
+    pub(crate) pipeline: Option<String>,
+    #[arg(
         long,
         value_name = "TASK_ID",
         group = "subject",
@@ -188,14 +194,14 @@ pub(crate) struct WorkflowRunArgs {
         long,
         value_name = "REQ_ID",
         group = "subject",
-        help = "Requirement id to run the workflow for (alternative to --task-id)."
+        help = "Requirement id to run the workflow for."
     )]
     pub(crate) requirement_id: Option<String>,
     #[arg(
         long,
         value_name = "TITLE",
         group = "subject",
-        help = "Custom workflow title (alternative to --task-id / --requirement-id)."
+        help = "Custom workflow title for freeform execution."
     )]
     pub(crate) title: Option<String>,
     #[arg(
@@ -207,11 +213,57 @@ pub(crate) struct WorkflowRunArgs {
     #[arg(
         long,
         value_name = "WORKFLOW_REF",
-        help = "Optional YAML workflow reference override."
+        help = "Alias for pipeline positional arg. Overrides positional if both provided."
     )]
     pub(crate) workflow_ref: Option<String>,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Run synchronously in the terminal instead of enqueueing to the daemon."
+    )]
+    pub(crate) sync: bool,
+    #[arg(
+        long,
+        value_name = "WORKFLOW_ID",
+        help = "Resume an existing workflow from its current phase (sync only)."
+    )]
+    pub(crate) workflow_id: Option<String>,
+    #[arg(
+        long,
+        value_name = "PHASE_ID",
+        help = "Run only this specific phase instead of the full pipeline (sync only)."
+    )]
+    pub(crate) phase: Option<String>,
+    #[arg(
+        long,
+        value_name = "MODEL_ID",
+        help = "Override the model for phase execution."
+    )]
+    pub(crate) model: Option<String>,
+    #[arg(
+        long,
+        value_name = "TOOL_ID",
+        help = "Override the tool/CLI for phase execution (claude, codex, gemini)."
+    )]
+    pub(crate) tool: Option<String>,
+    #[arg(long, value_name = "SECS", help = "Override phase timeout in seconds.")]
+    pub(crate) phase_timeout_secs: Option<u64>,
     #[arg(long, value_name = "JSON", help = INPUT_JSON_PRECEDENCE_HELP)]
     pub(crate) input_json: Option<String>,
+    #[arg(
+        short,
+        long,
+        default_value_t = false,
+        help = "Suppress agent output streaming; only show phase summaries (sync only)."
+    )]
+    pub(crate) quiet: bool,
+    #[arg(
+        short,
+        long,
+        default_value_t = false,
+        help = "Show all agent output including thinking blocks (sync only)."
+    )]
+    pub(crate) verbose: bool,
     #[arg(
         long = "var",
         value_name = "KEY=VALUE",

@@ -22,7 +22,7 @@ use crate::{
     dry_run_envelope, ensure_destructive_confirmation, parse_input_json_or, print_value,
     WorkflowAgentRuntimeCommand, WorkflowCheckpointCommand, WorkflowCommand, WorkflowConfigCommand,
     WorkflowDefinitionsCommand, WorkflowPhaseCommand, WorkflowPhasesCommand,
-    WorkflowPromptCommand, WorkflowStateMachineCommand,
+    WorkflowExecuteArgs, WorkflowPromptCommand, WorkflowStateMachineCommand,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -321,29 +321,56 @@ pub(crate) async fn handle_workflow(
             }
         },
         WorkflowCommand::Run(args) => {
-            let dispatch = match args.input_json {
-                Some(raw) => {
-                    resolve_workflow_run_dispatch_from_raw_input(hub.clone(), project_root, &raw)
+            let effective_workflow_ref = args.workflow_ref.or(args.pipeline);
+            if args.sync {
+                let execute_args = WorkflowExecuteArgs {
+                    workflow_id: args.workflow_id,
+                    task_id: args.task_id,
+                    requirement_id: args.requirement_id,
+                    title: args.title,
+                    description: args.description,
+                    workflow_ref: effective_workflow_ref,
+                    phase: args.phase,
+                    model: args.model,
+                    tool: args.tool,
+                    phase_timeout_secs: args.phase_timeout_secs,
+                    input_json: args.input_json,
+                    quiet: args.quiet,
+                    verbose: args.verbose,
+                    vars: args.vars,
+                };
+                execute::handle_workflow_execute(execute_args, hub, project_root, json).await?;
+                Ok(())
+            } else {
+                let dispatch = match args.input_json {
+                    Some(raw) => {
+                        resolve_workflow_run_dispatch_from_raw_input(
+                            hub.clone(),
+                            project_root,
+                            &raw,
+                        )
                         .await?
-                }
-                None => {
-                    let vars = parse_workflow_vars(&args.vars)?;
-                    resolve_workflow_run_dispatch(
-                        hub.clone(),
-                        project_root,
-                        args.task_id,
-                        args.requirement_id,
-                        args.title,
-                        args.description,
-                        args.workflow_ref,
-                        vars,
-                    )
-                    .await?
-                }
-            };
-            print_value(workflows.run(dispatch.to_workflow_run_input()).await?, json)
+                    }
+                    None => {
+                        let vars = parse_workflow_vars(&args.vars)?;
+                        resolve_workflow_run_dispatch(
+                            hub.clone(),
+                            project_root,
+                            args.task_id,
+                            args.requirement_id,
+                            args.title,
+                            args.description,
+                            effective_workflow_ref,
+                            vars,
+                        )
+                        .await?
+                    }
+                };
+                print_value(workflows.run(dispatch.to_workflow_run_input()).await?, json)
+            }
         }
         WorkflowCommand::Execute(args) => {
+            eprintln!("warning: `workflow execute` is deprecated; use `workflow run --sync` instead");
             execute::handle_workflow_execute(args, hub, project_root, json).await?;
             Ok(())
         }

@@ -33,6 +33,8 @@ describe("APP_ROUTE_PATHS", () => {
       "/queue",
       "/events",
       "/reviews/handoff",
+      "/settings/mcp",
+      "/settings/agents",
       "*",
     ];
 

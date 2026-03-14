@@ -15,6 +15,7 @@ import {
   Bot,
   Activity,
   ClipboardCheck,
+  Settings,
   Search,
   Menu,
   ChevronRight,
@@ -40,6 +41,7 @@ export const PRIMARY_NAV_ITEMS = [
   { to: "/agents", label: "Agents", icon: Bot },
   { to: "/events", label: "Events", icon: Activity },
   { to: "/reviews/handoff", label: "Review", icon: ClipboardCheck },
+  { to: "/settings/mcp", label: "Settings", icon: Settings },
 ] as const;
 
 export const MAIN_CONTENT_ID = "main-content";

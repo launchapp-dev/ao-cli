@@ -30,6 +30,8 @@ const WorkflowBuilderNewPage = lazy(() => import("./builder-pages").then((m) => 
 const WorkflowBuilderEditPage = lazy(() => import("./builder-pages").then((m) => ({ default: m.WorkflowBuilderEditPage })));
 const AgentManagementPage = lazy(() => import("./agent-page").then((m) => ({ default: m.AgentManagementPage })));
 const TaskOutputPage = lazy(() => import("./output-page").then((m) => ({ default: m.TaskOutputPage })));
+const McpServersPage = lazy(() => import("./settings-pages").then((m) => ({ default: m.McpServersPage })));
+const AgentProfilesPage = lazy(() => import("./settings-pages").then((m) => ({ default: m.AgentProfilesPage })));
 const NotFoundPage = lazy(() => import("./not-found-page").then((m) => ({ default: m.NotFoundPage })));
 const TaskDispatchPage = lazy(() => import("./dispatch-pages").then((m) => ({ default: m.TaskDispatchPage })));
 const RequirementDispatchPage = lazy(() => import("./dispatch-pages").then((m) => ({ default: m.RequirementDispatchPage })));
@@ -64,6 +66,8 @@ export const APP_ROUTE_PATHS = [
   "/queue",
   "/events",
   "/reviews/handoff",
+  "/settings/mcp",
+  "/settings/agents",
   "*",
 ] as const;
 
@@ -184,6 +188,14 @@ const router = createBrowserRouter([
       {
         path: "reviews/handoff",
         element: withRouteSuspense(<ReviewHandoffPage />),
+      },
+      {
+        path: "settings/mcp",
+        element: withRouteSuspense(<McpServersPage />),
+      },
+      {
+        path: "settings/agents",
+        element: withRouteSuspense(<AgentProfilesPage />),
       },
       {
         path: "*",

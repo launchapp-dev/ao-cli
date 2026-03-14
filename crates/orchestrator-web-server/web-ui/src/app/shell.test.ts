@@ -16,6 +16,7 @@ describe("PRIMARY_NAV_ITEMS", () => {
       "Agents",
       "Events",
       "Review",
+      "Settings",
     ]);
   });
 

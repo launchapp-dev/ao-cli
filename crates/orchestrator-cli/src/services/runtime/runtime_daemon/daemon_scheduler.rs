@@ -126,6 +126,8 @@ fn build_phase_prompt(
         phase_id,
         rework_context: None,
         pipeline_vars: None,
+        dispatch_input: None,
+        schedule_input: None,
     })
 }
 

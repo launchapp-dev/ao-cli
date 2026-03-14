@@ -15,6 +15,8 @@ pub struct PhasePromptParams<'a> {
     pub phase_id: &'a str,
     pub rework_context: Option<&'a str>,
     pub pipeline_vars: Option<&'a HashMap<String, String>>,
+    pub dispatch_input: Option<&'a str>,
+    pub schedule_input: Option<&'a str>,
 }
 
 pub struct PhaseRenderParams<'a> {
@@ -74,17 +76,11 @@ pub struct RenderedPhasePrompt {
 }
 
 pub fn build_phase_prompt(params: &PhasePromptParams<'_>) -> String {
-    let dispatch_input = std::env::var("AO_DISPATCH_INPUT")
-        .ok()
-        .filter(|value| !value.is_empty());
-    let schedule_input = std::env::var("AO_SCHEDULE_INPUT")
-        .ok()
-        .filter(|value| !value.is_empty());
     let inputs = PhasePromptInputs {
         rework_context: params.rework_context.map(ToOwned::to_owned),
         pipeline_vars: params.pipeline_vars.cloned().unwrap_or_default(),
-        dispatch_input,
-        schedule_input,
+        dispatch_input: params.dispatch_input.map(ToOwned::to_owned),
+        schedule_input: params.schedule_input.map(ToOwned::to_owned),
     };
     let ctx = RuntimeConfigContext::load(params.project_root);
     render_phase_prompt_with_ctx(

@@ -3,6 +3,7 @@ use std::{fs::OpenOptions, io::Write};
 
 use anyhow::Result;
 use chrono::Utc;
+use fs2::FileExt;
 use protocol::DaemonEventRecord;
 use serde_json::Value;
 use uuid::Uuid;
@@ -73,7 +74,7 @@ impl DaemonEventLog {
         append_line(&path, &serde_json::to_string(record)?)
     }
 
-    pub fn append_fire_and_forget(event_type: &str, project_root: Option<String>, data: Value) {
+    pub fn append_or_warn(event_type: &str, project_root: Option<String>, data: Value) {
         let record = DaemonEventRecord {
             schema: "ao.daemon.event.v1".to_string(),
             id: Uuid::new_v4().to_string(),
@@ -83,11 +84,13 @@ impl DaemonEventLog {
             project_root,
             data,
         };
-        let _ = Self::append(&record);
+        if let Err(e) = Self::append(&record) {
+            eprintln!("[daemon-event-log] failed to append event '{}': {}", event_type, e);
+        }
     }
 }
 
-const MAX_LOG_SIZE_BYTES: u64 = 5 * 1024 * 1024; // 5 MB
+const MAX_LOG_SIZE_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
 
 fn rotate_if_needed(path: &Path) {
     let size = match std::fs::metadata(path) {
@@ -102,8 +105,10 @@ fn rotate_if_needed(path: &Path) {
 
 fn append_line(path: &Path, line: &str) -> Result<()> {
     let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+    file.lock_exclusive()?;
     file.write_all(line.as_bytes())?;
     file.write_all(b"\n")?;
+    file.unlock()?;
     Ok(())
 }
 

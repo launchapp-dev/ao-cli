@@ -53,7 +53,8 @@ export const NAV_GROUPS = [
   {
     label: "Plan",
     items: [
-      { to: "/planning", label: "Planning", icon: FileText, badgeKey: null },
+      { to: "/planning/vision", label: "Vision", icon: FileText, badgeKey: null },
+      { to: "/planning/requirements", label: "Requirements", icon: ClipboardCheck, badgeKey: null },
     ],
   },
   {

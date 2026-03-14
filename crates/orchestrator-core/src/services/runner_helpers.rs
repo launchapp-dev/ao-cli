@@ -5,13 +5,6 @@ use std::hash::{Hash, Hasher};
 
 const RUNNER_IPC_TIMEOUT: Duration = Duration::from_millis(900);
 
-pub(super) fn max_agents_override_from_env() -> Option<usize> {
-    std::env::var("AO_MAX_AGENTS")
-        .ok()
-        .and_then(|value| value.trim().parse::<usize>().ok())
-        .filter(|value| *value > 0)
-}
-
 pub(super) fn should_skip_runner_start() -> bool {
     std::env::var("AO_SKIP_RUNNER_START")
         .ok()

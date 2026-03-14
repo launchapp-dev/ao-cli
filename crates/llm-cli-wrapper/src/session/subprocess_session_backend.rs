@@ -139,6 +139,8 @@ async fn run_subprocess_session(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    #[cfg(unix)]
+    command.process_group(0);
 
     let mut child = command.spawn()?;
 

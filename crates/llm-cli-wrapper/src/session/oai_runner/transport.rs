@@ -111,15 +111,18 @@ async fn run_oai_runner_session(
     event_tx: mpsc::Sender<SessionEvent>,
     mut cancel_rx: oneshot::Receiver<()>,
 ) -> Result<()> {
-    let mut child = Command::new(&invocation.command)
+    let mut command = Command::new(&invocation.command);
+    command
         .args(&invocation.args)
         .current_dir(&request.cwd)
         .env_clear()
         .envs(request.env_vars.iter().cloned())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+        .stderr(Stdio::piped());
+    #[cfg(unix)]
+    command.process_group(0);
+    let mut child = command.spawn()?;
 
     if let Some(mut stdin) = child.stdin.take() {
         if invocation.prompt_via_stdin && !request.prompt.is_empty() {

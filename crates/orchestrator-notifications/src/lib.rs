@@ -617,7 +617,7 @@ pub fn parse_notification_config_value(value: &Value) -> Result<NotificationConf
 }
 
 pub fn serialize_notification_config(config: &NotificationConfig) -> Result<Value> {
-    Ok(serde_json::to_value(config).context("failed to serialize daemon notification config")?)
+    serde_json::to_value(config).context("failed to serialize daemon notification config")
 }
 
 pub fn clear_notification_config(pm_config: &mut Value) {
@@ -878,9 +878,9 @@ fn build_delivery_payload(
 fn delivery_key(event_id: &str, connector_id: &str, subscription_id: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(event_id.as_bytes());
-    hasher.update(&[0]);
+    hasher.update([0]);
     hasher.update(connector_id.as_bytes());
-    hasher.update(&[0]);
+    hasher.update([0]);
     hasher.update(subscription_id.as_bytes());
     hex_from_digest(hasher.finalize())
 }
@@ -1003,7 +1003,7 @@ fn connector_credential_env_refs(connector: &NotificationConnectorConfig) -> Vec
 }
 
 fn redact_error_message(message: &str, connector: Option<&NotificationConnectorConfig>) -> String {
-    let mut redacted = message.replace('\n', " ").replace('\r', " ");
+    let mut redacted = message.replace(['\n', '\r'], " ");
 
     if let Some(connector) = connector {
         let mut seen_refs = HashSet::new();

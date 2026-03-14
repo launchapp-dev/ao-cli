@@ -145,6 +145,11 @@ pub struct WorkflowDefinition {
     pub post_success: Option<PostSuccessConfig>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub variables: Vec<WorkflowVariable>,
+    /// True when this workflow definition ships with ao and has not been overridden
+    /// by a project-local workflow with the same id.
+    /// Resolution precedence: project-local YAML > builtin.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_builtin: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -614,6 +619,7 @@ fn builtin_workflow_config_base() -> WorkflowConfig {
                 ],
                 post_success: None,
                 variables: Vec::new(),
+                is_builtin: true,
             },
             WorkflowDefinition {
                 id: "ui-ux-standard".to_string(),
@@ -632,6 +638,7 @@ fn builtin_workflow_config_base() -> WorkflowConfig {
                 ],
                 post_success: None,
                 variables: Vec::new(),
+                is_builtin: true,
             },
         ],
         phase_definitions: BTreeMap::new(),
@@ -751,6 +758,11 @@ fn builtin_workflow_yaml_overlays() -> [(&'static str, &'static str); 13] {
     ]
 }
 
+/// Resolution precedence for workflow definitions:
+/// 1. Project-local YAML (`.ao/workflows.yaml` or `.ao/workflows/*.yaml`) — highest priority.
+///    A project workflow with the same id as a builtin will replace it; `is_builtin` will be false.
+/// 2. Builtin workflows compiled into the ao binary — used when no project override exists.
+///    All entries produced here have `is_builtin: true`.
 pub fn builtin_workflow_config() -> WorkflowConfig {
     static BUILTIN_CONFIG: OnceLock<WorkflowConfig> = OnceLock::new();
     BUILTIN_CONFIG
@@ -763,9 +775,23 @@ pub fn builtin_workflow_config() -> WorkflowConfig {
                     });
                 config = merge_yaml_into_config(config, overlay);
             }
+            for wf in &mut config.workflows {
+                wf.is_builtin = true;
+            }
             config
         })
         .clone()
+}
+
+/// Returns the ids of all builtin workflow definitions shipped with ao.
+/// Use this to enumerate the registry surface or to determine whether a given
+/// workflow ref resolves to a builtin.
+pub fn builtin_workflow_ids() -> Vec<String> {
+    builtin_workflow_config()
+        .workflows
+        .into_iter()
+        .map(|wf| wf.id)
+        .collect()
 }
 
 pub fn workflow_config_path(project_root: &Path) -> PathBuf {
@@ -2143,6 +2169,7 @@ fn yaml_workflow_to_workflow_definition(
         phases,
         post_success,
         variables: yaml.variables,
+        is_builtin: false,
     })
 }
 
@@ -3150,6 +3177,7 @@ workflows:
             phases,
             post_success: None,
             variables: Vec::new(),
+            is_builtin: false,
         }
     }
 
@@ -3410,6 +3438,7 @@ workflows:
             ],
             post_success: None,
             variables: Vec::new(),
+            is_builtin: false,
         });
 
         let standard = config
@@ -3496,6 +3525,7 @@ workflows:
                 })],
                 post_success: None,
                 variables: Vec::new(),
+                is_builtin: false,
             },
             WorkflowDefinition {
                 id: "review".into(),
@@ -3506,6 +3536,7 @@ workflows:
                 })],
                 post_success: None,
                 variables: Vec::new(),
+                is_builtin: false,
             },
         ];
 
@@ -4698,6 +4729,7 @@ workflows:
             phases: Vec::new(),
             post_success: None,
             variables: Vec::new(),
+            is_builtin: false,
         };
         let json = serde_json::to_value(&workflow).expect("serialize");
         let obj = json.as_object().expect("json object");

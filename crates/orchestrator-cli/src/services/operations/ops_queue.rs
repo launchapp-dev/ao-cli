@@ -166,6 +166,7 @@ mod tests {
             phases: vec!["requirements".to_string().into()],
             post_success: None,
             variables: Vec::new(),
+            is_builtin: false,
         });
         write_workflow_config(temp.path(), &workflow_config).expect("write config");
         write_agent_runtime_config(temp.path(), &builtin_agent_runtime_config())

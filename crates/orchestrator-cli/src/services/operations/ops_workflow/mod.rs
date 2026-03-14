@@ -576,6 +576,7 @@ pub(crate) async fn handle_workflow(
                         .collect(),
                     post_success: None,
                     variables: Vec::new(),
+                    is_builtin: false,
                 })
             })?;
             print_value(phases::upsert_pipeline(project_root, workflow)?, json)
@@ -619,6 +620,7 @@ mod requirement_workflow_tests {
             phases: vec!["requirements".to_string().into()],
             post_success: None,
             variables: Vec::new(),
+            is_builtin: false,
         });
         write_workflow_config(temp.path(), &workflow_config).expect("write config");
         write_agent_runtime_config(temp.path(), &builtin_agent_runtime_config())
@@ -726,6 +728,7 @@ mod tests {
             phases: vec!["requirements".to_string().into()],
             post_success: None,
             variables: Vec::new(),
+            is_builtin: false,
         });
         write_workflow_config(temp.path(), &workflow_config).expect("write config");
         write_agent_runtime_config(temp.path(), &builtin_agent_runtime_config())

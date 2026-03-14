@@ -118,7 +118,8 @@ pub use workflow::{
     STANDARD_WORKFLOW_REF, UI_UX_WORKFLOW_REF,
 };
 pub use workflow_config::{
-    builtin_workflow_config, compile_and_write_yaml_workflows, compile_yaml_workflow_files,
+    builtin_workflow_config, builtin_workflow_ids, compile_and_write_yaml_workflows,
+    compile_yaml_workflow_files,
     ensure_workflow_config_compiled, ensure_workflow_config_file, expand_variables,
     expand_workflow_phases, legacy_workflow_config_paths, load_workflow_config,
     load_workflow_config_or_default, load_workflow_config_with_metadata, merge_yaml_into_config,

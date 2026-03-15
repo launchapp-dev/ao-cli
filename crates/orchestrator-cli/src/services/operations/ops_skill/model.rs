@@ -1,3 +1,4 @@
+use orchestrator_config::SkillDefinition;
 use serde::{Deserialize, Serialize};
 
 fn default_registry_available() -> bool {
@@ -15,7 +16,7 @@ pub(super) struct SkillRegistrySourceConfig {
     pub(super) url: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct SkillVersionRecord {
     pub(super) name: String,
     pub(super) version: String,
@@ -23,9 +24,25 @@ pub(super) struct SkillVersionRecord {
     pub(super) registry: String,
     pub(super) integrity: String,
     pub(super) artifact: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) definition: Option<SkillDefinition>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+impl PartialEq for SkillVersionRecord {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+            && self.version == other.version
+            && self.source == other.source
+            && self.registry == other.registry
+            && self.integrity == other.integrity
+            && self.artifact == other.artifact
+            && serialized_skill_definition(&self.definition) == serialized_skill_definition(&other.definition)
+    }
+}
+
+impl Eq for SkillVersionRecord {}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct ResolvedSkillEntry {
     pub(super) name: String,
     pub(super) version: String,
@@ -33,7 +50,23 @@ pub(super) struct ResolvedSkillEntry {
     pub(super) registry: String,
     pub(super) integrity: String,
     pub(super) artifact: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) definition: Option<SkillDefinition>,
 }
+
+impl PartialEq for ResolvedSkillEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+            && self.version == other.version
+            && self.source == other.source
+            && self.registry == other.registry
+            && self.integrity == other.integrity
+            && self.artifact == other.artifact
+            && serialized_skill_definition(&self.definition) == serialized_skill_definition(&other.definition)
+    }
+}
+
+impl Eq for ResolvedSkillEntry {}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub(super) struct SkillProjectConstraint {
@@ -123,4 +156,8 @@ impl SkillLockStateV1 {
         });
         self.entries.dedup_by(|a, b| a.name == b.name && a.source == b.source);
     }
+}
+
+fn serialized_skill_definition(definition: &Option<SkillDefinition>) -> Option<String> {
+    definition.as_ref().and_then(|value| serde_json::to_string(value).ok())
 }

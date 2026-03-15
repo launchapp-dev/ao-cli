@@ -82,7 +82,8 @@ pub(super) async fn build_cli_invocation(
         }
     };
 
-    let invocation = LaunchInvocation { command: tool.to_string(), args, prompt_via_stdin: false };
+    let invocation =
+        LaunchInvocation { command: tool.to_string(), args, env: Default::default(), prompt_via_stdin: false };
     debug!(
         tool,
         model,

@@ -30,6 +30,37 @@ pub struct SkillPrompt {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SkillActivation {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub models: Vec<String>,
+}
+
+impl SkillActivation {
+    pub fn is_empty(&self) -> bool {
+        self.tools.is_empty() && self.models.is_empty()
+    }
+
+    fn matches(&self, tool_id: &str, model_id: Option<&str>) -> bool {
+        let tool_matches =
+            self.tools.is_empty() || self.tools.iter().any(|candidate| candidate.eq_ignore_ascii_case(tool_id.trim()));
+        if !tool_matches {
+            return false;
+        }
+
+        if self.models.is_empty() {
+            return true;
+        }
+
+        let Some(model_id) = model_id.map(str::trim).filter(|value| !value.is_empty()) else {
+            return false;
+        };
+        self.models.iter().any(|candidate| candidate.eq_ignore_ascii_case(model_id))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SkillModelPreference {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preferred: Option<String>,
@@ -65,6 +96,9 @@ pub struct SkillDefinition {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<SkillCategory>,
 
+    #[serde(default, skip_serializing_if = "SkillActivation::is_empty")]
+    pub activation: SkillActivation,
+
     #[serde(default)]
     pub prompt: SkillPrompt,
 
@@ -99,9 +133,11 @@ pub struct SkillDefinition {
     pub tags: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SkillApplicationResult {
     pub system_prompt_fragments: Vec<String>,
+    pub prompt_prefixes: Vec<String>,
+    pub prompt_suffixes: Vec<String>,
     pub directives: Vec<String>,
     pub extra_args: Vec<String>,
     pub env: BTreeMap<String, String>,
@@ -111,6 +147,23 @@ pub struct SkillApplicationResult {
     pub model: Option<String>,
     pub timeout_secs: Option<u64>,
     pub capabilities: BTreeMap<String, bool>,
+}
+
+impl SkillApplicationResult {
+    pub fn is_empty(&self) -> bool {
+        self.system_prompt_fragments.is_empty()
+            && self.prompt_prefixes.is_empty()
+            && self.prompt_suffixes.is_empty()
+            && self.directives.is_empty()
+            && self.extra_args.is_empty()
+            && self.env.is_empty()
+            && self.mcp_servers.is_empty()
+            && self.tool_policy.is_none()
+            && self.codex_config_overrides.is_empty()
+            && self.model.is_none()
+            && self.timeout_secs.is_none()
+            && self.capabilities.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -152,20 +205,42 @@ pub fn validate_skill_definition(skill: &SkillDefinition) -> Result<()> {
             return Err(anyhow!("timeout_secs must be greater than zero"));
         }
     }
+    if skill.activation.tools.iter().any(|value| value.trim().is_empty()) {
+        return Err(anyhow!("activation.tools must not contain empty values"));
+    }
+    if skill.activation.models.iter().any(|value| value.trim().is_empty()) {
+        return Err(anyhow!("activation.models must not contain empty values"));
+    }
     Ok(())
 }
 
-pub fn apply_skill_for_tool(skill: &SkillDefinition, tool_id: &str) -> SkillApplicationResult {
+fn find_tool_adapter<'a>(skill: &'a SkillDefinition, tool_id: &str) -> Option<&'a SkillToolAdapter> {
+    skill
+        .adapters
+        .iter()
+        .find(|(candidate, _)| candidate.eq_ignore_ascii_case(tool_id.trim()))
+        .map(|(_, adapter)| adapter)
+}
+
+pub fn apply_skill_for_execution(
+    skill: &SkillDefinition,
+    tool_id: &str,
+    model_id: Option<&str>,
+) -> Option<SkillApplicationResult> {
+    if !skill.activation.matches(tool_id, model_id) {
+        return None;
+    }
+
     let mut result = SkillApplicationResult::default();
 
     if let Some(system) = &skill.prompt.system {
         result.system_prompt_fragments.push(system.clone());
     }
     if let Some(prefix) = &skill.prompt.prefix {
-        result.system_prompt_fragments.push(prefix.clone());
+        result.prompt_prefixes.push(prefix.clone());
     }
     if let Some(suffix) = &skill.prompt.suffix {
-        result.system_prompt_fragments.push(suffix.clone());
+        result.prompt_suffixes.push(suffix.clone());
     }
     result.directives.extend(skill.prompt.directives.clone());
     result.extra_args.extend(skill.extra_args.clone());
@@ -173,11 +248,11 @@ pub fn apply_skill_for_tool(skill: &SkillDefinition, tool_id: &str) -> SkillAppl
     result.mcp_servers.extend(skill.mcp_servers.clone());
     result.tool_policy = skill.tool_policy.clone();
     result.codex_config_overrides.extend(skill.codex_config_overrides.clone());
-    result.model = skill.model.preferred.clone();
+    result.model = skill.model.preferred.clone().or_else(|| skill.model.fallback.clone());
     result.timeout_secs = skill.timeout_secs;
     result.capabilities.extend(skill.capabilities.clone());
 
-    if let Some(adapter) = skill.adapters.get(tool_id) {
+    if let Some(adapter) = find_tool_adapter(skill, tool_id) {
         if let Some(model) = &adapter.model {
             result.model = Some(model.clone());
         }
@@ -191,21 +266,27 @@ pub fn apply_skill_for_tool(skill: &SkillDefinition, tool_id: &str) -> SkillAppl
 
         if let Some(prompt_override) = &adapter.prompt_override {
             result.system_prompt_fragments.clear();
+            result.prompt_prefixes.clear();
+            result.prompt_suffixes.clear();
             result.directives.clear();
             if let Some(system) = &prompt_override.system {
                 result.system_prompt_fragments.push(system.clone());
             }
             if let Some(prefix) = &prompt_override.prefix {
-                result.system_prompt_fragments.push(prefix.clone());
+                result.prompt_prefixes.push(prefix.clone());
             }
             if let Some(suffix) = &prompt_override.suffix {
-                result.system_prompt_fragments.push(suffix.clone());
+                result.prompt_suffixes.push(suffix.clone());
             }
             result.directives.extend(prompt_override.directives.clone());
         }
     }
 
-    result
+    Some(result)
+}
+
+pub fn apply_skill_for_tool(skill: &SkillDefinition, tool_id: &str) -> SkillApplicationResult {
+    apply_skill_for_execution(skill, tool_id, None).unwrap_or_default()
 }
 
 pub fn merge_skill_applications(results: &[SkillApplicationResult]) -> SkillApplicationResult {
@@ -213,6 +294,8 @@ pub fn merge_skill_applications(results: &[SkillApplicationResult]) -> SkillAppl
 
     for r in results {
         merged.system_prompt_fragments.extend(r.system_prompt_fragments.clone());
+        merged.prompt_prefixes.extend(r.prompt_prefixes.clone());
+        merged.prompt_suffixes.extend(r.prompt_suffixes.clone());
         merged.directives.extend(r.directives.clone());
         merged.extra_args.extend(r.extra_args.clone());
         merged.env.extend(r.env.clone());
@@ -247,6 +330,10 @@ name: code-review
 version: "1.0"
 description: Automated code review skill
 category: review
+activation:
+  tools:
+    - claude
+    - gemini
 prompt:
   system: You are a code reviewer.
   prefix: "Review the following:"
@@ -386,6 +473,8 @@ skills:
         let skill = parse_skill_definition(full_skill_yaml()).unwrap();
         let result = apply_skill_for_tool(&skill, "claude");
         assert!(result.system_prompt_fragments.iter().any(|s| s.contains("code reviewer")));
+        assert_eq!(result.prompt_prefixes, vec!["Review the following:"]);
+        assert_eq!(result.prompt_suffixes, vec!["Provide actionable feedback."]);
         assert_eq!(result.directives.len(), 2);
         assert_eq!(result.model.as_deref(), Some("claude-sonnet-4-6"));
         assert_eq!(result.timeout_secs, Some(300));
@@ -425,6 +514,8 @@ adapters:
         let result = apply_skill_for_tool(&skill, "claude");
         assert_eq!(result.system_prompt_fragments.len(), 1);
         assert_eq!(result.system_prompt_fragments[0], "Overridden system prompt");
+        assert!(result.prompt_prefixes.is_empty());
+        assert!(result.prompt_suffixes.is_empty());
         assert_eq!(result.directives, vec!["overridden directive"]);
     }
 
@@ -432,6 +523,7 @@ adapters:
     fn test_merge_skill_applications() {
         let r1 = SkillApplicationResult {
             system_prompt_fragments: vec!["prompt-a".into()],
+            prompt_prefixes: vec!["prefix-a".into()],
             directives: vec!["dir-a".into()],
             model: Some("model-a".into()),
             timeout_secs: Some(60),
@@ -440,6 +532,7 @@ adapters:
         };
         let r2 = SkillApplicationResult {
             system_prompt_fragments: vec!["prompt-b".into()],
+            prompt_suffixes: vec!["suffix-b".into()],
             directives: vec!["dir-b".into()],
             model: Some("model-b".into()),
             env: BTreeMap::from([("B".into(), "2".into())]),
@@ -449,11 +542,20 @@ adapters:
 
         let merged = merge_skill_applications(&[r1, r2]);
         assert_eq!(merged.system_prompt_fragments.len(), 2);
+        assert_eq!(merged.prompt_prefixes, vec!["prefix-a"]);
+        assert_eq!(merged.prompt_suffixes, vec!["suffix-b"]);
         assert_eq!(merged.directives.len(), 2);
         assert_eq!(merged.model.as_deref(), Some("model-b"));
         assert_eq!(merged.timeout_secs, Some(60));
         assert_eq!(merged.env.len(), 2);
         assert!(merged.tool_policy.is_some());
+    }
+
+    #[test]
+    fn test_apply_skill_respects_activation_filters() {
+        let skill = parse_skill_definition(full_skill_yaml()).unwrap();
+        let result = apply_skill_for_execution(&skill, "codex", Some("codex"));
+        assert!(result.is_none(), "claude/gemini-only skill should not activate for codex");
     }
 
     #[test]

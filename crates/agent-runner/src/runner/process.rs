@@ -43,6 +43,9 @@ pub async fn spawn_cli_process(
 ) -> Result<i32> {
     let mut invocation = build_cli_invocation(tool, model, prompt, runtime_contract).await?;
     let mut env = env;
+    for (key, value) in &invocation.env {
+        env.insert(key.clone(), value.clone());
+    }
     let hard_timeout_secs = timeout_secs.filter(|value| *value > 0);
     let idle_timeout_secs = resolve_idle_timeout_secs(tool, hard_timeout_secs, runtime_contract);
     let mcp_tool_enforcement = resolve_mcp_tool_enforcement(runtime_contract);

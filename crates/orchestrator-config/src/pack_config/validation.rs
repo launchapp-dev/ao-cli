@@ -51,8 +51,8 @@ pub fn validate_pack_manifest(manifest: &PackManifest) -> Result<()> {
     }
 
     validate_dependencies(&manifest.id, &manifest.dependencies, &mut errors);
-    validate_permissions(&manifest.permissions.tools, "permissions.tools", false, &mut errors);
-    validate_permissions(&manifest.permissions.mcp_namespaces, "permissions.mcp_namespaces", true, &mut errors);
+    validate_permissions(&manifest.permissions.tools, "permissions.tools", false, true, &mut errors);
+    validate_permissions(&manifest.permissions.mcp_namespaces, "permissions.mcp_namespaces", true, false, &mut errors);
     validate_secrets(&manifest.secrets, &mut errors);
 
     if let Some(native_module) = manifest.native_module.as_ref() {
@@ -237,7 +237,13 @@ fn validate_dependencies(pack_id: &str, dependencies: &[PackDependency], errors:
     }
 }
 
-fn validate_permissions(values: &[String], field: &str, allow_dot: bool, errors: &mut Vec<String>) {
+fn validate_permissions(
+    values: &[String],
+    field: &str,
+    allow_dot: bool,
+    allow_uppercase: bool,
+    errors: &mut Vec<String>,
+) {
     let mut seen = BTreeSet::new();
     for value in values {
         let trimmed = value.trim();
@@ -245,7 +251,7 @@ fn validate_permissions(values: &[String], field: &str, allow_dot: bool, errors:
             errors.push(format!("{field} must not contain empty values"));
             continue;
         }
-        if !is_identifier(trimmed, allow_dot) {
+        if !is_identifier(trimmed, allow_dot, allow_uppercase) {
             errors.push(format!("{field} contains invalid identifier '{}'", trimmed));
         }
         let normalized = trimmed.to_ascii_lowercase();
@@ -354,7 +360,7 @@ fn validate_pack_id(raw: &str, field: &str, errors: &mut Vec<String>) {
         errors.push(format!("{field} must not be empty"));
         return;
     }
-    if !is_identifier(trimmed, true) {
+    if !is_identifier(trimmed, true, false) {
         errors.push(format!("{field} '{}' must use lowercase letters, numbers, '.', '-' or '_'", trimmed));
     }
 }
@@ -365,7 +371,7 @@ fn validate_subject_kind(raw: &str, field: &str, errors: &mut Vec<String>) {
         errors.push(format!("{field} must not contain empty subject kinds"));
         return;
     }
-    if !is_identifier(trimmed, true) {
+    if !is_identifier(trimmed, true, false) {
         errors.push(format!(
             "{field} contains invalid subject kind '{}'; use lowercase letters, numbers, '.', '-' or '_'",
             trimmed
@@ -397,16 +403,14 @@ fn validate_version_req(raw: &str, field: &str, errors: &mut Vec<String>) {
     }
 }
 
-fn is_identifier(value: &str, allow_dot: bool) -> bool {
-    if value.chars().next().is_none_or(|ch| !ch.is_ascii_lowercase() && !ch.is_ascii_digit()) {
+fn is_identifier(value: &str, allow_dot: bool, allow_uppercase: bool) -> bool {
+    if value.chars().next().is_none_or(|ch| !is_identifier_char(ch, allow_dot, allow_uppercase)) {
         return false;
     }
 
     let mut previous_separator = false;
     for ch in value.chars() {
-        let is_valid =
-            ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-' || ch == '_' || (allow_dot && ch == '.');
-        if !is_valid {
+        if !is_identifier_char(ch, allow_dot, allow_uppercase) {
             return false;
         }
 
@@ -418,6 +422,15 @@ fn is_identifier(value: &str, allow_dot: bool) -> bool {
     }
 
     !previous_separator
+}
+
+fn is_identifier_char(ch: char, allow_dot: bool, allow_uppercase: bool) -> bool {
+    ch.is_ascii_lowercase()
+        || ch.is_ascii_digit()
+        || (allow_uppercase && ch.is_ascii_uppercase())
+        || ch == '-'
+        || ch == '_'
+        || (allow_dot && ch == '.')
 }
 
 fn is_secret_name(value: &str) -> bool {

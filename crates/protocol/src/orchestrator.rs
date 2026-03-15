@@ -1442,8 +1442,8 @@ pub struct OrchestratorWorkflow {
     pub id: String,
     pub task_id: String,
     pub workflow_ref: Option<String>,
-    #[serde(default = "default_workflow_subject")]
-    pub subject: WorkflowSubject,
+    #[serde(default = "default_workflow_subject_ref")]
+    pub subject: SubjectRef,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input: Option<Value>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
@@ -1469,8 +1469,8 @@ pub struct OrchestratorWorkflow {
     pub decision_history: Vec<WorkflowDecisionRecord>,
 }
 
-fn default_workflow_subject() -> WorkflowSubject {
-    WorkflowSubject::Task { id: String::new() }
+fn default_workflow_subject_ref() -> SubjectRef {
+    SubjectRef::task(String::new())
 }
 
 impl OrchestratorWorkflow {
@@ -1862,17 +1862,19 @@ impl SubjectDispatch {
     }
 
     pub fn to_workflow_run_input(&self) -> WorkflowRunInput {
-        match self.subject.to_workflow_subject() {
-            WorkflowSubject::Task { id } => WorkflowRunInput::for_task(id, Some(self.workflow_ref.clone())),
-            WorkflowSubject::Requirement { id } => {
-                WorkflowRunInput::for_requirement(id, Some(self.workflow_ref.clone()))
+        let mut input = match self.subject.kind() {
+            SUBJECT_KIND_TASK => WorkflowRunInput::for_task(self.subject.id.clone(), Some(self.workflow_ref.clone())),
+            SUBJECT_KIND_REQUIREMENT => {
+                WorkflowRunInput::for_requirement(self.subject.id.clone(), Some(self.workflow_ref.clone()))
             }
-            WorkflowSubject::Custom { title, description } => {
-                WorkflowRunInput::for_custom(title, description, Some(self.workflow_ref.clone()))
-            }
-        }
-        .with_input(self.input.clone())
-        .with_vars(self.vars.clone())
+            _ => WorkflowRunInput::for_custom(
+                self.subject.title.clone().unwrap_or_else(|| self.subject.id.clone()),
+                self.subject.description.clone().unwrap_or_default(),
+                Some(self.workflow_ref.clone()),
+            ),
+        };
+        input.subject = self.subject.clone();
+        input.with_input(self.input.clone()).with_vars(self.vars.clone())
     }
 }
 
@@ -1936,7 +1938,8 @@ impl SubjectExecutionFact {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowRunInput {
-    pub subject: WorkflowSubject,
+    #[serde(default = "default_workflow_subject_ref")]
+    pub subject: SubjectRef,
     #[serde(default)]
     pub workflow_ref: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "input_json")]
@@ -1954,51 +1957,45 @@ pub struct WorkflowRunInput {
 }
 
 impl WorkflowRunInput {
-    pub fn for_task(task_id: String, workflow_ref: Option<String>) -> Self {
+    pub fn for_subject(subject: SubjectRef, workflow_ref: Option<String>) -> Self {
+        let task_id = subject.task_id().unwrap_or_default().to_string();
+        let requirement_id = subject.requirement_id().map(ToOwned::to_owned);
+        let title = subject.title.clone();
+        let description = subject.description.clone();
         Self {
-            subject: WorkflowSubject::Task { id: task_id.clone() },
+            subject,
             task_id,
             workflow_ref,
             input: None,
             vars: HashMap::new(),
-            requirement_id: None,
-            title: None,
-            description: None,
+            requirement_id,
+            title,
+            description,
         }
+    }
+
+    pub fn for_task(task_id: String, workflow_ref: Option<String>) -> Self {
+        Self::for_subject(SubjectRef::task(task_id), workflow_ref)
     }
 
     pub fn for_requirement(requirement_id: String, workflow_ref: Option<String>) -> Self {
-        Self {
-            subject: WorkflowSubject::Requirement { id: requirement_id.clone() },
-            task_id: String::new(),
-            workflow_ref,
-            input: None,
-            vars: HashMap::new(),
-            requirement_id: Some(requirement_id),
-            title: None,
-            description: None,
-        }
+        Self::for_subject(SubjectRef::requirement(requirement_id), workflow_ref)
     }
 
     pub fn for_custom(title: String, description: String, workflow_ref: Option<String>) -> Self {
-        Self {
-            subject: WorkflowSubject::Custom { title: title.clone(), description: description.clone() },
-            task_id: String::new(),
-            workflow_ref,
-            input: None,
-            vars: HashMap::new(),
-            requirement_id: None,
-            title: Some(title),
-            description: Some(description),
-        }
+        Self::for_subject(SubjectRef::custom(title, description), workflow_ref)
     }
 
-    pub fn subject(&self) -> &WorkflowSubject {
+    pub fn subject(&self) -> &SubjectRef {
         &self.subject
     }
 
     pub fn subject_id(&self) -> &str {
         self.subject.id()
+    }
+
+    pub fn subject_kind(&self) -> &str {
+        self.subject.kind()
     }
 
     pub fn workflow_ref(&self) -> Option<&str> {
@@ -2159,10 +2156,7 @@ mod tests {
         assert_eq!(serialized["subject"]["id"], "REV-1");
         assert_eq!(dispatch.subject_kind(), "pack.review");
         assert_eq!(dispatch.subject_key(), "pack.review::REV-1");
-        assert_eq!(
-            dispatch.to_workflow_run_input().subject(),
-            &WorkflowSubject::Custom { title: "REV-1".to_string(), description: String::new() }
-        );
+        assert_eq!(dispatch.to_workflow_run_input().subject(), &SubjectRef::new("pack.review", "REV-1"));
     }
 
     #[test]

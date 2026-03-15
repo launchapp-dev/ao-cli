@@ -3,8 +3,9 @@ use async_trait::async_trait;
 use protocol::orchestrator::{
     DependencyType, OrchestratorTask, RequirementItem, RequirementsDraftInput, RequirementsDraftResult,
     RequirementsExecutionInput, RequirementsExecutionResult, RequirementsRefineInput, TaskCreateInput, TaskFilter,
-    TaskStatistics, TaskStatus, TaskUpdateInput, WorkflowSubject,
+    TaskStatistics, TaskStatus, TaskUpdateInput, SubjectRef,
 };
+use std::collections::HashMap;
 
 #[async_trait]
 pub trait TaskProvider: Send + Sync {
@@ -55,6 +56,7 @@ pub struct SubjectContext {
     pub subject_id: String,
     pub subject_title: String,
     pub subject_description: String,
+    pub attributes: HashMap<String, String>,
     pub task: Option<OrchestratorTask>,
 }
 
@@ -62,7 +64,7 @@ pub struct SubjectContext {
 pub trait SubjectResolver: Send + Sync {
     async fn resolve_subject_context(
         &self,
-        subject: &WorkflowSubject,
+        subject: &SubjectRef,
         fallback_title: Option<&str>,
         fallback_description: Option<&str>,
     ) -> Result<SubjectContext>;
@@ -73,7 +75,7 @@ pub trait ProjectAdapter: Send + Sync {
     async fn ensure_execution_cwd(
         &self,
         project_root: &str,
-        subject: &WorkflowSubject,
+        subject: &SubjectRef,
         subject_context: &SubjectContext,
     ) -> Result<String>;
 }

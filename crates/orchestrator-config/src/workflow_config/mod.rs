@@ -23,6 +23,7 @@ pub use resolution::{
 };
 pub use types::*;
 pub use validation::{validate_workflow_and_runtime_configs, validate_workflow_config};
+pub(crate) use yaml_compiler::{collect_project_yaml_workflow_sources, compile_yaml_sources_with_base};
 pub use yaml_compiler::{
     compile_and_write_yaml_workflows, compile_yaml_workflow_files, merge_yaml_into_config, write_workflow_yaml_overlay,
     yaml_workflows_dir, CompileYamlResult,

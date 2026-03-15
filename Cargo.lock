@@ -2371,12 +2371,15 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "croner",
+ "dirs",
  "protocol",
+ "semver",
  "serde",
  "serde_json",
  "serde_yaml",
  "sha2",
  "tempfile",
+ "toml",
  "uuid",
 ]
 

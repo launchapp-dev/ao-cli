@@ -5,11 +5,16 @@ use super::types::*;
 use super::yaml_compiler::merge_yaml_into_config;
 use super::yaml_parser::parse_yaml_workflow_config_with_base;
 
+const STANDARD_WORKFLOW_REF: &str = "ao.task/standard";
+const UI_UX_WORKFLOW_REF: &str = "ao.task/ui-ux";
+const REQUIREMENT_TASK_GENERATION_WORKFLOW_REF: &str = "ao.requirement/plan";
+const REQUIREMENT_TASK_GENERATION_RUN_WORKFLOW_REF: &str = "ao.requirement/execute";
+
 pub(crate) fn builtin_workflow_config_base() -> WorkflowConfig {
     WorkflowConfig {
         schema: WORKFLOW_CONFIG_SCHEMA_ID.to_string(),
         version: WORKFLOW_CONFIG_VERSION,
-        default_workflow_ref: "standard".to_string(),
+        default_workflow_ref: STANDARD_WORKFLOW_REF.to_string(),
         checkpoint_retention: WorkflowCheckpointRetentionConfig::default(),
         phase_catalog: BTreeMap::from([
             (
@@ -87,6 +92,134 @@ pub(crate) fn builtin_workflow_config_base() -> WorkflowConfig {
         ]),
         workflows: vec![
             WorkflowDefinition {
+                id: STANDARD_WORKFLOW_REF.to_string(),
+                name: "AO Task Standard".to_string(),
+                description: "Canonical pack-qualified task workflow ref.".to_string(),
+                phases: vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef { workflow_ref: "standard".to_string() })],
+                post_success: None,
+                variables: Vec::new(),
+            },
+            WorkflowDefinition {
+                id: UI_UX_WORKFLOW_REF.to_string(),
+                name: "AO Task UI UX".to_string(),
+                description: "Canonical pack-qualified frontend task workflow ref.".to_string(),
+                phases: vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+                    workflow_ref: "ui-ux-standard".to_string(),
+                })],
+                post_success: None,
+                variables: Vec::new(),
+            },
+            WorkflowDefinition {
+                id: REQUIREMENT_TASK_GENERATION_WORKFLOW_REF.to_string(),
+                name: "AO Requirement Plan".to_string(),
+                description: "Canonical pack-qualified requirement planning workflow ref.".to_string(),
+                phases: vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+                    workflow_ref: "builtin/requirement-plan".to_string(),
+                })],
+                post_success: None,
+                variables: Vec::new(),
+            },
+            WorkflowDefinition {
+                id: REQUIREMENT_TASK_GENERATION_RUN_WORKFLOW_REF.to_string(),
+                name: "AO Requirement Execute".to_string(),
+                description: "Canonical pack-qualified requirement execution workflow ref.".to_string(),
+                phases: vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+                    workflow_ref: "builtin/requirements-execute".to_string(),
+                })],
+                post_success: None,
+                variables: Vec::new(),
+            },
+            WorkflowDefinition {
+                id: "ao.task/quick-fix".to_string(),
+                name: "AO Task Quick Fix".to_string(),
+                description: "Canonical pack-qualified quick-fix workflow ref.".to_string(),
+                phases: vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+                    workflow_ref: "builtin/task-quick-fix".to_string(),
+                })],
+                post_success: None,
+                variables: Vec::new(),
+            },
+            WorkflowDefinition {
+                id: "ao.task/gated".to_string(),
+                name: "AO Task Gated".to_string(),
+                description: "Canonical pack-qualified gated workflow ref.".to_string(),
+                phases: vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+                    workflow_ref: "builtin/task-gated".to_string(),
+                })],
+                post_success: None,
+                variables: Vec::new(),
+            },
+            WorkflowDefinition {
+                id: "ao.task/triage".to_string(),
+                name: "AO Task Triage".to_string(),
+                description: "Canonical pack-qualified triage workflow ref.".to_string(),
+                phases: vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+                    workflow_ref: "builtin/task-triage".to_string(),
+                })],
+                post_success: None,
+                variables: Vec::new(),
+            },
+            WorkflowDefinition {
+                id: "ao.task/refine".to_string(),
+                name: "AO Task Refine".to_string(),
+                description: "Canonical pack-qualified task refinement workflow ref.".to_string(),
+                phases: vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+                    workflow_ref: "builtin/task-refine".to_string(),
+                })],
+                post_success: None,
+                variables: Vec::new(),
+            },
+            WorkflowDefinition {
+                id: "ao.review/cycle".to_string(),
+                name: "AO Review Cycle".to_string(),
+                description: "Canonical pack-qualified review cycle workflow ref.".to_string(),
+                phases: vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+                    workflow_ref: "builtin/review-cycle".to_string(),
+                })],
+                post_success: None,
+                variables: Vec::new(),
+            },
+            WorkflowDefinition {
+                id: "ao.requirement/draft".to_string(),
+                name: "AO Requirement Draft".to_string(),
+                description: "Canonical pack-qualified requirement drafting workflow ref.".to_string(),
+                phases: vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+                    workflow_ref: "builtin/requirements-draft".to_string(),
+                })],
+                post_success: None,
+                variables: Vec::new(),
+            },
+            WorkflowDefinition {
+                id: "ao.requirement/refine".to_string(),
+                name: "AO Requirement Refine".to_string(),
+                description: "Canonical pack-qualified requirement refinement workflow ref.".to_string(),
+                phases: vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+                    workflow_ref: "builtin/requirements-refine".to_string(),
+                })],
+                post_success: None,
+                variables: Vec::new(),
+            },
+            WorkflowDefinition {
+                id: "ao.vision/draft".to_string(),
+                name: "AO Vision Draft".to_string(),
+                description: "Canonical pack-qualified vision drafting workflow ref.".to_string(),
+                phases: vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+                    workflow_ref: "builtin/vision-draft".to_string(),
+                })],
+                post_success: None,
+                variables: Vec::new(),
+            },
+            WorkflowDefinition {
+                id: "ao.vision/refine".to_string(),
+                name: "AO Vision Refine".to_string(),
+                description: "Canonical pack-qualified vision refinement workflow ref.".to_string(),
+                phases: vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+                    workflow_ref: "builtin/vision-refine".to_string(),
+                })],
+                post_success: None,
+                variables: Vec::new(),
+            },
+            WorkflowDefinition {
                 id: "standard".to_string(),
                 name: "Standard".to_string(),
                 description: "Default execution flow across requirements, implementation, review, and testing."
@@ -117,6 +250,26 @@ pub(crate) fn builtin_workflow_config_base() -> WorkflowConfig {
                 post_success: None,
                 variables: Vec::new(),
             },
+            WorkflowDefinition {
+                id: "requirement-task-generation".to_string(),
+                name: "Requirement Task Generation".to_string(),
+                description: "Legacy alias for the canonical requirement planning workflow.".to_string(),
+                phases: vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+                    workflow_ref: REQUIREMENT_TASK_GENERATION_WORKFLOW_REF.to_string(),
+                })],
+                post_success: None,
+                variables: Vec::new(),
+            },
+            WorkflowDefinition {
+                id: "requirement-task-generation-run".to_string(),
+                name: "Requirement Task Generation Run".to_string(),
+                description: "Legacy alias for the canonical requirement execution workflow.".to_string(),
+                phases: vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
+                    workflow_ref: REQUIREMENT_TASK_GENERATION_RUN_WORKFLOW_REF.to_string(),
+                })],
+                post_success: None,
+                variables: Vec::new(),
+            },
         ],
         phase_definitions: BTreeMap::new(),
         agent_profiles: BTreeMap::new(),
@@ -132,6 +285,7 @@ pub(crate) fn builtin_workflow_config_base() -> WorkflowConfig {
                 env: BTreeMap::new(),
             },
         )]),
+        phase_mcp_bindings: BTreeMap::new(),
         tools: BTreeMap::new(),
         integrations: None,
         schedules: Vec::new(),

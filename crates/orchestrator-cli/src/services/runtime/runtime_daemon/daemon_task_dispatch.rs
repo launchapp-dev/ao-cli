@@ -47,7 +47,7 @@ pub fn dispatch_queued_entries_via_runner(
         let Some(dispatch) = &entry.dispatch else {
             continue;
         };
-        if active_subject_ids.contains(dispatch.subject_id()) {
+        if active_subject_ids.contains(&dispatch.subject_key()) {
             continue;
         }
 
@@ -70,7 +70,7 @@ impl DispatchNoticeSink for CliDispatchNoticeSink {
                 eprintln!(
                     "{}: failed to mark dispatch queue entry assigned for subject {}: {}",
                     protocol::ACTOR_DAEMON,
-                    dispatch.subject_id(),
+                    dispatch.subject_key(),
                     error
                 );
             }
@@ -78,7 +78,7 @@ impl DispatchNoticeSink for CliDispatchNoticeSink {
                 eprintln!(
                     "{}: failed to start workflow runner for subject {}: {}",
                     protocol::ACTOR_DAEMON,
-                    dispatch.subject_id(),
+                    dispatch.subject_key(),
                     error
                 );
             }

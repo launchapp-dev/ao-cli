@@ -51,6 +51,7 @@ pub trait RequirementsProvider: Send + Sync {
 
 #[derive(Debug, Clone)]
 pub struct SubjectContext {
+    pub subject_kind: String,
     pub subject_id: String,
     pub subject_title: String,
     pub subject_description: String,
@@ -69,7 +70,12 @@ pub trait SubjectResolver: Send + Sync {
 
 #[async_trait]
 pub trait ProjectAdapter: Send + Sync {
-    async fn ensure_execution_cwd(&self, project_root: &str, task: Option<&OrchestratorTask>) -> Result<String>;
+    async fn ensure_execution_cwd(
+        &self,
+        project_root: &str,
+        subject: &WorkflowSubject,
+        subject_context: &SubjectContext,
+    ) -> Result<String>;
 }
 
 #[async_trait]
@@ -123,8 +129,9 @@ pub mod gitlab;
 pub mod jira;
 #[cfg(feature = "linear")]
 pub mod linear;
+pub mod subject_adapter;
 
-pub use builtin::{BuiltinProjectAdapter, BuiltinRequirementsProvider, BuiltinSubjectResolver, BuiltinTaskProvider};
+pub use builtin::{BuiltinRequirementsProvider, BuiltinTaskProvider};
 pub use git::{
     BuiltinGitProvider, CreatePrInput, GitHubProvider, GitProvider, MergeResult, PullRequestInfo, WorktreeInfo,
 };
@@ -134,3 +141,8 @@ pub use gitlab::{GitLabConfig, GitLabGitProvider};
 pub use jira::{JiraConfig, JiraTaskProvider};
 #[cfg(feature = "linear")]
 pub use linear::{LinearConfig, LinearTaskProvider};
+pub use subject_adapter::{
+    builtin_subject_adapter_registry, BuiltinCustomSubjectAdapter, BuiltinProjectAdapter,
+    BuiltinRequirementSubjectAdapter, BuiltinSubjectResolver, BuiltinTaskSubjectAdapter, SubjectAdapter,
+    SubjectAdapterRegistry,
+};

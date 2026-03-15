@@ -195,7 +195,7 @@ async fn resolve_existing_workflow_context(
         .resolve_subject_context(&workflow.subject, None, None)
         .await
         .with_context(|| format!("failed to resolve subject context for workflow '{}'", workflow.id))?;
-    let execution_cwd = ensure_execution_cwd(hub, project_root, resolved.task.as_ref()).await?;
+    let execution_cwd = ensure_execution_cwd(hub, project_root, &workflow.subject, &resolved).await?;
 
     Ok(ResolvedPromptContext {
         workflow_id: workflow.id.clone(),
@@ -255,7 +255,7 @@ async fn resolve_ad_hoc_context(
         .resolve_subject_context(&subject, fallback_title.as_deref(), fallback_description.as_deref())
         .await
         .with_context(|| format!("failed to resolve subject context for ad-hoc subject '{}'", subject.id()))?;
-    let execution_cwd = ensure_execution_cwd(hub, project_root, resolved.task.as_ref()).await?;
+    let execution_cwd = ensure_execution_cwd(hub, project_root, &subject, &resolved).await?;
 
     Ok(ResolvedPromptContext {
         workflow_id: Uuid::new_v4().to_string(),

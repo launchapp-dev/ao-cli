@@ -505,36 +505,23 @@ mod requirement_workflow_tests {
     use super::*;
     use orchestrator_core::{
         builtin_agent_runtime_config, builtin_workflow_config, write_agent_runtime_config, write_workflow_config,
-        WorkflowDefinition,
     };
 
     #[test]
-    fn resolve_requirement_workflow_ref_errors_when_workflow_missing() {
+    fn resolve_requirement_workflow_ref_uses_bundled_canonical_workflow() {
         let temp = tempfile::tempdir().expect("tempdir");
         write_workflow_config(temp.path(), &builtin_workflow_config()).expect("write config");
         write_agent_runtime_config(temp.path(), &builtin_agent_runtime_config()).expect("write runtime config");
 
-        let error = resolve_requirement_workflow_ref(temp.path().to_string_lossy().as_ref())
-            .expect_err("missing requirement workflow should error");
-        assert!(
-            error.to_string().contains(REQUIREMENT_TASK_GENERATION_WORKFLOW_REF),
-            "error should mention missing requirement workflow"
-        );
+        let workflow_ref = resolve_requirement_workflow_ref(temp.path().to_string_lossy().as_ref())
+            .expect("bundled requirement workflow should resolve");
+        assert_eq!(workflow_ref, REQUIREMENT_TASK_GENERATION_WORKFLOW_REF);
     }
 
     #[test]
     fn resolve_requirement_workflow_ref_detects_requirement_pipeline() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let mut workflow_config = builtin_workflow_config();
-        workflow_config.workflows.push(WorkflowDefinition {
-            id: REQUIREMENT_TASK_GENERATION_WORKFLOW_REF.to_string(),
-            name: "Requirement Task Generation".to_string(),
-            description: String::new(),
-            phases: vec!["requirements".to_string().into()],
-            post_success: None,
-            variables: Vec::new(),
-        });
-        write_workflow_config(temp.path(), &workflow_config).expect("write config");
+        write_workflow_config(temp.path(), &builtin_workflow_config()).expect("write config");
         write_agent_runtime_config(temp.path(), &builtin_agent_runtime_config()).expect("write runtime config");
 
         let workflow_ref = resolve_requirement_workflow_ref(temp.path().to_string_lossy().as_ref())
@@ -543,17 +530,14 @@ mod requirement_workflow_tests {
     }
 
     #[test]
-    fn apply_requirement_workflow_default_errors_when_requirement_workflow_missing() {
+    fn apply_requirement_workflow_default_uses_bundled_requirement_workflow() {
         let temp = tempfile::tempdir().expect("tempdir");
         write_workflow_config(temp.path(), &builtin_workflow_config()).expect("write config");
         write_agent_runtime_config(temp.path(), &builtin_agent_runtime_config()).expect("write runtime config");
 
-        let error = resolve_requirement_workflow_ref(temp.path().to_string_lossy().as_ref())
-            .expect_err("missing requirement workflow should fail closed");
-        assert!(
-            error.to_string().contains(REQUIREMENT_TASK_GENERATION_WORKFLOW_REF),
-            "error should mention missing requirement workflow"
-        );
+        let workflow_ref = resolve_requirement_workflow_ref(temp.path().to_string_lossy().as_ref())
+            .expect("default requirement workflow should resolve");
+        assert_eq!(workflow_ref, REQUIREMENT_TASK_GENERATION_WORKFLOW_REF);
     }
 }
 
@@ -564,7 +548,7 @@ mod tests {
     use orchestrator_core::{
         builtin_agent_runtime_config, builtin_workflow_config, write_agent_runtime_config, write_workflow_config,
         InMemoryServiceHub, Priority, RequirementItem, RequirementLinks, RequirementPriority, RequirementStatus,
-        TaskCreateInput, TaskType, WorkflowDefinition,
+        TaskCreateInput, TaskType,
     };
     use std::sync::Arc;
 
@@ -623,16 +607,7 @@ mod tests {
     #[tokio::test]
     async fn resolve_workflow_run_dispatch_uses_requirement_workflow_default() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let mut workflow_config = builtin_workflow_config();
-        workflow_config.workflows.push(WorkflowDefinition {
-            id: REQUIREMENT_TASK_GENERATION_WORKFLOW_REF.to_string(),
-            name: "Requirement Task Generation".to_string(),
-            description: "test workflow".to_string(),
-            phases: vec!["requirements".to_string().into()],
-            post_success: None,
-            variables: Vec::new(),
-        });
-        write_workflow_config(temp.path(), &workflow_config).expect("write config");
+        write_workflow_config(temp.path(), &builtin_workflow_config()).expect("write config");
         write_agent_runtime_config(temp.path(), &builtin_agent_runtime_config()).expect("write runtime config");
 
         let hub = Arc::new(InMemoryServiceHub::new());

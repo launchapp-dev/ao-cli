@@ -12,9 +12,15 @@ phase_catalog:
     category: planning
     tags: ["planning", "requirements"]
 
+agents:
+  po:
+    description: Product Owner agent for requirements drafting
+    system_prompt: You are a product owner responsible for drafting project requirements.
+
 phases:
   requirements-draft:
     mode: agent
+    agent_id: po
     directive: |
       You are drafting project requirements based on the vision and codebase.
 

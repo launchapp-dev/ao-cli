@@ -1,5 +1,7 @@
 pub mod agent_runtime_config;
 mod json;
+pub mod pack_config;
+pub mod pack_registry;
 pub mod skill_definition;
 pub mod skill_resolution;
 pub mod skill_scoping;
@@ -20,5 +22,20 @@ pub mod types {
 }
 
 pub use agent_runtime_config::*;
+pub use pack_config::{
+    activate_pack_mcp_overlay, apply_pack_mcp_overlay, check_pack_runtime_requirements,
+    ensure_pack_runtime_requirements, load_pack_manifest, load_pack_manifest_from_file, load_pack_mcp_overlay,
+    pack_manifest_path, parse_pack_manifest, validate_pack_manifest, validate_pack_manifest_assets,
+    ExternalRuntimeKind, LoadedPackManifest, PackCompatibility, PackDependency, PackKind, PackManifest, PackMcp,
+    PackMcpOverlay, PackNativeModule, PackOwnership, PackOwnershipMode, PackPermissions, PackRuntime, PackRuntimeCheck,
+    PackRuntimeCheckStatus, PackRuntimeReport, PackRuntimeRequirement, PackSchedules, PackSecrets, PackSubjects,
+    PackWorkflows, PACK_MANIFEST_FILE_NAME, PACK_MANIFEST_SCHEMA_ID,
+};
+pub use pack_registry::{
+    load_pack_agent_runtime_overlay, load_pack_workflow_overlay, machine_installed_packs_dir,
+    project_pack_overrides_dir, resolve_pack_registry, PackRegistrySource, ResolvedPackRegistry,
+    ResolvedPackRegistryEntry, BUNDLED_BUILTIN_PACK_ID, BUNDLED_BUILTIN_PACK_VERSION, MACHINE_PACKS_DIR_NAME,
+    PROJECT_PACKS_DIR_NAME,
+};
 pub use skill_definition::*;
 pub use workflow_config::*;

@@ -299,6 +299,12 @@ pub struct McpServerDefinition {
     pub env: BTreeMap<String, String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct PhaseMcpBinding {
+    #[serde(default)]
+    pub servers: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDefinition {
     pub executable: String,
@@ -434,6 +440,8 @@ pub struct WorkflowConfig {
     pub tools_allowlist: Vec<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub mcp_servers: BTreeMap<String, McpServerDefinition>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub phase_mcp_bindings: BTreeMap<String, PhaseMcpBinding>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub tools: BTreeMap<String, ToolDefinition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

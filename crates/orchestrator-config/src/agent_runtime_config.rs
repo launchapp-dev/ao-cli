@@ -455,6 +455,18 @@ pub struct AgentRuntimeConfig {
     pub cli_tools: BTreeMap<String, CliToolConfig>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AgentRuntimeOverlay {
+    #[serde(default)]
+    pub tools_allowlist: Vec<String>,
+    #[serde(default)]
+    pub agents: BTreeMap<String, AgentProfile>,
+    #[serde(default)]
+    pub phases: BTreeMap<String, PhaseExecutionDefinition>,
+    #[serde(default)]
+    pub cli_tools: BTreeMap<String, CliToolConfig>,
+}
+
 impl Default for AgentRuntimeConfig {
     fn default() -> Self {
         builtin_agent_runtime_config()
@@ -1219,7 +1231,31 @@ pub fn load_agent_runtime_config(project_root: &Path) -> Result<AgentRuntimeConf
 pub fn load_agent_runtime_config_with_metadata(project_root: &Path) -> Result<LoadedAgentRuntimeConfig> {
     if let Ok(loaded_workflow) = crate::workflow_config::load_workflow_config_with_metadata(project_root) {
         let mut config = builtin_agent_runtime_config();
+        let registry = crate::resolve_pack_registry(project_root)?;
+        let mut path = loaded_workflow.path.clone();
+
+        for entry in registry.entries_for_source(crate::PackRegistrySource::Installed) {
+            let Some(pack) = entry.loaded_manifest() else {
+                continue;
+            };
+            if let Some(overlay) = crate::load_pack_agent_runtime_overlay(pack)? {
+                merge_agent_runtime_overlay(&mut config, &overlay);
+                path = entry.pack_root.clone().unwrap_or_else(crate::machine_installed_packs_dir);
+            }
+        }
+
         merge_workflow_runtime_overlay(&mut config, &loaded_workflow.config);
+
+        for entry in registry.entries_for_source(crate::PackRegistrySource::ProjectOverride) {
+            let Some(pack) = entry.loaded_manifest() else {
+                continue;
+            };
+            if let Some(overlay) = crate::load_pack_agent_runtime_overlay(pack)? {
+                merge_agent_runtime_overlay(&mut config, &overlay);
+                path = entry.pack_root.clone().unwrap_or_else(|| crate::project_pack_overrides_dir(project_root));
+            }
+        }
+
         validate_agent_runtime_config(&config)?;
 
         return Ok(LoadedAgentRuntimeConfig {
@@ -1230,7 +1266,7 @@ pub fn load_agent_runtime_config_with_metadata(project_root: &Path) -> Result<Lo
                 source: AgentRuntimeSource::WorkflowYaml,
             },
             config,
-            path: loaded_workflow.path,
+            path,
         });
     }
 
@@ -1279,6 +1315,34 @@ fn merge_workflow_runtime_overlay(base: &mut AgentRuntimeConfig, workflow: &crat
         entry.supports_mcp = Some(definition.supports_mcp);
         entry.supports_file_editing = Some(definition.supports_write);
         entry.max_context_tokens = definition.context_window;
+    }
+}
+
+pub(crate) fn merge_agent_runtime_overlay(base: &mut AgentRuntimeConfig, overlay: &AgentRuntimeOverlay) {
+    for tool in &overlay.tools_allowlist {
+        if !tool.trim().is_empty() && !base.tools_allowlist.iter().any(|candidate| candidate.eq_ignore_ascii_case(tool))
+        {
+            base.tools_allowlist.push(tool.clone());
+        }
+    }
+    for (agent_id, profile) in &overlay.agents {
+        match base.agents.get_mut(agent_id) {
+            Some(existing) => merge_agent_profile(existing, profile),
+            None => {
+                base.agents.insert(agent_id.clone(), profile.clone());
+            }
+        }
+    }
+    for (phase_id, definition) in &overlay.phases {
+        base.phases.insert(phase_id.clone(), definition.clone());
+    }
+    for (tool_id, definition) in &overlay.cli_tools {
+        match base.cli_tools.get_mut(tool_id) {
+            Some(existing) => merge_cli_tool_config(existing, definition),
+            None => {
+                base.cli_tools.insert(tool_id.clone(), definition.clone());
+            }
+        }
     }
 }
 
@@ -1348,6 +1412,39 @@ fn merge_agent_profile(base: &mut AgentProfile, overlay: &AgentProfile) {
     }
 }
 
+fn merge_cli_tool_config(base: &mut CliToolConfig, overlay: &CliToolConfig) {
+    if overlay.executable.is_some() {
+        base.executable = overlay.executable.clone();
+    }
+    if overlay.supports_file_editing.is_some() {
+        base.supports_file_editing = overlay.supports_file_editing;
+    }
+    if overlay.supports_streaming.is_some() {
+        base.supports_streaming = overlay.supports_streaming;
+    }
+    if overlay.supports_tool_use.is_some() {
+        base.supports_tool_use = overlay.supports_tool_use;
+    }
+    if overlay.supports_vision.is_some() {
+        base.supports_vision = overlay.supports_vision;
+    }
+    if overlay.supports_long_context.is_some() {
+        base.supports_long_context = overlay.supports_long_context;
+    }
+    if overlay.max_context_tokens.is_some() {
+        base.max_context_tokens = overlay.max_context_tokens;
+    }
+    if overlay.supports_mcp.is_some() {
+        base.supports_mcp = overlay.supports_mcp;
+    }
+    if overlay.read_only_flag.is_some() {
+        base.read_only_flag = overlay.read_only_flag.clone();
+    }
+    if overlay.response_schema_flag.is_some() {
+        base.response_schema_flag = overlay.response_schema_flag.clone();
+    }
+}
+
 pub fn write_agent_runtime_config(project_root: &Path, config: &AgentRuntimeConfig) -> Result<()> {
     validate_agent_runtime_config(config)?;
     let workflow_overlay = crate::workflow_config::WorkflowConfig {
@@ -1361,6 +1458,7 @@ pub fn write_agent_runtime_config(project_root: &Path, config: &AgentRuntimeConf
         agent_profiles: config.agents.clone(),
         tools_allowlist: config.tools_allowlist.clone(),
         mcp_servers: BTreeMap::new(),
+        phase_mcp_bindings: BTreeMap::new(),
         tools: config
             .cli_tools
             .iter()
@@ -1677,6 +1775,108 @@ fn validate_agent_runtime_config(config: &AgentRuntimeConfig) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env;
+    use std::fs;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    struct EnvVarGuard {
+        key: &'static str,
+        original: Option<String>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &std::path::Path) -> Self {
+            let original = env::var(key).ok();
+            env::set_var(key, value);
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match self.original.as_deref() {
+                Some(value) => env::set_var(self.key, value),
+                None => env::remove_var(self.key),
+            }
+        }
+    }
+
+    fn write_pack_agent_overlay_fixture(root: &std::path::Path, pack_id: &str, version: &str) {
+        fs::create_dir_all(root.join("workflows")).expect("create workflows");
+        fs::create_dir_all(root.join("runtime")).expect("create runtime");
+        fs::create_dir_all(root.join("assets")).expect("create assets");
+        fs::write(root.join("assets/review-helper.sh"), "#!/bin/sh\nexit 0\n").expect("write helper");
+        fs::write(
+            root.join(crate::PACK_MANIFEST_FILE_NAME),
+            format!(
+                r#"
+schema = "ao.pack.v1"
+id = "{pack_id}"
+version = "{version}"
+kind = "domain-pack"
+title = "{pack_id}"
+description = "Fixture"
+
+[ownership]
+mode = "bundled"
+
+[compatibility]
+ao_core = ">=0.1.0"
+workflow_schema = "v2"
+subject_schema = "v2"
+
+[subjects]
+kinds = ["ao.task"]
+default_kind = "ao.task"
+
+[workflows]
+root = "workflows"
+exports = ["{pack_id}/review-pack"]
+
+[runtime]
+agent_overlay = "runtime/agent-runtime.overlay.yaml"
+workflow_overlay = "runtime/workflow-runtime.overlay.yaml"
+"#
+            ),
+        )
+        .expect("write manifest");
+        fs::write(
+            root.join("runtime/workflow-runtime.overlay.yaml"),
+            r#"
+workflows:
+  - id: review-pack
+    name: "review-pack"
+    phases:
+      - implementation
+"#,
+        )
+        .expect("write workflow overlay");
+        fs::write(
+            root.join("runtime/agent-runtime.overlay.yaml"),
+            r#"
+tools_allowlist:
+  - review-helper.sh
+phases:
+  pack-review:
+    mode: command
+    command:
+      program: ./assets/review-helper.sh
+      cwd_mode: path
+      cwd_path: workspace/scripts
+cli_tools:
+  pack-tool:
+    executable: ./assets/review-helper.sh
+    supports_mcp: false
+    supports_file_editing: false
+"#,
+        )
+        .expect("write agent runtime overlay");
+    }
 
     #[test]
     fn missing_config_reports_actionable_error() {
@@ -1748,6 +1948,29 @@ mod tests {
         let resolved = load_agent_runtime_config_or_default(temp.path());
         let triage = resolved.phase_decision_contract("triage").expect("triage contract");
         assert!(!triage.allow_missing_decision);
+    }
+
+    #[test]
+    fn runtime_resolution_merges_pack_agent_overlays_and_rebases_assets() {
+        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = tempfile::tempdir().expect("home tempdir");
+        let temp = tempfile::tempdir().expect("project tempdir");
+        let _home_guard = EnvVarGuard::set("HOME", home.path());
+
+        write_pack_agent_overlay_fixture(
+            &crate::machine_installed_packs_dir().join("ao.review").join("0.2.0"),
+            "ao.review",
+            "0.2.0",
+        );
+
+        let resolved = load_agent_runtime_config_with_metadata(temp.path()).expect("load runtime config");
+        let command = resolved.config.phase_command("pack-review").expect("pack review command");
+        let tool = resolved.config.cli_tools.get("pack-tool").expect("pack tool");
+
+        assert!(command.program.ends_with("assets/review-helper.sh"));
+        assert_eq!(command.cwd_mode, CommandCwdMode::Path);
+        assert_eq!(command.cwd_path.as_deref(), Some("workspace/scripts"));
+        assert_eq!(tool.executable.as_deref().is_some_and(|value| value.ends_with("assets/review-helper.sh")), true);
     }
 
     #[test]

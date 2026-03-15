@@ -6,9 +6,10 @@ use sha2::{Digest, Sha256};
 use super::builtins::builtin_workflow_config;
 use super::types::*;
 use super::validation::validate_workflow_config;
-use super::yaml_compiler::{compile_yaml_workflow_files, merge_yaml_into_config, yaml_workflows_dir};
+use super::yaml_compiler::{merge_yaml_into_config, yaml_workflows_dir};
 use super::yaml_scaffold::ensure_workflow_yaml_scaffold;
 use super::yaml_types::GENERATED_WORKFLOW_OVERLAY_FILE_NAME;
+use crate::{load_pack_workflow_overlay, machine_installed_packs_dir, resolve_pack_registry, PackRegistrySource};
 
 pub fn workflow_config_path(project_root: &Path) -> PathBuf {
     let base = protocol::scoped_state_root(project_root).unwrap_or_else(|| project_root.join(".ao"));
@@ -27,11 +28,13 @@ pub fn ensure_workflow_config_file(project_root: &Path) -> Result<()> {
 }
 
 pub fn ensure_workflow_config_compiled(project_root: &Path) -> Result<()> {
-    if let Some(yaml_config) = compile_yaml_workflow_files(project_root)? {
-        let config = merge_yaml_into_config(builtin_workflow_config(), yaml_config);
-        validate_workflow_config(&config)?;
+    let yaml_sources = super::collect_project_yaml_workflow_sources(project_root)?;
+    let registry = resolve_pack_registry(project_root)?;
+    if yaml_sources.is_empty() && !registry.has_external_packs() {
+        return Ok(());
     }
-    Ok(())
+
+    load_workflow_config_with_metadata(project_root).map(|_| ())
 }
 
 pub fn load_workflow_config(project_root: &Path) -> Result<WorkflowConfig> {
@@ -39,13 +42,40 @@ pub fn load_workflow_config(project_root: &Path) -> Result<WorkflowConfig> {
 }
 
 pub fn load_workflow_config_with_metadata(project_root: &Path) -> Result<LoadedWorkflowConfig> {
-    if let Some(yaml_config) = compile_yaml_workflow_files(project_root)? {
-        let config = merge_yaml_into_config(builtin_workflow_config(), yaml_config);
-        validate_workflow_config(&config)?;
+    let yaml_sources = super::collect_project_yaml_workflow_sources(project_root)?;
+    let registry = resolve_pack_registry(project_root)?;
+    if !yaml_sources.is_empty() || registry.has_external_packs() {
+        let mut config = builtin_workflow_config();
+        let mut path = workflow_config_path(project_root);
 
-        let single_file = project_root.join(".ao").join("workflows.yaml");
-        let workflows_dir = yaml_workflows_dir(project_root);
-        let path = if single_file.exists() { single_file } else { workflows_dir };
+        for entry in registry.entries_for_source(PackRegistrySource::Installed) {
+            let Some(pack) = entry.loaded_manifest() else {
+                continue;
+            };
+            if let Some(overlay) = load_pack_workflow_overlay(pack, &config)? {
+                config = merge_yaml_into_config(config, overlay);
+                path = entry.pack_root.clone().unwrap_or_else(machine_installed_packs_dir);
+            }
+        }
+
+        if let Some(yaml_config) = super::compile_yaml_sources_with_base(&config, &yaml_sources)? {
+            config = merge_yaml_into_config(config, yaml_config);
+            let single_file = project_root.join(".ao").join("workflows.yaml");
+            let workflows_dir = yaml_workflows_dir(project_root);
+            path = if single_file.exists() { single_file } else { workflows_dir };
+        }
+
+        for entry in registry.entries_for_source(PackRegistrySource::ProjectOverride) {
+            let Some(pack) = entry.loaded_manifest() else {
+                continue;
+            };
+            if let Some(overlay) = load_pack_workflow_overlay(pack, &config)? {
+                config = merge_yaml_into_config(config, overlay);
+                path = entry.pack_root.clone().unwrap_or_else(|| project_root.join(".ao").join("plugins"));
+            }
+        }
+
+        validate_workflow_config(&config)?;
 
         return Ok(LoadedWorkflowConfig {
             metadata: WorkflowConfigMetadata {

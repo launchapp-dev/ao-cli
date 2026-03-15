@@ -11,6 +11,7 @@ use orchestrator_config::workflow_config::MergeStrategy;
 use orchestrator_core::{
     dispatch_workflow_event, ensure_workflow_config_compiled, load_workflow_config,
     project_requirement_workflow_status,
+    providers::SubjectContext,
     providers::{BuiltinGitProvider, GitProvider},
     register_workflow_runner_pid,
     services::ServiceHub,
@@ -63,12 +64,6 @@ pub struct WorkflowExecuteResult {
     pub total_duration: Duration,
     pub phase_results: Vec<Value>,
     pub post_success: Value,
-}
-
-struct ExecutionSubjectContext {
-    subject_title: String,
-    subject_description: String,
-    task: Option<OrchestratorTask>,
 }
 
 #[derive(Clone, Default)]
@@ -142,7 +137,7 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
     .await?;
     let mut task = subject_context.task.take();
 
-    let execution_cwd = ensure_execution_cwd(hub.clone(), &params.project_root, task.as_ref())
+    let execution_cwd = ensure_execution_cwd(hub.clone(), &params.project_root, &workflow.subject, &subject_context)
         .await
         .context("failed to resolve execution cwd")?;
 
@@ -579,17 +574,11 @@ async fn resolve_execution_subject_context(
     subject: &WorkflowSubject,
     fallback_title: Option<&str>,
     fallback_description: Option<&str>,
-) -> Result<ExecutionSubjectContext> {
-    let resolved = hub
-        .subject_resolver()
+) -> Result<SubjectContext> {
+    hub.subject_resolver()
         .resolve_subject_context(subject, fallback_title, fallback_description)
         .await
-        .with_context(|| format!("failed to resolve subject context for '{}'", subject.id()))?;
-    Ok(ExecutionSubjectContext {
-        subject_title: resolved.subject_title,
-        subject_description: resolved.subject_description,
-        task: resolved.task,
-    })
+        .with_context(|| format!("failed to resolve subject context for '{}'", subject.id()))
 }
 
 async fn project_requirement_success_status(

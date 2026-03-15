@@ -597,7 +597,10 @@ pub(crate) async fn handle_daemon(
                 std::env::remove_var("AO_RUNNER_SCOPE");
             }
 
-            let result = daemon.start(Default::default()).await;
+            let result = daemon.start(orchestrator_core::services::DaemonStartConfig {
+                pool_size: args.scheduler.pool_size,
+                ..Default::default()
+            }).await;
             std::env::remove_var("AO_SKIP_RUNNER_START");
             std::env::remove_var("AO_RUNNER_SCOPE");
             if result.is_ok() {

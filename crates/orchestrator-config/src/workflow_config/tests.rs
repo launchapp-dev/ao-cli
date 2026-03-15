@@ -59,10 +59,9 @@ fn builtin_workflow_config_includes_planning_workflow_refs() {
 #[test]
 fn missing_v2_file_reports_actionable_error() {
     let temp = tempfile::tempdir().expect("tempdir");
-    let err = load_workflow_config(temp.path()).expect_err("missing config should fail");
-    let message = err.to_string();
-    assert!(message.contains(".ao/workflows.yaml"));
-    assert!(message.contains(".ao/workflows/*.yaml"));
+    let config = load_workflow_config(temp.path()).expect("bundled pack defaults should load");
+    assert_eq!(config.default_workflow_ref, "ao.task/standard");
+    assert!(config.workflows.iter().any(|workflow| workflow.id == "ao.task/standard"));
 }
 
 #[test]

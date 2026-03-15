@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
+use crate::{discover_bundled_pack_manifests, load_pack_workflow_overlay};
+
 use super::types::*;
 use super::yaml_compiler::merge_yaml_into_config;
 use super::yaml_parser::parse_yaml_workflow_config_with_base;
@@ -293,7 +295,34 @@ pub(crate) fn builtin_workflow_config_base() -> WorkflowConfig {
     }
 }
 
-pub(crate) fn builtin_workflow_yaml_overlays() -> [(&'static str, &'static str); 13] {
+fn pack_owned_workflow_ids() -> [&'static str; 15] {
+    [
+        STANDARD_WORKFLOW_REF,
+        UI_UX_WORKFLOW_REF,
+        REQUIREMENT_TASK_GENERATION_WORKFLOW_REF,
+        REQUIREMENT_TASK_GENERATION_RUN_WORKFLOW_REF,
+        "ao.task/quick-fix",
+        "ao.task/gated",
+        "ao.task/triage",
+        "ao.task/refine",
+        "ao.review/cycle",
+        "ao.requirement/draft",
+        "ao.requirement/refine",
+        "builtin/requirements-draft",
+        "builtin/requirements-refine",
+        "builtin/requirements-execute",
+        "builtin/requirement-plan",
+    ]
+}
+
+pub(crate) fn bundled_kernel_workflow_config_base() -> WorkflowConfig {
+    let pack_owned_ids = pack_owned_workflow_ids();
+    let mut config = builtin_workflow_config_base();
+    config.workflows.retain(|workflow| !pack_owned_ids.iter().any(|id| workflow.id == *id));
+    config
+}
+
+pub(crate) fn builtin_workflow_yaml_overlays() -> [(&'static str, &'static str); 2] {
     [
         (
             "vision-draft",
@@ -303,44 +332,6 @@ pub(crate) fn builtin_workflow_yaml_overlays() -> [(&'static str, &'static str);
             "vision-refine",
             include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/config/builtin-workflows/vision-refine.yaml")),
         ),
-        (
-            "requirements-draft",
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/config/builtin-workflows/requirements-draft.yaml")),
-        ),
-        (
-            "requirements-refine",
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/config/builtin-workflows/requirements-refine.yaml")),
-        ),
-        (
-            "requirements-execute",
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/config/builtin-workflows/requirements-execute.yaml")),
-        ),
-        (
-            "task-standard",
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/config/builtin-workflows/task-standard.yaml")),
-        ),
-        ("task-ui-ux", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/config/builtin-workflows/task-ui-ux.yaml"))),
-        (
-            "review-cycle",
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/config/builtin-workflows/review-cycle.yaml")),
-        ),
-        (
-            "task-quick-fix",
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/config/builtin-workflows/task-quick-fix.yaml")),
-        ),
-        ("task-gated", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/config/builtin-workflows/task-gated.yaml"))),
-        (
-            "task-triage",
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/config/builtin-workflows/task-triage.yaml")),
-        ),
-        (
-            "task-refine",
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/config/builtin-workflows/task-refine.yaml")),
-        ),
-        (
-            "requirement-plan",
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/config/builtin-workflows/requirement-plan.yaml")),
-        ),
     ]
 }
 
@@ -348,11 +339,20 @@ pub fn builtin_workflow_config() -> WorkflowConfig {
     static BUILTIN_CONFIG: OnceLock<WorkflowConfig> = OnceLock::new();
     BUILTIN_CONFIG
         .get_or_init(|| {
-            let mut config = builtin_workflow_config_base();
+            let mut config = bundled_kernel_workflow_config_base();
             for (name, yaml) in builtin_workflow_yaml_overlays() {
                 let overlay = parse_yaml_workflow_config_with_base(yaml, &config)
                     .unwrap_or_else(|error| panic!("invalid builtin workflow YAML '{name}': {error}"));
                 config = merge_yaml_into_config(config, overlay);
+            }
+            for pack in discover_bundled_pack_manifests()
+                .unwrap_or_else(|error| panic!("failed to load bundled pack manifests: {error}"))
+            {
+                if let Some(overlay) = load_pack_workflow_overlay(&pack, &config)
+                    .unwrap_or_else(|error| panic!("invalid bundled pack workflow overlay '{}': {error}", pack.manifest.id))
+                {
+                    config = merge_yaml_into_config(config, overlay);
+                }
             }
             config
         })

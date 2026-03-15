@@ -16,7 +16,7 @@ use orchestrator_core::{
     register_workflow_runner_pid,
     services::ServiceHub,
     unregister_workflow_runner_pid, FileServiceHub, OrchestratorTask, OrchestratorWorkflow, PhaseDecisionVerdict,
-    WorkflowEvent, WorkflowRunInput, WorkflowStatus, WorkflowSubject,
+    SubjectRef, WorkflowEvent, WorkflowRunInput, WorkflowStatus, SUBJECT_KIND_CUSTOM,
 };
 
 use crate::ensure_execution_cwd::ensure_execution_cwd;
@@ -115,7 +115,7 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
             let subject = input.subject().clone();
             let subject_id = subject.id().to_string();
             hub.workflows().run(input).await.or_else(|run_err| {
-                if matches!(subject, WorkflowSubject::Custom { .. }) {
+                if subject.kind().eq_ignore_ascii_case(SUBJECT_KIND_CUSTOM) {
                     return Err(run_err);
                 }
                 let all =
@@ -513,36 +513,31 @@ async fn load_existing_workflow(
 
 fn validate_existing_workflow_subject(workflow: &OrchestratorWorkflow, params: &WorkflowExecuteParams) -> Result<()> {
     if let Some(task_id) = params.task_id.as_deref() {
-        let workflow_task_id = match &workflow.subject {
-            WorkflowSubject::Task { id } => id.as_str(),
-            _ => workflow.task_id.as_str(),
-        };
+        let workflow_task_id = workflow.subject.task_id().unwrap_or_else(|| workflow.task_id.as_str());
         if workflow_task_id != task_id {
             return Err(anyhow!("workflow '{}' is for task '{}' not '{}'", workflow.id, workflow_task_id, task_id));
         }
     }
 
     if let Some(requirement_id) = params.requirement_id.as_deref() {
-        match &workflow.subject {
-            WorkflowSubject::Requirement { id } if id == requirement_id => {}
-            WorkflowSubject::Requirement { id } => {
+        match workflow.subject.requirement_id() {
+            Some(id) if id == requirement_id => {}
+            Some(id) => {
                 return Err(anyhow!("workflow '{}' is for requirement '{}' not '{}'", workflow.id, id, requirement_id));
             }
-            _ => {
+            None => {
                 return Err(anyhow!("workflow '{}' is not a requirement workflow", workflow.id));
             }
         }
     }
 
     if let Some(title) = params.title.as_deref() {
-        match &workflow.subject {
-            WorkflowSubject::Custom { title: actual, .. } if actual == title => {}
-            WorkflowSubject::Custom { title: actual, .. } => {
-                return Err(anyhow!("workflow '{}' is for custom subject '{}' not '{}'", workflow.id, actual, title));
-            }
-            _ => {
-                return Err(anyhow!("workflow '{}' is not a custom workflow", workflow.id));
-            }
+        if !workflow.subject.kind().eq_ignore_ascii_case(SUBJECT_KIND_CUSTOM) {
+            return Err(anyhow!("workflow '{}' is not a custom workflow", workflow.id));
+        }
+        let actual = workflow.subject.title.as_deref().unwrap_or_else(|| workflow.subject.id());
+        if actual != title {
+            return Err(anyhow!("workflow '{}' is for custom subject '{}' not '{}'", workflow.id, actual, title));
         }
     }
 
@@ -571,7 +566,7 @@ fn resolve_input(params: &WorkflowExecuteParams) -> Result<WorkflowRunInput> {
 
 async fn resolve_execution_subject_context(
     hub: Arc<dyn ServiceHub>,
-    subject: &WorkflowSubject,
+    subject: &SubjectRef,
     fallback_title: Option<&str>,
     fallback_description: Option<&str>,
 ) -> Result<SubjectContext> {
@@ -583,10 +578,10 @@ async fn resolve_execution_subject_context(
 
 async fn project_requirement_success_status(
     hub: Arc<dyn ServiceHub>,
-    subject: &WorkflowSubject,
+    subject: &SubjectRef,
     workflow_ref: &str,
 ) -> Result<()> {
-    let WorkflowSubject::Requirement { id } = subject else {
+    let Some(id) = subject.requirement_id() else {
         return Ok(());
     };
 
@@ -1299,7 +1294,7 @@ mod tests {
 
         let context = resolve_execution_subject_context(
             hub as Arc<dyn ServiceHub>,
-            &WorkflowSubject::Requirement { id: "REQ-123".to_string() },
+            &SubjectRef::requirement("REQ-123".to_string()),
             None,
             None,
         )
@@ -1342,7 +1337,7 @@ mod tests {
 
         project_requirement_success_status(
             hub.clone(),
-            &WorkflowSubject::Requirement { id: "REQ-200".to_string() },
+            &SubjectRef::requirement("REQ-200".to_string()),
             REQUIREMENT_TASK_GENERATION_WORKFLOW_REF,
         )
         .await
@@ -1383,7 +1378,7 @@ mod tests {
 
         project_requirement_success_status(
             hub.clone(),
-            &WorkflowSubject::Requirement { id: "REQ-201".to_string() },
+            &SubjectRef::requirement("REQ-201".to_string()),
             REQUIREMENT_TASK_GENERATION_RUN_WORKFLOW_REF,
         )
         .await
@@ -1391,5 +1386,410 @@ mod tests {
 
         let updated = hub.planning().get_requirement("REQ-201").await.expect("requirement should exist");
         assert_eq!(updated.status, RequirementStatus::InProgress);
+    }
+}
+
+#[cfg(all(test, unix))]
+mod plugin_pack_fixture_tests {
+    use super::{execute_workflow, WorkflowExecuteParams};
+    use orchestrator_config::{
+        activate_pack_mcp_overlay, load_pack_manifest, load_pack_mcp_overlay, load_workflow_config_with_metadata,
+        machine_installed_packs_dir, workflow_config::builtin_workflow_config, PackRuntimeCheckStatus,
+    };
+    use serde_json::Value;
+    use std::collections::HashMap;
+    use std::env;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::Path;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    struct EnvVarGuard {
+        key: &'static str,
+        original: Option<String>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &Path) -> Self {
+            let original = env::var(key).ok();
+            env::set_var(key, value);
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match self.original.as_deref() {
+                Some(value) => env::set_var(self.key, value),
+                None => env::remove_var(self.key),
+            }
+        }
+    }
+
+    fn write_executable(path: &Path, body: &str) {
+        fs::write(path, body).expect("fixture executable should be written");
+        let mut perms = fs::metadata(path).expect("fixture executable metadata").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(path, perms).expect("fixture executable should be chmod +x");
+    }
+
+    fn write_project_runtime_scripts(project_root: &Path) {
+        fs::create_dir_all(project_root.join("scripts")).expect("scripts dir should exist");
+        fs::write(project_root.join("scripts/node-fixture.js"), "console.log('node fixture');\n")
+            .expect("node fixture source should be written");
+        fs::write(project_root.join("scripts/python-fixture.py"), "print('python fixture')\n")
+            .expect("python fixture source should be written");
+    }
+
+    fn write_runtime_pack_fixture(
+        root: &Path,
+        pack_id: &str,
+        runtime_kind: &str,
+        runtime_version: &str,
+        runtime_binary_name: &str,
+        phase_id: &str,
+        workflow_ref: &str,
+        project_script: &str,
+        output_file_name: &str,
+        include_mcp_overlay: bool,
+    ) {
+        fs::create_dir_all(root.join("workflows")).expect("pack workflows dir should exist");
+        fs::create_dir_all(root.join("runtime")).expect("pack runtime dir should exist");
+        fs::create_dir_all(root.join("bin")).expect("pack bin dir should exist");
+        if include_mcp_overlay {
+            fs::create_dir_all(root.join("mcp")).expect("pack mcp dir should exist");
+        }
+
+        let runtime_binary = root.join("bin").join(runtime_binary_name);
+        let runtime_binary_display = runtime_binary.display().to_string();
+        write_executable(
+            &runtime_binary,
+            &format!(
+                r#"#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "{runtime_version}"
+  exit 0
+fi
+script_path="$1"
+output_path="$2"
+subject_id="$3"
+printf '{runtime_kind}:%s\n' "$script_path" > "$output_path"
+printf '{{"kind":"phase_result","runtime":"{runtime_kind}","script":"%s","subject_id":"%s"}}\n' "$script_path" "$subject_id"
+"#
+            ),
+        );
+
+        let manifest = format!(
+            r#"
+schema = "ao.pack.v1"
+id = "{pack_id}"
+version = "0.1.0"
+kind = "domain-pack"
+title = "{pack_id}"
+description = "{runtime_kind} subprocess fixture."
+
+[ownership]
+mode = "bundled"
+
+[compatibility]
+ao_core = ">=0.1.0"
+workflow_schema = "v2"
+subject_schema = "v2"
+
+[subjects]
+kinds = ["custom"]
+default_kind = "custom"
+
+[workflows]
+root = "workflows"
+exports = ["{workflow_ref}"]
+
+[runtime]
+agent_overlay = "runtime/agent-runtime.overlay.yaml"
+workflow_overlay = "runtime/workflow-runtime.overlay.yaml"
+
+[[runtime.requirements]]
+runtime = "{runtime_kind}"
+binary = "{runtime_binary}"
+version = ">=0.0.1"
+optional = false
+reason = "Fixture pack validates external runtime probing."
+
+{mcp_block}
+[permissions]
+tools = ["{runtime_binary_name}"]
+{mcp_permissions}
+"#,
+            mcp_block = if include_mcp_overlay {
+                r#"[mcp]
+servers = "mcp/servers.toml"
+tools = "mcp/tools.toml"
+"#
+            } else {
+                ""
+            },
+            mcp_permissions = if include_mcp_overlay {
+                format!(r#"mcp_namespaces = ["{pack_id}"]"#)
+            } else {
+                String::new()
+            },
+            runtime_binary = runtime_binary_display,
+        );
+        fs::write(root.join(orchestrator_config::PACK_MANIFEST_FILE_NAME), manifest).expect("pack manifest should write");
+
+        fs::write(
+            root.join("runtime/agent-runtime.overlay.yaml"),
+            format!(
+                r#"
+tools_allowlist:
+  - {runtime_binary_name}
+phases:
+  {phase_id}:
+    mode: command
+    command:
+      program: ./bin/{runtime_binary_name}
+      args:
+        - "{project_script}"
+        - "{{{{project_root}}}}/{output_file_name}"
+        - "{{{{subject_id}}}}"
+      cwd_mode: project_root
+      parse_json_output: true
+      expected_result_kind: phase_result
+"#
+            ),
+        )
+        .expect("agent runtime overlay should write");
+
+        fs::write(
+            root.join("runtime/workflow-runtime.overlay.yaml"),
+            format!(
+                r#"
+phase_catalog:
+  {phase_id}:
+    label: "{phase_id}"
+    description: "{runtime_kind} fixture phase"
+    category: verification
+    tags: ["fixture", "{runtime_kind}"]
+workflows:
+  - id: {workflow_ref}
+    name: "{workflow_ref}"
+    phases:
+      - {phase_id}
+"#
+            ),
+        )
+        .expect("workflow runtime overlay should write");
+
+        if include_mcp_overlay {
+            fs::write(
+                root.join("mcp/servers.toml"),
+                format!(
+                    r#"[[server]]
+id = "runtime"
+command = "{runtime_binary}"
+args = ["mcp-server.js"]
+"#,
+                    runtime_binary = runtime_binary_display
+                ),
+            )
+            .expect("mcp servers should write");
+            fs::write(
+                root.join("mcp/tools.toml"),
+                format!(
+                    r#"[phase.{phase_id}]
+servers = ["runtime"]
+"#
+                ),
+            )
+            .expect("mcp tools should write");
+        }
+    }
+
+    fn phase_result_payload(phase_result: &Value) -> &Value {
+        phase_result
+            .get("outcome")
+            .and_then(|outcome| outcome.get("result_payload"))
+            .or_else(|| {
+                phase_result
+                    .get("outcome")
+                    .and_then(|outcome| outcome.get("Completed"))
+                    .and_then(|completed| completed.get("result_payload"))
+            })
+            .unwrap_or(&Value::Null)
+    }
+
+    #[tokio::test]
+    async fn execute_workflow_runs_node_pack_fixture_and_namespaces_pack_mcp() {
+        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = tempfile::tempdir().expect("home tempdir");
+        let project = tempfile::tempdir().expect("project tempdir");
+        let _home_guard = EnvVarGuard::set("HOME", home.path());
+        write_project_runtime_scripts(project.path());
+
+        let pack_root = machine_installed_packs_dir().join("ao.node-fixture").join("0.1.0");
+        write_runtime_pack_fixture(
+            &pack_root,
+            "ao.node-fixture",
+            "node",
+            "v20.11.1",
+            "node-fixture-runtime",
+            "node-command",
+            "ao.node-fixture/run",
+            "scripts/node-fixture.js",
+            "node-pack-output.txt",
+            true,
+        );
+
+        let pack = load_pack_manifest(&pack_root).expect("node fixture pack should load");
+        let overlay = load_pack_mcp_overlay(&pack).expect("node fixture MCP overlay should load");
+        assert!(overlay.servers.contains_key("ao.node-fixture/runtime"));
+        assert_eq!(
+            overlay
+                .phase_mcp_bindings
+                .get("node-command")
+                .expect("node phase MCP binding should exist")
+                .servers,
+            vec!["ao.node-fixture/runtime".to_string()]
+        );
+
+        let mut workflow = builtin_workflow_config();
+        let report = activate_pack_mcp_overlay(&mut workflow, &pack).expect("node fixture MCP overlay should activate");
+        assert_eq!(report.checks.len(), 1);
+        assert_eq!(report.checks[0].status, PackRuntimeCheckStatus::Satisfied);
+        assert_eq!(
+            workflow
+                .phase_mcp_bindings
+                .get("node-command")
+                .expect("node phase MCP binding should merge")
+                .servers,
+            vec!["ao.node-fixture/runtime".to_string()]
+        );
+
+        let loaded = load_workflow_config_with_metadata(project.path()).expect("effective workflow config should load");
+        assert!(
+            loaded
+                .config
+                .workflows
+                .iter()
+                .any(|workflow| workflow.id == "ao.node-fixture/run"),
+            "node fixture workflow should be discoverable"
+        );
+
+        let result = execute_workflow(WorkflowExecuteParams {
+            project_root: project.path().display().to_string(),
+            workflow_id: None,
+            task_id: None,
+            requirement_id: None,
+            title: Some("node-fixture-subject".to_string()),
+            description: Some("node fixture workflow".to_string()),
+            workflow_ref: Some("ao.node-fixture/run".to_string()),
+            input: None,
+            vars: HashMap::new(),
+            model: None,
+            tool: None,
+            phase_timeout_secs: None,
+            phase_filter: None,
+            on_phase_event: None,
+            hub: None,
+            phase_routing: None,
+            mcp_config: None,
+        })
+        .await
+        .expect("node fixture workflow should execute");
+
+        assert!(result.success);
+        assert_eq!(result.workflow_ref, "ao.node-fixture/run");
+        assert_eq!(result.execution_cwd, project.path().display().to_string());
+        assert_eq!(result.phase_results[0]["status"].as_str(), Some("completed"));
+        let payload = phase_result_payload(&result.phase_results[0]);
+        assert_eq!(
+            payload.get("runtime").and_then(Value::as_str),
+            Some("node")
+        );
+        assert_eq!(
+            payload.get("subject_id").and_then(Value::as_str),
+            Some("node-fixture-subject")
+        );
+
+        let output = fs::read_to_string(project.path().join("node-pack-output.txt"))
+            .expect("node fixture command output should be written");
+        assert_eq!(output.trim(), "node:scripts/node-fixture.js");
+    }
+
+    #[tokio::test]
+    async fn execute_workflow_runs_python_pack_fixture_with_external_runtime() {
+        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = tempfile::tempdir().expect("home tempdir");
+        let project = tempfile::tempdir().expect("project tempdir");
+        let _home_guard = EnvVarGuard::set("HOME", home.path());
+        write_project_runtime_scripts(project.path());
+
+        let pack_root = machine_installed_packs_dir().join("ao.python-fixture").join("0.1.0");
+        write_runtime_pack_fixture(
+            &pack_root,
+            "ao.python-fixture",
+            "python",
+            "Python 3.11.8",
+            "python-fixture-runtime",
+            "python-command",
+            "ao.python-fixture/run",
+            "scripts/python-fixture.py",
+            "python-pack-output.txt",
+            false,
+        );
+
+        let loaded = load_workflow_config_with_metadata(project.path()).expect("effective workflow config should load");
+        assert!(
+            loaded
+                .config
+                .workflows
+                .iter()
+                .any(|workflow| workflow.id == "ao.python-fixture/run"),
+            "python fixture workflow should be discoverable"
+        );
+
+        let result = execute_workflow(WorkflowExecuteParams {
+            project_root: project.path().display().to_string(),
+            workflow_id: None,
+            task_id: None,
+            requirement_id: None,
+            title: Some("python-fixture-subject".to_string()),
+            description: Some("python fixture workflow".to_string()),
+            workflow_ref: Some("ao.python-fixture/run".to_string()),
+            input: None,
+            vars: HashMap::new(),
+            model: None,
+            tool: None,
+            phase_timeout_secs: None,
+            phase_filter: None,
+            on_phase_event: None,
+            hub: None,
+            phase_routing: None,
+            mcp_config: None,
+        })
+        .await
+        .expect("python fixture workflow should execute");
+
+        assert!(result.success);
+        assert_eq!(result.workflow_ref, "ao.python-fixture/run");
+        assert_eq!(result.phase_results[0]["status"].as_str(), Some("completed"));
+        let payload = phase_result_payload(&result.phase_results[0]);
+        assert_eq!(
+            payload.get("runtime").and_then(Value::as_str),
+            Some("python")
+        );
+        assert_eq!(
+            payload.get("subject_id").and_then(Value::as_str),
+            Some("python-fixture-subject")
+        );
+
+        let output = fs::read_to_string(project.path().join("python-pack-output.txt"))
+            .expect("python fixture command output should be written");
+        assert_eq!(output.trim(), "python:scripts/python-fixture.py");
     }
 }

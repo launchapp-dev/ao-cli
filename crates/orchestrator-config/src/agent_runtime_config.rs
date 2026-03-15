@@ -1158,58 +1158,6 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     default_tool: None,
                 },
             ),
-            (
-                "code-review".to_string(),
-                PhaseExecutionDefinition {
-                    mode: PhaseExecutionMode::Agent,
-                    agent_id: Some("swe".to_string()),
-                    directive: Some("Perform a rigorous code review pass. Fix defects, tighten edge cases, and improve maintainability.".to_string()),
-                    system_prompt: None,
-                    runtime: None,
-                    capabilities: None,
-                    output_contract: None,
-                    output_json_schema: None,
-                    decision_contract: Some(PhaseDecisionContract {
-                        required_evidence: vec![crate::types::PhaseEvidenceKind::CodeReviewClean],
-                        min_confidence: 0.7,
-                        max_risk: crate::types::WorkflowDecisionRisk::Medium,
-                        allow_missing_decision: true,
-                        extra_json_schema: None,
-                        fields: BTreeMap::new(),
-                    }),
-                    retry: None,
-                    skills: Vec::new(),
-                    command: None,
-                    manual: None,
-                    default_tool: None,
-                },
-            ),
-            (
-                "testing".to_string(),
-                PhaseExecutionDefinition {
-                    mode: PhaseExecutionMode::Agent,
-                    agent_id: Some("swe".to_string()),
-                    directive: Some("Add or update tests and validate behavior. Ensure failures are addressed before finishing.".to_string()),
-                    system_prompt: None,
-                    runtime: None,
-                    capabilities: None,
-                    output_contract: None,
-                    output_json_schema: None,
-                    decision_contract: Some(PhaseDecisionContract {
-                        required_evidence: vec![crate::types::PhaseEvidenceKind::TestsPassed],
-                        min_confidence: 0.8,
-                        max_risk: crate::types::WorkflowDecisionRisk::Medium,
-                        allow_missing_decision: true,
-                        extra_json_schema: None,
-                        fields: BTreeMap::new(),
-                    }),
-                    retry: None,
-                    skills: Vec::new(),
-                    command: None,
-                    manual: None,
-                    default_tool: None,
-                },
-            ),
         ]),
         cli_tools: BTreeMap::new(),
     }
@@ -1233,6 +1181,18 @@ pub fn load_agent_runtime_config_with_metadata(project_root: &Path) -> Result<Lo
         let mut config = builtin_agent_runtime_config();
         let registry = crate::resolve_pack_registry(project_root)?;
         let mut path = loaded_workflow.path.clone();
+
+        for entry in registry.entries_for_source(crate::PackRegistrySource::Bundled) {
+            let Some(pack) = entry.loaded_manifest() else {
+                continue;
+            };
+            if let Some(overlay) = crate::load_pack_agent_runtime_overlay(pack)? {
+                merge_agent_runtime_overlay(&mut config, &overlay);
+                if let Some(pack_root) = entry.pack_root.as_ref() {
+                    path = pack_root.clone();
+                }
+            }
+        }
 
         for entry in registry.entries_for_source(crate::PackRegistrySource::Installed) {
             let Some(pack) = entry.loaded_manifest() else {
@@ -1836,31 +1796,71 @@ default_kind = "ao.task"
 
 [workflows]
 root = "workflows"
-exports = ["{pack_id}/review-pack"]
+exports = ["{pack_id}/cycle"]
 
 [runtime]
 agent_overlay = "runtime/agent-runtime.overlay.yaml"
 workflow_overlay = "runtime/workflow-runtime.overlay.yaml"
+
+[permissions]
+tools = ["review_helper"]
 "#
             ),
         )
         .expect("write manifest");
         fs::write(
             root.join("runtime/workflow-runtime.overlay.yaml"),
-            r#"
+            format!(
+                r#"
+phase_catalog:
+  code-review:
+    label: Code Review
+    description: Review implementation quality, correctness, and maintainability.
+    category: review
+    tags: ["review", "code", "fixture"]
+  testing:
+    label: Testing
+    description: Validate the implementation by running or inspecting the relevant test suite.
+    category: verification
+    tags: ["testing", "verification", "fixture"]
+  po-review:
+    label: PO Review
+    description: Validate delivered work against product intent and acceptance criteria.
+    category: review
+    tags: ["review", "acceptance", "fixture"]
+  unit-test:
+    label: Unit Test
+    description: Run the workspace test suite as a deterministic gate.
+    category: verification
+    tags: ["testing", "gate", "fixture"]
+  lint:
+    label: Lint
+    description: Run the linter as a deterministic gate.
+    category: verification
+    tags: ["lint", "gate", "fixture"]
+
 workflows:
-  - id: review-pack
-    name: "review-pack"
+  - id: {pack_id}/cycle
+    name: "{pack_id}/cycle"
     phases:
-      - implementation
+      - code-review:
+          on_verdict:
+            rework:
+              target: code-review
+      - testing
+  - id: builtin/review-cycle
+    name: "builtin/review-cycle"
+    phases:
+      - workflow_ref: {pack_id}/cycle
 "#,
+            ),
         )
         .expect("write workflow overlay");
         fs::write(
             root.join("runtime/agent-runtime.overlay.yaml"),
             r#"
 tools_allowlist:
-  - review-helper.sh
+  - review_helper
 phases:
   pack-review:
     mode: command
@@ -1879,12 +1879,24 @@ cli_tools:
     }
 
     #[test]
-    fn missing_config_reports_actionable_error() {
+    fn empty_project_loads_bundled_pack_runtime_defaults() {
+        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = tempfile::tempdir().expect("home tempdir");
+        let _home_guard = EnvVarGuard::set("HOME", home.path());
         let temp = tempfile::tempdir().expect("tempdir");
-        let err = load_agent_runtime_config(temp.path()).expect_err("missing config should fail");
-        let message = err.to_string();
-        assert!(message.contains(".ao/workflows.yaml"));
-        assert!(message.contains(".ao/workflows/*.yaml"));
+        let config = load_agent_runtime_config(temp.path()).expect("bundled runtime defaults should load");
+
+        assert_eq!(config.phase_agent_id("requirements"), Some("po"));
+        assert_eq!(config.phase_agent_id("implementation"), Some("swe"));
+        assert_eq!(config.phase_agent_id("triage"), Some("triager"));
+        assert_eq!(config.phase_agent_id("refine-requirements"), Some("requirements-refiner"));
+        assert_eq!(config.phase_agent_id("requirement-task-generation"), Some("requirements-planner"));
+        assert_eq!(config.phase_agent_id("requirement-workflow-bootstrap"), Some("requirements-planner"));
+        assert_eq!(config.phase_agent_id("po-review"), Some("po-reviewer"));
+        assert_eq!(config.phase_agent_id("code-review"), Some("swe"));
+        assert_eq!(config.phase_agent_id("testing"), Some("swe"));
+        assert_eq!(config.phase_mode("unit-test"), Some(PhaseExecutionMode::Command));
+        assert_eq!(config.phase_mode("lint"), Some(PhaseExecutionMode::Command));
     }
 
     #[test]
@@ -1901,18 +1913,21 @@ cli_tools:
 
     #[test]
     fn runtime_resolution_merges_workflow_config_overlays() {
+        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = tempfile::tempdir().expect("home tempdir");
+        let _home_guard = EnvVarGuard::set("HOME", home.path());
         let temp = tempfile::tempdir().expect("tempdir");
         let mut workflow = crate::workflow_config::builtin_workflow_config();
         let builtin = builtin_agent_runtime_config();
-        let mut triager = builtin.agent_profile("triager").expect("builtin triager profile should exist").clone();
-        triager.mcp_servers.clear();
-        workflow.agent_profiles.insert("triager".to_string(), triager);
+        let mut overlay_agent = builtin.agent_profile("po").expect("builtin po profile should exist").clone();
+        overlay_agent.mcp_servers.clear();
+        workflow.agent_profiles.insert("workflow-test-agent".to_string(), overlay_agent);
         workflow.phase_definitions.insert(
-            "triage".to_string(),
+            "workflow-test-phase".to_string(),
             PhaseExecutionDefinition {
                 mode: PhaseExecutionMode::Agent,
-                agent_id: Some("triager".to_string()),
-                directive: Some("triage".to_string()),
+                agent_id: Some("workflow-test-agent".to_string()),
+                directive: Some("workflow test".to_string()),
                 system_prompt: None,
                 runtime: None,
                 capabilities: None,
@@ -1946,8 +1961,8 @@ cli_tools:
         crate::workflow_config::write_workflow_config(temp.path(), &workflow).expect("write workflow config");
 
         let resolved = load_agent_runtime_config_or_default(temp.path());
-        let triage = resolved.phase_decision_contract("triage").expect("triage contract");
-        assert!(!triage.allow_missing_decision);
+        let phase = resolved.phase_decision_contract("workflow-test-phase").expect("workflow phase contract");
+        assert!(!phase.allow_missing_decision);
     }
 
     #[test]
@@ -1963,6 +1978,7 @@ cli_tools:
             "0.2.0",
         );
 
+        crate::workflow_config::load_workflow_config_with_metadata(temp.path()).expect("workflow config should load");
         let resolved = load_agent_runtime_config_with_metadata(temp.path()).expect("load runtime config");
         let command = resolved.config.phase_command("pack-review").expect("pack review command");
         let tool = resolved.config.cli_tools.get("pack-tool").expect("pack tool");
@@ -1978,17 +1994,15 @@ cli_tools:
         let config = builtin_agent_runtime_config();
         assert_eq!(config.phase_agent_id("requirements"), Some("po"));
         assert_eq!(config.phase_agent_id("implementation"), Some("swe"));
-        assert_eq!(config.phase_agent_id("code-review"), Some("swe"));
-        assert_eq!(config.phase_agent_id("testing"), Some("swe"));
+        assert!(!config.phases.contains_key("code-review"));
+        assert!(!config.phases.contains_key("testing"));
         assert!(config.phase_output_json_schema("implementation").is_some());
     }
 
     #[test]
     fn builtin_phase_prompts_resolve_to_expected_personas() {
         let config = builtin_agent_runtime_config();
-        for (phase_id, agent_id) in
-            [("requirements", "po"), ("implementation", "swe"), ("code-review", "swe"), ("testing", "swe")]
-        {
+        for (phase_id, agent_id) in [("requirements", "po"), ("implementation", "swe")] {
             let expected_prompt = config
                 .agent_profile(agent_id)
                 .expect("phase agent profile should exist")
@@ -2005,28 +2019,12 @@ cli_tools:
         let config = builtin_agent_runtime_config();
 
         assert_eq!(
-            config.phase_decision_contract("triage").map(|contract| contract.allow_missing_decision),
-            Some(false)
-        );
-        assert_eq!(
-            config.phase_decision_contract("refine-requirements").map(|contract| contract.allow_missing_decision),
-            Some(false)
-        );
-        assert_eq!(
             config.phase_decision_contract("requirements").map(|contract| contract.required_evidence.clone()),
             Some(Vec::new())
         );
         assert_eq!(
             config.phase_decision_contract("implementation").map(|contract| contract.required_evidence.clone()),
             Some(vec![crate::types::PhaseEvidenceKind::FilesModified])
-        );
-        assert_eq!(
-            config.phase_decision_contract("code-review").map(|contract| contract.required_evidence.clone()),
-            Some(vec![crate::types::PhaseEvidenceKind::CodeReviewClean])
-        );
-        assert_eq!(
-            config.phase_decision_contract("testing").map(|contract| contract.required_evidence.clone()),
-            Some(vec![crate::types::PhaseEvidenceKind::TestsPassed])
         );
     }
 
@@ -2075,7 +2073,7 @@ cli_tools:
         validate_agent_runtime_config(&from_json).expect("builtin json should validate");
         let fallback = hardcoded_builtin_agent_runtime_config();
 
-        for phase_id in ["requirements", "implementation", "code-review", "testing"] {
+        for phase_id in ["requirements", "implementation"] {
             assert_eq!(from_json.phase_agent_id(phase_id), fallback.phase_agent_id(phase_id));
             assert_eq!(
                 from_json.phase_decision_contract(phase_id).map(|contract| (
@@ -2109,13 +2107,17 @@ cli_tools:
     #[test]
     fn phase_decision_contract_lookup_is_case_insensitive() {
         let config = builtin_agent_runtime_config();
-        assert!(config.phase_decision_contract("code-review").is_some());
-        assert!(config.phase_decision_contract("CODE-REVIEW").is_some());
+        assert!(config.phase_decision_contract("implementation").is_some());
+        assert!(config.phase_decision_contract("IMPLEMENTATION").is_some());
     }
 
     #[test]
     fn builtin_defaults_mark_review_as_structured_output() {
-        let config = builtin_agent_runtime_config();
+        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = tempfile::tempdir().expect("home tempdir");
+        let _home_guard = EnvVarGuard::set("HOME", home.path());
+        let temp = tempfile::tempdir().expect("tempdir");
+        let config = load_agent_runtime_config(temp.path()).expect("bundled runtime defaults should load");
         assert!(config.is_structured_output_phase("code-review"));
         assert!(config.is_structured_output_phase("implementation"));
         assert!(config.is_structured_output_phase("testing"));
@@ -2123,15 +2125,23 @@ cli_tools:
 
     #[test]
     fn structured_output_phase_accepts_trimmed_phase_ids() {
-        let config = builtin_agent_runtime_config();
+        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = tempfile::tempdir().expect("home tempdir");
+        let _home_guard = EnvVarGuard::set("HOME", home.path());
+        let temp = tempfile::tempdir().expect("tempdir");
+        let config = load_agent_runtime_config(temp.path()).expect("bundled runtime defaults should load");
         assert!(config.is_structured_output_phase(" implementation "));
         assert!(config.is_structured_output_phase(" CODE-REVIEW "));
         assert!(config.is_structured_output_phase(" testing "));
     }
 
     #[test]
-    fn builtin_runtime_supports_extended_builtin_workflow_phases() {
-        let config = builtin_agent_runtime_config();
+    fn bundled_pack_runtime_supports_extended_task_requirement_and_review_phases() {
+        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = tempfile::tempdir().expect("home tempdir");
+        let _home_guard = EnvVarGuard::set("HOME", home.path());
+        let temp = tempfile::tempdir().expect("tempdir");
+        let config = load_agent_runtime_config(temp.path()).expect("bundled runtime defaults should load");
 
         assert_eq!(config.phase_agent_id("triage"), Some("triager"));
         assert_eq!(config.phase_agent_id("refine-requirements"), Some("requirements-refiner"));
@@ -2620,26 +2630,16 @@ cli_tools:
     }
 
     #[test]
-    fn builtin_config_all_phases_are_agent_mode() {
+    fn builtin_kernel_config_all_phases_are_agent_mode() {
         let config = builtin_agent_runtime_config();
         for (phase_id, definition) in &config.phases {
-            if matches!(phase_id.as_str(), "lint" | "unit-test") {
-                assert_eq!(
-                    definition.mode,
-                    PhaseExecutionMode::Command,
-                    "builtin phase '{}' should be command mode",
-                    phase_id
-                );
-                assert!(definition.command.is_some(), "builtin phase '{}' should have a command block", phase_id);
-            } else {
-                assert_eq!(
-                    definition.mode,
-                    PhaseExecutionMode::Agent,
-                    "builtin phase '{}' should be agent mode",
-                    phase_id
-                );
-                assert!(definition.command.is_none(), "builtin phase '{}' should have no command block", phase_id);
-            }
+            assert_eq!(
+                definition.mode,
+                PhaseExecutionMode::Agent,
+                "builtin phase '{}' should be agent mode",
+                phase_id
+            );
+            assert!(definition.command.is_none(), "builtin phase '{}' should have no command block", phase_id);
         }
     }
 

@@ -3,6 +3,7 @@ use std::process::Command;
 
 use anyhow::{anyhow, Result};
 use semver::{Version, VersionReq};
+use serde::{Deserialize, Serialize};
 
 use crate::workflow_config::WorkflowConfig;
 
@@ -10,7 +11,8 @@ use super::loading::LoadedPackManifest;
 use super::mcp::apply_pack_mcp_overlay;
 use super::types::{ExternalRuntimeKind, PackRuntimeRequirement};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum PackRuntimeCheckStatus {
     Satisfied,
     MissingOptional,
@@ -19,7 +21,7 @@ pub enum PackRuntimeCheckStatus {
     VersionMismatchRequired,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PackRuntimeCheck {
     pub runtime: ExternalRuntimeKind,
     pub requested_binary: Option<String>,
@@ -30,7 +32,7 @@ pub struct PackRuntimeCheck {
     pub message: String,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PackRuntimeReport {
     pub checks: Vec<PackRuntimeCheck>,
 }

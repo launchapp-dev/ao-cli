@@ -12,7 +12,7 @@ use chrono::Utc;
 use orchestrator_core::{
     dispatch_workflow_event, ensure_workflow_config_compiled, load_workflow_config, services::ServiceHub,
     workflow_ref_for_task, ListPageRequest, WorkflowEvent, WorkflowFilter, WorkflowQuery, WorkflowResumeManager,
-    WorkflowRunInput, WorkflowSubject, REQUIREMENT_TASK_GENERATION_WORKFLOW_REF, STANDARD_WORKFLOW_REF,
+    WorkflowRunInput, REQUIREMENT_TASK_GENERATION_WORKFLOW_REF,
 };
 use serde_json::Value;
 use uuid::Uuid;
@@ -58,7 +58,7 @@ async fn resolve_workflow_run_dispatch(
         (None, None, Some(t)) => Ok(protocol::SubjectDispatch::for_custom(
             t,
             description.unwrap_or_default(),
-            workflow_ref.unwrap_or_else(|| STANDARD_WORKFLOW_REF.to_string()),
+            workflow_ref.unwrap_or_else(|| default_project_workflow_ref(project_root)),
             None,
             "manual-cli-run",
         )
@@ -74,36 +74,34 @@ async fn resolve_workflow_run_dispatch_from_input(
     input: WorkflowRunInput,
 ) -> Result<protocol::SubjectDispatch> {
     let WorkflowRunInput { subject, workflow_ref, input, vars, .. } = input;
-    match subject {
-        WorkflowSubject::Task { id } => {
-            let task = hub.tasks().get(&id).await?;
-            Ok(protocol::SubjectDispatch::for_task_with_metadata(
-                task.id.clone(),
-                workflow_ref.unwrap_or_else(|| workflow_ref_for_task(&task)),
-                "manual-cli-run",
-                Utc::now(),
-            )
-            .with_input(input))
-            .map(|dispatch| dispatch.with_vars(vars))
-        }
-        WorkflowSubject::Requirement { id } => {
-            hub.planning().get_requirement(&id).await?;
-            Ok(protocol::SubjectDispatch::for_requirement(
-                id,
-                workflow_ref.unwrap_or(resolve_requirement_workflow_ref(project_root)?),
-                "manual-cli-run",
-            )
-            .with_input(input))
-            .map(|dispatch| dispatch.with_vars(vars))
-        }
-        WorkflowSubject::Custom { title, description } => Ok(protocol::SubjectDispatch::for_custom(
-            title,
-            description,
-            workflow_ref.unwrap_or_else(|| STANDARD_WORKFLOW_REF.to_string()),
+    if let Some(id) = subject.task_id() {
+        let task = hub.tasks().get(id).await?;
+        Ok(protocol::SubjectDispatch::for_task_with_metadata(
+            task.id.clone(),
+            workflow_ref.unwrap_or_else(|| workflow_ref_for_task(&task)),
+            "manual-cli-run",
+            Utc::now(),
+        )
+        .with_input(input))
+        .map(|dispatch| dispatch.with_vars(vars))
+    } else if let Some(id) = subject.requirement_id() {
+        hub.planning().get_requirement(id).await?;
+        Ok(protocol::SubjectDispatch::for_requirement(
+            id.to_string(),
+            workflow_ref.unwrap_or(resolve_requirement_workflow_ref(project_root)?),
+            "manual-cli-run",
+        )
+        .with_input(input))
+        .map(|dispatch| dispatch.with_vars(vars))
+    } else {
+        Ok(protocol::SubjectDispatch::for_custom(
+            subject.title.unwrap_or_else(|| subject.id.clone()),
+            subject.description.unwrap_or_default(),
+            workflow_ref.unwrap_or_else(|| default_project_workflow_ref(project_root)),
             input,
             "manual-cli-run",
         ))
-        .map(|dispatch| dispatch.with_vars(vars)),
+        .map(|dispatch| dispatch.with_vars(vars))
     }
 }
 
@@ -189,6 +187,10 @@ fn parse_workflow_vars(raw_vars: &[String]) -> Result<std::collections::HashMap<
         vars.insert(key.to_string(), value.to_string());
     }
     Ok(vars)
+}
+
+fn default_project_workflow_ref(project_root: &str) -> String {
+    orchestrator_core::load_workflow_config_or_default(Path::new(project_root)).config.default_workflow_ref
 }
 
 async fn resolve_workflow_run_dispatch_from_raw_input(

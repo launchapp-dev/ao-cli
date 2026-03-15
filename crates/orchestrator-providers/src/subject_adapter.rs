@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-use protocol::orchestrator::{WorkflowSubject, SUBJECT_KIND_CUSTOM, SUBJECT_KIND_REQUIREMENT, SUBJECT_KIND_TASK};
+use protocol::orchestrator::{SubjectRef, SUBJECT_KIND_CUSTOM, SUBJECT_KIND_REQUIREMENT, SUBJECT_KIND_TASK};
 
 use crate::{PlanningServiceApi, ProjectAdapter, SubjectContext, SubjectResolver, TaskServiceApi};
 
@@ -16,7 +16,7 @@ pub trait SubjectAdapter: Send + Sync {
 
     async fn resolve_context(
         &self,
-        subject: &WorkflowSubject,
+        subject: &SubjectRef,
         fallback_title: Option<&str>,
         fallback_description: Option<&str>,
     ) -> Result<SubjectContext>;
@@ -24,7 +24,7 @@ pub trait SubjectAdapter: Send + Sync {
     async fn ensure_execution_cwd(
         &self,
         project_root: &str,
-        subject: &WorkflowSubject,
+        subject: &SubjectRef,
         subject_context: &SubjectContext,
     ) -> Result<String>;
 }
@@ -48,7 +48,7 @@ impl SubjectAdapterRegistry {
 
     pub async fn resolve_subject_context(
         &self,
-        subject: &WorkflowSubject,
+        subject: &SubjectRef,
         fallback_title: Option<&str>,
         fallback_description: Option<&str>,
     ) -> Result<SubjectContext> {
@@ -58,13 +58,13 @@ impl SubjectAdapterRegistry {
     pub async fn ensure_execution_cwd(
         &self,
         project_root: &str,
-        subject: &WorkflowSubject,
+        subject: &SubjectRef,
         subject_context: &SubjectContext,
     ) -> Result<String> {
         self.adapter_for(subject)?.ensure_execution_cwd(project_root, subject, subject_context).await
     }
 
-    fn adapter_for(&self, subject: &WorkflowSubject) -> Result<&Arc<dyn SubjectAdapter>> {
+    fn adapter_for(&self, subject: &SubjectRef) -> Result<&Arc<dyn SubjectAdapter>> {
         let kind = subject_kind(subject);
         self.adapters.get(kind).ok_or_else(|| anyhow!("no subject adapter registered for subject kind '{kind}'"))
     }
@@ -104,19 +104,23 @@ where
 
     async fn resolve_context(
         &self,
-        subject: &WorkflowSubject,
+        subject: &SubjectRef,
         _fallback_title: Option<&str>,
         _fallback_description: Option<&str>,
     ) -> Result<SubjectContext> {
-        let WorkflowSubject::Task { id } = subject else {
+        let Some(id) = subject.task_id() else {
             anyhow::bail!("task subject adapter received non-task subject '{}'", subject_kind(subject));
         };
         let task = self.hub.get(id).await?;
+        let mut attributes = HashMap::new();
+        attributes.insert("task_type".to_string(), task.task_type.as_str().to_string());
+        attributes.insert("priority".to_string(), task.priority.as_str().to_string());
         Ok(SubjectContext {
             subject_kind: SUBJECT_KIND_TASK.to_string(),
-            subject_id: id.clone(),
+            subject_id: id.to_string(),
             subject_title: task.title.clone(),
             subject_description: task.description.clone(),
+            attributes,
             task: Some(task),
         })
     }
@@ -124,10 +128,10 @@ where
     async fn ensure_execution_cwd(
         &self,
         project_root: &str,
-        subject: &WorkflowSubject,
+        subject: &SubjectRef,
         subject_context: &SubjectContext,
     ) -> Result<String> {
-        let WorkflowSubject::Task { id } = subject else {
+        let Some(id) = subject.task_id() else {
             anyhow::bail!("task subject adapter received non-task subject '{}'", subject_kind(subject));
         };
 
@@ -265,19 +269,23 @@ where
 
     async fn resolve_context(
         &self,
-        subject: &WorkflowSubject,
+        subject: &SubjectRef,
         _fallback_title: Option<&str>,
         _fallback_description: Option<&str>,
     ) -> Result<SubjectContext> {
-        let WorkflowSubject::Requirement { id } = subject else {
+        let Some(id) = subject.requirement_id() else {
             anyhow::bail!("requirement subject adapter received non-requirement subject '{}'", subject_kind(subject));
         };
         let requirement = self.hub.get_requirement(id).await?;
+        let mut attributes = HashMap::new();
+        attributes.insert("priority".to_string(), format!("{:?}", requirement.priority).to_ascii_lowercase());
+        attributes.insert("status".to_string(), requirement.status.to_string());
         Ok(SubjectContext {
             subject_kind: SUBJECT_KIND_REQUIREMENT.to_string(),
-            subject_id: id.clone(),
+            subject_id: id.to_string(),
             subject_title: requirement.title,
             subject_description: requirement.description,
+            attributes,
             task: None,
         })
     }
@@ -285,7 +293,7 @@ where
     async fn ensure_execution_cwd(
         &self,
         project_root: &str,
-        _subject: &WorkflowSubject,
+        _subject: &SubjectRef,
         _subject_context: &SubjectContext,
     ) -> Result<String> {
         Ok(project_root.to_string())
@@ -305,18 +313,21 @@ impl SubjectAdapter for BuiltinCustomSubjectAdapter {
 
     async fn resolve_context(
         &self,
-        subject: &WorkflowSubject,
+        subject: &SubjectRef,
         fallback_title: Option<&str>,
         fallback_description: Option<&str>,
     ) -> Result<SubjectContext> {
-        let WorkflowSubject::Custom { title, description } = subject else {
+        if !subject.kind().eq_ignore_ascii_case(SUBJECT_KIND_CUSTOM) {
             anyhow::bail!("custom subject adapter received non-custom subject '{}'", subject_kind(subject));
-        };
+        }
+        let title = subject.title.as_deref().unwrap_or(subject.id());
+        let description = subject.description.as_deref().unwrap_or_default();
         Ok(SubjectContext {
             subject_kind: SUBJECT_KIND_CUSTOM.to_string(),
-            subject_id: title.clone(),
+            subject_id: subject.id().to_string(),
             subject_title: fallback_title.unwrap_or(title).to_string(),
             subject_description: fallback_description.unwrap_or(description).to_string(),
+            attributes: HashMap::new(),
             task: None,
         })
     }
@@ -324,19 +335,15 @@ impl SubjectAdapter for BuiltinCustomSubjectAdapter {
     async fn ensure_execution_cwd(
         &self,
         project_root: &str,
-        _subject: &WorkflowSubject,
+        _subject: &SubjectRef,
         _subject_context: &SubjectContext,
     ) -> Result<String> {
         Ok(project_root.to_string())
     }
 }
 
-fn subject_kind(subject: &WorkflowSubject) -> &'static str {
-    match subject {
-        WorkflowSubject::Task { .. } => SUBJECT_KIND_TASK,
-        WorkflowSubject::Requirement { .. } => SUBJECT_KIND_REQUIREMENT,
-        WorkflowSubject::Custom { .. } => SUBJECT_KIND_CUSTOM,
-    }
+fn subject_kind(subject: &SubjectRef) -> &str {
+    subject.kind()
 }
 
 fn is_git_repo(project_root: &str) -> bool {
@@ -458,7 +465,7 @@ impl BuiltinSubjectResolver {
 impl SubjectResolver for BuiltinSubjectResolver {
     async fn resolve_subject_context(
         &self,
-        subject: &WorkflowSubject,
+        subject: &SubjectRef,
         fallback_title: Option<&str>,
         fallback_description: Option<&str>,
     ) -> Result<SubjectContext> {
@@ -486,7 +493,7 @@ impl ProjectAdapter for BuiltinProjectAdapter {
     async fn ensure_execution_cwd(
         &self,
         project_root: &str,
-        subject: &WorkflowSubject,
+        subject: &SubjectRef,
         subject_context: &SubjectContext,
     ) -> Result<String> {
         self.registry.ensure_execution_cwd(project_root, subject, subject_context).await
@@ -504,8 +511,8 @@ mod tests {
         Assignee, Complexity, DependencyType, OrchestratorTask, Priority, RequirementItem, RequirementLinks,
         RequirementPriority, RequirementStatus, RequirementsDraftInput, RequirementsDraftResult,
         RequirementsExecutionInput, RequirementsExecutionResult, RequirementsRefineInput, ResourceRequirements,
-        RiskLevel, Scope, TaskCreateInput, TaskFilter, TaskMetadata, TaskStatistics, TaskStatus, TaskType,
-        TaskUpdateInput, WorkflowMetadata,
+        RiskLevel, Scope, SubjectRef, TaskCreateInput, TaskFilter, TaskMetadata, TaskStatistics,
+        TaskStatus, TaskType, TaskUpdateInput, WorkflowMetadata,
     };
 
     #[derive(Default)]
@@ -737,7 +744,7 @@ mod tests {
 
         let resolver = BuiltinSubjectResolver::new(hub);
         let context = resolver
-            .resolve_subject_context(&WorkflowSubject::Requirement { id: "REQ-1".to_string() }, None, None)
+            .resolve_subject_context(&SubjectRef::requirement("REQ-1".to_string()), None, None)
             .await
             .unwrap();
 
@@ -755,7 +762,7 @@ mod tests {
 
         let resolver = BuiltinSubjectResolver::new(hub.clone());
         let adapter = BuiltinProjectAdapter::new(hub);
-        let subject = WorkflowSubject::Requirement { id: "REQ-2".to_string() };
+        let subject = SubjectRef::requirement("REQ-2".to_string());
         let context = resolver.resolve_subject_context(&subject, None, None).await.unwrap();
         let cwd = adapter.ensure_execution_cwd("/tmp/example-root", &subject, &context).await.unwrap();
 
@@ -777,7 +784,7 @@ mod tests {
 
         let resolver = BuiltinSubjectResolver::new(hub.clone());
         let adapter = BuiltinProjectAdapter::new(hub.clone());
-        let subject = WorkflowSubject::Task { id: "TASK-1".to_string() };
+        let subject = SubjectRef::task("TASK-1".to_string());
         let context = resolver.resolve_subject_context(&subject, None, None).await.unwrap();
         let cwd = adapter.ensure_execution_cwd(project_root.to_str().unwrap(), &subject, &context).await.unwrap();
 

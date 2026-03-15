@@ -3,10 +3,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
-use semver::Version;
+use semver::{Version, VersionReq};
 
 use crate::agent_runtime_config::{AgentRuntimeOverlay, CliToolConfig, PhaseExecutionDefinition};
+use crate::bundled_packs::discover_bundled_pack_manifests;
 use crate::pack_config::{load_pack_manifest, LoadedPackManifest};
+use crate::pack_selection::{load_pack_selection_state, PackSelectionEntry};
 use crate::workflow_config::{compile_yaml_sources_with_base, WorkflowConfig};
 
 pub const PROJECT_PACKS_DIR_NAME: &str = "plugins";
@@ -69,6 +71,75 @@ impl ResolvedPackRegistryEntry {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct PackInventoryEntry {
+    pub pack_id: String,
+    pub version: String,
+    pub source: PackRegistrySource,
+    pub pack_root: Option<PathBuf>,
+    pub manifest_path: Option<PathBuf>,
+    pub active: bool,
+    pub selection: Option<PackSelectionEntry>,
+    loaded_manifest: Option<LoadedPackManifest>,
+}
+
+impl PackInventoryEntry {
+    fn bundled_builtin(active: bool) -> Self {
+        Self {
+            pack_id: BUNDLED_BUILTIN_PACK_ID.to_string(),
+            version: BUNDLED_BUILTIN_PACK_VERSION.to_string(),
+            source: PackRegistrySource::Bundled,
+            pack_root: None,
+            manifest_path: None,
+            active,
+            selection: None,
+            loaded_manifest: None,
+        }
+    }
+
+    fn from_manifest(
+        source: PackRegistrySource,
+        loaded_manifest: LoadedPackManifest,
+        active: bool,
+        selection: Option<PackSelectionEntry>,
+    ) -> Self {
+        Self {
+            pack_id: loaded_manifest.manifest.id.clone(),
+            version: loaded_manifest.manifest.version.clone(),
+            source,
+            pack_root: Some(loaded_manifest.pack_root.clone()),
+            manifest_path: Some(loaded_manifest.manifest_path.clone()),
+            active,
+            selection,
+            loaded_manifest: Some(loaded_manifest),
+        }
+    }
+
+    pub fn loaded_manifest(&self) -> Option<&LoadedPackManifest> {
+        self.loaded_manifest.as_ref()
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PackInventory {
+    pub entries: Vec<PackInventoryEntry>,
+}
+
+impl PackInventory {
+    pub fn resolve(
+        &self,
+        pack_id: &str,
+        version: Option<&str>,
+        source: Option<PackRegistrySource>,
+    ) -> Option<&PackInventoryEntry> {
+        self.entries.iter().find(|entry| {
+            entry.pack_id.eq_ignore_ascii_case(pack_id)
+                && version.map(|candidate| entry.version == candidate).unwrap_or(true)
+                && source.map(|candidate| entry.source == candidate).unwrap_or(true)
+        })
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ResolvedPackRegistry {
     pub entries: Vec<ResolvedPackRegistryEntry>,
@@ -77,6 +148,10 @@ pub struct ResolvedPackRegistry {
 impl ResolvedPackRegistry {
     pub fn has_external_packs(&self) -> bool {
         self.entries.iter().any(|entry| entry.source != PackRegistrySource::Bundled)
+    }
+
+    pub fn has_pack_overlays(&self) -> bool {
+        self.entries.iter().any(|entry| entry.loaded_manifest().is_some())
     }
 
     pub fn resolve(&self, pack_id: &str) -> Option<&ResolvedPackRegistryEntry> {
@@ -100,30 +175,99 @@ pub fn machine_installed_packs_dir() -> PathBuf {
 }
 
 pub fn resolve_pack_registry(project_root: &Path) -> Result<ResolvedPackRegistry> {
-    let mut entries = vec![ResolvedPackRegistryEntry::bundled_builtin()];
-    let installed = discover_installed_packs()?;
+    let selection_state = load_pack_selection_state(project_root)?;
+    let bundled_packs = discover_bundled_pack_manifests()?;
+    let installed_versions = discover_installed_pack_versions()?;
     let project_overrides = discover_project_override_packs(project_root)?;
 
-    let mut resolved = BTreeMap::new();
-    for pack in installed {
-        resolved.insert(
-            pack.manifest.id.to_ascii_lowercase(),
-            ResolvedPackRegistryEntry::from_manifest(PackRegistrySource::Installed, pack),
-        );
-    }
-    for pack in project_overrides {
-        let key = pack.manifest.id.to_ascii_lowercase();
-        let entry = ResolvedPackRegistryEntry::from_manifest(PackRegistrySource::ProjectOverride, pack);
-        if resolved
-            .insert(key.clone(), entry)
-            .is_some_and(|previous| previous.source == PackRegistrySource::ProjectOverride)
-        {
-            return Err(anyhow!("duplicate project override pack id '{}'", key));
+    let bundled_by_id = map_bundled_packs_by_id(bundled_packs)?;
+    let installed_by_id = group_installed_packs_by_id(installed_versions)?;
+    let overrides_by_id = map_project_overrides_by_id(project_overrides)?;
+
+    let mut entries = vec![ResolvedPackRegistryEntry::bundled_builtin()];
+    let mut pack_ids = installed_by_id
+        .keys()
+        .chain(bundled_by_id.keys())
+        .chain(overrides_by_id.keys())
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    pack_ids.remove(BUNDLED_BUILTIN_PACK_ID);
+
+    for pack_id in pack_ids {
+        let selection = selection_state.selection_for(&pack_id);
+        if selection.is_some_and(|entry| !entry.enabled) {
+            continue;
+        }
+
+        let selected = select_resolved_pack(
+            &pack_id,
+            selection,
+            bundled_by_id.get(&pack_id),
+            installed_by_id.get(&pack_id),
+            overrides_by_id.get(&pack_id),
+        )?;
+        if let Some(entry) = selected {
+            entries.push(entry);
         }
     }
 
-    entries.extend(resolved.into_values());
+    enforce_active_pack_policies(&entries)?;
     Ok(ResolvedPackRegistry { entries })
+}
+
+pub fn load_pack_inventory(project_root: &Path) -> Result<PackInventory> {
+    let selection_state = load_pack_selection_state(project_root)?;
+    let resolved = resolve_pack_registry(project_root)?;
+    let bundled_packs = discover_bundled_pack_manifests()?;
+    let installed_versions = discover_installed_pack_versions()?;
+    let project_overrides = discover_project_override_packs(project_root)?;
+
+    let mut entries = vec![PackInventoryEntry::bundled_builtin(
+        resolved.resolve(BUNDLED_BUILTIN_PACK_ID).is_some(),
+    )];
+
+    let mut bundled_packs = bundled_packs;
+    bundled_packs.sort_by(|left, right| {
+        left.manifest
+            .id
+            .cmp(&right.manifest.id)
+            .then_with(|| compare_pack_versions_desc(&left.manifest.version, &right.manifest.version))
+            .then_with(|| left.pack_root.cmp(&right.pack_root))
+    });
+    for pack in bundled_packs {
+        let active = resolved_entry_matches_manifest(&resolved, PackRegistrySource::Bundled, &pack);
+        let selection = selection_state.selection_for(&pack.manifest.id).cloned();
+        entries.push(PackInventoryEntry::from_manifest(PackRegistrySource::Bundled, pack, active, selection));
+    }
+
+    let mut installed_versions = installed_versions;
+    installed_versions.sort_by(|left, right| {
+        left.manifest
+            .id
+            .cmp(&right.manifest.id)
+            .then_with(|| compare_pack_versions_desc(&left.manifest.version, &right.manifest.version))
+            .then_with(|| left.pack_root.cmp(&right.pack_root))
+    });
+    for pack in installed_versions {
+        let active = resolved_entry_matches_manifest(&resolved, PackRegistrySource::Installed, &pack);
+        let selection = selection_state.selection_for(&pack.manifest.id).cloned();
+        entries.push(PackInventoryEntry::from_manifest(PackRegistrySource::Installed, pack, active, selection));
+    }
+
+    let mut project_overrides = project_overrides;
+    project_overrides.sort_by(|left, right| left.manifest.id.cmp(&right.manifest.id).then_with(|| left.pack_root.cmp(&right.pack_root)));
+    for pack in project_overrides {
+        let active = resolved_entry_matches_manifest(&resolved, PackRegistrySource::ProjectOverride, &pack);
+        let selection = selection_state.selection_for(&pack.manifest.id).cloned();
+        entries.push(PackInventoryEntry::from_manifest(
+            PackRegistrySource::ProjectOverride,
+            pack,
+            active,
+            selection,
+        ));
+    }
+
+    Ok(PackInventory { entries })
 }
 
 pub fn load_pack_workflow_overlay(pack: &LoadedPackManifest, base: &WorkflowConfig) -> Result<Option<WorkflowConfig>> {
@@ -186,13 +330,13 @@ fn discover_project_override_packs(project_root: &Path) -> Result<Vec<LoadedPack
     Ok(loaded)
 }
 
-fn discover_installed_packs() -> Result<Vec<LoadedPackManifest>> {
+fn discover_installed_pack_versions() -> Result<Vec<LoadedPackManifest>> {
     let installed_root = machine_installed_packs_dir();
     if !installed_root.is_dir() {
         return Ok(Vec::new());
     }
 
-    let mut selected = BTreeMap::<String, (Version, LoadedPackManifest)>::new();
+    let mut discovered = Vec::new();
     let mut pack_roots = read_child_directories(&installed_root)?;
     pack_roots.sort();
 
@@ -206,24 +350,389 @@ fn discover_installed_packs() -> Result<Vec<LoadedPackManifest>> {
 
             let pack = load_pack_manifest(&version_dir)
                 .with_context(|| format!("failed to load installed pack at {}", version_dir.display()))?;
-            let version = Version::parse(&pack.manifest.version)
+            Version::parse(&pack.manifest.version)
                 .with_context(|| format!("invalid installed pack version '{}'", pack.manifest.version))?;
-            let key = pack.manifest.id.to_ascii_lowercase();
+            discovered.push(pack);
+        }
+    }
 
-            let replace = selected
-                .get(&key)
-                .map(|(current_version, current_pack)| {
-                    version > *current_version
-                        || (version == *current_version && pack.pack_root < current_pack.pack_root)
-                })
-                .unwrap_or(true);
-            if replace {
-                selected.insert(key, (version, pack));
+    Ok(discovered)
+}
+
+fn group_installed_packs_by_id(
+    installed_versions: Vec<LoadedPackManifest>,
+) -> Result<BTreeMap<String, Vec<LoadedPackManifest>>> {
+    let mut grouped = BTreeMap::<String, Vec<LoadedPackManifest>>::new();
+    for pack in installed_versions {
+        grouped.entry(pack.manifest.id.to_ascii_lowercase()).or_default().push(pack);
+    }
+
+    for versions in grouped.values_mut() {
+        versions.sort_by(|left, right| {
+            compare_pack_versions_desc(&left.manifest.version, &right.manifest.version)
+                .then_with(|| left.pack_root.cmp(&right.pack_root))
+        });
+
+        for pack in versions.iter() {
+            Version::parse(&pack.manifest.version)
+                .with_context(|| format!("invalid installed pack version '{}'", pack.manifest.version))?;
+        }
+    }
+
+    Ok(grouped)
+}
+
+fn map_project_overrides_by_id(
+    project_overrides: Vec<LoadedPackManifest>,
+) -> Result<BTreeMap<String, LoadedPackManifest>> {
+    let mut mapped = BTreeMap::new();
+    for pack in project_overrides {
+        let key = pack.manifest.id.to_ascii_lowercase();
+        if mapped.insert(key.clone(), pack).is_some() {
+            return Err(anyhow!("duplicate project override pack id '{}'", key));
+        }
+    }
+    Ok(mapped)
+}
+
+fn map_bundled_packs_by_id(bundled_packs: Vec<LoadedPackManifest>) -> Result<BTreeMap<String, LoadedPackManifest>> {
+    let mut mapped = BTreeMap::new();
+    for pack in bundled_packs {
+        let key = pack.manifest.id.to_ascii_lowercase();
+        if mapped.insert(key.clone(), pack).is_some() {
+            return Err(anyhow!("duplicate bundled pack id '{}'", key));
+        }
+    }
+    Ok(mapped)
+}
+
+fn select_resolved_pack(
+    pack_id: &str,
+    selection: Option<&PackSelectionEntry>,
+    bundled: Option<&LoadedPackManifest>,
+    installed: Option<&Vec<LoadedPackManifest>>,
+    project_override: Option<&LoadedPackManifest>,
+) -> Result<Option<ResolvedPackRegistryEntry>> {
+    let source_order = selection
+        .and_then(|entry| entry.source)
+        .map(|source| vec![source.as_registry_source()])
+        .unwrap_or_else(|| vec![PackRegistrySource::ProjectOverride, PackRegistrySource::Installed, PackRegistrySource::Bundled]);
+
+    for source in source_order {
+        match source {
+            PackRegistrySource::ProjectOverride => {
+                let Some(pack) = project_override else {
+                    continue;
+                };
+                if version_matches_selection(selection, &pack.manifest.version)? {
+                    return Ok(Some(ResolvedPackRegistryEntry::from_manifest(
+                        PackRegistrySource::ProjectOverride,
+                        pack.clone(),
+                    )));
+                }
+            }
+            PackRegistrySource::Installed => {
+                let Some(installed_versions) = installed else {
+                    continue;
+                };
+                for pack in installed_versions {
+                    if version_matches_selection(selection, &pack.manifest.version)? {
+                        return Ok(Some(ResolvedPackRegistryEntry::from_manifest(
+                            PackRegistrySource::Installed,
+                            pack.clone(),
+                        )));
+                    }
+                }
+            }
+            PackRegistrySource::Bundled => {
+                let Some(pack) = bundled else {
+                    continue;
+                };
+                if version_matches_selection(selection, &pack.manifest.version)? {
+                    return Ok(Some(ResolvedPackRegistryEntry::from_manifest(PackRegistrySource::Bundled, pack.clone())));
+                }
             }
         }
     }
 
-    Ok(selected.into_values().map(|(_, pack)| pack).collect())
+    if let Some(selection) = selection {
+        let mut requirement = format!("pack selection for '{}'", pack_id);
+        if let Some(source) = selection.source {
+            requirement.push_str(&format!(" source '{}'", source.as_registry_source().as_str()));
+        }
+        if let Some(version) = selection.version.as_deref() {
+            requirement.push_str(&format!(" version '{}'", version.trim()));
+        }
+        return Err(anyhow!("{requirement} could not be satisfied"));
+    }
+
+    Ok(None)
+}
+
+fn version_matches_selection(selection: Option<&PackSelectionEntry>, actual_version: &str) -> Result<bool> {
+    let Some(selection) = selection else {
+        return Ok(true);
+    };
+    let Some(version_req) = selection.version.as_deref() else {
+        return Ok(true);
+    };
+
+    let requirement = VersionReq::parse(version_req.trim())
+        .with_context(|| format!("invalid selection version requirement '{}'", version_req.trim()))?;
+    let actual = Version::parse(actual_version)
+        .with_context(|| format!("invalid pack version '{}'", actual_version))?;
+    Ok(requirement.matches(&actual))
+}
+
+fn compare_pack_versions_desc(left: &str, right: &str) -> std::cmp::Ordering {
+    match (Version::parse(left), Version::parse(right)) {
+        (Ok(left), Ok(right)) => right.cmp(&left),
+        (Ok(_), Err(_)) => std::cmp::Ordering::Less,
+        (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
+        (Err(_), Err(_)) => right.cmp(left),
+    }
+}
+
+fn resolved_entry_matches_manifest(
+    resolved: &ResolvedPackRegistry,
+    source: PackRegistrySource,
+    pack: &LoadedPackManifest,
+) -> bool {
+    resolved.entries.iter().any(|entry| {
+        entry.source == source
+            && entry.pack_id.eq_ignore_ascii_case(&pack.manifest.id)
+            && entry.version == pack.manifest.version
+            && entry.pack_root.as_ref() == Some(&pack.pack_root)
+    })
+}
+
+fn enforce_active_pack_policies(entries: &[ResolvedPackRegistryEntry]) -> Result<()> {
+    let mut active_by_id = BTreeMap::new();
+    for entry in entries {
+        active_by_id.insert(entry.pack_id.to_ascii_lowercase(), entry);
+    }
+
+    for entry in entries {
+        let Some(pack) = entry.loaded_manifest() else {
+            continue;
+        };
+
+        enforce_pack_dependency_policy(pack, &active_by_id)?;
+        crate::ensure_pack_runtime_requirements(pack)?;
+        enforce_pack_permission_policy(pack)?;
+        enforce_pack_secret_policy(pack)?;
+    }
+
+    Ok(())
+}
+
+fn enforce_pack_dependency_policy(
+    pack: &LoadedPackManifest,
+    active_by_id: &BTreeMap<String, &ResolvedPackRegistryEntry>,
+) -> Result<()> {
+    for dependency in &pack.manifest.dependencies {
+        let dependency_id = dependency.id.trim();
+        let Some(active_dependency) = active_by_id.get(&dependency_id.to_ascii_lowercase()) else {
+            if dependency.optional {
+                continue;
+            }
+            return Err(anyhow!(
+                "pack '{}' requires dependency '{}' but it is not active",
+                pack.manifest.id,
+                dependency_id
+            ));
+        };
+
+        if let Some(version) = dependency.version.as_deref() {
+            let requirement = VersionReq::parse(version.trim()).with_context(|| {
+                format!(
+                    "pack '{}' dependency '{}' has invalid version requirement '{}'",
+                    pack.manifest.id,
+                    dependency_id,
+                    version.trim()
+                )
+            })?;
+            let resolved = Version::parse(&active_dependency.version).with_context(|| {
+                format!(
+                    "active dependency '{}' has invalid version '{}'",
+                    active_dependency.pack_id, active_dependency.version
+                )
+            })?;
+            if !requirement.matches(&resolved) {
+                if dependency.optional {
+                    continue;
+                }
+                return Err(anyhow!(
+                    "pack '{}' requires dependency '{}' version '{}' but active version is '{}'",
+                    pack.manifest.id,
+                    dependency_id,
+                    version.trim(),
+                    active_dependency.version
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn enforce_pack_permission_policy(pack: &LoadedPackManifest) -> Result<()> {
+    let declared_tools = pack
+        .manifest
+        .permissions
+        .tools
+        .iter()
+        .map(|tool| tool.trim().to_ascii_lowercase())
+        .collect::<std::collections::BTreeSet<_>>();
+    let declared_namespaces = pack
+        .manifest
+        .permissions
+        .mcp_namespaces
+        .iter()
+        .map(|namespace| namespace.trim().to_ascii_lowercase())
+        .collect::<std::collections::BTreeSet<_>>();
+
+    let workflow_overlay = load_pack_workflow_overlay(pack, &empty_workflow_overlay_base())?;
+    if let Some(overlay) = workflow_overlay {
+        for tool in overlay.tools_allowlist {
+            let normalized = tool.trim().to_ascii_lowercase();
+            if normalized.is_empty() {
+                continue;
+            }
+            if !declared_tools.contains(&normalized) {
+                return Err(anyhow!(
+                    "pack '{}' workflow overlay allowlists tool '{}' without declaring it in permissions.tools",
+                    pack.manifest.id,
+                    tool
+                ));
+            }
+        }
+    }
+
+    if let Some(overlay) = load_pack_agent_runtime_overlay(pack)? {
+        for tool in overlay.tools_allowlist {
+            let normalized = tool.trim().to_ascii_lowercase();
+            if normalized.is_empty() {
+                continue;
+            }
+            if !declared_tools.contains(&normalized) {
+                return Err(anyhow!(
+                    "pack '{}' runtime overlay allowlists tool '{}' without declaring it in permissions.tools",
+                    pack.manifest.id,
+                    tool
+                ));
+            }
+        }
+    }
+
+    let mcp_overlay = crate::load_pack_mcp_overlay(pack)?;
+    if !mcp_overlay.servers.is_empty() {
+        let mut required_namespaces = std::collections::BTreeSet::new();
+        required_namespaces.insert(pack.manifest.id.to_ascii_lowercase());
+        for definition in mcp_overlay.servers.values() {
+            if let Some(namespace) = definition.config.get("tool_namespace").and_then(|value| value.as_str()) {
+                required_namespaces.insert(namespace.trim().to_ascii_lowercase());
+            }
+        }
+
+        for namespace in required_namespaces {
+            if !declared_namespaces.contains(&namespace) {
+                return Err(anyhow!(
+                    "pack '{}' uses MCP namespace '{}' without declaring it in permissions.mcp_namespaces",
+                    pack.manifest.id,
+                    namespace
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn enforce_pack_secret_policy(pack: &LoadedPackManifest) -> Result<()> {
+    let declared_required = pack
+        .manifest
+        .secrets
+        .required
+        .iter()
+        .map(|secret| secret.trim().to_string())
+        .collect::<std::collections::BTreeSet<_>>();
+    let declared_optional = pack
+        .manifest
+        .secrets
+        .optional
+        .iter()
+        .map(|secret| secret.trim().to_string())
+        .collect::<std::collections::BTreeSet<_>>();
+
+    let mcp_overlay = crate::load_pack_mcp_overlay(pack)?;
+    for definition in mcp_overlay.servers.values() {
+        let required_env = definition
+            .config
+            .get("required_env")
+            .and_then(|value| value.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        for key in required_env {
+            let Some(secret_name) = key.as_str().map(str::trim).filter(|value| !value.is_empty()) else {
+                continue;
+            };
+
+            if !declared_required.contains(secret_name) {
+                return Err(anyhow!(
+                    "pack '{}' MCP server requires env '{}' without declaring it in secrets.required",
+                    pack.manifest.id,
+                    secret_name
+                ));
+            }
+            if std::env::var_os(secret_name).is_none() {
+                return Err(anyhow!(
+                    "pack '{}' requires secret '{}' but it is not available in the environment",
+                    pack.manifest.id,
+                    secret_name
+                ));
+            }
+        }
+    }
+
+    for secret_name in &declared_required {
+        if std::env::var_os(secret_name).is_none() {
+            return Err(anyhow!(
+                "pack '{}' requires secret '{}' but it is not available in the environment",
+                pack.manifest.id,
+                secret_name
+            ));
+        }
+    }
+
+    for secret_name in &declared_optional {
+        if secret_name.is_empty() {
+            return Err(anyhow!("pack '{}' declares an empty optional secret", pack.manifest.id));
+        }
+    }
+
+    Ok(())
+}
+
+fn empty_workflow_overlay_base() -> WorkflowConfig {
+    WorkflowConfig {
+        schema: crate::WORKFLOW_CONFIG_SCHEMA_ID.to_string(),
+        version: crate::WORKFLOW_CONFIG_VERSION,
+        default_workflow_ref: String::new(),
+        phase_catalog: BTreeMap::new(),
+        workflows: Vec::new(),
+        checkpoint_retention: crate::WorkflowCheckpointRetentionConfig::default(),
+        phase_definitions: BTreeMap::new(),
+        agent_profiles: BTreeMap::new(),
+        tools_allowlist: Vec::new(),
+        mcp_servers: BTreeMap::new(),
+        phase_mcp_bindings: BTreeMap::new(),
+        tools: BTreeMap::new(),
+        integrations: None,
+        schedules: Vec::new(),
+        daemon: None,
+    }
 }
 
 fn collect_pack_workflow_yaml_sources(pack: &LoadedPackManifest) -> Result<Vec<(PathBuf, String)>> {
@@ -414,6 +923,10 @@ workflow_overlay = "runtime/workflow-runtime.overlay.yaml"
             format!(
                 r#"
 workflows:
+  - id: {pack_id}/standard
+    name: "{pack_id}/standard"
+    phases:
+      - workflow_ref: standard
   - id: standard
     name: Standard
     description: "{description}"
@@ -495,6 +1008,12 @@ workflows:
         .expect("write workflow overlay");
     }
 
+    fn write_pack_manifest(root: &Path, manifest: &str) {
+        fs::create_dir_all(root.join("workflows")).expect("create workflows");
+        fs::create_dir_all(root.join("runtime")).expect("create runtime");
+        fs::write(root.join(crate::PACK_MANIFEST_FILE_NAME), manifest).expect("write manifest");
+    }
+
     #[test]
     fn resolve_pack_registry_prefers_project_overrides_and_latest_installed_version() {
         let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -541,6 +1060,69 @@ workflows:
         let task = registry.resolve("ao.task").expect("ao.task should resolve");
         assert_eq!(task.source, PackRegistrySource::ProjectOverride);
         assert_eq!(task.version, "9.0.0");
+    }
+
+    #[test]
+    fn resolve_pack_registry_honors_project_selection_pins_and_disablement() {
+        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = tempfile::tempdir().expect("home tempdir");
+        let project = tempfile::tempdir().expect("project tempdir");
+        let _home_guard = EnvVarGuard::set("HOME", home.path());
+
+        write_pack_fixture(
+            &machine_installed_packs_dir().join("ao.review").join("0.1.0"),
+            "ao.review",
+            "0.1.0",
+            "old installed",
+            "review-old",
+        );
+        write_pack_fixture(
+            &machine_installed_packs_dir().join("ao.review").join("0.2.0"),
+            "ao.review",
+            "0.2.0",
+            "new installed",
+            "review-new",
+        );
+        write_pack_fixture(
+            &project_pack_overrides_dir(project.path()).join("ao-task"),
+            "ao.task",
+            "9.0.0",
+            "project override task",
+            "task-override",
+        );
+
+        crate::save_pack_selection_state(
+            project.path(),
+            &crate::PackSelectionState {
+                schema: crate::PACK_SELECTION_SCHEMA_ID.to_string(),
+                selections: vec![
+                    crate::PackSelectionEntry {
+                        pack_id: "ao.review".to_string(),
+                        version: Some("=0.1.0".to_string()),
+                        source: Some(crate::PackSelectionSource::Installed),
+                        enabled: true,
+                    },
+                    crate::PackSelectionEntry {
+                        pack_id: "ao.task".to_string(),
+                        version: None,
+                        source: Some(crate::PackSelectionSource::ProjectOverride),
+                        enabled: false,
+                    },
+                    crate::PackSelectionEntry {
+                        pack_id: "ao.requirement".to_string(),
+                        version: None,
+                        source: Some(crate::PackSelectionSource::Bundled),
+                        enabled: false,
+                    },
+                ],
+            },
+        )
+        .expect("selection state should save");
+
+        let registry = resolve_pack_registry(project.path()).expect("resolve registry");
+        let review = registry.resolve("ao.review").expect("ao.review should resolve");
+        assert_eq!(review.version, "0.1.0");
+        assert!(registry.resolve("ao.task").is_none(), "disabled pack should not resolve");
     }
 
     #[test]
@@ -627,5 +1209,175 @@ workflows:
         assert!(command.program.ends_with("assets/review-helper.sh"));
         assert_eq!(command.cwd_path.as_deref(), Some("workspace/scripts"));
         assert!(tool.executable.ends_with("assets/review-helper.sh"));
+    }
+
+    #[test]
+    fn resolve_pack_registry_rejects_missing_required_dependencies() {
+        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = tempfile::tempdir().expect("home tempdir");
+        let project = tempfile::tempdir().expect("project tempdir");
+        let _home_guard = EnvVarGuard::set("HOME", home.path());
+
+        write_pack_manifest(
+            &machine_installed_packs_dir().join("ao.dependent").join("0.2.0"),
+            r#"
+schema = "ao.pack.v1"
+id = "ao.dependent"
+version = "0.2.0"
+kind = "domain-pack"
+title = "Dependent"
+description = "Fixture"
+
+[ownership]
+mode = "bundled"
+
+[compatibility]
+ao_core = ">=0.1.0"
+workflow_schema = "v2"
+subject_schema = "v2"
+
+[subjects]
+kinds = ["ao.task"]
+default_kind = "ao.task"
+
+[workflows]
+root = "workflows"
+exports = ["ao.dependent/standard"]
+
+[runtime]
+
+[[dependencies]]
+id = "ao.missing"
+version = ">=1.0.0"
+"#,
+        );
+        fs::write(
+            machine_installed_packs_dir()
+                .join("ao.dependent")
+                .join("0.2.0")
+                .join("runtime/workflow-runtime.overlay.yaml"),
+            "workflows: []\n",
+        )
+        .expect("write workflow overlay");
+
+        let error = resolve_pack_registry(project.path()).expect_err("missing dependency should fail");
+        assert!(error.to_string().contains("requires dependency 'ao.missing'"));
+    }
+
+    #[test]
+    fn resolve_pack_registry_rejects_undeclared_tool_permissions() {
+        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = tempfile::tempdir().expect("home tempdir");
+        let project = tempfile::tempdir().expect("project tempdir");
+        let _home_guard = EnvVarGuard::set("HOME", home.path());
+
+        write_pack_manifest(
+            &machine_installed_packs_dir().join("ao.research").join("0.2.0"),
+            r#"
+schema = "ao.pack.v1"
+id = "ao.research"
+version = "0.2.0"
+kind = "domain-pack"
+title = "Research"
+description = "Fixture"
+
+[ownership]
+mode = "bundled"
+
+[compatibility]
+ao_core = ">=0.1.0"
+workflow_schema = "v2"
+subject_schema = "v2"
+
+[subjects]
+kinds = ["ao.task"]
+default_kind = "ao.task"
+
+[workflows]
+root = "workflows"
+exports = ["ao.research/standard"]
+
+[runtime]
+workflow_overlay = "runtime/workflow-runtime.overlay.yaml"
+
+[permissions]
+tools = ["cargo"]
+"#,
+        );
+        fs::write(
+            machine_installed_packs_dir()
+                .join("ao.research")
+                .join("0.2.0")
+                .join("runtime/workflow-runtime.overlay.yaml"),
+            "tools_allowlist:\n  - npm\nworkflows: []\n",
+        )
+        .expect("write workflow overlay");
+
+        let error = resolve_pack_registry(project.path()).expect_err("undeclared tool permission should fail");
+        assert!(error.to_string().contains("without declaring it in permissions.tools"));
+    }
+
+    #[test]
+    fn resolve_pack_registry_rejects_missing_required_secrets() {
+        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = tempfile::tempdir().expect("home tempdir");
+        let project = tempfile::tempdir().expect("project tempdir");
+        let _home_guard = EnvVarGuard::set("HOME", home.path());
+        let _secret_guard = EnvVarGuard::set("PACK_SECRET_TOKEN", project.path());
+        env::remove_var("PACK_SECRET_TOKEN");
+
+        let pack_root = machine_installed_packs_dir().join("ao.secret").join("0.2.0");
+        write_pack_manifest(
+            &pack_root,
+            r#"
+schema = "ao.pack.v1"
+id = "ao.secret"
+version = "0.2.0"
+kind = "domain-pack"
+title = "Secret"
+description = "Fixture"
+
+[ownership]
+mode = "bundled"
+
+[compatibility]
+ao_core = ">=0.1.0"
+workflow_schema = "v2"
+subject_schema = "v2"
+
+[subjects]
+kinds = ["ao.task"]
+default_kind = "ao.task"
+
+[workflows]
+root = "workflows"
+exports = ["ao.secret/standard"]
+
+[runtime]
+
+[mcp]
+servers = "mcp/servers.toml"
+
+[permissions]
+mcp_namespaces = ["ao.secret"]
+
+[secrets]
+required = ["PACK_SECRET_TOKEN"]
+"#,
+        );
+        fs::create_dir_all(pack_root.join("mcp")).expect("create mcp dir");
+        fs::write(
+            pack_root.join("mcp/servers.toml"),
+            r#"
+[[server]]
+id = "secret"
+command = "secret-mcp"
+required_env = ["PACK_SECRET_TOKEN"]
+"#,
+        )
+        .expect("write mcp servers");
+
+        let error = resolve_pack_registry(project.path()).expect_err("missing required secret should fail");
+        assert!(error.to_string().contains("requires secret 'PACK_SECRET_TOKEN'"));
     }
 }

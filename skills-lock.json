@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "skills": {
+    "code-review-excellence": {
+      "source": "awesome-skills/code-review-skill",
+      "sourceType": "github",
+      "computedHash": "3dc4e88d4650173afd5218ee1de9a76c025ccb53a1794aaed0d0498f9196b51b"
+    },
+    "rust-architect": {
+      "source": "nanlong/rust-architect",
+      "sourceType": "github",
+      "computedHash": "b969c4ac82418aa98862794fbdf25cffe8e53520306696e692c062e3703f0c82"
+    },
+    "rust-skills": {
+      "source": "leonardomso/rust-skills",
+      "sourceType": "github",
+      "computedHash": "46bd078eef99d07cf5544129e24f917646a39cda58672233c559d3fa6af68369"
+    }
+  }
+}

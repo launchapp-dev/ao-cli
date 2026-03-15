@@ -1,0 +1,7 @@
+{
+  "enabledPlugins": {
+    "rust-skills@rust-skills": true,
+    "typescript-lsp@claude-plugins-official": true,
+    "documentation-pipeline@levnikolaevich-skills-marketplace": false
+  }
+}

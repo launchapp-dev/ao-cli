@@ -108,7 +108,11 @@
       "Bash(cargo outdated:*)",
       "Bash(cargo install:*)",
       "Bash(rustc --version && cargo --version && rustup show active-toolchain)",
-      "Bash(cargo update:*)"
+      "Bash(cargo update:*)",
+      "Bash(alias:*)",
+      "mcp__ao__ao_queue_list",
+      "mcp__ao__ao_daemon_logs",
+      "Bash(cargo clean:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

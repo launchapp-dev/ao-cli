@@ -75,7 +75,7 @@ See `docs/cli-command-surface.md` for the full command tree with all flags.
 | Group | Commands | Purpose |
 |---|---|---|
 | **Core** | `task`, `workflow`, `daemon`, `agent` | Task management, workflow execution, daemon lifecycle, agent runs |
-| **Planning** | `vision`, `requirements`, `execute`, `architecture` | Project vision, requirements drafting, execution planning |
+| **Planning** | `vision`, `requirements`, `planning`, `architecture` | Project vision, requirements drafting, planning workflows |
 | **Operations** | `runner`, `output`, `errors`, `history` | Runner health, run output, error tracking, execution history |
 | **Infrastructure** | `git`, `model`, `skill`, `mcp`, `web` | Git ops, model routing, skill packages, MCP server, web UI |
 | **UX** | `status`, `setup`, `doctor`, `tui` | Dashboard, onboarding, diagnostics, terminal UI |

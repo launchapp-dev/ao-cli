@@ -194,7 +194,7 @@ mod tests {
             Command::Planning {
                 command:
                     PlanningCommand::Vision {
-                        command: VisionCommand::Draft(_),
+                        command: PlanningVisionCommand::Draft(_),
                     },
             } => {}
             _ => panic!("expected planning vision draft command"),

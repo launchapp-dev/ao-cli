@@ -1,15 +1,23 @@
 use clap::Subcommand;
 
-use super::{
-    IdArgs, RequirementsDraftArgs, RequirementsExecuteArgs, RequirementsRefineArgs, VisionCommand,
-};
+use super::{IdArgs, RequirementsDraftArgs, RequirementsExecuteArgs, RequirementsRefineArgs, VisionDraftArgs, VisionRefineArgs};
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum PlanningVisionCommand {
+    /// Draft a project vision.
+    Draft(VisionDraftArgs),
+    /// Refine the existing project vision.
+    Refine(VisionRefineArgs),
+    /// Read the current project vision.
+    Get,
+}
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum PlanningCommand {
     /// Planning facade for vision commands.
     Vision {
         #[command(subcommand)]
-        command: VisionCommand,
+        command: PlanningVisionCommand,
     },
     /// Planning facade for requirements commands.
     Requirements {

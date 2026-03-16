@@ -10,8 +10,9 @@ use super::ops_planning::{
     VisionRefineInputPayload,
 };
 use crate::{
-    IdArgs, PlanningCommand, PlanningRequirementsCommand, RequirementsCommand,
-    RequirementsExecuteArgs, VisionCommand, WorkflowCommand, WorkflowExecuteArgs,
+    IdArgs, PlanningCommand, PlanningRequirementsCommand, PlanningVisionCommand,
+    RequirementsCommand, RequirementsExecuteArgs, VisionCommand, WorkflowCommand,
+    WorkflowExecuteArgs,
 };
 
 const BUILTIN_VISION_DRAFT_WORKFLOW_REF: &str = "builtin/vision-draft";
@@ -28,7 +29,7 @@ pub(crate) async fn handle_planning(
 ) -> Result<()> {
     match command {
         PlanningCommand::Vision { command } => match command {
-            VisionCommand::Draft(args) => {
+            PlanningVisionCommand::Draft(args) => {
                 let input_json = match args.input_json {
                     Some(raw) => Some(raw),
                     None => Some(serde_json::to_string(&VisionDraftInputPayload {
@@ -69,7 +70,7 @@ pub(crate) async fn handle_planning(
                 )
                 .await
             }
-            VisionCommand::Refine(args) => {
+            PlanningVisionCommand::Refine(args) => {
                 let input_json = match args.input_json {
                     Some(raw) => Some(raw),
                     None => Some(serde_json::to_string(&VisionRefineInputPayload {
@@ -106,7 +107,7 @@ pub(crate) async fn handle_planning(
                 )
                 .await
             }
-            VisionCommand::Get => {
+            PlanningVisionCommand::Get => {
                 super::handle_vision(VisionCommand::Get, hub.clone(), project_root, json).await
             }
         },

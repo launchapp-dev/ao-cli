@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -8,8 +8,8 @@ use serde_json::Value;
 use tokio::process::Command;
 
 use orchestrator_config::{
-    ensure_pack_execution_requirements, resolve_active_pack_for_workflow_ref, resolve_pack_registry,
-    workflow_config::MergeStrategy,
+    collect_workflow_refs, ensure_pack_execution_requirements, resolve_active_pack_for_workflow_ref,
+    resolve_pack_registry, workflow_config::MergeStrategy,
 };
 use orchestrator_core::{
     dispatch_workflow_event, ensure_workflow_config_compiled, load_workflow_config,
@@ -91,6 +91,39 @@ impl Drop for WorkflowRunnerPidGuard {
     fn drop(&mut self) {
         let _ = unregister_workflow_runner_pid(Path::new(&self.project_root), &self.workflow_id);
     }
+}
+
+fn ensure_workflow_pack_execution_requirements(
+    pack_registry: &orchestrator_config::ResolvedPackRegistry,
+    workflow_config: &orchestrator_config::WorkflowConfig,
+    workflow_ref: &str,
+) -> Result<()> {
+    let workflow_refs = collect_workflow_refs(&workflow_config.workflows, workflow_ref)
+        .with_context(|| format!("failed to resolve workflow activation graph for '{}'", workflow_ref))?;
+    let mut validated_pack_ids = HashSet::new();
+
+    for referenced_workflow_ref in workflow_refs {
+        let Some(entry) = resolve_active_pack_for_workflow_ref(pack_registry, &referenced_workflow_ref) else {
+            continue;
+        };
+        if !validated_pack_ids.insert(entry.pack_id.to_ascii_lowercase()) {
+            continue;
+        }
+        let Some(pack) = entry.loaded_manifest() else {
+            continue;
+        };
+        ensure_pack_execution_requirements(pack).with_context(|| {
+            format!(
+                "workflow '{}' cannot activate pack '{}' required by workflow '{}' from {}",
+                workflow_ref,
+                pack.manifest.id,
+                referenced_workflow_ref,
+                pack.pack_root.display()
+            )
+        })?;
+    }
+
+    Ok(())
 }
 
 fn workflow_phase_inputs(workflow: &OrchestratorWorkflow) -> WorkflowPhaseInputs {
@@ -181,18 +214,7 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
     let workflow_config = load_workflow_config(Path::new(&params.project_root))?;
     let workflow_ref = workflow.workflow_ref.clone().unwrap_or_else(|| workflow_config.default_workflow_ref.clone());
     let pack_registry = resolve_pack_registry(Path::new(&params.project_root))?;
-    if let Some(entry) = resolve_active_pack_for_workflow_ref(&pack_registry, &workflow_ref) {
-        if let Some(pack) = entry.loaded_manifest() {
-            ensure_pack_execution_requirements(pack).with_context(|| {
-                format!(
-                    "workflow '{}' cannot activate pack '{}' from {}",
-                    workflow_ref,
-                    pack.manifest.id,
-                    pack.pack_root.display()
-                )
-            })?;
-        }
-    }
+    ensure_workflow_pack_execution_requirements(&pack_registry, &workflow_config, &workflow_ref)?;
     let phase_inputs = workflow_phase_inputs(&workflow);
     let workflow_vars = workflow.vars.clone();
     let mut rework_context: Option<String> = None;
@@ -1786,6 +1808,64 @@ servers = ["runtime"]
         }
     }
 
+    fn write_delegating_pack_fixture(root: &Path, pack_id: &str, workflow_ref: &str, sub_workflow_ref: &str) {
+        fs::create_dir_all(root.join("workflows")).expect("pack workflows dir should exist");
+        fs::create_dir_all(root.join("runtime")).expect("pack runtime dir should exist");
+
+        let manifest = format!(
+            r#"
+schema = "ao.pack.v1"
+id = "{pack_id}"
+version = "0.1.0"
+kind = "domain-pack"
+title = "{pack_id}"
+description = "delegating pack fixture."
+
+[ownership]
+mode = "bundled"
+
+[compatibility]
+ao_core = ">=0.1.0"
+workflow_schema = "v2"
+subject_schema = "v2"
+
+[subjects]
+kinds = ["custom"]
+default_kind = "custom"
+
+[workflows]
+root = "workflows"
+exports = ["{workflow_ref}"]
+
+[runtime]
+workflow_overlay = "runtime/workflow-runtime.overlay.yaml"
+
+[[dependencies]]
+id = "ao.node-fixture"
+version = ">=0.1.0"
+optional = false
+
+[permissions]
+tools = []
+"#
+        );
+        fs::write(root.join(orchestrator_config::PACK_MANIFEST_FILE_NAME), manifest)
+            .expect("delegating pack manifest should write");
+        fs::write(
+            root.join("runtime/workflow-runtime.overlay.yaml"),
+            format!(
+                r#"
+workflows:
+  - id: {workflow_ref}
+    name: "{workflow_ref}"
+    phases:
+      - workflow_ref: {sub_workflow_ref}
+"#
+            ),
+        )
+        .expect("delegating workflow overlay should write");
+    }
+
     fn phase_result_payload(phase_result: &Value) -> &Value {
         phase_result
             .get("outcome")
@@ -1940,6 +2020,79 @@ servers = ["runtime"]
         assert!(
             error.chain().any(|cause| cause.to_string().contains("requires runtime 'node'")),
             "runtime requirement failure should remain in the error chain: {error:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn execute_workflow_checks_dependent_pack_requirements_before_phase_execution() {
+        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = tempfile::tempdir().expect("home tempdir");
+        let project = tempfile::tempdir().expect("project tempdir");
+        let _home_guard = EnvVarGuard::set("HOME", home.path());
+        write_project_runtime_scripts(project.path());
+
+        let runtime_pack_root = machine_installed_packs_dir().join("ao.node-fixture").join("0.1.0");
+        write_runtime_pack_fixture(
+            &runtime_pack_root,
+            "ao.node-fixture",
+            "node",
+            "v20.11.1",
+            "node-fixture-runtime",
+            "node-command",
+            "ao.node-fixture/cycle",
+            "scripts/node-fixture.js",
+            "node-pack-output.txt",
+            false,
+        );
+        let delegating_pack_root = machine_installed_packs_dir().join("ao.composite").join("0.1.0");
+        write_delegating_pack_fixture(
+            &delegating_pack_root,
+            "ao.composite",
+            "ao.composite/run",
+            "ao.node-fixture/cycle",
+        );
+
+        let loaded = load_workflow_config_with_metadata(project.path()).expect("workflow config should load");
+        assert!(
+            loaded.config.workflows.iter().any(|workflow| workflow.id == "ao.composite/run"),
+            "delegating workflow should be discoverable before execution"
+        );
+        assert!(
+            loaded.config.workflows.iter().any(|workflow| workflow.id == "ao.node-fixture/cycle"),
+            "dependent workflow should be discoverable before execution"
+        );
+
+        let result = execute_workflow(WorkflowExecuteParams {
+            project_root: project.path().display().to_string(),
+            workflow_id: None,
+            task_id: None,
+            requirement_id: None,
+            title: Some("composite-fixture-subject".to_string()),
+            description: Some("delegating fixture workflow".to_string()),
+            workflow_ref: Some("ao.composite/run".to_string()),
+            input: None,
+            vars: HashMap::new(),
+            model: None,
+            tool: None,
+            phase_timeout_secs: None,
+            phase_filter: None,
+            on_phase_event: None,
+            hub: None,
+            phase_routing: None,
+            mcp_config: None,
+        })
+        .await;
+        let error = match result {
+            Ok(_) => panic!("execution should fail when dependent runtime requirement is unavailable"),
+            Err(error) => error,
+        };
+        assert!(
+            error.to_string().contains("cannot activate pack 'ao.node-fixture'"),
+            "unexpected execution error: {error}"
+        );
+        assert!(
+            error.chain().any(|cause| cause.to_string().contains("required by workflow 'ao.node-fixture/cycle'")),
+            "dependent workflow context should remain in the error chain: {error:#}"
         );
     }
 

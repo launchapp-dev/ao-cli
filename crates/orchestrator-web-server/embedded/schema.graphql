@@ -401,6 +401,7 @@ type MutationRoot {
 	upsertWorkflowDefinition(id: String!, name: String!, description: String, phases: String!, variables: String): Boolean!
 	deleteWorkflowDefinition(id: ID!): Boolean!
 	approvePhase(workflowId: ID!, phaseId: String!, note: String): GqlWorkflow!
+	rejectPhase(workflowId: ID!, phaseId: String!, note: String): GqlWorkflow!
 	daemonStart: Boolean!
 	daemonStop: Boolean!
 	daemonPause: Boolean!

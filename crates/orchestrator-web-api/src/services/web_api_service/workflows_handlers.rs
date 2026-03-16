@@ -430,6 +430,32 @@ impl WebApiService {
         Ok(json!(workflow))
     }
 
+    pub async fn workflows_phase_reject(
+        &self,
+        workflow_id: &str,
+        phase_id: &str,
+        note: Option<String>,
+    ) -> Result<Value, WebApiError> {
+        let outcome = dispatch_workflow_event(
+            self.context.hub.clone(),
+            &self.context.project_root,
+            WorkflowEvent::RejectManualPhase {
+                workflow_id: workflow_id.to_string(),
+                phase_id: phase_id.to_string(),
+                note,
+            },
+        )
+        .await?;
+        let workflow = outcome
+            .workflow
+            .ok_or_else(|| WebApiError::new("not_found", "workflow not found".to_string(), 3))?;
+        self.publish_event(
+            "workflow-phase-reject",
+            json!({ "workflow_id": workflow.id, "phase_id": phase_id, "status": workflow.status }),
+        );
+        Ok(json!(workflow))
+    }
+
     pub async fn save_workflow_config(&self, config_json: &str) -> Result<(), WebApiError> {
         let config: orchestrator_config::workflow_config::WorkflowConfig =
             serde_json::from_str(config_json).map_err(|e| {

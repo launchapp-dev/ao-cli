@@ -22,3 +22,4 @@ mutation PauseWorkflow($id: ID!) { pauseWorkflow(id: $id) { id status } }
 mutation ResumeWorkflow($id: ID!, $feedback: String) { resumeWorkflow(id: $id, feedback: $feedback) { id status } }
 mutation CancelWorkflow($id: ID!) { cancelWorkflow(id: $id) { id status } }
 mutation ApprovePhase($workflowId: ID!, $phaseId: String!, $note: String) { approvePhase(workflowId: $workflowId, phaseId: $phaseId, note: $note) { id status statusRaw currentPhase } }
+mutation RejectPhase($workflowId: ID!, $phaseId: String!, $note: String) { rejectPhase(workflowId: $workflowId, phaseId: $phaseId, note: $note) { id status statusRaw currentPhase } }

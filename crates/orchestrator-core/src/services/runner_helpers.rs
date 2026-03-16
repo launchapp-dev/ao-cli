@@ -11,9 +11,26 @@ pub(super) fn runner_config_dir(project_root: &Path) -> PathBuf {
     normalize_runner_config_dir(config_dir)
 }
 
+pub(super) fn runner_config_dir_for_scope(project_root: &Path, runner_scope: Option<&str>) -> PathBuf {
+    match runner_scope {
+        Some("global") => global_runner_config_dir(),
+        _ => runner_config_dir(project_root),
+    }
+}
+
 fn project_runtime_root(project_root: &Path) -> Option<PathBuf> {
     let home = dirs::home_dir()?;
     Some(home.join(".ao").join(protocol::repository_scope_for_path(project_root)))
+}
+
+fn global_runtime_root() -> Option<PathBuf> {
+    let home = dirs::home_dir()?;
+    Some(home.join(".ao").join("global-runner"))
+}
+
+pub(super) fn global_runner_config_dir() -> PathBuf {
+    let config_dir = global_runtime_root().unwrap_or_else(|| std::env::temp_dir().join("ao-global-runner"));
+    normalize_runner_config_dir(config_dir)
 }
 
 fn normalize_runner_config_dir(config_dir: PathBuf) -> PathBuf {
@@ -345,8 +362,8 @@ pub(super) fn find_agent_runner_binary() -> Result<PathBuf> {
     Err(anyhow!("Could not find agent-runner binary. Build it with `cargo build -p agent-runner`."))
 }
 
-pub(super) async fn ensure_agent_runner_running(project_root: &Path) -> Result<Option<u32>> {
-    let config_dir = runner_config_dir(project_root);
+pub(super) async fn ensure_agent_runner_running(project_root: &Path, runner_scope: Option<&str>) -> Result<Option<u32>> {
+    let config_dir = runner_config_dir_for_scope(project_root, runner_scope);
     let binary = find_agent_runner_binary()?;
     let expected_build_id = runner_binary_build_id(&binary);
     std::fs::create_dir_all(&config_dir).ok();
@@ -359,7 +376,7 @@ pub(super) async fn ensure_agent_runner_running(project_root: &Path) -> Result<O
                 return Ok(read_runner_pid_from_lock(&config_dir));
             }
             let old_pid = read_runner_pid_from_lock(&config_dir);
-            let _ = stop_agent_runner_process(project_root).await;
+            let _ = stop_agent_runner_process(project_root, runner_scope).await;
             if let Some(pid) = old_pid {
                 for _ in 0..50 {
                     if !is_runner_process_alive(pid) {
@@ -439,8 +456,8 @@ pub(super) async fn ensure_agent_runner_running(project_root: &Path) -> Result<O
     Err(anyhow!("agent-runner failed health check after start (pid {spawned_pid})"))
 }
 
-pub(super) async fn stop_agent_runner_process(project_root: &Path) -> Result<bool> {
-    let config_dir = runner_config_dir(project_root);
+pub(super) async fn stop_agent_runner_process(project_root: &Path, runner_scope: Option<&str>) -> Result<bool> {
+    let config_dir = runner_config_dir_for_scope(project_root, runner_scope);
     stop_agent_runner_process_at_config_dir(&config_dir).await
 }
 
@@ -749,7 +766,7 @@ mod tests {
         std::env::remove_var("AGENT_RUNNER_TOKEN");
         std::env::set_current_dir("/Users/samishukri/ao-cli").ok();
 
-        let startup_result = ensure_agent_runner_running(&project_root).await;
+        let startup_result = ensure_agent_runner_running(&project_root, None).await;
 
         if let Some(cwd) = original_cwd {
             let _ = std::env::set_current_dir(cwd);
@@ -785,7 +802,7 @@ mod tests {
         std::env::remove_var("AGENT_RUNNER_TOKEN");
         std::env::set_current_dir("/Users/samishukri/ao-cli").ok();
 
-        let second_startup_result = ensure_agent_runner_running(&project_root).await;
+        let second_startup_result = ensure_agent_runner_running(&project_root, None).await;
 
         if let Some(cwd) = original_cwd2 {
             let _ = std::env::set_current_dir(cwd);
@@ -808,7 +825,7 @@ mod tests {
             protocol::Config::load_from_dir(&runner_config_dir).expect("load config after second startup");
         assert_eq!(config_after_second.agent_runner_token, Some(token), "token should be preserved on second startup");
 
-        let stopped = stop_agent_runner_process(&project_root).await.expect("stop runner should succeed");
+        let stopped = stop_agent_runner_process(&project_root, None).await.expect("stop runner should succeed");
 
         assert!(stopped, "runner should be stopped");
 

@@ -10,16 +10,16 @@ async fn ensure_runner_started(project_root: &Path, config: &DaemonStartConfig) 
         return Ok(None);
     }
 
-    ensure_agent_runner_running(project_root).await
+    ensure_agent_runner_running(project_root, config.runner_scope.as_deref()).await
 }
 
-async fn stop_runner_for_retry(project_root: &Path) -> Result<bool> {
+async fn stop_runner_for_retry(project_root: &Path, runner_scope: Option<&str>) -> Result<bool> {
     #[cfg(test)]
     if let Some(result) = take_test_stop_result() {
         return result;
     }
 
-    stop_agent_runner_process(project_root).await
+    stop_agent_runner_process(project_root, runner_scope).await
 }
 
 async fn runner_ready_for_status(config_dir: &Path) -> bool {
@@ -157,12 +157,13 @@ impl DaemonServiceApi for InMemoryServiceHub {
 impl DaemonServiceApi for FileServiceHub {
     async fn start(&self, config: DaemonStartConfig) -> Result<()> {
         let pool_size = config.pool_size;
+        *self.runner_scope.write().unwrap() = config.runner_scope.clone();
         let runner_pid = match ensure_runner_started(&self.project_root, &config).await {
             Ok(pid) => pid,
             Err(first_error) => {
                 // Self-heal once: terminate any partial/stale runner process
                 // and retry startup before surfacing an error.
-                let _ = stop_runner_for_retry(&self.project_root).await;
+                let _ = stop_runner_for_retry(&self.project_root, config.runner_scope.as_deref()).await;
                 ensure_runner_started(&self.project_root, &config)
                     .await
                     .with_context(|| format!("runner start retry failed after: {first_error}"))?
@@ -191,7 +192,8 @@ impl DaemonServiceApi for FileServiceHub {
     }
 
     async fn stop(&self) -> Result<()> {
-        let stopped_runner = stop_agent_runner_process(&self.project_root).await.unwrap_or(false);
+        let scope = self.runner_scope.read().unwrap().clone();
+        let stopped_runner = stop_agent_runner_process(&self.project_root, scope.as_deref()).await.unwrap_or(false);
         mutate_daemon_state(self, |state| {
             state.daemon_status = DaemonStatus::Stopped;
             state.runner_pid = None;
@@ -236,7 +238,8 @@ impl DaemonServiceApi for FileServiceHub {
     }
 
     async fn status(&self) -> Result<DaemonStatus> {
-        let config_dir = runner_config_dir(&self.project_root);
+        let scope = self.runner_scope.read().unwrap().clone();
+        let config_dir = runner_config_dir_for_scope(&self.project_root, scope.as_deref());
         let runner_ready = runner_ready_for_status(&config_dir).await;
         let runner_pid_from_lock = runner_pid_from_lock_for_status(&config_dir);
 
@@ -284,7 +287,8 @@ impl DaemonServiceApi for FileServiceHub {
 
     async fn health(&self) -> Result<DaemonHealth> {
         let status = self.status().await?;
-        let config_dir = runner_config_dir(&self.project_root);
+        let scope = self.runner_scope.read().unwrap().clone();
+        let config_dir = runner_config_dir_for_scope(&self.project_root, scope.as_deref());
         let runner_connected = is_agent_runner_ready(&config_dir).await;
         let active_agents = if runner_connected {
             query_runner_status(&config_dir).await.map(|status| status.active_agents).unwrap_or(0)
@@ -334,7 +338,8 @@ impl DaemonServiceApi for FileServiceHub {
     }
 
     async fn active_agents(&self) -> Result<usize> {
-        let config_dir = runner_config_dir(&self.project_root);
+        let scope = self.runner_scope.read().unwrap().clone();
+        let config_dir = runner_config_dir_for_scope(&self.project_root, scope.as_deref());
         if !is_agent_runner_ready(&config_dir).await {
             return Ok(0);
         }
@@ -448,6 +453,7 @@ mod tests {
             state: std::sync::Arc::new(tokio::sync::RwLock::new(CoreState::default_with_stopped())),
             state_file,
             project_root: temp.path().to_path_buf(),
+            runner_scope: std::sync::Arc::new(std::sync::RwLock::new(None)),
         }
     }
 

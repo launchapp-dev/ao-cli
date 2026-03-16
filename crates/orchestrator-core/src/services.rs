@@ -236,6 +236,7 @@ pub struct FileServiceHub {
     state: Arc<RwLock<CoreState>>,
     state_file: PathBuf,
     project_root: PathBuf,
+    runner_scope: Arc<std::sync::RwLock<Option<String>>>,
 }
 
 impl FileServiceHub {
@@ -256,7 +257,12 @@ impl FileServiceHub {
             state.workflows = workflows.into_iter().map(|workflow| (workflow.id.clone(), workflow)).collect();
         }
 
-        let hub = Self { state: Arc::new(RwLock::new(state)), state_file, project_root };
+        let hub = Self {
+            state: Arc::new(RwLock::new(state)),
+            state_file,
+            project_root,
+            runner_scope: Arc::new(std::sync::RwLock::new(None)),
+        };
         Ok(hub)
     }
 

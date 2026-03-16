@@ -544,11 +544,20 @@ pub fn resolve_active_pack_for_workflow_ref<'a>(
         return None;
     }
 
-    registry.entries.iter().find(|entry| {
+    let direct_match = registry.entries.iter().find(|entry| {
         entry.loaded_manifest().is_some_and(|pack| {
             pack.manifest.workflows.exports.iter().any(|export| export.eq_ignore_ascii_case(trimmed))
         })
-    })
+    });
+    if direct_match.is_some() {
+        return direct_match;
+    }
+
+    let (pack_id, _) = trimmed.split_once('/')?;
+    registry
+        .entries
+        .iter()
+        .find(|entry| entry.loaded_manifest().is_some() && entry.pack_id.eq_ignore_ascii_case(pack_id))
 }
 
 pub fn ensure_pack_execution_requirements(pack: &LoadedPackManifest) -> Result<crate::PackRuntimeReport> {
@@ -1251,6 +1260,27 @@ workflows:
         assert!(command.program.ends_with("assets/review-helper.sh"));
         assert_eq!(command.cwd_path.as_deref(), Some("workspace/scripts"));
         assert!(tool.executable.ends_with("assets/review-helper.sh"));
+    }
+
+    #[test]
+    fn resolve_active_pack_for_workflow_ref_matches_pack_qualified_internal_refs() {
+        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = tempfile::tempdir().expect("home tempdir");
+        let project = tempfile::tempdir().expect("project tempdir");
+        let _home_guard = EnvVarGuard::set("HOME", home.path());
+
+        write_pack_fixture(
+            &machine_installed_packs_dir().join("ao.review").join("0.2.0"),
+            "ao.review",
+            "0.2.0",
+            "installed review",
+            "ao.review/internal",
+        );
+
+        let registry = resolve_pack_registry(project.path()).expect("resolve registry");
+        let entry = resolve_active_pack_for_workflow_ref(&registry, "ao.review/internal")
+            .expect("pack-qualified internal workflow should resolve to owning pack");
+        assert_eq!(entry.pack_id, "ao.review");
     }
 
     #[test]

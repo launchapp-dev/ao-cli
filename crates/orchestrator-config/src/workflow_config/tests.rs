@@ -715,6 +715,30 @@ fn expand_nested_sub_pipelines() {
 }
 
 #[test]
+fn collect_workflow_refs_tracks_nested_sub_workflows_once() {
+    let workflows = vec![
+        make_pipeline("lint", vec![WorkflowPhaseEntry::Simple("code-review".into())]),
+        make_pipeline(
+            "review-cycle",
+            vec![
+                WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef { workflow_ref: "lint".into() }),
+                WorkflowPhaseEntry::Simple("testing".into()),
+            ],
+        ),
+        make_pipeline(
+            "standard",
+            vec![
+                WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef { workflow_ref: "review-cycle".into() }),
+                WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef { workflow_ref: "lint".into() }),
+            ],
+        ),
+    ];
+
+    let refs = collect_workflow_refs(&workflows, "standard").expect("should collect refs");
+    assert_eq!(refs, vec!["standard", "review-cycle", "lint"]);
+}
+
+#[test]
 fn expand_detects_circular_reference() {
     let workflows = vec![
         make_pipeline("a", vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef { workflow_ref: "b".into() })]),

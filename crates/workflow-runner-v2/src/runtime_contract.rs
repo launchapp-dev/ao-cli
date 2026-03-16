@@ -286,7 +286,16 @@ pub fn inject_default_stdio_mcp_with_config(
         .stdio_command
         .clone()
         .filter(|v| !v.trim().is_empty())
-        .or_else(|| std::env::current_exe().ok().map(|p| p.to_string_lossy().to_string()));
+        .or_else(|| {
+            let exe = std::env::current_exe().ok()?;
+            let exe_dir = exe.parent()?;
+            let ao_binary = exe_dir.join("ao");
+            if ao_binary.exists() {
+                Some(ao_binary.to_string_lossy().to_string())
+            } else {
+                Some(exe.to_string_lossy().to_string())
+            }
+        });
     let Some(command) = command else {
         return;
     };

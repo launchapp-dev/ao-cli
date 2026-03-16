@@ -122,81 +122,6 @@ async fn resolve_workflow_run_dispatch_from_input(
     }
 }
 
-fn upgrade_legacy_workflow_run_input(raw: &str) -> Result<Option<WorkflowRunInput>> {
-    let value = match serde_json::from_str::<Value>(raw) {
-        Ok(value) => value,
-        Err(_) => return Ok(None),
-    };
-    let Some(object) = value.as_object() else {
-        return Ok(None);
-    };
-    if object.contains_key("subject") {
-        return Ok(None);
-    }
-
-    let task_id = object
-        .get("task_id")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned);
-    let requirement_id = object
-        .get("requirement_id")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned);
-    let title = object
-        .get("title")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned);
-
-    if task_id.is_none() && requirement_id.is_none() && title.is_none() {
-        return Ok(None);
-    }
-
-    let workflow_ref = object
-        .get("workflow_ref")
-        .and_then(Value::as_str)
-        .map(ToOwned::to_owned);
-    let input = match object.get("input") {
-        Some(value) => Some(value.clone()),
-        None => match object.get("input_json") {
-            Some(Value::String(raw_input)) => Some(
-                serde_json::from_str(raw_input)
-                    .with_context(|| "invalid nested input_json payload for workflow run")?,
-            ),
-            Some(value) => Some(value.clone()),
-            None => None,
-        },
-    };
-
-    let run_input = match (task_id, requirement_id, title) {
-        (Some(task_id), None, None) => WorkflowRunInput::for_task(task_id, workflow_ref),
-        (None, Some(requirement_id), None) => {
-            WorkflowRunInput::for_requirement(requirement_id, workflow_ref)
-        }
-        (None, None, Some(title)) => WorkflowRunInput::for_custom(
-            title,
-            object
-                .get("description")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-            workflow_ref,
-        ),
-        (None, None, None) => return Ok(None),
-        _ => {
-            return Err(anyhow!(
-                "legacy workflow run payload fields task_id, requirement_id, and title are mutually exclusive"
-            ));
-        }
-    };
-
-    Ok(Some(run_input.with_input(input)))
-}
 
 fn parse_workflow_vars(raw_vars: &[String]) -> Result<std::collections::HashMap<String, String>> {
     let mut vars = std::collections::HashMap::new();
@@ -228,12 +153,6 @@ async fn resolve_workflow_run_dispatch_from_raw_input(
     }
 
     if let Ok(input) = serde_json::from_str::<WorkflowRunInput>(raw) {
-        return resolve_workflow_run_dispatch_from_input(hub, project_root, input).await;
-    }
-
-    if let Some(input) = upgrade_legacy_workflow_run_input(raw).with_context(|| {
-        "invalid --input-json payload for workflow run; run 'ao workflow run --help' for schema"
-    })? {
         return resolve_workflow_run_dispatch_from_input(hub, project_root, input).await;
     }
 
@@ -890,33 +809,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn resolve_workflow_run_dispatch_from_raw_input_accepts_legacy_task_payload() {
+    async fn resolve_workflow_run_dispatch_from_raw_input_rejects_legacy_task_payload() {
         let hub = Arc::new(InMemoryServiceHub::new());
-        let task = hub
-            .tasks()
-            .create(TaskCreateInput {
-                title: "legacy raw input".to_string(),
-                description: "legacy workflow run payload should be upgraded".to_string(),
-                task_type: Some(TaskType::Feature),
-                priority: Some(Priority::Medium),
-                created_by: Some("test".to_string()),
-                tags: Vec::new(),
-                linked_requirements: Vec::new(),
-                linked_architecture_entities: Vec::new(),
-            })
+        let raw = r#"{"task_id":"TASK-999","input_json":"{\"k\":\"v\"}"}"#;
+        let err = resolve_workflow_run_dispatch_from_raw_input(hub, "/tmp/unused", raw)
             .await
-            .expect("task should be created");
-
-        let raw = format!(
-            "{{\"task_id\":\"{}\",\"input_json\":\"{{\\\"k\\\":\\\"v\\\"}}\"}}",
-            task.id
+            .expect_err("legacy flat payload should be rejected after shim removal");
+        assert!(
+            err.to_string().contains("invalid --input-json payload"),
+            "error should indicate invalid payload: {err}"
         );
-        let dispatch = resolve_workflow_run_dispatch_from_raw_input(hub, "/tmp/unused", &raw)
-            .await
-            .expect("legacy raw payload should resolve");
-
-        assert_eq!(dispatch.subject_id(), task.id);
-        assert_eq!(dispatch.input, Some(serde_json::json!({"k":"v"})));
     }
 
     #[test]

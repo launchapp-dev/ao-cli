@@ -71,17 +71,5 @@ pub(super) struct RequirementRefineInput {
     #[serde(default)]
     pub(super) focus: Option<String>,
     #[serde(default)]
-    pub(super) use_ai: Option<bool>,
-    #[serde(default)]
-    pub(super) tool: Option<String>,
-    #[serde(default)]
-    pub(super) model: Option<String>,
-    #[serde(default)]
-    pub(super) timeout_secs: Option<u64>,
-    #[serde(default)]
-    pub(super) start_runner: Option<bool>,
-    #[serde(default)]
-    pub(super) input_json: Option<String>,
-    #[serde(default)]
     pub(super) project_root: Option<String>,
 }

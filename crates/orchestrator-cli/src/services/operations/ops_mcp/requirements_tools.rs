@@ -87,7 +87,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.requirements.refine",
-        description = "Refine requirements in AO. Purpose: Improve one or more requirements, optionally with AI assistance, before planning or task derivation. Prerequisites: Requirements should exist. Example: {\"id\": [\"REQ-001\"], \"focus\": \"tighten acceptance criteria\"}. Sequencing: Use ao.requirements.get or ao.requirements.list to choose targets first, then ao.requirements.update or ao.task.create to apply follow-up work.",
+        description = "Refine requirements in AO via workflow-runner. Purpose: Improve one or more requirements with AI assistance before planning or task derivation. Prerequisites: Requirements should exist. Example: {\"id\": [\"REQ-001\"], \"focus\": \"tighten acceptance criteria\"}. Sequencing: Use ao.requirements.get or ao.requirements.list to choose targets first, then ao.requirements.update or ao.task.create to apply follow-up work.",
         input_schema = ao_schema_for_type::<RequirementRefineInput>()
     )]
     async fn ao_requirements_refine(
@@ -95,7 +95,20 @@ impl AoMcpServer {
         params: Parameters<RequirementRefineInput>,
     ) -> Result<CallToolResult, McpError> {
         let input = params.0;
-        let args = build_requirements_refine_args(&input);
+        let dispatch_input = json!({
+            "requirement_ids": input.requirement_ids,
+            "focus": input.focus,
+        });
+        let args = vec![
+            "workflow".to_string(),
+            "run".to_string(),
+            "--workflow-ref".to_string(),
+            "builtin/requirements-refine".to_string(),
+            "--title".to_string(),
+            "Requirements Refine".to_string(),
+            "--input-json".to_string(),
+            dispatch_input.to_string(),
+        ];
         self.run_tool("ao.requirements.refine", args, input.project_root)
             .await
     }

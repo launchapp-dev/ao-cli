@@ -1,4 +1,4 @@
-use super::{push_opt, RequirementCreateInput, RequirementRefineInput, RequirementUpdateInput};
+use super::{push_opt, RequirementCreateInput, RequirementUpdateInput};
 
 pub(super) fn build_requirements_get_args(id: String) -> Vec<String> {
     vec![
@@ -68,27 +68,3 @@ pub(super) fn build_requirements_delete_args(id: String) -> Vec<String> {
     ]
 }
 
-pub(super) fn build_requirements_refine_args(input: &RequirementRefineInput) -> Vec<String> {
-    let mut args = vec!["requirements".to_string(), "refine".to_string()];
-    for requirement_id in &input.requirement_ids {
-        args.push("--id".to_string());
-        args.push(requirement_id.clone());
-    }
-    push_opt(&mut args, "--focus", input.focus.clone());
-    if let Some(use_ai) = input.use_ai {
-        args.push("--use-ai".to_string());
-        args.push(use_ai.to_string());
-    }
-    push_opt(&mut args, "--tool", input.tool.clone());
-    push_opt(&mut args, "--model", input.model.clone());
-    if let Some(timeout_secs) = input.timeout_secs {
-        args.push("--timeout-secs".to_string());
-        args.push(timeout_secs.to_string());
-    }
-    if let Some(start_runner) = input.start_runner {
-        args.push("--start-runner".to_string());
-        args.push(start_runner.to_string());
-    }
-    push_opt(&mut args, "--input-json", input.input_json.clone());
-    args
-}

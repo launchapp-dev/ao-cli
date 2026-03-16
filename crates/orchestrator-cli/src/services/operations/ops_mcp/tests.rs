@@ -394,41 +394,13 @@ fn build_requirements_update_args_includes_status_links_and_replace_flag() {
 }
 
 #[test]
-fn build_requirements_refine_args_includes_ids_and_optional_flags() {
-    let args = build_requirements_refine_args(&RequirementRefineInput {
-        requirement_ids: vec!["REQ-1".to_string(), "REQ-2".to_string()],
-        focus: Some("tighten acceptance criteria".to_string()),
-        use_ai: Some(true),
-        tool: Some("codex".to_string()),
-        model: Some("gpt-5".to_string()),
-        timeout_secs: Some(45),
-        start_runner: Some(false),
-        input_json: None,
-        project_root: None,
-    });
-    assert_eq!(
-        args,
-        vec![
-            "requirements".to_string(),
-            "refine".to_string(),
-            "--id".to_string(),
-            "REQ-1".to_string(),
-            "--id".to_string(),
-            "REQ-2".to_string(),
-            "--focus".to_string(),
-            "tighten acceptance criteria".to_string(),
-            "--use-ai".to_string(),
-            "true".to_string(),
-            "--tool".to_string(),
-            "codex".to_string(),
-            "--model".to_string(),
-            "gpt-5".to_string(),
-            "--timeout-secs".to_string(),
-            "45".to_string(),
-            "--start-runner".to_string(),
-            "false".to_string(),
-        ]
-    );
+fn requirement_refine_input_has_no_stale_runtime_fields() {
+    let input: RequirementRefineInput = serde_json::from_str(
+        r#"{"id": ["REQ-1", "REQ-2"], "focus": "tighten acceptance criteria"}"#,
+    )
+    .expect("should deserialize");
+    assert_eq!(input.requirement_ids, vec!["REQ-1", "REQ-2"]);
+    assert_eq!(input.focus.as_deref(), Some("tighten acceptance criteria"));
 }
 
 #[test]

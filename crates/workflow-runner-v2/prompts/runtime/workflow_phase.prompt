@@ -17,6 +17,7 @@ __PRIOR_PHASE_OUTPUTS__
 
 __PHASE_ACTION_RULE__
 __PRODUCT_CHANGE_RULE__
+__OUTPUT_SCHEMA__
 __IMPLEMENTATION_COMMIT_RULE__
 - Do not emit out-of-band control payloads. If a phase decision is required and critical information is missing, use verdict `rework` and explain the blocker in `reason`.
 __PHASE_SAFETY_RULES__

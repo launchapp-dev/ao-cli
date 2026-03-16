@@ -258,6 +258,16 @@ pub fn render_phase_prompt_with_ctx(
         prior_context.push_str(context);
     }
 
+    let output_schema_section = ctx
+        .phase_output_json_schema(phase_id)
+        .and_then(|schema| serde_json::to_string_pretty(schema).ok())
+        .map(|json| {
+            format!(
+                "Output schema (structured fields to return in your result JSON):\n```json\n{json}\n```"
+            )
+        })
+        .unwrap_or_default();
+
     let mut phase_prompt = WORKFLOW_PHASE_PROMPT_TEMPLATE
         .replace("__PROJECT_ROOT__", project_root)
         .replace("__EXECUTION_CWD__", execution_cwd)
@@ -269,6 +279,7 @@ pub fn render_phase_prompt_with_ctx(
         .replace("__PHASE_DIRECTIVE__", phase_directive.trim())
         .replace("__PHASE_ACTION_RULE__", phase_action_rule)
         .replace("__PRODUCT_CHANGE_RULE__", product_change_rule)
+        .replace("__OUTPUT_SCHEMA__", &output_schema_section)
         .replace("__PHASE_SAFETY_RULES__", phase_safety_rules)
         .replace("__PHASE_DECISION_RULE__", &phase_decision_rule)
         .replace(
@@ -598,4 +609,65 @@ pub(crate) fn phase_result_kind_for_ctx(ctx: &RuntimeConfigContext, phase_id: &s
         .map(|contract| contract.kind.clone())
         .filter(|kind| !kind.trim().is_empty())
         .unwrap_or_else(|| "implementation_result".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_render_params(phase_id: &str, project_root: &str) -> PhaseRenderParams<'_> {
+        PhaseRenderParams {
+            project_root,
+            execution_cwd: project_root,
+            workflow_id: "wf-test",
+            subject_id: "TASK-1",
+            subject_title: "Test task",
+            subject_description: "A test task description.",
+            phase_id,
+        }
+    }
+
+    #[test]
+    fn test_output_schema_injected_when_phase_has_schema() {
+        let ctx = RuntimeConfigContext::load("/nonexistent_ao_test_path");
+        assert!(
+            ctx.phase_output_json_schema("implementation").is_some(),
+            "builtin config should have output_json_schema for 'implementation'"
+        );
+        let rendered = render_phase_prompt_with_ctx(
+            &ctx,
+            &make_render_params("implementation", "/nonexistent_ao_test_path"),
+            PhasePromptInputs::default(),
+        );
+        assert!(
+            !rendered.final_prompt.contains("__OUTPUT_SCHEMA__"),
+            "placeholder must be replaced"
+        );
+        assert!(
+            rendered.final_prompt.contains("Output schema"),
+            "prompt should contain the output schema section"
+        );
+    }
+
+    #[test]
+    fn test_output_schema_placeholder_absent_when_no_schema() {
+        let ctx = RuntimeConfigContext::load("/nonexistent_ao_test_path");
+        assert!(
+            ctx.phase_output_json_schema("lint").is_none(),
+            "builtin config should have no output_json_schema for 'lint'"
+        );
+        let rendered = render_phase_prompt_with_ctx(
+            &ctx,
+            &make_render_params("lint", "/nonexistent_ao_test_path"),
+            PhasePromptInputs::default(),
+        );
+        assert!(
+            !rendered.final_prompt.contains("__OUTPUT_SCHEMA__"),
+            "placeholder must be replaced even when no schema"
+        );
+        assert!(
+            !rendered.final_prompt.contains("Output schema"),
+            "no schema section should appear when not configured"
+        );
+    }
 }

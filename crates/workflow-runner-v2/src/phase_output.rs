@@ -179,6 +179,11 @@ pub fn format_prior_phase_outputs(outputs: &[PersistedPhaseOutput]) -> String {
                 section.push_str(&format!("\n- {v}"));
             }
         }
+        if let Some(ref payload) = output.payload {
+            if let Ok(pretty) = serde_json::to_string_pretty(payload) {
+                section.push_str(&format!("\nStructured data:\n{pretty}"));
+            }
+        }
         sections.push(section);
     }
 
@@ -574,6 +579,63 @@ mod tests {
             build_workflow_pipeline_context("/nonexistent", "wf-missing", "impl");
         assert!(json_str.is_empty());
         assert!(phase_order.is_empty());
+    }
+
+    #[test]
+    fn test_format_prior_phase_outputs_includes_payload() {
+        let outputs = vec![PersistedPhaseOutput {
+            phase_id: "research".to_string(),
+            completed_at: "2026-03-01T00:00:00Z".to_string(),
+            verdict: Some("advance".to_string()),
+            confidence: Some(0.9),
+            reason: Some("Found patterns".to_string()),
+            commit_message: None,
+            evidence: vec![],
+            guardrail_violations: vec![],
+            payload: Some(serde_json::json!({"score": 42, "entities": ["foo", "bar"]})),
+        }];
+        let result = format_prior_phase_outputs(&outputs);
+        assert!(result.contains("Structured data:"));
+        assert!(result.contains("\"score\": 42"));
+        assert!(result.contains("\"entities\""));
+    }
+
+    #[test]
+    fn test_persisted_phase_output_payload_roundtrip() {
+        let output = PersistedPhaseOutput {
+            phase_id: "analysis".to_string(),
+            completed_at: "2026-03-01T00:00:00Z".to_string(),
+            verdict: Some("advance".to_string()),
+            confidence: Some(0.95),
+            reason: None,
+            commit_message: None,
+            evidence: vec![],
+            guardrail_violations: vec![],
+            payload: Some(serde_json::json!({"lead_score": 87, "tags": ["urgent"]})),
+        };
+        let serialized = serde_json::to_string(&output).unwrap();
+        let deserialized: PersistedPhaseOutput = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(
+            deserialized.payload,
+            Some(serde_json::json!({"lead_score": 87, "tags": ["urgent"]}))
+        );
+    }
+
+    #[test]
+    fn test_format_prior_phase_outputs_no_payload_no_section() {
+        let outputs = vec![PersistedPhaseOutput {
+            phase_id: "research".to_string(),
+            completed_at: "2026-03-01T00:00:00Z".to_string(),
+            verdict: Some("advance".to_string()),
+            confidence: None,
+            reason: None,
+            commit_message: None,
+            evidence: vec![],
+            guardrail_violations: vec![],
+            payload: None,
+        }];
+        let result = format_prior_phase_outputs(&outputs);
+        assert!(!result.contains("Structured data:"));
     }
 
     #[test]

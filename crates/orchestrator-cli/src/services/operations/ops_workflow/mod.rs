@@ -24,7 +24,7 @@ use crate::{
     WorkflowStateMachineCommand,
 };
 
-fn workflow_context_payload(workflow: &OrchestratorWorkflow) -> Value {
+fn workflow_context_payload(workflow: &OrchestratorWorkflow, project_root: &str) -> Value {
     let last_decision = workflow.decision_history.last().cloned();
     let last_rework_decision = workflow
         .decision_history
@@ -32,14 +32,18 @@ fn workflow_context_payload(workflow: &OrchestratorWorkflow) -> Value {
         .rev()
         .find(|d| matches!(d.decision, WorkflowDecisionAction::Rework))
         .cloned();
+    let phase_outputs_dir =
+        workflow_runner::executor::phase_output_dir(project_root, &workflow.id);
     let pipeline: Vec<Value> = workflow
         .phases
         .iter()
         .map(|phase| {
+            let output_path = phase_outputs_dir.join(format!("{}.json", phase.phase_id));
             serde_json::json!({
                 "phase_id": phase.phase_id,
                 "status": phase.status,
                 "attempt": phase.attempt,
+                "phase_output_path": output_path.to_string_lossy(),
             })
         })
         .collect();
@@ -54,10 +58,11 @@ fn workflow_context_payload(workflow: &OrchestratorWorkflow) -> Value {
         "pipeline": pipeline,
         "last_decision": last_decision,
         "last_rework_decision": last_rework_decision,
+        "phase_outputs_dir": phase_outputs_dir.to_string_lossy(),
     })
 }
 
-fn workflow_last_phase_payload(workflow: &OrchestratorWorkflow) -> Value {
+fn workflow_last_phase_payload(workflow: &OrchestratorWorkflow, project_root: &str) -> Value {
     let last_terminal = workflow.phases.iter().rev().find(|phase| {
         matches!(
             phase.status,
@@ -73,6 +78,8 @@ fn workflow_last_phase_payload(workflow: &OrchestratorWorkflow) -> Value {
             .rev()
             .find(|phase| matches!(phase.status, WorkflowPhaseStatus::Running))
     });
+    let phase_outputs_dir =
+        workflow_runner::executor::phase_output_dir(project_root, &workflow.id);
     match phase {
         Some(phase) => {
             let decision = workflow
@@ -81,6 +88,8 @@ fn workflow_last_phase_payload(workflow: &OrchestratorWorkflow) -> Value {
                 .rev()
                 .find(|d| d.phase_id == phase.phase_id)
                 .cloned();
+            let phase_output_path =
+                phase_outputs_dir.join(format!("{}.json", phase.phase_id));
             serde_json::json!({
                 "workflow_id": workflow.id,
                 "phase_id": phase.phase_id,
@@ -90,6 +99,8 @@ fn workflow_last_phase_payload(workflow: &OrchestratorWorkflow) -> Value {
                 "completed_at": phase.completed_at,
                 "error_message": phase.error_message,
                 "decision": decision,
+                "phase_output_path": phase_output_path.to_string_lossy(),
+                "phase_outputs_dir": phase_outputs_dir.to_string_lossy(),
             })
         }
         None => serde_json::json!({
@@ -97,6 +108,7 @@ fn workflow_last_phase_payload(workflow: &OrchestratorWorkflow) -> Value {
             "phase_id": null,
             "status": null,
             "message": "no phases have been executed yet",
+            "phase_outputs_dir": phase_outputs_dir.to_string_lossy(),
         }),
     }
 }
@@ -347,11 +359,11 @@ pub(crate) async fn handle_workflow(
         WorkflowCommand::Get(args) => print_value(workflows.get(&args.id).await?, json),
         WorkflowCommand::Context(args) => {
             let workflow = workflows.get(&args.id).await?;
-            print_value(workflow_context_payload(&workflow), json)
+            print_value(workflow_context_payload(&workflow, project_root), json)
         }
         WorkflowCommand::LastPhase(args) => {
             let workflow = workflows.get(&args.id).await?;
-            print_value(workflow_last_phase_payload(&workflow), json)
+            print_value(workflow_last_phase_payload(&workflow, project_root), json)
         }
         WorkflowCommand::Decisions(args) => print_value(workflows.decisions(&args.id).await?, json),
         WorkflowCommand::Checkpoints { command } => match command {
@@ -969,13 +981,14 @@ mod context_tests {
     #[test]
     fn workflow_context_payload_empty_history() {
         let wf = make_minimal_workflow("wf-001");
-        let payload = workflow_context_payload(&wf);
+        let payload = workflow_context_payload(&wf, "/tmp");
         assert_eq!(payload["workflow_id"], "wf-001");
         assert_eq!(payload["current_phase"], "implementation");
         assert_eq!(payload["total_reworks"], 0);
         assert!(payload["last_decision"].is_null());
         assert!(payload["last_rework_decision"].is_null());
         assert!(payload["pipeline"].as_array().unwrap().is_empty());
+        assert!(payload["phase_outputs_dir"].as_str().is_some());
     }
 
     #[test]
@@ -1007,7 +1020,7 @@ mod context_tests {
             make_decision("implementation", WorkflowDecisionAction::Rework),
         ];
 
-        let payload = workflow_context_payload(&wf);
+        let payload = workflow_context_payload(&wf, "/tmp");
         assert_eq!(payload["total_reworks"], 1);
         assert_eq!(payload["rework_counts"]["implementation"], 1);
         let pipeline = payload["pipeline"].as_array().unwrap();
@@ -1025,7 +1038,7 @@ mod context_tests {
             make_decision("requirements", WorkflowDecisionAction::Rework),
             make_decision("requirements", WorkflowDecisionAction::Advance),
         ];
-        let payload = workflow_context_payload(&wf);
+        let payload = workflow_context_payload(&wf, "/tmp");
         assert_eq!(payload["last_decision"]["decision"], "advance");
         assert_eq!(payload["last_rework_decision"]["phase_id"], "requirements");
         assert_eq!(payload["last_rework_decision"]["decision"], "rework");
@@ -1034,7 +1047,7 @@ mod context_tests {
     #[test]
     fn workflow_last_phase_payload_no_phases() {
         let wf = make_minimal_workflow("wf-004");
-        let payload = workflow_last_phase_payload(&wf);
+        let payload = workflow_last_phase_payload(&wf, "/tmp");
         assert_eq!(payload["workflow_id"], "wf-004");
         assert!(payload["phase_id"].is_null());
         assert!(payload["message"].as_str().is_some());
@@ -1074,11 +1087,13 @@ mod context_tests {
             WorkflowDecisionAction::Rework,
         )];
 
-        let payload = workflow_last_phase_payload(&wf);
+        let payload = workflow_last_phase_payload(&wf, "/tmp");
         assert_eq!(payload["phase_id"], "implementation");
         assert_eq!(payload["status"], "failed");
         assert_eq!(payload["error_message"], "compile error");
         assert_eq!(payload["decision"]["decision"], "rework");
+        assert!(payload["phase_output_path"].as_str().unwrap().ends_with("implementation.json"));
+        assert!(payload["phase_outputs_dir"].as_str().is_some());
     }
 
     #[test]
@@ -1103,7 +1118,7 @@ mod context_tests {
             },
         ];
 
-        let payload = workflow_last_phase_payload(&wf);
+        let payload = workflow_last_phase_payload(&wf, "/tmp");
         assert_eq!(payload["phase_id"], "implementation");
         assert_eq!(payload["status"], "running");
         assert!(payload["decision"].is_null());
@@ -1121,7 +1136,7 @@ mod context_tests {
             error_message: None,
         }];
 
-        let payload = workflow_last_phase_payload(&wf);
+        let payload = workflow_last_phase_payload(&wf, "/tmp");
         assert_eq!(payload["phase_id"], "ui-ux");
         assert_eq!(payload["status"], "skipped");
     }

@@ -204,6 +204,10 @@ fn e2e_workflow_context_returns_expected_fields() -> Result<()> {
         ctx.pointer("/data/total_reworks").is_some(),
         "context should include total_reworks"
     );
+    assert!(
+        ctx.pointer("/data/phase_outputs_dir").and_then(Value::as_str).is_some(),
+        "context should include phase_outputs_dir path pointer"
+    );
 
     Ok(())
 }
@@ -245,6 +249,10 @@ fn e2e_workflow_last_phase_returns_expected_fields() -> Result<()> {
     assert!(
         last.pointer("/data/status").is_some(),
         "last-phase should include status key"
+    );
+    assert!(
+        last.pointer("/data/phase_outputs_dir").and_then(Value::as_str).is_some(),
+        "last-phase should include phase_outputs_dir path pointer"
     );
 
     Ok(())

@@ -74,6 +74,24 @@ jobs:
       - name: Check package
         run: cargo check --locked --all-targets -p ${{ matrix.package }}
 
+  contract-tests:
+    name: contract-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: cargo-check
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run happy-path command contract tests
+        run: cargo test --locked -p orchestrator-cli --test cli_happy_path_contract
+
   smoke-help:
     name: smoke-help
     runs-on: ubuntu-latest

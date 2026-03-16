@@ -18,7 +18,7 @@ This walks you through configuring your tech stack, workflow definitions, MCP se
 Generate a vision document that captures what you are building:
 
 ```bash
-ao vision draft
+ao workflow run builtin/vision-draft --sync
 ```
 
 This dispatches the `builtin/vision-draft` workflow. An AI agent analyzes your project context and produces a vision document covering problem statement, target users, goals, constraints, and a complexity assessment.
@@ -30,10 +30,10 @@ The output is saved to `.ao/state/vision.json`.
 Turn the vision into concrete requirements with acceptance criteria:
 
 ```bash
-ao requirements draft --include-codebase-scan
+ao workflow run builtin/requirements-draft --sync --var include_codebase_scan=true
 ```
 
-This dispatches the `builtin/requirements-draft` workflow. The `--include-codebase-scan` flag tells the agent to analyze your existing codebase when generating requirements, ensuring they account for what already exists.
+This dispatches the `builtin/requirements-draft` workflow. The `include_codebase_scan` variable tells the agent to analyze your existing codebase when generating requirements, ensuring they account for what already exists.
 
 ## 4. Create Tasks
 
@@ -66,11 +66,11 @@ ao task stats
 # Daemon health and status
 ao daemon status
 
-# Watch workflows in real time
-ao workflow-monitor
+# List active workflows
+ao workflow list
 
-# Stream agent output
-ao output tail
+# Inspect run output
+ao output monitor
 
 # Full project dashboard
 ao status

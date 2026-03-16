@@ -76,10 +76,9 @@ pub(super) struct WorkflowExecuteInput {
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub(super) struct WorkflowPhaseApproveInput {
     pub(super) workflow_id: String,
+    pub(super) phase: String,
     #[serde(default)]
-    pub(super) phase_id: Option<String>,
-    #[serde(default)]
-    pub(super) feedback: Option<String>,
+    pub(super) note: Option<String>,
     #[serde(default)]
     pub(super) project_root: Option<String>,
 }
@@ -87,10 +86,8 @@ pub(super) struct WorkflowPhaseApproveInput {
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub(super) struct WorkflowPhaseRejectInput {
     pub(super) workflow_id: String,
-    #[serde(default)]
-    pub(super) phase_id: Option<String>,
-    #[serde(default)]
-    pub(super) reason: Option<String>,
+    pub(super) phase: String,
+    pub(super) note: String,
     #[serde(default)]
     pub(super) project_root: Option<String>,
 }

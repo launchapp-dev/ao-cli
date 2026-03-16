@@ -261,7 +261,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.workflow.phase.approve",
-        description = "Approve a gated workflow phase. Purpose: Unblock gate phases that require manual approval before proceeding. Prerequisites: Workflow must have a pending gate phase. Example: {\"workflow_id\": \"wf-abc123\"} or {\"workflow_id\": \"wf-abc123\", \"phase_id\": \"po-review\", \"feedback\": \"Approved\"}. Sequencing: Use ao.workflow.get first to see pending gates, then ao.workflow.phase.approve to unblock.",
+        description = "Approve a gated workflow phase. Purpose: Unblock gate phases that require manual approval before proceeding. Prerequisites: Workflow must have a pending gate phase. Example: {\"workflow_id\": \"wf-abc123\", \"phase\": \"po-review\"} or {\"workflow_id\": \"wf-abc123\", \"phase\": \"po-review\", \"note\": \"Approved\"}. Sequencing: Use ao.workflow.get first to see pending gates, then ao.workflow.phase.approve to unblock.",
         input_schema = ao_schema_for_type::<WorkflowPhaseApproveInput>()
     )]
     async fn ao_workflow_phase_approve(
@@ -275,16 +275,17 @@ impl AoMcpServer {
             "approve".to_string(),
             "--id".to_string(),
             input.workflow_id,
+            "--phase".to_string(),
+            input.phase,
         ];
-        push_opt(&mut args, "--phase-id", input.phase_id);
-        push_opt(&mut args, "--feedback", input.feedback);
+        push_opt(&mut args, "--note", input.note);
         self.run_tool("ao.workflow.phase.approve", args, input.project_root)
             .await
     }
 
     #[tool(
         name = "ao.workflow.phase.reject",
-        description = "Reject a gated workflow phase. Purpose: Block gate phases that require manual approval, sending the workflow to a failed or rework state. Prerequisites: Workflow must have a pending gate phase. Example: {\"workflow_id\": \"wf-abc123\", \"reason\": \"Output quality insufficient\"}. Sequencing: Use ao.workflow.get first to see pending gates, then ao.workflow.phase.reject to block.",
+        description = "Reject a gated workflow phase. Purpose: Block gate phases that require manual approval, sending the workflow to a failed or rework state. Prerequisites: Workflow must have a pending gate phase. Example: {\"workflow_id\": \"wf-abc123\", \"phase\": \"po-review\", \"note\": \"Output quality insufficient\"}. Sequencing: Use ao.workflow.get first to see pending gates, then ao.workflow.phase.reject to block.",
         input_schema = ao_schema_for_type::<WorkflowPhaseRejectInput>()
     )]
     async fn ao_workflow_phase_reject(
@@ -292,15 +293,17 @@ impl AoMcpServer {
         params: Parameters<WorkflowPhaseRejectInput>,
     ) -> Result<CallToolResult, McpError> {
         let input = params.0;
-        let mut args = vec![
+        let args = vec![
             "workflow".to_string(),
             "phase".to_string(),
             "reject".to_string(),
             "--id".to_string(),
             input.workflow_id,
+            "--phase".to_string(),
+            input.phase,
+            "--note".to_string(),
+            input.note,
         ];
-        push_opt(&mut args, "--phase-id", input.phase_id);
-        push_opt(&mut args, "--reason", input.reason);
         self.run_tool("ao.workflow.phase.reject", args, input.project_root)
             .await
     }

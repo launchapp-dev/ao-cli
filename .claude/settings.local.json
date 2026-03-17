@@ -120,7 +120,17 @@
       "Bash(for i:*)",
       "Bash(cat:*)",
       "Bash(gh auth:*)",
-      "Read(//private/tmp/claude-501/**)"
+      "Read(//private/tmp/claude-501/**)",
+      "Bash(~/ao-cli/target/debug/ao vision:*)",
+      "mcp__ao__ao_requirements_update",
+      "Bash(~/ao-cli/target/debug/ao pack:*)",
+      "Bash(~/ao-cli/target/debug/ao task:*)",
+      "Bash(~/ao-cli/target/debug/ao daemon:*)",
+      "Bash(tail:*)",
+      "Bash(~/ao-cli/target/debug/ao output:*)",
+      "mcp__ao__ao_queue_enqueue",
+      "mcp__ao__ao_queue_hold",
+      "mcp__ao__ao_queue_reorder"
     ]
   },
   "enableAllProjectMcpServers": true,

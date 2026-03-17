@@ -3,6 +3,14 @@ name = "agent-runner"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "agent_runner"
+path = "src/lib.rs"
+
+[[bin]]
+name = "agent-runner"
+path = "src/main.rs"
+
 [dependencies]
 protocol = { path = "../protocol" }
 cli-wrapper = { path = "../llm-cli-wrapper", package = "llm-cli-wrapper" }

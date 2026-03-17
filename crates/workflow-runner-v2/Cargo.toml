@@ -25,6 +25,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 
+agent-runner = { path = "../agent-runner" }
 protocol = { path = "../protocol" }
 orchestrator-core = { path = "../orchestrator-core" }
 orchestrator-config = { workspace = true }

@@ -1,4 +1,5 @@
 pub mod config_context;
+pub mod direct_exec;
 pub mod ensure_execution_cwd;
 pub mod ipc;
 pub mod payload_traversal;

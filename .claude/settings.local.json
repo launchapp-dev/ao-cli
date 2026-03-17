@@ -131,7 +131,10 @@
       "mcp__ao__ao_queue_enqueue",
       "mcp__ao__ao_queue_hold",
       "mcp__ao__ao_queue_reorder",
-      "mcp__ao__ao_queue_stats"
+      "mcp__ao__ao_queue_stats",
+      "Bash(for pr:*)",
+      "Bash(gh run:*)",
+      "Bash(./target/release/ao --version 2>&1)"
     ]
   },
   "enableAllProjectMcpServers": true,

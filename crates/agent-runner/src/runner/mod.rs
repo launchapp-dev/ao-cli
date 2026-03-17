@@ -37,7 +37,7 @@ struct FinishedAgent {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct CleanupMessage {
+pub struct CleanupMessage {
     pub run_id: RunId,
     pub terminal_status: AgentStatus,
 }

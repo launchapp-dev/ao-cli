@@ -2,26 +2,6 @@ use anyhow::Result;
 use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-mod cleanup;
-mod config;
-mod ipc;
-mod lock;
-mod output;
-mod providers;
-mod runner;
-mod sandbox;
-mod telemetry;
-
-use cleanup::cleanup_orphaned_clis;
-use ipc::IpcServer;
-use lock::acquire_runner_lock;
-
-#[cfg(test)]
-fn test_env_lock() -> &'static std::sync::Mutex<()> {
-    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
-    LOCK.get_or_init(|| std::sync::Mutex::new(()))
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::registry()
@@ -32,14 +12,14 @@ async fn main() -> Result<()> {
         .init();
 
     let pid = std::process::id();
-    let config_dir = config::app_config_dir();
+    let config_dir = agent_runner::config::app_config_dir();
     info!(
         pid,
         config_dir = %config_dir.display(),
         "Agent Runner starting"
     );
 
-    let _lock_file = match acquire_runner_lock() {
+    let _lock_file = match agent_runner::lock::acquire_runner_lock() {
         Ok(lock) => {
             info!("Runner singleton lock acquired");
             lock
@@ -51,11 +31,11 @@ async fn main() -> Result<()> {
     };
 
     info!("Checking for orphaned CLI processes from previous sessions");
-    if let Err(e) = cleanup_orphaned_clis() {
+    if let Err(e) = agent_runner::cleanup::cleanup_orphaned_clis() {
         warn!(error = %e, "Failed to cleanup orphaned processes");
     }
 
-    let ipc_server = IpcServer::new().await?;
+    let ipc_server = agent_runner::ipc::IpcServer::new().await?;
     info!(address = %ipc_server.address(), "IPC server configured");
 
     if let Err(e) = ipc_server.run().await {

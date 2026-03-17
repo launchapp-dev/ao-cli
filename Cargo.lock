@@ -5055,6 +5055,7 @@ dependencies = [
 name = "workflow-runner-v2"
 version = "0.1.0"
 dependencies = [
+ "agent-runner",
  "anyhow",
  "assert_cmd",
  "async-trait",

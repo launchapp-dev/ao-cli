@@ -10,13 +10,19 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 #[cfg(windows)]
-static JOB_HANDLES: Lazy<Mutex<HashMap<u32, windows::Win32::Foundation::HANDLE>>> =
+struct SendHandle(windows::Win32::Foundation::HANDLE);
+
+#[cfg(windows)]
+unsafe impl Send for SendHandle {}
+
+#[cfg(windows)]
+static JOB_HANDLES: Lazy<Mutex<HashMap<u32, SendHandle>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 #[cfg(windows)]
 pub fn track_job(pid: u32, job_handle: windows::Win32::Foundation::HANDLE) {
     let mut handles = JOB_HANDLES.lock().unwrap();
-    handles.insert(pid, job_handle);
+    handles.insert(pid, SendHandle(job_handle));
 }
 
 #[cfg(windows)]
@@ -24,7 +30,7 @@ pub fn untrack_job(pid: u32) {
     use windows::Win32::Foundation::CloseHandle;
 
     let mut handles = JOB_HANDLES.lock().unwrap();
-    if let Some(job_handle) = handles.remove(&pid) {
+    if let Some(SendHandle(job_handle)) = handles.remove(&pid) {
         unsafe {
             let _ = CloseHandle(job_handle);
         }
@@ -143,7 +149,7 @@ pub fn kill_process(pid: i32) -> bool {
         use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
 
         let mut handles = JOB_HANDLES.lock().unwrap();
-        if let Some(job_handle) = handles.remove(&(pid as u32)) {
+        if let Some(SendHandle(job_handle)) = handles.remove(&(pid as u32)) {
             unsafe {
                 let result = TerminateJobObject(job_handle, 1);
                 let _ = CloseHandle(job_handle);

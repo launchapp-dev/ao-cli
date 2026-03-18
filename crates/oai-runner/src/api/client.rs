@@ -33,6 +33,24 @@ fn is_transient_connection_error(err: &str) -> bool {
         || lower.contains("network")
 }
 
+/// Check if an error string indicates a 5xx server error.
+/// Looks for the specific "API returned 5xx " pattern from `do_stream_with_retry_after`
+/// to avoid false positives (e.g. "500 tokens", "503 words").
+fn is_server_error(err: &str) -> bool {
+    // Match the pattern "API returned 5xx " produced by do_stream_with_retry_after
+    let prefix = "API returned ";
+    if let Some(idx) = err.find(prefix) {
+        let after = &err[idx + prefix.len()..];
+        after.len() >= 4
+            && after.as_bytes()[0] == b'5'
+            && after.as_bytes()[1].is_ascii_digit()
+            && after.as_bytes()[2].is_ascii_digit()
+            && after.as_bytes()[3] == b' '
+    } else {
+        false
+    }
+}
+
 fn circuit_is_open() -> bool {
     let until = CIRCUIT_OPEN_UNTIL.load(Ordering::Relaxed);
     if until == 0 {
@@ -86,8 +104,19 @@ impl ApiClient {
         let url = format!("{}/chat/completions", self.api_base);
 
         let mut last_err = None;
-        let max_attempts = MAX_TRANSIENT_RETRIES.max(3);
-        for attempt in 0..max_attempts {
+        for attempt in 0..MAX_TRANSIENT_RETRIES {
+            // Exponential backoff before each retry (skip on first attempt)
+            if attempt > 0 {
+                let delay = Duration::from_millis(500 * 2u64.pow(attempt - 1));
+                eprintln!(
+                    "[oai-runner] Retry attempt {}/{}: backing off {:?}",
+                    attempt + 1,
+                    MAX_TRANSIENT_RETRIES,
+                    delay,
+                );
+                tokio::time::sleep(delay).await;
+            }
+
             match self.do_stream_with_retry_after(&url, request, on_text_chunk).await {
                 Ok(result) => {
                     record_success();
@@ -96,53 +125,32 @@ impl ApiClient {
                 Err(e) => {
                     let err_str = e.to_string();
                     let is_rate_limit = err_str.contains("429");
-                    let is_server_error = err_str.contains(" 5") && attempt < max_attempts - 1;
+                    let is_5xx = is_server_error(&err_str);
                     let is_transient = is_transient_connection_error(&err_str);
-                    let can_retry = attempt < max_attempts - 1;
+                    let can_retry = attempt < MAX_TRANSIENT_RETRIES - 1;
+                    let is_retryable = is_rate_limit || is_5xx || is_transient;
 
-                    if is_rate_limit {
-                        record_failure();
+                    if can_retry && is_retryable {
                         eprintln!(
-                            "[oai-runner] Retry {}/{}: rate limited (429)",
+                            "[oai-runner] Retryable error (attempt {}/{}): {}",
                             attempt + 1,
-                            max_attempts
-                        );
-                        last_err = Some(e);
-                        continue;
-                    }
-
-                    if is_server_error {
-                        record_failure();
-                        eprintln!(
-                            "[oai-runner] Retry {}/{}: server error",
-                            attempt + 1,
-                            max_attempts
-                        );
-                        last_err = Some(e);
-                        continue;
-                    }
-
-                    if is_transient && can_retry {
-                        let delay = Duration::from_millis(500 * 2u64.pow(attempt));
-                        eprintln!(
-                            "[oai-runner] Transient error (attempt {}/{}): {}. Retrying in {:?}",
-                            attempt + 1,
-                            max_attempts,
+                            MAX_TRANSIENT_RETRIES,
                             &err_str[..err_str.len().min(100)],
-                            delay
                         );
-                        tokio::time::sleep(delay).await;
                         last_err = Some(e);
                         continue;
                     }
 
+                    // All retries exhausted or non-retryable error
                     record_failure();
                     return Err(e);
                 }
             }
         }
 
-        Err(last_err.unwrap_or_else(|| anyhow::anyhow!("stream_chat failed after retries")))
+        // Loop completed without returning — all retries exhausted
+        record_failure();
+        Err(last_err.unwrap_or_else(|| anyhow::anyhow!("stream_chat failed after {} retries", MAX_TRANSIENT_RETRIES)))
     }
 
     async fn do_stream_with_retry_after(
@@ -375,6 +383,39 @@ mod tests {
                 "Expected '{}' to be transient (case insensitive)",
                 err
             );
+        }
+    }
+
+    #[test]
+    fn test_is_server_error_detects_5xx() {
+        let server_errors = vec![
+            "API returned 500 Internal Server Error: something",
+            "API returned 502 Bad Gateway: upstream",
+            "API returned 503 Service Unavailable: overload",
+            "API returned 599 Unknown Error: body",
+        ];
+        for err in server_errors {
+            assert!(is_server_error(err), "Expected '{}' to be detected as server error", err);
+        }
+    }
+
+    #[test]
+    fn test_is_server_error_rejects_non_5xx() {
+        let non_server_errors = vec![
+            "API returned 400 Bad Request: invalid",
+            "API returned 401 Unauthorized",
+            "API returned 429 Too Many Requests",
+            "unexpected EOF during chunk size line",
+            "connection reset by peer",
+            "some random error",
+            "API returned 200 OK: fine",
+            // False positives that the old `contains(" 5")` would have matched:
+            "model has 500 token limit",
+            "document has 503 words",
+            "page 5 of 10",
+        ];
+        for err in non_server_errors {
+            assert!(!is_server_error(err), "Expected '{}' to NOT be detected as server error", err);
         }
     }
 }

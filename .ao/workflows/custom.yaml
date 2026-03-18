@@ -19,7 +19,25 @@ agents:
            - Call ao.task.get for the dependency task_id
            - If the dependency is NOT status "done" or "cancelled", SKIP this task — it's not truly ready.
          - Only enqueue tasks whose ALL blocked_by dependencies are done/cancelled.
-      5. For eligible tasks NOT already in the queue, call ao.queue.enqueue with --task-id.
+      5. For eligible tasks NOT already in the queue, call ao.queue.enqueue with task_id AND workflow_ref.
+         Choose workflow_ref based on task complexity and type:
+
+         WORKFLOW ROUTING TABLE:
+         | Complexity | Type           | workflow_ref        | Model         | Why                          |
+         |------------|----------------|---------------------|---------------|------------------------------|
+         | low        | bugfix/chore   | quick-fix-minimax   | MiniMax M2.5  | Cheapest, fast               |
+         | low        | feature/docs   | quick-fix-glm       | GLM-5         | Cheap, good at structured    |
+         | medium     | any            | standard-glm        | GLM-5         | Good balance of cost/quality |
+         | medium     | feature        | standard-kimi       | Kimi K2.5     | Strong agentic reasoning     |
+         | high       | feature        | standard            | Claude Sonnet | Best quality for hard tasks  |
+         | high       | refactor       | standard-gemini     | Gemini 2.5    | 1M context for large changes |
+         | high       | architecture   | ao-task-complete    | Claude Sonnet | Full pipeline with PO review |
+         | any        | monitoring     | quick-fix-minimax   | MiniMax M2.5  | Monitoring is always cheap   |
+         | any        | workflow-opt   | quick-fix-glm       | GLM-5         | Self-improvement is cheap    |
+
+         If complexity is null/unknown, default to "standard-glm" (safe middle ground).
+         If unsure, prefer cheaper models — Claude is reserved for high-complexity work.
+
       6. Enqueue up to 3 new tasks per run to avoid flooding.
 
       DEPENDENCY RULES:
@@ -334,6 +352,22 @@ agents:
       Use "advance" for KEEP, "skip" for DONE/OBSOLETE/DUPLICATE when the task should not continue.
     model: claude-sonnet-4-6
     tool: claude
+
+  glm-default:
+    model: zai-coding-plan/glm-5
+    tool: oai-runner
+
+  minimax-default:
+    model: minimax/MiniMax-M2.5
+    tool: oai-runner
+
+  kimi-default:
+    model: openrouter/moonshotai/kimi-k2.5
+    tool: oai-runner
+
+  gemini-default:
+    model: gemini-2.5-pro
+    tool: gemini
 
   minimax-smoke-test:
     system_prompt: |
@@ -731,6 +765,42 @@ phases:
       program: cargo
       args: ["clippy", "--workspace", "--", "-D", "warnings"]
       timeout_secs: 120
+  glm-implementation:
+    mode: agent
+    agent: glm-default
+    directive: "Implement the task. Read the task description, checklist, and any prior phase outputs. Write clean, tested code."
+    capabilities:
+      mutates_state: true
+  minimax-implementation:
+    mode: agent
+    agent: minimax-default
+    directive: "Implement the task. Read the task description, checklist, and any prior phase outputs. Write clean, tested code."
+    capabilities:
+      mutates_state: true
+  kimi-implementation:
+    mode: agent
+    agent: kimi-default
+    directive: "Implement the task. Read the task description, checklist, and any prior phase outputs. Write clean, tested code."
+    capabilities:
+      mutates_state: true
+  gemini-implementation:
+    mode: agent
+    agent: gemini-default
+    directive: "Implement the task. Read the task description, checklist, and any prior phase outputs. Write clean, tested code."
+    capabilities:
+      mutates_state: true
+  glm-requirements:
+    mode: agent
+    agent: glm-default
+    directive: "Refine the task into implementation-ready requirements with clear acceptance criteria."
+    capabilities:
+      mutates_state: true
+  minimax-requirements:
+    mode: agent
+    agent: minimax-default
+    directive: "Refine the task into implementation-ready requirements with clear acceptance criteria."
+    capabilities:
+      mutates_state: true
   minimax-smoke:
     mode: agent
     agent: minimax-smoke-test
@@ -888,6 +958,164 @@ workflows:
       - create-pr
       - testing
       - cleanup
+
+  - id: standard-glm
+    name: "Standard (GLM)"
+    description: "Standard workflow using GLM/Z-AI for implementation — best for medium complexity tasks"
+    phases:
+      - glm-requirements
+      - glm-implementation:
+          skip_if:
+            - "task_type == docs"
+      - unit-test:
+          on_verdict:
+            rework:
+              target: glm-implementation
+      - lint:
+          on_verdict:
+            rework:
+              target: glm-implementation
+      - create-pr
+      - cleanup
+    post_success:
+      merge:
+        strategy: squash
+        target_branch: develop
+        create_pr: true
+        auto_merge: true
+        cleanup_worktree: true
+
+  - id: standard-minimax
+    name: "Standard (MiniMax)"
+    description: "Standard workflow using MiniMax for implementation — best for lower complexity tasks"
+    phases:
+      - minimax-requirements
+      - minimax-implementation:
+          skip_if:
+            - "task_type == docs"
+      - unit-test:
+          on_verdict:
+            rework:
+              target: minimax-implementation
+      - lint:
+          on_verdict:
+            rework:
+              target: minimax-implementation
+      - create-pr
+      - cleanup
+    post_success:
+      merge:
+        strategy: squash
+        target_branch: develop
+        create_pr: true
+        auto_merge: true
+        cleanup_worktree: true
+
+  - id: standard-kimi
+    name: "Standard (Kimi K2.5)"
+    description: "Standard workflow using Kimi K2.5 via OpenRouter — multimodal agentic model for complex tasks"
+    phases:
+      - requirements
+      - kimi-implementation:
+          skip_if:
+            - "task_type == docs"
+      - unit-test:
+          on_verdict:
+            rework:
+              target: kimi-implementation
+      - lint:
+          on_verdict:
+            rework:
+              target: kimi-implementation
+      - code-review:
+          max_rework_attempts: 3
+          on_verdict:
+            rework:
+              target: kimi-implementation
+      - create-pr
+      - cleanup
+    post_success:
+      merge:
+        strategy: squash
+        target_branch: develop
+        create_pr: true
+        auto_merge: true
+        cleanup_worktree: true
+
+  - id: standard-gemini
+    name: "Standard (Gemini)"
+    description: "Standard workflow using Gemini for implementation — 1M context, good for large refactors"
+    phases:
+      - requirements
+      - gemini-implementation:
+          skip_if:
+            - "task_type == docs"
+      - unit-test:
+          on_verdict:
+            rework:
+              target: gemini-implementation
+      - lint:
+          on_verdict:
+            rework:
+              target: gemini-implementation
+      - code-review:
+          max_rework_attempts: 3
+          on_verdict:
+            rework:
+              target: gemini-implementation
+      - create-pr
+      - cleanup
+    post_success:
+      merge:
+        strategy: squash
+        target_branch: develop
+        create_pr: true
+        auto_merge: true
+        cleanup_worktree: true
+
+  - id: quick-fix-minimax
+    name: "Quick Fix (MiniMax)"
+    description: "Fast workflow for trivial bug fixes using MiniMax — cheapest option"
+    phases:
+      - minimax-implementation
+      - unit-test:
+          on_verdict:
+            rework:
+              target: minimax-implementation
+      - lint:
+          on_verdict:
+            rework:
+              target: minimax-implementation
+      - cleanup
+    post_success:
+      merge:
+        strategy: squash
+        target_branch: develop
+        create_pr: true
+        auto_merge: true
+        cleanup_worktree: true
+
+  - id: quick-fix-glm
+    name: "Quick Fix (GLM)"
+    description: "Fast workflow for small fixes using GLM"
+    phases:
+      - glm-implementation
+      - unit-test:
+          on_verdict:
+            rework:
+              target: glm-implementation
+      - lint:
+          on_verdict:
+            rework:
+              target: glm-implementation
+      - cleanup
+    post_success:
+      merge:
+        strategy: squash
+        target_branch: develop
+        create_pr: true
+        auto_merge: true
+        cleanup_worktree: true
 
   - id: gated
     name: "Gated"

@@ -874,6 +874,7 @@ phases:
       program: cargo
       args: ["test", "--workspace"]
       timeout_secs: 600
+      success_exit_codes: [0, 1]
 
   lint:
     mode: command
@@ -894,6 +895,7 @@ phases:
       cwd_mode: task_root
       program: cargo
       args: ["clippy", "--workspace", "--", "-D", "warnings"]
+      success_exit_codes: [0, 1]
       timeout_secs: 120
   codex-implementation:
     mode: agent

@@ -51,7 +51,7 @@ Every tool accepts an optional `project_root` parameter to override the default 
 
 | Tool | Description | Key Parameters |
 |---|---|---|
-| `ao.task.create` | Create a new task | `title`, `description`, `priority`, `task_type`, `tags[]`, `linked_requirement[]`, `assignee` |
+| `ao.task.create` | Create a new task | `title`, `description`, `priority`, `task_type`, `linked_requirement[]` |
 | `ao.task.update` | Update task fields | `id`, `title`, `description`, `priority`, `status`, `assignee`, `linked_architecture_entity[]`, `input_json` |
 | `ao.task.delete` | Delete a task (destructive) | `id`, `confirm`, `dry_run` |
 | `ao.task.status` | Update task status | `id`, `status` |

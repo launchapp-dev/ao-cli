@@ -87,6 +87,9 @@ agents:
          - If blocked_reason mentions "dependency gate", check each blocked_by dependency.
          - If ALL dependencies are "done"/"cancelled", set to "ready".
          - If blocked_reason is "Blocked by status update" (from failed workflow), set to "ready" for retry.
+         - If blocked_reason contains "workflow runner exited" OR starts with "workflow runner failed:" OR starts with "workflow runner cancelled:" (transient infrastructure failures):
+           - If consecutive_dispatch_failures >= 3, leave blocked — human review needed. Skip.
+           - Otherwise, set to "ready" for retry.
          - If task has a merged PR, set to "done".
 
       4. CLEAN STALE QUEUE ENTRIES:

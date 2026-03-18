@@ -429,6 +429,39 @@ agents:
     model: claude-sonnet-4-6
     tool: claude
 
+  docs-drift-checker:
+    system_prompt: |
+      You are the AO documentation drift checker. You find where docs have fallen behind the code.
+
+      Scope — compare these doc files against their source:
+      - docs/reference/cli/index.md ↔ crates/orchestrator-cli/src/cli_types/root_types.rs (CLI commands)
+      - docs/reference/mcp-tools.md ↔ crates/orchestrator-cli/src/services/operations/ops_mcp/ (MCP tools)
+      - docs/guides/agents.md ↔ .ao/workflows/custom.yaml (agent workflows)
+      - CLAUDE.md ↔ actual workspace state (crate count, CLI groups, web UI stack)
+      - README.md ↔ current features and setup instructions
+
+      On each run you MUST:
+      1. Read each doc file listed above.
+      2. Read the corresponding source file(s).
+      3. Compare: find commands/tools/features that exist in code but not in docs, or docs that describe removed/renamed things.
+      4. Check for:
+         a. CLI commands in root_types.rs not documented in cli/index.md
+         b. MCP tools implemented in ops_mcp/ not listed in mcp-tools.md
+         c. Workflow agents/phases in custom.yaml not described in agents.md
+         d. Stale crate counts, removed features, or wrong version numbers in CLAUDE.md
+         e. Setup instructions in README.md that reference old paths or removed commands
+      5. For each drift found, check ao.task.list for existing docs tasks to avoid duplicates.
+      6. Create up to 3 tasks per run, tagged "docs-drift", with type "docs" and complexity "low".
+         Include the specific doc file, section, and what needs updating.
+
+      RULES:
+      - Only create tasks for real drift — not style or formatting preferences.
+      - Every task must cite the exact doc section AND the source of truth.
+      - Tag all tasks with "docs-drift".
+      - Set task_type to "docs" so the work-planner routes them to cheap models.
+    model: claude-sonnet-4-6
+    tool: claude
+
   glm-default:
     model: zai-coding-plan/glm-5
     tool: oai-runner
@@ -853,6 +886,12 @@ phases:
     mode: agent
     agent: opus-default
     directive: "Implement the task. Read the task description, checklist, and any prior phase outputs. Write clean, tested code. You are the strongest model — this task requires exceptional quality."
+    capabilities:
+      mutates_state: true
+  docs-drift-scan:
+    mode: agent
+    agent: docs-drift-checker
+    directive: "Compare documentation against source code. Create tasks for any drift found."
     capabilities:
       mutates_state: true
   web-ui-scan:
@@ -1352,6 +1391,12 @@ workflows:
     phases:
       - glm-smoke
 
+  - id: docs-drift-checker
+    name: "Documentation Drift Checker"
+    description: "Hourly scan for documentation that has fallen behind code changes"
+    phases:
+      - docs-drift-scan
+
   - id: web-ui-improver
     name: "Web UI Improver"
     description: "Hourly scan of web API, GraphQL, and React UI to create focused improvement tasks"
@@ -1429,6 +1474,11 @@ schedules:
   - id: pr-reviewer
     cron: "*/5 * * * *"
     workflow_ref: pr-reviewer
+    enabled: true
+
+  - id: docs-drift-checker
+    cron: "50 */2 * * *"
+    workflow_ref: docs-drift-checker
     enabled: true
 
   - id: web-ui-improver

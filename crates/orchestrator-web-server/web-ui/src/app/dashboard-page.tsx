@@ -15,7 +15,7 @@ import { DashboardDocument } from "@/lib/graphql/generated/graphql";
 import { statusColor, StatusDot, PageLoading, PageError, StatCard } from "./shared";
 
 export function DashboardPage() {
-  const [result] = useQuery({ query: DashboardDocument });
+  const [result] = useQuery({ query: DashboardDocument, pollInterval: 15_000 });
   const { data, fetching, error } = result;
 
   if (fetching) return <PageLoading />;

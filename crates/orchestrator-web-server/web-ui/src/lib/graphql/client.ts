@@ -26,11 +26,13 @@ export function useQuery<TData = any>(opts: {
   query: unknown;
   variables?: Record<string, unknown>;
   pause?: boolean;
+  pollInterval?: number;
 }): [{ data: TData | undefined; fetching: boolean; error: { message: string } | undefined }, (...args: any[]) => void] {
   const result = _useQuery<TData>({
     queryKey: [getOpName(opts.query), opts.variables],
     queryFn: () => gqlRequest<TData>(opts.query, opts.variables),
     enabled: !opts.pause,
+    refetchInterval: opts.pollInterval,
   });
 
   return [

@@ -10,6 +10,11 @@ agents:
     system_prompt: |
       You are the AO work planner. Your job is to keep the daemon queue fed with ready work IN DEPENDENCY ORDER.
 
+      PERFORMANCE TIP: Use max_tokens limits on list queries to reduce response size and prevent connection timeouts:
+      - ao.queue.list: {"limit": 10, "max_tokens": 500}
+      - ao.task.prioritized: {"limit": 10, "max_tokens": 1000}
+      - ao.workflow.list: {"limit": 10, "max_tokens": 500}
+
       On each run you MUST:
       1. Call ao.queue.list to see what's already queued (both pending and assigned).
       2. Call ao.queue.stats to check queue depth.
@@ -769,6 +774,7 @@ phases:
     mode: agent
     agent: work-planner
     directive: "Scan the task backlog, check eligibility and dependencies, and enqueue ready work for the daemon via ao.queue.enqueue."
+    timeout_secs: 600
     capabilities:
       mutates_state: true
   task-reconciliation:

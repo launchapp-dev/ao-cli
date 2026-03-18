@@ -12,6 +12,27 @@ static CIRCUIT_OPEN_UNTIL: AtomicU64 = AtomicU64::new(0);
 const CIRCUIT_BREAKER_THRESHOLD: u32 = 5;
 const CIRCUIT_BREAKER_COOLDOWN_SECS: u64 = 60;
 
+/// Maximum number of retries for transient connection errors (EOF, reset, timeout)
+const MAX_TRANSIENT_RETRIES: u32 = 3;
+
+/// Check if an error is a transient connection error that should be retried.
+/// These include EOF errors, connection reset, timeouts, and other I/O issues
+/// that can occur during streaming responses.
+fn is_transient_connection_error(err: &str) -> bool {
+    let lower = err.to_lowercase();
+    lower.contains("eof")
+        || lower.contains("connection reset")
+        || lower.contains("connection closed")
+        || lower.contains("broken pipe")
+        || lower.contains("stream closed")
+        || lower.contains("error reading a body")
+        || lower.contains("error decoding response body")
+        || lower.contains("connection closed before message completed")
+        || lower.contains("timeout")
+        || lower.contains("timed out")
+        || lower.contains("network")
+}
+
 fn circuit_is_open() -> bool {
     let until = CIRCUIT_OPEN_UNTIL.load(Ordering::Relaxed);
     if until == 0 {
@@ -67,7 +88,8 @@ impl ApiClient {
         let mut last_err = None;
         for attempt in 0..3 {
             if attempt > 0 {
-                let delay = Duration::from_millis(500 * 2u64.pow(attempt as u32));
+                // Exponential backoff: 500ms, 1s, 2s for retries 1, 2, 3
+                let delay = Duration::from_millis(500 * 2u64.pow(attempt - 1));
                 tokio::time::sleep(delay).await;
             }
 
@@ -80,6 +102,8 @@ impl ApiClient {
                     let err_str = e.to_string();
                     let is_rate_limit = err_str.contains("429");
                     let is_server_error = err_str.contains(" 5") && attempt < 2;
+                    let is_transient = is_transient_connection_error(&err_str);
+
                     if is_rate_limit || is_server_error {
                         record_failure();
                         eprintln!(
@@ -90,6 +114,21 @@ impl ApiClient {
                         last_err = Some(e);
                         continue;
                     }
+
+                    // Retry transient connection errors (EOF, reset, timeout) with exponential backoff
+                    if is_transient && attempt < MAX_TRANSIENT_RETRIES - 1 {
+                        let delay = Duration::from_millis(500 * 2u64.pow(attempt - 1));
+                        eprintln!(
+                            "[oai-runner] Transient error (attempt {}/{}): {}. Retrying in {:?}",
+                            attempt + 1,
+                            MAX_TRANSIENT_RETRIES,
+                            &err_str[..err_str.len().min(100)],
+                            delay
+                        );
+                        last_err = Some(e);
+                        continue;
+                    }
+
                     record_failure();
                     return Err(e);
                 }
@@ -217,5 +256,83 @@ impl ApiClient {
             tool_call_id: None,
         };
         Ok((msg, usage))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_transient_connection_error_eof() {
+        let errors = vec![
+            "error decoding response body\nCaused by:\n  0: request or response body error\n  1: error reading a body from connection\n  2: unexpected EOF during chunk size line",
+            "error reading a body from connection: unexpected EOF",
+            "connection closed before message completed",
+            "unexpected EOF",
+            "EOF during chunked transfer",
+        ];
+
+        for err in errors {
+            assert!(
+                is_transient_connection_error(err),
+                "Expected '{}' to be transient",
+                &err[..err.len().min(50)]
+            );
+        }
+    }
+
+    #[test]
+    fn test_is_transient_connection_error_reset() {
+        let errors = vec![
+            "connection reset by peer",
+            "connection reset",
+            "Broken pipe",
+            "IO error: Connection reset",
+        ];
+
+        for err in errors {
+            assert!(
+                is_transient_connection_error(err),
+                "Expected '{}' to be transient",
+                err
+            );
+        }
+    }
+
+    #[test]
+    fn test_is_transient_connection_error_timeout() {
+        let errors = vec![
+            "request timed out",
+            "timeout",
+            "timed out waiting for response",
+            "operation timed out",
+        ];
+
+        for err in errors {
+            assert!(
+                is_transient_connection_error(err),
+                "Expected '{}' to be transient",
+                err
+            );
+        }
+    }
+
+    #[test]
+    fn test_is_not_transient_error() {
+        let errors = vec![
+            "API returned 400 Bad Request: invalid parameter",
+            "API returned 401 Unauthorized",
+            "not found",
+            "invalid request",
+        ];
+
+        for err in errors {
+            assert!(
+                !is_transient_connection_error(err),
+                "Expected '{}' to NOT be transient",
+                err
+            );
+        }
     }
 }

@@ -22,6 +22,14 @@ agents:
       5. For eligible tasks NOT already in the queue, call ao.queue.enqueue with task_id AND workflow_ref.
          Choose workflow_ref based on task complexity and type:
 
+         RUST TASK ROUTING GUARD (check BEFORE routing table):
+         If the task title or description contains any of these signals — Rust, crate, Cargo, .rs,
+         cargo build, cargo test, workflow_config, orchestrator, protocol, agent-runner, or any
+         reference to editing .rs source files — route to "standard", "standard-gemini", or
+         "standard-opus" depending on complexity. NEVER assign a Rust source-code task to
+         "ao.task/ui-ux", "quick-fix-glm", or any ui-ux workflow. If you are uncertain whether a
+         task touches Rust code, default to "standard" rather than a UI/UX workflow.
+
          WORKFLOW ROUTING TABLE:
          | Complexity | Type           | workflow_ref        | Model              | Why                          |
          |------------|----------------|---------------------|--------------------|------------------------------|
@@ -78,6 +86,12 @@ agents:
            - "no changes were detected" → task might already be done, or the agent didn't write code. Set task to "blocked" with reason.
            - "missing required field 'commit_message'" → contract violation, set task to "blocked".
            - "failed to connect runner" → transient error, set task back to "ready" for retry.
+           - "workflow runner exited unsuccessfully with status Some(1)" → transient runner/API crash
+             (e.g. Kimi API down, oai-runner timeout, model service unavailable). This is NOT a
+             code or logic failure. If consecutive_dispatch_failures < 4, set task back to "ready"
+             for retry. Do NOT set to "blocked" for this failure reason alone.
+           - "exited with status" (any non-zero exit code from the CLI tool) → treat the same as
+             exit=1 above: transient if failures < 4, otherwise cancel.
          - If a task has failed > 3 times (check consecutive_dispatch_failures), cancel it.
 
       3. UNBLOCK TASKS (dependency-aware):

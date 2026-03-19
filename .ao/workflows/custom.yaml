@@ -121,14 +121,11 @@ agents:
            - "no changes were detected" → task might already be done. Set to "blocked" with reason.
            - "missing required field 'commit_message'" → contract violation, set to "blocked".
            - "failed to connect runner" → transient error, set back to "ready" for retry.
-         - MODEL FAILURE RE-ROUTING (CRITICAL):
-           If a task failed OR escalated on an oai-runner workflow (standard-glm, standard-kimi, standard-minimax, quick-fix-glm, quick-fix-minimax):
-           a. Set task back to "ready".
-           b. Re-enqueue with workflow_ref="standard" (Claude) — the proven reliable pipeline.
-           c. This ensures no task is permanently stuck on a failing model.
-           NOTE: Escalated workflows are especially common for standard-kimi (50% escalation rate) —
-           always re-route escalated oai-runner tasks, do not leave them stuck waiting for manual intervention.
-         - If a task has failed or escalated > 5 times across ALL models (including Claude re-route), cancel it.
+         - MODEL FAILURE RE-ROUTING:
+           If a task failed on an oai-runner workflow (standard-glm, standard-kimi, standard-minimax):
+           a. Set task back to "ready" so the work-planner can re-enqueue it.
+           b. Do NOT call ao.queue.enqueue — only the work-planner enqueues.
+         - If a task has failed > 5 times, cancel it.
 
       3. UNBLOCK TASKS (dependency-aware):
          Call ao.task.list with status "blocked". For each:
@@ -319,7 +316,9 @@ agents:
       STEP 2 — HANDLE CONFLICTING PRs:
       For each CONFLICTING PR:
         - Extract task ID from branch name (ao/task-XXX → TASK-XXX)
-        - Enqueue for rebase: call ao.queue.enqueue with task_id=TASK-XXX workflow_ref="rebase-and-retry"
+        - Set task status to "blocked" with reason "PR has merge conflicts — needs rebase"
+        - The work-planner will pick it up and enqueue with rebase-and-retry.
+        - Do NOT call ao.queue.enqueue — only the work-planner enqueues.
         - Skip to next PR.
 
       STEP 3 — CHECK CI AND MERGE (dependency-aware):
@@ -341,7 +340,8 @@ agents:
            - If OK, merge: `gh pr merge <number> --squash --delete-branch --admin`
            - Call ao.task.status with status "done".
         f. If changes needed: `gh pr review <number> --request-changes --body "<explanation>"`
-           Then enqueue with workflow_ref="rework".
+           Set task status to "blocked" with reason "PR changes requested — needs rework".
+           Do NOT call ao.queue.enqueue — the work-planner handles all enqueuing.
 
       STEP 4 — SKIP if no open PRs.
 

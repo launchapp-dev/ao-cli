@@ -57,7 +57,6 @@ agents:
          | Complexity | Type           | workflow_ref        | Model/Tool              | Why                          |
          |------------|----------------|---------------------|-------------------------|------------------------------|
          | low        | bugfix/chore   | quick-fix-glm       | GLM-5-Turbo (oai-runner) | Cheapest for simple fixes    |
-         | low        | docs           | standard-glm        | GLM-5-Turbo (oai-runner) | Cheap, good for docs         |
          | low        | chore          | quick-fix-minimax   | MiniMax M2.5 (oai-runner)| Cheapest option              |
          | medium     | feature        | standard-kimi       | Kimi K2.5 (oai-runner)   | Near-Opus coding, cheap      |
          | medium     | bugfix         | standard            | Claude Sonnet (claude)   | Reliable native CLI          |
@@ -113,7 +112,7 @@ agents:
            - "missing required field 'commit_message'" → contract violation, set to "blocked".
            - "failed to connect runner" → transient error, set back to "ready" for retry.
          - MODEL FAILURE RE-ROUTING (CRITICAL):
-           If a task failed on an oai-runner workflow (standard-glm, standard-kimi, standard-minimax, quick-fix-glm, quick-fix-minimax):
+           If a task failed on an oai-runner workflow (standard-kimi, standard-minimax, quick-fix-glm, quick-fix-minimax):
            a. Set task back to "ready".
            b. Re-enqueue with workflow_ref="standard" (Claude) — the proven reliable pipeline.
            c. This ensures no task is permanently stuck on a failing model.
@@ -172,7 +171,7 @@ agents:
 
       1. ANALYZE WORKFLOW FAILURE PATTERNS BY MODEL:
          - Call ao.workflow.list with limit 50 to get recent workflows.
-         - Count successes vs failures GROUPED BY workflow_ref (standard, standard-kimi, standard-glm, etc.).
+         - Count successes vs failures GROUPED BY workflow_ref (standard, standard-kimi, standard-minimax, etc.).
          - Calculate success rate PER workflow_ref.
          - If a model-specific workflow has 0% success rate over 3+ attempts:
            a. Create a critical bugfix task: "Investigate [model] workflow failures — 0% success rate"
@@ -1513,70 +1512,6 @@ workflows:
       - push-branch
       - create-pr
       - cleanup
-
-  - id: standard-glm
-    name: "Standard (GLM)"
-    description: "Standard workflow using GLM/Z-AI for implementation, Codex for review"
-    phases:
-      - glm-requirements
-      - glm-implementation:
-          skip_if:
-            - "task_type == docs"
-      - unit-test:
-          on_verdict:
-            rework:
-              target: glm-implementation
-      - lint:
-          on_verdict:
-            rework:
-              target: glm-implementation
-      - codex-code-review:
-          max_rework_attempts: 3
-          on_verdict:
-            rework:
-              target: glm-implementation
-      - push-branch
-      - create-pr
-      - cleanup
-    post_success:
-      merge:
-        strategy: squash
-        target_branch: develop
-        create_pr: true
-        auto_merge: true
-        cleanup_worktree: true
-
-  - id: standard-glm
-    name: "Standard (MiniMax)"
-    description: "Standard workflow using MiniMax for implementation, Codex for review"
-    phases:
-      - minimax-requirements
-      - minimax-implementation:
-          skip_if:
-            - "task_type == docs"
-      - unit-test:
-          on_verdict:
-            rework:
-              target: minimax-implementation
-      - lint:
-          on_verdict:
-            rework:
-              target: minimax-implementation
-      - codex-code-review:
-          max_rework_attempts: 2
-          on_verdict:
-            rework:
-              target: minimax-implementation
-      - push-branch
-      - create-pr
-      - cleanup
-    post_success:
-      merge:
-        strategy: squash
-        target_branch: develop
-        create_pr: true
-        auto_merge: true
-        cleanup_worktree: true
 
   - id: standard-kimi
     name: "Standard (Kimi K2.5)"

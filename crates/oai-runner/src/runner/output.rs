@@ -112,6 +112,51 @@ impl OutputFormatter {
         }
     }
 
+    pub fn assistant_message_complete(&self, turn: u32) {
+        if self.json_mode {
+            let event = json!({
+                "type": "assistant_message_complete",
+                "turn": turn
+            });
+            println!("{}", event);
+        }
+    }
+
+    pub fn session(&self, action: &str, session_id: &str, message_count: usize) {
+        if self.json_mode {
+            let event = json!({
+                "type": "session",
+                "action": action,
+                "session_id": session_id,
+                "message_count": message_count
+            });
+            println!("{}", event);
+        }
+    }
+
+    pub fn retry(&self, kind: &str, attempt: u32, reason: &str) {
+        if self.json_mode {
+            let event = json!({
+                "type": "retry",
+                "kind": kind,
+                "attempt": attempt,
+                "reason": reason
+            });
+            println!("{}", event);
+        }
+    }
+
+    pub fn error(&self, kind: &str, message: &str) {
+        if self.json_mode {
+            let event = json!({
+                "type": "error",
+                "kind": kind,
+                "message": message
+            });
+            println!("{}", event);
+        }
+    }
+
     pub fn newline(&self) {
         println!();
     }
@@ -150,5 +195,54 @@ mod tests {
         assert!(!formatter.text_buffer.is_empty());
         formatter.text_buffer.clear();
         assert!(formatter.text_buffer.is_empty());
+    }
+
+    #[test]
+    fn assistant_message_complete_only_emits_in_json_mode() {
+        let json_formatter = OutputFormatter::new(true);
+        let text_formatter = OutputFormatter::new(false);
+        assert!(json_formatter.json_mode);
+        assert!(!text_formatter.json_mode);
+    }
+
+    #[test]
+    fn session_event_fields_are_present() {
+        let formatter = OutputFormatter::new(true);
+        let event = serde_json::json!({
+            "type": "session",
+            "action": "resumed",
+            "session_id": "test-id",
+            "message_count": 5
+        });
+        assert_eq!(event["type"], "session");
+        assert_eq!(event["action"], "resumed");
+        assert_eq!(event["session_id"], "test-id");
+        assert_eq!(event["message_count"], 5);
+        drop(formatter);
+    }
+
+    #[test]
+    fn retry_event_fields_are_present() {
+        let event = serde_json::json!({
+            "type": "retry",
+            "kind": "api",
+            "attempt": 1,
+            "reason": "rate limited (429)"
+        });
+        assert_eq!(event["type"], "retry");
+        assert_eq!(event["kind"], "api");
+        assert_eq!(event["attempt"], 1);
+    }
+
+    #[test]
+    fn error_event_fields_are_present() {
+        let event = serde_json::json!({
+            "type": "error",
+            "kind": "schema_validation",
+            "message": "Schema validation failed after 3 retries"
+        });
+        assert_eq!(event["type"], "error");
+        assert_eq!(event["kind"], "schema_validation");
+        assert!(!event["message"].as_str().unwrap().is_empty());
     }
 }

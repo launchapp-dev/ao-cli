@@ -3,7 +3,7 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use tokio_util::sync::CancellationToken;
 
-use crate::api::client::ApiClient;
+use crate::api::client::{ApiClient, StreamEvent};
 use crate::api::types::*;
 use crate::config::StructuredOutputSupport;
 use crate::tools::{executor, mcp_client};
@@ -102,11 +102,14 @@ pub async fn run_agent_loop(
 ) -> Result<()> {
     let mut messages: Vec<ChatMessage> = Vec::new();
 
+    let mut session_resumed = false;
     if let Some(sid) = session_id {
         let prior = load_session_messages_from(&config_dir(), sid);
         if !prior.is_empty() {
             eprintln!("[oai-runner] Resuming session {} ({} prior messages)", sid, prior.len());
+            output.session("resumed", sid, prior.len());
             messages.extend(prior);
+            session_resumed = true;
         }
     }
 
@@ -135,6 +138,12 @@ pub async fn run_agent_loop(
         tool_call_id: None,
     });
 
+    if let Some(sid) = session_id {
+        if !session_resumed {
+            output.session("started", sid, messages.len());
+        }
+    }
+
     for turn in 0..max_turns {
         if cancel_token.is_cancelled() {
             eprintln!("[oai-runner] Cancelled by signal");
@@ -142,6 +151,7 @@ pub async fn run_agent_loop(
                 if let Err(e) = save_session_messages_to(&config_dir(), sid, &messages) {
                     eprintln!("[oai-runner] Warning: failed to save session on cancel {}: {}", sid, e);
                 }
+                output.session("saved", sid, messages.len());
             }
             output.emit_session_summary();
             anyhow::bail!("Cancelled by shutdown signal");
@@ -168,8 +178,9 @@ pub async fn run_agent_loop(
         };
 
         let (assistant_msg, usage) = client
-            .stream_chat(&request, &mut |chunk| {
-                output.text_chunk(chunk);
+            .stream_chat(&request, &mut |event| match event {
+                StreamEvent::TextChunk(chunk) => output.text_chunk(chunk),
+                StreamEvent::Retry { attempt, reason } => output.retry("api", attempt, reason),
             })
             .await?;
 
@@ -183,6 +194,7 @@ pub async fn run_agent_loop(
 
         if !has_tool_calls {
             output.flush_result();
+            output.assistant_message_complete(turn as u32 + 1);
             let content = assistant_msg.content.as_deref().unwrap_or("");
             let mut schema_ok = true;
             if let Some(schema) = response_schema {
@@ -204,6 +216,10 @@ pub async fn run_agent_loop(
                             "Warning: schema validation failed after {} retries, synthesizing fallback result",
                             SCHEMA_RETRY_LIMIT
                         );
+                        output.error(
+                            "schema_validation",
+                            &format!("Schema validation failed after {} retries, synthesizing fallback result", SCHEMA_RETRY_LIMIT),
+                        );
                         schema_ok = false;
                     }
                 }
@@ -219,6 +235,7 @@ pub async fn run_agent_loop(
                 if let Err(e) = save_session_messages_to(&config_dir(), sid, &messages) {
                     eprintln!("[oai-runner] Warning: failed to save session {}: {}", sid, e);
                 }
+                output.session("saved", sid, messages.len());
             }
             output.emit_session_summary();
             output.newline();
@@ -281,6 +298,7 @@ pub async fn run_agent_loop(
         if let Err(e) = save_session_messages_to(&config_dir(), sid, &messages) {
             eprintln!("[oai-runner] Warning: failed to save session {}: {}", sid, e);
         }
+        output.session("saved", sid, messages.len());
     }
     output.flush_result();
     if response_schema.is_some() {
@@ -312,6 +330,7 @@ async fn retry_schema_validation(
 
     for attempt in 1..=SCHEMA_RETRY_LIMIT {
         eprintln!("Schema validation failed (attempt {}/{}): {}", attempt, SCHEMA_RETRY_LIMIT, last_errors);
+        output.retry("schema_validation", attempt as u32, &last_errors);
 
         let correction = format!(
             "Your last response did not match the required output JSON schema. Errors:\n{}\n\n\
@@ -352,8 +371,9 @@ async fn retry_schema_validation(
         };
 
         let retry_result = client
-            .stream_chat(&retry_request, &mut |chunk| {
-                output.text_chunk(chunk);
+            .stream_chat(&retry_request, &mut |event| match event {
+                StreamEvent::TextChunk(chunk) => output.text_chunk(chunk),
+                StreamEvent::Retry { attempt: a, reason } => output.retry("api", a, reason),
             })
             .await;
 

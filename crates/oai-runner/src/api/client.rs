@@ -7,6 +7,11 @@ use std::time::Duration;
 
 use super::types::*;
 
+pub enum StreamEvent<'a> {
+    TextChunk(&'a str),
+    Retry { attempt: u32, reason: &'a str },
+}
+
 static CONSECUTIVE_FAILURES: AtomicU32 = AtomicU32::new(0);
 static CIRCUIT_OPEN_UNTIL: AtomicU64 = AtomicU64::new(0);
 
@@ -57,7 +62,7 @@ impl ApiClient {
     pub async fn stream_chat(
         &self,
         request: &ChatRequest,
-        on_text_chunk: &mut dyn FnMut(&str),
+        on_event: &mut dyn FnMut(StreamEvent<'_>),
     ) -> Result<(ChatMessage, Option<UsageInfo>)> {
         if circuit_is_open() {
             bail!("Circuit breaker is open — too many consecutive API failures. Waiting for cooldown.");
@@ -72,7 +77,7 @@ impl ApiClient {
                 tokio::time::sleep(delay).await;
             }
 
-            match self.do_stream(&url, request, on_text_chunk).await {
+            match self.do_stream(&url, request, on_event).await {
                 Ok(result) => {
                     record_success();
                     return Ok(result);
@@ -95,6 +100,7 @@ impl ApiClient {
                             "server error"
                         };
                         eprintln!("[oai-runner] Retry {}/3: {}", attempt + 1, reason);
+                        on_event(StreamEvent::Retry { attempt: attempt as u32 + 1, reason });
                         last_err = Some(e);
                         continue;
                     }
@@ -111,7 +117,7 @@ impl ApiClient {
         &self,
         url: &str,
         request: &ChatRequest,
-        on_text_chunk: &mut dyn FnMut(&str),
+        on_event: &mut dyn FnMut(StreamEvent<'_>),
     ) -> Result<(ChatMessage, Option<UsageInfo>)> {
         let resp = self
             .http
@@ -175,7 +181,7 @@ impl ApiClient {
             for choice in &parsed.choices {
                 if let Some(text) = &choice.delta.content {
                     content.push_str(text);
-                    on_text_chunk(text);
+                    on_event(StreamEvent::TextChunk(text));
                 }
 
                 if let Some(tc_deltas) = &choice.delta.tool_calls {

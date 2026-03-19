@@ -1,4 +1,5 @@
 use serde_json::Value;
+use tracing::warn;
 
 use crate::ipc::collect_json_payload_lines;
 
@@ -92,6 +93,15 @@ fn try_parse_decision(value: &Value, phase_id: &str) -> Option<orchestrator_core
         .and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
         .unwrap_or(0.0) as f32;
 
+    if !(0.0..=1.0).contains(&confidence) {
+        warn!(
+            phase_id = phase_id,
+            confidence = confidence,
+            "phase decision rejected: confidence is outside [0.0, 1.0]"
+        );
+        return None;
+    }
+
     let risk_str = value.get("risk").and_then(Value::as_str).unwrap_or("medium");
     let risk = match risk_str.trim().to_ascii_lowercase().as_str() {
         "low" => orchestrator_core::WorkflowDecisionRisk::Low,
@@ -99,25 +109,47 @@ fn try_parse_decision(value: &Value, phase_id: &str) -> Option<orchestrator_core
         _ => orchestrator_core::WorkflowDecisionRisk::Medium,
     };
 
-    let reason = value.get("reason").and_then(Value::as_str).unwrap_or("").to_string();
+    let reason_raw = value.get("reason").and_then(Value::as_str).unwrap_or("");
+    if reason_raw.trim().is_empty() {
+        warn!(phase_id = phase_id, "phase decision has empty or whitespace-only reason");
+    }
+    let reason = reason_raw.to_string();
 
     let evidence = value
         .get("evidence")
         .and_then(Value::as_array)
         .map(|arr| {
             arr.iter()
-                .map(|ev| {
+                .enumerate()
+                .filter_map(|(idx, ev)| {
                     let kind_str = ev.get("kind").and_then(Value::as_str).unwrap_or("custom");
                     let kind: orchestrator_core::PhaseEvidenceKind =
                         serde_json::from_value(Value::String(kind_str.to_string()))
-                            .unwrap_or(orchestrator_core::PhaseEvidenceKind::Custom);
-                    let description = ev.get("description").and_then(Value::as_str).unwrap_or("").to_string();
-                    orchestrator_core::PhaseEvidence {
+                            .unwrap_or_else(|e| {
+                                warn!(
+                                    phase_id = phase_id,
+                                    index = idx,
+                                    kind = kind_str,
+                                    error = %e,
+                                    "evidence item has unknown kind, defaulting to custom"
+                                );
+                                orchestrator_core::PhaseEvidenceKind::Custom
+                            });
+                    let description = ev.get("description").and_then(Value::as_str).unwrap_or("");
+                    if description.is_empty() {
+                        warn!(
+                            phase_id = phase_id,
+                            index = idx,
+                            "evidence item dropped: missing or empty description"
+                        );
+                        return None;
+                    }
+                    Some(orchestrator_core::PhaseEvidence {
                         kind,
-                        description,
+                        description: description.to_string(),
                         file_path: ev.get("file_path").and_then(Value::as_str).map(ToOwned::to_owned),
                         value: ev.get("value").cloned(),
-                    }
+                    })
                 })
                 .collect()
         })
@@ -218,5 +250,33 @@ mod tests {
     fn fallback_commit_message_empty_title() {
         let msg = fallback_implementation_commit_message("implementation", "");
         assert!(msg.contains("implementation"));
+    }
+
+    #[test]
+    fn confidence_out_of_range_rejected() {
+        let text = r#"{"kind":"phase_decision","phase_id":"impl","verdict":"advance","confidence":1.5,"risk":"low","reason":"Done","evidence":[]}"#;
+        assert!(parse_phase_decision_from_text(text, "impl").is_none());
+
+        let text_neg = r#"{"kind":"phase_decision","phase_id":"impl","verdict":"advance","confidence":-0.1,"risk":"low","reason":"Done","evidence":[]}"#;
+        assert!(parse_phase_decision_from_text(text_neg, "impl").is_none());
+    }
+
+    #[test]
+    fn confidence_boundary_values_accepted() {
+        let text_zero = r#"{"kind":"phase_decision","phase_id":"impl","verdict":"advance","confidence":0.0,"risk":"low","reason":"Done","evidence":[]}"#;
+        let d = parse_phase_decision_from_text(text_zero, "impl").unwrap();
+        assert!((d.confidence - 0.0).abs() < f32::EPSILON);
+
+        let text_one = r#"{"kind":"phase_decision","phase_id":"impl","verdict":"advance","confidence":1.0,"risk":"low","reason":"Done","evidence":[]}"#;
+        let d = parse_phase_decision_from_text(text_one, "impl").unwrap();
+        assert!((d.confidence - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn evidence_item_missing_description_dropped() {
+        let text = r#"{"kind":"phase_decision","phase_id":"impl","verdict":"advance","confidence":0.8,"risk":"low","reason":"Done","evidence":[{"kind":"custom"},{"kind":"custom","description":"valid item"}]}"#;
+        let decision = parse_phase_decision_from_text(text, "impl").unwrap();
+        assert_eq!(decision.evidence.len(), 1);
+        assert_eq!(decision.evidence[0].description, "valid item");
     }
 }

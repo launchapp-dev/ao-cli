@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::phase_executor::PhaseExecutionOutcome;
@@ -101,8 +102,15 @@ pub fn load_prior_phase_outputs(
         }
         let file_path = dir.join(format!("{prior_phase_id}.json"));
         if let Ok(contents) = std::fs::read_to_string(&file_path) {
-            if let Ok(output) = serde_json::from_str::<PersistedPhaseOutput>(&contents) {
-                outputs.push(output);
+            match serde_json::from_str::<PersistedPhaseOutput>(&contents) {
+                Ok(output) => outputs.push(output),
+                Err(e) => {
+                    warn!(
+                        file = %file_path.display(),
+                        error = %e,
+                        "skipping corrupted phase output file"
+                    );
+                }
             }
         }
     }
@@ -153,6 +161,7 @@ pub fn format_prior_phase_outputs(outputs: &[PersistedPhaseOutput]) -> String {
     result.push_str(&sections.join("\n\n"));
 
     if result.len() > MAX_PRIOR_CONTEXT_CHARS {
+        let original_len = result.len();
         let mut truncated = "## Prior Phase Results\n".to_string();
         let mut budget = MAX_PRIOR_CONTEXT_CHARS - truncated.len() - 30;
         for section in sections.iter().rev() {
@@ -165,7 +174,14 @@ pub fn format_prior_phase_outputs(outputs: &[PersistedPhaseOutput]) -> String {
                 break;
             }
         }
-        return truncated.trim_end().to_string();
+        let truncated = truncated.trim_end().to_string();
+        warn!(
+            original_chars = original_len,
+            truncated_chars = original_len - truncated.len(),
+            limit = MAX_PRIOR_CONTEXT_CHARS,
+            "prior phase context truncated to fit character limit"
+        );
+        return truncated;
     }
 
     result
@@ -496,6 +512,23 @@ mod tests {
         let (json_str, phase_order) = build_workflow_pipeline_context("/nonexistent", "wf-missing", "impl");
         assert!(json_str.is_empty());
         assert!(phase_order.is_empty());
+    }
+
+    #[test]
+    fn test_load_prior_phase_outputs_skips_corrupted_file() {
+        let tmp = std::env::temp_dir().join(format!("ao-test-corrupted-{}", Uuid::new_v4()));
+        let project_root = tmp.to_str().unwrap();
+        let workflow_id = "wf-corrupt-001";
+
+        let dir = phase_output_dir(project_root, workflow_id);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("research.json"), b"not valid json {{{").unwrap();
+
+        let pipeline_order = vec!["research".to_string(), "implementation".to_string()];
+        let loaded = load_prior_phase_outputs(project_root, workflow_id, "implementation", &pipeline_order);
+        assert_eq!(loaded.len(), 0);
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

@@ -20,6 +20,7 @@ use crate::runtime_contract::{
     apply_phase_capability_launch_flags, inject_agent_tool_policy, inject_default_stdio_mcp, inject_named_mcp_servers,
     inject_project_mcp_servers, inject_response_schema_into_launch_args, inject_workflow_mcp_servers,
     phase_output_json_schema_for, phase_response_json_schema_for, set_mcp_tool_policy,
+    validate_phase_mcp_required_env,
 };
 use crate::runtime_support::{
     inject_cli_launch_overrides, phase_max_continuations, phase_runner_attempts, WorkflowPhaseRuntimeSettings,
@@ -989,6 +990,7 @@ async fn run_workflow_phase_with_agent(params: PhaseAgentParams<'_>) -> Result<A
                         &ctx.agent_runtime_config,
                     );
                     inject_cli_launch_overrides(&mut runtime_contract, &effective_tool_id, phase_runtime_settings);
+                    validate_phase_mcp_required_env(&ctx, phase_id)?;
                     inject_default_stdio_mcp(&mut runtime_contract, project_root);
                     inject_agent_tool_policy(&mut runtime_contract, ctx, phase_id);
                     inject_project_mcp_servers(&mut runtime_contract, project_root, ctx, phase_id);

@@ -483,6 +483,64 @@ pub fn inject_workflow_mcp_servers(runtime_contract: &mut Value, ctx: &RuntimeCo
     }
 }
 
+pub fn validate_phase_mcp_required_env(ctx: &RuntimeConfigContext, phase_id: &str) -> Result<()> {
+    if ctx.workflow_config.config.mcp_servers.is_empty() {
+        return Ok(());
+    }
+    let agent_id = ctx.phase_agent_id(phase_id);
+    let workflow_profile_servers: Vec<String> = agent_id
+        .as_deref()
+        .and_then(|id| ctx.workflow_config.config.agent_profiles.get(id))
+        .map(|profile| profile.mcp_servers.clone())
+        .unwrap_or_default();
+    let runtime_profile_servers: Vec<String> = if workflow_profile_servers.is_empty() {
+        agent_id
+            .as_deref()
+            .and_then(|id| ctx.agent_runtime_config.agent_profile(id))
+            .map(|profile| profile.mcp_servers.clone())
+            .filter(|servers| !servers.is_empty())
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let phase_servers = ctx.phase_mcp_servers(phase_id);
+
+    let mut allowed_servers = std::collections::BTreeSet::new();
+    for server in workflow_profile_servers.iter().chain(runtime_profile_servers.iter()).chain(phase_servers.iter()) {
+        let trimmed = server.trim();
+        if !trimmed.is_empty() {
+            allowed_servers.insert(trimmed.to_string());
+        }
+    }
+
+    let mut missing: Vec<String> = Vec::new();
+    for (name, definition) in &ctx.workflow_config.config.mcp_servers {
+        if !allowed_servers.is_empty() && !allowed_servers.contains(name) {
+            continue;
+        }
+        let required_env = definition
+            .config
+            .get("required_env")
+            .and_then(Value::as_array)
+            .map(|arr| arr.iter().filter_map(Value::as_str).collect::<Vec<_>>())
+            .unwrap_or_default();
+        for var in required_env {
+            if std::env::var(var).is_err() {
+                missing.push(format!("{var} (required by MCP server '{name}')"));
+            }
+        }
+    }
+
+    if !missing.is_empty() {
+        return Err(anyhow!(
+            "phase '{}' cannot start: missing required environment variables:\n  - {}",
+            phase_id,
+            missing.join("\n  - ")
+        ));
+    }
+    Ok(())
+}
+
 pub fn inject_named_mcp_servers(
     runtime_contract: &mut Value,
     project_root: &str,
@@ -702,6 +760,126 @@ mod tests {
         assert!(
             !args.iter().any(|value| value.as_str() == Some("--read-only")),
             "managed state mutation phases should not inject a strict read-only CLI flag"
+        );
+    }
+
+    #[test]
+    fn validate_phase_mcp_required_env_passes_when_no_required_env() {
+        let mut workflow_config = builtin_workflow_config();
+        workflow_config.mcp_servers.insert(
+            "my-server".to_string(),
+            McpServerDefinition {
+                command: "node".to_string(),
+                args: vec![],
+                transport: None,
+                config: BTreeMap::new(),
+                tools: Vec::new(),
+                env: BTreeMap::new(),
+            },
+        );
+        workflow_config
+            .phase_mcp_bindings
+            .insert("research".to_string(), PhaseMcpBinding { servers: vec!["my-server".to_string()] });
+        let loaded = LoadedWorkflowConfig {
+            metadata: WorkflowConfigMetadata {
+                schema: workflow_config.schema.clone(),
+                version: workflow_config.version,
+                hash: workflow_config_hash(&workflow_config),
+                source: WorkflowConfigSource::Builtin,
+            },
+            config: workflow_config,
+            path: PathBuf::from("builtin"),
+        };
+        let ctx = RuntimeConfigContext { agent_runtime_config: builtin_agent_runtime_config(), workflow_config: loaded };
+        assert!(validate_phase_mcp_required_env(&ctx, "research").is_ok());
+    }
+
+    #[test]
+    fn validate_phase_mcp_required_env_fails_when_env_var_missing() {
+        let mut workflow_config = builtin_workflow_config();
+        let mut config = BTreeMap::new();
+        config.insert("required_env".to_string(), serde_json::json!(["AO_TEST_MISSING_VAR_XYZ_99"]));
+        workflow_config.mcp_servers.insert(
+            "needs-env-server".to_string(),
+            McpServerDefinition {
+                command: "node".to_string(),
+                args: vec![],
+                transport: None,
+                config,
+                tools: Vec::new(),
+                env: BTreeMap::new(),
+            },
+        );
+        workflow_config.phase_mcp_bindings.insert(
+            "research".to_string(),
+            PhaseMcpBinding { servers: vec!["needs-env-server".to_string()] },
+        );
+        let loaded = LoadedWorkflowConfig {
+            metadata: WorkflowConfigMetadata {
+                schema: workflow_config.schema.clone(),
+                version: workflow_config.version,
+                hash: workflow_config_hash(&workflow_config),
+                source: WorkflowConfigSource::Builtin,
+            },
+            config: workflow_config,
+            path: PathBuf::from("builtin"),
+        };
+        let ctx = RuntimeConfigContext { agent_runtime_config: builtin_agent_runtime_config(), workflow_config: loaded };
+        let result = validate_phase_mcp_required_env(&ctx, "research");
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("AO_TEST_MISSING_VAR_XYZ_99"), "error should name the missing variable: {msg}");
+        assert!(msg.contains("needs-env-server"), "error should name the MCP server: {msg}");
+    }
+
+    #[test]
+    fn validate_phase_mcp_required_env_skips_servers_not_in_phase_allowed_set() {
+        let mut workflow_config = builtin_workflow_config();
+        let mut config = BTreeMap::new();
+        config.insert("required_env".to_string(), serde_json::json!(["AO_TEST_MISSING_VAR_XYZ_99"]));
+        workflow_config.mcp_servers.insert(
+            "impl-only-server".to_string(),
+            McpServerDefinition {
+                command: "node".to_string(),
+                args: vec![],
+                transport: None,
+                config,
+                tools: Vec::new(),
+                env: BTreeMap::new(),
+            },
+        );
+        workflow_config.mcp_servers.insert(
+            "research-server".to_string(),
+            McpServerDefinition {
+                command: "node".to_string(),
+                args: vec![],
+                transport: None,
+                config: BTreeMap::new(),
+                tools: Vec::new(),
+                env: BTreeMap::new(),
+            },
+        );
+        workflow_config
+            .phase_mcp_bindings
+            .insert("research".to_string(), PhaseMcpBinding { servers: vec!["research-server".to_string()] });
+        workflow_config.phase_mcp_bindings.insert(
+            "implementation".to_string(),
+            PhaseMcpBinding { servers: vec!["impl-only-server".to_string()] },
+        );
+        let loaded = LoadedWorkflowConfig {
+            metadata: WorkflowConfigMetadata {
+                schema: workflow_config.schema.clone(),
+                version: workflow_config.version,
+                hash: workflow_config_hash(&workflow_config),
+                source: WorkflowConfigSource::Builtin,
+            },
+            config: workflow_config,
+            path: PathBuf::from("builtin"),
+        };
+        let ctx = RuntimeConfigContext { agent_runtime_config: builtin_agent_runtime_config(), workflow_config: loaded };
+        assert!(
+            validate_phase_mcp_required_env(&ctx, "research").is_ok(),
+            "impl-only-server (with missing required_env) should be excluded when research has its own allowed set"
         );
     }
 }

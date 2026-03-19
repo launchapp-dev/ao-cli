@@ -309,6 +309,13 @@ function ToggleRow({ label, description, checked }: { label: string; description
 }
 
 export function DaemonConfigPage() {
+  const [result] = useQuery({ query: WorkflowConfigDocument });
+  const { data, fetching, error } = result;
+  if (fetching) return <PageLoading />;
+  if (error) return <PageError message={error.message} />;
+
+  const schedules = data?.workflowConfig?.schedules ?? [];
+
   return (
     <div className="space-y-6">
       <div>
@@ -331,6 +338,38 @@ export function DaemonConfigPage() {
           ))}
         </CardContent>
       </Card>
+
+      {schedules.length > 0 && (
+        <div className="space-y-3">
+          <SectionHeading>Cron Schedules</SectionHeading>
+          <div className="grid gap-3 md:grid-cols-2">
+            {schedules.map((s) => (
+              <Card key={s.id} className="border-border/40 bg-card/60">
+                <CardContent className="pt-3 pb-3 px-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-foreground/90">{s.id}</span>
+                    <Badge variant={s.enabled ? "secondary" : "outline"} className="text-[10px] h-4 px-1.5">
+                      {s.enabled ? "enabled" : "disabled"}
+                    </Badge>
+                  </div>
+                  <p className="font-mono text-xs text-foreground/70">{s.cron}</p>
+                  {s.workflowRef && (
+                    <span className="text-xs text-muted-foreground">{s.workflowRef}</span>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {schedules.length === 0 && (
+        <Card className="border-border/40 bg-card/60">
+          <CardContent className="pt-3 pb-3 px-4">
+            <p className="text-sm text-muted-foreground text-center py-4">No cron schedules configured.</p>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="rounded-md border border-border/40 bg-muted/30 px-4 py-3">
         <p className="text-xs text-muted-foreground">

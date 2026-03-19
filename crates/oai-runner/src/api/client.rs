@@ -39,6 +39,23 @@ fn record_failure() {
     }
 }
 
+fn classify_for_retry(e: &anyhow::Error, attempt: u32) -> Option<&'static str> {
+    if let Some(oai_err) = e.downcast_ref::<OaiError>() {
+        return match oai_err {
+            OaiError::RateLimit { .. } => Some("rate limited (429)"),
+            OaiError::ServerError { .. } if attempt < 2 => Some("server error"),
+            OaiError::Transient { .. } => Some("transient connection error"),
+            _ => None,
+        };
+    }
+    if let Some(req_err) = e.downcast_ref::<reqwest::Error>() {
+        if req_err.is_connect() || req_err.is_timeout() {
+            return Some("transient connection error");
+        }
+    }
+    None
+}
+
 pub struct ApiClient {
     http: reqwest::Client,
     api_base: String,
@@ -78,27 +95,13 @@ impl ApiClient {
                     return Ok(result);
                 }
                 Err(e) => {
-                    let err_str = e.to_string();
-                    let is_rate_limit = err_str.contains("429");
-                    let is_server_error = err_str.contains(" 5") && attempt < 2;
-                    let is_transient = err_str.contains("EOF")
-                        || err_str.contains("connection closed")
-                        || err_str.contains("broken pipe")
-                        || err_str.contains("reset by peer");
-                    if is_rate_limit || is_server_error || is_transient {
-                        record_failure();
-                        let reason = if is_rate_limit {
-                            "rate limited (429)"
-                        } else if is_transient {
-                            "transient connection error"
-                        } else {
-                            "server error"
-                        };
+                    let retry_reason = classify_for_retry(&e, attempt);
+                    record_failure();
+                    if let Some(reason) = retry_reason {
                         eprintln!("[oai-runner] Retry {}/3: {}", attempt + 1, reason);
                         last_err = Some(e);
                         continue;
                     }
-                    record_failure();
                     return Err(e);
                 }
             }
@@ -113,28 +116,49 @@ impl ApiClient {
         request: &ChatRequest,
         on_text_chunk: &mut dyn FnMut(&str),
     ) -> Result<(ChatMessage, Option<UsageInfo>)> {
-        let resp = self
+        let resp = match self
             .http
             .post(url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
             .json(request)
             .send()
-            .await?;
+            .await
+        {
+            Ok(r) => r,
+            Err(e) if e.is_connect() || e.is_timeout() => {
+                return Err(OaiError::Transient { message: e.to_string() }.into());
+            }
+            Err(e) => return Err(e.into()),
+        };
 
         let status = resp.status();
+        let status_code = status.as_u16();
         if !status.is_success() {
-            if status.as_u16() == 429 {
-                if let Some(retry_after) = resp.headers().get("retry-after") {
-                    if let Ok(secs) = retry_after.to_str().unwrap_or("0").parse::<u64>() {
-                        let wait = secs.min(120);
-                        eprintln!("[oai-runner] Rate limited. Retry-After: {}s", wait);
-                        tokio::time::sleep(Duration::from_secs(wait)).await;
-                    }
-                }
+            let retry_after_secs = if status_code == 429 {
+                resp.headers()
+                    .get("retry-after")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|s| s.parse::<u64>().ok())
+            } else {
+                None
+            };
+            if let Some(secs) = retry_after_secs {
+                let wait = secs.min(120);
+                eprintln!("[oai-runner] Rate limited. Retry-After: {}s", wait);
+                tokio::time::sleep(Duration::from_secs(wait)).await;
             }
             let body = resp.text().await.unwrap_or_default();
-            bail!("API returned {} {}: {}", status.as_u16(), status.as_str(), body);
+            let provider_code = serde_json::from_str::<ProviderErrorBody>(&body)
+                .ok()
+                .and_then(|b| b.error)
+                .and_then(|e| e.code);
+            return Err(match status_code {
+                429 => OaiError::RateLimit { retry_after_secs, body, provider_code }.into(),
+                500..=599 => OaiError::ServerError { status: status_code, body, provider_code }.into(),
+                401 | 403 => OaiError::AuthError { status: status_code, body }.into(),
+                _ => OaiError::ClientError { status: status_code, body, provider_code }.into(),
+            });
         }
 
         let mut content = String::new();

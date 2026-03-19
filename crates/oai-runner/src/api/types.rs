@@ -120,6 +120,32 @@ pub struct StreamOptions {
     pub include_usage: bool,
 }
 
+#[derive(Debug, Deserialize, Default)]
+pub struct ProviderErrorBody {
+    #[serde(default)]
+    pub error: Option<ProviderErrorDetail>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct ProviderErrorDetail {
+    #[serde(default)]
+    pub code: Option<String>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum OaiError {
+    #[error("rate limited (HTTP 429): {body}")]
+    RateLimit { retry_after_secs: Option<u64>, body: String, provider_code: Option<String> },
+    #[error("server error (HTTP {status}): {body}")]
+    ServerError { status: u16, body: String, provider_code: Option<String> },
+    #[error("authentication error (HTTP {status}): {body}")]
+    AuthError { status: u16, body: String },
+    #[error("client error (HTTP {status}): {body}")]
+    ClientError { status: u16, body: String, provider_code: Option<String> },
+    #[error("transient connection error: {message}")]
+    Transient { message: String },
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

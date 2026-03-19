@@ -90,10 +90,34 @@ pub(super) async fn spawn_session_process(
     let resolver = SessionBackendResolver::new();
     let backend = resolver.resolve(&session_request);
     let mut run = match resume_session_id.map(str::trim).filter(|s| !s.is_empty()) {
-        Some(session_id) => backend
-            .resume_session(session_request, session_id)
-            .await
-            .context("failed to resume native session backend")?,
+        Some(session_id) => {
+            if !backend.capabilities().supports_resume {
+                warn!(
+                    run_id = %run_id.0.as_str(),
+                    session_id,
+                    tool,
+                    "Backend does not support resume; starting fresh session"
+                );
+                backend.start_session(session_request).await.context("failed to start native session backend")?
+            } else {
+                match backend.resume_session(session_request.clone(), session_id).await {
+                    Ok(run) => run,
+                    Err(err) => {
+                        warn!(
+                            run_id = %run_id.0.as_str(),
+                            session_id,
+                            tool,
+                            error = %err,
+                            "Session resume failed; falling back to fresh session start"
+                        );
+                        backend
+                            .start_session(session_request)
+                            .await
+                            .context("failed to start native session backend after resume fallback")?
+                    }
+                }
+            }
+        }
         None => backend.start_session(session_request).await.context("failed to start native session backend")?,
     };
 
@@ -880,6 +904,53 @@ mod tests {
         let mcp_idx =
             args.iter().position(|arg| arg == "--mcp-config").expect("oai-runner launch should include mcp config");
         assert_eq!(mcp_idx, 1, "expected mcp flag immediately after run");
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn spawn_session_process_falls_back_to_start_when_backend_does_not_support_resume() {
+        let run_id = RunId("run-resume-fallback-no-support".to_string());
+        let runtime_contract = json!({
+            "cli": {
+                "name": "unknown-custom-tool",
+                "capabilities": {},
+                "launch": {
+                    "command": "sh",
+                    "args": ["-c", "printf 'FALLBACK_42\\n'"],
+                    "prompt_via_stdin": false
+                }
+            }
+        });
+        let (event_tx, mut event_rx) = mpsc::channel(64);
+        let (_cancel_tx, cancel_rx) = oneshot::channel();
+
+        let exit_code = spawn_session_process(
+            "unknown-custom-tool",
+            "test-model",
+            "",
+            Some(&runtime_contract),
+            ".",
+            HashMap::new(),
+            Some(30),
+            &run_id,
+            event_tx,
+            cancel_rx,
+            Some("stale-session-id-xyz"),
+        )
+        .await
+        .expect("spawn should succeed via fallback to start_session when backend does not support resume");
+
+        let mut saw_output = false;
+        while let Some(event) = event_rx.recv().await {
+            if let AgentRunEvent::OutputChunk { text, .. } = event {
+                if text.contains("FALLBACK_42") {
+                    saw_output = true;
+                }
+            }
+        }
+
+        assert_eq!(exit_code, 0);
+        assert!(saw_output, "expected output forwarded through fallback start_session path");
     }
 
     #[tokio::test]

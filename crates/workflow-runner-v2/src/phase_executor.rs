@@ -374,6 +374,16 @@ pub(crate) fn validate_basic_json_schema(instance: &Value, schema: &Value) -> Re
                     return Err(anyhow!("schema validation failed: field '{}' must equal {}", key, constant));
                 }
             }
+            if let Some(enum_values) = rule.get("enum").and_then(Value::as_array) {
+                if !enum_values.contains(value) {
+                    let allowed: Vec<String> = enum_values.iter().map(|v| v.to_string()).collect();
+                    return Err(anyhow!(
+                        "schema validation failed: field '{}' must be one of [{}]",
+                        key,
+                        allowed.join(", ")
+                    ));
+                }
+            }
         }
     }
 
@@ -390,6 +400,14 @@ fn validate_schema_type(expected_type: &str, value: &Value) -> bool {
         "object" => value.is_object(),
         "null" => value.is_null(),
         _ => true,
+    }
+}
+
+fn risk_ordinal(risk: orchestrator_core::WorkflowDecisionRisk) -> u8 {
+    match risk {
+        orchestrator_core::WorkflowDecisionRisk::Low => 0,
+        orchestrator_core::WorkflowDecisionRisk::Medium => 1,
+        orchestrator_core::WorkflowDecisionRisk::High => 2,
     }
 }
 
@@ -1485,6 +1503,83 @@ pub async fn run_workflow_phase(params: &PhaseRunParams<'_>) -> Result<PhaseRunR
                 }
             }
 
+            if let Some(contract) = ctx.phase_decision_contract(phase_id) {
+                if let PhaseExecutionOutcome::Completed { phase_decision, .. } = &outcome {
+                    if !contract.allow_missing_decision && phase_decision.is_none() {
+                        signals.push(PhaseExecutionSignal {
+                            event_type: "workflow-phase-contract-violation".to_string(),
+                            payload: serde_json::json!({
+                                "workflow_id": workflow_id,
+                                "phase_id": phase_id,
+                                "reason": "phase_decision is required but missing",
+                            }),
+                        });
+                        return Err(anyhow!(
+                            "phase '{}' contract violation: phase_decision is required but missing",
+                            phase_id
+                        ));
+                    }
+                    if let Some(decision) = phase_decision {
+                        if decision.confidence < contract.min_confidence {
+                            let reason = format!(
+                                "confidence {:.2} is below required minimum {:.2}",
+                                decision.confidence, contract.min_confidence
+                            );
+                            signals.push(PhaseExecutionSignal {
+                                event_type: "workflow-phase-contract-violation".to_string(),
+                                payload: serde_json::json!({
+                                    "workflow_id": workflow_id,
+                                    "phase_id": phase_id,
+                                    "reason": reason,
+                                }),
+                            });
+                            return Err(anyhow!("phase '{}' contract violation: {}", phase_id, reason));
+                        }
+                        if risk_ordinal(decision.risk) > risk_ordinal(contract.max_risk) {
+                            let reason = format!(
+                                "risk '{:?}' exceeds maximum allowed '{:?}'",
+                                decision.risk, contract.max_risk
+                            );
+                            signals.push(PhaseExecutionSignal {
+                                event_type: "workflow-phase-contract-violation".to_string(),
+                                payload: serde_json::json!({
+                                    "workflow_id": workflow_id,
+                                    "phase_id": phase_id,
+                                    "reason": reason,
+                                }),
+                            });
+                            return Err(anyhow!("phase '{}' contract violation: {}", phase_id, reason));
+                        }
+                        if !contract.required_evidence.is_empty() {
+                            let has_required = decision
+                                .evidence
+                                .iter()
+                                .any(|e| contract.required_evidence.contains(&e.kind));
+                            if !has_required {
+                                let required_kinds: Vec<String> = contract
+                                    .required_evidence
+                                    .iter()
+                                    .map(|k| format!("{:?}", k))
+                                    .collect();
+                                let reason = format!(
+                                    "evidence must include at least one of [{}]",
+                                    required_kinds.join(", ")
+                                );
+                                signals.push(PhaseExecutionSignal {
+                                    event_type: "workflow-phase-contract-violation".to_string(),
+                                    payload: serde_json::json!({
+                                        "workflow_id": workflow_id,
+                                        "phase_id": phase_id,
+                                        "reason": reason,
+                                    }),
+                                });
+                                return Err(anyhow!("phase '{}' contract violation: {}", phase_id, reason));
+                            }
+                        }
+                    }
+                }
+            }
+
             Ok(PhaseRunResult { outcome, metadata, signals })
         }
         orchestrator_core::PhaseExecutionMode::Command => {
@@ -1619,7 +1714,8 @@ pub async fn run_workflow_phase(params: &PhaseRunParams<'_>) -> Result<PhaseRunR
 #[cfg(test)]
 mod tests {
     use super::{
-        phase_outcome_is_complete, phase_session_resume_plan, process_phase_event_stream, PhaseExecutionOutcome,
+        phase_outcome_is_complete, phase_session_resume_plan, process_phase_event_stream, validate_basic_json_schema,
+        PhaseExecutionOutcome,
     };
 
     #[test]
@@ -1892,5 +1988,42 @@ mod tests {
         .await
         .expect("malformed lines should be skipped, not cause failure");
         assert!(matches!(outcome, PhaseExecutionOutcome::Completed { .. }));
+    }
+
+    #[test]
+    fn validate_basic_json_schema_accepts_valid_enum_value() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "verdict": { "enum": ["advance", "rework", "fail"] }
+            }
+        });
+        let instance = serde_json::json!({ "verdict": "advance" });
+        assert!(validate_basic_json_schema(&instance, &schema).is_ok());
+    }
+
+    #[test]
+    fn validate_basic_json_schema_rejects_invalid_enum_value() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "verdict": { "enum": ["advance", "rework", "fail"] }
+            }
+        });
+        let instance = serde_json::json!({ "verdict": "unknown_verdict" });
+        let err = validate_basic_json_schema(&instance, &schema).expect_err("should reject invalid enum");
+        assert!(err.to_string().contains("must be one of"), "got: {}", err);
+    }
+
+    #[test]
+    fn validate_basic_json_schema_skips_enum_check_for_absent_field() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "verdict": { "enum": ["advance", "rework"] }
+            }
+        });
+        let instance = serde_json::json!({});
+        assert!(validate_basic_json_schema(&instance, &schema).is_ok());
     }
 }

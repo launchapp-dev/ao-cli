@@ -27,6 +27,12 @@ impl AoMcpServer {
     )]
     async fn ao_queue_enqueue(&self, params: Parameters<QueueEnqueueInput>) -> Result<CallToolResult, McpError> {
         let input = params.0;
+        if input.task_id.is_none() && input.requirement_id.is_none() {
+            return Ok(CallToolResult::structured_error(json!({
+                "tool": "ao.queue.enqueue",
+                "error": "ao.queue.enqueue requires at least one of task_id or requirement_id",
+            })));
+        }
         let args = build_queue_enqueue_args(&input);
         self.run_tool("ao.queue.enqueue", args, input.project_root).await
     }

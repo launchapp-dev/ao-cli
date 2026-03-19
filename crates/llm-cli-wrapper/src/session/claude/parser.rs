@@ -1,3 +1,4 @@
+use protocol::{parse_claude_error_message, ProviderError};
 use serde_json::{json, Value};
 
 use crate::session::session_event::SessionEvent;
@@ -19,7 +20,10 @@ pub(crate) fn parse_claude_stdout_line(line: &str) -> Vec<SessionEvent> {
         "result" => parse_claude_result_event(&value),
         "content_block_start" => parse_claude_content_block_start(&value),
         "content_block_delta" => parse_claude_content_block_delta(&value),
-        "rate_limit_event" => vec![SessionEvent::Metadata { metadata: value }],
+        "rate_limit_event" => {
+            let provider_err = ProviderError::RateLimit { retry_after_secs: None };
+            vec![SessionEvent::Error { message: provider_err.to_string(), recoverable: true }]
+        }
         _ => Vec::new(),
     }
 }
@@ -83,8 +87,10 @@ fn parse_claude_assistant_event(value: &Value) -> Vec<SessionEvent> {
 
 fn parse_claude_result_event(value: &Value) -> Vec<SessionEvent> {
     if value.get("is_error").and_then(Value::as_bool).unwrap_or(false) {
-        let message = value.get("result").and_then(Value::as_str).unwrap_or("claude session failed").to_string();
-        return vec![SessionEvent::Error { message, recoverable: false }];
+        let raw = value.get("result").and_then(Value::as_str).unwrap_or("claude session failed");
+        let provider_err = parse_claude_error_message(raw);
+        let recoverable = matches!(provider_err, ProviderError::RateLimit { .. });
+        return vec![SessionEvent::Error { message: provider_err.to_string(), recoverable }];
     }
 
     let Some(text) = value.get("result").and_then(Value::as_str) else {

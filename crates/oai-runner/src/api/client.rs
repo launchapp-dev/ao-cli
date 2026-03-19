@@ -1,6 +1,7 @@
 use anyhow::{bail, Result};
 use eventsource_stream::Eventsource;
 use futures_util::StreamExt;
+use protocol::{parse_oai_http_error, ProviderError};
 use std::io::Write;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::Duration;
@@ -78,28 +79,21 @@ impl ApiClient {
                     return Ok(result);
                 }
                 Err(e) => {
-                    let err_str = e.to_string();
-                    let is_rate_limit = err_str.contains("429");
-                    let is_server_error = err_str.contains(" 5") && attempt < 2;
-                    let is_transient = err_str.contains("EOF")
-                        || err_str.contains("connection closed")
-                        || err_str.contains("broken pipe")
-                        || err_str.contains("reset by peer");
-                    if is_rate_limit || is_server_error || is_transient {
-                        record_failure();
-                        let reason = if is_rate_limit {
-                            "rate limited (429)"
-                        } else if is_transient {
-                            "transient connection error"
-                        } else {
-                            "server error"
-                        };
-                        eprintln!("[oai-runner] Retry {}/3: {}", attempt + 1, reason);
-                        last_err = Some(e);
+                    let provider_err = e
+                        .downcast::<ProviderError>()
+                        .unwrap_or_else(|e| ProviderError::Unknown { message: e.to_string() });
+                    let should_retry = match &provider_err {
+                        ProviderError::RateLimit { .. } => true,
+                        ProviderError::Unknown { .. } => attempt < 2,
+                        _ => false,
+                    };
+                    record_failure();
+                    if should_retry {
+                        eprintln!("[oai-runner] Retry {}/3: {}", attempt + 1, provider_err);
+                        last_err = Some(anyhow::Error::from(provider_err));
                         continue;
                     }
-                    record_failure();
-                    return Err(e);
+                    return Err(anyhow::Error::from(provider_err));
                 }
             }
         }
@@ -134,7 +128,7 @@ impl ApiClient {
                 }
             }
             let body = resp.text().await.unwrap_or_default();
-            bail!("API returned {} {}: {}", status.as_u16(), status.as_str(), body);
+            return Err(anyhow::Error::from(parse_oai_http_error(status.as_u16(), &body)));
         }
 
         let mut content = String::new();

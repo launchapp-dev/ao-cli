@@ -52,6 +52,15 @@ ao
 │   ├── archive              Archive project
 │   └── remove               Remove project
 │
+├── queue                    Dispatch queue management
+│   ├── list                 List queued dispatches
+│   ├── stats                Queue statistics
+│   ├── enqueue              Enqueue a task/requirement/freeform dispatch
+│   ├── hold                 Hold a queued subject
+│   ├── release              Release a held subject
+│   ├── drop                 Drop a queued subject
+│   └── reorder              Reorder queued subjects
+│
 ├── task                     Task management
 │   ├── list                 List tasks (filterable)
 │   ├── prioritized          Tasks sorted by priority
@@ -79,8 +88,7 @@ ao
 │   ├── list                 List workflows
 │   ├── get                  Get workflow details
 │   ├── decisions            Show workflow decisions
-│   ├── run                  Start workflow (async, daemon)
-│   ├── execute              Execute workflow (sync, no daemon)
+│   ├── run                  Start workflow (async, daemon; --sync to run in terminal)
 │   ├── resume               Resume paused workflow
 │   ├── resume-status        Check resumability
 │   ├── pause                Pause workflow (confirmation)
@@ -91,7 +99,8 @@ ao
 │   │   ├── get              Get checkpoint
 │   │   └── prune            Prune checkpoints
 │   ├── phase
-│   │   └── approve          Approve pending phase gate
+│   │   ├── approve          Approve pending phase gate
+│   │   └── reject           Reject pending phase gate
 │   ├── phases
 │   │   ├── list             List phase definitions
 │   │   ├── get              Get phase by id
@@ -108,10 +117,12 @@ ao
 │   │   ├── get              Read state-machine config
 │   │   ├── validate         Validate state-machine
 │   │   └── set              Replace state-machine config
-│   └── agent-runtime
-│       ├── get              Read agent-runtime config
-│       ├── validate         Validate agent-runtime config
-│       └── set              Replace agent-runtime config
+│   ├── agent-runtime
+│   │   ├── get              Read agent-runtime config
+│   │   ├── validate         Validate agent-runtime config
+│   │   └── set              Replace agent-runtime config
+│   └── prompt
+│       └── render           Render workflow phase prompt text
 │
 ├── vision                   Project vision
 │   ├── draft                Draft vision
@@ -119,10 +130,9 @@ ao
 │   └── get                  Read vision
 │
 ├── requirements             Requirements management
-│   ├── draft                Draft from project context
+│   ├── execute              Execute requirements into tasks and workflows
 │   ├── list                 List requirements
 │   ├── get                  Get requirement by id
-│   ├── refine               Refine requirements
 │   ├── create               Create requirement
 │   ├── update               Update requirement
 │   ├── delete               Delete requirement
@@ -230,6 +240,18 @@ ao
 │       ├── run              Run model evaluation
 │       └── report           Show evaluation report
 │
+├── pack                     Workflow pack management
+│   ├── install              Install a pack (local path or marketplace)
+│   ├── list                 List discovered packs
+│   ├── inspect              Inspect a pack or local manifest
+│   ├── pin                  Pin pack version or toggle enablement
+│   ├── search               Search marketplace packs
+│   └── registry
+│       ├── add              Add marketplace registry
+│       ├── remove           Remove marketplace registry
+│       ├── list             List registered registries
+│       └── sync             Sync registry catalog
+│
 ├── runner                   Runner management
 │   ├── health               Runner health
 │   ├── orphans
@@ -259,7 +281,7 @@ ao
 | Metric | Count |
 |---|---|
 | Top-level commands | 24 |
-| Total subcommands (all levels) | ~130+ |
+| Total subcommands (all levels) | ~150+ |
 | Commands with `--confirmation` pattern | 8 |
 | Commands with `--input-json` | 15+ |
 | Commands with `--dry-run` | 6 |

@@ -206,8 +206,8 @@ pub(crate) struct WorkflowRunArgs {
         help = "Workflow definition name (e.g. ao.task/standard, ao.task/ui-ux, ao.vision/draft). Legacy builtin refs remain supported during migration."
     )]
     pub(crate) pipeline: Option<String>,
-    #[arg(long, value_name = "TASK_ID", group = "subject", help = "Task id to run the workflow for.")]
-    pub(crate) task_id: Option<String>,
+    #[arg(long, value_name = "TASK_ID", group = "subject", help = "Task ID(s) to run the workflow for. Repeat the flag for multiple subjects: --task-id T1 --task-id T2.")]
+    pub(crate) task_id: Vec<String>,
     #[arg(long, value_name = "REQ_ID", group = "subject", help = "Requirement id to run the workflow for.")]
     pub(crate) requirement_id: Option<String>,
     #[arg(long, value_name = "TITLE", group = "subject", help = "Custom workflow title for freeform execution.")]

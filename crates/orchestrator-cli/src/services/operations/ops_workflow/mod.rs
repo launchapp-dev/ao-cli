@@ -299,9 +299,12 @@ pub(crate) async fn handle_workflow(
         WorkflowCommand::Run(args) => {
             let effective_workflow_ref = args.workflow_ref.or(args.pipeline);
             if args.sync {
+                if args.task_id.len() > 1 {
+                    return Err(anyhow!("--sync does not support multiple --task-id values; dispatch one subject at a time with --sync"));
+                }
                 let execute_args = WorkflowExecuteArgs {
                     workflow_id: args.workflow_id,
-                    task_id: args.task_id,
+                    task_id: args.task_id.into_iter().next(),
                     requirement_id: args.requirement_id,
                     title: args.title,
                     description: args.description,
@@ -315,6 +318,45 @@ pub(crate) async fn handle_workflow(
                 };
                 execute::handle_workflow_execute(execute_args, hub, project_root, json).await?;
                 Ok(())
+            } else if args.task_id.len() > 1 {
+                if args.input_json.is_some() {
+                    return Err(anyhow!("--input-json cannot be combined with multiple --task-id values"));
+                }
+                let vars = parse_workflow_vars(&args.vars)?;
+                let mut results = Vec::with_capacity(args.task_id.len());
+                for tid in &args.task_id {
+                    let dispatch = resolve_workflow_run_dispatch(
+                        hub.clone(),
+                        project_root,
+                        Some(tid.clone()),
+                        None,
+                        None,
+                        None,
+                        effective_workflow_ref.clone(),
+                        vars.clone(),
+                    )
+                    .await;
+                    match dispatch {
+                        Ok(d) => match workflows.run(d.to_workflow_run_input()).await {
+                            Ok(workflow) => results.push(serde_json::json!({
+                                "task_id": tid,
+                                "status": "dispatched",
+                                "workflow": workflow,
+                            })),
+                            Err(e) => results.push(serde_json::json!({
+                                "task_id": tid,
+                                "status": "error",
+                                "error": e.to_string(),
+                            })),
+                        },
+                        Err(e) => results.push(serde_json::json!({
+                            "task_id": tid,
+                            "status": "error",
+                            "error": e.to_string(),
+                        })),
+                    }
+                }
+                print_value(results, json)
             } else {
                 let dispatch = match args.input_json {
                     Some(raw) => resolve_workflow_run_dispatch_from_raw_input(hub.clone(), project_root, &raw).await?,
@@ -323,7 +365,7 @@ pub(crate) async fn handle_workflow(
                         resolve_workflow_run_dispatch(
                             hub.clone(),
                             project_root,
-                            args.task_id,
+                            args.task_id.into_iter().next(),
                             args.requirement_id,
                             args.title,
                             args.description,

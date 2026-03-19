@@ -108,7 +108,7 @@ function ComingSoonNotice({ command }: { command: string }) {
 export function TaskDispatchPage() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [workflowType, setWorkflowType] = useState<string>("standard");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [model, setModel] = useState("auto");
@@ -119,6 +119,7 @@ export function TaskDispatchPage() {
   const [vars, setVars] = useState("");
   const [launching, setLaunching] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [results, setResults] = useState<Array<{ taskId: string; workflowId?: string; error?: string }> | null>(null);
 
   const [readyResult] = useQuery({ query: ReadyTasksDocument, variables: { search: search.trim() || null, limit: 50 } });
   const [defsResult] = useQuery({ query: WorkflowDefinitionsDocument });
@@ -130,11 +131,6 @@ export function TaskDispatchPage() {
   const daemonStatus = daemonResult.data?.daemonStatus;
   const daemonHealth = daemonResult.data?.daemonHealth;
 
-  const selectedTask = useMemo(
-    () => tasks.find((t) => t.id === selectedTaskId) ?? null,
-    [tasks, selectedTaskId]
-  );
-
   const selectedDef = useMemo(
     () => definitions.find((d) => d.id === workflowType),
     [definitions, workflowType]
@@ -145,6 +141,22 @@ export function TaskDispatchPage() {
       setWorkflowType(definitions[0].id);
     }
   }, [definitions, workflowType]);
+
+  const toggleTask = (id: string) => {
+    setSelectedTaskIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAll = () => setSelectedTaskIds(new Set(tasks.map((t) => t.id)));
+  const clearAll = () => setSelectedTaskIds(new Set());
+
+  const selectedTasks = useMemo(
+    () => tasks.filter((t) => selectedTaskIds.has(t.id)),
+    [tasks, selectedTaskIds]
+  );
 
   const preflightChecks = useMemo(() => {
     const checks: { label: string; passed: boolean; fix?: string }[] = [];
@@ -172,24 +184,27 @@ export function TaskDispatchPage() {
       fix: hasCapacity ? undefined : `All ${maxAgents} agent slots in use. Wait for a slot or increase max agents.`,
     });
 
-    if (selectedTask) {
-      const validStatus = ["ready", "backlog"].includes(selectedTask.statusRaw ?? "");
+    if (selectedTaskIds.size > 0) {
+      const invalidTasks = selectedTasks.filter((t) => !["ready", "backlog"].includes(t.statusRaw ?? ""));
       checks.push({
-        label: `Task status is dispatchable (${selectedTask.statusRaw})`,
-        passed: validStatus,
-        fix: validStatus ? undefined : "Set task status to 'ready' or 'backlog' before dispatching",
+        label: invalidTasks.length === 0
+          ? `${selectedTaskIds.size} task${selectedTaskIds.size === 1 ? "" : "s"} ready to dispatch`
+          : `${invalidTasks.length} task${invalidTasks.length === 1 ? "" : "s"} have invalid status`,
+        passed: invalidTasks.length === 0,
+        fix: invalidTasks.length > 0 ? "Set all selected tasks to 'ready' or 'backlog' before dispatching" : undefined,
       });
     }
 
     return checks;
-  }, [daemonStatus, daemonHealth, selectedTask]);
+  }, [daemonStatus, daemonHealth, selectedTaskIds, selectedTasks]);
 
-  const allPassed = selectedTask !== null && preflightChecks.every((c) => c.passed);
+  const allPassed = selectedTaskIds.size > 0 && preflightChecks.every((c) => c.passed);
 
   const onLaunch = async () => {
-    if (!selectedTaskId) return;
+    if (selectedTaskIds.size === 0) return;
     setLaunching(true);
     setErrorMsg(null);
+    setResults(null);
 
     const workflowRef = selectedDef && selectedDef.id !== "standard" ? selectedDef.id : null;
     const resolvedModel = model !== "auto" ? model : null;
@@ -200,21 +215,45 @@ export function TaskDispatchPage() {
       : null;
     const resolvedVars = vars.trim() || null;
 
-    const { data, error } = await runWorkflow({
-      taskId: selectedTaskId,
-      workflowRef,
-      model: resolvedModel,
-      tool: resolvedTool,
-      vars: resolvedVars,
-      skipPhases: resolvedSkipPhases,
-      phaseTimeoutSecs: resolvedTimeout,
-    });
-    setLaunching(false);
-    if (error) {
-      setErrorMsg(error.message);
-    } else if (data?.runWorkflow?.id) {
-      navigate(`/workflows/${data.runWorkflow.id}`);
+    if (selectedTaskIds.size === 1) {
+      const taskId = [...selectedTaskIds][0];
+      const { data, error } = await runWorkflow({
+        taskId,
+        workflowRef,
+        model: resolvedModel,
+        tool: resolvedTool,
+        vars: resolvedVars,
+        skipPhases: resolvedSkipPhases,
+        phaseTimeoutSecs: resolvedTimeout,
+      });
+      setLaunching(false);
+      if (error) {
+        setErrorMsg(error.message);
+      } else if (data?.runWorkflow?.id) {
+        navigate(`/workflows/${data.runWorkflow.id}`);
+      }
+      return;
     }
+
+    const runResults: Array<{ taskId: string; workflowId?: string; error?: string }> = [];
+    for (const taskId of selectedTaskIds) {
+      const { data, error } = await runWorkflow({
+        taskId,
+        workflowRef,
+        model: resolvedModel,
+        tool: resolvedTool,
+        vars: resolvedVars,
+        skipPhases: resolvedSkipPhases,
+        phaseTimeoutSecs: resolvedTimeout,
+      });
+      if (error) {
+        runResults.push({ taskId, error: error.message });
+      } else {
+        runResults.push({ taskId, workflowId: data?.runWorkflow?.id });
+      }
+    }
+    setLaunching(false);
+    setResults(runResults);
   };
 
   if (readyResult.fetching || daemonResult.fetching || defsResult.fetching) return <PageLoading />;
@@ -225,12 +264,22 @@ export function TaskDispatchPage() {
       <BackLink />
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Run Workflow</h1>
-        <p className="text-sm text-muted-foreground mt-1">Dispatch a workflow for a task</p>
+        <p className="text-sm text-muted-foreground mt-1">Dispatch a workflow for one or more tasks</p>
       </div>
 
       <Card className="border-border/40 bg-card/60">
         <CardHeader className="pb-2 pt-3 px-4">
-          <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground/60 font-medium">Task</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground/60 font-medium">
+              Tasks {selectedTaskIds.size > 0 && <span className="text-primary">({selectedTaskIds.size} selected)</span>}
+            </CardTitle>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" className="h-6 text-xs" onClick={selectAll}>Select All</Button>
+              {selectedTaskIds.size > 0 && (
+                <Button size="sm" variant="outline" className="h-6 text-xs" onClick={clearAll}>Clear</Button>
+              )}
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="px-4 pb-4">
           <Input
@@ -245,24 +294,25 @@ export function TaskDispatchPage() {
               <p className="text-sm text-muted-foreground py-8 text-center">No ready tasks match.</p>
             ) : (
               tasks.map((t) => (
-                <button
+                <label
                   key={t.id}
-                  type="button"
-                  onClick={() => setSelectedTaskId(t.id)}
-                  aria-pressed={selectedTaskId === t.id}
-                  className={`w-full text-left rounded-md border px-3 py-2 transition-all duration-150 ${
-                    selectedTaskId === t.id
+                  className={`flex items-center gap-3 rounded-md border px-3 py-2 transition-all duration-150 cursor-pointer ${
+                    selectedTaskIds.has(t.id)
                       ? "border-primary/30 bg-primary/5"
                       : "border-transparent hover:bg-accent/30"
                   }`}
                 >
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <span className="font-mono text-xs text-muted-foreground shrink-0">{t.id}</span>
-                    <span className="text-sm flex-1 truncate min-w-0">{t.title}</span>
-                    <Badge variant={priorityColor(t.priorityRaw ?? "")} className="text-[10px]">{t.priorityRaw}</Badge>
-                    <Badge variant={statusColor(t.statusRaw ?? "")} className="text-[10px]">{t.statusRaw}</Badge>
-                  </div>
-                </button>
+                  <input
+                    type="checkbox"
+                    checked={selectedTaskIds.has(t.id)}
+                    onChange={() => toggleTask(t.id)}
+                    className="h-4 w-4 shrink-0"
+                  />
+                  <span className="font-mono text-xs text-muted-foreground shrink-0">{t.id}</span>
+                  <span className="text-sm flex-1 truncate min-w-0">{t.title}</span>
+                  <Badge variant={priorityColor(t.priorityRaw ?? "")} className="text-[10px]">{t.priorityRaw}</Badge>
+                  <Badge variant={statusColor(t.statusRaw ?? "")} className="text-[10px]">{t.statusRaw}</Badge>
+                </label>
               ))
             )}
           </div>
@@ -375,7 +425,7 @@ export function TaskDispatchPage() {
         )}
       </div>
 
-      {selectedTask && (
+      {selectedTaskIds.size > 0 && (
         <Card className="border-border/40 bg-card/60 ao-fade-in">
           <CardHeader className="pb-2 pt-3 px-4">
             <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground/60 font-medium">Pre-flight</CardTitle>
@@ -396,11 +446,31 @@ export function TaskDispatchPage() {
         </Alert>
       )}
 
+      {results && (
+        <Card className="border-border/40 bg-card/60 ao-fade-in">
+          <CardHeader className="pb-2 pt-3 px-4">
+            <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground/60 font-medium">Results</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4 space-y-2">
+            {results.map((r) => (
+              <div key={r.taskId} className="flex items-center gap-3 text-sm">
+                <span className="font-mono text-xs text-muted-foreground shrink-0">{r.taskId}</span>
+                {r.error ? (
+                  <span className="text-destructive text-xs">{r.error}</span>
+                ) : (
+                  <Link to={`/workflows/${r.workflowId}`} className="text-xs text-primary hover:underline font-mono">{r.workflowId}</Link>
+                )}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       <Button
         onClick={onLaunch}
         disabled={!allPassed || launching}
       >
-        {launching ? "Launching..." : "Launch Workflow"}
+        {launching ? "Launching..." : selectedTaskIds.size > 1 ? `Launch ${selectedTaskIds.size} Workflows` : "Launch Workflow"}
       </Button>
     </div>
   );

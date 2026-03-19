@@ -1,7 +1,7 @@
 use crate::config_context::RuntimeConfigContext;
 use crate::ipc::{
     build_runtime_contract_with_resume, collect_json_payload_lines, connect_runner, event_matches_run,
-    persist_run_event, run_dir as ipc_run_dir, runner_config_dir, write_json_line,
+    extract_sentinel_block, persist_run_event, run_dir as ipc_run_dir, runner_config_dir, write_json_line,
 };
 use crate::payload_traversal::{parse_commit_message_from_text, parse_phase_decision_from_text};
 use crate::phase_command::{
@@ -602,7 +602,8 @@ async fn process_phase_event_stream<R: AsyncBufRead + Unpin>(
 }
 
 fn parse_result_payload_from_text(text: &str, expected_kind: &str) -> Option<Value> {
-    for (_raw, payload) in collect_json_payload_lines(text) {
+    let scan_text = extract_sentinel_block(text).unwrap_or(text);
+    for (_raw, payload) in collect_json_payload_lines(scan_text) {
         if let Some(result) = parse_result_payload_from_payload(&payload, expected_kind) {
             return Some(result);
         }

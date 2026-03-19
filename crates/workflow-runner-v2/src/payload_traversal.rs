@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::ipc::collect_json_payload_lines;
+use crate::ipc::{collect_json_payload_lines, extract_sentinel_block};
 
 pub fn traverse_payload<T>(
     payload: &Value,
@@ -36,6 +36,14 @@ pub fn traverse_text<T>(
     object_keys: &[&str],
     text_keys: &[&str],
 ) -> Option<T> {
+    if let Some(block) = extract_sentinel_block(text) {
+        for (_raw, payload) in collect_json_payload_lines(block) {
+            if let Some(result) = traverse_payload(&payload, object_keys, text_keys, extractor, text_extractor) {
+                return Some(result);
+            }
+        }
+        return text_extractor(block);
+    }
     let mut last_match = None;
     for (_raw, payload) in collect_json_payload_lines(text) {
         if let Some(result) = traverse_payload(&payload, object_keys, text_keys, extractor, text_extractor) {
@@ -185,6 +193,39 @@ pub fn fallback_implementation_commit_message(phase_id: &str, subject_title: &st
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sentinel_block_preferred_over_earlier_json() {
+        let text = r#"Some prose output.
+{"kind":"phase_decision","phase_id":"implementation","verdict":"rework","confidence":0.5,"risk":"medium","reason":"Early noise","evidence":[]}
+More prose.
+<<<AO_PHASE_OUTPUT>>>
+{"kind":"phase_decision","phase_id":"implementation","verdict":"advance","confidence":0.95,"risk":"low","reason":"Done","evidence":[]}
+<<<AO_PHASE_OUTPUT_END>>>"#;
+        let decision = parse_phase_decision_from_text(text, "implementation").unwrap();
+        assert_eq!(decision.verdict, orchestrator_core::PhaseDecisionVerdict::Advance);
+        assert!((decision.confidence - 0.95).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn sentinel_block_multiline_prose_ignored() {
+        let text = r#"Some thinking...
+{"kind":"phase_decision","verdict":"rework","confidence":0.1,"risk":"high","reason":"noise","evidence":[]}
+<<<AO_PHASE_OUTPUT>>>
+{"kind":"phase_decision","phase_id":"requirements","verdict":"skip","confidence":0.8,"risk":"low","reason":"already_done","evidence":[]}
+<<<AO_PHASE_OUTPUT_END>>>
+trailing text"#;
+        let decision = parse_phase_decision_from_text(text, "requirements").unwrap();
+        assert_eq!(decision.verdict, orchestrator_core::PhaseDecisionVerdict::Skip);
+    }
+
+    #[test]
+    fn no_sentinel_falls_back_to_last_match() {
+        let text = r#"{"kind":"phase_decision","phase_id":"triage","verdict":"rework","confidence":0.5,"risk":"medium","reason":"first","evidence":[]}
+{"kind":"phase_decision","phase_id":"triage","verdict":"advance","confidence":0.9,"risk":"low","reason":"last","evidence":[]}"#;
+        let decision = parse_phase_decision_from_text(text, "triage").unwrap();
+        assert_eq!(decision.verdict, orchestrator_core::PhaseDecisionVerdict::Advance);
+    }
 
     #[test]
     fn parse_phase_decision_from_nested_json() {

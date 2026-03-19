@@ -243,6 +243,16 @@ fn stream_type_label(stream_type: OutputStreamType) -> &'static str {
     }
 }
 
+pub const PHASE_OUTPUT_SENTINEL_START: &str = "<<<AO_PHASE_OUTPUT>>>";
+pub const PHASE_OUTPUT_SENTINEL_END: &str = "<<<AO_PHASE_OUTPUT_END>>>";
+
+pub fn extract_sentinel_block(text: &str) -> Option<&str> {
+    let start = text.find(PHASE_OUTPUT_SENTINEL_START)?;
+    let content_start = start + PHASE_OUTPUT_SENTINEL_START.len();
+    let end = text[content_start..].find(PHASE_OUTPUT_SENTINEL_END).map(|i| content_start + i)?;
+    Some(text[content_start..end].trim())
+}
+
 pub fn collect_json_payload_lines(text: &str) -> Vec<(String, Value)> {
     text.lines()
         .filter_map(|line| {
@@ -369,5 +379,26 @@ mod tests {
         let run_id = RunId("run-dir-abc".to_string());
         let dir = run_dir(project_root.to_str().unwrap(), &run_id, None);
         assert!(dir.ends_with("run-dir-abc"));
+    }
+
+    #[test]
+    fn extract_sentinel_block_returns_content_between_markers() {
+        let text = "prose\n<<<AO_PHASE_OUTPUT>>>\n{\"kind\":\"result\"}\n<<<AO_PHASE_OUTPUT_END>>>\ntrailing";
+        let block = extract_sentinel_block(text).unwrap();
+        assert!(block.contains("\"kind\":\"result\""));
+        assert!(!block.contains("prose"));
+        assert!(!block.contains("trailing"));
+    }
+
+    #[test]
+    fn extract_sentinel_block_returns_none_without_markers() {
+        let text = "plain output without sentinels";
+        assert!(extract_sentinel_block(text).is_none());
+    }
+
+    #[test]
+    fn extract_sentinel_block_requires_both_markers() {
+        let text = "<<<AO_PHASE_OUTPUT>>>\n{\"kind\":\"result\"}";
+        assert!(extract_sentinel_block(text).is_none());
     }
 }

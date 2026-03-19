@@ -140,6 +140,7 @@ pub(crate) fn render_phase_prompt_with_ctx_overrides(
     let decision_extra_field_rule =
         phase_decision_contract.as_ref().map(phase_decision_extra_field_rule).unwrap_or_default();
     let result_field_description_rule = phase_contract.as_ref().map(phase_output_field_rule).unwrap_or_default();
+    let sentinel_rule = "- Wrap the final JSON line with sentinel markers: on a separate line print `<<<AO_PHASE_OUTPUT>>>` immediately before the JSON, then print the JSON on the next line, then print `<<<AO_PHASE_OUTPUT_END>>>` on the line after.";
     let structured_result_rule = match (phase_contract.as_ref(), phase_decision_contract.as_ref()) {
         (Some(contract), Some(_)) => {
             let required_fields = if contract.required_fields.is_empty() {
@@ -152,10 +153,11 @@ pub(crate) fn render_phase_prompt_with_ctx_overrides(
             };
             let result_example = phase_result_example_for_prompt(contract, phase_id, phase_decision_contract.as_ref());
             format!(
-                "- Before finishing, emit one JSON line as the FINAL line of output with your phase result and nested phase decision:\n  {}\n{}\n{}\n- Put any prose summary BEFORE the JSON line and emit nothing after it.",
+                "- Before finishing, emit one JSON line as the FINAL line of output with your phase result and nested phase decision:\n  {}\n{}\n{}\n{}\n- Put any prose summary BEFORE the JSON line and emit nothing after it.",
                 result_example,
                 required_fields,
                 result_field_description_rule,
+                sentinel_rule,
             )
         }
         (Some(contract), None) => {
@@ -178,7 +180,7 @@ pub(crate) fn render_phase_prompt_with_ctx_overrides(
                     contract.required_fields.iter().map(|field| format!("`{field}`")).collect::<Vec<_>>().join(", ")
                 )
             };
-            format!("{result_rule}{required_fields}\n{result_field_description_rule}")
+            format!("{result_rule}{required_fields}\n{result_field_description_rule}\n{sentinel_rule}")
         }
         (None, _) => String::new(),
     };
@@ -212,12 +214,13 @@ pub(crate) fn render_phase_prompt_with_ctx_overrides(
         };
         let decision_example = phase_decision_example_for_prompt(phase_id, Some(contract));
         format!(
-            "- Before finishing, emit one JSON line with your phase assessment as the FINAL line of output:\n  {}\n- Set verdict to \"advance\" if work is complete and correct.\n- Set verdict to \"rework\" if issues remain that need another pass.\n- Set verdict to \"fail\" only if problems are unrecoverable.\n- Set verdict to \"skip\" to close the task without further work. Use with a reason from: \"already_done\", \"duplicate\", \"no_longer_valid\", \"out_of_scope\".\n- Confidence must be at least {} unless you truly cannot justify a decision.\n- Risk must not exceed {:?} unless you are explicitly failing the phase.\n{}\n{}\n- Put any prose summary BEFORE the JSON line and emit nothing after it.{}",
+            "- Before finishing, emit one JSON line with your phase assessment as the FINAL line of output:\n  {}\n- Set verdict to \"advance\" if work is complete and correct.\n- Set verdict to \"rework\" if issues remain that need another pass.\n- Set verdict to \"fail\" only if problems are unrecoverable.\n- Set verdict to \"skip\" to close the task without further work. Use with a reason from: \"already_done\", \"duplicate\", \"no_longer_valid\", \"out_of_scope\".\n- Confidence must be at least {} unless you truly cannot justify a decision.\n- Risk must not exceed {:?} unless you are explicitly failing the phase.\n{}\n{}\n{}\n- Put any prose summary BEFORE the JSON line and emit nothing after it.{}",
             decision_example,
             contract.min_confidence,
             contract.max_risk,
             required_evidence,
             decision_extra_field_rule,
+            sentinel_rule,
             missing_decision_rule
         )
     } else {

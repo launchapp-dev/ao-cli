@@ -157,29 +157,6 @@ impl AoMcpServer {
     }
 
     #[tool(
-        name = "ao.workflow.execute",
-        description = "Execute a workflow synchronously. Purpose: Run a workflow without the daemon, blocking until completion. Prerequisites: Task must exist (use ao.task.get to verify). Example: {\"task_id\": \"TASK-001\"} or {\"task_id\": \"TASK-001\", \"phase\": \"implementation\"}. Sequencing: Use ao.task.get to verify the task first, or ao.workflow.config.get to review workflow config.",
-        input_schema = ao_schema_for_type::<WorkflowExecuteInput>()
-    )]
-    async fn ao_workflow_execute(&self, params: Parameters<WorkflowExecuteInput>) -> Result<CallToolResult, McpError> {
-        let input = params.0;
-        let mut args = vec![
-            "workflow".to_string(),
-            "run".to_string(),
-            "--sync".to_string(),
-            "--task-id".to_string(),
-            input.task_id,
-        ];
-        push_opt(&mut args, "--workflow-ref", input.workflow_ref);
-        push_opt(&mut args, "--phase", input.phase);
-        push_opt(&mut args, "--model", input.model);
-        push_opt(&mut args, "--tool", input.tool);
-        push_opt_num(&mut args, "--phase-timeout-secs", input.phase_timeout_secs);
-        push_opt(&mut args, "--input-json", input.input_json);
-        self.run_tool("ao.workflow.execute", args, input.project_root).await
-    }
-
-    #[tool(
         name = "ao.workflow.phase.approve",
         description = "Approve a gated workflow phase. Purpose: Unblock gate phases that require manual approval before proceeding. Prerequisites: Workflow must have a pending gate phase. Example: {\"workflow_id\": \"wf-abc123\"} or {\"workflow_id\": \"wf-abc123\", \"phase_id\": \"po-review\", \"feedback\": \"Approved\"}. Sequencing: Use ao.workflow.get first to see pending gates, then ao.workflow.phase.approve to unblock.",
         input_schema = ao_schema_for_type::<WorkflowPhaseApproveInput>()

@@ -144,12 +144,6 @@ Workflows orchestrate multi-phase execution of tasks. A workflow runs phases (e.
 // ao.workflow.run — with specific workflow definition
 { "task_id": "TASK-001", "workflow_ref": "default" }
 
-// ao.workflow.execute — synchronous (blocks until complete, no daemon needed)
-{ "task_id": "TASK-001" }
-
-// ao.workflow.execute — run a specific phase only
-{ "task_id": "TASK-001", "phase": "implementation", "model": "claude-sonnet-4-6" }
-
 // ao.workflow.run-multiple — batch workflow dispatch
 {
   "runs": [
@@ -410,7 +404,7 @@ The runner is a separate process that spawns CLI tools. It's managed by the daem
 ```
 ao.task.create        → { "title": "...", "priority": "high" }
 ao.task.status        → { "id": "TASK-XXX", "status": "ready" }
-ao.workflow.execute   → { "task_id": "TASK-XXX" }
+ao.workflow.run       → { "task_id": "TASK-XXX" }
 ```
 
 ### 2. Let the daemon handle everything

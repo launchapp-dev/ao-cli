@@ -23,6 +23,7 @@ dependencies = [
  "dirs",
  "fs2",
  "llm-cli-wrapper",
+ "orchestrator-store",
  "protocol",
  "serde",
  "serde_json",

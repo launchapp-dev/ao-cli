@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 use std::path::Path;
 use tracing::{debug, info, warn};
+use orchestrator_store::write_json_atomic;
 
 pub use protocol::{graceful_kill_process, process_exists};
 
@@ -85,7 +86,7 @@ pub fn track_process(run_id: &str, pid: u32) -> Result<()> {
     with_tracker_lock(|tracker_path| {
         let mut tracked = read_tracker(tracker_path)?;
         tracked.insert(run_id.to_string(), pid);
-        fs::write(tracker_path, serde_json::to_string(&tracked)?)?;
+        write_json_atomic(tracker_path, &tracked)?;
         debug!(
             run_id,
             pid,
@@ -104,7 +105,7 @@ pub fn untrack_process(run_id: &str) -> Result<()> {
         }
         let mut tracked = read_tracker(tracker_path)?;
         let removed = tracked.remove(run_id).is_some();
-        fs::write(tracker_path, serde_json::to_string(&tracked)?)?;
+        write_json_atomic(tracker_path, &tracked)?;
         debug!(
             run_id,
             removed,

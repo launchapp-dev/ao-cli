@@ -41,8 +41,29 @@ fn save_session_messages_to(base: &Path, session_id: &str, messages: &[ChatMessa
         std::fs::create_dir_all(parent)?;
     }
     let data = serde_json::to_string_pretty(messages)?;
-    std::fs::write(&path, data)?;
+    let tmp_path = path.with_extension("json.tmp");
+    std::fs::write(&tmp_path, &data)?;
+    std::fs::rename(&tmp_path, &path)?;
     Ok(())
+}
+
+fn find_pending_tool_calls(messages: &[ChatMessage]) -> Vec<ToolCall> {
+    let last_pos = messages.iter().rposition(|m| {
+        m.role == "assistant" && m.tool_calls.as_ref().is_some_and(|tc| !tc.is_empty())
+    });
+
+    let Some(pos) = last_pos else {
+        return Vec::new();
+    };
+
+    let tool_calls = messages[pos].tool_calls.as_ref().unwrap();
+    let responded_ids: std::collections::HashSet<&str> = messages[pos + 1..]
+        .iter()
+        .filter(|m| m.role == "tool")
+        .filter_map(|m| m.tool_call_id.as_deref())
+        .collect();
+
+    tool_calls.iter().filter(|tc| !responded_ids.contains(tc.id.as_str())).cloned().collect()
 }
 
 fn build_json_schema_format(schema: &Value) -> ResponseFormat {
@@ -102,18 +123,88 @@ pub async fn run_agent_loop(
 ) -> Result<()> {
     let mut messages: Vec<ChatMessage> = Vec::new();
 
+    let needs_schema_in_prompt =
+        structured_output == Some(StructuredOutputSupport::JsonObjectOnly) && response_schema.is_some();
+
     if let Some(sid) = session_id {
         let prior = load_session_messages_from(&config_dir(), sid);
         if !prior.is_empty() {
             eprintln!("[oai-runner] Resuming session {} ({} prior messages)", sid, prior.len());
             messages.extend(prior);
+
+            let pending = find_pending_tool_calls(&messages);
+            if !pending.is_empty() {
+                eprintln!(
+                    "[oai-runner] Recovering {} pending tool call(s) from interrupted session",
+                    pending.len()
+                );
+                for tc in &pending {
+                    if cancel_token.is_cancelled() {
+                        break;
+                    }
+                    let args: serde_json::Value =
+                        serde_json::from_str(&tc.function.arguments).unwrap_or(serde_json::Value::Null);
+                    output.tool_call(&tc.function.name, &args);
+                    let result =
+                        if let Some(mcp) = mcp_client::find_client_for_tool(mcp_clients, &tc.function.name) {
+                            match mcp_client::call_tool(mcp, &tc.function.name, &tc.function.arguments).await {
+                                Ok(r) => {
+                                    output.tool_result(&tc.function.name, &r);
+                                    r
+                                }
+                                Err(e) => {
+                                    let err_msg = e.to_string();
+                                    output.tool_error(&tc.function.name, &err_msg);
+                                    format!("Error: {}", err_msg)
+                                }
+                            }
+                        } else {
+                            match executor::execute_tool(&tc.function.name, &tc.function.arguments, working_dir)
+                                .await
+                            {
+                                Ok(r) => {
+                                    output.tool_result(&tc.function.name, &r);
+                                    r
+                                }
+                                Err(e) => {
+                                    let err_msg = e.to_string();
+                                    output.tool_error(&tc.function.name, &err_msg);
+                                    format!("Error: {}", err_msg)
+                                }
+                            }
+                        };
+                    messages.push(ChatMessage {
+                        role: "tool".to_string(),
+                        content: Some(result),
+                        tool_calls: None,
+                        tool_call_id: Some(tc.id.clone()),
+                    });
+                }
+                if let Err(e) = save_session_messages_to(&config_dir(), sid, &messages) {
+                    eprintln!("[oai-runner] Warning: failed to save session after recovery {}: {}", sid, e);
+                }
+            }
+        } else {
+            let mut sys = system_prompt.to_string();
+            if needs_schema_in_prompt {
+                sys.push_str(&build_schema_injection(response_schema.unwrap()));
+            }
+            if !sys.is_empty() {
+                messages.push(ChatMessage {
+                    role: "system".to_string(),
+                    content: Some(sys),
+                    tool_calls: None,
+                    tool_call_id: None,
+                });
+            }
+            messages.push(ChatMessage {
+                role: "user".to_string(),
+                content: Some(user_prompt.to_string()),
+                tool_calls: None,
+                tool_call_id: None,
+            });
         }
-    }
-
-    let needs_schema_in_prompt =
-        structured_output == Some(StructuredOutputSupport::JsonObjectOnly) && response_schema.is_some();
-
-    if messages.is_empty() {
+    } else {
         let mut sys = system_prompt.to_string();
         if needs_schema_in_prompt {
             sys.push_str(&build_schema_injection(response_schema.unwrap()));
@@ -126,14 +217,13 @@ pub async fn run_agent_loop(
                 tool_call_id: None,
             });
         }
+        messages.push(ChatMessage {
+            role: "user".to_string(),
+            content: Some(user_prompt.to_string()),
+            tool_calls: None,
+            tool_call_id: None,
+        });
     }
-
-    messages.push(ChatMessage {
-        role: "user".to_string(),
-        content: Some(user_prompt.to_string()),
-        tool_calls: None,
-        tool_call_id: None,
-    });
 
     for turn in 0..max_turns {
         if cancel_token.is_cancelled() {
@@ -689,5 +779,148 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let loaded = load_session_messages_from(dir.path(), "nonexistent-session-id");
         assert!(loaded.is_empty());
+    }
+
+    #[test]
+    fn atomic_save_removes_tmp_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+        let sid = "atomic-test";
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: Some("hello".to_string()),
+            tool_calls: None,
+            tool_call_id: None,
+        }];
+        save_session_messages_to(base, sid, &messages).unwrap();
+        let final_path = session_file_path_in(base, sid);
+        let tmp_path = final_path.with_extension("json.tmp");
+        assert!(final_path.exists(), "final session file should exist");
+        assert!(!tmp_path.exists(), "tmp file should be gone after atomic rename");
+    }
+
+    fn make_tool_call(id: &str, name: &str) -> ToolCall {
+        ToolCall {
+            id: id.to_string(),
+            type_: "function".to_string(),
+            function: FunctionCall { name: name.to_string(), arguments: "{}".to_string() },
+        }
+    }
+
+    #[test]
+    fn find_pending_tool_calls_empty_messages() {
+        let result = find_pending_tool_calls(&[]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn find_pending_tool_calls_no_tool_calls_in_assistant() {
+        let messages = vec![
+            ChatMessage { role: "user".to_string(), content: Some("hi".to_string()), tool_calls: None, tool_call_id: None },
+            ChatMessage { role: "assistant".to_string(), content: Some("hello".to_string()), tool_calls: None, tool_call_id: None },
+        ];
+        assert!(find_pending_tool_calls(&messages).is_empty());
+    }
+
+    #[test]
+    fn find_pending_tool_calls_all_missing_responses() {
+        let tc1 = make_tool_call("id1", "read_file");
+        let tc2 = make_tool_call("id2", "write_file");
+        let messages = vec![
+            ChatMessage { role: "user".to_string(), content: Some("go".to_string()), tool_calls: None, tool_call_id: None },
+            ChatMessage {
+                role: "assistant".to_string(),
+                content: None,
+                tool_calls: Some(vec![tc1, tc2]),
+                tool_call_id: None,
+            },
+        ];
+        let pending = find_pending_tool_calls(&messages);
+        assert_eq!(pending.len(), 2);
+        let ids: Vec<&str> = pending.iter().map(|tc| tc.id.as_str()).collect();
+        assert!(ids.contains(&"id1"));
+        assert!(ids.contains(&"id2"));
+    }
+
+    #[test]
+    fn find_pending_tool_calls_partial_responses() {
+        let tc1 = make_tool_call("id1", "read_file");
+        let tc2 = make_tool_call("id2", "write_file");
+        let messages = vec![
+            ChatMessage { role: "user".to_string(), content: Some("go".to_string()), tool_calls: None, tool_call_id: None },
+            ChatMessage {
+                role: "assistant".to_string(),
+                content: None,
+                tool_calls: Some(vec![tc1, tc2]),
+                tool_call_id: None,
+            },
+            ChatMessage {
+                role: "tool".to_string(),
+                content: Some("file contents".to_string()),
+                tool_calls: None,
+                tool_call_id: Some("id1".to_string()),
+            },
+        ];
+        let pending = find_pending_tool_calls(&messages);
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].id, "id2");
+    }
+
+    #[test]
+    fn find_pending_tool_calls_all_responded() {
+        let tc1 = make_tool_call("id1", "read_file");
+        let tc2 = make_tool_call("id2", "write_file");
+        let messages = vec![
+            ChatMessage { role: "user".to_string(), content: Some("go".to_string()), tool_calls: None, tool_call_id: None },
+            ChatMessage {
+                role: "assistant".to_string(),
+                content: None,
+                tool_calls: Some(vec![tc1, tc2]),
+                tool_call_id: None,
+            },
+            ChatMessage {
+                role: "tool".to_string(),
+                content: Some("r1".to_string()),
+                tool_calls: None,
+                tool_call_id: Some("id1".to_string()),
+            },
+            ChatMessage {
+                role: "tool".to_string(),
+                content: Some("r2".to_string()),
+                tool_calls: None,
+                tool_call_id: Some("id2".to_string()),
+            },
+        ];
+        assert!(find_pending_tool_calls(&messages).is_empty());
+    }
+
+    #[test]
+    fn find_pending_tool_calls_uses_last_assistant_turn() {
+        let tc_old = make_tool_call("old-id", "old_tool");
+        let tc_new = make_tool_call("new-id", "new_tool");
+        let messages = vec![
+            ChatMessage { role: "user".to_string(), content: Some("go".to_string()), tool_calls: None, tool_call_id: None },
+            ChatMessage {
+                role: "assistant".to_string(),
+                content: None,
+                tool_calls: Some(vec![tc_old]),
+                tool_call_id: None,
+            },
+            ChatMessage {
+                role: "tool".to_string(),
+                content: Some("done".to_string()),
+                tool_calls: None,
+                tool_call_id: Some("old-id".to_string()),
+            },
+            ChatMessage {
+                role: "assistant".to_string(),
+                content: None,
+                tool_calls: Some(vec![tc_new]),
+                tool_call_id: None,
+            },
+        ];
+        let pending = find_pending_tool_calls(&messages);
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].id, "new-id");
     }
 }

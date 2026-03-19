@@ -1402,33 +1402,13 @@ workflows:
 
   - id: ao-task-complete
     name: "AO Task Complete"
-    description: "AO project delivery workflow that triages, refines, implements, validates, reviews, and product-signs-off a task to completion"
+    description: "Triage → Refine → Implement → Push → PR"
     phases:
       - triage
-      - refine-requirements:
-          max_rework_attempts: 2
-      - implementation:
-          max_rework_attempts: 4
-      - unit-test:
-          max_rework_attempts: 2
-          on_verdict:
-            rework:
-              target: implementation
-      - lint:
-          max_rework_attempts: 2
-          on_verdict:
-            rework:
-              target: implementation
-      - code-review:
-          max_rework_attempts: 3
-          on_verdict:
-            rework:
-              target: implementation
-      - po-review:
-          max_rework_attempts: 2
-          on_verdict:
-            rework:
-              target: refine-requirements
+      - refine-requirements
+      - implementation
+      - push-branch
+      - create-pr
     post_success:
       merge:
         strategy: squash
@@ -1439,27 +1419,13 @@ workflows:
 
   - id: full
     name: "Full Lifecycle"
-    description: "End-to-end: triage, refine requirements, implement, test/lint gates, code review, PO sign-off, merge"
+    description: "Triage → Refine → Implement → Push → PR"
     phases:
       - triage
       - refine-requirements
       - implementation
-      - unit-test:
-          on_verdict:
-            rework:
-              target: implementation
-      - lint:
-          on_verdict:
-            rework:
-              target: implementation
-      - code-review:
-          on_verdict:
-            rework:
-              target: implementation
-      - po-review:
-          on_verdict:
-            rework:
-              target: implementation
+      - push-branch
+      - create-pr
       - cleanup
     post_success:
       merge:
@@ -1647,25 +1613,12 @@ workflows:
 
   - id: standard-codex
     name: "Standard (Codex)"
-    description: "Standard workflow using GPT-5.3 Codex via native CLI for code-heavy refactors"
+    description: "Implement → Push → PR fast with Codex"
     phases:
       - requirements
       - codex-implementation:
           skip_if:
             - "task_type == docs"
-      - unit-test:
-          on_verdict:
-            rework:
-              target: codex-implementation
-      - lint:
-          on_verdict:
-            rework:
-              target: codex-implementation
-      - code-review:
-          max_rework_attempts: 3
-          on_verdict:
-            rework:
-              target: codex-implementation
       - push-branch
       - create-pr
       - cleanup
@@ -1679,29 +1632,12 @@ workflows:
 
   - id: standard-opus
     name: "Standard (Opus)"
-    description: "Premium workflow using Claude Opus for the hardest tasks — architecture, complex refactors, critical fixes"
+    description: "Implement → Push → PR fast with Opus"
     phases:
       - requirements
       - opus-implementation:
           skip_if:
             - "task_type == docs"
-      - unit-test:
-          on_verdict:
-            rework:
-              target: opus-implementation
-      - lint:
-          on_verdict:
-            rework:
-              target: opus-implementation
-      - code-review:
-          max_rework_attempts: 3
-          on_verdict:
-            rework:
-              target: opus-implementation
-      - po-review:
-          on_verdict:
-            rework:
-              target: opus-implementation
       - push-branch
       - create-pr
       - cleanup
@@ -1715,26 +1651,12 @@ workflows:
 
   - id: gated
     name: "Gated"
-    description: "Full workflow with requirements validation, implementation, deterministic test/lint gates, code review, and PO sign-off"
+    description: "Implement → Push → PR (same as standard)"
     phases:
       - requirements
       - implementation
-      - unit-test:
-          on_verdict:
-            rework:
-              target: implementation
-      - lint:
-          on_verdict:
-            rework:
-              target: implementation
-      - code-review:
-          on_verdict:
-            rework:
-              target: implementation
-      - po-review:
-          on_verdict:
-            rework:
-              target: requirements
+      - push-branch
+      - create-pr
       - cleanup
 
   - id: brain
@@ -1912,17 +1834,11 @@ workflows:
 
   - id: hotfix
     name: "Hotfix"
-    description: "Emergency fix targeting main directly, bypasses develop"
+    description: "Emergency fix → Push → PR targeting main"
     phases:
       - implementation
-      - unit-test:
-          on_verdict:
-            rework:
-              target: implementation
-      - lint:
-          on_verdict:
-            rework:
-              target: implementation
+      - push-branch
+      - create-pr
     post_success:
       merge:
         strategy: squash

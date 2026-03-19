@@ -601,6 +601,176 @@ async fn process_phase_event_stream<R: AsyncBufRead + Unpin>(
     ))
 }
 
+fn direct_phase_exec_enabled() -> bool {
+    protocol::parse_env_bool("AO_PHASE_DIRECT")
+}
+
+async fn run_workflow_phase_attempt_direct(
+    project_root: &str,
+    workflow_id: &str,
+    phase_id: &str,
+    request: &AgentRunRequest,
+) -> Result<PhaseExecutionOutcome> {
+    let ctx = RuntimeConfigContext::load(project_root);
+    let parse_commit_message = phase_requires_commit_message_with_ctx(&ctx, phase_id);
+    let parse_phase_decision = ctx.phase_decision_contract(phase_id).is_some();
+    let expected_result_kind = phase_result_kind_for_ctx(&ctx, phase_id);
+    let event_run_dir = ipc_run_dir(project_root, &request.run_id, None);
+    info!(
+        workflow_id = %workflow_id,
+        phase_id = %phase_id,
+        run_id = %request.run_id.0,
+        "Dispatching workflow phase request via direct in-process execution"
+    );
+    let (event_tx, event_rx) = tokio::sync::mpsc::channel::<AgentRunEvent>(256);
+    let (_cancel_tx, cancel_rx) = tokio::sync::oneshot::channel::<()>();
+    let req = request.clone();
+    tokio::spawn(async move {
+        crate::direct_exec::run_agent_direct(req, event_tx, cancel_rx).await;
+    });
+    process_agent_events_direct(
+        event_rx,
+        &request.run_id,
+        workflow_id,
+        phase_id,
+        parse_commit_message,
+        parse_phase_decision,
+        &expected_result_kind,
+        Some(&event_run_dir),
+    )
+    .await
+}
+
+async fn process_agent_events_direct(
+    mut event_rx: tokio::sync::mpsc::Receiver<AgentRunEvent>,
+    run_id: &RunId,
+    workflow_id: &str,
+    phase_id: &str,
+    parse_commit_message: bool,
+    parse_phase_decision: bool,
+    expected_result_kind: &str,
+    event_run_dir: Option<&std::path::Path>,
+) -> Result<PhaseExecutionOutcome> {
+    let mut pending_commit_message: Option<String> = None;
+    let mut pending_phase_decision: Option<orchestrator_core::PhaseDecision> = None;
+    let mut pending_result_payload: Option<Value> = None;
+    let mut provider_exhaustion_reason: Option<String> = None;
+    let mut diagnostics = VecDeque::new();
+    while let Some(event) = event_rx.recv().await {
+        if !event_matches_run(&event, run_id) {
+            continue;
+        }
+        if let Some(dir) = event_run_dir {
+            let _ = persist_run_event(dir, &event);
+        }
+        match event {
+            AgentRunEvent::OutputChunk { text, .. } => {
+                if provider_exhaustion_reason.is_none() {
+                    provider_exhaustion_reason = PhaseFailureClassifier::provider_exhaustion_reason_from_text(&text);
+                }
+                PhaseFailureClassifier::push_phase_diagnostic_line(&mut diagnostics, &text);
+                if parse_commit_message && pending_commit_message.is_none() {
+                    pending_commit_message = parse_commit_message_from_text(&text);
+                }
+                if parse_phase_decision && pending_phase_decision.is_none() {
+                    if let Some(decision) = parse_phase_decision_from_text(&text, phase_id) {
+                        if pending_commit_message.is_none() {
+                            if let Some(ref cm) = decision.commit_message {
+                                pending_commit_message = Some(cm.clone());
+                            }
+                        }
+                        pending_phase_decision = Some(decision);
+                    }
+                }
+                if pending_result_payload.is_none() {
+                    pending_result_payload = parse_result_payload_from_text(&text, expected_result_kind);
+                }
+                if pending_result_payload.is_none() && parse_phase_decision {
+                    pending_result_payload = parse_decision_payload_from_text(&text, phase_id);
+                }
+            }
+            AgentRunEvent::Thinking { content, .. } => {
+                if provider_exhaustion_reason.is_none() {
+                    provider_exhaustion_reason = PhaseFailureClassifier::provider_exhaustion_reason_from_text(&content);
+                }
+                PhaseFailureClassifier::push_phase_diagnostic_line(&mut diagnostics, &content);
+                if parse_commit_message && pending_commit_message.is_none() {
+                    pending_commit_message = parse_commit_message_from_text(&content);
+                }
+                if parse_phase_decision && pending_phase_decision.is_none() {
+                    if let Some(decision) = parse_phase_decision_from_text(&content, phase_id) {
+                        if pending_commit_message.is_none() {
+                            if let Some(ref cm) = decision.commit_message {
+                                pending_commit_message = Some(cm.clone());
+                            }
+                        }
+                        pending_phase_decision = Some(decision);
+                    }
+                }
+                if pending_result_payload.is_none() {
+                    pending_result_payload = parse_result_payload_from_text(&content, expected_result_kind);
+                }
+                if pending_result_payload.is_none() && parse_phase_decision {
+                    pending_result_payload = parse_decision_payload_from_text(&content, phase_id);
+                }
+            }
+            AgentRunEvent::Error { error, .. } => {
+                PhaseFailureClassifier::push_phase_diagnostic_line(&mut diagnostics, &error);
+                let exhaustion_reason = provider_exhaustion_reason
+                    .clone()
+                    .or_else(|| PhaseFailureClassifier::provider_exhaustion_reason_from_text(&error));
+                return Err(anyhow!(
+                    "workflow {} phase {} error: {}{}",
+                    workflow_id,
+                    phase_id,
+                    error,
+                    exhaustion_reason.map(|reason| format!(" (provider_exhausted: {reason})")).unwrap_or_default()
+                ));
+            }
+            AgentRunEvent::Finished { exit_code, .. } => {
+                if exit_code.unwrap_or_default() != 0 {
+                    let diagnostics_summary = PhaseFailureClassifier::summarize_phase_diagnostics(&diagnostics);
+                    let exhaustion_reason = provider_exhaustion_reason.clone().or_else(|| {
+                        diagnostics_summary
+                            .as_deref()
+                            .and_then(PhaseFailureClassifier::provider_exhaustion_reason_from_text)
+                    });
+                    return Err(anyhow!(
+                        "workflow {} phase {} exited with code {:?}{}{}",
+                        workflow_id,
+                        phase_id,
+                        exit_code,
+                        exhaustion_reason.map(|reason| format!(" (provider_exhausted: {reason})")).unwrap_or_default(),
+                        diagnostics_summary.map(|summary| format!("; diagnostics: {summary}")).unwrap_or_default(),
+                    ));
+                }
+                return Ok(PhaseExecutionOutcome::Completed {
+                    commit_message: pending_commit_message,
+                    phase_decision: pending_phase_decision,
+                    result_payload: pending_result_payload,
+                });
+            }
+            AgentRunEvent::ToolCall { tool_info, .. } => {
+                PhaseFailureClassifier::push_phase_diagnostic_line(
+                    &mut diagnostics,
+                    &format!("tool_call: {}", tool_info.tool_name),
+                );
+            }
+            AgentRunEvent::Artifact { .. } => {}
+            _ => {}
+        }
+    }
+    let diagnostics_suffix = PhaseFailureClassifier::summarize_phase_diagnostics(&diagnostics)
+        .map(|summary| format!("; diagnostics: {summary}"))
+        .unwrap_or_default();
+    Err(anyhow!(
+        "agent exited before workflow {} phase {} completed{}",
+        workflow_id,
+        phase_id,
+        diagnostics_suffix
+    ))
+}
+
 fn parse_result_payload_from_text(text: &str, expected_kind: &str) -> Option<Value> {
     for (_raw, payload) in collect_json_payload_lines(text) {
         if let Some(result) = parse_result_payload_from_payload(&payload, expected_kind) {
@@ -1100,7 +1270,12 @@ async fn run_workflow_phase_with_agent(params: PhaseAgentParams<'_>) -> Result<A
                     "Dispatching workflow phase attempt to agent runner"
                 );
 
-                match run_workflow_phase_attempt(project_root, workflow_id, phase_id, &request).await {
+                let attempt_result = if direct_phase_exec_enabled() {
+                    run_workflow_phase_attempt_direct(project_root, workflow_id, phase_id, &request).await
+                } else {
+                    run_workflow_phase_attempt(project_root, workflow_id, phase_id, &request).await
+                };
+                match attempt_result {
                     Ok(mut outcome) => {
                         if phase_requires_commit_message_with_ctx(ctx, phase_id) {
                             if let PhaseExecutionOutcome::Completed { commit_message, .. } = &mut outcome {

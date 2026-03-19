@@ -1,7 +1,7 @@
 use crate::config_context::RuntimeConfigContext;
 use crate::ipc::{
-    build_runtime_contract_with_resume, collect_json_payload_lines, connect_runner, event_matches_run,
-    persist_run_event, run_dir as ipc_run_dir, runner_config_dir, write_json_line,
+    build_runtime_contract_with_resume, collect_json_payload_lines, event_matches_run, persist_run_event,
+    run_dir as ipc_run_dir,
 };
 use crate::payload_traversal::{parse_commit_message_from_text, parse_phase_decision_from_text};
 use crate::phase_command::{
@@ -26,7 +26,7 @@ use crate::runtime_support::{
 };
 use crate::skill_dispatch;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use orchestrator_config::{skill_resolution::ResolvedSkill, SkillApplicationResult};
 use orchestrator_core::ServiceHub;
@@ -36,7 +36,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, VecDeque};
 use std::path::Path;
 use std::time::Duration;
-use tokio::io::{AsyncBufRead, AsyncBufReadExt};
+use tokio::io::AsyncBufRead;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -401,7 +401,6 @@ pub async fn run_workflow_phase_attempt(
 ) -> Result<PhaseExecutionOutcome> {
     let ctx = RuntimeConfigContext::load(project_root);
     let parse_commit_message = phase_requires_commit_message_with_ctx(&ctx, phase_id);
-    let config_dir = runner_config_dir(Path::new(project_root));
     let request_mcp_stdio_command = request
         .context
         .pointer("/runtime_contract/mcp/stdio/command")
@@ -437,18 +436,19 @@ pub async fn run_workflow_phase_attempt(
         request_mcp_stdio_args = ?request_mcp_stdio_args,
         "Dispatching workflow phase request to agent runner"
     );
-    let stream = connect_runner(&config_dir)
-        .await
-        .with_context(|| format!("failed to connect runner for workflow {} phase {}", workflow_id, phase_id))?;
-    let (read_half, mut write_half) = tokio::io::split(stream);
-    write_json_line(&mut write_half, request).await?;
-
     let parse_phase_decision = ctx.phase_decision_contract(phase_id).is_some();
     let expected_result_kind = phase_result_kind_for_ctx(&ctx, phase_id);
     let event_run_dir = ipc_run_dir(project_root, &request.run_id, None);
 
-    process_phase_event_stream(
-        tokio::io::BufReader::new(read_half).lines(),
+    let (event_tx, event_rx) = tokio::sync::mpsc::channel(128);
+    let (_cancel_tx, cancel_rx) = tokio::sync::oneshot::channel::<()>();
+    let req_clone = request.clone();
+    tokio::spawn(async move {
+        crate::direct_exec::run_agent_direct(req_clone, event_tx, cancel_rx).await;
+    });
+
+    process_phase_event_channel(
+        event_rx,
         &request.run_id,
         workflow_id,
         phase_id,
@@ -460,6 +460,7 @@ pub async fn run_workflow_phase_attempt(
     .await
 }
 
+#[allow(dead_code)]
 async fn process_phase_event_stream<R: AsyncBufRead + Unpin>(
     mut lines: tokio::io::Lines<R>,
     run_id: &RunId,
@@ -484,6 +485,139 @@ async fn process_phase_event_stream<R: AsyncBufRead + Unpin>(
         let Ok(event) = serde_json::from_str::<AgentRunEvent>(line) else {
             continue;
         };
+        if !event_matches_run(&event, run_id) {
+            continue;
+        }
+
+        if let Some(dir) = event_run_dir {
+            let _ = persist_run_event(dir, &event);
+        }
+
+        match event {
+            AgentRunEvent::OutputChunk { text, .. } => {
+                if provider_exhaustion_reason.is_none() {
+                    provider_exhaustion_reason = PhaseFailureClassifier::provider_exhaustion_reason_from_text(&text);
+                }
+                PhaseFailureClassifier::push_phase_diagnostic_line(&mut diagnostics, &text);
+                if parse_commit_message && pending_commit_message.is_none() {
+                    pending_commit_message = parse_commit_message_from_text(&text);
+                }
+                if parse_phase_decision && pending_phase_decision.is_none() {
+                    if let Some(decision) = parse_phase_decision_from_text(&text, phase_id) {
+                        if pending_commit_message.is_none() {
+                            if let Some(ref cm) = decision.commit_message {
+                                pending_commit_message = Some(cm.clone());
+                            }
+                        }
+                        pending_phase_decision = Some(decision);
+                    }
+                }
+                if pending_result_payload.is_none() {
+                    pending_result_payload = parse_result_payload_from_text(&text, expected_result_kind);
+                }
+                if pending_result_payload.is_none() && parse_phase_decision {
+                    pending_result_payload = parse_decision_payload_from_text(&text, phase_id);
+                }
+            }
+            AgentRunEvent::Thinking { content, .. } => {
+                if provider_exhaustion_reason.is_none() {
+                    provider_exhaustion_reason = PhaseFailureClassifier::provider_exhaustion_reason_from_text(&content);
+                }
+                PhaseFailureClassifier::push_phase_diagnostic_line(&mut diagnostics, &content);
+                if parse_commit_message && pending_commit_message.is_none() {
+                    pending_commit_message = parse_commit_message_from_text(&content);
+                }
+                if parse_phase_decision && pending_phase_decision.is_none() {
+                    if let Some(decision) = parse_phase_decision_from_text(&content, phase_id) {
+                        if pending_commit_message.is_none() {
+                            if let Some(ref cm) = decision.commit_message {
+                                pending_commit_message = Some(cm.clone());
+                            }
+                        }
+                        pending_phase_decision = Some(decision);
+                    }
+                }
+                if pending_result_payload.is_none() {
+                    pending_result_payload = parse_result_payload_from_text(&content, expected_result_kind);
+                }
+                if pending_result_payload.is_none() && parse_phase_decision {
+                    pending_result_payload = parse_decision_payload_from_text(&content, phase_id);
+                }
+            }
+            AgentRunEvent::Error { error, .. } => {
+                PhaseFailureClassifier::push_phase_diagnostic_line(&mut diagnostics, &error);
+                let exhaustion_reason = provider_exhaustion_reason
+                    .clone()
+                    .or_else(|| PhaseFailureClassifier::provider_exhaustion_reason_from_text(&error));
+                return Err(anyhow!(
+                    "workflow {} phase {} error: {}{}",
+                    workflow_id,
+                    phase_id,
+                    error,
+                    exhaustion_reason.map(|reason| format!(" (provider_exhausted: {reason})")).unwrap_or_default()
+                ));
+            }
+            AgentRunEvent::Finished { exit_code, .. } => {
+                if exit_code.unwrap_or_default() != 0 {
+                    let diagnostics_summary = PhaseFailureClassifier::summarize_phase_diagnostics(&diagnostics);
+                    let exhaustion_reason = provider_exhaustion_reason.clone().or_else(|| {
+                        diagnostics_summary
+                            .as_deref()
+                            .and_then(PhaseFailureClassifier::provider_exhaustion_reason_from_text)
+                    });
+                    return Err(anyhow!(
+                        "workflow {} phase {} exited with code {:?}{}{}",
+                        workflow_id,
+                        phase_id,
+                        exit_code,
+                        exhaustion_reason.map(|reason| format!(" (provider_exhausted: {reason})")).unwrap_or_default(),
+                        diagnostics_summary.map(|summary| format!("; diagnostics: {summary}")).unwrap_or_default(),
+                    ));
+                }
+                return Ok(PhaseExecutionOutcome::Completed {
+                    commit_message: pending_commit_message,
+                    phase_decision: pending_phase_decision,
+                    result_payload: pending_result_payload,
+                });
+            }
+            AgentRunEvent::ToolCall { tool_info, .. } => {
+                PhaseFailureClassifier::push_phase_diagnostic_line(
+                    &mut diagnostics,
+                    &format!("tool_call: {}", tool_info.tool_name),
+                );
+            }
+            AgentRunEvent::Artifact { .. } => {}
+            _ => {}
+        }
+    }
+
+    let diagnostics_suffix = PhaseFailureClassifier::summarize_phase_diagnostics(&diagnostics)
+        .map(|summary| format!("; diagnostics: {summary}"))
+        .unwrap_or_default();
+    Err(anyhow!(
+        "runner disconnected before workflow {} phase {} completed{}",
+        workflow_id,
+        phase_id,
+        diagnostics_suffix
+    ))
+}
+
+async fn process_phase_event_channel(
+    mut event_rx: tokio::sync::mpsc::Receiver<AgentRunEvent>,
+    run_id: &RunId,
+    workflow_id: &str,
+    phase_id: &str,
+    parse_commit_message: bool,
+    parse_phase_decision: bool,
+    expected_result_kind: &str,
+    event_run_dir: Option<&std::path::Path>,
+) -> Result<PhaseExecutionOutcome> {
+    let mut pending_commit_message: Option<String> = None;
+    let mut pending_phase_decision: Option<orchestrator_core::PhaseDecision> = None;
+    let mut pending_result_payload: Option<Value> = None;
+    let mut provider_exhaustion_reason: Option<String> = None;
+    let mut diagnostics = VecDeque::new();
+    while let Some(event) = event_rx.recv().await {
         if !event_matches_run(&event, run_id) {
             continue;
         }
@@ -1619,7 +1753,8 @@ pub async fn run_workflow_phase(params: &PhaseRunParams<'_>) -> Result<PhaseRunR
 #[cfg(test)]
 mod tests {
     use super::{
-        phase_outcome_is_complete, phase_session_resume_plan, process_phase_event_stream, PhaseExecutionOutcome,
+        phase_outcome_is_complete, phase_session_resume_plan, process_phase_event_channel, process_phase_event_stream,
+        PhaseExecutionOutcome,
     };
 
     #[test]
@@ -1891,6 +2026,101 @@ mod tests {
         )
         .await
         .expect("malformed lines should be skipped, not cause failure");
+        assert!(matches!(outcome, PhaseExecutionOutcome::Completed { .. }));
+    }
+
+    async fn run_channel(
+        events: Vec<protocol::AgentRunEvent>,
+        run_id: &RunId,
+        run_dir: Option<&std::path::Path>,
+    ) -> anyhow::Result<PhaseExecutionOutcome> {
+        let (tx, rx) = tokio::sync::mpsc::channel(64);
+        for event in events {
+            tx.send(event).await.expect("send event");
+        }
+        drop(tx);
+        process_phase_event_channel(rx, run_id, "wf-test", "impl", false, false, "", run_dir).await
+    }
+
+    #[tokio::test]
+    async fn channel_success_returns_completed() {
+        let run_id = RunId("chan-success-001".to_string());
+        let events = vec![
+            protocol::AgentRunEvent::Started { run_id: run_id.clone(), timestamp: Timestamp::now() },
+            protocol::AgentRunEvent::OutputChunk {
+                run_id: run_id.clone(),
+                stream_type: OutputStreamType::Stdout,
+                text: "work done\n".to_string(),
+            },
+            protocol::AgentRunEvent::Finished { run_id: run_id.clone(), exit_code: Some(0), duration_ms: 100 },
+        ];
+        let outcome = run_channel(events, &run_id, None).await.expect("should succeed");
+        assert!(matches!(outcome, PhaseExecutionOutcome::Completed { .. }));
+    }
+
+    #[tokio::test]
+    async fn channel_nonzero_exit_returns_error() {
+        let run_id = RunId("chan-nonzero-001".to_string());
+        let events = vec![
+            protocol::AgentRunEvent::OutputChunk {
+                run_id: run_id.clone(),
+                stream_type: OutputStreamType::Stderr,
+                text: "fatal error\n".to_string(),
+            },
+            protocol::AgentRunEvent::Finished { run_id: run_id.clone(), exit_code: Some(1), duration_ms: 50 },
+        ];
+        let err = run_channel(events, &run_id, None).await.expect_err("should be an error");
+        assert!(err.to_string().contains("exited with code"), "got: {}", err);
+    }
+
+    #[tokio::test]
+    async fn channel_error_event_returns_error() {
+        let run_id = RunId("chan-error-001".to_string());
+        let events =
+            vec![protocol::AgentRunEvent::Error { run_id: run_id.clone(), error: "channel failure".to_string() }];
+        let err = run_channel(events, &run_id, None).await.expect_err("should be an error");
+        assert!(err.to_string().contains("channel failure"), "got: {}", err);
+    }
+
+    #[tokio::test]
+    async fn channel_disconnect_without_finished_returns_error() {
+        let run_id = RunId("chan-disconnect-001".to_string());
+        let events = vec![protocol::AgentRunEvent::Started { run_id: run_id.clone(), timestamp: Timestamp::now() }];
+        let err = run_channel(events, &run_id, None).await.expect_err("should be an error");
+        assert!(err.to_string().contains("runner disconnected"), "got: {}", err);
+    }
+
+    #[tokio::test]
+    async fn channel_persists_events_to_run_dir() {
+        let run_dir = temp_run_dir();
+        let run_id = RunId("chan-persist-001".to_string());
+        let events = vec![
+            protocol::AgentRunEvent::Started { run_id: run_id.clone(), timestamp: Timestamp::now() },
+            protocol::AgentRunEvent::OutputChunk {
+                run_id: run_id.clone(),
+                stream_type: OutputStreamType::Stdout,
+                text: "output\n".to_string(),
+            },
+            protocol::AgentRunEvent::Finished { run_id: run_id.clone(), exit_code: Some(0), duration_ms: 100 },
+        ];
+        run_channel(events, &run_id, Some(&run_dir)).await.expect("should succeed");
+        let events_path = run_dir.join("events.jsonl");
+        assert!(events_path.exists(), "events.jsonl should be written");
+        let lines: Vec<String> =
+            std::fs::read_to_string(&events_path).expect("read").lines().map(str::to_string).collect();
+        assert_eq!(lines.len(), 3, "all 3 events should be persisted");
+        let _ = std::fs::remove_dir_all(&run_dir);
+    }
+
+    #[tokio::test]
+    async fn channel_filters_events_for_other_run_id() {
+        let run_id = RunId("chan-filter-001".to_string());
+        let other_run_id = RunId("chan-other-999".to_string());
+        let events = vec![
+            protocol::AgentRunEvent::Finished { run_id: other_run_id.clone(), exit_code: Some(0), duration_ms: 10 },
+            protocol::AgentRunEvent::Finished { run_id: run_id.clone(), exit_code: Some(0), duration_ms: 20 },
+        ];
+        let outcome = run_channel(events, &run_id, None).await.expect("should succeed on matching run");
         assert!(matches!(outcome, PhaseExecutionOutcome::Completed { .. }));
     }
 }

@@ -39,6 +39,26 @@ agents:
          - If a PR has CHANGES_REQUESTED reviews: enqueue its task with workflow_ref="rework".
          - If a PR is CONFLICTING: enqueue its task with workflow_ref="rebase-and-retry".
          Handle ALL rework/rebase before moving to new work.
+
+      0b. RELEASE CHECK (after rework/rebase):
+         Count merged PRs to develop since the last release tag:
+         `git log --oneline $(git describe --tags --abbrev=0)..origin/develop | wc -l`
+         If >= 10 merged PRs since last release AND no release workflow is already queued:
+         - Read the commit messages: `git log --oneline $(git describe --tags --abbrev=0)..origin/develop`
+         - Gather context for the release decision:
+           * Read commit messages: `git log --oneline $(git describe --tags --abbrev=0)..origin/develop`
+           * Check ao.requirements.list for completed requirements since last release
+           * Check ao.task.stats for done count vs last release
+           * Check open PRs — are there critical fixes still in flight?
+         - Evaluate if a release is WORTH cutting:
+           * Features or bugfixes completed? → YES release
+           * Requirements fulfilled? → YES release (milestone reached)
+           * Only docs, chore, or monitoring? → NO, wait for real changes
+           * Critical tasks still blocked or in-progress? → NO, wait for them
+           * Regressions from recent PRs detected? → NO, fix first
+           * Breaking API changes? → YES release with minor version bump
+         - If YES: enqueue with workflow_ref="release-manager" and title="Cut next release — [brief reason]"
+         - If NO: skip, log why in daemon output
       1. Call ao.queue.list to see what's already queued (both pending and assigned).
       2. Call ao.queue.stats to check queue depth.
       3. QUEUE CAP: If total queue size (pending + assigned) >= 10, STOP — do NOT enqueue more.

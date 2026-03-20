@@ -1,6 +1,8 @@
 use serde_json::json;
 use std::io::Write;
 
+use super::journal::{InterruptionKind, TurnPhase};
+
 pub struct OutputFormatter {
     json_mode: bool,
     text_buffer: String,
@@ -114,6 +116,72 @@ impl OutputFormatter {
 
     pub fn newline(&self) {
         println!();
+    }
+
+    pub fn emit_session_resumed(
+        &self,
+        session_id: &str,
+        committed_turns: usize,
+        prior_interruption: Option<&InterruptionKind>,
+    ) {
+        let kind_str = prior_interruption.map(interruption_kind_str);
+        if self.json_mode {
+            let event = json!({
+                "type": "session_resumed",
+                "session_id": session_id,
+                "committed_turns": committed_turns,
+                "prior_interruption": kind_str
+            });
+            println!("{}", event);
+        } else {
+            eprintln!(
+                "[oai-runner] Resuming session {} ({} committed turns{})",
+                session_id,
+                committed_turns,
+                kind_str.map(|k| format!(", prior interruption: {}", k)).unwrap_or_default()
+            );
+        }
+    }
+
+    pub fn emit_turn_committed(&self, turn_index: usize, phase: &TurnPhase) {
+        if self.json_mode {
+            let event = json!({
+                "type": "turn_committed",
+                "turn_index": turn_index,
+                "phase": turn_phase_str(phase)
+            });
+            println!("{}", event);
+        }
+    }
+
+    pub fn emit_session_interrupted(&self, kind: &InterruptionKind) {
+        if self.json_mode {
+            let event = json!({
+                "type": "session_interrupted",
+                "reason": interruption_kind_str(kind)
+            });
+            println!("{}", event);
+        } else {
+            eprintln!("[oai-runner] Session interrupted: {}", interruption_kind_str(kind));
+        }
+    }
+}
+
+fn turn_phase_str(phase: &TurnPhase) -> &'static str {
+    match phase {
+        TurnPhase::AssistantCommitted => "assistant_committed",
+        TurnPhase::ToolsPartial => "tools_partial",
+        TurnPhase::ToolsCommitted => "tools_committed",
+        TurnPhase::Complete => "complete",
+    }
+}
+
+fn interruption_kind_str(kind: &InterruptionKind) -> &'static str {
+    match kind {
+        InterruptionKind::Signal => "signal",
+        InterruptionKind::MaxTurnsReached => "max_turns_reached",
+        InterruptionKind::ApiError => "api_error",
+        InterruptionKind::MidToolExecution => "mid_tool_execution",
     }
 }
 

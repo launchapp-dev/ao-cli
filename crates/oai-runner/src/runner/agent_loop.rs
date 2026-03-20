@@ -1,6 +1,6 @@
 use anyhow::Result;
 use serde_json::Value;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tokio_util::sync::CancellationToken;
 
 use crate::api::client::ApiClient;
@@ -9,41 +9,10 @@ use crate::config::StructuredOutputSupport;
 use crate::tools::{executor, mcp_client};
 
 use super::context;
+use super::journal::{self, InterruptionKind, SessionJournal, TurnPhase};
 use super::output::OutputFormatter;
 
 const SCHEMA_RETRY_LIMIT: usize = 3;
-
-fn config_dir() -> PathBuf {
-    let dir = std::env::var("AO_CONFIG_DIR")
-        .or_else(|_| std::env::var("HOME").map(|h| format!("{}/.ao", h)))
-        .unwrap_or_else(|_| ".ao".to_string());
-    PathBuf::from(dir)
-}
-
-fn session_file_path_in(base: &Path, session_id: &str) -> PathBuf {
-    base.join("sessions").join(format!("{}.json", session_id))
-}
-
-fn load_session_messages_from(base: &Path, session_id: &str) -> Vec<ChatMessage> {
-    let path = session_file_path_in(base, session_id);
-    if !path.exists() {
-        return Vec::new();
-    }
-    match std::fs::read_to_string(&path) {
-        Ok(data) => serde_json::from_str(&data).unwrap_or_default(),
-        Err(_) => Vec::new(),
-    }
-}
-
-fn save_session_messages_to(base: &Path, session_id: &str, messages: &[ChatMessage]) -> Result<()> {
-    let path = session_file_path_in(base, session_id);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let data = serde_json::to_string_pretty(messages)?;
-    std::fs::write(&path, data)?;
-    Ok(())
-}
 
 fn build_json_schema_format(schema: &Value) -> ResponseFormat {
     let mut strict_schema = schema.clone();
@@ -82,6 +51,12 @@ fn synthesize_fallback(model: &str, summary: &str, confidence: f64) -> Value {
     })
 }
 
+fn save_journal_silent(base: &std::path::Path, j: &SessionJournal) {
+    if let Err(e) = journal::save_journal(base, j) {
+        eprintln!("[oai-runner] Warning: failed to save journal for session {}: {}", j.session_id, e);
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn run_agent_loop(
     client: &ApiClient,
@@ -100,13 +75,33 @@ pub async fn run_agent_loop(
     context_limit: usize,
     max_tokens: usize,
 ) -> Result<()> {
+    let base = journal::session_base_dir();
     let mut messages: Vec<ChatMessage> = Vec::new();
+    let mut journal_state: Option<SessionJournal> = None;
 
     if let Some(sid) = session_id {
-        let prior = load_session_messages_from(&config_dir(), sid);
-        if !prior.is_empty() {
-            eprintln!("[oai-runner] Resuming session {} ({} prior messages)", sid, prior.len());
-            messages.extend(prior);
+        match journal::load_journal(&base, sid) {
+            Some(existing) => {
+                let committed = existing.committed_turn_count();
+                let prior_interruption = existing.interrupted.clone();
+                messages = existing.to_messages();
+                output.emit_session_resumed(sid, committed, prior_interruption.as_ref());
+                eprintln!(
+                    "[oai-runner] Resuming session {} ({} committed turns, {} messages)",
+                    sid,
+                    committed,
+                    messages.len()
+                );
+                let mut j = existing;
+                j.interrupted = None;
+                if j.turns.last().map(|t| !t.is_recoverable()).unwrap_or(false) {
+                    j.turns.pop();
+                }
+                journal_state = Some(j);
+            }
+            None => {
+                journal_state = Some(SessionJournal::new(sid.to_string(), model.to_string()));
+            }
         }
     }
 
@@ -135,13 +130,20 @@ pub async fn run_agent_loop(
         tool_call_id: None,
     });
 
+    if let Some(ref mut j) = journal_state {
+        if j.turns.is_empty() && j.preamble.is_empty() {
+            j.preamble = messages.clone();
+            save_journal_silent(&base, j);
+        }
+    }
+
     for turn in 0..max_turns {
         if cancel_token.is_cancelled() {
             eprintln!("[oai-runner] Cancelled by signal");
-            if let Some(sid) = session_id {
-                if let Err(e) = save_session_messages_to(&config_dir(), sid, &messages) {
-                    eprintln!("[oai-runner] Warning: failed to save session on cancel {}: {}", sid, e);
-                }
+            if let Some(ref mut j) = journal_state {
+                j.set_interrupted(InterruptionKind::Signal);
+                save_journal_silent(&base, j);
+                output.emit_session_interrupted(&InterruptionKind::Signal);
             }
             output.emit_session_summary();
             anyhow::bail!("Cancelled by shutdown signal");
@@ -181,6 +183,12 @@ pub async fn run_agent_loop(
 
         messages.push(assistant_msg.clone());
 
+        if let Some(ref mut j) = journal_state {
+            j.begin_turn(turn, assistant_msg.clone());
+            save_journal_silent(&base, j);
+            output.emit_turn_committed(turn, &TurnPhase::AssistantCommitted);
+        }
+
         if !has_tool_calls {
             output.flush_result();
             let content = assistant_msg.content.as_deref().unwrap_or("");
@@ -215,10 +223,10 @@ pub async fn run_agent_loop(
                 output.text_chunk(&fallback_str);
                 output.flush_result();
             }
-            if let Some(sid) = session_id {
-                if let Err(e) = save_session_messages_to(&config_dir(), sid, &messages) {
-                    eprintln!("[oai-runner] Warning: failed to save session {}: {}", sid, e);
-                }
+            if let Some(ref mut j) = journal_state {
+                j.complete_turn();
+                save_journal_silent(&base, j);
+                output.emit_turn_committed(turn, &TurnPhase::Complete);
             }
             output.emit_session_summary();
             output.newline();
@@ -226,10 +234,13 @@ pub async fn run_agent_loop(
         }
 
         let tool_calls = assistant_msg.tool_calls.as_ref().unwrap();
+        let mut tool_result_msgs: Vec<ChatMessage> = Vec::new();
+        let mut cancelled_mid_tools = false;
 
         for tc in tool_calls {
             if cancel_token.is_cancelled() {
                 eprintln!("[oai-runner] Cancelled between tool calls");
+                cancelled_mid_tools = true;
                 break;
             }
 
@@ -264,7 +275,7 @@ pub async fn run_agent_loop(
                 }
             };
 
-            messages.push(ChatMessage {
+            tool_result_msgs.push(ChatMessage {
                 role: "tool".to_string(),
                 content: Some(result),
                 tool_calls: None,
@@ -272,15 +283,34 @@ pub async fn run_agent_loop(
             });
         }
 
+        if cancelled_mid_tools {
+            if let Some(ref mut j) = journal_state {
+                j.commit_tools_partial(tool_result_msgs.clone());
+                j.set_interrupted(InterruptionKind::MidToolExecution);
+                save_journal_silent(&base, j);
+                output.emit_session_interrupted(&InterruptionKind::MidToolExecution);
+            }
+            messages.extend(tool_result_msgs);
+            output.emit_session_summary();
+            anyhow::bail!("Cancelled during tool execution");
+        }
+
+        if let Some(ref mut j) = journal_state {
+            j.commit_tools(tool_result_msgs.clone());
+            save_journal_silent(&base, j);
+            output.emit_turn_committed(turn, &TurnPhase::ToolsCommitted);
+        }
+        messages.extend(tool_result_msgs);
+
         if turn == max_turns - 1 {
             eprintln!("Warning: reached maximum turns ({}). Stopping.", max_turns);
         }
     }
 
-    if let Some(sid) = session_id {
-        if let Err(e) = save_session_messages_to(&config_dir(), sid, &messages) {
-            eprintln!("[oai-runner] Warning: failed to save session {}: {}", sid, e);
-        }
+    if let Some(ref mut j) = journal_state {
+        j.interrupted = Some(InterruptionKind::MaxTurnsReached);
+        save_journal_silent(&base, j);
+        output.emit_session_interrupted(&InterruptionKind::MaxTurnsReached);
     }
     output.flush_result();
     if response_schema.is_some() {
@@ -647,47 +677,5 @@ mod tests {
         assert_eq!(decision["verdict"], "rework");
         assert_eq!(decision["confidence"], 0.4);
         assert_eq!(decision["risk"], "high");
-    }
-
-    #[test]
-    fn session_save_and_load_round_trips() {
-        let dir = tempfile::tempdir().unwrap();
-        let base = dir.path();
-
-        let sid = "test-session-round-trip";
-        let messages = vec![
-            ChatMessage {
-                role: "system".to_string(),
-                content: Some("You are helpful.".to_string()),
-                tool_calls: None,
-                tool_call_id: None,
-            },
-            ChatMessage {
-                role: "user".to_string(),
-                content: Some("Hello".to_string()),
-                tool_calls: None,
-                tool_call_id: None,
-            },
-            ChatMessage {
-                role: "assistant".to_string(),
-                content: Some("Hi there!".to_string()),
-                tool_calls: None,
-                tool_call_id: None,
-            },
-        ];
-
-        save_session_messages_to(base, sid, &messages).unwrap();
-        let loaded = load_session_messages_from(base, sid);
-        assert_eq!(loaded.len(), 3);
-        assert_eq!(loaded[0].role, "system");
-        assert_eq!(loaded[1].content.as_deref(), Some("Hello"));
-        assert_eq!(loaded[2].content.as_deref(), Some("Hi there!"));
-    }
-
-    #[test]
-    fn load_nonexistent_session_returns_empty() {
-        let dir = tempfile::tempdir().unwrap();
-        let loaded = load_session_messages_from(dir.path(), "nonexistent-session-id");
-        assert!(loaded.is_empty());
     }
 }

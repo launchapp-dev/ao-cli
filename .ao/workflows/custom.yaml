@@ -51,7 +51,7 @@ agents:
            * Check ao.task.stats for done count vs last release
            * Check open PRs — are there critical fixes still in flight?
          - Evaluate if a release is WORTH cutting:
-           * Features or bugfixes completed? → YES release
+           * Features, bugfixes, or security fixes completed? → YES release
            * Requirements fulfilled? → YES release (milestone reached)
            * Only docs, chore, or monitoring? → NO, wait for real changes
            * Critical tasks still blocked or in-progress? → NO, wait for them

@@ -22,6 +22,7 @@ tiktoken-rs = "0.9"
 tokio-util = "0.7"
 rmcp = { version = "1.2", features = ["client", "transport-child-process"] }
 protocol = { path = "../protocol" }
+rand = "0.8"
 
 [dev-dependencies]
 tempfile = "3"

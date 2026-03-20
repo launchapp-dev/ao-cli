@@ -96,6 +96,22 @@ fn evaluate_schedules(
             continue;
         }
 
+        // Skip schedules that are paused due to rate-limit
+        if let Some(run_state) = state.schedules.get(&schedule.id) {
+            if let Some(paused_until) = run_state.paused_until {
+                if now < paused_until {
+                    continue;
+                }
+                // Schedule has auto-resumed (paused_until has passed)
+                eprintln!(
+                    "{}: Schedule '{}' auto-resumed (rate-limit window expired at {})",
+                    protocol::ACTOR_DAEMON,
+                    schedule.id,
+                    paused_until.to_rfc3339()
+                );
+            }
+        }
+
         match cron_matches(&schedule.cron, now) {
             Ok(true) => {}
             Ok(false) => continue,
@@ -318,6 +334,7 @@ mod tests {
                 last_run: Some(now),
                 last_status: "evaluated".to_string(),
                 run_count: 1,
+                paused_until: None,
             },
         );
         let due = evaluate_schedules(&schedules, &state, now);
@@ -502,5 +519,118 @@ mod tests {
         let within =
             ScheduleDispatch::allows_proactive_dispatch(None, chrono::NaiveTime::from_hms_opt(3, 0, 0).unwrap());
         assert!(within, "no active_hours config should allow all schedules");
+    }
+
+    // --- rate-limit pause tests ---
+
+    #[test]
+    fn evaluate_schedules_skips_rate_limited_schedule() {
+        let now: chrono::DateTime<chrono::Utc> = "2026-03-04T12:30:00Z".parse().expect("timestamp should parse");
+        let schedules = vec![orchestrator_core::WorkflowSchedule {
+            id: "pr-reviewer".to_string(),
+            cron: "*/5 * * * *".to_string(),
+            workflow_ref: Some("pr-reviewer".to_string()),
+            command: None,
+            input: None,
+            enabled: true,
+        }];
+        let mut state = orchestrator_core::ScheduleState::default();
+        // Set paused_until to 2 hours from now
+        let paused_until = now + chrono::Duration::hours(2);
+        state.schedules.insert(
+            "pr-reviewer".to_string(),
+            orchestrator_core::ScheduleRunState {
+                last_run: None,
+                last_status: "failed: rate limit".to_string(),
+                run_count: 50,
+                paused_until: Some(paused_until),
+            },
+        );
+        let due = evaluate_schedules(&schedules, &state, now);
+
+        assert!(due.is_empty(), "rate-limited schedule should be skipped");
+    }
+
+    #[test]
+    fn evaluate_schedules_resumes_expired_rate_limit() {
+        let now: chrono::DateTime<chrono::Utc> = "2026-03-04T12:30:00Z".parse().expect("timestamp should parse");
+        let schedules = vec![orchestrator_core::WorkflowSchedule {
+            id: "pr-reviewer".to_string(),
+            cron: "*/5 * * * *".to_string(),
+            workflow_ref: Some("pr-reviewer".to_string()),
+            command: None,
+            input: None,
+            enabled: true,
+        }];
+        let mut state = orchestrator_core::ScheduleState::default();
+        // Set paused_until to 2 hours ago (expired)
+        let paused_until = now - chrono::Duration::hours(2);
+        state.schedules.insert(
+            "pr-reviewer".to_string(),
+            orchestrator_core::ScheduleRunState {
+                last_run: None,
+                last_status: "failed: rate limit".to_string(),
+                run_count: 50,
+                paused_until: Some(paused_until),
+            },
+        );
+        let due = evaluate_schedules(&schedules, &state, now);
+
+        assert_eq!(due, vec!["pr-reviewer".to_string()], "expired rate-limit should allow schedule");
+    }
+
+    #[test]
+    fn evaluate_schedules_allows_schedule_without_paused_until() {
+        let now: chrono::DateTime<chrono::Utc> = "2026-03-04T12:30:00Z".parse().expect("timestamp should parse");
+        let schedules = vec![orchestrator_core::WorkflowSchedule {
+            id: "pr-reviewer".to_string(),
+            cron: "30 12 * * *".to_string(),
+            workflow_ref: Some("pr-reviewer".to_string()),
+            command: None,
+            input: None,
+            enabled: true,
+        }];
+        let mut state = orchestrator_core::ScheduleState::default();
+        // State exists but no paused_until
+        state.schedules.insert(
+            "pr-reviewer".to_string(),
+            orchestrator_core::ScheduleRunState {
+                last_run: None,
+                last_status: "completed".to_string(),
+                run_count: 10,
+                paused_until: None,
+            },
+        );
+        let due = evaluate_schedules(&schedules, &state, now);
+
+        assert_eq!(due, vec!["pr-reviewer".to_string()], "schedule without paused_until should be allowed");
+    }
+
+    #[test]
+    fn evaluate_schedules_rate_limit_auto_resume_logs() {
+        let now: chrono::DateTime<chrono::Utc> = "2026-03-04T12:30:00Z".parse().expect("timestamp should parse");
+        let schedules = vec![orchestrator_core::WorkflowSchedule {
+            id: "pr-reviewer".to_string(),
+            cron: "30 12 * * *".to_string(),
+            workflow_ref: Some("pr-reviewer".to_string()),
+            command: None,
+            input: None,
+            enabled: true,
+        }];
+        let mut state = orchestrator_core::ScheduleState::default();
+        let paused_until = now - chrono::Duration::hours(1);
+        state.schedules.insert(
+            "pr-reviewer".to_string(),
+            orchestrator_core::ScheduleRunState {
+                last_run: None,
+                last_status: "failed: rate limit".to_string(),
+                run_count: 50,
+                paused_until: Some(paused_until),
+            },
+        );
+        // This should log the auto-resume message
+        let due = evaluate_schedules(&schedules, &state, now);
+
+        assert_eq!(due, vec!["pr-reviewer".to_string()], "expired rate-limit should auto-resume");
     }
 }

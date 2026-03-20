@@ -1,4 +1,8 @@
+<<<<<<<< HEAD:crates/orchestrator-web-server/embedded/assets/queue-page-chRwiy4k.js
 import{r as D,j as e}from"./react-vendor-BuqxgqLq.js";import{a1 as x,u as F,g as y,P as V,a as U,S as $,B as i,c as g,C as v,b as f,a2 as G,d as J,e as K,f as T,p as X,a3 as Y,t as d,a4 as Z,a5 as ee,a6 as re}from"./index-Dgrd_I6t.js";import{T as se,a as ae,b as q,c as n,d as te,e as l}from"./table-BZ9MCL0t.js";import{L as I}from"./routing-vendor-DZw9ld-2.js";/**
+========
+import{r as D,j as e}from"./react-vendor-BuqxgqLq.js";import{a2 as x,u as F,g as y,P as V,a as U,S as $,B as i,c as g,C as v,b as f,a3 as G,d as J,e as K,f as T,p as X,a4 as Y,t as d,a5 as Z,a6 as ee,a7 as re}from"./index-BtusT2OI.js";import{T as se,a as ae,b as q,c as n,d as te,e as l}from"./table-GFDwoknb.js";import{L as I}from"./routing-vendor-DZw9ld-2.js";/**
+>>>>>>>> origin/main:crates/orchestrator-web-server/embedded/assets/queue-page-C-ehhyg0.js
  * @license lucide-react v0.577.0 - ISC
  *
  * This source code is licensed under the ISC license.

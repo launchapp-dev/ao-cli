@@ -8,7 +8,7 @@ For the full tool table with parameters, see [MCP Tools Reference](../reference/
 
 ## Overview
 
-AO exposes ~68 MCP tools organized into 8 groups:
+AO exposes ~70 MCP tools organized into 8 groups:
 
 | Group | Tools | Purpose |
 |-------|-------|---------|
@@ -17,9 +17,9 @@ AO exposes ~68 MCP tools organized into 8 groups:
 | `ao.daemon.*` | 11 | Background scheduler management |
 | `ao.requirements.*` | 6 | Requirements tracking |
 | `ao.queue.*` | 6 | Dispatch queue management |
-| `ao.output.*` | 5 | Agent output and monitoring |
+| `ao.output.*` | 6 | Agent output and monitoring |
 | `ao.agent.*` | 3 | Direct agent execution |
-| `ao.runner.*` | 3 | Runner process health |
+| `ao.runner.*` | 4 | Runner process health |
 
 Every tool accepts an optional `project_root` parameter to specify which project to operate on. If omitted, the current working directory is used.
 

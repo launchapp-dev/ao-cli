@@ -1,4 +1,8 @@
+<<<<<<<< HEAD:crates/orchestrator-web-server/embedded/assets/arrow-left-CM2U4gz_.js
 import{a1 as o}from"./index-Dgrd_I6t.js";/**
+========
+import{a2 as o}from"./index-BtusT2OI.js";/**
+>>>>>>>> 8d2609f9 (Clean stale web UI builds: set emptyOutDir=true, 18MB → 1.7MB embedded):crates/orchestrator-web-server/embedded/assets/arrow-left-CrgE9mO3.js
  * @license lucide-react v0.577.0 - ISC
  *
  * This source code is licensed under the ISC license.

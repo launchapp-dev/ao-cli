@@ -56,7 +56,9 @@ fn load_session_messages_from(base: &Path, session_id: &str) -> Vec<ChatMessage>
             messages.drain(trim_start..trim_end);
             eprintln!(
                 "[oai-runner] Capped resumed session from {} to {} messages (dropped {} oldest non-system messages)",
-                original_len, messages.len(), dropped
+                original_len,
+                messages.len(),
+                dropped
             );
         }
     }

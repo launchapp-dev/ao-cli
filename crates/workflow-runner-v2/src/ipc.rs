@@ -8,7 +8,7 @@ use orchestrator_core::runtime_contract;
 use protocol::{AgentRunEvent, IpcAuthRequest, IpcAuthResult, OutputStreamType, RunId, MAX_UNIX_SOCKET_PATH_LEN};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::time::{Duration, sleep};
+use tokio::time::{sleep, Duration};
 
 fn scoped_ao_root(project_root: &Path) -> Option<PathBuf> {
     protocol::scoped_state_root(project_root)
@@ -67,26 +67,27 @@ pub async fn connect_runner(config_dir: &Path) -> Result<tokio::net::UnixStream>
     for attempt in 1..=CONNECT_RUNNER_RETRY_ATTEMPTS {
         let connect_future = tokio::net::UnixStream::connect(&socket_path);
         match tokio::time::timeout(Duration::from_secs(connect_timeout_secs), connect_future).await {
-            Ok(Ok(mut stream)) => {
-                match authenticate_runner_stream(&mut stream, config_dir).await {
-                    Ok(()) => return Ok(stream),
-                    Err(auth_error) => {
-                        if attempt < CONNECT_RUNNER_RETRY_ATTEMPTS {
-                            eprintln!(
-                                "[ao] Runner auth failed (attempt {}/{}): {}, retrying in {:?}...",
-                                attempt, CONNECT_RUNNER_RETRY_ATTEMPTS, auth_error, backoff
-                            );
-                            sleep(backoff).await;
-                            backoff = std::cmp::min(backoff.saturating_mul(2), Duration::from_secs(CONNECT_RUNNER_MAX_BACKOFF_SECS));
-                            continue;
-                        }
-                        return Err(anyhow!(
-                            "failed to authenticate runner connection at {}: {auth_error}",
-                            socket_path.display()
-                        ));
+            Ok(Ok(mut stream)) => match authenticate_runner_stream(&mut stream, config_dir).await {
+                Ok(()) => return Ok(stream),
+                Err(auth_error) => {
+                    if attempt < CONNECT_RUNNER_RETRY_ATTEMPTS {
+                        eprintln!(
+                            "[ao] Runner auth failed (attempt {}/{}): {}, retrying in {:?}...",
+                            attempt, CONNECT_RUNNER_RETRY_ATTEMPTS, auth_error, backoff
+                        );
+                        sleep(backoff).await;
+                        backoff = std::cmp::min(
+                            backoff.saturating_mul(2),
+                            Duration::from_secs(CONNECT_RUNNER_MAX_BACKOFF_SECS),
+                        );
+                        continue;
                     }
+                    return Err(anyhow!(
+                        "failed to authenticate runner connection at {}: {auth_error}",
+                        socket_path.display()
+                    ));
                 }
-            }
+            },
             Ok(Err(error)) => {
                 if attempt < CONNECT_RUNNER_RETRY_ATTEMPTS {
                     let base_message = format!(
@@ -99,7 +100,8 @@ pub async fn connect_runner(config_dir: &Path) -> Result<tokio::net::UnixStream>
                         base_message, attempt, CONNECT_RUNNER_RETRY_ATTEMPTS, error, backoff
                     );
                     sleep(backoff).await;
-                    backoff = std::cmp::min(backoff.saturating_mul(2), Duration::from_secs(CONNECT_RUNNER_MAX_BACKOFF_SECS));
+                    backoff =
+                        std::cmp::min(backoff.saturating_mul(2), Duration::from_secs(CONNECT_RUNNER_MAX_BACKOFF_SECS));
                     continue;
                 }
                 let hint = if socket_path.exists() {
@@ -124,7 +126,8 @@ pub async fn connect_runner(config_dir: &Path) -> Result<tokio::net::UnixStream>
                         socket_path.display(), connect_timeout_secs, attempt, CONNECT_RUNNER_RETRY_ATTEMPTS, backoff
                     );
                     sleep(backoff).await;
-                    backoff = std::cmp::min(backoff.saturating_mul(2), Duration::from_secs(CONNECT_RUNNER_MAX_BACKOFF_SECS));
+                    backoff =
+                        std::cmp::min(backoff.saturating_mul(2), Duration::from_secs(CONNECT_RUNNER_MAX_BACKOFF_SECS));
                     continue;
                 }
                 return Err(anyhow!(

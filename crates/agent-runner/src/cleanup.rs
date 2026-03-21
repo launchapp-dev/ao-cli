@@ -367,7 +367,8 @@ mod tests {
             assert_eq!(cleaned, 2, "both dead entries should be cleaned");
             assert!(surviving.is_empty(), "no survivors expected for non-existent PIDs");
             Ok::<(), anyhow::Error>(())
-        }).unwrap();
+        })
+        .unwrap();
 
         // Since all entries were cleaned, the file should be removed
         assert!(!path.exists(), "tracker file should be removed when all entries are cleaned");
@@ -408,7 +409,8 @@ mod tests {
             assert_eq!(cleaned, 1, "dead entry should be cleaned");
             assert_eq!(surviving.len(), 1, "stubborn entry should survive");
             Ok::<(), anyhow::Error>(())
-        }).unwrap();
+        })
+        .unwrap();
 
         // Tracker should still exist with the surviving entry
         assert!(path.exists(), "tracker file should be preserved when survivors exist");

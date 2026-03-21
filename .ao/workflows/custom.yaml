@@ -193,9 +193,16 @@ agents:
          If a release branch exists, skip to step 4.
 
       2. EVALUATE RELEASE READINESS:
-         Run `git log --oneline origin/main..origin/develop | wc -l` to count unreleased commits.
          Run `git tag --sort=-v:refname | head -1` to get the latest version tag.
-         If < 10 commits, SKIP — not enough changes yet.
+         Check ao.task.stats — how many tasks are done since last release?
+         Check ao.requirements.list — any requirements completed?
+         Check `git log --oneline <prev_tag>..origin/develop --no-merges` for changes.
+         RELEASE if any of:
+         - A requirement was completed (milestone reached)
+         - 3+ bugfixes or features completed since last release
+         - A critical fix was merged
+         - Significant oai-runner, daemon, or workflow improvements landed
+         SKIP if only docs, monitoring, or trivial chore tasks.
 
       3. CUT RELEASE BRANCH:
          a. Parse the latest tag (e.g., v0.0.10) and bump: minor for features, patch for bugfixes only.

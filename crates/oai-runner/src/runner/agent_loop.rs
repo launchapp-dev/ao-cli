@@ -105,7 +105,7 @@ fn synthesize_fallback(model: &str, summary: &str, confidence: f64) -> Value {
         "commit_message": format!("Implementation by {}", model),
         "phase_decision": {
             "kind": "phase_decision",
-            "verdict": "rework",
+            "verdict": "fail",
             "confidence": confidence,
             "risk": "high",
             "reason": format!("Agent did not produce valid structured output. Summary: {}", summary)
@@ -709,10 +709,10 @@ mod tests {
     }
 
     #[test]
-    fn fallback_uses_rework_verdict() {
+    fn fallback_uses_fail_verdict_for_structured_output_failure() {
         let fallback = synthesize_fallback("test-model", "test summary", 0.4);
         let decision = &fallback["phase_decision"];
-        assert_eq!(decision["verdict"], "rework");
+        assert_eq!(decision["verdict"], "fail");
         assert_eq!(decision["confidence"], 0.4);
         assert_eq!(decision["risk"], "high");
     }

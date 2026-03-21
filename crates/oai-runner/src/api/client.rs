@@ -36,10 +36,7 @@ pub(crate) enum CircuitState {
 }
 
 fn now_secs() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs()
 }
 
 /// Returns the current circuit breaker state without side effects.
@@ -69,11 +66,8 @@ fn check_circuit(state: &ProviderState) -> Result<(), CircuitState> {
         return Err(CircuitState::Open); // Still in cooldown
     }
     // Cooldown expired — half-open. Try to claim the single probe slot.
-    match state
-        .probe_in_flight
-        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-    {
-        Ok(_) => Ok(()),   // Probe slot claimed
+    match state.probe_in_flight.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed) {
+        Ok(_) => Ok(()),                   // Probe slot claimed
         Err(_) => Err(CircuitState::Open), // Another probe already in flight
     }
 }
@@ -109,10 +103,7 @@ fn record_success(state: &ProviderState, api_base: &str) {
     state.circuit_open_until.store(0, Ordering::Relaxed);
     state.probe_in_flight.store(false, Ordering::Relaxed);
     if prev == CircuitState::HalfOpen {
-        eprintln!(
-            "[oai-runner] Circuit breaker CLOSED for {} — probe succeeded.",
-            api_base
-        );
+        eprintln!("[oai-runner] Circuit breaker CLOSED for {} — probe succeeded.", api_base);
     }
 }
 
@@ -139,9 +130,7 @@ fn record_failure(state: &ProviderState, api_base: &str) {
 /// or a non-retryable error). Re-opens the circuit with an extended cooldown.
 fn record_probe_failure(state: &ProviderState, api_base: &str) {
     let now = now_secs();
-    state
-        .circuit_open_until
-        .store(now + CIRCUIT_BREAKER_EXTENDED_COOLDOWN_SECS, Ordering::Relaxed);
+    state.circuit_open_until.store(now + CIRCUIT_BREAKER_EXTENDED_COOLDOWN_SECS, Ordering::Relaxed);
     state.probe_in_flight.store(false, Ordering::Relaxed);
     eprintln!(
         "[oai-runner] Circuit breaker RE-OPENED for {} — probe failed. Extended cooldown for {}s.",
@@ -161,11 +150,7 @@ impl ApiClient {
             .timeout(Duration::from_secs(timeout_secs))
             .build()
             .expect("failed to build HTTP client");
-        Self {
-            http,
-            api_base,
-            api_key,
-        }
+        Self { http, api_base, api_key }
     }
 
     pub async fn stream_chat(
@@ -182,10 +167,7 @@ impl ApiClient {
         }
         let is_probe = circuit_state(&state) == CircuitState::HalfOpen;
         if is_probe {
-            eprintln!(
-                "[oai-runner] Circuit breaker HALF-OPEN for {} — sending probe request.",
-                self.api_base
-            );
+            eprintln!("[oai-runner] Circuit breaker HALF-OPEN for {} — sending probe request.", self.api_base);
         }
 
         let url = format!("{}/chat/completions", self.api_base);
@@ -316,11 +298,7 @@ impl ApiClient {
                     role: "assistant".to_string(),
                     content: Some(content),
                     reasoning_content: Some(reasoning_content),
-                    tool_calls: if tool_calls.is_empty() {
-                        None
-                    } else {
-                        Some(tool_calls)
-                    },
+                    tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls) },
                     tool_call_id: None,
                 };
                 return Ok((msg, usage));
@@ -353,10 +331,7 @@ impl ApiClient {
                             tool_calls.push(ToolCall {
                                 id: String::new(),
                                 type_: "function".to_string(),
-                                function: FunctionCall {
-                                    name: String::new(),
-                                    arguments: String::new(),
-                                },
+                                function: FunctionCall { name: String::new(), arguments: String::new() },
                             });
                         }
 
@@ -379,17 +354,9 @@ impl ApiClient {
         std::io::stdout().flush().ok();
         let msg = ChatMessage {
             role: "assistant".to_string(),
-            content: if content.is_empty() {
-                None
-            } else {
-                Some(content)
-            },
+            content: if content.is_empty() { None } else { Some(content) },
             reasoning_content: Some(reasoning_content),
-            tool_calls: if tool_calls.is_empty() {
-                None
-            } else {
-                Some(tool_calls)
-            },
+            tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls) },
             tool_call_id: None,
         };
         Ok((msg, usage))
@@ -494,10 +461,7 @@ mod tests {
         let state = new_closed_state();
         record_failure(&state, "test");
         record_failure(&state, "test");
-        assert_eq!(
-            state.consecutive_failures.load(Ordering::Relaxed),
-            2
-        );
+        assert_eq!(state.consecutive_failures.load(Ordering::Relaxed), 2);
     }
 
     #[test]
@@ -515,10 +479,7 @@ mod tests {
         let prev_until = state.circuit_open_until.load(Ordering::Relaxed);
         record_failure(&state, "test");
         // circuit_open_until should not have changed
-        assert_eq!(
-            state.circuit_open_until.load(Ordering::Relaxed),
-            prev_until
-        );
+        assert_eq!(state.circuit_open_until.load(Ordering::Relaxed), prev_until);
     }
 
     #[test]
@@ -529,10 +490,7 @@ mod tests {
         let prev_until = state.circuit_open_until.load(Ordering::Relaxed);
         record_failure(&state, "test");
         // circuit_open_until should not change from intermediate failure
-        assert_eq!(
-            state.circuit_open_until.load(Ordering::Relaxed),
-            prev_until
-        );
+        assert_eq!(state.circuit_open_until.load(Ordering::Relaxed), prev_until);
         assert_eq!(circuit_state(&state), CircuitState::HalfOpen);
     }
 
@@ -544,10 +502,7 @@ mod tests {
         record_failure(&state, "test");
         record_failure(&state, "test");
         record_success(&state, "test");
-        assert_eq!(
-            state.consecutive_failures.load(Ordering::Relaxed),
-            0
-        );
+        assert_eq!(state.consecutive_failures.load(Ordering::Relaxed), 0);
         assert_eq!(circuit_state(&state), CircuitState::Closed);
     }
 
@@ -560,10 +515,7 @@ mod tests {
         // Probe succeeds
         record_success(&state, "test-provider");
         assert_eq!(circuit_state(&state), CircuitState::Closed);
-        assert_eq!(
-            state.consecutive_failures.load(Ordering::Relaxed),
-            0
-        );
+        assert_eq!(state.consecutive_failures.load(Ordering::Relaxed), 0);
     }
 
     #[test]
@@ -588,10 +540,7 @@ mod tests {
         let until = state.circuit_open_until.load(Ordering::Relaxed);
         let expected = now_secs() + CIRCUIT_BREAKER_EXTENDED_COOLDOWN_SECS;
         // Allow 1-second tolerance for test execution time
-        assert!(
-            until >= expected && until <= expected + 2,
-            "Expected cooldown end ~{expected}, got {until}"
-        );
+        assert!(until >= expected && until <= expected + 2, "Expected cooldown end ~{expected}, got {until}");
     }
 
     #[test]
@@ -620,9 +569,7 @@ mod tests {
         assert_eq!(check_circuit(&state), Err(CircuitState::Open));
 
         // 3. Simulate cooldown expiry
-        state
-            .circuit_open_until
-            .store(now_secs() - 1, Ordering::Relaxed);
+        state.circuit_open_until.store(now_secs() - 1, Ordering::Relaxed);
         assert_eq!(circuit_state(&state), CircuitState::HalfOpen);
 
         // 4. Probe request allowed
@@ -652,9 +599,7 @@ mod tests {
         assert_eq!(circuit_state(&state), CircuitState::Open);
 
         // 2. Cooldown expires → half-open
-        state
-            .circuit_open_until
-            .store(now_secs() - 1, Ordering::Relaxed);
+        state.circuit_open_until.store(now_secs() - 1, Ordering::Relaxed);
 
         // 3. Probe allowed
         assert!(check_circuit(&state).is_ok());
@@ -671,9 +616,7 @@ mod tests {
         assert!(until >= expected - 1);
 
         // 6. Extended cooldown expires → half-open again
-        state
-            .circuit_open_until
-            .store(now_secs() - 1, Ordering::Relaxed);
+        state.circuit_open_until.store(now_secs() - 1, Ordering::Relaxed);
 
         // 7. New probe allowed
         assert!(check_circuit(&state).is_ok());
@@ -681,10 +624,7 @@ mod tests {
         // 8. Probe succeeds → circuit closes
         record_success(&state, api);
         assert_eq!(circuit_state(&state), CircuitState::Closed);
-        assert_eq!(
-            state.consecutive_failures.load(Ordering::Relaxed),
-            0
-        );
+        assert_eq!(state.consecutive_failures.load(Ordering::Relaxed), 0);
     }
 
     #[test]
@@ -700,32 +640,22 @@ mod tests {
         assert_eq!(count_at_open, CIRCUIT_BREAKER_THRESHOLD as u32);
 
         // Enter half-open and record intermediate failure
-        state
-            .circuit_open_until
-            .store(now_secs() - 1, Ordering::Relaxed);
+        state.circuit_open_until.store(now_secs() - 1, Ordering::Relaxed);
         assert!(check_circuit(&state).is_ok());
         record_failure(&state, api);
         // Count should have incremented
-        assert_eq!(
-            state.consecutive_failures.load(Ordering::Relaxed),
-            count_at_open + 1
-        );
+        assert_eq!(state.consecutive_failures.load(Ordering::Relaxed), count_at_open + 1);
 
         // Probe fails
         record_probe_failure(&state, api);
 
         // Enter half-open again, probe succeeds
-        state
-            .circuit_open_until
-            .store(now_secs() - 1, Ordering::Relaxed);
+        state.circuit_open_until.store(now_secs() - 1, Ordering::Relaxed);
         assert!(check_circuit(&state).is_ok());
         record_success(&state, api);
 
         // Count reset on success
-        assert_eq!(
-            state.consecutive_failures.load(Ordering::Relaxed),
-            0
-        );
+        assert_eq!(state.consecutive_failures.load(Ordering::Relaxed), 0);
     }
 
     #[test]

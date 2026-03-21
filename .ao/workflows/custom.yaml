@@ -934,19 +934,27 @@ phases:
     directive: |
       You are reviewing a Rust implementation in a 16-crate workspace. This is the quality gate before merge.
 
-      REVIEW CHECKLIST:
-      1. CORRECTNESS: Does the code do what the task description requires? Check edge cases.
-      2. SAFETY: No panics in production paths, no unwrap() on user input, proper error propagation.
-      3. ARCHITECTURE: Does it respect crate boundaries? No circular deps? Clean public API?
-      4. PERFORMANCE: No unnecessary allocations, clones, or O(n²) loops on large data.
-      5. SECURITY: No command injection, path traversal, or unvalidated input at system boundaries.
-      6. TESTS: Are the changes tested? Do existing tests still make sense?
-      7. SCOPE: Does it only change what the task requires? No unrelated refactors or feature creep.
+      STEP 1 — GATHER CONTEXT:
+      - Read the task via ao.task.get to understand requirements and acceptance criteria
+      - Check linked requirements via ao.requirements.get for formal acceptance criteria
+      - Read the task checklist for specific deliverables
+      - Understand the scope and constraints from the task description
+
+      STEP 2 — REVIEW AGAINST REQUIREMENTS:
+      1. REQUIREMENTS MET: Does the implementation satisfy ALL acceptance criteria from the task and linked requirements?
+      2. CHECKLIST COMPLETE: Are all checklist items addressed?
+      3. CORRECTNESS: Does the code do what the task requires? Check edge cases.
+      4. SAFETY: No panics in production paths, no unwrap() on user input, proper error propagation.
+      5. ARCHITECTURE: Does it respect crate boundaries? No circular deps? Clean public API?
+      6. PERFORMANCE: No unnecessary allocations, clones, or O(n²) loops on large data.
+      7. SECURITY: No command injection, path traversal, or unvalidated input at system boundaries.
+      8. TESTS: Are the changes tested? Do existing tests still make sense?
+      9. SCOPE: Does it only change what the task requires? No unrelated changes.
 
       VERDICT:
-      - advance: Code is production-ready. All checks pass.
-      - rework: Issues found. Provide EXACT file:line references and what must change.
-      - fail: Fundamentally wrong approach. Explain why and suggest alternative.
+      - advance: All requirements met. Code is production-ready.
+      - rework: Provide EXACT file:line references, which requirement is not met, and what must change.
+      - fail: Requirements fundamentally misunderstood. Explain why.
 
       Do NOT make changes yourself. Only review and decide.
     decision_contract:

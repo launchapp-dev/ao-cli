@@ -344,8 +344,7 @@ fn routing_complexity(
 }
 
 pub(crate) fn validate_basic_json_schema(instance: &Value, schema: &Value) -> Result<()> {
-    let validator = jsonschema::validator_for(schema)
-        .map_err(|e| anyhow!("invalid JSON Schema: {}", e))?;
+    let validator = jsonschema::validator_for(schema).map_err(|e| anyhow!("invalid JSON Schema: {}", e))?;
 
     let errors: Vec<String> = validator
         .iter_errors(instance)
@@ -1957,7 +1956,11 @@ mod tests {
 
         assert!(validate_basic_json_schema(&valid, &schema).is_ok());
         let err = validate_basic_json_schema(&invalid, &schema).expect_err("should fail");
-        assert!(err.to_string().contains("pattern") || err.to_string().contains("task_id"), "should mention pattern violation: {}", err);
+        assert!(
+            err.to_string().contains("pattern") || err.to_string().contains("task_id"),
+            "should mention pattern violation: {}",
+            err
+        );
     }
 
     #[test]
@@ -1973,7 +1976,11 @@ mod tests {
 
         assert!(validate_basic_json_schema(&valid, &schema).is_ok());
         let err = validate_basic_json_schema(&too_short, &schema).expect_err("should fail");
-        assert!(err.to_string().contains("reason") || err.to_string().contains("minLength"), "should mention minLength: {}", err);
+        assert!(
+            err.to_string().contains("reason") || err.to_string().contains("minLength"),
+            "should mention minLength: {}",
+            err
+        );
     }
 
     #[test]
@@ -1989,7 +1996,11 @@ mod tests {
 
         assert!(validate_basic_json_schema(&valid, &schema).is_ok());
         let err = validate_basic_json_schema(&too_long, &schema).expect_err("should fail");
-        assert!(err.to_string().contains("summary") || err.to_string().contains("maxLength"), "should mention maxLength: {}", err);
+        assert!(
+            err.to_string().contains("summary") || err.to_string().contains("maxLength"),
+            "should mention maxLength: {}",
+            err
+        );
     }
 
     #[test]
@@ -2005,7 +2016,11 @@ mod tests {
 
         assert!(validate_basic_json_schema(&valid, &schema).is_ok());
         let err = validate_basic_json_schema(&too_low, &schema).expect_err("should fail");
-        assert!(err.to_string().contains("confidence") || err.to_string().contains("minimum"), "should mention minimum: {}", err);
+        assert!(
+            err.to_string().contains("confidence") || err.to_string().contains("minimum"),
+            "should mention minimum: {}",
+            err
+        );
     }
 
     #[test]
@@ -2021,7 +2036,11 @@ mod tests {
 
         assert!(validate_basic_json_schema(&valid, &schema).is_ok());
         let err = validate_basic_json_schema(&too_high, &schema).expect_err("should fail");
-        assert!(err.to_string().contains("priority_score") || err.to_string().contains("maximum"), "should mention maximum: {}", err);
+        assert!(
+            err.to_string().contains("priority_score") || err.to_string().contains("maximum"),
+            "should mention maximum: {}",
+            err
+        );
     }
 
     #[test]
@@ -2037,7 +2056,11 @@ mod tests {
 
         assert!(validate_basic_json_schema(&valid, &schema).is_ok());
         let err = validate_basic_json_schema(&empty, &schema).expect_err("should fail");
-        assert!(err.to_string().contains("evidence") || err.to_string().contains("minItems"), "should mention minItems: {}", err);
+        assert!(
+            err.to_string().contains("evidence") || err.to_string().contains("minItems"),
+            "should mention minItems: {}",
+            err
+        );
     }
 
     #[test]
@@ -2053,7 +2076,11 @@ mod tests {
 
         assert!(validate_basic_json_schema(&valid, &schema).is_ok());
         let err = validate_basic_json_schema(&too_many, &schema).expect_err("should fail");
-        assert!(err.to_string().contains("tags") || err.to_string().contains("maxItems"), "should mention maxItems: {}", err);
+        assert!(
+            err.to_string().contains("tags") || err.to_string().contains("maxItems"),
+            "should mention maxItems: {}",
+            err
+        );
     }
 
     #[test]
@@ -2069,7 +2096,11 @@ mod tests {
 
         assert!(validate_basic_json_schema(&valid, &schema).is_ok());
         let err = validate_basic_json_schema(&invalid, &schema).expect_err("should fail");
-        assert!(err.to_string().contains("verdict") || err.to_string().contains("enum"), "should mention enum: {}", err);
+        assert!(
+            err.to_string().contains("verdict") || err.to_string().contains("enum"),
+            "should mention enum: {}",
+            err
+        );
     }
 
     #[test]

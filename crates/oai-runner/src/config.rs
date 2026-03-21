@@ -9,6 +9,64 @@ pub enum StructuredOutputSupport {
     JsonObjectOnly,
 }
 
+/// Policy controlling which built-in tools are available to the agent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ExecPolicy {
+    /// All built-in tools available, including `execute_command`.
+    #[default]
+    Full,
+    /// File tools (read/write/edit/list/search) but no shell execution.
+    NoShell,
+    /// Only non-mutating tools (read_file, list_files, search_files).
+    ReadOnly,
+}
+
+impl std::fmt::Display for ExecPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ExecPolicy::Full => write!(f, "full"),
+            ExecPolicy::NoShell => write!(f, "no-shell"),
+            ExecPolicy::ReadOnly => write!(f, "read-only"),
+        }
+    }
+}
+
+impl std::str::FromStr for ExecPolicy {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "full" => Ok(ExecPolicy::Full),
+            "no-shell" | "noshell" | "no_shell" => Ok(ExecPolicy::NoShell),
+            "read-only" | "readonly" | "read_only" => Ok(ExecPolicy::ReadOnly),
+            other => Err(format!(
+                "Unknown exec policy: '{}'. Valid values: full, no-shell, read-only",
+                other
+            )),
+        }
+    }
+}
+
+impl ExecPolicy {
+    /// Returns the set of built-in tool names permitted under this policy.
+    pub fn allowed_tools(&self) -> &'static [&'static str] {
+        match self {
+            ExecPolicy::Full => &[
+                "read_file",
+                "write_file",
+                "edit_file",
+                "list_files",
+                "search_files",
+                "execute_command",
+            ],
+            ExecPolicy::NoShell => {
+                &["read_file", "write_file", "edit_file", "list_files", "search_files"]
+            }
+            ExecPolicy::ReadOnly => &["read_file", "list_files", "search_files"],
+        }
+    }
+}
+
 pub struct ResolvedConfig {
     pub api_base: String,
     pub api_key: String,
@@ -241,5 +299,70 @@ mod tests {
         assert_eq!(config.api_base, "https://custom.api.com");
         assert_eq!(config.api_key, "sk-test-key");
         assert_eq!(config.model_id, "MiniMax-M2.1");
+    }
+
+    #[test]
+    fn exec_policy_parse_full() {
+        let p: ExecPolicy = "full".parse().unwrap();
+        assert_eq!(p, ExecPolicy::Full);
+    }
+
+    #[test]
+    fn exec_policy_parse_no_shell_variants() {
+        assert_eq!("no-shell".parse::<ExecPolicy>().unwrap(), ExecPolicy::NoShell);
+        assert_eq!("noshell".parse::<ExecPolicy>().unwrap(), ExecPolicy::NoShell);
+        assert_eq!("no_shell".parse::<ExecPolicy>().unwrap(), ExecPolicy::NoShell);
+    }
+
+    #[test]
+    fn exec_policy_parse_read_only_variants() {
+        assert_eq!("read-only".parse::<ExecPolicy>().unwrap(), ExecPolicy::ReadOnly);
+        assert_eq!("readonly".parse::<ExecPolicy>().unwrap(), ExecPolicy::ReadOnly);
+        assert_eq!("read_only".parse::<ExecPolicy>().unwrap(), ExecPolicy::ReadOnly);
+    }
+
+    #[test]
+    fn exec_policy_rejects_unknown() {
+        let err = "bogus".parse::<ExecPolicy>().unwrap_err();
+        assert!(err.contains("Unknown exec policy"));
+    }
+
+    #[test]
+    fn exec_policy_display_round_trips() {
+        for policy in [ExecPolicy::Full, ExecPolicy::NoShell, ExecPolicy::ReadOnly] {
+            let displayed = policy.to_string();
+            let parsed: ExecPolicy = displayed.parse().unwrap();
+            assert_eq!(policy, parsed);
+        }
+    }
+
+    #[test]
+    fn exec_policy_allowed_tools_full() {
+        let tools = ExecPolicy::Full.allowed_tools();
+        assert!(tools.contains(&"execute_command"));
+        assert!(tools.contains(&"write_file"));
+        assert_eq!(tools.len(), 6);
+    }
+
+    #[test]
+    fn exec_policy_allowed_tools_no_shell() {
+        let tools = ExecPolicy::NoShell.allowed_tools();
+        assert!(!tools.contains(&"execute_command"));
+        assert!(tools.contains(&"write_file"));
+        assert_eq!(tools.len(), 5);
+    }
+
+    #[test]
+    fn exec_policy_allowed_tools_read_only() {
+        let tools = ExecPolicy::ReadOnly.allowed_tools();
+        assert!(!tools.contains(&"execute_command"));
+        assert!(!tools.contains(&"write_file"));
+        assert!(!tools.contains(&"edit_file"));
+        assert_eq!(tools.len(), 3);
+    }
+
+    #[test]
+    fn exec_policy_default_is_full() {
+        assert_eq!(ExecPolicy::default(), ExecPolicy::Full);
     }
 }

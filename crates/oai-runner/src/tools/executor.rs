@@ -4,7 +4,17 @@ use std::path::Path;
 
 use super::{bash, file_ops, search};
 
-pub async fn execute_tool(name: &str, args_json: &str, working_dir: &Path) -> Result<String> {
+use crate::runner::output::OutputFormatter;
+
+/// Default timeout passed to shell commands when the caller doesn't specify one.
+const DEFAULT_CMD_TIMEOUT_SECS: u64 = 300;
+
+pub async fn execute_tool(
+    name: &str,
+    args_json: &str,
+    working_dir: &Path,
+    output: &OutputFormatter,
+) -> Result<String> {
     let args: Value = serde_json::from_str(args_json).unwrap_or(Value::Object(Default::default()));
 
     match name {
@@ -39,10 +49,27 @@ pub async fn execute_tool(name: &str, args_json: &str, working_dir: &Path) -> Re
         "execute_command" => {
             let command = get_str(&args, "command")?;
             let timeout = args.get("timeout_secs").and_then(|v| v.as_u64());
-            bash::execute_command(working_dir, command, timeout).await
+            execute_command_with_lifecycle(working_dir, command, timeout, output).await
         }
         _ => bail!("Unknown tool: {}", name),
     }
+}
+
+/// Run a shell command while emitting `command_start` / `command_end` lifecycle events.
+async fn execute_command_with_lifecycle(
+    working_dir: &Path,
+    command: &str,
+    timeout_secs: Option<u64>,
+    output: &OutputFormatter,
+) -> Result<String> {
+    let effective_timeout = timeout_secs.unwrap_or(DEFAULT_CMD_TIMEOUT_SECS);
+    output.command_start(command, effective_timeout);
+
+    let result = bash::execute_command(working_dir, command, timeout_secs).await?;
+
+    output.command_end(command, result.exit_code, result.timed_out, result.duration.as_millis() as u64);
+
+    Ok(result.output)
 }
 
 fn get_str<'a>(args: &'a Value, key: &str) -> Result<&'a str> {
@@ -55,6 +82,11 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
+    /// Helper that creates an output formatter in text mode (no stdout noise).
+    fn text_output() -> OutputFormatter {
+        OutputFormatter::new(false)
+    }
+
     fn setup_temp_dir() -> TempDir {
         let dir = TempDir::new().unwrap();
         fs::write(dir.path().join("test.txt"), "line one\nline two\nline three\n").unwrap();
@@ -66,7 +98,8 @@ mod tests {
     #[tokio::test]
     async fn read_file_returns_content_with_line_numbers() {
         let dir = setup_temp_dir();
-        let result = execute_tool("read_file", r#"{"path": "test.txt"}"#, dir.path()).await.unwrap();
+        let out = text_output();
+        let result = execute_tool("read_file", r#"{"path": "test.txt"}"#, dir.path(), &out).await.unwrap();
         assert!(result.contains("line one"));
         assert!(result.contains("line two"));
         assert!(result.contains("1\t"));
@@ -75,8 +108,9 @@ mod tests {
     #[tokio::test]
     async fn read_file_supports_offset_and_limit() {
         let dir = setup_temp_dir();
+        let out = text_output();
         let result =
-            execute_tool("read_file", r#"{"path": "test.txt", "offset": 2, "limit": 1}"#, dir.path()).await.unwrap();
+            execute_tool("read_file", r#"{"path": "test.txt", "offset": 2, "limit": 1}"#, dir.path(), &out).await.unwrap();
         assert!(result.contains("line two"));
         assert!(!result.contains("line one"));
         assert!(!result.contains("line three"));
@@ -85,8 +119,9 @@ mod tests {
     #[tokio::test]
     async fn write_file_creates_new_file() {
         let dir = setup_temp_dir();
+        let out = text_output();
         let result =
-            execute_tool("write_file", r#"{"path": "new.txt", "content": "hello world"}"#, dir.path()).await.unwrap();
+            execute_tool("write_file", r#"{"path": "new.txt", "content": "hello world"}"#, dir.path(), &out).await.unwrap();
         assert!(result.contains("Successfully wrote"));
         let content = fs::read_to_string(dir.path().join("new.txt")).unwrap();
         assert_eq!(content, "hello world");
@@ -95,7 +130,8 @@ mod tests {
     #[tokio::test]
     async fn write_file_creates_parent_directories() {
         let dir = setup_temp_dir();
-        execute_tool("write_file", r#"{"path": "deep/nested/dir/file.txt", "content": "nested"}"#, dir.path())
+        let out = text_output();
+        execute_tool("write_file", r#"{"path": "deep/nested/dir/file.txt", "content": "nested"}"#, dir.path(), &out)
             .await
             .unwrap();
         let content = fs::read_to_string(dir.path().join("deep/nested/dir/file.txt")).unwrap();
@@ -105,10 +141,12 @@ mod tests {
     #[tokio::test]
     async fn edit_file_replaces_text() {
         let dir = setup_temp_dir();
+        let out = text_output();
         let result = execute_tool(
             "edit_file",
             r#"{"path": "test.txt", "old_text": "line two", "new_text": "LINE TWO"}"#,
             dir.path(),
+            &out,
         )
         .await
         .unwrap();
@@ -121,10 +159,12 @@ mod tests {
     #[tokio::test]
     async fn edit_file_fails_when_old_text_not_found() {
         let dir = setup_temp_dir();
+        let out = text_output();
         let result = execute_tool(
             "edit_file",
             r#"{"path": "test.txt", "old_text": "nonexistent", "new_text": "replacement"}"#,
             dir.path(),
+            &out,
         )
         .await;
         assert!(result.is_err());
@@ -134,35 +174,49 @@ mod tests {
     #[tokio::test]
     async fn list_files_matches_glob_pattern() {
         let dir = setup_temp_dir();
-        let result = execute_tool("list_files", r#"{"pattern": "**/*.rs"}"#, dir.path()).await.unwrap();
+        let out = text_output();
+        let result = execute_tool("list_files", r#"{"pattern": "**/*.rs"}"#, dir.path(), &out).await.unwrap();
         assert!(result.contains("src/main.rs"));
     }
 
     #[tokio::test]
     async fn search_files_finds_matching_content() {
         let dir = setup_temp_dir();
-        let result = execute_tool("search_files", r#"{"pattern": "fn main"}"#, dir.path()).await.unwrap();
+        let out = text_output();
+        let result = execute_tool("search_files", r#"{"pattern": "fn main"}"#, dir.path(), &out).await.unwrap();
         assert!(result.contains("fn main"));
     }
 
     #[tokio::test]
     async fn execute_command_runs_shell_commands() {
         let dir = setup_temp_dir();
-        let result = execute_tool("execute_command", r#"{"command": "echo hello"}"#, dir.path()).await.unwrap();
+        let out = text_output();
+        let result = execute_tool("execute_command", r#"{"command": "echo hello"}"#, dir.path(), &out).await.unwrap();
         assert!(result.contains("hello"));
     }
 
     #[tokio::test]
     async fn execute_command_captures_exit_code() {
         let dir = setup_temp_dir();
-        let result = execute_tool("execute_command", r#"{"command": "exit 42"}"#, dir.path()).await.unwrap();
+        let out = text_output();
+        let result = execute_tool("execute_command", r#"{"command": "exit 42"}"#, dir.path(), &out).await.unwrap();
         assert!(result.contains("[exit code: 42]"));
+    }
+
+    #[tokio::test]
+    async fn execute_command_timeout_kills_child() {
+        let dir = std::env::temp_dir();
+        let out = text_output();
+        let result =
+            execute_tool("execute_command", r#"{"command": "sleep 60", "timeout_secs": 1}"#, &dir, &out).await.unwrap();
+        assert!(result.contains("timed out"));
     }
 
     #[tokio::test]
     async fn unknown_tool_returns_error() {
         let dir = setup_temp_dir();
-        let result = execute_tool("nonexistent_tool", r#"{}"#, dir.path()).await;
+        let out = text_output();
+        let result = execute_tool("nonexistent_tool", r#"{}"#, dir.path(), &out).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Unknown tool"));
     }
@@ -170,7 +224,8 @@ mod tests {
     #[tokio::test]
     async fn missing_required_param_returns_error() {
         let dir = setup_temp_dir();
-        let result = execute_tool("read_file", r#"{}"#, dir.path()).await;
+        let out = text_output();
+        let result = execute_tool("read_file", r#"{}"#, dir.path(), &out).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Missing required parameter"));
     }
@@ -178,7 +233,8 @@ mod tests {
     #[tokio::test]
     async fn read_file_rejects_absolute_path() {
         let dir = setup_temp_dir();
-        let result = execute_tool("read_file", r#"{"path": "/etc/passwd"}"#, dir.path()).await;
+        let out = text_output();
+        let result = execute_tool("read_file", r#"{"path": "/etc/passwd"}"#, dir.path(), &out).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("escape"));
     }
@@ -186,7 +242,8 @@ mod tests {
     #[tokio::test]
     async fn read_file_rejects_parent_dir_escape() {
         let dir = setup_temp_dir();
-        let result = execute_tool("read_file", r#"{"path": "../../etc/passwd"}"#, dir.path()).await;
+        let out = text_output();
+        let result = execute_tool("read_file", r#"{"path": "../../etc/passwd"}"#, dir.path(), &out).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("escape"));
     }
@@ -194,8 +251,9 @@ mod tests {
     #[tokio::test]
     async fn write_file_rejects_absolute_path() {
         let dir = setup_temp_dir();
+        let out = text_output();
         let result =
-            execute_tool("write_file", r#"{"path": "/tmp/evil.txt", "content": "evil"}"#, dir.path()).await;
+            execute_tool("write_file", r#"{"path": "/tmp/evil.txt", "content": "evil"}"#, dir.path(), &out).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("escape"));
     }
@@ -203,8 +261,9 @@ mod tests {
     #[tokio::test]
     async fn write_file_succeeds_for_new_file_in_workspace() {
         let dir = setup_temp_dir();
+        let out = text_output();
         let result =
-            execute_tool("write_file", r#"{"path": "new_subdir/new_file.txt", "content": "content"}"#, dir.path())
+            execute_tool("write_file", r#"{"path": "new_subdir/new_file.txt", "content": "content"}"#, dir.path(), &out)
                 .await;
         assert!(result.is_ok());
     }
@@ -216,7 +275,8 @@ mod tests {
         let dir = setup_temp_dir();
         let link_path = dir.path().join("escape_link");
         symlink(std::env::temp_dir(), &link_path).unwrap();
-        let result = execute_tool("read_file", r#"{"path": "escape_link/some_file"}"#, dir.path()).await;
+        let out = text_output();
+        let result = execute_tool("read_file", r#"{"path": "escape_link/some_file"}"#, dir.path(), &out).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("escape"));
     }
@@ -224,7 +284,8 @@ mod tests {
     #[tokio::test]
     async fn search_files_rejects_path_escape() {
         let dir = setup_temp_dir();
-        let result = execute_tool("search_files", r#"{"pattern": "test", "path": "../../"}"#, dir.path()).await;
+        let out = text_output();
+        let result = execute_tool("search_files", r#"{"pattern": "test", "path": "../../"}"#, dir.path(), &out).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("escape"));
     }
@@ -232,7 +293,8 @@ mod tests {
     #[tokio::test]
     async fn list_files_rejects_base_path_escape() {
         let dir = setup_temp_dir();
-        let result = execute_tool("list_files", r#"{"pattern": "**/*", "path": "../../"}"#, dir.path()).await;
+        let out = text_output();
+        let result = execute_tool("list_files", r#"{"pattern": "**/*", "path": "../../"}"#, dir.path(), &out).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("escape"));
     }
@@ -240,10 +302,12 @@ mod tests {
     #[tokio::test]
     async fn edit_file_rejects_absolute_path() {
         let dir = setup_temp_dir();
+        let out = text_output();
         let result = execute_tool(
             "edit_file",
             r#"{"path": "/etc/hosts", "old_text": "localhost", "new_text": "evil"}"#,
             dir.path(),
+            &out,
         )
         .await;
         assert!(result.is_err());

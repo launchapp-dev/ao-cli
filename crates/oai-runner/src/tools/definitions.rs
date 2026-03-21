@@ -1,4 +1,5 @@
 use crate::api::types::{FunctionSchema, ToolDefinition};
+use crate::config::ExecPolicy;
 use serde_json::json;
 
 pub fn all_tool_definitions() -> Vec<ToolDefinition> {
@@ -144,10 +145,24 @@ pub fn all_tool_definitions() -> Vec<ToolDefinition> {
     ]
 }
 
+/// Legacy read-only tool names (kept for documentation; prefer `tools_for_policy(ExecPolicy::ReadOnly)`).
+#[allow(dead_code)]
 const READ_ONLY_TOOLS: &[&str] = &["read_file", "list_files", "search_files"];
 
+/// Returns built-in tool definitions filtered by the given execution policy.
+pub fn tools_for_policy(policy: ExecPolicy) -> Vec<ToolDefinition> {
+    let allowed = policy.allowed_tools();
+    all_tool_definitions()
+        .into_iter()
+        .filter(|t| allowed.contains(&t.function.name.as_str()))
+        .collect()
+}
+
+/// Returns built-in tool definitions filtered to read-only tools.
+/// Prefer `tools_for_policy(ExecPolicy::ReadOnly)` for new code.
+#[allow(dead_code)]
 pub fn read_only_tool_definitions() -> Vec<ToolDefinition> {
-    all_tool_definitions().into_iter().filter(|t| READ_ONLY_TOOLS.contains(&t.function.name.as_str())).collect()
+    tools_for_policy(ExecPolicy::ReadOnly)
 }
 
 pub fn merge_tools(native: Vec<ToolDefinition>, mcp: Vec<ToolDefinition>) -> Vec<ToolDefinition> {
@@ -210,5 +225,34 @@ mod tests {
             assert!(item["function"]["name"].is_string());
             assert!(item["function"]["parameters"]["properties"].is_object());
         }
+    }
+
+    #[test]
+    fn tools_for_policy_full_includes_all() {
+        let tools = tools_for_policy(ExecPolicy::Full);
+        assert_eq!(tools.len(), 6);
+        let names: Vec<&str> = tools.iter().map(|t| t.function.name.as_str()).collect();
+        assert!(names.contains(&"execute_command"));
+    }
+
+    #[test]
+    fn tools_for_policy_no_shell_excludes_execute_command() {
+        let tools = tools_for_policy(ExecPolicy::NoShell);
+        assert_eq!(tools.len(), 5);
+        let names: Vec<&str> = tools.iter().map(|t| t.function.name.as_str()).collect();
+        assert!(!names.contains(&"execute_command"));
+        assert!(names.contains(&"write_file"));
+    }
+
+    #[test]
+    fn tools_for_policy_read_only_matches_read_only_tool_definitions() {
+        let by_policy = tools_for_policy(ExecPolicy::ReadOnly);
+        let by_fn = read_only_tool_definitions();
+        assert_eq!(by_policy.len(), by_fn.len());
+        let mut names_a: Vec<&str> = by_policy.iter().map(|t| t.function.name.as_str()).collect();
+        let mut names_b: Vec<&str> = by_fn.iter().map(|t| t.function.name.as_str()).collect();
+        names_a.sort();
+        names_b.sort();
+        assert_eq!(names_a, names_b);
     }
 }

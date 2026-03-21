@@ -8,6 +8,8 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
 
+use config::ExecPolicy;
+
 const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("GIT_HASH"), ")");
 
 #[derive(Parser)]
@@ -47,6 +49,12 @@ enum Commands {
         #[arg(long)]
         response_schema: Option<String>,
 
+        /// Execution policy controlling which built-in tools are available.
+        /// Options: full (all tools), no-shell (file tools only), read-only (read tools only).
+        /// Shorthands --read-only and --no-shell are also accepted for backward compatibility.
+        #[arg(long)]
+        exec_policy: Option<ExecPolicy>,
+
         #[arg(long)]
         read_only: bool,
 
@@ -69,6 +77,12 @@ enum Commands {
     },
 }
 
+/// Resolve the effective execution policy.
+/// Explicit `--exec-policy` wins; legacy `--read-only` is a shorthand for `read-only`.
+fn resolve_exec_policy(explicit: Option<ExecPolicy>, read_only_flag: bool) -> ExecPolicy {
+    explicit.unwrap_or_else(|| if read_only_flag { ExecPolicy::ReadOnly } else { ExecPolicy::Full })
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -84,6 +98,7 @@ async fn main() -> Result<()> {
             max_turns,
             idle_timeout,
             response_schema,
+            exec_policy,
             read_only,
             mcp_config,
             session_id,
@@ -98,6 +113,8 @@ async fn main() -> Result<()> {
             let json_mode = format.as_deref() == Some("json");
 
             let resolved_config = config::resolve_config(&model, api_base, api_key)?;
+
+            let exec_policy = resolve_exec_policy(exec_policy, read_only);
 
             let system = match system_prompt {
                 Some(path) => std::fs::read_to_string(&path)
@@ -116,11 +133,7 @@ async fn main() -> Result<()> {
 
             let client = api::client::ApiClient::new(resolved_config.api_base, resolved_config.api_key, idle_timeout);
 
-            let native_tools = if read_only {
-                tools::definitions::read_only_tool_definitions()
-            } else {
-                tools::definitions::all_tool_definitions()
-            };
+            let native_tools = tools::definitions::tools_for_policy(exec_policy);
 
             let mcp_configs: Vec<tools::mcp_client::McpServerConfig> = match &mcp_config {
                 Some(json_str) => {
@@ -174,6 +187,7 @@ async fn main() -> Result<()> {
                 cancel_token,
                 context_limit,
                 max_tokens,
+                exec_policy,
             )
             .await;
 

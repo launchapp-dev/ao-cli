@@ -5,7 +5,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::api::client::ApiClient;
 use crate::api::types::*;
-use crate::config::StructuredOutputSupport;
+use crate::config::{ExecPolicy, StructuredOutputSupport};
 use crate::tools::{executor, mcp_client};
 
 use super::context;
@@ -99,7 +99,12 @@ pub async fn run_agent_loop(
     cancel_token: CancellationToken,
     context_limit: usize,
     max_tokens: usize,
+    exec_policy: ExecPolicy,
 ) -> Result<()> {
+    // Emit the effective configuration so callers can inspect policy and tools.
+    let tool_names: Vec<&str> = tools.iter().map(|t| t.function.name.as_str()).collect();
+    output.config(&exec_policy.to_string(), model, &tool_names);
+
     let mut messages: Vec<ChatMessage> = Vec::new();
 
     if let Some(sid) = session_id {
@@ -255,7 +260,7 @@ pub async fn run_agent_loop(
                     }
                 }
             } else {
-                match executor::execute_tool(&tc.function.name, &tc.function.arguments, working_dir).await {
+                match executor::execute_tool(&tc.function.name, &tc.function.arguments, working_dir, output).await {
                     Ok(r) => {
                         output.tool_result(&tc.function.name, &r);
                         r

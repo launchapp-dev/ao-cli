@@ -24,7 +24,7 @@ impl AoMcpServer {
             "task".to_string(),
             "status".to_string(),
             "--id".to_string(),
-            input.id,
+            input.task_id,
             "--status".to_string(),
             input.status,
         ];
@@ -38,7 +38,7 @@ impl AoMcpServer {
     )]
     async fn ao_task_delete(&self, params: Parameters<TaskDeleteInput>) -> Result<CallToolResult, McpError> {
         let input = params.0;
-        let args = build_task_delete_args(input.id, input.confirm, input.dry_run);
+        let args = build_task_delete_args(input.task_id, input.confirm, input.dry_run);
         self.run_tool("ao.task.delete", args, input.project_root).await
     }
 
@@ -49,7 +49,7 @@ impl AoMcpServer {
     )]
     async fn ao_task_pause(&self, params: Parameters<TaskControlInput>) -> Result<CallToolResult, McpError> {
         let input = params.0;
-        let args = build_task_control_args("pause", input.id);
+        let args = build_task_control_args("pause", input.task_id);
         self.run_tool("ao.task.pause", args, input.project_root).await
     }
 
@@ -60,7 +60,7 @@ impl AoMcpServer {
     )]
     async fn ao_task_resume(&self, params: Parameters<TaskControlInput>) -> Result<CallToolResult, McpError> {
         let input = params.0;
-        let args = build_task_control_args("resume", input.id);
+        let args = build_task_control_args("resume", input.task_id);
         self.run_tool("ao.task.resume", args, input.project_root).await
     }
 
@@ -71,7 +71,7 @@ impl AoMcpServer {
     )]
     async fn ao_task_update(&self, params: Parameters<TaskUpdateInput>) -> Result<CallToolResult, McpError> {
         let input = params.0;
-        let mut args = vec!["task".to_string(), "update".to_string(), "--id".to_string(), input.id];
+        let mut args = vec!["task".to_string(), "update".to_string(), "--id".to_string(), input.task_id];
         push_opt(&mut args, "--title", input.title);
         push_opt(&mut args, "--description", input.description);
         push_opt(&mut args, "--priority", input.priority);
@@ -99,7 +99,7 @@ impl AoMcpServer {
             "task".to_string(),
             "assign".to_string(),
             "--id".to_string(),
-            input.id,
+            input.task_id,
             "--assignee".to_string(),
             input.assignee,
         ];
@@ -116,7 +116,7 @@ impl AoMcpServer {
     )]
     async fn ao_task_cancel(&self, params: Parameters<TaskCancelInput>) -> Result<CallToolResult, McpError> {
         let input = params.0;
-        let mut args = vec!["task".to_string(), "cancel".to_string(), "--id".to_string(), input.id];
+        let mut args = vec!["task".to_string(), "cancel".to_string(), "--id".to_string(), input.task_id];
         push_opt(&mut args, "--confirm", input.confirm);
         if input.dry_run {
             args.push("--dry-run".to_string());
@@ -135,7 +135,7 @@ impl AoMcpServer {
             "task".to_string(),
             "set-priority".to_string(),
             "--id".to_string(),
-            input.id,
+            input.task_id,
             "--priority".to_string(),
             input.priority,
         ];
@@ -149,7 +149,7 @@ impl AoMcpServer {
     )]
     async fn ao_task_set_deadline(&self, params: Parameters<TaskSetDeadlineInput>) -> Result<CallToolResult, McpError> {
         let input = params.0;
-        let mut args = vec!["task".to_string(), "set-deadline".to_string(), "--id".to_string(), input.id];
+        let mut args = vec!["task".to_string(), "set-deadline".to_string(), "--id".to_string(), input.task_id];
         push_opt(&mut args, "--deadline", input.deadline);
         self.run_tool("ao.task.set-deadline", args, input.project_root).await
     }
@@ -168,7 +168,7 @@ impl AoMcpServer {
             "task".to_string(),
             "checklist-add".to_string(),
             "--id".to_string(),
-            input.id,
+            input.task_id,
             "--description".to_string(),
             input.description,
         ];
@@ -189,7 +189,7 @@ impl AoMcpServer {
             "task".to_string(),
             "checklist-update".to_string(),
             "--id".to_string(),
-            input.id,
+            input.task_id,
             "--item-id".to_string(),
             input.item_id,
             "--completed".to_string(),
@@ -217,7 +217,7 @@ impl AoMcpServer {
             .map(|item| {
                 let args = build_bulk_status_item_args(&item);
                 let command = args.join(" ");
-                BatchItemExec { target_id: item.id, command, args }
+                BatchItemExec { target_id: item.task_id, command, args }
             })
             .collect();
         self.run_batch_tool("ao.task.bulk-status", items, &input.on_error, input.project_root).await
@@ -242,7 +242,7 @@ impl AoMcpServer {
             .map(|item| {
                 let args = build_bulk_update_item_args(&item);
                 let command = args.join(" ");
-                BatchItemExec { target_id: item.id, command, args }
+                BatchItemExec { target_id: item.task_id, command, args }
             })
             .collect();
         self.run_batch_tool("ao.task.bulk-update", items, &input.on_error, input.project_root).await

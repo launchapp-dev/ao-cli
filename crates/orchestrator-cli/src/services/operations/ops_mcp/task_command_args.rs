@@ -52,12 +52,12 @@ pub(super) fn build_task_create_args(input: &TaskCreateInput) -> Vec<String> {
     args
 }
 
-pub(super) fn build_task_get_args(id: String) -> Vec<String> {
-    vec!["task".to_string(), "get".to_string(), "--id".to_string(), id]
+pub(super) fn build_task_get_args(task_id: String) -> Vec<String> {
+    vec!["task".to_string(), "get".to_string(), "--id".to_string(), task_id]
 }
 
-pub(super) fn build_task_delete_args(id: String, confirm: Option<String>, dry_run: bool) -> Vec<String> {
-    let mut args = vec!["task".to_string(), "delete".to_string(), "--id".to_string(), id];
+pub(super) fn build_task_delete_args(task_id: String, confirm: Option<String>, dry_run: bool) -> Vec<String> {
+    let mut args = vec!["task".to_string(), "delete".to_string(), "--id".to_string(), task_id];
     if let Some(confirm) = confirm {
         args.push("--confirm".to_string());
         args.push(confirm);
@@ -68,8 +68,8 @@ pub(super) fn build_task_delete_args(id: String, confirm: Option<String>, dry_ru
     args
 }
 
-pub(super) fn build_task_control_args(action: &str, id: String) -> Vec<String> {
-    vec!["task".to_string(), action.to_string(), "--id".to_string(), id]
+pub(super) fn build_task_control_args(action: &str, task_id: String) -> Vec<String> {
+    vec!["task".to_string(), action.to_string(), "--id".to_string(), task_id]
 }
 
 pub(super) fn build_bulk_status_item_args(item: &BulkTaskStatusItem) -> Vec<String> {
@@ -77,14 +77,14 @@ pub(super) fn build_bulk_status_item_args(item: &BulkTaskStatusItem) -> Vec<Stri
         "task".to_string(),
         "status".to_string(),
         "--id".to_string(),
-        item.id.clone(),
+        item.task_id.clone(),
         "--status".to_string(),
         item.status.clone(),
     ]
 }
 
 pub(super) fn build_bulk_update_item_args(item: &BulkTaskUpdateItem) -> Vec<String> {
-    let mut args = vec!["task".to_string(), "update".to_string(), "--id".to_string(), item.id.clone()];
+    let mut args = vec!["task".to_string(), "update".to_string(), "--id".to_string(), item.task_id.clone()];
     push_opt(&mut args, "--title", item.title.clone());
     push_opt(&mut args, "--description", item.description.clone());
     push_opt(&mut args, "--priority", item.priority.clone());
@@ -103,14 +103,14 @@ pub(super) fn validate_bulk_status_input(tool_name: &str, updates: &[BulkTaskSta
     }
     let mut seen_ids = std::collections::HashSet::new();
     for (i, item) in updates.iter().enumerate() {
-        if item.id.trim().is_empty() {
-            return Err(format!("{tool_name}: item[{i}].id must not be empty"));
+        if item.task_id.trim().is_empty() {
+            return Err(format!("{tool_name}: item[{i}].task_id must not be empty"));
         }
         if item.status.trim().is_empty() {
             return Err(format!("{tool_name}: item[{i}].status must not be empty"));
         }
-        if !seen_ids.insert(item.id.as_str()) {
-            return Err(format!("{tool_name}: duplicate id '{}' at index {i}", item.id));
+        if !seen_ids.insert(item.task_id.as_str()) {
+            return Err(format!("{tool_name}: duplicate task_id '{}' at index {i}", item.task_id));
         }
     }
     Ok(())
@@ -125,8 +125,8 @@ pub(super) fn validate_bulk_update_input(tool_name: &str, updates: &[BulkTaskUpd
     }
     let mut seen_ids = std::collections::HashSet::new();
     for (i, item) in updates.iter().enumerate() {
-        if item.id.trim().is_empty() {
-            return Err(format!("{tool_name}: item[{i}].id must not be empty"));
+        if item.task_id.trim().is_empty() {
+            return Err(format!("{tool_name}: item[{i}].task_id must not be empty"));
         }
         let has_update = item.title.is_some()
             || item.description.is_some()
@@ -135,10 +135,10 @@ pub(super) fn validate_bulk_update_input(tool_name: &str, updates: &[BulkTaskUpd
             || item.assignee.is_some()
             || item.input_json.is_some();
         if !has_update {
-            return Err(format!("{tool_name}: item[{i}] (id='{}') must include at least one update field", item.id));
+            return Err(format!("{tool_name}: item[{i}] (task_id='{}') must include at least one update field", item.task_id));
         }
-        if !seen_ids.insert(item.id.as_str()) {
-            return Err(format!("{tool_name}: duplicate id '{}' at index {i}", item.id));
+        if !seen_ids.insert(item.task_id.as_str()) {
+            return Err(format!("{tool_name}: duplicate task_id '{}' at index {i}", item.task_id));
         }
     }
     Ok(())

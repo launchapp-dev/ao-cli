@@ -71,7 +71,7 @@ pub(super) struct TaskCreateInput {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub(super) struct TaskStatusInput {
-    pub(super) id: String,
+    pub(super) task_id: String,
     pub(super) status: String,
     #[serde(default)]
     pub(super) project_root: Option<String>,
@@ -79,14 +79,14 @@ pub(super) struct TaskStatusInput {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub(super) struct TaskGetInput {
-    pub(super) id: String,
+    pub(super) task_id: String,
     #[serde(default)]
     pub(super) project_root: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub(super) struct TaskDeleteInput {
-    pub(super) id: String,
+    pub(super) task_id: String,
     #[serde(default)]
     pub(super) confirm: Option<String>,
     #[serde(default)]
@@ -97,14 +97,14 @@ pub(super) struct TaskDeleteInput {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub(super) struct TaskControlInput {
-    pub(super) id: String,
+    pub(super) task_id: String,
     #[serde(default)]
     pub(super) project_root: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub(super) struct TaskUpdateInput {
-    pub(super) id: String,
+    pub(super) task_id: String,
     #[serde(default)]
     pub(super) title: Option<String>,
     #[serde(default)]
@@ -127,7 +127,7 @@ pub(super) struct TaskUpdateInput {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub(super) struct TaskAssignInput {
-    pub(super) id: String,
+    pub(super) task_id: String,
     pub(super) assignee: String,
     #[serde(default)]
     pub(super) assignee_type: Option<String>,
@@ -141,7 +141,7 @@ pub(super) struct TaskAssignInput {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub(super) struct BulkTaskStatusItem {
-    pub(super) id: String,
+    pub(super) task_id: String,
     pub(super) status: String,
 }
 
@@ -156,7 +156,7 @@ pub(super) struct TaskBulkStatusInput {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub(super) struct BulkTaskUpdateItem {
-    pub(super) id: String,
+    pub(super) task_id: String,
     #[serde(default)]
     pub(super) title: Option<String>,
     #[serde(default)]
@@ -182,7 +182,7 @@ pub(super) struct TaskBulkUpdateInput {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub(super) struct TaskCancelInput {
-    pub(super) id: String,
+    pub(super) task_id: String,
     #[serde(default)]
     pub(super) confirm: Option<String>,
     #[serde(default)]
@@ -193,7 +193,7 @@ pub(super) struct TaskCancelInput {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub(super) struct TaskSetPriorityInput {
-    pub(super) id: String,
+    pub(super) task_id: String,
     pub(super) priority: String,
     #[serde(default)]
     pub(super) project_root: Option<String>,
@@ -201,7 +201,7 @@ pub(super) struct TaskSetPriorityInput {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub(super) struct TaskSetDeadlineInput {
-    pub(super) id: String,
+    pub(super) task_id: String,
     #[serde(default)]
     pub(super) deadline: Option<String>,
     #[serde(default)]
@@ -210,7 +210,7 @@ pub(super) struct TaskSetDeadlineInput {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub(super) struct TaskChecklistAddInput {
-    pub(super) id: String,
+    pub(super) task_id: String,
     pub(super) description: String,
     #[serde(default)]
     pub(super) project_root: Option<String>,
@@ -218,7 +218,7 @@ pub(super) struct TaskChecklistAddInput {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub(super) struct TaskChecklistUpdateInput {
-    pub(super) id: String,
+    pub(super) task_id: String,
     pub(super) item_id: String,
     pub(super) completed: bool,
     #[serde(default)]

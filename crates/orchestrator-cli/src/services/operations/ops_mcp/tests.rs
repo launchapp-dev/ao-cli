@@ -451,7 +451,7 @@ fn build_requirements_refine_args_includes_ids_and_optional_flags() {
 
 #[test]
 fn build_bulk_status_item_args_basic() {
-    let item = BulkTaskStatusItem { id: "TASK-1".to_string(), status: "done".to_string() };
+    let item = BulkTaskStatusItem { task_id: "TASK-1".to_string(), status: "done".to_string() };
     let args = build_bulk_status_item_args(&item);
     assert_eq!(
         args,
@@ -469,7 +469,7 @@ fn build_bulk_status_item_args_basic() {
 #[test]
 fn build_bulk_update_item_args_id_only_field() {
     let item = BulkTaskUpdateItem {
-        id: "TASK-2".to_string(),
+        task_id: "TASK-2".to_string(),
         title: Some("New title".to_string()),
         description: None,
         priority: None,
@@ -494,7 +494,7 @@ fn build_bulk_update_item_args_id_only_field() {
 #[test]
 fn build_bulk_update_item_args_all_optional_fields() {
     let item = BulkTaskUpdateItem {
-        id: "TASK-3".to_string(),
+        task_id: "TASK-3".to_string(),
         title: Some("T".to_string()),
         description: Some("D".to_string()),
         priority: Some("high".to_string()),
@@ -565,7 +565,7 @@ fn validate_bulk_status_input_rejects_empty() {
 #[test]
 fn validate_bulk_status_input_rejects_over_max() {
     let updates: Vec<BulkTaskStatusItem> = (0..=MAX_BATCH_SIZE)
-        .map(|i| BulkTaskStatusItem { id: format!("TASK-{i}"), status: "done".to_string() })
+        .map(|i| BulkTaskStatusItem { task_id: format!("TASK-{i}"), status: "done".to_string() })
         .collect();
     let err = validate_bulk_status_input("ao.task.bulk-status", &updates).unwrap_err();
     assert!(err.contains("exceeds maximum"), "expected max-size error, got: {err}");
@@ -574,18 +574,18 @@ fn validate_bulk_status_input_rejects_over_max() {
 #[test]
 fn validate_bulk_status_input_rejects_duplicate_ids() {
     let updates = vec![
-        BulkTaskStatusItem { id: "TASK-1".to_string(), status: "done".to_string() },
-        BulkTaskStatusItem { id: "TASK-1".to_string(), status: "todo".to_string() },
+        BulkTaskStatusItem { task_id: "TASK-1".to_string(), status: "done".to_string() },
+        BulkTaskStatusItem { task_id: "TASK-1".to_string(), status: "todo".to_string() },
     ];
     let err = validate_bulk_status_input("ao.task.bulk-status", &updates).unwrap_err();
-    assert!(err.contains("duplicate id"), "expected duplicate-id error, got: {err}");
+    assert!(err.contains("duplicate task_id"), "expected duplicate-task_id error, got: {err}");
 }
 
 #[test]
 fn validate_bulk_status_input_rejects_empty_id() {
-    let updates = vec![BulkTaskStatusItem { id: "  ".to_string(), status: "done".to_string() }];
+    let updates = vec![BulkTaskStatusItem { task_id: "  ".to_string(), status: "done".to_string() }];
     let err = validate_bulk_status_input("ao.task.bulk-status", &updates).unwrap_err();
-    assert!(err.contains(".id must not be empty"), "expected empty-id error, got: {err}");
+    assert!(err.contains(".task_id must not be empty"), "expected empty-task_id error, got: {err}");
 }
 
 #[test]
@@ -597,7 +597,7 @@ fn validate_bulk_update_input_rejects_empty() {
 #[test]
 fn validate_bulk_update_input_rejects_item_with_no_fields() {
     let updates = vec![BulkTaskUpdateItem {
-        id: "TASK-1".to_string(),
+        task_id: "TASK-1".to_string(),
         title: None,
         description: None,
         priority: None,
@@ -613,7 +613,7 @@ fn validate_bulk_update_input_rejects_item_with_no_fields() {
 fn validate_bulk_update_input_rejects_duplicate_ids() {
     let updates = vec![
         BulkTaskUpdateItem {
-            id: "TASK-1".to_string(),
+            task_id: "TASK-1".to_string(),
             title: Some("A".to_string()),
             description: None,
             priority: None,
@@ -622,7 +622,7 @@ fn validate_bulk_update_input_rejects_duplicate_ids() {
             input_json: None,
         },
         BulkTaskUpdateItem {
-            id: "TASK-1".to_string(),
+            task_id: "TASK-1".to_string(),
             title: Some("B".to_string()),
             description: None,
             priority: None,
@@ -632,14 +632,14 @@ fn validate_bulk_update_input_rejects_duplicate_ids() {
         },
     ];
     let err = validate_bulk_update_input("ao.task.bulk-update", &updates).unwrap_err();
-    assert!(err.contains("duplicate id"), "expected duplicate-id error, got: {err}");
+    assert!(err.contains("duplicate task_id"), "expected duplicate-task_id error, got: {err}");
 }
 
 #[test]
 fn validate_bulk_update_input_accepts_valid_items() {
     let updates = vec![
         BulkTaskUpdateItem {
-            id: "TASK-1".to_string(),
+            task_id: "TASK-1".to_string(),
             title: Some("New title".to_string()),
             description: None,
             priority: None,
@@ -648,7 +648,7 @@ fn validate_bulk_update_input_accepts_valid_items() {
             input_json: None,
         },
         BulkTaskUpdateItem {
-            id: "TASK-2".to_string(),
+            task_id: "TASK-2".to_string(),
             title: None,
             description: None,
             priority: Some("high".to_string()),
@@ -698,7 +698,7 @@ fn on_error_continue_as_str() {
 fn validate_bulk_update_input_rejects_over_max() {
     let updates: Vec<BulkTaskUpdateItem> = (0..=MAX_BATCH_SIZE)
         .map(|i| BulkTaskUpdateItem {
-            id: format!("TASK-{i}"),
+            task_id: format!("TASK-{i}"),
             title: Some("T".to_string()),
             description: None,
             priority: None,

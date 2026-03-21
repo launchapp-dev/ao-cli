@@ -26,7 +26,7 @@ impl AoMcpServer {
     )]
     async fn ao_task_get(&self, params: Parameters<TaskGetInput>) -> Result<CallToolResult, McpError> {
         let input = params.0;
-        let args = build_task_get_args(input.id);
+        let args = build_task_get_args(input.task_id);
         self.run_tool("ao.task.get", args, input.project_root).await
     }
 
@@ -72,7 +72,7 @@ impl AoMcpServer {
     )]
     async fn ao_task_history(&self, params: Parameters<TaskGetInput>) -> Result<CallToolResult, McpError> {
         let input = params.0;
-        let args = vec!["task".to_string(), "history".to_string(), "--id".to_string(), input.id];
+        let args = vec!["task".to_string(), "history".to_string(), "--id".to_string(), input.task_id];
         self.run_tool("ao.task.history", args, input.project_root).await
     }
 }

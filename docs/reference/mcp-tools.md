@@ -41,30 +41,30 @@ Every tool accepts an optional `project_root` parameter to override the default 
 | Tool | Description | Key Parameters |
 |---|---|---|
 | `ao.task.list` | List tasks with filters | `status`, `priority`, `task_type`, `assignee_type`, `tag[]`, `risk`, `linked_requirement`, `linked_architecture_entity`, `search`, `limit`, `offset`, `max_tokens` |
-| `ao.task.get` | Fetch full task details by ID | `id` |
+| `ao.task.get` | Fetch full task details by ID | `task_id` |
 | `ao.task.prioritized` | List tasks sorted by priority | `status`, `priority`, `assignee_type`, `search`, `limit`, `offset`, `max_tokens` |
 | `ao.task.next` | Get the single highest priority ready task | `project_root` |
 | `ao.task.stats` | Aggregate task metrics by status, priority, type | `project_root` |
-| `ao.task.history` | View workflow dispatch history for a task | `id` |
+| `ao.task.history` | View workflow dispatch history for a task | `task_id` |
 
 ### Mutation Tools (14)
 
 | Tool | Description | Key Parameters |
 |---|---|---|
 | `ao.task.create` | Create a new task | `title`, `description`, `priority`, `task_type`, `tags[]`, `linked_requirement[]`, `assignee` |
-| `ao.task.update` | Update task fields | `id`, `title`, `description`, `priority`, `status`, `assignee`, `linked_architecture_entity[]`, `replace_linked_architecture_entities`, `input_json` |
-| `ao.task.delete` | Delete a task (destructive) | `id`, `confirm`, `dry_run` |
-| `ao.task.status` | Update task status | `id`, `status` |
-| `ao.task.assign` | Assign task to user or agent | `id`, `assignee`, `assignee_type`, `agent_role`, `model` |
+| `ao.task.update` | Update task fields | `task_id`, `title`, `description`, `priority`, `status`, `assignee`, `linked_architecture_entity[]`, `replace_linked_architecture_entities`, `input_json` |
+| `ao.task.delete` | Delete a task (destructive) | `task_id`, `confirm`, `dry_run` |
+| `ao.task.status` | Update task status | `task_id`, `status` |
+| `ao.task.assign` | Assign task to user or agent | `task_id`, `assignee`, `assignee_type`, `agent_role`, `model` |
 | `ao.task.pause` | Pause a running task | `task_id` |
 | `ao.task.resume` | Resume a paused task | `task_id` |
 | `ao.task.cancel` | Cancel a task | `task_id`, `confirm`, `dry_run` |
 | `ao.task.set-priority` | Set task priority | `task_id`, `priority` |
 | `ao.task.set-deadline` | Set or clear task deadline | `task_id`, `deadline` |
-| `ao.task.checklist-add` | Add a checklist item to a task | `id`, `description` |
-| `ao.task.checklist-update` | Toggle checklist item completion | `id`, `item_id`, `completed` |
-| `ao.task.bulk-status` | Batch-update status for multiple tasks | `updates[]` (each: `id`, `status`), `on_error` |
-| `ao.task.bulk-update` | Batch-update fields for multiple tasks | `updates[]` (each: `id` + fields), `on_error` |
+| `ao.task.checklist-add` | Add a checklist item to a task | `task_id`, `description` |
+| `ao.task.checklist-update` | Toggle checklist item completion | `task_id`, `item_id`, `completed` |
+| `ao.task.bulk-status` | Batch-update status for multiple tasks | `updates[]` (each: `task_id`, `status`), `on_error` |
+| `ao.task.bulk-update` | Batch-update fields for multiple tasks | `updates[]` (each: `task_id` + fields), `on_error` |
 
 ---
 

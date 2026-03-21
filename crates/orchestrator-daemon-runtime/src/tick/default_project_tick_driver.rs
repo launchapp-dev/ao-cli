@@ -246,11 +246,7 @@ where
             // Recompute `pool_utilization_percent` from the corrected count.
             let pool_size = obj.get("pool_size").and_then(|v| v.as_u64());
             if let Some(ps) = pool_size {
-                let util = if ps == 0 {
-                    0.0
-                } else {
-                    (process_count as f64 / ps as f64) * 100.0
-                };
+                let util = if ps == 0 { 0.0 } else { (process_count as f64 / ps as f64) * 100.0 };
                 obj.insert("pool_utilization_percent".to_string(), serde_json::json!(util));
             }
         }

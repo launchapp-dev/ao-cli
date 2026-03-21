@@ -1,6 +1,9 @@
 use anyhow::Result;
 
-use crate::{schedule_headroom, DaemonRuntimeOptions, ProjectTickExecutionOutcome, ProjectTickHooks, ProjectTickRunMode, ProjectTickSummary, ProjectTickTime};
+use crate::{
+    schedule_headroom, DaemonRuntimeOptions, ProjectTickExecutionOutcome, ProjectTickHooks, ProjectTickRunMode,
+    ProjectTickSummary, ProjectTickTime,
+};
 
 pub async fn run_project_tick<H>(
     root: &str,

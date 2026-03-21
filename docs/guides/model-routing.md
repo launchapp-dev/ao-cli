@@ -10,8 +10,8 @@ The compiled defaults route models based on phase type and task complexity:
 |------------|----------------|-------------------|-----------------|
 | **Implementation** | zai-coding-plan/glm-5 | claude-sonnet-4-6 | claude-sonnet-4-6 |
 | **Code Review** | claude-sonnet-4-6 | claude-sonnet-4-6 | claude-opus-4-6 |
-| **Requirements** | minimax/MiniMax-M2.5 | claude-sonnet-4-6 | claude-sonnet-4-6 |
-| **Testing** | minimax/MiniMax-M2.5 | claude-sonnet-4-6 | claude-sonnet-4-6 |
+| **Requirements** | minimax/MiniMax-M2.7 | claude-sonnet-4-6 | claude-sonnet-4-6 |
+| **Testing** | minimax/MiniMax-M2.7 | claude-sonnet-4-6 | claude-sonnet-4-6 |
 | **Research** | gemini-2.5-flash-lite | gemini-2.5-flash-lite | gemini-2.5-flash-lite |
 | **UI-UX / Design** | gemini-3.1-pro-preview | gemini-3.1-pro-preview | gemini-3.1-pro-preview |
 
@@ -111,7 +111,7 @@ export AO_ALLOW_NON_EDITING_PHASE_TOOL=true
 When the primary model fails, AO tries fallback models in order. Fallbacks vary by phase type and complexity. For example, a medium-complexity implementation phase falls back through:
 
 1. zai-coding-plan/glm-5
-2. minimax/MiniMax-M2.5
+2. minimax/MiniMax-M2.7
 3. gemini-3.1-pro-preview
 4. gpt-5.3-codex
 
@@ -138,6 +138,35 @@ Refresh the model roster:
 ```bash
 ao model roster refresh
 ao model roster get
+```
+
+## Migrating from Deprecated OpenAI Models
+
+OpenAI retired GPT-4o, GPT-4.1, GPT-4.1 mini, and o4-mini in February 2026. If your workflow YAML or agent runtime config references any of these models, update them to a GPT-5 series equivalent.
+
+| Deprecated model | Recommended replacement |
+|------------------|------------------------|
+| `gpt-4o` | `gpt-5.4` |
+| `gpt-4o-mini` | `gpt-5.4-mini` |
+| `gpt-4.1` | `gpt-5.4` |
+| `gpt-4.1-mini` | `gpt-5.4-mini` |
+| `o4-mini` | `gpt-5.4-mini` |
+
+AO's compiled defaults no longer reference any deprecated model. The `codex` tool now defaults to `gpt-5.4`, and fallback chains use `gpt-5.3-codex`. Agents using the compiled defaults require no action.
+
+If you pinned a deprecated model explicitly, update the relevant config:
+
+```yaml
+agents:
+  my-agent:
+    model: gpt-5.4
+    tool: codex
+```
+
+Or via the agent runtime config:
+
+```bash
+ao workflow agent-runtime set --input-json '{"agents":{"default":{"model":"gpt-5.4","tool":"codex"}}}'
 ```
 
 ## Agent Runtime Config Commands

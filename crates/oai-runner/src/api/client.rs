@@ -188,7 +188,6 @@ impl ApiClient {
                         last_err.unwrap_or_else(|| anyhow::anyhow!("Stream interrupted after emitting content"))
                     );
                 }
-
                 let delay = Duration::from_millis(500 * 2u64.pow(attempt as u32));
                 tokio::time::sleep(delay).await;
             }
@@ -211,7 +210,7 @@ impl ApiClient {
                         || err_str.contains("connection closed")
                         || err_str.contains("broken pipe")
                         || err_str.contains("reset by peer");
-
+                    
                     if is_rate_limit || is_server_error || is_transient {
                         record_failure(&state, &self.api_base);
                         let reason = if is_rate_limit {
@@ -248,15 +247,11 @@ impl ApiClient {
         request: &ChatRequest,
         on_text_chunk: &mut dyn FnMut(&str),
     ) -> Result<(ChatMessage, Option<UsageInfo>)> {
-        if std::env::var("AO_DEBUG_REQUESTS").is_ok() {
-            eprintln!("[oai-runner] Request body: {}", serde_json::to_string(request).unwrap_or_default());
-        }
         let resp = self
             .http
             .post(url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
-            .header("User-Agent", "claude-code/2.1.80")
             .json(request)
             .send()
             .await?;
@@ -277,7 +272,6 @@ impl ApiClient {
         }
 
         let mut content = String::new();
-        let mut reasoning_content = String::new();
         let mut tool_calls: Vec<ToolCall> = Vec::new();
         let mut usage: Option<UsageInfo> = None;
 
@@ -296,8 +290,8 @@ impl ApiClient {
                 std::io::stdout().flush().ok();
                 let msg = ChatMessage {
                     role: "assistant".to_string(),
-                    content: Some(content),
-                    reasoning_content: Some(reasoning_content),
+                    content: if content.is_empty() { None } else { Some(content) },
+                    reasoning_content: None,
                     tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls) },
                     tool_call_id: None,
                 };
@@ -318,9 +312,6 @@ impl ApiClient {
                 if let Some(text) = &choice.delta.content {
                     content.push_str(text);
                     on_text_chunk(text);
-                }
-                if let Some(text) = &choice.delta.reasoning_content {
-                    reasoning_content.push_str(text);
                 }
 
                 if let Some(tc_deltas) = &choice.delta.tool_calls {
@@ -355,7 +346,7 @@ impl ApiClient {
         let msg = ChatMessage {
             role: "assistant".to_string(),
             content: if content.is_empty() { None } else { Some(content) },
-            reasoning_content: Some(reasoning_content),
+            reasoning_content: None,
             tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls) },
             tool_call_id: None,
         };

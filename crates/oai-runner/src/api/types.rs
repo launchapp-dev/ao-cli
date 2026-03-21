@@ -6,6 +6,8 @@ pub struct ChatMessage {
     pub role: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -57,6 +59,8 @@ pub struct StreamDelta {
     #[serde(default)]
     pub content: Option<String>,
     #[serde(default)]
+    pub reasoning_content: Option<String>,
+    #[serde(default)]
     pub tool_calls: Option<Vec<StreamToolCall>>,
 }
 
@@ -77,12 +81,26 @@ pub struct StreamFunctionCall {
     pub arguments: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct UsageInfo {
     #[serde(default)]
     pub prompt_tokens: u64,
     #[serde(default)]
     pub completion_tokens: u64,
+    #[serde(default)]
+    pub total_tokens: u64,
+}
+
+impl UsageInfo {
+    /// Returns the total token count, preferring the provider-reported value
+    /// and falling back to the sum of prompt + completion tokens.
+    pub fn effective_total(&self) -> u64 {
+        if self.total_tokens > 0 {
+            self.total_tokens
+        } else {
+            self.prompt_tokens + self.completion_tokens
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -130,6 +148,7 @@ mod tests {
         let request = ChatRequest {
             model: "minimax/MiniMax-M2.1".to_string(),
             messages: vec![ChatMessage {
+                reasoning_content: None,
                 role: "user".to_string(),
                 content: Some("hello".to_string()),
                 tool_calls: None,
@@ -177,7 +196,13 @@ mod tests {
 
     #[test]
     fn chat_message_skips_none_fields() {
-        let msg = ChatMessage { role: "assistant".to_string(), content: None, tool_calls: None, tool_call_id: None };
+        let msg = ChatMessage {
+            reasoning_content: None,
+            role: "assistant".to_string(),
+            content: None,
+            tool_calls: None,
+            tool_call_id: None,
+        };
         let json = serde_json::to_value(&msg).unwrap();
         assert!(json.get("content").is_none());
         assert!(json.get("tool_calls").is_none());
@@ -230,5 +255,48 @@ mod tests {
         let json = serde_json::to_value(&tool).unwrap();
         assert_eq!(json["type"], "function");
         assert_eq!(json["function"]["name"], "read_file");
+    }
+
+    #[test]
+    fn usage_info_deserializes_all_fields() {
+        let raw = r#"{"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150}"#;
+        let usage: UsageInfo = serde_json::from_str(raw).unwrap();
+        assert_eq!(usage.prompt_tokens, 100);
+        assert_eq!(usage.completion_tokens, 50);
+        assert_eq!(usage.total_tokens, 150);
+    }
+
+    #[test]
+    fn usage_info_defaults_missing_fields() {
+        let raw = r#"{"prompt_tokens": 100}"#;
+        let usage: UsageInfo = serde_json::from_str(raw).unwrap();
+        assert_eq!(usage.prompt_tokens, 100);
+        assert_eq!(usage.completion_tokens, 0);
+        assert_eq!(usage.total_tokens, 0);
+    }
+
+    #[test]
+    fn usage_info_effective_total_prefers_provider_value() {
+        let usage = UsageInfo { prompt_tokens: 100, completion_tokens: 50, total_tokens: 200 };
+        assert_eq!(usage.effective_total(), 200);
+    }
+
+    #[test]
+    fn usage_info_effective_total_falls_back_to_sum() {
+        let usage = UsageInfo { prompt_tokens: 100, completion_tokens: 50, total_tokens: 0 };
+        assert_eq!(usage.effective_total(), 150);
+    }
+
+    #[test]
+    fn stream_chunk_deserializes_with_usage() {
+        let raw = r#"{
+            "choices": [{"delta": { "content": "Hello" }}],
+            "usage": { "prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15 }
+        }"#;
+        let chunk: StreamChunk = serde_json::from_str(raw).unwrap();
+        let usage = chunk.usage.unwrap();
+        assert_eq!(usage.prompt_tokens, 10);
+        assert_eq!(usage.completion_tokens, 5);
+        assert_eq!(usage.total_tokens, 15);
     }
 }

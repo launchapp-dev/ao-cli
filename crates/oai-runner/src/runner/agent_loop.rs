@@ -120,6 +120,7 @@ pub async fn run_agent_loop(
         }
         if !sys.is_empty() {
             messages.push(ChatMessage {
+                reasoning_content: None,
                 role: "system".to_string(),
                 content: Some(sys),
                 tool_calls: None,
@@ -129,11 +130,27 @@ pub async fn run_agent_loop(
     }
 
     messages.push(ChatMessage {
+        reasoning_content: None,
         role: "user".to_string(),
         content: Some(user_prompt.to_string()),
         tool_calls: None,
         tool_call_id: None,
     });
+
+    let needs_tool_name_sanitization = model.contains("kimi");
+    let sanitized_tools: Vec<ToolDefinition> = if needs_tool_name_sanitization {
+        tools
+            .iter()
+            .map(|t| {
+                let mut t = t.clone();
+                t.function.name = t.function.name.replace('.', "_");
+                t
+            })
+            .collect()
+    } else {
+        tools.to_vec()
+    };
+    let api_tools = if needs_tool_name_sanitization { &sanitized_tools } else { tools };
 
     for turn in 0..max_turns {
         if cancel_token.is_cancelled() {
@@ -161,7 +178,7 @@ pub async fn run_agent_loop(
             model: model.to_string(),
             messages: messages.clone(),
             stream: true,
-            tools: Some(tools.to_vec()),
+            tools: Some(api_tools.to_vec()),
             max_tokens: Some(max_tokens as u32),
             response_format: format,
             stream_options: Some(StreamOptions { include_usage: true }),
@@ -174,7 +191,7 @@ pub async fn run_agent_loop(
             .await?;
 
         if let Some(u) = &usage {
-            output.metadata(u.prompt_tokens, u.completion_tokens);
+            output.metadata(u);
         }
 
         let has_tool_calls = assistant_msg.tool_calls.as_ref().is_some_and(|tc| !tc.is_empty());
@@ -237,38 +254,45 @@ pub async fn run_agent_loop(
                 break;
             }
 
+            let tool_name = if needs_tool_name_sanitization {
+                tc.function.name.replace('_', ".")
+            } else {
+                tc.function.name.clone()
+            };
+
             let args: serde_json::Value =
                 serde_json::from_str(&tc.function.arguments).unwrap_or(serde_json::Value::Null);
 
-            output.tool_call(&tc.function.name, &args);
+            output.tool_call(&tool_name, &args);
 
-            let result = if let Some(mcp) = mcp_client::find_client_for_tool(mcp_clients, &tc.function.name) {
-                match mcp_client::call_tool(mcp, &tc.function.name, &tc.function.arguments).await {
+            let result = if let Some(mcp) = mcp_client::find_client_for_tool(mcp_clients, &tool_name) {
+                match mcp_client::call_tool(mcp, &tool_name, &tc.function.arguments).await {
                     Ok(r) => {
-                        output.tool_result(&tc.function.name, &r);
+                        output.tool_result(&tool_name, &r);
                         r
                     }
                     Err(e) => {
                         let err_msg = e.to_string();
-                        output.tool_error(&tc.function.name, &err_msg);
+                        output.tool_error(&tool_name, &err_msg);
                         format!("Error: {}", err_msg)
                     }
                 }
             } else {
-                match executor::execute_tool(&tc.function.name, &tc.function.arguments, working_dir).await {
+                match executor::execute_tool(&tool_name, &tc.function.arguments, working_dir).await {
                     Ok(r) => {
-                        output.tool_result(&tc.function.name, &r);
+                        output.tool_result(&tool_name, &r);
                         r
                     }
                     Err(e) => {
                         let err_msg = e.to_string();
-                        output.tool_error(&tc.function.name, &err_msg);
+                        output.tool_error(&tool_name, &err_msg);
                         format!("Error: {}", err_msg)
                     }
                 }
             };
 
             messages.push(ChatMessage {
+                reasoning_content: None,
                 role: "tool".to_string(),
                 content: Some(result),
                 tool_calls: None,
@@ -334,12 +358,14 @@ async fn retry_schema_validation(
             retry_messages.push(sys.clone());
         }
         retry_messages.push(ChatMessage {
+            reasoning_content: None,
             role: "assistant".to_string(),
             content: Some(last_assistant_content.clone()),
             tool_calls: None,
             tool_call_id: None,
         });
         retry_messages.push(ChatMessage {
+            reasoning_content: None,
             role: "user".to_string(),
             content: Some(correction.clone()),
             tool_calls: None,
@@ -371,11 +397,12 @@ async fn retry_schema_validation(
         };
 
         if let Some(u) = &usage {
-            output.metadata(u.prompt_tokens, u.completion_tokens);
+            output.metadata(u);
         }
 
         let content = retry_msg.content.clone().unwrap_or_default();
         messages.push(ChatMessage {
+            reasoning_content: None,
             role: "user".to_string(),
             content: Some(correction),
             tool_calls: None,
@@ -667,18 +694,21 @@ mod tests {
         let sid = "test-session-round-trip";
         let messages = vec![
             ChatMessage {
+                reasoning_content: None,
                 role: "system".to_string(),
                 content: Some("You are helpful.".to_string()),
                 tool_calls: None,
                 tool_call_id: None,
             },
             ChatMessage {
+                reasoning_content: None,
                 role: "user".to_string(),
                 content: Some("Hello".to_string()),
                 tool_calls: None,
                 tool_call_id: None,
             },
             ChatMessage {
+                reasoning_content: None,
                 role: "assistant".to_string(),
                 content: Some("Hi there!".to_string()),
                 tool_calls: None,

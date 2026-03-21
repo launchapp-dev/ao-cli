@@ -3,25 +3,20 @@ use crate::cli_types::{RunnerCommand, RunnerOrphanCommand};
 use crate::print_value;
 use crate::shared::{connect_runner, runner_config_dir, write_json_line};
 use anyhow::Result;
+use fs2::FileExt;
 use orchestrator_core::ServiceHub;
 use protocol::{kill_process, process_exists, RunnerStatusRequest, RunnerStatusResponse};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct CliTrackerStateCli {
-    #[serde(default)]
-    processes: HashMap<String, i32>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct RunnerOrphanCli {
     run_id: String,
-    pid: i32,
+    pid: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,12 +25,25 @@ struct RunnerOrphanDetectionCli {
     count: usize,
 }
 
-fn load_cli_tracker() -> Result<CliTrackerStateCli> {
+fn load_cli_tracker() -> Result<HashMap<String, u32>> {
     read_json_or_default(&protocol::cli_tracker_path())
 }
 
-fn save_cli_tracker(tracker: &CliTrackerStateCli) -> Result<()> {
+fn save_cli_tracker(tracker: &HashMap<String, u32>) -> Result<()> {
     write_json_pretty(&protocol::cli_tracker_path(), tracker)
+}
+
+/// Acquire an exclusive file lock on the CLI tracker for atomic read-modify-write.
+/// The lock is released when the returned guard is dropped.
+fn acquire_tracker_lock() -> Result<std::fs::File> {
+    let tracker_path = protocol::cli_tracker_path();
+    if let Some(parent) = tracker_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let lock_path = tracker_path.with_extension("lock");
+    let lock_file = OpenOptions::new().create(true).write(true).truncate(false).open(&lock_path)?;
+    lock_file.lock_exclusive()?;
+    Ok(lock_file)
 }
 
 async fn query_runner_status_direct(project_root: &str) -> Option<RunnerStatusResponse> {
@@ -78,32 +86,31 @@ pub(crate) async fn handle_runner(
         RunnerCommand::Orphans { command } => match command {
             RunnerOrphanCommand::Detect => {
                 let tracker = load_cli_tracker()?;
-                let orphans: Vec<_> = tracker
-                    .processes
-                    .into_iter()
-                    .filter_map(
-                        |(run_id, pid)| {
-                            if process_exists(pid) {
+                let orphans: Vec<_> =
+                    tracker
+                        .into_iter()
+                        .filter_map(|(run_id, pid)| {
+                            if process_exists(pid as i32) {
                                 Some(RunnerOrphanCli { run_id, pid })
                             } else {
                                 None
                             }
-                        },
-                    )
-                    .collect();
+                        })
+                        .collect();
                 let detection = RunnerOrphanDetectionCli { count: orphans.len(), orphans };
                 print_value(detection, json)
             }
             RunnerOrphanCommand::Cleanup(args) => {
+                let _lock = acquire_tracker_lock()?;
                 let mut tracker = load_cli_tracker()?;
                 let mut cleaned = Vec::new();
                 for run_id in args.run_id {
-                    let Some(pid) = tracker.processes.get(&run_id).copied() else {
+                    let Some(pid) = tracker.get(&run_id).copied() else {
                         continue;
                     };
-                    if !process_exists(pid) || kill_process(pid) {
+                    if !process_exists(pid as i32) || kill_process(pid as i32) {
                         cleaned.push(run_id.clone());
-                        tracker.processes.remove(&run_id);
+                        tracker.remove(&run_id);
                     }
                 }
                 save_cli_tracker(&tracker)?;

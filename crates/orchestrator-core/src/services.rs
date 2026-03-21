@@ -55,7 +55,7 @@ pub use phase_execution::{PhaseExecutionRequest, PhaseExecutionResult, PhaseExec
 use planning_utils::*;
 use runner_helpers::*;
 pub use schedule_state::{load_schedule_state, save_schedule_state, ScheduleRunState, ScheduleState};
-use state_store::{load_core_state, load_core_state_for_mutation, CoreState};
+use state_store::{core_state_backup_path, load_core_state, load_core_state_for_mutation, CoreState};
 pub use task_shared::task_matches_filter;
 use task_shared::*;
 
@@ -569,6 +569,14 @@ impl FileServiceHub {
     }
 
     fn persist_and_clear_dirty(path: &Path, state: &mut CoreState) -> Result<()> {
+        // Create backup before atomic write to enable recovery on corruption
+        if path.exists() {
+            let backup_path = core_state_backup_path(path);
+            if let Err(e) = std::fs::copy(path, &backup_path) {
+                tracing::warn!("failed to create core-state backup at {}: {}", backup_path.display(), e);
+            }
+        }
+
         write_json_pretty(path, &*state)?;
 
         if let Some(docs_dir) = Self::docs_dir_for_state_file(path) {

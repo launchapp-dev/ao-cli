@@ -145,6 +145,10 @@ fn deserialize_core_state(contents: &str) -> Result<CoreState> {
     serde_json::from_value::<CoreState>(raw).context("core-state JSON does not match expected schema")
 }
 
+pub(super) fn core_state_backup_path(state_file: &Path) -> PathBuf {
+    PathBuf::from(format!("{}.backup", state_file.display()))
+}
+
 pub(super) fn load_core_state(state_file: &Path) -> CoreState {
     if !state_file.exists() {
         return CoreState::default_with_stopped();
@@ -154,7 +158,26 @@ pub(super) fn load_core_state(state_file: &Path) -> CoreState {
         return CoreState::default_with_stopped();
     };
 
-    deserialize_core_state(&contents).unwrap_or_else(|_| CoreState::default_with_stopped())
+    if let Ok(state) = deserialize_core_state(&contents) {
+        return state;
+    }
+
+    // Primary file is corrupt; attempt recovery from backup
+    let backup_file = core_state_backup_path(state_file);
+    if backup_file.exists() {
+        if let Ok(backup_contents) = std::fs::read_to_string(&backup_file) {
+            if let Ok(state) = deserialize_core_state(&backup_contents) {
+                tracing::warn!(
+                    "recovered core-state from backup {}; primary {} was corrupt",
+                    backup_file.display(),
+                    state_file.display()
+                );
+                return state;
+            }
+        }
+    }
+
+    CoreState::default_with_stopped()
 }
 
 pub(super) fn load_core_state_for_mutation(state_file: &Path) -> Result<CoreState> {
@@ -164,9 +187,32 @@ pub(super) fn load_core_state_for_mutation(state_file: &Path) -> Result<CoreStat
 
     let contents = std::fs::read_to_string(state_file)
         .with_context(|| format!("failed to read core-state at {}", state_file.display()))?;
-    deserialize_core_state(&contents).with_context(|| {
-        format!("failed to parse core-state at {}; refusing mutation to avoid data loss", state_file.display())
-    })
+    
+    if let Ok(state) = deserialize_core_state(&contents) {
+        return Ok(state);
+    }
+
+    // Primary file is corrupt; attempt recovery from backup before refusing mutation
+    let backup_file = core_state_backup_path(state_file);
+    if backup_file.exists() {
+        let backup_contents = std::fs::read_to_string(&backup_file)
+            .with_context(|| format!("failed to read backup core-state at {}", backup_file.display()))?;
+        if let Ok(state) = deserialize_core_state(&backup_contents) {
+            tracing::warn!(
+                "recovered core-state from backup {}; primary {} was corrupt",
+                backup_file.display(),
+                state_file.display()
+            );
+            return Ok(state);
+        }
+    }
+
+    anyhow::bail!(
+        "failed to parse core-state at {}; refusing mutation to avoid data loss; \
+         backup {} was also corrupt or missing",
+        state_file.display(),
+        backup_file.display()
+    )
 }
 
 #[cfg(test)]
@@ -194,5 +240,93 @@ mod tests {
         let error = load_core_state_for_mutation(&state_path).expect_err("invalid core-state should fail closed");
         let message = format!("{error:#}");
         assert!(message.contains("refusing mutation to avoid data loss"));
+    }
+
+    #[test]
+    fn mutation_loader_recovers_from_backup_when_primary_is_corrupt() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let state_path = temp.path().join("core-state.json");
+        let backup_path = std::path::PathBuf::from(format!("{}.backup", state_path.display()));
+
+        // Write a corrupt primary file
+        std::fs::write(&state_path, "{not-valid-json").expect("write malformed state");
+        // Write a valid backup
+        let valid_state = serde_json::json!({
+            "daemon_status": "running",
+            "daemon_pool_size": 5,
+            "runner_pid": 12345,
+            "logs": [],
+            "active_project_id": null,
+            "projects": {},
+            "tasks": {},
+            "requirements": {},
+            "architecture": { "nodes": [], "edges": [] }
+        });
+        std::fs::write(&backup_path, serde_json::to_string_pretty(&valid_state).unwrap()).expect("write valid backup");
+
+        let loaded = load_core_state_for_mutation(&state_path).expect("should recover from backup");
+        assert_eq!(loaded.daemon_status, DaemonStatus::Running);
+        assert_eq!(loaded.daemon_pool_size, Some(5));
+    }
+
+    #[test]
+    fn mutation_loader_fails_when_both_primary_and_backup_are_corrupt() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let state_path = temp.path().join("core-state.json");
+        let backup_path = std::path::PathBuf::from(format!("{}.backup", state_path.display()));
+
+        // Write a corrupt primary file
+        std::fs::write(&state_path, "{not-valid-json").expect("write malformed state");
+        // Write a corrupt backup
+        std::fs::write(&backup_path, "also corrupt").expect("write corrupt backup");
+
+        let error = load_core_state_for_mutation(&state_path).expect_err("should fail when both are corrupt");
+        let message = format!("{error:#}");
+        assert!(message.contains("refusing mutation to avoid data loss"));
+        assert!(message.contains("backup"));
+    }
+
+    #[test]
+    fn load_core_state_recovers_from_backup_when_primary_is_corrupt() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let state_path = temp.path().join("core-state.json");
+        let backup_path = std::path::PathBuf::from(format!("{}.backup", state_path.display()));
+
+        // Write a corrupt primary file
+        std::fs::write(&state_path, "{not-valid-json").expect("write malformed state");
+        // Write a valid backup
+        let valid_state = serde_json::json!({
+            "daemon_status": "running",
+            "daemon_pool_size": 3,
+            "runner_pid": 99999,
+            "logs": [],
+            "active_project_id": "proj-123",
+            "projects": {},
+            "tasks": {},
+            "requirements": {},
+            "architecture": { "nodes": [], "edges": [] }
+        });
+        std::fs::write(&backup_path, serde_json::to_string_pretty(&valid_state).unwrap()).expect("write valid backup");
+
+        let loaded = load_core_state(&state_path);
+        assert_eq!(loaded.daemon_status, DaemonStatus::Running);
+        assert_eq!(loaded.daemon_pool_size, Some(3));
+        assert_eq!(loaded.active_project_id, Some("proj-123".to_string()));
+    }
+
+    #[test]
+    fn load_core_state_returns_default_when_both_primary_and_backup_are_corrupt() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let state_path = temp.path().join("core-state.json");
+        let backup_path = std::path::PathBuf::from(format!("{}.backup", state_path.display()));
+
+        // Write a corrupt primary file
+        std::fs::write(&state_path, "{not-valid-json").expect("write malformed state");
+        // Write a corrupt backup
+        std::fs::write(&backup_path, "also corrupt").expect("write corrupt backup");
+
+        let loaded = load_core_state(&state_path);
+        // Should return default state (not panic or error) because load_core_state is infallible
+        assert_eq!(loaded.daemon_status, DaemonStatus::Stopped);
     }
 }

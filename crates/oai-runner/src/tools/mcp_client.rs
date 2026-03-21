@@ -6,9 +6,13 @@ use rmcp::{RoleClient, ServiceExt};
 use serde::Deserialize;
 use std::borrow::Cow;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::process::Command;
 
 use crate::api::types::{FunctionSchema, ToolDefinition};
+
+/// Default timeout for graceful MCP client shutdown
+const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct McpServerConfig {
@@ -20,6 +24,30 @@ pub struct McpServerConfig {
 pub struct McpClient {
     service: RunningService<RoleClient, ()>,
     tool_names: Vec<String>,
+}
+
+impl McpClient {
+    /// Gracefully shut down the MCP client with a timeout.
+    /// This ensures the service completes any pending operations and flushes
+    /// connections before the process exits.
+    pub async fn shutdown(&mut self) -> Result<()> {
+        self.service
+            .close_with_timeout(DEFAULT_SHUTDOWN_TIMEOUT)
+            .await
+            .map_err(|e| anyhow::anyhow!("MCP client shutdown failed: {}", e))?;
+        Ok(())
+    }
+}
+
+/// Gracefully shut down all MCP clients with a timeout.
+/// This ensures all services complete pending operations and flush connections.
+pub async fn shutdown_all(clients: &mut [McpClient]) -> Result<()> {
+    for client in clients.iter_mut() {
+        if let Err(e) = client.shutdown().await {
+            eprintln!("[mcp_client] Warning: graceful shutdown error: {}", e);
+        }
+    }
+    Ok(())
 }
 
 pub async fn connect(config: &McpServerConfig) -> Result<McpClient> {

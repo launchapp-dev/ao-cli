@@ -177,6 +177,12 @@ async fn main() -> Result<()> {
             )
             .await;
 
+            // Gracefully shut down all MCP clients before exit.
+            // This ensures connections are flushed and child processes are terminated cleanly.
+            if let Err(e) = tools::mcp_client::shutdown_all(&mut mcp_clients).await {
+                eprintln!("[oai-runner] Warning: MCP client shutdown error: {}", e);
+            }
+
             if let Err(e) = result {
                 if json_mode {
                     let err_json = serde_json::json!({

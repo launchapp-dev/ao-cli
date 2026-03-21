@@ -193,20 +193,32 @@ agents:
          If a release branch exists, skip to step 4.
 
       2. EVALUATE RELEASE READINESS:
-         Run `git log --oneline origin/main..origin/develop | wc -l` to count unreleased commits.
          Run `git tag --sort=-v:refname | head -1` to get the latest version tag.
-         If < 10 commits, SKIP — not enough changes yet.
+         Check ao.task.stats — how many tasks are done since last release?
+         Check ao.requirements.list — any requirements completed?
+         Check `git log --oneline <prev_tag>..origin/develop --no-merges` for changes.
+         RELEASE if any of:
+         - A requirement was completed (milestone reached)
+         - 3+ bugfixes or features completed since last release
+         - A critical fix was merged
+         - Significant oai-runner, daemon, or workflow improvements landed
+         SKIP if only docs, monitoring, or trivial chore tasks.
 
       3. CUT RELEASE BRANCH:
          a. Parse the latest tag (e.g., v0.0.10) and bump: minor for features, patch for bugfixes only.
          b. Run `git checkout -b release/vX.Y.Z origin/develop && git push origin release/vX.Y.Z`
          c. Create a tracking task via ao.task.create: title "Release vX.Y.Z", priority "critical", type "chore"
+         d. WRITE CHANGELOG: Read the commits since last tag with `git log --oneline <prev_tag>..HEAD --no-merges`.
+            Also check ao.task.list for tasks marked done since last release.
+            Write a user-facing changelog grouped by: Features, Fixes, Improvements.
+            Save it to CHANGELOG-vX.Y.Z.md in the repo root. Commit it to the release branch.
 
       4. CHECK RELEASE GATE (if release branch exists):
          a. Check if a PR exists: `gh pr list --base main --head release/vX.Y.Z --json number`
-         b. If no PR, create one: `gh pr create --base main --head release/vX.Y.Z --title "Release vX.Y.Z" --body "Release candidate"`
+         b. If no PR, create one with the changelog as the PR body:
+            `gh pr create --base main --head release/vX.Y.Z --title "Release vX.Y.Z" --body-file CHANGELOG-vX.Y.Z.md`
          c. If PR exists and is merged:
-            - Tag: `git tag vX.Y.Z origin/main && git push origin vX.Y.Z` (triggers release.yml CI)
+            - Do NOT tag manually — GitHub Actions auto-tags when release PR merges to main.
             - Sync develop: `git fetch origin && git checkout develop && git merge origin/main && git push origin develop`
             - Delete release branch: `git push origin --delete release/vX.Y.Z`
             - Mark release task as done.
@@ -1925,7 +1937,7 @@ schedules:
     enabled: true
 
   - id: release-manager
-    cron: "0 */6 * * *"
+    cron: "*/10 * * * *"
     workflow_ref: release-manager
     enabled: true
 

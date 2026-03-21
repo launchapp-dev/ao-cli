@@ -1,6 +1,8 @@
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio_util::sync::CancellationToken;
 
 use crate::api::client::ApiClient;
@@ -12,6 +14,12 @@ use super::context;
 use super::output::OutputFormatter;
 
 const SCHEMA_RETRY_LIMIT: usize = 3;
+const DEFAULT_MAX_SESSIONS: usize = 100;
+const DEFAULT_SESSION_MAX_AGE_HOURS: u64 = 168; // 7 days
+
+fn unix_now() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
 
 fn config_dir() -> PathBuf {
     let dir = std::env::var("AO_CONFIG_DIR")
@@ -24,25 +32,152 @@ fn session_file_path_in(base: &Path, session_id: &str) -> PathBuf {
     base.join("sessions").join(format!("{}.json", session_id))
 }
 
-fn load_session_messages_from(base: &Path, session_id: &str) -> Vec<ChatMessage> {
-    let path = session_file_path_in(base, session_id);
-    if !path.exists() {
-        return Vec::new();
-    }
-    match std::fs::read_to_string(&path) {
-        Ok(data) => serde_json::from_str(&data).unwrap_or_default(),
-        Err(_) => Vec::new(),
-    }
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub(crate) struct SessionTokenUsage {
+    pub total_input: u64,
+    pub total_output: u64,
+    pub total: u64,
 }
 
-fn save_session_messages_to(base: &Path, session_id: &str, messages: &[ChatMessage]) -> Result<()> {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct SessionMetadata {
+    pub created_at: u64,
+    pub last_updated: u64,
+    pub turn_count: u32,
+    pub token_usage: SessionTokenUsage,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SessionFile {
+    metadata: SessionMetadata,
+    messages: Vec<ChatMessage>,
+}
+
+fn load_session_from(base: &Path, session_id: &str) -> (Vec<ChatMessage>, Option<SessionMetadata>) {
+    let path = session_file_path_in(base, session_id);
+    if !path.exists() {
+        return (Vec::new(), None);
+    }
+    let data = match std::fs::read_to_string(&path) {
+        Ok(d) => d,
+        Err(_) => return (Vec::new(), None),
+    };
+    // Try new format with metadata first
+    if let Ok(session_file) = serde_json::from_str::<SessionFile>(&data) {
+        return (session_file.messages, Some(session_file.metadata));
+    }
+    // Fall back to legacy Vec<ChatMessage> format
+    if let Ok(messages) = serde_json::from_str::<Vec<ChatMessage>>(&data) {
+        return (messages, None);
+    }
+    // Corrupted file — start fresh
+    eprintln!("[oai-runner] Warning: session file {} is corrupted, starting fresh", path.display());
+    (Vec::new(), None)
+}
+
+#[cfg(test)]
+fn load_session_messages_from(base: &Path, session_id: &str) -> Vec<ChatMessage> {
+    load_session_from(base, session_id).0
+}
+
+fn save_session_to(
+    base: &Path,
+    session_id: &str,
+    messages: &[ChatMessage],
+    turn_count: u32,
+    token_usage: &SessionTokenUsage,
+    existing_metadata: Option<&SessionMetadata>,
+) -> Result<()> {
     let path = session_file_path_in(base, session_id);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let data = serde_json::to_string_pretty(messages)?;
+    let now = unix_now();
+    let created_at = existing_metadata.map(|m| m.created_at).unwrap_or(now);
+    let metadata = SessionMetadata { created_at, last_updated: now, turn_count, token_usage: token_usage.clone() };
+    let session_file = SessionFile { metadata, messages: messages.to_vec() };
+    let data = serde_json::to_string_pretty(&session_file)?;
     std::fs::write(&path, data)?;
     Ok(())
+}
+
+fn delete_session(base: &Path, session_id: &str) {
+    let path = session_file_path_in(base, session_id);
+    if path.exists() {
+        if let Err(e) = std::fs::remove_file(&path) {
+            eprintln!("[oai-runner] Warning: failed to delete session {}: {}", session_id, e);
+        }
+    }
+}
+
+fn max_sessions_limit() -> usize {
+    std::env::var("AO_MAX_SESSIONS").ok().and_then(|v| v.parse::<usize>().ok()).unwrap_or(DEFAULT_MAX_SESSIONS)
+}
+
+fn session_max_age_secs() -> u64 {
+    std::env::var("AO_SESSION_MAX_AGE_HOURS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_SESSION_MAX_AGE_HOURS)
+        * 3600
+}
+
+fn read_session_last_updated(path: &Path) -> u64 {
+    if let Ok(data) = std::fs::read_to_string(path) {
+        if let Ok(sf) = serde_json::from_str::<SessionFile>(&data) {
+            return sf.metadata.last_updated;
+        }
+    }
+    path.metadata()
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn enforce_session_limit(base: &Path, max_sessions: usize) {
+    let sessions_dir = base.join("sessions");
+    if !sessions_dir.exists() {
+        return;
+    }
+    let mut sessions: Vec<(u64, PathBuf)> = Vec::new();
+    let Ok(entries) = std::fs::read_dir(&sessions_dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let last_updated = read_session_last_updated(&path);
+        sessions.push((last_updated, path));
+    }
+    if sessions.len() <= max_sessions {
+        return;
+    }
+    sessions.sort_by_key(|(ts, _)| *ts); // oldest first
+    let to_remove = sessions.len() - max_sessions;
+    for (_, path) in sessions.iter().take(to_remove) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+fn cleanup_expired_sessions(base: &Path, max_age_secs: u64) {
+    let sessions_dir = base.join("sessions");
+    if !sessions_dir.exists() {
+        return;
+    }
+    let now = unix_now();
+    let Ok(entries) = std::fs::read_dir(&sessions_dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let last_updated = read_session_last_updated(&path);
+        if now.saturating_sub(last_updated) > max_age_secs {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
 }
 
 fn build_json_schema_format(schema: &Value) -> ResponseFormat {
@@ -100,14 +235,32 @@ pub async fn run_agent_loop(
     context_limit: usize,
     max_tokens: usize,
 ) -> Result<()> {
+    let base = config_dir();
     let mut messages: Vec<ChatMessage> = Vec::new();
+    let mut turn_count: u32 = 0;
+    let mut accumulated_usage = SessionTokenUsage::default();
+    let mut existing_metadata: Option<SessionMetadata> = None;
 
     if let Some(sid) = session_id {
-        let prior = load_session_messages_from(&config_dir(), sid);
-        if !prior.is_empty() {
-            eprintln!("[oai-runner] Resuming session {} ({} prior messages)", sid, prior.len());
-            messages.extend(prior);
+        // Cleanup housekeeping before loading
+        cleanup_expired_sessions(&base, session_max_age_secs());
+        enforce_session_limit(&base, max_sessions_limit().saturating_sub(1));
+
+        let (prior_messages, prior_metadata) = load_session_from(&base, sid);
+        if !prior_messages.is_empty() {
+            eprintln!("[oai-runner] Resuming session {} ({} prior messages)", sid, prior_messages.len());
+            // Carry forward accumulated metadata from prior runs
+            if let Some(ref meta) = prior_metadata {
+                turn_count = meta.turn_count;
+                accumulated_usage = SessionTokenUsage {
+                    total_input: meta.token_usage.total_input,
+                    total_output: meta.token_usage.total_output,
+                    total: meta.token_usage.total,
+                };
+            }
+            messages.extend(prior_messages);
         }
+        existing_metadata = prior_metadata;
     }
 
     let needs_schema_in_prompt =
@@ -156,7 +309,9 @@ pub async fn run_agent_loop(
         if cancel_token.is_cancelled() {
             eprintln!("[oai-runner] Cancelled by signal");
             if let Some(sid) = session_id {
-                if let Err(e) = save_session_messages_to(&config_dir(), sid, &messages) {
+                if let Err(e) =
+                    save_session_to(&base, sid, &messages, turn_count, &accumulated_usage, existing_metadata.as_ref())
+                {
                     eprintln!("[oai-runner] Warning: failed to save session on cancel {}: {}", sid, e);
                 }
             }
@@ -192,14 +347,18 @@ pub async fn run_agent_loop(
 
         if let Some(u) = &usage {
             output.metadata(u);
+            accumulated_usage.total_input += u.prompt_tokens;
+            accumulated_usage.total_output += u.completion_tokens;
+            accumulated_usage.total += u.effective_total();
         }
 
+        turn_count += 1;
         let has_tool_calls = assistant_msg.tool_calls.as_ref().is_some_and(|tc| !tc.is_empty());
 
         messages.push(assistant_msg.clone());
 
         if let Some(sid) = session_id {
-            let _ = save_session_messages_to(&config_dir(), sid, &messages);
+            let _ = save_session_to(&base, sid, &messages, turn_count, &accumulated_usage, existing_metadata.as_ref());
         }
 
         if !has_tool_calls {
@@ -236,10 +395,10 @@ pub async fn run_agent_loop(
                 output.text_chunk(&fallback_str);
                 output.flush_result();
             }
+            // Session completed successfully — persist final state then remove file
             if let Some(sid) = session_id {
-                if let Err(e) = save_session_messages_to(&config_dir(), sid, &messages) {
-                    eprintln!("[oai-runner] Warning: failed to save session {}: {}", sid, e);
-                }
+                let _ = save_session_to(&base, sid, &messages, turn_count, &accumulated_usage, existing_metadata.as_ref());
+                delete_session(&base, sid);
             }
             output.emit_session_summary();
             output.newline();
@@ -300,7 +459,14 @@ pub async fn run_agent_loop(
             });
 
             if let Some(sid) = session_id {
-                let _ = save_session_messages_to(&config_dir(), sid, &messages);
+                let _ = save_session_to(
+                    &base,
+                    sid,
+                    &messages,
+                    turn_count,
+                    &accumulated_usage,
+                    existing_metadata.as_ref(),
+                );
             }
         }
 
@@ -310,7 +476,7 @@ pub async fn run_agent_loop(
     }
 
     if let Some(sid) = session_id {
-        if let Err(e) = save_session_messages_to(&config_dir(), sid, &messages) {
+        if let Err(e) = save_session_to(&base, sid, &messages, turn_count, &accumulated_usage, existing_metadata.as_ref()) {
             eprintln!("[oai-runner] Warning: failed to save session {}: {}", sid, e);
         }
     }
@@ -716,7 +882,8 @@ mod tests {
             },
         ];
 
-        save_session_messages_to(base, sid, &messages).unwrap();
+        let usage = SessionTokenUsage { total_input: 100, total_output: 50, total: 150 };
+        save_session_to(base, sid, &messages, 1, &usage, None).unwrap();
         let loaded = load_session_messages_from(base, sid);
         assert_eq!(loaded.len(), 3);
         assert_eq!(loaded[0].role, "system");
@@ -725,9 +892,206 @@ mod tests {
     }
 
     #[test]
+    fn session_metadata_persists_and_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+
+        let sid = "test-metadata";
+        let messages = vec![ChatMessage {
+            reasoning_content: None,
+            role: "user".to_string(),
+            content: Some("test".to_string()),
+            tool_calls: None,
+            tool_call_id: None,
+        }];
+        let usage = SessionTokenUsage { total_input: 200, total_output: 80, total: 280 };
+        save_session_to(base, sid, &messages, 3, &usage, None).unwrap();
+
+        let (loaded_msgs, meta) = load_session_from(base, sid);
+        assert_eq!(loaded_msgs.len(), 1);
+        let meta = meta.unwrap();
+        assert_eq!(meta.turn_count, 3);
+        assert_eq!(meta.token_usage.total_input, 200);
+        assert_eq!(meta.token_usage.total_output, 80);
+        assert_eq!(meta.token_usage.total, 280);
+        assert!(meta.created_at > 0);
+        assert!(meta.last_updated >= meta.created_at);
+    }
+
+    #[test]
+    fn session_metadata_preserves_created_at_on_update() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+
+        let sid = "test-created-at";
+        let messages = vec![ChatMessage {
+            reasoning_content: None,
+            role: "user".to_string(),
+            content: Some("first".to_string()),
+            tool_calls: None,
+            tool_call_id: None,
+        }];
+        let usage = SessionTokenUsage::default();
+        save_session_to(base, sid, &messages, 1, &usage, None).unwrap();
+
+        let (_, first_meta) = load_session_from(base, sid);
+        let first_meta = first_meta.unwrap();
+        let original_created_at = first_meta.created_at;
+
+        // Update the session, preserving created_at
+        let updated_messages = vec![
+            messages[0].clone(),
+            ChatMessage {
+                reasoning_content: None,
+                role: "assistant".to_string(),
+                content: Some("second".to_string()),
+                tool_calls: None,
+                tool_call_id: None,
+            },
+        ];
+        save_session_to(base, sid, &updated_messages, 2, &usage, Some(&first_meta)).unwrap();
+
+        let (_, updated_meta) = load_session_from(base, sid);
+        let updated_meta = updated_meta.unwrap();
+        assert_eq!(updated_meta.created_at, original_created_at);
+        assert_eq!(updated_meta.turn_count, 2);
+    }
+
+    #[test]
     fn load_nonexistent_session_returns_empty() {
         let dir = tempfile::tempdir().unwrap();
         let loaded = load_session_messages_from(dir.path(), "nonexistent-session-id");
         assert!(loaded.is_empty());
+    }
+
+    #[test]
+    fn load_legacy_format_session_returns_messages() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+
+        let sid = "legacy-session";
+        // Write old Vec<ChatMessage> format directly
+        let sessions_dir = base.join("sessions");
+        std::fs::create_dir_all(&sessions_dir).unwrap();
+        let path = sessions_dir.join(format!("{}.json", sid));
+        let legacy_data = serde_json::json!([
+            {"role": "user", "content": "hello", "tool_calls": null, "tool_call_id": null}
+        ]);
+        std::fs::write(&path, legacy_data.to_string()).unwrap();
+
+        let (messages, meta) = load_session_from(base, sid);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].role, "user");
+        assert!(meta.is_none(), "legacy format should have no metadata");
+    }
+
+    #[test]
+    fn load_corrupted_session_returns_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+
+        let sid = "corrupted-session";
+        let sessions_dir = base.join("sessions");
+        std::fs::create_dir_all(&sessions_dir).unwrap();
+        let path = sessions_dir.join(format!("{}.json", sid));
+        std::fs::write(&path, "this is not valid json at all!!!").unwrap();
+
+        let (messages, meta) = load_session_from(base, sid);
+        assert!(messages.is_empty(), "corrupted session should return empty messages");
+        assert!(meta.is_none());
+    }
+
+    #[test]
+    fn delete_session_removes_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+
+        let sid = "delete-me";
+        let messages = vec![ChatMessage {
+            reasoning_content: None,
+            role: "user".to_string(),
+            content: Some("bye".to_string()),
+            tool_calls: None,
+            tool_call_id: None,
+        }];
+        save_session_to(base, sid, &messages, 1, &SessionTokenUsage::default(), None).unwrap();
+        assert!(session_file_path_in(base, sid).exists());
+
+        delete_session(base, sid);
+        assert!(!session_file_path_in(base, sid).exists());
+    }
+
+    #[test]
+    fn enforce_session_limit_evicts_oldest() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+        let sessions_dir = base.join("sessions");
+        std::fs::create_dir_all(&sessions_dir).unwrap();
+
+        let messages = vec![ChatMessage {
+            reasoning_content: None,
+            role: "user".to_string(),
+            content: Some("x".to_string()),
+            tool_calls: None,
+            tool_call_id: None,
+        }];
+
+        // Create 5 sessions with distinct timestamps
+        for i in 0..5u64 {
+            let sid = format!("session-{}", i);
+            let usage = SessionTokenUsage::default();
+            save_session_to(base, &sid, &messages, 1, &usage, None).unwrap();
+            // Manually set a distinct last_updated by patching the file
+            let path = session_file_path_in(base, &sid);
+            let data = std::fs::read_to_string(&path).unwrap();
+            let mut sf: SessionFile = serde_json::from_str(&data).unwrap();
+            sf.metadata.last_updated = 1000 + i; // older sessions have smaller timestamps
+            sf.metadata.created_at = 1000 + i;
+            std::fs::write(&path, serde_json::to_string_pretty(&sf).unwrap()).unwrap();
+        }
+
+        // Enforce limit of 3 — should evict session-0 and session-1 (oldest)
+        enforce_session_limit(base, 3);
+
+        assert!(!session_file_path_in(base, "session-0").exists(), "oldest session should be evicted");
+        assert!(!session_file_path_in(base, "session-1").exists(), "second oldest should be evicted");
+        assert!(session_file_path_in(base, "session-2").exists());
+        assert!(session_file_path_in(base, "session-3").exists());
+        assert!(session_file_path_in(base, "session-4").exists());
+    }
+
+    #[test]
+    fn cleanup_expired_sessions_removes_old() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+        let sessions_dir = base.join("sessions");
+        std::fs::create_dir_all(&sessions_dir).unwrap();
+
+        let messages = vec![ChatMessage {
+            reasoning_content: None,
+            role: "user".to_string(),
+            content: Some("x".to_string()),
+            tool_calls: None,
+            tool_call_id: None,
+        }];
+
+        // Create an expired session (last_updated = 0, very old)
+        let sid_old = "old-session";
+        save_session_to(base, sid_old, &messages, 1, &SessionTokenUsage::default(), None).unwrap();
+        let path_old = session_file_path_in(base, sid_old);
+        let data = std::fs::read_to_string(&path_old).unwrap();
+        let mut sf: SessionFile = serde_json::from_str(&data).unwrap();
+        sf.metadata.last_updated = 1; // epoch + 1 second, definitely expired
+        std::fs::write(&path_old, serde_json::to_string_pretty(&sf).unwrap()).unwrap();
+
+        // Create a fresh session (last_updated = now)
+        let sid_new = "new-session";
+        save_session_to(base, sid_new, &messages, 1, &SessionTokenUsage::default(), None).unwrap();
+
+        // Cleanup with 1 hour max age
+        cleanup_expired_sessions(base, 3600);
+
+        assert!(!session_file_path_in(base, sid_old).exists(), "expired session should be removed");
+        assert!(session_file_path_in(base, sid_new).exists(), "fresh session should remain");
     }
 }

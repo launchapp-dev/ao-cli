@@ -115,6 +115,11 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: RunnerCommand,
     },
+    /// List and inspect oai-runner sessions.
+    Session {
+        #[command(subcommand)]
+        command: SessionCommand,
+    },
     /// Show a unified project status dashboard.
     Status,
     /// Inspect run output and artifacts.

@@ -43,6 +43,7 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Setup(args) => services::operations::handle_setup(args, &project_root, cli.json).await,
         Command::Doctor(args) => services::operations::handle_doctor(&project_root, args, cli.json).await,
         Command::Pack { command } => services::operations::handle_pack(command, &project_root, cli.json).await,
+        Command::Session { command } => services::operations::handle_session(command, cli.json).await,
         command => {
             let hub = Arc::new(FileServiceHub::new(&project_root)?);
             match command {
@@ -89,6 +90,7 @@ async fn run(cli: Cli) -> Result<()> {
                     services::operations::handle_model(command, hub.clone(), &project_root, cli.json).await
                 }
                 Command::Pack { .. } => unreachable!("handled before hub creation"),
+                Command::Session { .. } => unreachable!("handled before hub creation"),
                 Command::Runner { command } => {
                     services::operations::handle_runner(command, hub.clone(), &project_root, cli.json).await
                 }

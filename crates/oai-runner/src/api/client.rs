@@ -199,6 +199,7 @@ impl ApiClient {
             if event.data == "[DONE]" {
                 std::io::stdout().flush().ok();
                 let msg = ChatMessage {
+                    reasoning_content: None,
                     role: "assistant".to_string(),
                     content: if content.is_empty() { None } else { Some(content) },
                     tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls) },
@@ -253,6 +254,7 @@ impl ApiClient {
 
         std::io::stdout().flush().ok();
         let msg = ChatMessage {
+            reasoning_content: None,
             role: "assistant".to_string(),
             content: if content.is_empty() { None } else { Some(content) },
             tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls) },

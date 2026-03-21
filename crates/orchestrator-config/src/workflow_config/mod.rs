@@ -30,7 +30,7 @@ pub use yaml_compiler::{
     compile_yaml_workflow_files, merge_yaml_into_config, validate_and_compile_yaml_workflows,
     write_workflow_yaml_overlay, yaml_workflows_dir, CompileYamlResult,
 };
-pub use yaml_parser::{parse_yaml_workflow_config, parse_yaml_workflow_config_with_base};
+pub use yaml_parser::{parse_yaml_workflow_config, parse_yaml_workflow_config_with_base, YamlParseError};
 pub use yaml_scaffold::{ensure_workflow_yaml_scaffold, title_case_phase_id};
 pub use yaml_types::{
     DEFAULT_WORKFLOW_TEMPLATE_FILE_NAME, GENERATED_RUNTIME_OVERLAY_FILE_NAME, GENERATED_WORKFLOW_OVERLAY_FILE_NAME,

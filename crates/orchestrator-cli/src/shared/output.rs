@@ -80,11 +80,28 @@ pub(crate) fn emit_cli_error(err: &anyhow::Error, json: bool) {
             format!("{{\"schema\":\"{}\",\"ok\":false,\"error\":{{\"code\":\"internal\",\"message\":\"serialization failure\",\"exit_code\":1}}}}", CLI_SCHEMA_ID)
         }));
     } else {
-        eprintln!("error: {}", err);
+        if let Some(rendered) = try_render_miette_diagnostic(err) {
+            eprint!("{}", rendered);
+        } else {
+            eprintln!("error: {}", err);
+        }
         if kind == CliErrorKind::InvalidInput && should_emit_help_hint(&err.to_string()) {
             eprintln!("hint: run with --help to view accepted arguments and values");
         }
     }
+}
+
+fn try_render_miette_diagnostic(err: &anyhow::Error) -> Option<String> {
+    use miette::GraphicalReportHandler;
+    use orchestrator_config::YamlParseError;
+
+    if let Some(yaml_err) = err.chain().find_map(|e| e.downcast_ref::<YamlParseError>()) {
+        let mut output = String::new();
+        if GraphicalReportHandler::new().render_report(&mut output, yaml_err as &dyn miette::Diagnostic).is_ok() {
+            return Some(output);
+        }
+    }
+    None
 }
 
 fn should_emit_help_hint(message: &str) -> bool {

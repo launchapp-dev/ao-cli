@@ -5,6 +5,8 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
+miette = { workspace = true }
+thiserror = "2.0"
 include_dir = "0.7"
 croner = { workspace = true }
 dirs = "6.0"

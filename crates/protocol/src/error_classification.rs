@@ -55,6 +55,12 @@ impl Display for ClassifiedError {
 
 impl std::error::Error for ClassifiedError {}
 
+impl miette::Diagnostic for ClassifiedError {
+    fn code<'a>(&'a self) -> Option<Box<dyn std::fmt::Display + 'a>> {
+        Some(Box::new(format!("ao::error::{}", self.kind.code())))
+    }
+}
+
 pub fn classify_anyhow_error_kind(err: &anyhow::Error) -> ErrorKind {
     for source in err.chain() {
         if let Some(classified) = source.downcast_ref::<ClassifiedError>() {

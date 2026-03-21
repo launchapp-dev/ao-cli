@@ -1,9 +1,22 @@
 use std::collections::{BTreeMap, HashMap};
 
 use anyhow::{anyhow, Context, Result};
+use miette::{Diagnostic, NamedSource, SourceSpan};
+use thiserror::Error;
 
 use crate::agent_runtime_config::{CommandCwdMode, PhaseCommandDefinition, PhaseExecutionMode, PhaseManualDefinition};
 use crate::PhaseExecutionDefinition;
+
+#[derive(Debug, Error, Diagnostic)]
+#[error("failed to parse YAML workflow config: {message}")]
+#[diagnostic(code(ao::config::yaml_parse_error))]
+pub struct YamlParseError {
+    message: String,
+    #[source_code]
+    src: NamedSource<String>,
+    #[label("error occurs here")]
+    err_span: Option<SourceSpan>,
+}
 
 use super::builtins::builtin_workflow_config;
 use super::types::*;
@@ -274,7 +287,14 @@ pub(super) fn yaml_merge_to_merge_config(yaml: YamlMergeConfig) -> Result<MergeC
 }
 
 pub fn parse_yaml_workflow_config_with_base(yaml_str: &str, base: &WorkflowConfig) -> Result<WorkflowConfig> {
-    let yaml_file: YamlWorkflowFile = serde_yaml::from_str(yaml_str).context("failed to parse YAML workflow config")?;
+    let yaml_file: YamlWorkflowFile = serde_yaml::from_str(yaml_str).map_err(|e| {
+        let err_span = e.location().map(|loc| SourceSpan::from((loc.index(), 1usize)));
+        YamlParseError {
+            message: e.to_string(),
+            src: NamedSource::new("workflow.yaml", yaml_str.to_string()),
+            err_span,
+        }
+    })?;
 
     let workflows =
         yaml_file.workflows.into_iter().map(yaml_workflow_to_workflow_definition).collect::<Result<Vec<_>>>()?;

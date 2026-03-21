@@ -208,7 +208,7 @@ agents:
          When in doubt, SKIP. Releases should be deliberate, not frequent.
 
       3. CUT RELEASE BRANCH:
-         a. Parse the latest tag (e.g., v0.0.10) and bump: minor for features, patch for bugfixes only.
+         a. Parse the latest tag (e.g., v0.0.10) and bump the PATCH version only. Never bump major or minor — always patch (e.g., v0.1.0 → v0.1.1).
          b. Run `git checkout -b release/vX.Y.Z origin/develop && git push origin release/vX.Y.Z`
          c. Create a tracking task via ao.task.create: title "Release vX.Y.Z", priority "critical", type "chore"
          d. WRITE CHANGELOG: Read the commits since last tag with `git log --oneline <prev_tag>..HEAD --no-merges`.

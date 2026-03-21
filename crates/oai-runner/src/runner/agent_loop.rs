@@ -120,6 +120,7 @@ pub async fn run_agent_loop(
         }
         if !sys.is_empty() {
             messages.push(ChatMessage {
+                reasoning_content: None,
                 role: "system".to_string(),
                 content: Some(sys),
                 tool_calls: None,
@@ -129,6 +130,7 @@ pub async fn run_agent_loop(
     }
 
     messages.push(ChatMessage {
+        reasoning_content: None,
         role: "user".to_string(),
         content: Some(user_prompt.to_string()),
         tool_calls: None,
@@ -269,6 +271,7 @@ pub async fn run_agent_loop(
             };
 
             messages.push(ChatMessage {
+                reasoning_content: None,
                 role: "tool".to_string(),
                 content: Some(result),
                 tool_calls: None,
@@ -334,12 +337,14 @@ async fn retry_schema_validation(
             retry_messages.push(sys.clone());
         }
         retry_messages.push(ChatMessage {
+            reasoning_content: None,
             role: "assistant".to_string(),
             content: Some(last_assistant_content.clone()),
             tool_calls: None,
             tool_call_id: None,
         });
         retry_messages.push(ChatMessage {
+            reasoning_content: None,
             role: "user".to_string(),
             content: Some(correction.clone()),
             tool_calls: None,
@@ -376,6 +381,7 @@ async fn retry_schema_validation(
 
         let content = retry_msg.content.clone().unwrap_or_default();
         messages.push(ChatMessage {
+            reasoning_content: None,
             role: "user".to_string(),
             content: Some(correction),
             tool_calls: None,
@@ -667,18 +673,21 @@ mod tests {
         let sid = "test-session-round-trip";
         let messages = vec![
             ChatMessage {
+                reasoning_content: None,
                 role: "system".to_string(),
                 content: Some("You are helpful.".to_string()),
                 tool_calls: None,
                 tool_call_id: None,
             },
             ChatMessage {
+                reasoning_content: None,
                 role: "user".to_string(),
                 content: Some("Hello".to_string()),
                 tool_calls: None,
                 tool_call_id: None,
             },
             ChatMessage {
+                reasoning_content: None,
                 role: "assistant".to_string(),
                 content: Some("Hi there!".to_string()),
                 tool_calls: None,

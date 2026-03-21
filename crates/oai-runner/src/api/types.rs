@@ -6,6 +6,8 @@ pub struct ChatMessage {
     pub role: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -56,6 +58,8 @@ pub struct StreamChoice {
 pub struct StreamDelta {
     #[serde(default)]
     pub content: Option<String>,
+    #[serde(default)]
+    pub reasoning_content: Option<String>,
     #[serde(default)]
     pub tool_calls: Option<Vec<StreamToolCall>>,
 }
@@ -130,6 +134,7 @@ mod tests {
         let request = ChatRequest {
             model: "minimax/MiniMax-M2.1".to_string(),
             messages: vec![ChatMessage {
+                reasoning_content: None,
                 role: "user".to_string(),
                 content: Some("hello".to_string()),
                 tool_calls: None,
@@ -177,7 +182,13 @@ mod tests {
 
     #[test]
     fn chat_message_skips_none_fields() {
-        let msg = ChatMessage { role: "assistant".to_string(), content: None, tool_calls: None, tool_call_id: None };
+        let msg = ChatMessage {
+            reasoning_content: None,
+            role: "assistant".to_string(),
+            content: None,
+            tool_calls: None,
+            tool_call_id: None,
+        };
         let json = serde_json::to_value(&msg).unwrap();
         assert!(json.get("content").is_none());
         assert!(json.get("tool_calls").is_none());

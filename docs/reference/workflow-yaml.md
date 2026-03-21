@@ -152,8 +152,49 @@ phases:
 | `command` | object | no | Command execution definition when `mode: command` |
 | `manual` | object | no | Manual gate definition when `mode: manual` |
 | `default_tool` | string | no | Default tool hint for the phase |
+| `input_from` | string | no | Phase ID whose output payload to inject as `{{input}}` in this phase |
 
 Phase `skills` are validated during config load. At runtime they can inject prompt fragments, model/tool policy overrides, MCP attachments, timeout overrides, launch args/env, and capability overrides. Installed registry skills work the same as local skills when a definition snapshot is present in AO state.
+
+### Cross-Phase Output References
+
+Phases can reference output from any prior completed phase using `$phases.<phase-id>.<field>` syntax. These references are resolved at runtime before the phase prompt or command is executed.
+
+Supported reference forms:
+
+| Reference | Resolves to |
+|---|---|
+| `$phases.<id>.output` | Full JSON payload of the named phase's output |
+| `$phases.<id>.output.<field>` | A single top-level field from the output payload |
+| `$phases.<id>.verdict` | The verdict string (`advance`, `rework`, `fail`, `skip`) |
+| `$phases.<id>.reason` | The decision reason string |
+
+References can appear in:
+- Phase `directive` strings
+- Command `args` and `env` values
+
+Example directive using a prior phase's output:
+
+```yaml
+phases:
+  summarize:
+    mode: agent
+    directive: |
+      Summarize the following research findings:
+      $phases.research.output.findings
+```
+
+The `input_from` field is a shorthand that injects an entire prior phase's output payload as the `{{input}}` template variable:
+
+```yaml
+phases:
+  implementation:
+    mode: agent
+    input_from: research
+    directive: |
+      Implement the solution based on the research results:
+      {{input}}
+```
 
 ---
 

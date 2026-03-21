@@ -98,6 +98,7 @@ pub(super) fn yaml_phase_to_execution_definition(
         manual,
         system_prompt: yaml.system_prompt,
         default_tool: yaml.default_tool,
+        input_from: yaml.input_from,
     })
 }
 
@@ -193,6 +194,7 @@ pub(super) fn phase_execution_definition_to_yaml(definition: &PhaseExecutionDefi
         decision_contract: definition.decision_contract.clone(),
         retry: definition.retry.clone(),
         default_tool: definition.default_tool.clone(),
+        input_from: definition.input_from.clone(),
     }
 }
 

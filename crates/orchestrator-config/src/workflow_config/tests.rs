@@ -1658,6 +1658,7 @@ fn validate_rejects_command_program_not_in_allowlist() {
             manual: None,
             system_prompt: None,
             default_tool: None,
+            input_from: None,
         },
     );
     let err = validate_workflow_config(&config).expect_err("should reject program not in allowlist");

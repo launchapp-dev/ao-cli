@@ -16,7 +16,20 @@ pub(crate) struct DoctorFixAction {
 }
 
 pub(crate) async fn handle_doctor(project_root: &str, args: DoctorArgs, json: bool) -> Result<()> {
-    let before = DoctorReport::run_for_project(Path::new(project_root));
+    let full_report = DoctorReport::run_for_project(Path::new(project_root));
+    let before = if let Some(ref category) = args.check {
+        match full_report.filter_by_category(category) {
+            Some(filtered) => filtered,
+            None => {
+                return Err(anyhow::anyhow!(
+                    "unknown category '{}'. Available: runner, daemon, config, network, api-keys",
+                    category
+                ));
+            }
+        }
+    } else {
+        full_report
+    };
     if !args.fix {
         return print_value(
             serde_json::json!({
@@ -33,7 +46,14 @@ pub(crate) async fn handle_doctor(project_root: &str, args: DoctorArgs, json: bo
 
     let actions = apply_doctor_fixes(project_root, &before);
     let applied = actions.iter().any(|action| action.status == "applied");
-    let after = DoctorReport::run_for_project(Path::new(project_root));
+    let after = {
+        let full_after = DoctorReport::run_for_project(Path::new(project_root));
+        if let Some(ref category) = args.check {
+            full_after.filter_by_category(category).expect("category already validated above")
+        } else {
+            full_after
+        }
+    };
 
     print_value(
         serde_json::json!({

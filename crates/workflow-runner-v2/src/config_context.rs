@@ -91,4 +91,8 @@ impl RuntimeConfigContext {
     pub fn phase_command(&self, phase_id: &str) -> Option<&PhaseCommandDefinition> {
         self.phase_execution(phase_id).and_then(|def| def.command.as_ref())
     }
+
+    pub fn phase_input_from(&self, phase_id: &str) -> Option<&str> {
+        self.phase_execution(phase_id).and_then(|def| def.input_from.as_deref())
+    }
 }

@@ -415,6 +415,8 @@ pub struct PhaseExecutionDefinition {
     pub manual: Option<PhaseManualDefinition>,
     #[serde(default)]
     pub default_tool: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_from: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1010,7 +1012,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     command: None,
                     manual: None,
                     default_tool: None,
-                },
+                    input_from: None,                },
             ),
             (
                 "requirements".to_string(),
@@ -1036,7 +1038,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     command: None,
                     manual: None,
                     default_tool: None,
-                },
+                    input_from: None,                },
             ),
             (
                 "research".to_string(),
@@ -1062,7 +1064,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     command: None,
                     manual: None,
                     default_tool: None,
-                },
+                    input_from: None,                },
             ),
             (
                 "ux-research".to_string(),
@@ -1081,7 +1083,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     command: None,
                     manual: None,
                     default_tool: None,
-                },
+                    input_from: None,                },
             ),
             (
                 "wireframe".to_string(),
@@ -1100,7 +1102,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     command: None,
                     manual: None,
                     default_tool: None,
-                },
+                    input_from: None,                },
             ),
             (
                 "mockup-review".to_string(),
@@ -1119,7 +1121,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     command: None,
                     manual: None,
                     default_tool: None,
-                },
+                    input_from: None,                },
             ),
             (
                 "implementation".to_string(),
@@ -1156,7 +1158,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     command: None,
                     manual: None,
                     default_tool: None,
-                },
+                    input_from: None,                },
             ),
         ]),
         cli_tools: BTreeMap::new(),
@@ -1954,7 +1956,7 @@ cli_tools:
                 command: None,
                 manual: None,
                 default_tool: None,
-            },
+                input_from: None,            },
         );
         workflow.tools.insert(
             "custom-runner".to_string(),
@@ -2053,7 +2055,7 @@ cli_tools:
                 command: None,
                 manual: None,
                 default_tool: None,
-            },
+                input_from: None,            },
         );
         workflow.workflows.push(crate::workflow_config::WorkflowDefinition {
             id: "project-override-check".to_string(),
@@ -2290,7 +2292,7 @@ cli_tools:
             }),
             manual: None,
             default_tool: None,
-        };
+            input_from: None,        };
 
         let json = serde_json::to_string(&definition).expect("serialize");
         let restored: PhaseExecutionDefinition = serde_json::from_str(&json).expect("deserialize");
@@ -2342,7 +2344,7 @@ cli_tools:
                 }),
                 manual: None,
                 default_tool: None,
-            },
+                input_from: None,            },
         );
         validate_agent_runtime_config(&config).expect("valid command-mode config");
     }
@@ -2366,7 +2368,7 @@ cli_tools:
                 command: None,
                 manual: None,
                 default_tool: None,
-            },
+                input_from: None,            },
         );
         let err = validate_agent_runtime_config(&config).unwrap_err();
         assert!(err.to_string().contains("requires command block"));
@@ -2409,7 +2411,7 @@ cli_tools:
                 }),
                 manual: None,
                 default_tool: None,
-            },
+                input_from: None,            },
         );
         let err = validate_agent_runtime_config(&config).unwrap_err();
         assert!(err.to_string().contains("program must not be empty"));
@@ -2452,7 +2454,7 @@ cli_tools:
                 }),
                 manual: None,
                 default_tool: None,
-            },
+                input_from: None,            },
         );
         let err = validate_agent_runtime_config(&config).unwrap_err();
         assert!(err.to_string().contains("must not include agent_id"));
@@ -2495,7 +2497,7 @@ cli_tools:
                 }),
                 manual: None,
                 default_tool: None,
-            },
+                input_from: None,            },
         );
         let err = validate_agent_runtime_config(&config).unwrap_err();
         assert!(err.to_string().contains("success_exit_codes must include at least one code"));
@@ -2538,7 +2540,7 @@ cli_tools:
                 }),
                 manual: None,
                 default_tool: None,
-            },
+                input_from: None,            },
         );
         let err = validate_agent_runtime_config(&config).unwrap_err();
         assert!(err.to_string().contains("cwd_path must be set"));
@@ -2585,7 +2587,7 @@ cli_tools:
                     timeout_secs: None,
                 }),
                 default_tool: None,
-            },
+                input_from: None,            },
         );
         let err = validate_agent_runtime_config(&config).unwrap_err();
         assert!(err.to_string().contains("must not include manual block"));
@@ -2628,7 +2630,7 @@ cli_tools:
                 }),
                 manual: None,
                 default_tool: None,
-            },
+                input_from: None,            },
         );
         assert_eq!(config.phase_mode("lint"), Some(PhaseExecutionMode::Command));
         let cmd = config.phase_command("lint").expect("command block present");
@@ -2678,7 +2680,7 @@ cli_tools:
             }),
             manual: None,
             default_tool: None,
-        };
+            input_from: None,        };
 
         let json = serde_json::to_string_pretty(&definition).expect("serialize");
         let restored: PhaseExecutionDefinition = serde_json::from_str(&json).expect("deserialize");
@@ -2758,7 +2760,7 @@ cli_tools:
                 }),
                 manual: None,
                 default_tool: None,
-            },
+                input_from: None,            },
         );
         let err = validate_agent_runtime_config(&config).unwrap_err();
         assert!(err.to_string().contains("args must not contain empty values"));
@@ -2801,7 +2803,7 @@ cli_tools:
                 }),
                 manual: None,
                 default_tool: None,
-            },
+                input_from: None,            },
         );
         let err = validate_agent_runtime_config(&config).unwrap_err();
         assert!(err.to_string().contains("env must not contain empty keys"));
@@ -3098,7 +3100,7 @@ cli_tools:
                 command: None,
                 manual: None,
                 default_tool: None,
-            },
+                input_from: None,            },
         );
         assert_eq!(config.phase_system_prompt("custom-phase"), Some("Phase-level prompt override"));
     }
@@ -3124,7 +3126,7 @@ cli_tools:
                 command: None,
                 manual: None,
                 default_tool: None,
-            },
+                input_from: None,            },
         );
         assert_eq!(config.phase_system_prompt("custom-phase"), Some("Agent profile prompt"));
     }
@@ -3150,7 +3152,7 @@ cli_tools:
                 command: None,
                 manual: None,
                 default_tool: None,
-            },
+                input_from: None,            },
         );
         assert_eq!(config.phase_system_prompt("custom-phase"), Some("Agent profile prompt"));
     }
@@ -3194,7 +3196,7 @@ cli_tools:
             command: None,
             manual: None,
             default_tool: None,
-        };
+            input_from: None,        };
         let json = serde_json::to_string(&definition).expect("serialize");
         assert!(!json.contains("system_prompt"));
 
@@ -3231,7 +3233,7 @@ cli_tools:
                 command: None,
                 manual: None,
                 default_tool: None,
-            },
+                input_from: None,            },
         );
         let err = validate_agent_runtime_config(&config).unwrap_err();
         assert!(err.to_string().contains("min_confidence must be between 0.0 and 1.0"));
@@ -3263,7 +3265,7 @@ cli_tools:
                 command: None,
                 manual: None,
                 default_tool: None,
-            },
+                input_from: None,            },
         );
         let err = validate_agent_runtime_config(&config).unwrap_err();
         assert!(err.to_string().contains("min_confidence must be between 0.0 and 1.0"));
@@ -3295,7 +3297,7 @@ cli_tools:
                 command: None,
                 manual: None,
                 default_tool: None,
-            },
+                input_from: None,            },
         );
         let err = validate_agent_runtime_config(&config).unwrap_err();
         assert!(err.to_string().contains("extra_json_schema must be a JSON object"));
@@ -3339,7 +3341,7 @@ cli_tools:
                 command: None,
                 manual: None,
                 default_tool: None,
-            },
+                input_from: None,            },
         );
         let err = validate_agent_runtime_config(&config).unwrap_err();
         assert!(err.to_string().contains("must be one of string, number, integer, boolean, array, object, null"));
@@ -3383,7 +3385,7 @@ cli_tools:
                 command: None,
                 manual: None,
                 default_tool: None,
-            },
+                input_from: None,            },
         );
         validate_agent_runtime_config(&config).expect("valid decision contract should pass validation");
     }

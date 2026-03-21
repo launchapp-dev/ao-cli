@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use crate::config_context::RuntimeConfigContext;
-use crate::phase_output::{build_workflow_pipeline_context, format_prior_phase_outputs, load_prior_phase_outputs};
+use crate::phase_output::{
+    build_workflow_pipeline_context, format_prior_phase_outputs, load_prior_phase_outputs, resolve_phase_references,
+};
 use orchestrator_config::SkillApplicationResult;
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -114,7 +116,7 @@ pub fn render_phase_prompt_with_ctx(
 pub(crate) fn render_phase_prompt_with_ctx_overrides(
     ctx: &RuntimeConfigContext,
     params: &PhaseRenderParams<'_>,
-    inputs: PhasePromptInputs,
+    mut inputs: PhasePromptInputs,
     capabilities_override: Option<protocol::PhaseCapabilities>,
     skill_result: Option<&SkillApplicationResult>,
 ) -> RenderedPhasePrompt {
@@ -226,6 +228,16 @@ pub(crate) fn render_phase_prompt_with_ctx_overrides(
 
     let (pipeline_context, phase_order) = build_workflow_pipeline_context(project_root, workflow_id, phase_id);
     let prior_outputs = load_prior_phase_outputs(project_root, workflow_id, phase_id, &phase_order);
+
+    if let Some(input_from_phase) = ctx.phase_input_from(phase_id) {
+        if let Some(output) = prior_outputs.iter().find(|o| o.phase_id == input_from_phase) {
+            if let Some(ref payload) = output.payload {
+                let payload_json = serde_json::to_string(payload).unwrap_or_default();
+                inputs.pipeline_vars.entry("input".to_string()).or_insert(payload_json);
+            }
+        }
+    }
+
     let prior_phase_context = format_prior_phase_outputs(&prior_outputs);
     let rework_context = inputs.rework_context.as_deref().map(str::trim).filter(|value| !value.is_empty());
     let mut prior_context = prior_phase_context;
@@ -253,6 +265,10 @@ pub(crate) fn render_phase_prompt_with_ctx_overrides(
 
     if !inputs.pipeline_vars.is_empty() {
         phase_prompt = orchestrator_core::workflow_config::expand_variables(&phase_prompt, &inputs.pipeline_vars);
+    }
+
+    if !prior_outputs.is_empty() {
+        phase_prompt = resolve_phase_references(&phase_prompt, &prior_outputs);
     }
 
     if let Some(dispatch_input) = inputs.dispatch_input.as_deref().filter(|value| !value.is_empty()) {

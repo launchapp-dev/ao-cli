@@ -20,6 +20,7 @@ pub use projector_registry::{
 };
 
 pub const WORKFLOW_RUNNER_BLOCKED_PREFIX: &str = "workflow runner failed: ";
+pub const ESCALATED_BLOCKED_PREFIX: &str = "escalated: ";
 pub const WORKFLOW_RUNNER_CANCELLED_PREFIX: &str = "workflow runner cancelled: ";
 pub const WORKFLOW_RUNNER_EXITED_PREFIX: &str = "workflow runner exited without workflow status";
 pub const MAX_RUNNER_FAILURE_RESETS: u32 = 3;

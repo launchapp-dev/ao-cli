@@ -761,6 +761,8 @@ async fn file_hub_uses_custom_pipeline_from_workflow_config_v2() {
             tool: None,
             model: None,
             fallback_models: Vec::new(),
+            models: Vec::new(),
+            fallback_tools: Vec::new(),
             reasoning_effort: None,
             web_search: None,
             network_access: None,

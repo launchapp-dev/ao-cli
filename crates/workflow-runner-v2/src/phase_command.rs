@@ -362,12 +362,23 @@ pub(crate) async fn run_workflow_phase_with_command(
     }
 
     let template_vars = build_command_template_vars(context);
-    let args =
-        command.args.iter().map(|arg| orchestrator_config::expand_variables(arg, &template_vars)).collect::<Vec<_>>();
+    let prior_outputs =
+        crate::phase_output::load_prior_outputs_for_context(context.project_root, context.workflow_id, context.phase_id);
+    let args = command
+        .args
+        .iter()
+        .map(|arg| {
+            let expanded = orchestrator_config::expand_variables(arg, &template_vars);
+            crate::phase_output::resolve_phase_references(&expanded, &prior_outputs)
+        })
+        .collect::<Vec<_>>();
     let env = command
         .env
         .iter()
-        .map(|(key, value)| (key.clone(), orchestrator_config::expand_variables(value, &template_vars)))
+        .map(|(key, value)| {
+            let expanded = orchestrator_config::expand_variables(value, &template_vars);
+            (key.clone(), crate::phase_output::resolve_phase_references(&expanded, &prior_outputs))
+        })
         .collect::<BTreeMap<_, _>>();
     let cwd = resolve_command_cwd(context, command, &template_vars)?;
     let started = std::time::Instant::now();

@@ -291,6 +291,65 @@ Post-success options:
 | `merge.auto_merge` | Automatically merge the PR |
 | `merge.cleanup_worktree` | Remove the task worktree after merge |
 
+## Cross-Phase Output References
+
+Downstream phases can consume output from prior completed phases using `$phases.<phase-id>.<field>` references. The runtime resolves these before executing the phase prompt or command.
+
+### Reference Syntax
+
+| Reference | Resolves to |
+|---|---|
+| `$phases.<id>.output` | Full JSON payload of the named phase's output |
+| `$phases.<id>.output.<field>` | A single top-level field from the payload |
+| `$phases.<id>.verdict` | The verdict string (`advance`, `rework`, `fail`, `skip`) |
+| `$phases.<id>.reason` | The decision reason string |
+
+### Using `$phases` References in Directives
+
+```yaml
+phases:
+  research:
+    mode: agent
+    directive: "Research the codebase and output findings as JSON."
+
+  summarize:
+    mode: agent
+    directive: |
+      Summarize these research findings:
+      $phases.research.output.findings
+```
+
+References also work in command `args` and `env` values:
+
+```yaml
+phases:
+  deploy:
+    mode: command
+    command:
+      program: ./deploy.sh
+      args: ["--commit", "$phases.implementation.output.commit_sha"]
+```
+
+### Using `input_from` for Payload Forwarding
+
+The `input_from` field on a phase definition injects a prior phase's full output payload as `{{input}}` in the directive template:
+
+```yaml
+phases:
+  research:
+    mode: agent
+    directive: "Research the problem domain and emit structured findings."
+
+  implementation:
+    mode: agent
+    input_from: research
+    directive: |
+      Implement the solution based on the following research:
+      {{input}}
+```
+
+`input_from` only injects the payload if the referenced phase has produced a non-null output. If the prior phase has no payload, `{{input}}` remains unexpanded.
+
 ## Variables
 
 Define variables with defaults that can be overridden at runtime:

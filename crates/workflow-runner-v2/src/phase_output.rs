@@ -232,6 +232,57 @@ pub(crate) fn build_workflow_pipeline_context(
     (json, phase_order)
 }
 
+pub fn resolve_phase_references(text: &str, prior_outputs: &[PersistedPhaseOutput]) -> String {
+    if !text.contains("$phases.") {
+        return text.to_string();
+    }
+
+    let mut result = text.to_string();
+
+    for output in prior_outputs {
+        let phase_id = &output.phase_id;
+
+        let verdict_pattern = format!("$phases.{phase_id}.verdict");
+        result = result.replace(&verdict_pattern, output.verdict.as_deref().unwrap_or(""));
+
+        let reason_pattern = format!("$phases.{phase_id}.reason");
+        result = result.replace(&reason_pattern, output.reason.as_deref().unwrap_or(""));
+
+        if let Some(payload) = &output.payload {
+            if let Some(obj) = payload.as_object() {
+                for (field_name, field_value) in obj {
+                    let field_pattern = format!("$phases.{phase_id}.output.{field_name}");
+                    let replacement = match field_value {
+                        serde_json::Value::String(s) => s.clone(),
+                        other => serde_json::to_string(other).unwrap_or_default(),
+                    };
+                    result = result.replace(&field_pattern, &replacement);
+                }
+            }
+            let output_pattern = format!("$phases.{phase_id}.output");
+            let replacement = serde_json::to_string(payload).unwrap_or_else(|_| "null".to_string());
+            result = result.replace(&output_pattern, &replacement);
+        } else {
+            let output_pattern = format!("$phases.{phase_id}.output");
+            result = result.replace(&output_pattern, "null");
+        }
+    }
+
+    result
+}
+
+pub(crate) fn load_prior_outputs_for_context(
+    project_root: &str,
+    workflow_id: &str,
+    current_phase_id: &str,
+) -> Vec<PersistedPhaseOutput> {
+    let (_, phase_order) = build_workflow_pipeline_context(project_root, workflow_id, current_phase_id);
+    if phase_order.is_empty() {
+        return Vec::new();
+    }
+    load_prior_phase_outputs(project_root, workflow_id, current_phase_id, &phase_order)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -528,5 +579,116 @@ mod tests {
         let result = format_prior_phase_outputs(&outputs);
         assert!(result.len() <= MAX_PRIOR_CONTEXT_CHARS);
         assert!(result.contains("### recent (completed)"));
+    }
+
+    #[test]
+    fn test_resolve_phase_references_no_references() {
+        let outputs = vec![PersistedPhaseOutput {
+            phase_id: "research".to_string(),
+            completed_at: "2026-03-01T00:00:00Z".to_string(),
+            verdict: Some("advance".to_string()),
+            confidence: None,
+            reason: Some("Done".to_string()),
+            commit_message: None,
+            evidence: vec![],
+            guardrail_violations: vec![],
+            payload: None,
+        }];
+        let text = "No references here.";
+        assert_eq!(resolve_phase_references(text, &outputs), text);
+    }
+
+    #[test]
+    fn test_resolve_phase_references_verdict_and_reason() {
+        let outputs = vec![PersistedPhaseOutput {
+            phase_id: "research".to_string(),
+            completed_at: "2026-03-01T00:00:00Z".to_string(),
+            verdict: Some("advance".to_string()),
+            confidence: None,
+            reason: Some("Found patterns".to_string()),
+            commit_message: None,
+            evidence: vec![],
+            guardrail_violations: vec![],
+            payload: None,
+        }];
+        let text = "Verdict: $phases.research.verdict, Reason: $phases.research.reason";
+        let result = resolve_phase_references(text, &outputs);
+        assert_eq!(result, "Verdict: advance, Reason: Found patterns");
+    }
+
+    #[test]
+    fn test_resolve_phase_references_output_field() {
+        let outputs = vec![PersistedPhaseOutput {
+            phase_id: "research".to_string(),
+            completed_at: "2026-03-01T00:00:00Z".to_string(),
+            verdict: Some("advance".to_string()),
+            confidence: None,
+            reason: None,
+            commit_message: None,
+            evidence: vec![],
+            guardrail_violations: vec![],
+            payload: Some(serde_json::json!({"findings": "pattern A", "count": 3})),
+        }];
+        let text = "Findings: $phases.research.output.findings, Count: $phases.research.output.count";
+        let result = resolve_phase_references(text, &outputs);
+        assert_eq!(result, "Findings: pattern A, Count: 3");
+    }
+
+    #[test]
+    fn test_resolve_phase_references_full_output() {
+        let payload = serde_json::json!({"key": "value"});
+        let outputs = vec![PersistedPhaseOutput {
+            phase_id: "research".to_string(),
+            completed_at: "2026-03-01T00:00:00Z".to_string(),
+            verdict: Some("advance".to_string()),
+            confidence: None,
+            reason: None,
+            commit_message: None,
+            evidence: vec![],
+            guardrail_violations: vec![],
+            payload: Some(payload.clone()),
+        }];
+        let text = "Output: $phases.research.output";
+        let result = resolve_phase_references(text, &outputs);
+        let expected_json = serde_json::to_string(&payload).unwrap();
+        assert_eq!(result, format!("Output: {expected_json}"));
+    }
+
+    #[test]
+    fn test_resolve_phase_references_null_when_no_payload() {
+        let outputs = vec![PersistedPhaseOutput {
+            phase_id: "research".to_string(),
+            completed_at: "2026-03-01T00:00:00Z".to_string(),
+            verdict: Some("advance".to_string()),
+            confidence: None,
+            reason: None,
+            commit_message: None,
+            evidence: vec![],
+            guardrail_violations: vec![],
+            payload: None,
+        }];
+        let text = "Output: $phases.research.output";
+        let result = resolve_phase_references(text, &outputs);
+        assert_eq!(result, "Output: null");
+    }
+
+    #[test]
+    fn test_resolve_phase_references_field_before_full_output() {
+        let payload = serde_json::json!({"summary": "good work"});
+        let outputs = vec![PersistedPhaseOutput {
+            phase_id: "impl".to_string(),
+            completed_at: "2026-03-01T00:00:00Z".to_string(),
+            verdict: Some("advance".to_string()),
+            confidence: None,
+            reason: None,
+            commit_message: None,
+            evidence: vec![],
+            guardrail_violations: vec![],
+            payload: Some(payload),
+        }];
+        let text = "Summary: $phases.impl.output.summary, All: $phases.impl.output";
+        let result = resolve_phase_references(text, &outputs);
+        assert!(result.starts_with("Summary: good work, All: "));
+        assert!(result.contains("{\"summary\":\"good work\"}"));
     }
 }

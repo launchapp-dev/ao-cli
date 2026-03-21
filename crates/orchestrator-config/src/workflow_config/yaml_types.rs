@@ -150,6 +150,8 @@ pub(super) struct YamlPhaseDefinition {
     pub(super) retry: Option<crate::agent_runtime_config::PhaseRetryConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) default_tool: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) input_from: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

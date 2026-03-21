@@ -43,6 +43,24 @@ pub struct DoctorReport {
     pub checks: Vec<DoctorCheck>,
 }
 
+pub fn category_check_ids(category: &str) -> Option<Vec<&'static str>> {
+    match category {
+        "runner" => Some(vec!["runner_socket_available"]),
+        "daemon" => Some(vec!["daemon_config_valid_json"]),
+        "config" => Some(vec![
+            "cwd_resolvable",
+            "project_root_exists",
+            "ao_directory_present",
+            "core_state_present",
+            "config_json_present",
+            "resume_config_present",
+        ]),
+        "network" => Some(vec![]),
+        "api-keys" => Some(vec!["llm_cli_availability"]),
+        _ => None,
+    }
+}
+
 impl DoctorReport {
     pub fn run() -> Self {
         let project_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -244,6 +262,13 @@ impl DoctorReport {
 
         let result = derive_result(&checks);
         Self { result, checks }
+    }
+
+    pub fn filter_by_category(mut self, category: &str) -> Option<Self> {
+        let ids = category_check_ids(category)?;
+        self.checks.retain(|check| ids.contains(&check.id.as_str()));
+        self.result = derive_result(&self.checks);
+        Some(self)
     }
 }
 

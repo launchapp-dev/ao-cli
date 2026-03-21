@@ -23,6 +23,10 @@ pub trait ProjectTickHooks {
         Ok(0)
     }
 
+    async fn reconcile_workflow_timeouts(&mut self, _root: &str) -> Result<usize> {
+        Ok(0)
+    }
+
     async fn reconcile_runner_blocked_tasks(&mut self, _root: &str) -> Result<usize> {
         Ok(0)
     }

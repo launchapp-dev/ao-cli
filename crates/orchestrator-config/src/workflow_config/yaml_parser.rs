@@ -115,6 +115,7 @@ pub(super) fn workflow_phase_entry_to_yaml(entry: &WorkflowPhaseEntry) -> YamlPh
                     max_rework_attempts: config.max_rework_attempts,
                     skip_if: config.skip_if.clone(),
                     on_verdict: config.on_verdict.clone(),
+                    timeout_secs: config.timeout_secs,
                 },
             );
             YamlPhaseEntry::Rich(map)
@@ -130,6 +131,7 @@ pub(super) fn workflow_definition_to_yaml(definition: &WorkflowDefinition) -> Ya
         phases: definition.phases.iter().map(workflow_phase_entry_to_yaml).collect(),
         post_success: definition.post_success.clone().map(post_success_config_to_yaml),
         variables: definition.variables.clone(),
+        timeout_secs: definition.timeout_secs,
     }
 }
 
@@ -233,6 +235,7 @@ pub(super) fn yaml_phase_entry_to_workflow_phase_entry(entry: YamlPhaseEntry) ->
                 max_rework_attempts: config.max_rework_attempts,
                 on_verdict: config.on_verdict,
                 skip_if: config.skip_if,
+                timeout_secs: config.timeout_secs,
             }))
         }
     }
@@ -252,6 +255,7 @@ pub(super) fn yaml_workflow_to_workflow_definition(yaml: YamlWorkflowDefinition)
         phases,
         post_success,
         variables: yaml.variables,
+        timeout_secs: yaml.timeout_secs,
     })
 }
 

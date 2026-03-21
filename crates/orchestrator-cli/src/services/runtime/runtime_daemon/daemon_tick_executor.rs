@@ -1,7 +1,8 @@
 use super::*;
 use crate::services::runtime::execution_fact_projection::reconcile_completed_processes;
 use crate::services::runtime::runtime_daemon::daemon_reconciliation::{
-    reconcile_manual_phase_timeouts, reconcile_runner_blocked_tasks, recover_orphaned_running_workflows,
+    reconcile_manual_phase_timeouts, reconcile_runner_blocked_tasks, reconcile_workflow_timeouts,
+    recover_orphaned_running_workflows,
 };
 use anyhow::Result;
 use orchestrator_core::services::ServiceHub;
@@ -11,11 +12,13 @@ use orchestrator_daemon_runtime::{
 };
 use std::sync::Arc;
 
-pub(crate) struct CliProjectTickServices;
+pub(crate) struct CliProjectTickServices {
+    idle_timeout_secs: Option<u64>,
+}
 
 impl CliProjectTickServices {
-    fn new(_args: &DaemonRuntimeOptions) -> Self {
-        Self
+    fn new(args: &DaemonRuntimeOptions) -> Self {
+        Self { idle_timeout_secs: args.idle_timeout_secs }
     }
 }
 
@@ -51,6 +54,19 @@ impl DefaultProjectTickServices for CliProjectTickServices {
 
     async fn reconcile_manual_timeouts(&mut self, hub: Arc<dyn ServiceHub>, root: &str) -> Result<usize> {
         reconcile_manual_phase_timeouts(hub, root).await
+    }
+
+    async fn reconcile_workflow_timeouts(
+        &mut self,
+        hub: Arc<dyn ServiceHub>,
+        root: &str,
+        cli_timeout_override: Option<u64>,
+    ) -> Result<usize> {
+        reconcile_workflow_timeouts(hub, root, cli_timeout_override).await
+    }
+
+    fn workflow_timeout_override(&self) -> Option<u64> {
+        self.idle_timeout_secs
     }
 
     async fn reconcile_runner_blocked_tasks(&mut self, hub: Arc<dyn ServiceHub>, root: &str) -> Result<usize> {

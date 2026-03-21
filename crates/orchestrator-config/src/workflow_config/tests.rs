@@ -99,6 +99,7 @@ fn validation_rejects_on_verdict_targeting_nonexistent_phase() {
         max_rework_attempts: 3,
         on_verdict,
         skip_if: Vec::new(),
+        timeout_secs: None,
     });
 
     let err = validate_workflow_config(&config).expect_err("on_verdict with nonexistent target should fail validation");
@@ -120,6 +121,7 @@ fn validation_rejects_zero_max_rework_attempts() {
         max_rework_attempts: 0,
         on_verdict: HashMap::new(),
         skip_if: Vec::new(),
+        timeout_secs: None,
     });
 
     let err = validate_workflow_config(&config).expect_err("zero max_rework_attempts should fail validation");
@@ -268,6 +270,7 @@ fn resolve_workflow_skip_guards_extracts_guards_from_config() {
             max_rework_attempts: 3,
             on_verdict: HashMap::new(),
             skip_if: vec!["task_type == 'docs'".to_string()],
+            timeout_secs: None,
         }),
         "implementation".to_string().into(),
     ];
@@ -652,6 +655,7 @@ fn make_pipeline(id: &str, phases: Vec<WorkflowPhaseEntry>) -> WorkflowDefinitio
         phases,
         post_success: None,
         variables: Vec::new(),
+        timeout_secs: None,
     }
 }
 
@@ -793,6 +797,7 @@ fn expand_preserves_rich_phase_config() {
                 max_rework_attempts: 3,
                 on_verdict: on_verdict.clone(),
                 skip_if: vec!["task_type == 'docs'".into()],
+                timeout_secs: None,
             })],
         ),
         make_pipeline(
@@ -886,6 +891,7 @@ fn resolve_phase_plan_expands_sub_pipelines() {
         phases: vec![WorkflowPhaseEntry::Simple("code-review".into()), WorkflowPhaseEntry::Simple("testing".into())],
         post_success: None,
         variables: Vec::new(),
+        timeout_secs: None,
     });
 
     let standard = config.workflows.iter_mut().find(|p| p.id == "standard").expect("standard workflow");
@@ -945,6 +951,7 @@ fn validate_rejects_circular_sub_pipeline() {
             phases: vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef { workflow_ref: "review".into() })],
             post_success: None,
             variables: Vec::new(),
+            timeout_secs: None,
         },
         WorkflowDefinition {
             id: "review".into(),
@@ -953,6 +960,7 @@ fn validate_rejects_circular_sub_pipeline() {
             phases: vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef { workflow_ref: "standard".into() })],
             post_success: None,
             variables: Vec::new(),
+            timeout_secs: None,
         },
     ];
 
@@ -2102,6 +2110,7 @@ fn pipeline_variables_not_serialized_when_empty() {
         phases: Vec::new(),
         post_success: None,
         variables: Vec::new(),
+        timeout_secs: None,
     };
     let json = serde_json::to_value(&workflow).expect("serialize");
     let obj = json.as_object().expect("json object");

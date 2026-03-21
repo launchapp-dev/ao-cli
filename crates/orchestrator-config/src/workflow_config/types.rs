@@ -52,6 +52,8 @@ pub struct WorkflowPhaseConfig {
     pub on_verdict: HashMap<String, PhaseTransitionConfig>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skip_if: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -104,6 +106,13 @@ impl WorkflowPhaseEntry {
         }
     }
 
+    pub fn timeout_secs(&self) -> Option<u64> {
+        match self {
+            WorkflowPhaseEntry::Simple(_) | WorkflowPhaseEntry::SubWorkflow(_) => None,
+            WorkflowPhaseEntry::Rich(config) => config.timeout_secs,
+        }
+    }
+
     pub fn is_sub_workflow(&self) -> bool {
         matches!(self, WorkflowPhaseEntry::SubWorkflow(_))
     }
@@ -138,6 +147,8 @@ pub struct WorkflowDefinition {
     pub post_success: Option<PostSuccessConfig>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub variables: Vec<WorkflowVariable>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

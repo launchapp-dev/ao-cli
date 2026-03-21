@@ -69,6 +69,19 @@ pub struct PhaseDecisionContract {
 
 pub const DEFAULT_MAX_REWORK_ATTEMPTS: u32 = 3;
 
+pub const DEFAULT_PHASE_TIMEOUT_SECS: u64 = 1800;
+pub const DEFAULT_TRIAGE_PHASE_TIMEOUT_SECS: u64 = 600;
+pub const DEFAULT_WORKFLOW_TIMEOUT_SECS: u64 = 2700;
+
+pub fn default_phase_timeout_secs(phase_id: &str) -> u64 {
+    let lower = phase_id.to_ascii_lowercase();
+    if lower.contains("triage") || lower.contains("requirements") || lower.contains("research") {
+        DEFAULT_TRIAGE_PHASE_TIMEOUT_SECS
+    } else {
+        DEFAULT_PHASE_TIMEOUT_SECS
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackoffConfig {
     pub initial_secs: u64,
@@ -642,6 +655,10 @@ impl AgentRuntimeConfig {
             .and_then(|definition| definition.runtime.as_ref())
             .and_then(|runtime| runtime.timeout_secs)
             .or_else(|| self.phase_agent_profile(phase_id).and_then(|profile| profile.timeout_secs))
+    }
+
+    pub fn phase_timeout_secs_with_default(&self, phase_id: &str) -> u64 {
+        self.phase_timeout_secs(phase_id).unwrap_or_else(|| default_phase_timeout_secs(phase_id))
     }
 
     pub fn phase_max_attempts(&self, phase_id: &str) -> Option<usize> {
@@ -2062,6 +2079,7 @@ cli_tools:
             phases: vec!["pack-review".to_string().into()],
             post_success: None,
             variables: Vec::new(),
+            timeout_secs: None,
         });
         crate::workflow_config::write_workflow_config(temp.path(), &workflow).expect("write workflow config");
 

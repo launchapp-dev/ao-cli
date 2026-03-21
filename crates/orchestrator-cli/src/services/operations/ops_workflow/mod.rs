@@ -510,6 +510,7 @@ pub(crate) async fn handle_workflow(
                     phases: args.phases.into_iter().map(orchestrator_core::WorkflowPhaseEntry::Simple).collect(),
                     post_success: None,
                     variables: Vec::new(),
+                    timeout_secs: None,
                 })
             })?;
             print_value(phases::upsert_pipeline(project_root, workflow)?, json)

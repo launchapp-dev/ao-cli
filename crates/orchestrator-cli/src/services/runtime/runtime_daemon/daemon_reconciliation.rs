@@ -2,6 +2,7 @@ use super::*;
 use crate::services::runtime::execution_fact_projection::project_terminal_workflow_result;
 use crate::services::runtime::workflow_mutation_surface::cancel_orphaned_running_workflow;
 use anyhow::Result;
+use orchestrator_config::agent_runtime_config::DEFAULT_WORKFLOW_TIMEOUT_SECS;
 use orchestrator_core::{
     active_workflow_runner_ids, dispatch_workflow_event, load_agent_runtime_config_or_default, services::ServiceHub,
     WorkflowEvent, WorkflowMachineState, WorkflowStatus,
@@ -171,6 +172,90 @@ fn workflow_is_waiting_on_manual_phase(project_root: &str, workflow: &orchestrat
         .and_then(|config| config.phase_execution(&phase_id).cloned())
         .map(|definition| matches!(definition.mode, orchestrator_core::PhaseExecutionMode::Manual))
         .unwrap_or(false)
+}
+
+pub async fn reconcile_workflow_timeouts(
+    hub: Arc<dyn ServiceHub>,
+    project_root: &str,
+    cli_timeout_override: Option<u64>,
+) -> Result<usize> {
+    let workflow_config = orchestrator_core::load_workflow_config(Path::new(project_root)).unwrap_or_default();
+    let workflows = match hub.workflows().list().await {
+        Ok(workflows) => workflows,
+        Err(error) => {
+            eprintln!("{}: failed to list workflows for timeout reconciliation: {}", protocol::ACTOR_DAEMON, error);
+            return Ok(0);
+        }
+    };
+
+    let mut reconciled = 0usize;
+    let now = chrono::Utc::now();
+
+    for workflow in workflows {
+        if workflow.status != WorkflowStatus::Running {
+            continue;
+        }
+
+        let timeout_secs = cli_timeout_override
+            .or_else(|| {
+                workflow
+                    .workflow_ref
+                    .as_deref()
+                    .and_then(|wref| workflow_config.workflows.iter().find(|w| w.id == wref))
+                    .and_then(|def| def.timeout_secs)
+            })
+            .unwrap_or(DEFAULT_WORKFLOW_TIMEOUT_SECS);
+
+        if timeout_secs == 0 {
+            continue;
+        }
+
+        let elapsed = now.signed_duration_since(workflow.started_at).num_seconds().max(0) as u64;
+        if elapsed < timeout_secs {
+            continue;
+        }
+
+        let reason = format!("workflow timed out after {} seconds (limit: {}s)", elapsed, timeout_secs);
+        eprintln!(
+            "{}: cancelling timed-out workflow {} subject={} task={} — {}",
+            protocol::ACTOR_DAEMON,
+            workflow.id,
+            workflow.subject.id(),
+            workflow.task_id,
+            reason
+        );
+
+        let outcome = dispatch_workflow_event(
+            hub.clone(),
+            project_root,
+            WorkflowEvent::Cancel { workflow_id: workflow.id.clone() },
+        )
+        .await;
+
+        match outcome {
+            Ok(outcome) => {
+                if let Some(updated) = outcome.workflow {
+                    project_terminal_workflow_result(
+                        hub.clone(),
+                        project_root,
+                        updated.subject.id(),
+                        Some(updated.task_id.as_str()),
+                        updated.workflow_ref.as_deref(),
+                        Some(updated.id.as_str()),
+                        updated.status,
+                        Some(&reason),
+                    )
+                    .await;
+                }
+                reconciled = reconciled.saturating_add(1);
+            }
+            Err(error) => {
+                eprintln!("{}: failed to cancel timed-out workflow {}: {}", protocol::ACTOR_DAEMON, workflow.id, error);
+            }
+        }
+    }
+
+    Ok(reconciled)
 }
 
 pub async fn reconcile_runner_blocked_tasks(hub: Arc<dyn ServiceHub>, _project_root: &str) -> Result<usize> {

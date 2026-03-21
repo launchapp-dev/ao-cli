@@ -52,6 +52,19 @@ pub trait DefaultProjectTickServices {
         Ok(0)
     }
 
+    async fn reconcile_workflow_timeouts(
+        &mut self,
+        _hub: Arc<dyn ServiceHub>,
+        _root: &str,
+        _cli_timeout_override: Option<u64>,
+    ) -> Result<usize> {
+        Ok(0)
+    }
+
+    fn workflow_timeout_override(&self) -> Option<u64> {
+        None
+    }
+
     async fn reconcile_runner_blocked_tasks(&mut self, _hub: Arc<dyn ServiceHub>, _root: &str) -> Result<usize> {
         Ok(0)
     }
@@ -200,6 +213,11 @@ where
     async fn reconcile_manual_timeouts(&mut self, root: &str) -> Result<usize> {
         let hub: Arc<dyn ServiceHub> = Arc::new(FileServiceHub::new(root)?);
         self.services.reconcile_manual_timeouts(hub, root).await
+    }
+
+    async fn reconcile_workflow_timeouts(&mut self, root: &str) -> Result<usize> {
+        let hub: Arc<dyn ServiceHub> = Arc::new(FileServiceHub::new(root)?);
+        self.services.reconcile_workflow_timeouts(hub, root, self.services.workflow_timeout_override()).await
     }
 
     async fn reconcile_runner_blocked_tasks(&mut self, root: &str) -> Result<usize> {

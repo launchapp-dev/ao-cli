@@ -100,6 +100,7 @@ pub(crate) fn builtin_workflow_config_base() -> WorkflowConfig {
                 phases: vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef { workflow_ref: "standard".to_string() })],
                 post_success: None,
                 variables: Vec::new(),
+                timeout_secs: None,
             },
             WorkflowDefinition {
                 id: UI_UX_WORKFLOW_REF.to_string(),
@@ -110,6 +111,7 @@ pub(crate) fn builtin_workflow_config_base() -> WorkflowConfig {
                 })],
                 post_success: None,
                 variables: Vec::new(),
+                timeout_secs: None,
             },
             WorkflowDefinition {
                 id: REQUIREMENT_TASK_GENERATION_WORKFLOW_REF.to_string(),
@@ -120,6 +122,7 @@ pub(crate) fn builtin_workflow_config_base() -> WorkflowConfig {
                 })],
                 post_success: None,
                 variables: Vec::new(),
+                timeout_secs: None,
             },
             WorkflowDefinition {
                 id: REQUIREMENT_TASK_GENERATION_RUN_WORKFLOW_REF.to_string(),
@@ -130,6 +133,7 @@ pub(crate) fn builtin_workflow_config_base() -> WorkflowConfig {
                 })],
                 post_success: None,
                 variables: Vec::new(),
+                timeout_secs: None,
             },
             WorkflowDefinition {
                 id: "ao.task/quick-fix".to_string(),
@@ -140,6 +144,7 @@ pub(crate) fn builtin_workflow_config_base() -> WorkflowConfig {
                 })],
                 post_success: None,
                 variables: Vec::new(),
+                timeout_secs: None,
             },
             WorkflowDefinition {
                 id: "ao.task/gated".to_string(),
@@ -150,6 +155,7 @@ pub(crate) fn builtin_workflow_config_base() -> WorkflowConfig {
                 })],
                 post_success: None,
                 variables: Vec::new(),
+                timeout_secs: None,
             },
             WorkflowDefinition {
                 id: "ao.task/triage".to_string(),
@@ -160,6 +166,7 @@ pub(crate) fn builtin_workflow_config_base() -> WorkflowConfig {
                 })],
                 post_success: None,
                 variables: Vec::new(),
+                timeout_secs: None,
             },
             WorkflowDefinition {
                 id: "ao.task/refine".to_string(),
@@ -170,6 +177,7 @@ pub(crate) fn builtin_workflow_config_base() -> WorkflowConfig {
                 })],
                 post_success: None,
                 variables: Vec::new(),
+                timeout_secs: None,
             },
             WorkflowDefinition {
                 id: "ao.review/cycle".to_string(),
@@ -180,6 +188,7 @@ pub(crate) fn builtin_workflow_config_base() -> WorkflowConfig {
                 })],
                 post_success: None,
                 variables: Vec::new(),
+                timeout_secs: None,
             },
             WorkflowDefinition {
                 id: "ao.requirement/draft".to_string(),
@@ -190,6 +199,7 @@ pub(crate) fn builtin_workflow_config_base() -> WorkflowConfig {
                 })],
                 post_success: None,
                 variables: Vec::new(),
+                timeout_secs: None,
             },
             WorkflowDefinition {
                 id: "ao.requirement/refine".to_string(),
@@ -200,6 +210,7 @@ pub(crate) fn builtin_workflow_config_base() -> WorkflowConfig {
                 })],
                 post_success: None,
                 variables: Vec::new(),
+                timeout_secs: None,
             },
             WorkflowDefinition {
                 id: "ao.vision/draft".to_string(),
@@ -210,6 +221,7 @@ pub(crate) fn builtin_workflow_config_base() -> WorkflowConfig {
                 })],
                 post_success: None,
                 variables: Vec::new(),
+                timeout_secs: None,
             },
             WorkflowDefinition {
                 id: "ao.vision/refine".to_string(),
@@ -220,6 +232,7 @@ pub(crate) fn builtin_workflow_config_base() -> WorkflowConfig {
                 })],
                 post_success: None,
                 variables: Vec::new(),
+                timeout_secs: None,
             },
             WorkflowDefinition {
                 id: "standard".to_string(),
@@ -234,6 +247,7 @@ pub(crate) fn builtin_workflow_config_base() -> WorkflowConfig {
                 ],
                 post_success: None,
                 variables: Vec::new(),
+                timeout_secs: None,
             },
             WorkflowDefinition {
                 id: "ui-ux-standard".to_string(),
@@ -251,6 +265,7 @@ pub(crate) fn builtin_workflow_config_base() -> WorkflowConfig {
                 ],
                 post_success: None,
                 variables: Vec::new(),
+                timeout_secs: None,
             },
         ],
         phase_definitions: BTreeMap::new(),

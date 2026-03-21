@@ -152,6 +152,9 @@ pub async fn run_agent_loop(
     };
     let api_tools = if needs_tool_name_sanitization { &sanitized_tools } else { tools };
 
+    let max_consecutive_truncations = context::DEFAULT_MAX_CONSECUTIVE_TRUNCATIONS;
+    let mut consecutive_truncations: usize = 0;
+
     for turn in 0..max_turns {
         if cancel_token.is_cancelled() {
             eprintln!("[oai-runner] Cancelled by signal");
@@ -164,7 +167,48 @@ pub async fn run_agent_loop(
             anyhow::bail!("Cancelled by shutdown signal");
         }
 
-        context::truncate_to_fit(&mut messages, context_limit, max_tokens);
+        let truncation = context::truncate_to_fit(&mut messages, context_limit, max_tokens);
+        match truncation {
+            context::TruncationResult::MessagesDropped => {
+                consecutive_truncations += 1;
+                eprintln!(
+                    "[oai-runner] Context thrashing: {} consecutive message drops (limit: {})",
+                    consecutive_truncations, max_consecutive_truncations
+                );
+                if consecutive_truncations >= max_consecutive_truncations {
+                    eprintln!(
+                        "[oai-runner] Aborting: context thrashing detected — {} consecutive turns required message drops",
+                        consecutive_truncations
+                    );
+                    if let Some(sid) = session_id {
+                        let _ = save_session_messages_to(&config_dir(), sid, &messages);
+                    }
+                    output.flush_result();
+                    if response_schema.is_some() {
+                        let fallback = synthesize_fallback(
+                            model,
+                            &format!(
+                                "Context thrashing: {} consecutive context overflows. Agent cannot make progress.",
+                                consecutive_truncations
+                            ),
+                            0.2,
+                        );
+                        let fallback_str = serde_json::to_string(&fallback).unwrap_or_default();
+                        output.text_chunk(&fallback_str);
+                        output.flush_result();
+                    }
+                    output.emit_session_summary();
+                    output.newline();
+                    anyhow::bail!(
+                        "context thrashing: {} consecutive message drops exceeded limit",
+                        consecutive_truncations
+                    );
+                }
+            }
+            context::TruncationResult::NoChange | context::TruncationResult::ContentTruncated => {
+                consecutive_truncations = 0;
+            }
+        }
 
         let format = match structured_output {
             Some(StructuredOutputSupport::JsonSchema) => response_schema.map(build_json_schema_format),

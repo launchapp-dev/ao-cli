@@ -31,12 +31,25 @@ pub fn estimate_total_tokens(messages: &[ChatMessage]) -> usize {
     total
 }
 
-pub fn truncate_to_fit(messages: &mut Vec<ChatMessage>, context_limit: usize, reserve_for_output: usize) {
+pub const DEFAULT_MAX_CONSECUTIVE_TRUNCATIONS: usize = 3;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TruncationResult {
+    NoChange,
+    ContentTruncated,
+    MessagesDropped,
+}
+
+pub fn truncate_to_fit(
+    messages: &mut Vec<ChatMessage>,
+    context_limit: usize,
+    reserve_for_output: usize,
+) -> TruncationResult {
     let target = context_limit.saturating_sub(reserve_for_output);
     let total = estimate_total_tokens(messages);
 
     if total <= target {
-        return;
+        return TruncationResult::NoChange;
     }
 
     let system_idx = messages.iter().position(|m| m.role == "system");
@@ -124,7 +137,14 @@ pub fn truncate_to_fit(messages: &mut Vec<ChatMessage>, context_limit: usize, re
                 "[oai-runner] Context management: dropped {} old messages ({} estimated tokens, limit {})",
                 count, new_total, target
             );
+            return TruncationResult::MessagesDropped;
         }
+    }
+
+    if removed > 0 {
+        TruncationResult::ContentTruncated
+    } else {
+        TruncationResult::NoChange
     }
 }
 

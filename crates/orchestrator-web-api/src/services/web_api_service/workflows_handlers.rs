@@ -425,11 +425,13 @@ impl WebApiService {
                     obj.get("skip_if").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
                 let on_verdict: HashMap<String, orchestrator_config::workflow_config::PhaseTransitionConfig> =
                     obj.get("on_verdict").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
+                let timeout_secs: Option<u64> = obj.get("timeout_secs").and_then(|v| v.as_u64());
                 Ok(WorkflowPhaseEntry::Rich(WorkflowPhaseConfig {
                     id: phase_id,
                     max_rework_attempts,
                     on_verdict,
                     skip_if,
+                    timeout_secs,
                 }))
             })
             .collect::<Result<Vec<_>, WebApiError>>()?;
@@ -447,6 +449,7 @@ impl WebApiService {
             phases,
             post_success: None,
             variables,
+            timeout_secs: None,
         };
 
         if let Some(pos) = config.workflows.iter().position(|w| w.id == id) {
@@ -606,6 +609,7 @@ mod tests {
             phases: vec!["requirements".to_string().into()],
             post_success: None,
             variables: Vec::new(),
+            timeout_secs: None,
         });
         write_workflow_config(temp.path(), &workflow_config).expect("write config");
         write_agent_runtime_config(temp.path(), &builtin_agent_runtime_config()).expect("write runtime config");

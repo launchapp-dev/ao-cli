@@ -37,7 +37,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::path::Path;
 use std::time::Duration;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt};
-use tokio::time::sleep;
+use tokio::time::{sleep, timeout};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -398,6 +398,7 @@ pub async fn run_workflow_phase_attempt(
     workflow_id: &str,
     phase_id: &str,
     request: &AgentRunRequest,
+    stream_timeout_secs: u64,
 ) -> Result<PhaseExecutionOutcome> {
     let ctx = RuntimeConfigContext::load(project_root);
     let parse_commit_message = phase_requires_commit_message_with_ctx(&ctx, phase_id);
@@ -447,7 +448,7 @@ pub async fn run_workflow_phase_attempt(
     let expected_result_kind = phase_result_kind_for_ctx(&ctx, phase_id);
     let event_run_dir = ipc_run_dir(project_root, &request.run_id, None);
 
-    process_phase_event_stream(
+    let stream_future = process_phase_event_stream(
         tokio::io::BufReader::new(read_half).lines(),
         &request.run_id,
         workflow_id,
@@ -456,8 +457,29 @@ pub async fn run_workflow_phase_attempt(
         parse_phase_decision,
         &expected_result_kind,
         Some(&event_run_dir),
-    )
-    .await
+    );
+
+    let timeout_duration = Duration::from_secs(stream_timeout_secs);
+    match timeout(timeout_duration, stream_future).await {
+        Ok(Ok(outcome)) => Ok(outcome),
+        Ok(Err(e)) => Err(e),
+        Err(_) => {
+            warn!(
+                workflow_id = %workflow_id,
+                phase_id = %phase_id,
+                run_id = %request.run_id.0,
+                timeout_secs = %stream_timeout_secs,
+                "Phase execution event stream timed out waiting for runner output"
+            );
+            Err(anyhow!(
+                "phase {} event stream timed out after {}s: runner produced no output for {} seconds, \
+                 phase slot held indefinitely",
+                phase_id,
+                stream_timeout_secs,
+                stream_timeout_secs
+            ))
+        }
+    }
 }
 
 async fn process_phase_event_stream<R: AsyncBufRead + Unpin>(
@@ -1100,7 +1122,10 @@ async fn run_workflow_phase_with_agent(params: PhaseAgentParams<'_>) -> Result<A
                     "Dispatching workflow phase attempt to agent runner"
                 );
 
-                match run_workflow_phase_attempt(project_root, workflow_id, phase_id, &request).await {
+                // Use request timeout for stream timeout, with 30 minute default
+                let stream_timeout_secs = request_timeout_secs.unwrap_or(1800);
+
+                match run_workflow_phase_attempt(project_root, workflow_id, phase_id, &request, stream_timeout_secs).await {
                     Ok(mut outcome) => {
                         if phase_requires_commit_message_with_ctx(ctx, phase_id) {
                             if let PhaseExecutionOutcome::Completed { commit_message, .. } = &mut outcome {

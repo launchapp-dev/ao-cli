@@ -132,6 +132,12 @@ pub fn cli_tracker_path() -> PathBuf {
     Config::global_config_dir().join("cli-tracker.json")
 }
 
+/// Returns the path to the agent-runner process tracker file.
+/// This is used for tracking agent-runner daemon processes and detecting orphans.
+pub fn agent_runner_tracker_path() -> PathBuf {
+    Config::global_config_dir().join("agent-runner-tracker.json")
+}
+
 /// Returns the path to the daemon events log file.
 pub fn daemon_events_log_path() -> PathBuf {
     Config::global_config_dir().join("daemon-events.jsonl")

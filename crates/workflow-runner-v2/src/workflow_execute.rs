@@ -749,6 +749,21 @@ async fn execute_post_success_actions(
             action_result["actions"]["push"] = push_action;
         }
 
+        let push_status = action_result["actions"]["push"]["status"].as_str().unwrap_or("skipped").to_owned();
+        if push_status != "completed" {
+            action_result["status"] = serde_json::json!("failed");
+            action_result["actions"]["create_pr"] = serde_json::json!({
+                "status": "skipped",
+                "reason": format!("push did not succeed (status: {}), skipping PR creation", push_status),
+            });
+            action_result["source_branch"] = serde_json::json!(source_branch);
+            if merge_cfg.cleanup_worktree {
+                action_result["actions"]["cleanup_worktree"] =
+                    cleanup_worktree_with_fallback(&*git_provider, project_root, task).await;
+            }
+            return action_result;
+        }
+
         let title = if task.title.trim().is_empty() {
             format!("[{}] Automated update", task.id)
         } else {

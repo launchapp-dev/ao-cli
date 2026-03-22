@@ -10,6 +10,8 @@ agents:
     mcp_servers:
     - ao
     - rust-docs
+    skills:
+    - requirements-management
   architect-infra:
     system_prompt: "You are the Infrastructure Architect for AO CLI.\nScan CI/CD and release infrastructure each run. Create\
       \ requirements (ao.requirements.create) for:\n- .github/workflows/ issues (missing checks, slow builds)\n- Cargo workspace\
@@ -20,6 +22,8 @@ agents:
     tool: claude
     mcp_servers:
     - ao
+    skills:
+    - requirements-management
   researcher-models:
     system_prompt: "You are the LLM Model Researcher for AO CLI.\nResearch new models and providers each run. Create requirements\
       \ (ao.requirements.create) for:\n- New OpenAI-compatible providers to add to oai-runner\n- Model pricing changes (cheaper\
@@ -30,6 +34,8 @@ agents:
     tool: claude
     mcp_servers:
     - ao
+    skills:
+    - requirements-management
   researcher-ecosystem:
     system_prompt: "You are the Rust Ecosystem Researcher for AO CLI.\nResearch useful crates and tools each run. Create requirements\
       \ (ao.requirements.create) for:\n- New MCP servers worth integrating\n- Rust crates that could improve the workspace\n\
@@ -42,6 +48,8 @@ agents:
     - ao
     - context7
     - rust-docs
+    skills:
+    - requirements-management
 phases:
   architect-rust-audit:
     mode: agent

@@ -12,6 +12,8 @@ agents:
     - ao
     - context7
     - rust-docs
+    skills:
+    - requirements-management
   po-web:
     system_prompt: "You are the Product Owner for the AO web surface.\nYour domain: crates/orchestrator-web-server/ (embedded\
       \ UI), crates/orchestrator-web-api/ (GraphQL), crates/orchestrator-web-contracts/ (shared types), and web-ui/ (React\
@@ -25,6 +27,8 @@ agents:
     mcp_servers:
     - ao
     - context7
+    skills:
+    - requirements-management
   po-mcp:
     system_prompt: "You are the Product Owner for the AO MCP tools.\nYour domain: crates/orchestrator-cli/src/services/operations/ops_mcp/\
       \ and docs/reference/mcp-tools.md.\nScan your domain each run. Create requirements (ao.requirements.create) for:\n-\
@@ -37,6 +41,8 @@ agents:
     - ao
     - context7
     - rust-docs
+    skills:
+    - requirements-management
   po-workflow:
     system_prompt: "You are the Product Owner for the workflow engine.\nYour domain: crates/workflow-runner-v2/ (phase execution,\
       \ git ops, output parsing), crates/orchestrator-config/ (workflow config, YAML parsing).\nScan your domain each run.\
@@ -50,6 +56,8 @@ agents:
     - ao
     - context7
     - rust-docs
+    skills:
+    - requirements-management
   po-agent-runner:
     system_prompt: "You are the Product Owner for the agent runner and CLI wrappers.\nYour domain: crates/agent-runner/ (session\
       \ process, IPC, output parsing) and crates/llm-cli-wrapper/ (CLI abstraction, session backends).\nScan your domain each\
@@ -63,6 +71,8 @@ agents:
     - ao
     - context7
     - rust-docs
+    skills:
+    - requirements-management
   po-cli:
     system_prompt: "You are the Product Owner for the CLI surface and core services.\nYour domain: crates/orchestrator-cli/\
       \ (commands, dispatch), crates/orchestrator-core/ (services, config, state), crates/protocol/ (shared types).\nScan\
@@ -75,6 +85,8 @@ agents:
     - ao
     - context7
     - rust-docs
+    skills:
+    - requirements-management
   po-reviewer:
     system_prompt: "You are a Product Owner reviewing completed development work.\nYour job is to verify that ALL acceptance\
       \ criteria and requirements\nfrom the original task are fully met by the implementation.\nYou must be thorough and check\
@@ -86,32 +98,8 @@ agents:
       \ contract instructions for the final structured verdict output.\n"
     model: claude-sonnet-4-6
     tool: claude
-  requirement-reviewer:
-    system_prompt: "You are the Master Requirement Reviewer for AO CLI.\nReview all pending requirements each run:\n1. Call\
-      \ ao.requirements.list to get all requirements.\n2. For each with status \"proposed\" or \"draft\":\n   a. Check ao.task.list\
-      \ for existing tasks covering the same scope \u2014 reject duplicates.\n   b. Evaluate priority: is this actually important\
-      \ for the project right now?\n   c. Check scope: is this too broad? Should it be split?\n   d. If approved: create a\
-      \ task via ao.task.create with proper complexity/type/priority.\n      Set task status to \"ready\". Reference the requirement\
-      \ ID.\n   e. If rejected: update requirement status to explain why.\n3. Max 5 task conversions per run to avoid flooding.\n\
-      4. Prefer requirements from POs over researchers (POs know their domain better).\n"
-    model: claude-sonnet-4-6
-    tool: claude
-    mcp_servers:
-    - ao
-  requirements-refiner:
-    system_prompt: "You are a requirements analyst for the ao-cli Rust workspace.\nYour job is to take a task with a vague\
-      \ or incomplete description and\nrefine it into a well-specified task with clear, testable acceptance criteria.\n\n\
-      For each task you MUST:\n1. Read the task description using ao.task.get\n2. Search the codebase to understand the relevant\
-      \ code, patterns, and constraints\n3. Identify the specific files, modules, and interfaces involved\n4. Write clear\
-      \ acceptance criteria that an implementation agent can verify\n5. Update the task description using ao.task.update with:\n\
-      \   - A refined description that includes context, scope, and approach\n   - Numbered acceptance criteria (AC1, AC2,\
-      \ ...) that are concrete and testable\n   - Any relevant file paths or code references discovered\n   - Edge cases and\
-      \ constraints to consider\n6. Add checklist items using ao.task.checklist-add for each acceptance criterion\n\nDo NOT\
-      \ change the task title. Focus on making the description implementation-ready.\nIf the task is already well-specified,\
-      \ leave it unchanged and note that.\nUse the runtime-provided phase contract instructions for the final structured verdict\
-      \ output.\n"
-    model: claude-sonnet-4-6
-    tool: claude
+    skills:
+    - requirements-management
   release-manager:
     system_prompt: "You are the AO release manager. You cut release branches from develop and drive them to main.\n\nOn each\
       \ run:\n\n1. CHECK IF RELEASE IN PROGRESS:\n   Run `git fetch origin` then `git branch -r --list 'origin/release/*'`.\n\
@@ -129,6 +117,8 @@ agents:
       \ branch at a time.\n- Never force-push.\n"
     model: claude-sonnet-4-6
     tool: claude
+    skills:
+    - requirements-management
   release-gate-checker:
     system_prompt: "You are the AO release gate checker. You verify release PRs are safe to merge into main.\n\nOn each run:\n\
       \n1. FIND RELEASE PRs:\n   Run `gh pr list --base main --json number,title,headRefName --search \"head:release/\"`.\n\
@@ -201,6 +191,8 @@ agents:
       \ to \"docs\" so the work-planner routes them to cheap models.\n"
     model: claude-sonnet-4-6
     tool: claude
+    skills:
+    - requirements-management
   branch-sync-monitor:
     system_prompt: "You are the AO branch sync monitor. You ensure develop and main don't diverge.\n\nOn each run:\n1. Run\
       \ `git fetch origin`\n2. Run `git log --oneline origin/develop..origin/main | wc -l` \u2014 commits on main not in develop.\n\
@@ -300,12 +292,6 @@ phases:
     directive: Verify release branch CI, check quality gates, merge approved releases to main.
     capabilities:
       mutates_state: true
-  requirement-review:
-    mode: agent
-    agent: requirement-reviewer
-    directive: Review pending requirements. Convert approved ones to tasks.
-    capabilities:
-      mutates_state: true
   docs-drift-scan:
     mode: agent
     agent: docs-drift-checker
@@ -396,11 +382,6 @@ workflows:
   description: Product Owner scan of CLI commands and core services
   phases:
   - po-cli-scan
-- id: requirement-review
-  name: Master Requirement Review
-  description: Review pending requirements, convert approved ones to tasks
-  phases:
-  - requirement-review
 - id: web-ui-improver
   name: Web UI Improver (legacy)
   description: "Legacy \u2014 replaced by po-web"
@@ -490,10 +471,6 @@ schedules:
 - id: po-cli
   cron: 55 */8 * * *
   workflow_ref: po-cli
-  enabled: true
-- id: requirement-review
-  cron: '*/30 * * * *'
-  workflow_ref: requirement-review
   enabled: true
 - id: system-monitor
   cron: 0 * * * *

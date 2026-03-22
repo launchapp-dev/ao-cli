@@ -44,12 +44,28 @@ fn load_session_messages_from(base: &Path, session_id: &str) -> Vec<ChatMessage>
 
     if messages.len() > MAX_RESUME_MESSAGES {
         let original_len = messages.len();
-        // Keep the system message (if present) and the most recent messages.
         let system_idx = messages.iter().position(|m| m.role == "system");
         let keep_from_start = system_idx.map_or(0, |idx| idx + 1);
         let keep_count = MAX_RESUME_MESSAGES.saturating_sub(keep_from_start);
         let trim_start = keep_from_start;
-        let trim_end = messages.len().saturating_sub(keep_count);
+        let mut trim_end = messages.len().saturating_sub(keep_count);
+
+        if trim_end > trim_start && trim_end < messages.len() {
+            if messages[trim_end].role == "tool" {
+                while trim_end > trim_start && messages[trim_end].role == "tool" {
+                    trim_end += 1;
+                }
+            } else if messages[trim_end].role == "assistant"
+                && messages[trim_end].tool_calls.is_some()
+                && trim_end > trim_start
+            {
+                let mut j = trim_end - 1;
+                while j >= trim_start && messages[j].role == "tool" {
+                    j = j.saturating_sub(1);
+                }
+                trim_end = j + 1;
+            }
+        }
 
         if trim_end > trim_start {
             let dropped = trim_end - trim_start;

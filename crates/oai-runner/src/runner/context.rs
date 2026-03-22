@@ -31,6 +31,27 @@ pub fn estimate_total_tokens(messages: &[ChatMessage]) -> usize {
     total
 }
 
+fn build_message_groups(messages: &[ChatMessage], start: usize) -> Vec<Vec<usize>> {
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    let mut i = start;
+    while i < messages.len() {
+        if messages[i].role == "assistant" && messages[i].tool_calls.is_some() {
+            let mut group = vec![i];
+            let mut j = i + 1;
+            while j < messages.len() && messages[j].role == "tool" {
+                group.push(j);
+                j += 1;
+            }
+            groups.push(group);
+            i = j;
+        } else {
+            groups.push(vec![i]);
+            i += 1;
+        }
+    }
+    groups
+}
+
 pub fn truncate_to_fit(messages: &mut Vec<ChatMessage>, context_limit: usize, reserve_for_output: usize) {
     let target = context_limit.saturating_sub(reserve_for_output);
     let total = estimate_total_tokens(messages);
@@ -98,19 +119,27 @@ pub fn truncate_to_fit(messages: &mut Vec<ChatMessage>, context_limit: usize, re
         let keep_system = system_idx.is_some();
         let start = if keep_system { 1 } else { 0 };
 
+        let groups = build_message_groups(messages, start);
+
         let mut to_remove = Vec::new();
         let mut freed = 0;
-        for idx in start..messages.len() {
-            if messages[idx].role == "user" {
-                let remaining_users = messages[idx..].iter().filter(|m| m.role == "user").count();
-                if remaining_users <= 1 {
-                    continue;
-                }
-            }
-            freed += estimate_message_tokens(&messages[idx]);
-            to_remove.push(idx);
+        for group in &groups {
             if freed >= excess_tokens {
                 break;
+            }
+            let dominated_by_protected = group.iter().any(|&idx| {
+                messages[idx].role == "system"
+                    || (messages[idx].role == "user" && {
+                        let remaining_users = messages[idx..].iter().filter(|m| m.role == "user").count();
+                        remaining_users <= 1
+                    })
+            });
+            if dominated_by_protected {
+                continue;
+            }
+            for &idx in group {
+                freed += estimate_message_tokens(&messages[idx]);
+                to_remove.push(idx);
             }
         }
 
@@ -175,5 +204,149 @@ mod tests {
         let original_len = messages.len();
         truncate_to_fit(&mut messages, 100000, 16384);
         assert_eq!(messages.len(), original_len);
+    }
+
+    use crate::api::types::{FunctionCall, ToolCall};
+
+    fn assistant_with_tool_calls(tool_call_ids: &[&str]) -> ChatMessage {
+        ChatMessage {
+            reasoning_content: None,
+            role: "assistant".to_string(),
+            content: None,
+            tool_calls: Some(
+                tool_call_ids
+                    .iter()
+                    .map(|id| ToolCall {
+                        id: id.to_string(),
+                        type_: "function".to_string(),
+                        function: FunctionCall {
+                            name: "test_tool".to_string(),
+                            arguments: "{}".to_string(),
+                        },
+                    })
+                    .collect(),
+            ),
+            tool_call_id: None,
+        }
+    }
+
+    fn tool_response(tool_call_id: &str, content: &str) -> ChatMessage {
+        ChatMessage {
+            reasoning_content: None,
+            role: "tool".to_string(),
+            content: Some(content.to_string()),
+            tool_calls: None,
+            tool_call_id: Some(tool_call_id.to_string()),
+        }
+    }
+
+    #[test]
+    fn truncate_drops_tool_call_group_atomically() {
+        let mut messages = vec![
+            msg("system", "You are helpful"),
+            msg("user", "First question"),
+            assistant_with_tool_calls(&["call_1", "call_2"]),
+            tool_response("call_1", &"x".repeat(5000)),
+            tool_response("call_2", &"y".repeat(5000)),
+            msg("assistant", "Here is the result"),
+            msg("user", "Second question"),
+        ];
+        truncate_to_fit(&mut messages, 100, 50);
+        for (i, m) in messages.iter().enumerate() {
+            if m.role == "assistant" && m.tool_calls.is_some() {
+                let tc_ids: Vec<&str> = m
+                    .tool_calls
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .map(|tc| tc.id.as_str())
+                    .collect();
+                for expected_id in &tc_ids {
+                    assert!(
+                        messages[i + 1..].iter().any(|m2| {
+                            m2.role == "tool" && m2.tool_call_id.as_deref() == Some(expected_id)
+                        }),
+                        "assistant with tool_calls has orphaned tool call id '{}'",
+                        expected_id
+                    );
+                }
+            }
+            if m.role == "tool" {
+                if let Some(tc_id) = &m.tool_call_id {
+                    assert!(
+                        messages[..i].iter().any(|m2| {
+                            m2.role == "assistant"
+                                && m2.tool_calls.as_ref().is_some_and(|tcs| {
+                                    tcs.iter().any(|tc| tc.id == *tc_id)
+                                })
+                        }),
+                        "tool response '{}' has no parent assistant message",
+                        tc_id
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn truncate_never_orphans_tool_messages() {
+        let mut messages = vec![
+            msg("system", "sys"),
+            msg("user", "q1"),
+            assistant_with_tool_calls(&["c1"]),
+            tool_response("c1", &"a".repeat(3000)),
+            msg("user", "q2"),
+            assistant_with_tool_calls(&["c2"]),
+            tool_response("c2", &"b".repeat(3000)),
+            msg("user", "q3"),
+        ];
+        truncate_to_fit(&mut messages, 80, 30);
+        let tool_msgs: Vec<_> = messages.iter().filter(|m| m.role == "tool").collect();
+        for tm in &tool_msgs {
+            let tc_id = tm.tool_call_id.as_deref().unwrap();
+            assert!(
+                messages.iter().any(|m| {
+                    m.role == "assistant"
+                        && m.tool_calls
+                            .as_ref()
+                            .is_some_and(|tcs| tcs.iter().any(|tc| tc.id == tc_id))
+                }),
+                "orphaned tool message with id '{}'",
+                tc_id
+            );
+        }
+        let assistant_tc_msgs: Vec<_> = messages
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| m.role == "assistant" && m.tool_calls.is_some())
+            .collect();
+        for (i, atc) in &assistant_tc_msgs {
+            for tc in atc.tool_calls.as_ref().unwrap() {
+                assert!(
+                    messages[i + 1..].iter().any(|m| {
+                        m.role == "tool" && m.tool_call_id.as_deref() == Some(&tc.id)
+                    }),
+                    "assistant tool_call '{}' missing tool response",
+                    tc.id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn build_message_groups_creates_atomic_tool_groups() {
+        let messages = vec![
+            msg("system", "sys"),
+            msg("user", "q1"),
+            assistant_with_tool_calls(&["c1", "c2"]),
+            tool_response("c1", "r1"),
+            tool_response("c2", "r2"),
+            msg("user", "q2"),
+        ];
+        let groups = build_message_groups(&messages, 1);
+        assert_eq!(groups.len(), 3);
+        assert_eq!(groups[0], vec![1]);
+        assert_eq!(groups[1], vec![2, 3, 4]);
+        assert_eq!(groups[2], vec![5]);
     }
 }

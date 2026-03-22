@@ -300,6 +300,24 @@ pub async fn run_agent_loop(
                 });
                 continue;
             }
+            // If tools are available and we're on an early turn, the model may have
+            // output thinking text without calling tools. Nudge it to use tools.
+            let has_tools = !api_tools.is_empty();
+            if has_tools && turn < 3 {
+                eprintln!("[oai-runner] Model responded without tool calls on turn {}. Prompting to use tools.", turn);
+                messages.push(ChatMessage {
+                    reasoning_content: None,
+                    role: "user".to_string(),
+                    content: Some(
+                        "You have tools available. Use them to complete your task. \
+                         Do not just describe what you would do — actually call the tools now."
+                            .to_string(),
+                    ),
+                    tool_calls: None,
+                    tool_call_id: None,
+                });
+                continue;
+            }
             output.flush_result();
             let content = assistant_msg.content.as_deref().unwrap_or("");
             let mut schema_ok = true;

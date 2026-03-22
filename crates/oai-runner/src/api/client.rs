@@ -273,6 +273,7 @@ impl ApiClient {
         }
 
         let mut content = String::new();
+        let mut reasoning = String::new();
         let mut tool_calls: Vec<ToolCall> = Vec::new();
         let mut usage: Option<UsageInfo> = None;
 
@@ -292,7 +293,7 @@ impl ApiClient {
                 let msg = ChatMessage {
                     role: "assistant".to_string(),
                     content: if content.is_empty() { None } else { Some(content) },
-                    reasoning_content: None,
+                    reasoning_content: if reasoning.is_empty() { None } else { Some(reasoning) },
                     tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls) },
                     tool_call_id: None,
                 };
@@ -310,6 +311,9 @@ impl ApiClient {
 
             // Only care about the first choice for agent loop
             if let Some(choice) = parsed.choices.first() {
+                if let Some(rc) = &choice.delta.reasoning_content {
+                    reasoning.push_str(rc);
+                }
                 if let Some(text) = &choice.delta.content {
                     content.push_str(text);
                     on_text_chunk(text);
@@ -347,7 +351,7 @@ impl ApiClient {
         let msg = ChatMessage {
             role: "assistant".to_string(),
             content: if content.is_empty() { None } else { Some(content) },
-            reasoning_content: None,
+            reasoning_content: if reasoning.is_empty() { None } else { Some(reasoning) },
             tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls) },
             tool_call_id: None,
         };

@@ -768,7 +768,9 @@ async fn execute_post_success_actions(
             "git",
             execution_cwd,
             &["log", "--oneline", &format!("origin/{}..{}", target_branch, source_branch)],
-        ).await {
+        )
+        .await
+        {
             Ok(output) if output.status.success() => {
                 let log_output = String::from_utf8_lossy(&output.stdout);
                 !log_output.trim().is_empty()

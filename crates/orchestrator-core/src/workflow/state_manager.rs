@@ -67,11 +67,21 @@ impl WorkflowStateManager {
             if let Ok(content) = fs::read_to_string(&index_path) {
                 if let Ok(ids) = serde_json::from_str::<BTreeSet<String>>(&content) {
                     let mut workflows = Vec::new();
+                    let mut clean_ids = BTreeSet::new();
                     for id in &ids {
                         match self.load(id) {
-                            Ok(wf) => workflows.push(wf),
+                            Ok(wf) => {
+                                if is_active_workflow(&wf) {
+                                    clean_ids.insert(wf.id.clone());
+                                }
+                                workflows.push(wf);
+                            }
                             Err(_) => {} // stale index entry, skip
                         }
+                    }
+                    // Prune stale entries from index
+                    if clean_ids.len() != ids.len() {
+                        let _ = self.write_active_index(&clean_ids);
                     }
                     return Ok(workflows);
                 }

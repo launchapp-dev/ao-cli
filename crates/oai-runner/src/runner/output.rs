@@ -211,22 +211,22 @@ mod tests {
 
     #[test]
     fn output_formatter_json_mode_initializes_empty_buffer() {
-        let formatter = OutputFormatter::new(true, "gpt-4o");
+        let formatter = OutputFormatter::new(true, "gpt-5.4");
         assert!(formatter.text_buffer.is_empty());
         assert!(formatter.json_mode);
-        assert_eq!(formatter.model, "gpt-4o");
+        assert_eq!(formatter.model, "gpt-5.4");
     }
 
     #[test]
     fn output_formatter_text_mode_does_not_buffer() {
-        let formatter = OutputFormatter::new(false, "gpt-4o");
+        let formatter = OutputFormatter::new(false, "gpt-5.4");
         assert!(!formatter.json_mode);
         assert!(formatter.text_buffer.is_empty());
     }
 
     #[test]
     fn text_chunk_accumulates_in_buffer_for_json_mode() {
-        let mut formatter = OutputFormatter::new(true, "gpt-4o");
+        let mut formatter = OutputFormatter::new(true, "gpt-5.4");
         formatter.text_buffer.push_str("hello ");
         formatter.text_buffer.push_str("world");
         assert_eq!(formatter.text_buffer, "hello world");
@@ -234,7 +234,7 @@ mod tests {
 
     #[test]
     fn flush_result_clears_buffer() {
-        let mut formatter = OutputFormatter::new(true, "gpt-4o");
+        let mut formatter = OutputFormatter::new(true, "gpt-5.4");
         formatter.text_buffer.push_str("accumulated text");
         assert!(!formatter.text_buffer.is_empty());
         formatter.text_buffer.clear();
@@ -243,21 +243,21 @@ mod tests {
 
     #[test]
     fn metadata_accumulates_tokens_and_cost() {
-        let mut formatter = OutputFormatter::new(true, "gpt-4o");
-        // gpt-4o: $2.50/1M input, $10.00/1M output
+        let mut formatter = OutputFormatter::new(true, "gpt-5.4");
+        // gpt-5.4: $5.00/1M input, $20.00/1M output
         let usage = crate::api::types::UsageInfo { prompt_tokens: 1000, completion_tokens: 500, total_tokens: 1500 };
         formatter.metadata(&usage);
         assert_eq!(formatter.total_input_tokens, 1000);
         assert_eq!(formatter.total_output_tokens, 500);
         assert_eq!(formatter.total_tokens, 1500);
         assert_eq!(formatter.request_count, 1);
-        // Expected cost: (1000/1e6)*2.5 + (500/1e6)*10.0 = 0.0025 + 0.005 = 0.0075
-        assert!((formatter.total_cost_usd - 0.0075).abs() < 1e-9);
+        // Expected cost: (1000/1e6)*5.0 + (500/1e6)*20.0 = 0.005 + 0.01 = 0.015
+        assert!((formatter.total_cost_usd - 0.015).abs() < 1e-9);
     }
 
     #[test]
     fn metadata_accumulates_across_multiple_requests() {
-        let mut formatter = OutputFormatter::new(true, "gpt-4o");
+        let mut formatter = OutputFormatter::new(true, "gpt-5.4");
         formatter.metadata(&crate::api::types::UsageInfo {
             prompt_tokens: 1000,
             completion_tokens: 500,
@@ -272,8 +272,8 @@ mod tests {
         assert_eq!(formatter.total_output_tokens, 1500);
         assert_eq!(formatter.total_tokens, 4500);
         assert_eq!(formatter.request_count, 2);
-        // Cost: 0.0075 + (2000/1e6)*2.5 + (1000/1e6)*10.0 = 0.0075 + 0.005 + 0.01 = 0.0225
-        assert!((formatter.total_cost_usd - 0.0225).abs() < 1e-9);
+        // Cost: 0.015 + (2000/1e6)*5.0 + (1000/1e6)*20.0 = 0.015 + 0.01 + 0.02 = 0.045
+        assert!((formatter.total_cost_usd - 0.045).abs() < 1e-9);
     }
 
     #[test]
@@ -316,7 +316,7 @@ mod tests {
 
     #[test]
     fn metadata_effective_total_prefers_provider_value() {
-        let mut formatter = OutputFormatter::new(true, "gpt-4o");
+        let mut formatter = OutputFormatter::new(true, "gpt-5.4");
         // Provider reports total_tokens=999 which differs from sum
         formatter.metadata(&crate::api::types::UsageInfo {
             prompt_tokens: 1000,
@@ -328,7 +328,7 @@ mod tests {
 
     #[test]
     fn metadata_effective_total_falls_back_to_sum() {
-        let mut formatter = OutputFormatter::new(true, "gpt-4o");
+        let mut formatter = OutputFormatter::new(true, "gpt-5.4");
         // Provider doesn't report total_tokens (0)
         formatter.metadata(&crate::api::types::UsageInfo {
             prompt_tokens: 1000,
@@ -340,7 +340,7 @@ mod tests {
 
     #[test]
     fn emit_session_summary_skips_when_no_tokens() {
-        let formatter = OutputFormatter::new(true, "gpt-4o");
+        let formatter = OutputFormatter::new(true, "gpt-5.4");
         // Should not panic, should return early
         formatter.emit_session_summary();
         assert_eq!(formatter.total_tokens, 0);

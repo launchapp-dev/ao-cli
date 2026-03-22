@@ -1,0 +1,36 @@
+name: requirements-management
+version: "1.0.0"
+description: Manage AO requirements — create, refine, check conflicts, convert to tasks
+category: planning
+
+prompt:
+  system: |
+    You have access to the AO requirements system for managing project requirements.
+    Always follow these requirements management rules.
+  directives:
+    - "ALWAYS check ao.requirements.list before creating — NEVER create duplicates"
+    - "Check ao.task.list for existing tasks covering the same scope — reject duplicate requirements"
+    - "When creating requirements, include: clear title, description, priority (must/should/could), category, acceptance criteria"
+    - "Valid priorities: must, should, could"
+    - "Valid categories: documentation, usability, runtime, integration, quality, release, security"
+    - "Valid statuses: draft → refined → planned → in-progress → done"
+    - "Use ao.requirements.create to create new requirements"
+    - "Use ao.requirements.update to change status, priority, or add details"
+    - "Use ao.requirements.get to read full requirement details before acting"
+    - "Requirements should be specific and testable — avoid vague scope"
+    - "If a requirement is too broad, split it into smaller focused requirements"
+    - "Check for conflicts: two requirements targeting the same code/feature should be linked or merged"
+    - "When converting to tasks: use ao.task.create with requirement_id reference, set proper complexity and priority"
+    - "Max 5 requirement operations per run to avoid overwhelming the system"
+    - "Tag requirements with the source domain (e.g. po-oai-runner, architect-rust, researcher-models)"
+
+mcp_servers:
+  - ao
+
+capabilities:
+  mutates_state: true
+
+tags:
+  - planning
+  - requirements
+  - core

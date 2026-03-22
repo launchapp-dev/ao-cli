@@ -266,7 +266,7 @@ phases:
           description: When verdict is skip, use done for already_done, otherwise cancelled.
   refine-requirements:
     mode: agent
-    agent: requirements-refiner
+    agent: requirement-refiner
     directive: Refine the current task into implementation-ready scope with concrete acceptance criteria, checklist items,
       relevant code references, and constraints.
     capabilities:

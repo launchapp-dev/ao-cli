@@ -1,4 +1,9 @@
 phase_catalog:
+  subject-activate:
+    label: Activate Subject
+    description: Mark the dispatch subject as in-progress before work begins.
+    category: lifecycle
+    tags: ["lifecycle", "bundled-pack"]
   triage:
     label: Triage
     description: Evaluate whether a task is still valid, already done, or obsolete.
@@ -10,11 +15,22 @@ phase_catalog:
     category: planning
     tags: ["requirements", "planning", "bundled-pack"]
 
+phases:
+  subject-activate:
+    mode: command
+    command:
+      program: ao
+      args: ["task", "status", "--id", "{subject_id}", "--status", "in-progress"]
+      cwd_mode: project_root
+      timeout_secs: 10
+      success_exit_codes: [0, 1]
+
 workflows:
   - id: ao.task/standard
     name: AO Task Standard
     description: Canonical pack-qualified task workflow ref.
     phases:
+      - subject-activate
       - requirements
       - implementation
       - workflow_ref: ao.review/cycle
@@ -23,6 +39,7 @@ workflows:
     name: AO Task UI UX
     description: Canonical pack-qualified frontend task workflow ref.
     phases:
+      - subject-activate
       - requirements
       - ux-research
       - wireframe
@@ -34,6 +51,7 @@ workflows:
     name: AO Task Quick Fix
     description: Canonical pack-qualified quick-fix workflow ref.
     phases:
+      - subject-activate
       - implementation
       - testing
 
@@ -41,6 +59,7 @@ workflows:
     name: AO Task Gated
     description: Canonical pack-qualified gated workflow ref.
     phases:
+      - subject-activate
       - requirements
       - implementation
       - unit-test:

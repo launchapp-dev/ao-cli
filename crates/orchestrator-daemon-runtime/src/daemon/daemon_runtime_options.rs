@@ -26,7 +26,7 @@ impl Default for DaemonRuntimeOptions {
             reconcile_stale: true,
             stale_threshold_hours: 24,
             max_tasks_per_tick: 2,
-            phase_timeout_secs: None,
+            phase_timeout_secs: Some(1800),
             idle_timeout_secs: None,
             once: false,
         }
@@ -160,7 +160,7 @@ mod tests {
         orchestrator_core::write_daemon_project_config(temp.path(), &config).expect("write config");
 
         let mut options = DaemonRuntimeOptions::default();
-        assert_eq!(options.phase_timeout_secs, None);
+        assert_eq!(options.phase_timeout_secs, Some(1800));
         assert_eq!(options.idle_timeout_secs, None);
         options.reload_from_project_config(temp.path());
         assert_eq!(options.phase_timeout_secs, Some(600));

@@ -10,6 +10,11 @@ use serde::{Deserialize, Serialize};
 use crate::types::{CheckpointReason, OrchestratorWorkflow, WorkflowCheckpoint};
 
 pub const DEFAULT_CHECKPOINT_RETENTION_KEEP_LAST_PER_PHASE: usize = 3;
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CleanupResult {
+    pub deleted: usize,
+}
 const UNKNOWN_CHECKPOINT_PHASE_BUCKET: &str = "unknown";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -119,6 +124,54 @@ impl WorkflowStateManager {
         // Rebuild the active index from full scan
         let _ = self.write_active_index(&active_ids);
         Ok(workflows)
+    }
+
+    pub fn cleanup_terminal_workflows(&self, max_age_hours: u64) -> Result<CleanupResult> {
+        let dir = self.workflows_dir();
+        if !dir.exists() {
+            return Ok(CleanupResult::default());
+        }
+
+        let cutoff = Utc::now() - Duration::hours(max_age_hours as i64);
+        let mut result = CleanupResult::default();
+
+        for entry in fs::read_dir(&dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+                continue;
+            }
+            if path.file_name().and_then(|n| n.to_str()) == Some("_active_index.json") {
+                continue;
+            }
+
+            let content = match fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            let workflow: OrchestratorWorkflow = match serde_json::from_str(&content) {
+                Ok(w) => w,
+                Err(_) => continue,
+            };
+
+            if is_active_workflow(&workflow) {
+                continue;
+            }
+
+            if workflow.completed_at.map_or(true, |t| t > cutoff) {
+                if workflow.started_at > cutoff {
+                    continue;
+                }
+            }
+
+            if let Err(e) = self.delete(&workflow.id) {
+                eprintln!("cleanup: failed to delete workflow {}: {}", workflow.id, e);
+                continue;
+            }
+            result.deleted += 1;
+        }
+
+        Ok(result)
     }
 
     pub fn delete(&self, workflow_id: &str) -> Result<()> {

@@ -60,6 +60,10 @@ pub trait DefaultProjectTickServices {
         Ok(0)
     }
 
+    async fn cleanup_stale_workflows(&mut self, _hub: Arc<dyn ServiceHub>, _root: &str, _max_age_hours: u64) -> Result<usize> {
+        Ok(0)
+    }
+
     async fn dispatch_ready_tasks(
         &mut self,
         hub: Arc<dyn ServiceHub>,
@@ -233,6 +237,11 @@ where
     async fn reconcile_stale_in_progress_tasks(&mut self, root: &str) -> Result<usize> {
         let hub: Arc<dyn ServiceHub> = Arc::new(FileServiceHub::new(root)?);
         self.services.reconcile_stale_in_progress_tasks(hub, root).await
+    }
+
+    async fn cleanup_stale_workflows(&mut self, root: &str, max_age_hours: u64) -> Result<usize> {
+        let hub: Arc<dyn ServiceHub> = Arc::new(FileServiceHub::new(root)?);
+        self.services.cleanup_stale_workflows(hub, root, max_age_hours).await
     }
 
     async fn dispatch_ready_tasks(&mut self, root: &str, limit: usize) -> Result<DispatchWorkflowStartSummary> {

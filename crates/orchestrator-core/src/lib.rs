@@ -104,8 +104,8 @@ pub use types::{
 };
 pub use workflow::{
     phase_plan_for_workflow_ref, resolve_phase_plan_for_workflow_ref, ResumabilityStatus, ResumeConfig,
-    WorkflowCheckpointPruneResult, WorkflowLifecycleExecutor, WorkflowResumeManager, WorkflowStateMachine,
-    WorkflowStateManager, DEFAULT_CHECKPOINT_RETENTION_KEEP_LAST_PER_PHASE,
+    CleanupResult, WorkflowCheckpointPruneResult, WorkflowLifecycleExecutor, WorkflowResumeManager,
+    WorkflowStateMachine, WorkflowStateManager, DEFAULT_CHECKPOINT_RETENTION_KEEP_LAST_PER_PHASE,
     REQUIREMENT_TASK_GENERATION_RUN_WORKFLOW_REF, REQUIREMENT_TASK_GENERATION_WORKFLOW_REF, STANDARD_WORKFLOW_REF,
     UI_UX_WORKFLOW_REF,
 };

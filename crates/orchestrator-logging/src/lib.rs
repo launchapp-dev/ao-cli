@@ -1,12 +1,12 @@
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-const MAX_LOG_SIZE: u64 = 5 * 1024 * 1024;
+const MAX_LOG_SIZE: u64 = 50 * 1024 * 1024; // 50MB — full LLM content, no truncation
 const ROTATED_SUFFIX: &str = ".1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -194,16 +194,48 @@ impl Logger {
         category: Option<&str>,
         level: Option<Level>,
     ) -> Vec<LogEntry> {
-        let content = match fs::read_to_string(&self.path) {
-            Ok(c) => c,
-            Err(_) => return Vec::new(),
-        };
-        let mut entries: Vec<LogEntry> = content
-            .lines()
+        self.read_entries_since(limit, category, level, None)
+    }
+
+    pub fn read_entries_since(
+        &self,
+        limit: usize,
+        category: Option<&str>,
+        level: Option<Level>,
+        since: Option<&str>,
+    ) -> Vec<LogEntry> {
+        let mut all_lines = Vec::new();
+
+        // Read rotated file first (older entries)
+        let rotated = self.path.with_extension(format!(
+            "{}{}",
+            self.path.extension().map(|e| e.to_string_lossy().to_string()).unwrap_or_default(),
+            ROTATED_SUFFIX
+        ));
+        if rotated.exists() {
+            if let Ok(file) = File::open(&rotated) {
+                for line in BufReader::new(file).lines().flatten() {
+                    all_lines.push(line);
+                }
+            }
+        }
+
+        // Then current file (newer entries)
+        if self.path.exists() {
+            if let Ok(file) = File::open(&self.path) {
+                for line in BufReader::new(file).lines().flatten() {
+                    all_lines.push(line);
+                }
+            }
+        }
+
+        let mut entries: Vec<LogEntry> = all_lines
+            .iter()
             .rev()
             .filter_map(|line| serde_json::from_str::<LogEntry>(line).ok())
-            .filter(|e| category.map_or(true, |c| e.cat == c))
+            .filter(|e| category.map_or(true, |c| e.cat == c || e.cat.starts_with(c)))
             .filter(|e| level.map_or(true, |l| (e.level as u8) >= (l as u8)))
+            .filter(|e| since.map_or(true, |s| e.ts.as_str() >= s))
             .take(limit)
             .collect();
         entries.reverse();

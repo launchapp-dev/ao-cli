@@ -146,7 +146,16 @@ fn resolve_anthropic_compatible_provider(model: &str) -> Option<(String, String)
     let creds: serde_json::Value = serde_json::from_str(&content).ok()?;
     let providers = creds.get("providers")?.as_object()?;
 
-    let entry = providers.get(provider)?;
+    // Try exact provider match first, then search by model name substring
+    let entry = providers.get(provider).or_else(|| {
+        providers.iter().find_map(|(key, val)| {
+            if normalized.contains(key) || key.contains(&normalized) {
+                Some(val)
+            } else {
+                None
+            }
+        })
+    })?;
     let base_url = entry.get("base_url")?.as_str()?.to_string();
     let api_key = entry.get("api_key")?.as_str()?.to_string();
 

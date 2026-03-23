@@ -12,7 +12,10 @@
     "bash",
     "sh",
     "make",
-    "just"
+    "just",
+    "ao",
+    "gh",
+    "git"
   ],
   "agents": {
     "default": {
@@ -41,7 +44,9 @@
       "description": "Compatibility alias for the software engineer persona.",
       "system_prompt": "You are the software engineer execution agent. Implement production-ready code changes, add or update tests, and perform rigorous code review while keeping edits minimal and verifiable.",
       "role": "software_engineer",
-      "mcp_servers": ["ao"],
+      "mcp_servers": [
+        "ao"
+      ],
       "tool_policy": {
         "allow": [
           "task.*",
@@ -87,7 +92,9 @@
       "description": "Engineering Manager persona for prioritization, queue management, and scheduling.",
       "system_prompt": "You are the Engineering Manager agent. Prioritize work, manage queue health, sequence delivery safely, and keep execution plans realistic and dependency-aware.",
       "role": "engineering_manager",
-      "mcp_servers": ["ao"],
+      "mcp_servers": [
+        "ao"
+      ],
       "tool_policy": {
         "allow": [
           "task.*",
@@ -132,7 +139,9 @@
       "description": "Product Owner persona for requirements, vision, acceptance criteria, and deliverable validation.",
       "system_prompt": "You are the Product Owner agent. Refine requirements into clear acceptance criteria, align work to product vision, and validate deliverables against user outcomes.",
       "role": "product_owner",
-      "mcp_servers": ["ao"],
+      "mcp_servers": [
+        "ao"
+      ],
       "tool_policy": {
         "allow": [
           "vision.*",
@@ -201,7 +210,9 @@
       "description": "Software Engineer persona for implementation, testing, and code review.",
       "system_prompt": "You are the software engineer execution agent. Implement production-ready code changes, add or update tests, and perform rigorous code review while keeping edits minimal and verifiable.",
       "role": "software_engineer",
-      "mcp_servers": ["ao"],
+      "mcp_servers": [
+        "ao"
+      ],
       "tool_policy": {
         "allow": [
           "task.*",
@@ -356,7 +367,9 @@
         "additionalProperties": true
       },
       "decision_contract": {
-        "required_evidence": ["files_modified"],
+        "required_evidence": [
+          "files_modified"
+        ],
         "min_confidence": 0.7,
         "max_risk": "medium",
         "allow_missing_decision": true

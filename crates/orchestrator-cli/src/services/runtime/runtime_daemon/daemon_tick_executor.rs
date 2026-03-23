@@ -5,7 +5,7 @@ use crate::services::runtime::runtime_daemon::daemon_reconciliation::{
 };
 use anyhow::Result;
 use orchestrator_core::services::ServiceHub;
-use orchestrator_core::{TaskStatus, WorkflowRunInput, WorkflowStatus};
+use orchestrator_core::{TaskStatus, WorkflowRunInput, WorkflowStateManager, WorkflowStatus};
 use orchestrator_daemon_runtime::{
     default_slim_project_tick_driver, CompletedProcess, DefaultProjectTickServices, DefaultSlimProjectTickDriver,
     DispatchNotice, DispatchSelectionSource, DispatchWorkflowStart, DispatchWorkflowStartSummary, ProcessManager,
@@ -88,6 +88,35 @@ impl DefaultProjectTickServices for CliProjectTickServices {
             }
         }
         Ok(reconciled)
+    }
+
+    async fn cleanup_stale_workflows(&mut self, _hub: Arc<dyn ServiceHub>, root: &str, max_age_hours: u64) -> Result<usize> {
+        let manager = WorkflowStateManager::new(root);
+        let deleted = match manager.cleanup_terminal_workflows(max_age_hours) {
+            Ok(result) => {
+                if result.deleted > 0 {
+                    eprintln!(
+                        "{}: cleaned up {} stale workflows (older than {}h)",
+                        protocol::ACTOR_DAEMON,
+                        result.deleted,
+                        max_age_hours
+                    );
+                }
+                result.deleted
+            }
+            Err(e) => {
+                eprintln!("{}: workflow cleanup failed: {}", protocol::ACTOR_DAEMON, e);
+                0
+            }
+        };
+        let _ = std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["worktree", "prune"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        Ok(deleted)
     }
 
     async fn dispatch_ready_tasks(

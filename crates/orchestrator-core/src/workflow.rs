@@ -12,7 +12,8 @@ pub use phase_plan::{
 pub use resume::{ResumabilityStatus, ResumeConfig, WorkflowResumeManager};
 pub use state_machine::WorkflowStateMachine;
 pub use state_manager::{
-    WorkflowCheckpointPruneResult, WorkflowStateManager, DEFAULT_CHECKPOINT_RETENTION_KEEP_LAST_PER_PHASE,
+    CleanupResult, WorkflowCheckpointPruneResult, WorkflowStateManager,
+    DEFAULT_CHECKPOINT_RETENTION_KEEP_LAST_PER_PHASE,
 };
 
 #[cfg(test)]

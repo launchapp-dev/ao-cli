@@ -60,9 +60,20 @@ where
         failed_workflow_phases,
         ..Default::default()
     };
-    if preparation.ready_dispatch_limit > 0 {
+    // Recompute the ready dispatch limit after all reconciliation hooks have run.
+    // Completed-process and zombie-workflow reconciliation may free pool capacity
+    // that was not yet reflected in the pre-reconciliation active count used by
+    // `preparation`.  Requerying here ensures we can dispatch into that headroom.
+    let post_reconcile_active_count = hooks.active_process_count();
+    let ready_dispatch_limit = if post_reconcile_active_count != updated_active_count {
+        mode.build_preparation(&context, args, now, pool_draining, &snapshot, post_reconcile_active_count)
+            .ready_dispatch_limit
+    } else {
+        preparation.ready_dispatch_limit
+    };
+    if ready_dispatch_limit > 0 {
         execution_outcome.ready_workflow_starts =
-            hooks.dispatch_ready_tasks(root, preparation.ready_dispatch_limit).await?;
+            hooks.dispatch_ready_tasks(root, ready_dispatch_limit).await?;
     }
 
     let health = hooks.collect_health(root).await?;

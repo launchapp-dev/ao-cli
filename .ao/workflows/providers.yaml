@@ -19,15 +19,6 @@ agents:
       clean, tested code.
     model: gemini-3.1-pro-preview
     tool: gemini
-  codex-default:
-    system_prompt: You are an expert Rust developer working on the AO CLI workspace. Strong at code understanding, refactoring,
-      and implementation. Write clean, tested code.
-    model: gpt-5.4
-    tool: codex
-    mcp_servers:
-    - ao
-    - context7
-    - rust-docs
   opus-default:
     system_prompt: "You are an expert Rust developer working on the AO CLI workspace. You handle the hardest tasks \u2014\
       \ architecture, complex refactors, critical fixes. Write exceptional, production-ready code."
@@ -127,44 +118,6 @@ phases:
       - claude-sonnet-4-6
     capabilities:
       mutates_state: true
-  codex-implementation:
-    mode: agent
-    agent: codex-default
-    directive: Implement the task. Read the task description, checklist, and any prior phase outputs. Write clean, tested
-      code.
-    runtime:
-      fallback_models:
-      - claude-sonnet-4-6
-    capabilities:
-      mutates_state: true
-  codex-code-review:
-    mode: agent
-    agent: codex-default
-    directive: 'Review the implementation against the task requirements and acceptance criteria. Check for: requirement misalignment,
-      missing acceptance criteria, edge cases, logic errors, and code quality. Do NOT make changes. If issues found, set verdict
-      to rework with exact details of what must be fixed. Only advance if code fully satisfies the task spec.'
-    decision_contract:
-      required_evidence:
-      - code_review_clean
-      min_confidence: 0.7
-      max_risk: medium
-      allow_missing_decision: false
-      fields:
-        review_summary:
-          type: string
-          description: Short review summary explaining why the branch is approved or sent back.
-        blocking_issues:
-          type: array
-          description: Concrete blocking defects or requirement misalignments discovered.
-          items:
-            type: string
-        requirements_verified:
-          type: array
-          description: Acceptance criteria confirmed as satisfied.
-          items:
-            type: string
-    capabilities:
-      mutates_state: false
   opus-implementation:
     mode: agent
     agent: opus-default
@@ -245,24 +198,6 @@ workflows:
   phases:
   - requirements
   - gemini-implementation:
-      skip_if:
-      - task_type == docs
-  - push-branch
-  - create-pr
-  - cleanup
-  post_success:
-    merge:
-      strategy: squash
-      target_branch: develop
-      create_pr: true
-      auto_merge: true
-      cleanup_worktree: true
-- id: standard-codex
-  name: Standard (Codex)
-  description: "Implement \u2192 Push \u2192 PR fast with Codex"
-  phases:
-  - requirements
-  - codex-implementation:
       skip_if:
       - task_type == docs
   - push-branch

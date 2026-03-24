@@ -37,7 +37,7 @@ mcp_servers:
     - /Users/samishukri/ao-cli
 agents:
   default:
-    model: claude-sonnet-4-6
+    model: kimi-code/kimi-for-coding
     tool: claude
     mcp_servers:
     - ao
@@ -55,16 +55,16 @@ agents:
       \ and type:\n\n| Complexity | Type        | workflow_ref      | Model                  |\n|------------|-------------|-------------------|------------------------|\n\
       | low        | any         | standard-minimax  | MiniMax M2.7 (cheapest)|\n| medium     | feature     | standard   \
       \       | Claude Sonnet          |\n| medium     | bugfix      | standard-minimax  | MiniMax M2.7 (fast)    |\n| medium\
-      \     | refactor    | standard-codex    | Codex GPT-5.4          |\n| medium     | ui-ux       | standard-gemini   |\
+      \     | refactor    | standard-kimi    | Kimi K2.5          |\n| medium     | ui-ux       | standard-gemini   |\
       \ Gemini 3.1 Pro         |\n| high       | feature     | standard          | Claude Sonnet          |\n| high      \
-      \ | bugfix      | standard-codex    | Codex GPT-5.4          |\n| high       | refactor    | standard-codex    | Codex\
+      \ | bugfix      | standard-kimi    | Kimi K2.5          |\n| high       | refactor    | standard-kimi    | Codex\
       \ GPT-5.4          |\n| high       | ui-ux       | standard-gemini   | Gemini 3.1 Pro         |\n| high       | architecture|\
       \ standard-opus     | Claude Opus            |\n| critical   | any         | standard-opus     | Claude Opus       \
       \     |\n| any        | monitoring  | quick-fix-minimax | MiniMax M2.7           |\n\nCall ao.queue.enqueue with task_id\
       \ and the chosen workflow_ref.\nThen emit phase decision with verdict \"advance\".\n\nRULES:\n- Check ao.queue.list\
       \ before dispatching \u2014 do NOT enqueue duplicates.\n- Be thorough in validation \u2014 search the actual code, not\
       \ just task titles.\n- Use \"advance\" verdict after successful dispatch, \"skip\" for invalid/done/duplicate tasks.\n"
-    model: claude-sonnet-4-6
+    model: kimi-code/kimi-for-coding
     tool: claude
     mcp_servers:
     - ao
@@ -91,8 +91,8 @@ agents:
       \ tasks that have been re-enqueued > 5 times without producing a PR, cancel them.\n   Check by looking at the task's\
       \ consecutive_dispatch_failures field.\n\nDEPENDENCY RULES:\n- Never promote/unblock if blocked_by deps aren't done.\n\
       - Process leaf tasks first.\n"
-    model: gpt-5.4
-    tool: codex
+    model: kimi-for-coding
+    tool: claude
     mcp_servers:
     - ao
   work-planner:
@@ -108,7 +108,7 @@ agents:
       \ consecutive_dispatch_failures > 5.\n- Check ao.workflow.list \u2014 if last workflow had a \"skip\" decision, do NOT\
       \ re-enqueue.\n- Prefer tasks that have NEVER been dispatched over retries.\n- Do NOT enqueue duplicates \u2014 check\
       \ queue first.\n"
-    model: claude-sonnet-4-6
+    model: kimi-code/kimi-for-coding
     tool: claude
     mcp_servers:
     - ao
@@ -325,7 +325,7 @@ phases:
             type: string
   code-review:
     mode: agent
-    agent: codex-default
+    agent: opus-default
     directive: Review the implementation for defects, edge cases, and maintainability issues. Do NOT make changes yourself.
       If issues are found, set verdict to rework and provide an exact spec of what must be fixed in the reason field. Only
       advance if the code is production-ready as-is.

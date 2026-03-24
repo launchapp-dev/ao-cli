@@ -153,18 +153,22 @@ async fn run_execute(args: WorkflowExecuteArgs) -> anyhow::Result<u8> {
                             .meta(serde_json::json!({ "workflow_ref": log_wf_ref }))
                             .emit();
                     }
-                    PhaseEvent::Completed { phase_id, duration, success } => {
-                        if success {
+                    PhaseEvent::Completed { phase_id, duration, success, error, model, tool } => {
+                        let mut b = if success {
                             logger.info("phase.complete", format!("{phase_id} {}ms", duration.as_millis()))
-                                .phase(phase_id)
-                                .duration(duration.as_millis() as u64)
-                                .emit();
                         } else {
-                            logger.warn("phase.complete", format!("{phase_id} failed {}ms", duration.as_millis()))
-                                .phase(phase_id)
-                                .duration(duration.as_millis() as u64)
-                                .emit();
+                            logger.error("phase.complete", format!("{phase_id} failed {}ms", duration.as_millis()))
+                        };
+                        b = b.phase(phase_id).duration(duration.as_millis() as u64);
+                        if let Some(ref e) = error {
+                            b = b.err(e);
                         }
+                        if let Some(ref m) = model {
+                            if let Some(ref t) = tool {
+                                b = b.model_tool(m, t);
+                            }
+                        }
+                        b.emit();
                     }
                     PhaseEvent::Decision { phase_id, decision } => {
                         logger.info("phase.decision", format!("{phase_id}: {:?}", decision.verdict))

@@ -22,6 +22,8 @@ pub(crate) enum DaemonCommand {
     Events(DaemonEventsArgs),
     /// Read daemon logs.
     Logs(LogArgs),
+    /// Stream structured log events in real-time across daemon, workflows, and runs.
+    Stream(DaemonStreamArgs),
     /// Clear daemon logs.
     ClearLogs,
     /// List daemon-managed agents.
@@ -249,6 +251,22 @@ pub(crate) struct DaemonStopArgs {
         help = "Maximum seconds to wait for in-flight agents to finish before force-stopping."
     )]
     pub(crate) shutdown_timeout_secs: u64,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct DaemonStreamArgs {
+    #[arg(long, help = "Filter by category prefix (e.g. 'llm', 'schedule', 'phase').")]
+    pub(crate) cat: Option<String>,
+    #[arg(long, help = "Minimum log level: debug, info, warn, error.")]
+    pub(crate) level: Option<String>,
+    #[arg(long, help = "Filter to a specific workflow ID.")]
+    pub(crate) workflow: Option<String>,
+    #[arg(long, help = "Filter to a specific run ID.")]
+    pub(crate) run: Option<String>,
+    #[arg(long, default_value_t = 20, help = "Number of recent entries to show before streaming.")]
+    pub(crate) tail: usize,
+    #[arg(long, action = ArgAction::SetTrue, help = "Print recent entries and exit without streaming.")]
+    pub(crate) no_follow: bool,
 }
 
 #[derive(Debug, Args)]

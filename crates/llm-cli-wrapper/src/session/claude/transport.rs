@@ -184,8 +184,11 @@ async fn run_claude_session(
     command
         .args(&invocation.args)
         .current_dir(&request.cwd)
-        .env_clear()
-        .envs(request.env_vars.iter().cloned())
+        .env_remove("CLAUDECODE")
+        .env_remove("CLAUDE_CODE_ENTRYPOINT")
+        .env_remove("CLAUDE_CODE_SESSION_ACCESS_TOKEN")
+        .env_remove("CLAUDE_CODE_SESSION_ID")
+        .envs(invocation.env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

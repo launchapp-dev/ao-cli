@@ -29,6 +29,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 agent-runner = { path = "../agent-runner" }
 protocol = { path = "../protocol" }
 orchestrator-core = { path = "../orchestrator-core" }
+orchestrator-logging = { path = "../orchestrator-logging" }
 orchestrator-config = { workspace = true }
 
 [dev-dependencies]

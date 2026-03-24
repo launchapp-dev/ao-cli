@@ -47,7 +47,6 @@ where
     let updated_active_count = hooks.active_process_count();
     let preparation = mode.build_preparation(&context, args, now, pool_draining, &snapshot, updated_active_count);
     let reconciled_workflows = hooks.reconcile_manual_timeouts(root).await?;
-    let reconciled_runner_blocked_tasks = hooks.reconcile_runner_blocked_tasks(root).await?;
     let (executed_workflow_phases, failed_workflow_phases) = hooks.reconcile_completed_processes(root).await?;
     let reconciled_zombie_workflows = hooks.reconcile_zombie_workflows(root).await?;
     if args.reconcile_stale {
@@ -55,7 +54,6 @@ where
     }
     let mut execution_outcome = ProjectTickExecutionOutcome {
         reconciled_workflows: reconciled_workflows + reconciled_zombie_workflows,
-        reconciled_runner_blocked_tasks,
         executed_workflow_phases,
         failed_workflow_phases,
         ..Default::default()

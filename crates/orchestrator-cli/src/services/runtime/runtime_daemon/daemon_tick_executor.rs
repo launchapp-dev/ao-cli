@@ -1,7 +1,7 @@
 use super::*;
 use crate::services::runtime::execution_fact_projection::reconcile_completed_processes;
 use crate::services::runtime::runtime_daemon::daemon_reconciliation::{
-    reconcile_manual_phase_timeouts, reconcile_runner_blocked_tasks, recover_orphaned_running_workflows,
+    reconcile_manual_phase_timeouts, recover_orphaned_running_workflows,
 };
 use anyhow::Result;
 use orchestrator_core::services::ServiceHub;
@@ -55,10 +55,6 @@ impl DefaultProjectTickServices for CliProjectTickServices {
 
     async fn reconcile_manual_timeouts(&mut self, hub: Arc<dyn ServiceHub>, root: &str) -> Result<usize> {
         reconcile_manual_phase_timeouts(hub, root).await
-    }
-
-    async fn reconcile_runner_blocked_tasks(&mut self, hub: Arc<dyn ServiceHub>, root: &str) -> Result<usize> {
-        reconcile_runner_blocked_tasks(hub, root).await
     }
 
     async fn reconcile_stale_in_progress_tasks(&mut self, _hub: Arc<dyn ServiceHub>, _root: &str) -> Result<usize> {

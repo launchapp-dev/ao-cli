@@ -130,6 +130,18 @@ impl Logger {
         Self::open(&scope_root.join("logs"), "events.jsonl", Level::Info)
     }
 
+    pub fn for_run(project_root: &Path, run_id: &str) -> Self {
+        let scope_root = match protocol_scope_root(project_root) {
+            Some(p) => p,
+            None => project_root.join(".ao"),
+        };
+        Self::open(
+            &scope_root.join("logs").join("runs"),
+            &format!("{run_id}.jsonl"),
+            Level::Debug,
+        )
+    }
+
     fn should_log(&self, level: Level) -> bool {
         (level as u8) >= (self.min_level as u8)
     }

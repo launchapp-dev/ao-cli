@@ -29,7 +29,14 @@ use crate::phase_output::persist_phase_output;
 pub enum PhaseEvent<'a> {
     Started { phase_id: &'a str, phase_index: usize, total_phases: usize },
     Decision { phase_id: &'a str, decision: &'a orchestrator_core::PhaseDecision },
-    Completed { phase_id: &'a str, duration: Duration, success: bool },
+    Completed {
+        phase_id: &'a str,
+        duration: Duration,
+        success: bool,
+        error: Option<String>,
+        model: Option<String>,
+        tool: Option<String>,
+    },
 }
 
 pub type PhaseEventCallback = Box<dyn Fn(PhaseEvent<'_>) + Send + Sync>;
@@ -278,6 +285,7 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
                     phase_id: &phase_filter,
                     duration: phase_elapsed,
                     success: phase_status != "failed",
+                    error: None, model: None, tool: None,
                 });
                 results.push(serde_json::json!({
                     "phase_id": phase_filter,
@@ -307,7 +315,7 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
                 });
             }
             Err(err) => {
-                emit(PhaseEvent::Completed { phase_id: &phase_filter, duration: phase_elapsed, success: false });
+                emit(PhaseEvent::Completed { phase_id: &phase_filter, duration: phase_elapsed, success: false, error: Some(err.to_string()), model: None, tool: None });
                 results.push(serde_json::json!({
                     "phase_id": phase_filter,
                     "status": "failed",
@@ -409,6 +417,7 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
                             phase_id: &phase_id,
                             duration: phase_elapsed,
                             success: next_success,
+                            error: None, model: None, tool: None,
                         });
                         let mut result_value = serde_json::json!({
                             "phase_id": phase_id,
@@ -451,7 +460,7 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
                             .workflow
                             .ok_or_else(|| anyhow!("workflow '{}' not found for manual pause", workflow.id))?;
                         reported_workflow_status = workflow.status;
-                        emit(PhaseEvent::Completed { phase_id: &phase_id, duration: phase_elapsed, success: true });
+                        emit(PhaseEvent::Completed { phase_id: &phase_id, duration: phase_elapsed, success: true, error: None, model: None, tool: None });
                         results.push(serde_json::json!({
                             "phase_id": phase_id,
                             "status": "manual_pending",
@@ -467,7 +476,7 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
             Err(err) => {
                 workflow = hub.workflows().fail_current_phase(&workflow.id, err.to_string()).await?;
                 reported_workflow_status = workflow.status;
-                emit(PhaseEvent::Completed { phase_id: &phase_id, duration: phase_elapsed, success: false });
+                emit(PhaseEvent::Completed { phase_id: &phase_id, duration: phase_elapsed, success: false, error: Some(err.to_string()), model: None, tool: None });
                 results.push(serde_json::json!({
                     "phase_id": phase_id,
                     "status": "failed",

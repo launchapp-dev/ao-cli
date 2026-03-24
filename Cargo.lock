@@ -1994,6 +1994,7 @@ dependencies = [
  "chrono",
  "clap",
  "colored",
+ "orchestrator-logging",
  "protocol",
  "regex",
  "serde",
@@ -2380,7 +2381,7 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "orchestrator-cli"
-version = "0.2.14"
+version = "0.2.15"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -4986,6 +4987,7 @@ dependencies = [
  "jsonschema",
  "orchestrator-config",
  "orchestrator-core",
+ "orchestrator-logging",
  "protocol",
  "regex",
  "serde",

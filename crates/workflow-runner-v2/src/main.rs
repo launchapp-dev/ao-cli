@@ -5,7 +5,8 @@ use orchestrator_core::WorkflowStatus;
 use serde::Serialize;
 use tracing_subscriber::EnvFilter;
 
-use workflow_runner_v2::workflow_execute::{execute_workflow, WorkflowExecuteParams};
+use orchestrator_logging::Logger;
+use workflow_runner_v2::workflow_execute::{execute_workflow, PhaseEvent, WorkflowExecuteParams};
 
 #[derive(Parser)]
 #[command(name = "ao-workflow-runner", about = "Standalone workflow phase runner")]
@@ -123,6 +124,8 @@ async fn run_execute(args: WorkflowExecuteArgs) -> anyhow::Result<u8> {
 
     let phase_routing = args.phase_routing_json.as_deref().and_then(|json| serde_json::from_str(json).ok());
     let mcp_config = args.mcp_config_json.as_deref().and_then(|json| serde_json::from_str(json).ok());
+    let log_project_root = args.project_root.clone();
+    let log_workflow_ref = args.workflow_ref.clone().unwrap_or_default();
 
     let params = WorkflowExecuteParams {
         project_root: args.project_root,
@@ -138,7 +141,40 @@ async fn run_execute(args: WorkflowExecuteArgs) -> anyhow::Result<u8> {
         tool: args.tool,
         phase_timeout_secs: args.phase_timeout_secs,
         phase_filter: None,
-        on_phase_event: None,
+        on_phase_event: {
+            let log_root = log_project_root;
+            let log_wf_ref = log_workflow_ref;
+            Some(Box::new(move |event| {
+                let logger = orchestrator_logging::Logger::for_project(std::path::Path::new(&log_root));
+                match event {
+                    PhaseEvent::Started { phase_id, phase_index, total_phases } => {
+                        logger.info("phase.start", format!("{phase_id} ({}/{total_phases})", phase_index + 1))
+                            .phase(phase_id)
+                            .meta(serde_json::json!({ "workflow_ref": log_wf_ref }))
+                            .emit();
+                    }
+                    PhaseEvent::Completed { phase_id, duration, success } => {
+                        if success {
+                            logger.info("phase.complete", format!("{phase_id} {}ms", duration.as_millis()))
+                                .phase(phase_id)
+                                .duration(duration.as_millis() as u64)
+                                .emit();
+                        } else {
+                            logger.warn("phase.complete", format!("{phase_id} failed {}ms", duration.as_millis()))
+                                .phase(phase_id)
+                                .duration(duration.as_millis() as u64)
+                                .emit();
+                        }
+                    }
+                    PhaseEvent::Decision { phase_id, decision } => {
+                        logger.info("phase.decision", format!("{phase_id}: {:?}", decision.verdict))
+                            .phase(phase_id)
+                            .meta(serde_json::json!({ "verdict": format!("{:?}", decision.verdict), "reason": decision.reason }))
+                            .emit();
+                    }
+                }
+            }))
+        },
         hub: None,
         phase_routing,
         mcp_config,

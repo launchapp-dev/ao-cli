@@ -16,7 +16,7 @@ use orchestrator_notifications::{
 
 use crate::{
     print_ok, print_value, DaemonCommand, DaemonConfigArgs, DaemonEventsArgs, DaemonRunArgs, DaemonStartArgs,
-    DaemonStopArgs, RunnerScopeArg,
+    DaemonStopArgs, DaemonStreamArgs, RunnerScopeArg,
 };
 
 mod daemon_events;
@@ -606,6 +606,7 @@ pub(crate) async fn handle_daemon(
             print_value(health, json)
         }
         DaemonCommand::Logs(args) => handle_daemon_logs(args.limit, args.search, project_root, json),
+        DaemonCommand::Stream(args) => handle_daemon_stream(args, project_root).await,
         DaemonCommand::ClearLogs => daemon.clear_logs().await.map(|_| print_ok("daemon logs cleared", json)),
         DaemonCommand::Agents => {
             let active_agents = daemon.active_agents().await?;
@@ -613,6 +614,124 @@ pub(crate) async fn handle_daemon(
         }
         DaemonCommand::Config(args) => handle_daemon_config(args, project_root, json),
     }
+}
+
+async fn handle_daemon_stream(args: DaemonStreamArgs, project_root: &str) -> Result<()> {
+    use orchestrator_logging::{Level, Logger};
+    use std::path::Path;
+
+    let level = args.level.as_deref().and_then(|l| match l {
+        "debug" => Some(Level::Debug),
+        "info" => Some(Level::Info),
+        "warn" => Some(Level::Warn),
+        "error" => Some(Level::Error),
+        _ => None,
+    });
+
+    let logs_dir = Logger::logs_dir(Path::new(project_root));
+    let main_logger = Logger::for_project(Path::new(project_root));
+
+    // Print recent tail entries first
+    let entries = main_logger.read_entries_since(
+        args.tail,
+        args.cat.as_deref(),
+        level,
+        None,
+    );
+    for entry in &entries {
+        if let Some(ref wf) = args.workflow {
+            if entry.workflow_id.as_deref() != Some(wf.as_str()) {
+                continue;
+            }
+        }
+        if let Some(ref run) = args.run {
+            if entry.run_id.as_deref() != Some(run.as_str()) {
+                continue;
+            }
+        }
+        println!("{}", serde_json::to_string(entry).unwrap_or_default());
+    }
+
+    if args.no_follow {
+        return Ok(());
+    }
+
+    // Follow mode: poll all log files for new content
+    let mut file_positions: std::collections::HashMap<std::path::PathBuf, u64> = std::collections::HashMap::new();
+
+    // Initialize positions to end of current files
+    for path in discover_log_files(&logs_dir) {
+        let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        file_positions.insert(path, size);
+    }
+
+    loop {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        for path in discover_log_files(&logs_dir) {
+            let current_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            let last_pos = file_positions.get(&path).copied().unwrap_or(0);
+
+            if current_size <= last_pos {
+                if current_size < last_pos {
+                    file_positions.insert(path, 0);
+                }
+                continue;
+            }
+
+            if let Ok(file) = std::fs::File::open(&path) {
+                use std::io::{BufRead, Seek, SeekFrom};
+                let mut reader = std::io::BufReader::new(file);
+                let _ = reader.seek(SeekFrom::Start(last_pos));
+                for line in reader.lines().flatten() {
+                    if let Ok(entry) = serde_json::from_str::<orchestrator_logging::LogEntry>(&line) {
+                        if let Some(ref cat) = args.cat {
+                            if !entry.cat.starts_with(cat.as_str()) {
+                                continue;
+                            }
+                        }
+                        if let Some(l) = level {
+                            if (entry.level as u8) < (l as u8) {
+                                continue;
+                            }
+                        }
+                        if let Some(ref wf) = args.workflow {
+                            if entry.workflow_id.as_deref() != Some(wf.as_str()) {
+                                continue;
+                            }
+                        }
+                        if let Some(ref run) = args.run {
+                            if entry.run_id.as_deref() != Some(run.as_str()) {
+                                continue;
+                            }
+                        }
+                        println!("{}", serde_json::to_string(&entry).unwrap_or_default());
+                    }
+                }
+            }
+            file_positions.insert(path, current_size);
+        }
+    }
+}
+
+fn discover_log_files(logs_dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut files = Vec::new();
+    let main = logs_dir.join("events.jsonl");
+    if main.exists() {
+        files.push(main);
+    }
+    for subdir in &["workflows", "runs"] {
+        let dir = logs_dir.join(subdir);
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
+                    files.push(path);
+                }
+            }
+        }
+    }
+    files
 }
 
 async fn handle_daemon_stop(

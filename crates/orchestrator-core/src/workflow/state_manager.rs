@@ -10,6 +10,18 @@ use crate::types::{CheckpointReason, OrchestratorWorkflow, WorkflowCheckpoint};
 
 pub const DEFAULT_CHECKPOINT_RETENTION_KEEP_LAST_PER_PHASE: usize = 3;
 
+fn compress_json(json: &str) -> Vec<u8> {
+    zstd::encode_all(json.as_bytes(), 3).unwrap_or_else(|_| json.as_bytes().to_vec())
+}
+
+fn decompress_json(data: &[u8]) -> Result<String> {
+    if data.first() == Some(&b'{') || data.first() == Some(&b'[') {
+        return Ok(String::from_utf8_lossy(data).into_owned());
+    }
+    let decoded = zstd::decode_all(data).context("failed to decompress zstd blob")?;
+    Ok(String::from_utf8(decoded).context("decompressed data is not valid UTF-8")?)
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CleanupResult {
     pub deleted: usize,
@@ -45,19 +57,20 @@ impl WorkflowStateManager {
 
     pub fn save(&self, workflow: &OrchestratorWorkflow) -> Result<()> {
         let conn = self.open_db()?;
-        let json = serde_json::to_string(workflow)?;
+        let data = compress_json(&serde_json::to_string(workflow)?);
         conn.execute(
             "INSERT OR REPLACE INTO workflows (id, status, json) VALUES (?1, ?2, ?3)",
-            params![workflow.id, status_str(workflow.status), json],
+            params![workflow.id, status_str(workflow.status), data],
         )?;
         Ok(())
     }
 
     pub fn load(&self, workflow_id: &str) -> Result<OrchestratorWorkflow> {
         let conn = self.open_db()?;
-        let json: String = conn
+        let data: Vec<u8> = conn
             .query_row("SELECT json FROM workflows WHERE id = ?1", params![workflow_id], |row| row.get(0))
             .map_err(|_| anyhow!("workflow not found: {workflow_id}"))?;
+        let json = decompress_json(&data)?;
         Ok(serde_json::from_str(&json)?)
     }
 
@@ -65,8 +78,9 @@ impl WorkflowStateManager {
         let conn = self.open_db()?;
         let mut stmt = conn.prepare("SELECT json FROM workflows WHERE status IN ('running', 'paused')")?;
         let workflows = stmt
-            .query_map([], |row| row.get::<_, String>(0))?
+            .query_map([], |row| row.get::<_, Vec<u8>>(0))?
             .filter_map(|r| r.ok())
+            .filter_map(|data| decompress_json(&data).ok())
             .filter_map(|json| serde_json::from_str::<OrchestratorWorkflow>(&json).ok())
             .collect();
         Ok(workflows)
@@ -76,8 +90,9 @@ impl WorkflowStateManager {
         let conn = self.open_db()?;
         let mut stmt = conn.prepare("SELECT json FROM workflows")?;
         let workflows = stmt
-            .query_map([], |row| row.get::<_, String>(0))?
+            .query_map([], |row| row.get::<_, Vec<u8>>(0))?
             .filter_map(|r| r.ok())
+            .filter_map(|data| decompress_json(&data).ok())
             .filter_map(|json| serde_json::from_str::<OrchestratorWorkflow>(&json).ok())
             .collect();
         Ok(workflows)
@@ -130,7 +145,7 @@ impl WorkflowStateManager {
         workflow.checkpoint_metadata.checkpoints.push(checkpoint.clone());
 
         let conn = self.open_db()?;
-        let snapshot_json = serde_json::to_string(&workflow)?;
+        let snapshot_data = compress_json(&serde_json::to_string(&workflow)?);
         conn.execute(
             "INSERT OR REPLACE INTO checkpoints (workflow_id, number, timestamp, reason, phase_id, machine_state, status, snapshot_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
@@ -141,7 +156,7 @@ impl WorkflowStateManager {
                 checkpoint.phase_id,
                 format!("{:?}", checkpoint.machine_state).to_ascii_lowercase(),
                 status_str(checkpoint.status),
-                snapshot_json,
+                snapshot_data,
             ],
         )?;
         drop(conn);
@@ -316,13 +331,14 @@ impl WorkflowStateManager {
 
     pub fn load_checkpoint(&self, workflow_id: &str, checkpoint_num: usize) -> Result<OrchestratorWorkflow> {
         let conn = self.open_db()?;
-        let json: String = conn
+        let data: Vec<u8> = conn
             .query_row(
                 "SELECT snapshot_json FROM checkpoints WHERE workflow_id = ?1 AND number = ?2",
                 params![workflow_id, checkpoint_num as i64],
                 |row| row.get(0),
             )
             .map_err(|_| anyhow!("checkpoint not found: {} #{checkpoint_num}", workflow_id))?;
+        let json = decompress_json(&data)?;
         Ok(serde_json::from_str(&json)?)
     }
 
@@ -432,9 +448,10 @@ fn maybe_migrate_workflow_json(project_root: &std::path::Path, conn: &Connection
         let Ok(workflow) = serde_json::from_str::<OrchestratorWorkflow>(&content) else { continue };
 
         let compact = serde_json::to_string(&workflow).unwrap_or_else(|_| content.clone());
+        let data = compress_json(&compact);
         let _ = conn.execute(
             "INSERT OR IGNORE INTO workflows (id, status, json) VALUES (?1, ?2, ?3)",
-            params![workflow.id, status_str(workflow.status), compact],
+            params![workflow.id, status_str(workflow.status), data],
         );
         migrated += 1;
     }
@@ -465,19 +482,20 @@ fn status_str(status: crate::types::WorkflowStatus) -> &'static str {
 
 pub fn save_task(project_root: &std::path::Path, task: &crate::types::OrchestratorTask) -> Result<()> {
     let conn = open_project_db(project_root)?;
-    let json = serde_json::to_string(task)?;
+    let data = compress_json(&serde_json::to_string(task)?);
     conn.execute(
         "INSERT OR REPLACE INTO tasks (id, status, json) VALUES (?1, ?2, ?3)",
-        params![task.id, task.status.to_string(), json],
+        params![task.id, task.status.to_string(), data],
     )?;
     Ok(())
 }
 
 pub fn load_task(project_root: &std::path::Path, task_id: &str) -> Result<crate::types::OrchestratorTask> {
     let conn = open_project_db(project_root)?;
-    let json: String = conn
+    let data: Vec<u8> = conn
         .query_row("SELECT json FROM tasks WHERE id = ?1", params![task_id], |row| row.get(0))
         .map_err(|_| anyhow!("task not found: {task_id}"))?;
+    let json = decompress_json(&data)?;
     Ok(serde_json::from_str(&json)?)
 }
 
@@ -485,8 +503,9 @@ pub fn load_all_tasks(project_root: &std::path::Path) -> Result<std::collections
     let conn = open_project_db(project_root)?;
     let mut stmt = conn.prepare("SELECT json FROM tasks")?;
     let tasks: std::collections::HashMap<String, crate::types::OrchestratorTask> = stmt
-        .query_map([], |row| row.get::<_, String>(0))?
+        .query_map([], |row| row.get::<_, Vec<u8>>(0))?
         .filter_map(|r| r.ok())
+        .filter_map(|data| decompress_json(&data).ok())
         .filter_map(|json| serde_json::from_str::<crate::types::OrchestratorTask>(&json).ok())
         .map(|t| (t.id.clone(), t))
         .collect();
@@ -501,10 +520,10 @@ pub fn delete_task(project_root: &std::path::Path, task_id: &str) -> Result<()> 
 
 pub fn save_requirement(project_root: &std::path::Path, req: &crate::types::RequirementItem) -> Result<()> {
     let conn = open_project_db(project_root)?;
-    let json = serde_json::to_string(req)?;
+    let data = compress_json(&serde_json::to_string(req)?);
     conn.execute(
         "INSERT OR REPLACE INTO requirements (id, status, json) VALUES (?1, ?2, ?3)",
-        params![req.id, req.status.to_string(), json],
+        params![req.id, req.status.to_string(), data],
     )?;
     Ok(())
 }
@@ -513,8 +532,9 @@ pub fn load_all_requirements(project_root: &std::path::Path) -> Result<std::coll
     let conn = open_project_db(project_root)?;
     let mut stmt = conn.prepare("SELECT json FROM requirements")?;
     let reqs: std::collections::HashMap<String, crate::types::RequirementItem> = stmt
-        .query_map([], |row| row.get::<_, String>(0))?
+        .query_map([], |row| row.get::<_, Vec<u8>>(0))?
         .filter_map(|r| r.ok())
+        .filter_map(|data| decompress_json(&data).ok())
         .filter_map(|json| serde_json::from_str::<crate::types::RequirementItem>(&json).ok())
         .map(|r| (r.id.clone(), r))
         .collect();
@@ -560,9 +580,10 @@ pub fn migrate_tasks_and_requirements_from_core_state(
     let mut task_count = 0usize;
     for task in tasks.values() {
         if let Ok(json) = serde_json::to_string(task) {
+            let data = compress_json(&json);
             let _ = conn.execute(
                 "INSERT OR IGNORE INTO tasks (id, status, json) VALUES (?1, ?2, ?3)",
-                params![task.id, task.status.to_string(), json],
+                params![task.id, task.status.to_string(), data],
             );
             task_count += 1;
         }
@@ -571,9 +592,10 @@ pub fn migrate_tasks_and_requirements_from_core_state(
     let mut req_count = 0usize;
     for req in requirements.values() {
         if let Ok(json) = serde_json::to_string(req) {
+            let data = compress_json(&json);
             let _ = conn.execute(
                 "INSERT OR IGNORE INTO requirements (id, status, json) VALUES (?1, ?2, ?3)",
-                params![req.id, req.status.to_string(), json],
+                params![req.id, req.status.to_string(), data],
             );
             req_count += 1;
         }

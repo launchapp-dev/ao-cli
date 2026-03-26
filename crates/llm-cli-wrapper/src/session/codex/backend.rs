@@ -34,9 +34,9 @@ impl SessionBackend for CodexSessionBackend {
             supports_terminate: true,
             supports_permissions: true,
             supports_mcp: true,
-            supports_tool_events: false,
+            supports_tool_events: true,
             supports_thinking_events: true,
-            supports_artifact_events: false,
+            supports_artifact_events: true,
             supports_usage_metadata: true,
         }
     }
@@ -100,7 +100,109 @@ mod tests {
 
         assert_eq!(parse_codex_stdout_line(reasoning), vec![SessionEvent::Thinking { text: "thinking".to_string() }]);
         assert_eq!(parse_codex_stdout_line(message), vec![SessionEvent::FinalText { text: "done".to_string() }]);
-        assert!(matches!(parse_codex_stdout_line(completed).first(), Some(SessionEvent::Metadata { .. })));
+        match parse_codex_stdout_line(completed).as_slice() {
+            [SessionEvent::Metadata { metadata }] => {
+                assert_eq!(metadata.get("type").and_then(|value| value.as_str()), Some("codex_usage"));
+                assert_eq!(metadata.pointer("/usage/input_tokens").and_then(|value| value.as_u64()), Some(1));
+                assert_eq!(metadata.pointer("/usage/output_tokens").and_then(|value| value.as_u64()), Some(2));
+                assert!(metadata.get("raw").is_some(), "expected raw Codex usage metadata to be preserved");
+            }
+            other => panic!("expected metadata event, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn codex_parser_emits_tool_call_from_function_call_item() {
+        let line = r#"{"type":"item.completed","item":{"id":"item_2","type":"function_call","call_id":"call_abc","name":"read_file","arguments":"{\"path\":\"/tmp/foo\"}"}}"#;
+        let events = parse_codex_stdout_line(line);
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], SessionEvent::ToolCall { tool_name, .. } if tool_name == "read_file"));
+        if let SessionEvent::ToolCall { arguments, .. } = &events[0] {
+            assert_eq!(arguments.get("path").and_then(|v| v.as_str()), Some("/tmp/foo"));
+        }
+    }
+
+    #[test]
+    fn codex_parser_emits_tool_result_from_function_call_output_item() {
+        let line = r#"{"type":"item.completed","item":{"id":"item_3","type":"function_call_output","call_id":"call_abc","output":"file contents"}}"#;
+        let events = parse_codex_stdout_line(line);
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], SessionEvent::ToolResult { success: true, .. }));
+        if let SessionEvent::ToolResult { tool_name, output, .. } = &events[0] {
+            assert_eq!(tool_name, "call_abc");
+            assert_eq!(output.as_str(), Some("file contents"));
+        }
+    }
+
+    #[test]
+    fn codex_parser_emits_tool_call_from_shell_call_item() {
+        let line = r#"{"type":"item.completed","item":{"id":"item_4","type":"shell_call","call_id":"call_sh1","action":{"type":"exec","command":"ls -la","env":{}}}}"#;
+        let events = parse_codex_stdout_line(line);
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], SessionEvent::ToolCall { tool_name, .. } if tool_name == "shell"));
+        if let SessionEvent::ToolCall { arguments, .. } = &events[0] {
+            assert_eq!(arguments.get("command").and_then(|v| v.as_str()), Some("ls -la"));
+        }
+    }
+
+    #[test]
+    fn codex_parser_emits_tool_result_from_shell_call_output_item() {
+        let line = r#"{"type":"item.completed","item":{"id":"item_5","type":"shell_call_output","call_id":"call_sh1","output":"file1\nfile2\n","metadata":{"exit_code":0}}}"#;
+        let events = parse_codex_stdout_line(line);
+        assert_eq!(events.len(), 1);
+        assert!(
+            matches!(&events[0], SessionEvent::ToolResult { tool_name, success: true, .. } if tool_name == "shell")
+        );
+    }
+
+    #[test]
+    fn codex_parser_shell_call_output_marks_failure_on_nonzero_exit() {
+        let line = r#"{"type":"item.completed","item":{"id":"item_6","type":"shell_call_output","call_id":"call_sh2","output":"error","metadata":{"exit_code":1}}}"#;
+        let events = parse_codex_stdout_line(line);
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], SessionEvent::ToolResult { success: false, .. }));
+    }
+
+    #[test]
+    fn codex_parser_emits_error_from_top_level_error_event() {
+        let line = r#"{"type":"error","error":{"message":"rate limit exceeded","code":"rate_limit"}}"#;
+        let events = parse_codex_stdout_line(line);
+        assert_eq!(events.len(), 1);
+        assert!(
+            matches!(&events[0], SessionEvent::Error { message, recoverable: false } if message == "rate limit exceeded")
+        );
+    }
+
+    #[test]
+    fn codex_parser_emits_error_from_error_item() {
+        let line =
+            r#"{"type":"item.completed","item":{"id":"item_7","type":"error","message":"tool execution failed"}}"#;
+        let events = parse_codex_stdout_line(line);
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], SessionEvent::Error { message, .. } if message == "tool execution failed"));
+    }
+
+    #[test]
+    fn codex_parser_emits_artifact_from_artifact_item() {
+        let line = r#"{"type":"item.completed","item":{"id":"artifact_1","type":"artifact","file_path":"out.txt","mime_type":"text/plain","size_bytes":12}}"#;
+        let events = parse_codex_stdout_line(line);
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            SessionEvent::Artifact { artifact_id, metadata } => {
+                assert_eq!(artifact_id, "artifact_1");
+                assert_eq!(metadata.get("file_path").and_then(|value| value.as_str()), Some("out.txt"));
+                assert_eq!(metadata.get("mime_type").and_then(|value| value.as_str()), Some("text/plain"));
+                assert_eq!(metadata.get("size_bytes").and_then(|value| value.as_u64()), Some(12));
+            }
+            other => panic!("expected artifact event, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn codex_backend_reports_tool_events_capability() {
+        let backend = CodexSessionBackend::new();
+        assert!(backend.capabilities().supports_tool_events);
+        assert!(backend.capabilities().supports_artifact_events);
     }
 
     #[tokio::test]

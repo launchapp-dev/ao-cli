@@ -31,7 +31,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.output.monitor",
-        description = "Monitor output for a run, task, or phase. Purpose: Stream real-time output from running agents. Prerequisites: Run/task/phase must be active. Example: {\"run_id\": \"abc123\"} or {\"task_id\": \"TASK-001\", \"phase_id\": \"implementation\"}. Sequencing: Use after ao.agent.run or ao.workflow.run to monitor progress.",
+        description = "Monitor output for a run, optionally scoped to a task or phase. Purpose: Stream real-time output from running agents. Prerequisites: Run must exist. Example: {\"run_id\": \"abc123\"} or {\"run_id\": \"abc123\", \"task_id\": \"TASK-001\", \"phase_id\": \"implementation\"}. Sequencing: Use after ao.agent.run or ao.workflow.run to monitor progress.",
         input_schema = ao_schema_for_type::<OutputMonitorInput>()
     )]
     async fn ao_output_monitor(&self, params: Parameters<OutputMonitorInput>) -> Result<CallToolResult, McpError> {

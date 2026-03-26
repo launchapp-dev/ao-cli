@@ -145,7 +145,16 @@
       "Bash(npm run:*)",
       "Bash(gh api:*)",
       "Bash(bash /Users/samishukri/.local/bin/ao-fleet-monitor.sh 2>&1)",
-      "Bash(sqlite3 ~/.ao/ao-cli-1222ef9c4f94/workflow.db \"SELECT COUNT\\(*\\) as tasks FROM tasks; SELECT COUNT\\(*\\) as reqs FROM requirements;\")"
+      "Bash(sqlite3 ~/.ao/ao-cli-1222ef9c4f94/workflow.db \"SELECT COUNT\\(*\\) as tasks FROM tasks; SELECT COUNT\\(*\\) as reqs FROM requirements;\")",
+      "Bash(gh search:*)",
+      "Bash(for repo:*)",
+      "Read(//Users/samishukri/ao-cli/$repo/**)",
+      "Bash(rm -rf ~/.ao/storyforge-e8ebd5d21d49/worktrees/)",
+      "Bash(mkdir -p ~/.ao/storyforge-e8ebd5d21d49/worktrees)",
+      "Bash(rm -rf ~/.ao/ao-cli-1222ef9c4f94/worktrees/)",
+      "Bash(mkdir -p ~/.ao/ao-cli-1222ef9c4f94/worktrees)",
+      "Bash(rm -rf ~/.ao/launchapp-sveltekit-51aab1a77fe3/worktrees/)",
+      "Bash(mkdir -p ~/.ao/launchapp-sveltekit-51aab1a77fe3/worktrees)"
     ]
   },
   "enableAllProjectMcpServers": true,

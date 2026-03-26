@@ -4,7 +4,7 @@ use super::*;
 impl AoMcpServer {
     #[tool(
         name = "ao.daemon.start",
-        description = "Start the AO daemon. Purpose: Launch the background daemon for task scheduling and agent management. Prerequisites: None. Example: {} or {\"interval-secs\": 5}. Sequencing: After starting, use ao.daemon.status or ao.daemon.health to verify it's running.",
+        description = "Start the AO daemon. Purpose: Launch the background daemon for task scheduling and agent management. Prerequisites: None. Example: {} or {\"interval_secs\": 5}. Sequencing: After starting, use ao.daemon.status or ao.daemon.health to verify it's running.",
         input_schema = ao_schema_for_type::<DaemonStartInput>()
     )]
     async fn ao_daemon_start(&self, params: Parameters<DaemonStartInput>) -> Result<CallToolResult, McpError> {
@@ -114,7 +114,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.daemon.config-set",
-        description = "Update daemon configuration. Purpose: Persist daemon automation settings and runtime-reconfigurable settings (pool_size, interval_secs, max_tasks_per_tick, auto_run_ready, stale_threshold_hours, phase_timeout_secs, idle_timeout_secs). Runtime settings are hot-reloaded by the running daemon without restart. Prerequisites: None. Example: {\"pool_size\": 4, \"interval_secs\": 10, \"auto_merge\": true}. Sequencing: Use ao.daemon.config to read current values first.",
+        description = "Update daemon configuration. Purpose: Persist daemon automation settings and runtime-reconfigurable settings (pool_size, interval_secs, max_tasks_per_tick, auto_run_ready, stale_threshold_hours, phase_timeout_secs, idle_timeout_secs, notification_config_json, notification_config_file, clear_notification_config). Runtime settings are hot-reloaded by the running daemon without restart. Prerequisites: None. Example: {\"pool_size\": 4, \"interval_secs\": 10, \"auto_run_ready\": true}. Sequencing: Use ao.daemon.config to read current values first.",
         input_schema = ao_schema_for_type::<DaemonConfigSetInput>()
     )]
     async fn ao_daemon_config_set(&self, params: Parameters<DaemonConfigSetInput>) -> Result<CallToolResult, McpError> {

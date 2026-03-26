@@ -386,22 +386,26 @@ fn spawn_autonomous_daemon_run(project_root: &str, args: &DaemonStartArgs) -> Re
         .arg(project_root)
         .arg("daemon")
         .arg("run")
-        .arg("--interval-secs")
-        .arg(args.scheduler.interval_secs.to_string())
-        .arg("--auto-run-ready")
-        .arg(args.scheduler.auto_run_ready.to_string())
         .arg("--startup-cleanup")
         .arg(args.scheduler.startup_cleanup.to_string())
         .arg("--resume-interrupted")
         .arg(args.scheduler.resume_interrupted.to_string())
         .arg("--reconcile-stale")
-        .arg(args.scheduler.reconcile_stale.to_string())
-        .arg("--stale-threshold-hours")
-        .arg(args.scheduler.stale_threshold_hours.to_string())
-        .arg("--max-tasks-per-tick")
-        .arg(args.scheduler.max_tasks_per_tick.to_string());
+        .arg(args.scheduler.reconcile_stale.to_string());
     if let Some(pool_size) = args.scheduler.pool_size {
         command.arg("--pool-size").arg(pool_size.to_string());
+    }
+    if let Some(interval_secs) = args.scheduler.interval_secs {
+        command.arg("--interval-secs").arg(interval_secs.to_string());
+    }
+    if let Some(auto_run_ready) = args.scheduler.auto_run_ready {
+        command.arg("--auto-run-ready").arg(auto_run_ready.to_string());
+    }
+    if let Some(stale_threshold_hours) = args.scheduler.stale_threshold_hours {
+        command.arg("--stale-threshold-hours").arg(stale_threshold_hours.to_string());
+    }
+    if let Some(max_tasks_per_tick) = args.scheduler.max_tasks_per_tick {
+        command.arg("--max-tasks-per-tick").arg(max_tasks_per_tick.to_string());
     }
     command.stdout(Stdio::from(stdout_log)).stderr(Stdio::from(stderr_log)).stdin(Stdio::null());
     if let Some(auto_merge) = args.scheduler.auto_merge {

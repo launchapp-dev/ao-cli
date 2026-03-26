@@ -103,21 +103,29 @@ fn apply_scheduler_overrides_to_pm_config(args: &DaemonRunArgs, project_root: &s
             changed = true;
         }
     }
-    if config.interval_secs != Some(args.scheduler.interval_secs) {
-        config.interval_secs = Some(args.scheduler.interval_secs);
-        changed = true;
+    if let Some(value) = args.scheduler.auto_run_ready {
+        if config.auto_run_ready != Some(value) {
+            config.auto_run_ready = Some(value);
+            changed = true;
+        }
     }
-    if config.max_tasks_per_tick != Some(args.scheduler.max_tasks_per_tick) {
-        config.max_tasks_per_tick = Some(args.scheduler.max_tasks_per_tick);
-        changed = true;
+    if let Some(value) = args.scheduler.interval_secs {
+        if config.interval_secs != Some(value) {
+            config.interval_secs = Some(value);
+            changed = true;
+        }
     }
-    if config.auto_run_ready != Some(args.scheduler.auto_run_ready) {
-        config.auto_run_ready = Some(args.scheduler.auto_run_ready);
-        changed = true;
+    if let Some(value) = args.scheduler.max_tasks_per_tick {
+        if config.max_tasks_per_tick != Some(value) {
+            config.max_tasks_per_tick = Some(value);
+            changed = true;
+        }
     }
-    if config.stale_threshold_hours != Some(args.scheduler.stale_threshold_hours) {
-        config.stale_threshold_hours = Some(args.scheduler.stale_threshold_hours);
-        changed = true;
+    if let Some(value) = args.scheduler.stale_threshold_hours {
+        if config.stale_threshold_hours != Some(value) {
+            config.stale_threshold_hours = Some(value);
+            changed = true;
+        }
     }
     if args.scheduler.phase_timeout_secs.is_some() && config.phase_timeout_secs != args.scheduler.phase_timeout_secs {
         config.phase_timeout_secs = args.scheduler.phase_timeout_secs;
@@ -163,7 +171,6 @@ mod tests {
     use super::*;
     use crate::services::runtime::runtime_daemon::{daemon_events_log_path, DaemonEventRecord};
     use crate::DaemonSchedulerArgs;
-    use std::path::PathBuf;
     use std::sync::MutexGuard;
     use tempfile::TempDir;
 
@@ -189,9 +196,9 @@ mod tests {
         let args = DaemonRunArgs {
             scheduler: DaemonSchedulerArgs {
                 pool_size: None,
-                interval_secs: 1,
+                interval_secs: Some(1),
 
-                auto_run_ready: false,
+                auto_run_ready: Some(false),
                 auto_merge: None,
                 auto_pr: None,
                 auto_commit_before_merge: None,
@@ -199,8 +206,8 @@ mod tests {
                 startup_cleanup: true,
                 resume_interrupted: false,
                 reconcile_stale: false,
-                stale_threshold_hours: 24,
-                max_tasks_per_tick: 1,
+                stale_threshold_hours: Some(24),
+                max_tasks_per_tick: Some(1),
                 phase_timeout_secs: None,
                 idle_timeout_secs: None,
             },
@@ -295,9 +302,9 @@ mod tests {
         let args = DaemonRunArgs {
             scheduler: DaemonSchedulerArgs {
                 pool_size: None,
-                interval_secs: 1,
+                interval_secs: Some(1),
 
-                auto_run_ready: false,
+                auto_run_ready: Some(false),
                 auto_merge: None,
                 auto_pr: None,
                 auto_commit_before_merge: None,
@@ -305,8 +312,8 @@ mod tests {
                 startup_cleanup: false,
                 resume_interrupted: false,
                 reconcile_stale: true,
-                stale_threshold_hours: 24,
-                max_tasks_per_tick: 1,
+                stale_threshold_hours: Some(24),
+                max_tasks_per_tick: Some(1),
                 phase_timeout_secs: None,
                 idle_timeout_secs: None,
             },
@@ -392,9 +399,9 @@ mod tests {
         let args = DaemonRunArgs {
             scheduler: DaemonSchedulerArgs {
                 pool_size: None,
-                interval_secs: 1,
+                interval_secs: Some(1),
 
-                auto_run_ready: true,
+                auto_run_ready: Some(true),
                 auto_merge: None,
                 auto_pr: None,
                 auto_commit_before_merge: None,
@@ -402,8 +409,8 @@ mod tests {
                 startup_cleanup: false,
                 resume_interrupted: false,
                 reconcile_stale: false,
-                stale_threshold_hours: 24,
-                max_tasks_per_tick: 1,
+                stale_threshold_hours: Some(24),
+                max_tasks_per_tick: Some(1),
                 phase_timeout_secs: None,
                 idle_timeout_secs: None,
             },
@@ -488,9 +495,9 @@ mod tests {
         let args = DaemonRunArgs {
             scheduler: DaemonSchedulerArgs {
                 pool_size: None,
-                interval_secs: 1,
+                interval_secs: Some(1),
 
-                auto_run_ready: false,
+                auto_run_ready: Some(false),
                 auto_merge: None,
                 auto_pr: None,
                 auto_commit_before_merge: None,
@@ -498,8 +505,8 @@ mod tests {
                 startup_cleanup: true,
                 resume_interrupted: false,
                 reconcile_stale: false,
-                stale_threshold_hours: 24,
-                max_tasks_per_tick: 1,
+                stale_threshold_hours: Some(24),
+                max_tasks_per_tick: Some(1),
                 phase_timeout_secs: None,
                 idle_timeout_secs: None,
             },
@@ -520,5 +527,56 @@ mod tests {
             .collect();
 
         assert!(events.iter().any(|event| event.event_type == "notification-delivery-dead-lettered"));
+    }
+
+    #[test]
+    fn daemon_run_does_not_clobber_auto_run_ready_when_omitted() {
+        let _lock = lock_env();
+
+        let config_root = TempDir::new().expect("config temp dir");
+        let home_root = TempDir::new().expect("home temp dir");
+        let _config_guard = EnvVarGuard::set("AO_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
+        let _home_guard = EnvVarGuard::set("HOME", Some(home_root.path().to_string_lossy().as_ref()));
+        let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
+
+        let project_root = TempDir::new().expect("project dir");
+        let config = orchestrator_core::DaemonProjectConfig {
+            auto_run_ready: Some(false),
+            interval_secs: Some(11),
+            max_tasks_per_tick: Some(7),
+            stale_threshold_hours: Some(42),
+            ..Default::default()
+        };
+        orchestrator_core::write_daemon_project_config(project_root.path(), &config).expect("seed daemon config");
+
+        let args = DaemonRunArgs {
+            scheduler: DaemonSchedulerArgs {
+                pool_size: None,
+                interval_secs: None,
+                auto_run_ready: None,
+                auto_merge: None,
+                auto_pr: None,
+                auto_commit_before_merge: None,
+                auto_prune_worktrees_after_merge: None,
+                startup_cleanup: true,
+                resume_interrupted: true,
+                reconcile_stale: true,
+                stale_threshold_hours: None,
+                max_tasks_per_tick: None,
+                phase_timeout_secs: None,
+                idle_timeout_secs: None,
+            },
+            skip_runner: true,
+            runner_scope: None,
+            once: true,
+        };
+
+        apply_scheduler_overrides_to_pm_config(&args, project_root.path().to_string_lossy().as_ref());
+
+        let loaded = orchestrator_core::load_daemon_project_config(project_root.path()).expect("load daemon config");
+        assert_eq!(loaded.auto_run_ready, Some(false));
+        assert_eq!(loaded.interval_secs, Some(11));
+        assert_eq!(loaded.max_tasks_per_tick, Some(7));
+        assert_eq!(loaded.stale_threshold_hours, Some(42));
     }
 }

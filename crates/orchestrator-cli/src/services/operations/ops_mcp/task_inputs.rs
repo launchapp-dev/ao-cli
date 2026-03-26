@@ -97,6 +97,7 @@ pub(super) struct TaskDeleteInput {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub(super) struct TaskControlInput {
+    #[serde(alias = "task_id")]
     pub(super) id: String,
     #[serde(default)]
     pub(super) project_root: Option<String>,
@@ -182,6 +183,7 @@ pub(super) struct TaskBulkUpdateInput {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub(super) struct TaskCancelInput {
+    #[serde(alias = "task_id")]
     pub(super) id: String,
     #[serde(default)]
     pub(super) confirm: Option<String>,
@@ -193,6 +195,7 @@ pub(super) struct TaskCancelInput {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub(super) struct TaskSetPriorityInput {
+    #[serde(alias = "task_id")]
     pub(super) id: String,
     pub(super) priority: String,
     #[serde(default)]
@@ -201,6 +204,7 @@ pub(super) struct TaskSetPriorityInput {
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub(super) struct TaskSetDeadlineInput {
+    #[serde(alias = "task_id")]
     pub(super) id: String,
     #[serde(default)]
     pub(super) deadline: Option<String>,
@@ -223,4 +227,32 @@ pub(super) struct TaskChecklistUpdateInput {
     pub(super) completed: bool,
     #[serde(default)]
     pub(super) project_root: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn task_control_inputs_accept_task_id_aliases() {
+        let control: TaskControlInput =
+            serde_json::from_value(json!({ "task_id": "TASK-1" })).expect("task control alias should deserialize");
+        assert_eq!(control.id, "TASK-1");
+
+        let cancel: TaskCancelInput =
+            serde_json::from_value(json!({ "task_id": "TASK-2" })).expect("task cancel alias should deserialize");
+        assert_eq!(cancel.id, "TASK-2");
+
+        let priority: TaskSetPriorityInput = serde_json::from_value(json!({
+            "task_id": "TASK-3",
+            "priority": "critical"
+        }))
+        .expect("task priority alias should deserialize");
+        assert_eq!(priority.id, "TASK-3");
+
+        let deadline: TaskSetDeadlineInput =
+            serde_json::from_value(json!({ "task_id": "TASK-4" })).expect("task deadline alias should deserialize");
+        assert_eq!(deadline.id, "TASK-4");
+    }
 }

@@ -1669,6 +1669,45 @@ fn build_output_tail_result_includes_structured_tool_and_metadata_events_when_re
 }
 
 #[test]
+fn build_output_tail_result_surfaces_stderr_as_error_when_output_not_requested() {
+    let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+    let temp = TempDir::new().expect("tempdir should be created");
+    let _home_guard = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
+    let project_root = temp.path().join("project");
+    std::fs::create_dir_all(&project_root).expect("project dir should exist");
+    let root = project_root.to_string_lossy().to_string();
+    let run_id = "wf-stderr-as-error-phase-0-k7";
+    write_run_events(
+        root.as_str(),
+        run_id,
+        &[
+            output_event_with_stream(run_id, "provider warning", protocol::OutputStreamType::Stderr),
+            output_event_with_stream(run_id, "assistant text", protocol::OutputStreamType::Stdout),
+        ],
+    );
+
+    let result = build_output_tail_result(
+        root.as_str(),
+        OutputTailInput {
+            run_id: Some(run_id.to_string()),
+            task_id: None,
+            limit: Some(10),
+            event_types: Some(vec!["error".to_string()]),
+            project_root: None,
+        },
+    )
+    .expect("tail result should build");
+
+    assert_eq!(result.get("count").and_then(Value::as_u64), Some(1));
+    let events = result.get("events").and_then(Value::as_array).expect("events should be an array");
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].get("event_type").and_then(Value::as_str), Some("error"));
+    assert_eq!(events[0].get("source_kind").and_then(Value::as_str), Some("stderr"));
+    assert_eq!(events[0].get("stream_type").and_then(Value::as_str), Some("stderr"));
+    assert_eq!(events[0].get("text").and_then(Value::as_str), Some("provider warning"));
+}
+
+#[test]
 fn build_output_tail_result_applies_filter_and_limit_in_order() {
     let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
     let temp = TempDir::new().expect("tempdir should be created");

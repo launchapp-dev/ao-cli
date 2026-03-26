@@ -334,16 +334,9 @@ async fn forward_session_event(
         }
         SessionEvent::Metadata { metadata } => {
             let (tokens, cost) = summarize_metadata(metadata);
-            if tokens.is_some() || cost.is_some() {
-                let _ = event_tx
-                    .send(AgentRunEvent::Metadata {
-                        run_id: run_id.clone(),
-                        cost,
-                        tokens,
-                        data: Some(metadata.clone()),
-                    })
-                    .await;
-            }
+            let _ = event_tx
+                .send(AgentRunEvent::Metadata { run_id: run_id.clone(), cost, tokens, data: Some(metadata.clone()) })
+                .await;
             None
         }
         SessionEvent::Error { message, recoverable } => {
@@ -368,7 +361,7 @@ async fn forward_session_event(
                     "Failed to remove native session process from orphan tracker"
                 );
             }
-            Some(exit_code.unwrap_or(0))
+            Some(exit_code.unwrap_or(-1))
         }
     }
 }
@@ -756,6 +749,42 @@ mod tests {
             assert!(saw_output, "expected output for {tool}");
             assert_eq!(saw_thinking, expect_thinking, "unexpected thinking signal for {tool}");
         }
+    }
+
+    #[tokio::test]
+    async fn forward_session_event_preserves_raw_metadata_without_usage_summary() {
+        let run_id = RunId("run-metadata-only".to_string());
+        let (event_tx, mut event_rx) = mpsc::channel(8);
+        let raw_metadata = json!({
+            "type": "rate_limit_event",
+            "rate_limit_info": { "status": "allowed" },
+            "session_id": "session-123"
+        });
+
+        let exit_code =
+            forward_session_event(&run_id, &SessionEvent::Metadata { metadata: raw_metadata.clone() }, &event_tx).await;
+
+        assert!(exit_code.is_none(), "metadata should not terminate the run");
+
+        let emitted = event_rx.recv().await.expect("metadata event should be forwarded");
+        match emitted {
+            AgentRunEvent::Metadata { cost, tokens, data, .. } => {
+                assert!(cost.is_none(), "non-usage metadata should not synthesize cost");
+                assert!(tokens.is_none(), "non-usage metadata should not synthesize tokens");
+                assert_eq!(data, Some(raw_metadata));
+            }
+            other => panic!("expected metadata event, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn forward_session_event_treats_missing_exit_code_as_failure() {
+        let run_id = RunId("run-missing-exit".to_string());
+        let (event_tx, _event_rx) = mpsc::channel(1);
+
+        let exit_code = forward_session_event(&run_id, &SessionEvent::Finished { exit_code: None }, &event_tx).await;
+
+        assert_eq!(exit_code, Some(-1));
     }
 
     #[tokio::test]

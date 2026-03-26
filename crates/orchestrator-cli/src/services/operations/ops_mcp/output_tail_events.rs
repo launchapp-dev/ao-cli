@@ -66,17 +66,29 @@ fn output_stream_type_label(stream_type: OutputStreamType) -> &'static str {
 fn normalize_tail_event(event: AgentRunEvent, event_types: &[OutputTailEventType]) -> Option<OutputTailEventRecord> {
     match event {
         AgentRunEvent::OutputChunk { run_id, stream_type, text } => {
-            if !event_types.contains(&OutputTailEventType::Output) {
-                return None;
+            let wants_output = event_types.contains(&OutputTailEventType::Output);
+            let wants_error = event_types.contains(&OutputTailEventType::Error);
+            if wants_output {
+                return Some(OutputTailEventRecord {
+                    event_type: OutputTailEventType::Output.as_str().to_string(),
+                    run_id: run_id.0,
+                    text,
+                    source_kind: "output_chunk".to_string(),
+                    stream_type: Some(output_stream_type_label(stream_type).to_string()),
+                    data: None,
+                });
             }
-            Some(OutputTailEventRecord {
-                event_type: OutputTailEventType::Output.as_str().to_string(),
-                run_id: run_id.0,
-                text,
-                source_kind: "output_chunk".to_string(),
-                stream_type: Some(output_stream_type_label(stream_type).to_string()),
-                data: None,
-            })
+            if wants_error && matches!(stream_type, OutputStreamType::Stderr) {
+                return Some(OutputTailEventRecord {
+                    event_type: OutputTailEventType::Error.as_str().to_string(),
+                    run_id: run_id.0,
+                    text,
+                    source_kind: "stderr".to_string(),
+                    stream_type: Some("stderr".to_string()),
+                    data: None,
+                });
+            }
+            None
         }
         AgentRunEvent::Error { run_id, error } => {
             if !event_types.contains(&OutputTailEventType::Error) {

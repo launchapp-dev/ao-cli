@@ -15,9 +15,19 @@ pub fn scoped_state_root(project_root: &Path) -> Option<PathBuf> {
         if let Err(_) = std::fs::create_dir_all(&scope_dir) {
             return Some(scope_dir);
         }
+    }
+
+    let origin_file = scope_dir.join(".git-origin");
+    if !origin_file.exists() {
         if let Some(origin) = git_remote_origin(project_root) {
-            let _ = std::fs::write(scope_dir.join(".git-origin"), origin);
+            let _ = std::fs::write(&origin_file, &origin);
         }
+    }
+
+    let project_root_file = scope_dir.join(".project-root");
+    if !project_root_file.exists() {
+        let canonical = project_root.canonicalize().unwrap_or_else(|_| project_root.to_path_buf());
+        let _ = std::fs::write(&project_root_file, canonical.to_string_lossy().as_bytes());
     }
 
     Some(scope_dir)

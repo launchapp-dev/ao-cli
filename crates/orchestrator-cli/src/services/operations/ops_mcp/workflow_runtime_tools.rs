@@ -181,7 +181,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "ao.workflow.phase.approve",
-        description = "Approve a gated workflow phase. Purpose: Unblock gate phases that require manual approval before proceeding. Prerequisites: Workflow must have a pending gate phase. Example: {\"workflow_id\": \"wf-abc123\"} or {\"workflow_id\": \"wf-abc123\", \"phase_id\": \"po-review\", \"feedback\": \"Approved\"}. Sequencing: Use ao.workflow.get first to see pending gates, then ao.workflow.phase.approve to unblock.",
+        description = "Approve a gated workflow phase. Purpose: Unblock gate phases that require manual approval before proceeding. Prerequisites: Workflow must have a pending gate phase. Example: {\"workflow_id\": \"wf-abc123\", \"phase_id\": \"po-review\"} or {\"workflow_id\": \"wf-abc123\", \"phase_id\": \"po-review\", \"feedback\": \"Approved\"}. Sequencing: Use ao.workflow.get first to see pending gates, then ao.workflow.phase.approve to unblock.",
         input_schema = ao_schema_for_type::<WorkflowPhaseApproveInput>()
     )]
     async fn ao_workflow_phase_approve(
@@ -189,15 +189,53 @@ impl AoMcpServer {
         params: Parameters<WorkflowPhaseApproveInput>,
     ) -> Result<CallToolResult, McpError> {
         let input = params.0;
-        let mut args = vec![
-            "workflow".to_string(),
-            "phase".to_string(),
-            "approve".to_string(),
-            "--id".to_string(),
-            input.workflow_id,
-        ];
-        push_opt(&mut args, "--phase-id", input.phase_id);
-        push_opt(&mut args, "--feedback", input.feedback);
+        let args = build_workflow_phase_approve_args(&input);
         self.run_tool("ao.workflow.phase.approve", args, input.project_root).await
+    }
+}
+
+fn build_workflow_phase_approve_args(input: &WorkflowPhaseApproveInput) -> Vec<String> {
+    let mut args = vec![
+        "workflow".to_string(),
+        "phase".to_string(),
+        "approve".to_string(),
+        "--id".to_string(),
+        input.workflow_id.clone(),
+    ];
+    args.push("--phase".to_string());
+    args.push(input.phase_id.clone());
+    push_opt(&mut args, "--note", input.feedback.clone());
+    args
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_workflow_phase_approve_args_uses_cli_flags() {
+        let input = WorkflowPhaseApproveInput {
+            workflow_id: "wf-123".to_string(),
+            phase_id: "review".to_string(),
+            feedback: Some("Approved".to_string()),
+            project_root: None,
+        };
+
+        let args = build_workflow_phase_approve_args(&input);
+
+        assert_eq!(
+            args,
+            vec![
+                "workflow".to_string(),
+                "phase".to_string(),
+                "approve".to_string(),
+                "--id".to_string(),
+                "wf-123".to_string(),
+                "--phase".to_string(),
+                "review".to_string(),
+                "--note".to_string(),
+                "Approved".to_string(),
+            ]
+        );
     }
 }

@@ -10,7 +10,7 @@ Every tool accepts an optional `project_root` parameter to override the default 
 
 | Tool | Description | Key Parameters |
 |---|---|---|
-| `ao.agent.run` | Launch an AI agent to execute work | `tool`, `model`, `prompt`, `task_id`, `project_root` |
+| `ao.agent.run` | Launch an AI agent to execute work | `tool`, `model`, `prompt`, `cwd`, `timeout_secs`, `context_json`, `runtime_contract_json`, `detach`, `run_id`, `runner_scope`, `project_root` |
 | `ao.agent.control` | Control a running agent (pause/resume/terminate) | `run_id`, `action` (`pause`, `resume`, `terminate`), `runner_scope` |
 | `ao.agent.status` | Get status of an agent run | `run_id`, `runner_scope` |
 
@@ -20,7 +20,7 @@ Every tool accepts an optional `project_root` parameter to override the default 
 
 | Tool | Description | Key Parameters |
 |---|---|---|
-| `ao.daemon.start` | Start the AO daemon for task scheduling and agent management | `interval_secs`, `autonomous`, `project_root` |
+| `ao.daemon.start` | Start the AO daemon for task scheduling and agent management | `pool_size` (alias: `max_agents`), `interval_secs`, `auto_run_ready`, `auto_merge`, `auto_pr`, `auto_commit_before_merge`, `auto_prune_worktrees_after_merge`, `startup_cleanup`, `resume_interrupted`, `reconcile_stale`, `stale_threshold_hours`, `max_tasks_per_tick`, `phase_timeout_secs`, `idle_timeout_secs`, `skip_runner`, `autonomous`, `runner_scope`, `project_root` |
 | `ao.daemon.stop` | Stop the daemon gracefully | `project_root` |
 | `ao.daemon.status` | Check if daemon is running and view basic state | `project_root` |
 | `ao.daemon.health` | Get detailed health metrics (active agents, queue, capacity) | `project_root` |
@@ -30,7 +30,7 @@ Every tool accepts an optional `project_root` parameter to override the default 
 | `ao.daemon.agents` | List currently running agent tasks and their status | `project_root` |
 | `ao.daemon.logs` | Read daemon process log file | `limit`, `search`, `project_root` |
 | `ao.daemon.config` | Read current daemon automation settings | `project_root` |
-| `ao.daemon.config-set` | Update daemon automation settings | `auto_merge`, `auto_pr`, `auto_commit_before_merge`, `auto_prune_worktrees_after_merge`, `auto_run_ready`, `project_root` |
+| `ao.daemon.config-set` | Update daemon automation settings and notification config | `auto_merge`, `auto_pr`, `auto_commit_before_merge`, `auto_prune_worktrees_after_merge`, `auto_run_ready`, `pool_size` (alias: `max_agents`), `interval_secs`, `max_tasks_per_tick`, `stale_threshold_hours`, `phase_timeout_secs`, `idle_timeout_secs`, `notification_config_json`, `notification_config_file`, `clear_notification_config`, `project_root` |
 
 ---
 
@@ -51,16 +51,16 @@ Every tool accepts an optional `project_root` parameter to override the default 
 
 | Tool | Description | Key Parameters |
 |---|---|---|
-| `ao.task.create` | Create a new task | `title`, `description`, `priority`, `task_type`, `tags[]`, `linked_requirement[]`, `assignee` |
+| `ao.task.create` | Create a new task | `title`, `description`, `priority`, `task_type`, `linked_requirement[]`, `linked_architecture_entity[]`, `project_root` |
 | `ao.task.update` | Update task fields | `id`, `title`, `description`, `priority`, `status`, `assignee`, `linked_architecture_entity[]`, `replace_linked_architecture_entities`, `input_json` |
 | `ao.task.delete` | Delete a task (destructive) | `id`, `confirm`, `dry_run` |
 | `ao.task.status` | Update task status | `id`, `status` |
 | `ao.task.assign` | Assign task to user or agent | `id`, `assignee`, `assignee_type`, `agent_role`, `model` |
-| `ao.task.pause` | Pause a running task | `task_id` |
-| `ao.task.resume` | Resume a paused task | `task_id` |
-| `ao.task.cancel` | Cancel a task | `task_id`, `confirm`, `dry_run` |
-| `ao.task.set-priority` | Set task priority | `task_id`, `priority` |
-| `ao.task.set-deadline` | Set or clear task deadline | `task_id`, `deadline` |
+| `ao.task.pause` | Pause a running task | `id` |
+| `ao.task.resume` | Resume a paused task | `id` |
+| `ao.task.cancel` | Cancel a task | `id`, `confirm`, `dry_run` |
+| `ao.task.set-priority` | Set task priority | `id`, `priority` |
+| `ao.task.set-deadline` | Set or clear task deadline | `id`, `deadline` |
 | `ao.task.checklist-add` | Add a checklist item to a task | `id`, `description` |
 | `ao.task.checklist-update` | Toggle checklist item completion | `id`, `item_id`, `completed` |
 | `ao.task.bulk-status` | Batch-update status for multiple tasks | `updates[]` (each: `id`, `status`), `on_error` |
@@ -78,7 +78,7 @@ Every tool accepts an optional `project_root` parameter to override the default 
 | `ao.workflow.run-multiple` | Batch-run workflows for multiple tasks | `runs[]` (each: `task_id`, `workflow_ref`, `input_json`), `on_error` |
 | `ao.workflow.execute` | Execute a workflow synchronously (no daemon) | `task_id`, `workflow_ref`, `phase`, `model`, `tool`, `phase_timeout_secs`, `input_json` |
 | `ao.workflow.get` | Get full workflow state by ID | `id` |
-| `ao.workflow.list` | List workflow executions | `limit`, `offset`, `max_tokens` |
+| `ao.workflow.list` | List workflow executions | `status`, `workflow_ref`, `task_id`, `phase_id`, `search`, `sort`, `limit`, `offset`, `max_tokens` |
 | `ao.workflow.pause` | Pause a running workflow | `id`, `confirm`, `dry_run` |
 | `ao.workflow.cancel` | Cancel a running workflow permanently | `id`, `confirm`, `dry_run` |
 | `ao.workflow.resume` | Resume a paused workflow | `id` |
@@ -112,7 +112,7 @@ Every tool accepts an optional `project_root` parameter to override the default 
 | `ao.requirements.create` | Create a new requirement | `title`, `description`, `priority`, `acceptance_criterion[]` |
 | `ao.requirements.update` | Update requirement fields | `id`, `title`, `description`, `priority`, `status`, `acceptance_criterion[]` |
 | `ao.requirements.delete` | Delete a requirement | `id` |
-| `ao.requirements.refine` | Refine requirements with optional AI assistance | `id[]`, `focus` |
+| `ao.requirements.refine` | Refine requirements with optional AI assistance | `id[]`, `focus`, `use_ai`, `tool`, `model`, `timeout_secs`, `start_runner`, `input_json` |
 
 ---
 
@@ -136,7 +136,7 @@ Every tool accepts an optional `project_root` parameter to override the default 
 |---|---|---|
 | `ao.output.run` | Get stdout/stderr from an agent execution | `run_id` |
 | `ao.output.tail` | Get most recent output/error/thinking events | `run_id`, `task_id`, `event_types[]`, `limit` |
-| `ao.output.monitor` | Stream real-time output from a running agent | `run_id`, `task_id`, `phase_id` |
+| `ao.output.monitor` | Stream real-time output from a run, optionally scoped by task or phase | `run_id`, `task_id`, `phase_id` |
 | `ao.output.jsonl` | Get structured JSONL event log | `run_id`, `entries` |
 | `ao.output.artifacts` | Get files generated during execution | `execution_id` |
 | `ao.output.phase-outputs` | Get persisted workflow phase outputs | `workflow_id`, `phase_id`, `project_root` |

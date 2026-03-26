@@ -8,18 +8,18 @@ For the full tool table with parameters, see [MCP Tools Reference](../reference/
 
 ## Overview
 
-AO exposes ~69 MCP tools organized into 8 groups:
+AO exposes 73 MCP tools organized into 8 groups:
 
 | Group | Tools | Purpose |
 |-------|-------|---------|
 | `ao.task.*` | 20 | Task lifecycle management |
-| `ao.workflow.*` | 14 | Workflow execution and control |
+| `ao.workflow.*` | 16 | Workflow execution and control |
 | `ao.daemon.*` | 11 | Background scheduler management |
 | `ao.requirements.*` | 6 | Requirements tracking |
-| `ao.queue.*` | 6 | Dispatch queue management |
+| `ao.queue.*` | 7 | Dispatch queue management |
 | `ao.output.*` | 6 | Agent output and monitoring |
 | `ao.agent.*` | 3 | Direct agent execution |
-| `ao.runner.*` | 3 | Runner process health |
+| `ao.runner.*` | 4 | Runner process health |
 
 Every tool accepts an optional `project_root` parameter to specify which project to operate on. If omitted, the current working directory is used.
 
@@ -38,7 +38,7 @@ Tasks are the primary unit of work. Each task has an ID (e.g., `TASK-001`), titl
   "description": "Implement exponential backoff for rate-limited responses",
   "priority": "high",
   "task_type": "feature",
-  "tags": ["http", "resilience"]
+  "linked_requirement": ["REQ-001"]
 }
 ```
 
@@ -78,10 +78,10 @@ Tasks are the primary unit of work. Each task has an ID (e.g., `TASK-001`), titl
 { "id": "TASK-001", "assignee": "agent:claude", "assignee_type": "agent", "model": "claude-sonnet-4-6" }
 
 // ao.task.set-priority
-{ "task_id": "TASK-001", "priority": "critical" }
+{ "id": "TASK-001", "priority": "critical" }
 
 // ao.task.set-deadline — set or clear (omit deadline to clear)
-{ "task_id": "TASK-001", "deadline": "2026-03-15" }
+{ "id": "TASK-001", "deadline": "2026-03-15T09:30:00Z" }
 ```
 
 ### Checklists
@@ -98,13 +98,13 @@ Tasks are the primary unit of work. Each task has an ID (e.g., `TASK-001`), titl
 
 ```json
 // ao.task.pause — prevents daemon from scheduling
-{ "task_id": "TASK-001" }
+{ "id": "TASK-001" }
 
 // ao.task.resume — re-enables scheduling
-{ "task_id": "TASK-001" }
+{ "id": "TASK-001" }
 
 // ao.task.cancel — permanently cancel
-{ "task_id": "TASK-001", "confirm": "yes" }
+{ "id": "TASK-001", "confirm": "yes" }
 ```
 
 ### Bulk Operations
@@ -227,7 +227,7 @@ The daemon is the background scheduler that picks up ready tasks, dispatches wor
 {
   "autonomous": true,
   "interval_secs": 5,
-  "max_agents": 3,
+  "pool_size": 3,
   "auto_run_ready": true,
   "phase_timeout_secs": 1800
 }
@@ -276,7 +276,8 @@ The daemon is the background scheduler that picks up ready tasks, dispatches wor
   "auto_pr": true,
   "auto_commit_before_merge": true,
   "auto_prune_worktrees_after_merge": true,
-  "auto_run_ready": true
+  "auto_run_ready": true,
+  "notification_config_file": ".ao/notification-config.json"
 }
 ```
 
@@ -320,6 +321,9 @@ View what agents have produced during execution.
 
 // ao.output.monitor — stream live output
 { "run_id": "abc123" }
+
+// ao.output.monitor — scope to a task and phase
+{ "run_id": "abc123", "task_id": "TASK-001", "phase_id": "implementation" }
 
 // ao.output.jsonl — structured event log
 { "run_id": "abc123", "entries": true }
@@ -386,6 +390,9 @@ The dispatch queue controls the order in which the daemon picks up work.
 // ao.queue.release — resume dispatch eligibility
 { "subject_id": "TASK-001" }
 
+// ao.queue.drop — remove a queued subject entirely
+{ "subject_id": "TASK-004" }
+
 // ao.queue.reorder — set preferred dispatch order
 { "subject_ids": ["TASK-003", "TASK-001", "TASK-002"] }
 ```
@@ -402,6 +409,9 @@ The runner is a separate process that spawns CLI tools. It's managed by the daem
 
 // ao.runner.orphans-detect — find leaked processes
 {}
+
+// ao.runner.orphans-cleanup — clean up leaked processes by run id
+{ "run_id": ["run-123", "run-456"] }
 
 // ao.runner.restart-stats — uptime and restart history
 {}

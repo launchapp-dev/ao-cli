@@ -100,9 +100,9 @@ pub(super) struct WorkflowExecuteInput {
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub(super) struct WorkflowPhaseApproveInput {
     pub(super) workflow_id: String,
-    #[serde(default)]
-    pub(super) phase_id: Option<String>,
-    #[serde(default)]
+    #[serde(alias = "phase")]
+    pub(super) phase_id: String,
+    #[serde(default, alias = "note")]
     pub(super) feedback: Option<String>,
     #[serde(default)]
     pub(super) project_root: Option<String>,

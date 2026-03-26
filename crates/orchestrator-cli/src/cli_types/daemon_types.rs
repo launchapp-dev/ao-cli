@@ -45,18 +45,16 @@ pub(crate) struct DaemonSchedulerArgs {
     #[arg(
         long,
         value_name = "SECONDS",
-        default_value_t = 5,
         value_parser = parse_positive_u64,
-        help = "Housekeeping timer interval in seconds (agent scheduling is reactive)."
+        help = "Housekeeping timer interval in seconds (agent scheduling is reactive). When omitted, the daemon uses persisted config or built-in defaults."
     )]
-    pub(crate) interval_secs: u64,
+    pub(crate) interval_secs: Option<u64>,
     #[arg(
         long,
         action = ArgAction::Set,
-        default_value_t = true,
-        help = "Automatically run ready tasks."
+        help = "Enable or disable automatic dispatch of ready tasks. When omitted, the daemon uses persisted config or workflow YAML defaults."
     )]
-    pub(crate) auto_run_ready: bool,
+    pub(crate) auto_run_ready: Option<bool>,
     #[arg(
         long,
         action = ArgAction::Set,
@@ -105,19 +103,17 @@ pub(crate) struct DaemonSchedulerArgs {
     #[arg(
         long,
         value_name = "HOURS",
-        default_value_t = 24,
         value_parser = parse_positive_u64,
-        help = "Flag in-progress tasks as stale when updated_at age is at least this many hours."
+        help = "Flag in-progress tasks as stale when updated_at age is at least this many hours. When omitted, the daemon uses persisted config or built-in defaults."
     )]
-    pub(crate) stale_threshold_hours: u64,
+    pub(crate) stale_threshold_hours: Option<u64>,
     #[arg(
         long,
         value_name = "COUNT",
-        default_value_t = 2,
         value_parser = parse_positive_usize,
-        help = "Maximum new workflows to dispatch per scheduler tick."
+        help = "Maximum new workflows to dispatch per scheduler tick. When omitted, the daemon uses persisted config or built-in defaults."
     )]
-    pub(crate) max_tasks_per_tick: usize,
+    pub(crate) max_tasks_per_tick: Option<usize>,
     #[arg(
         long,
         value_name = "SECONDS",

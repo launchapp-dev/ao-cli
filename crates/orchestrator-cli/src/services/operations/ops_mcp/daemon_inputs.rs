@@ -91,5 +91,11 @@ pub(super) struct DaemonConfigSetInput {
     #[serde(default)]
     pub(super) idle_timeout_secs: Option<u64>,
     #[serde(default)]
+    pub(super) notification_config_json: Option<String>,
+    #[serde(default)]
+    pub(super) notification_config_file: Option<String>,
+    #[serde(default)]
+    pub(super) clear_notification_config: bool,
+    #[serde(default)]
     pub(super) project_root: Option<String>,
 }

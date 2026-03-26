@@ -16,271 +16,246 @@ Complete reference of every `ao` command, subcommand, and key flag. This tree is
 ```
 ao
 ├── version                  Show installed ao version
-├── status                   Unified project status dashboard
-├── setup                    Guided onboarding wizard
-├── doctor                   Environment diagnostics (--fix)
-├── tui                      Interactive terminal UI
-│
-├── daemon                   Daemon lifecycle & automation
-│   ├── start                Start daemon (detached/background)
-│   ├── run                  Run daemon in foreground
-│   ├── stop                 Stop daemon
-│   ├── status               Show daemon status
-│   ├── health               Show daemon health
-│   ├── pause                Pause scheduler
-│   ├── resume               Resume scheduler
-│   ├── events               Stream event history
+├── daemon                   Manage daemon lifecycle and automation settings
+│   ├── start                Start the daemon in detached/background mode
+│   ├── run                  Run the daemon in the current foreground process
+│   ├── stop                 Stop the running daemon
+│   ├── status               Show daemon runtime status
+│   ├── health               Show daemon health diagnostics
+│   ├── pause                Pause daemon scheduling
+│   ├── resume               Resume daemon scheduling
+│   ├── events               Stream or tail daemon event history
 │   ├── logs                 Read daemon logs
+│   ├── stream               Stream structured log events in real-time across daemon, workflows, and runs
 │   ├── clear-logs           Clear daemon logs
 │   ├── agents               List daemon-managed agents
-│   └── config               Update automation config
+│   └── config               Update daemon automation configuration
 │
-├── agent                    Agent execution
+├── agent                    Run and inspect agent executions
 │   ├── run                  Start an agent run
-│   ├── control              Control agent (pause/resume/terminate)
-│   ├── status               Get run status
-│   ├── model-status         Check model availability
-│   └── runner-status        Inspect runner availability
+│   ├── control              Control an existing agent run
+│   └── status               Read status for a run id
 │
-├── project                  Project management
+├── project                  Manage project registration and metadata
 │   ├── list                 List registered projects
-│   ├── active               Show active project
-│   ├── get                  Get project by id
-│   ├── create               Create project
-│   ├── load                 Set active project
-│   ├── rename               Rename project
-│   ├── archive              Archive project
-│   └── remove               Remove project
+│   ├── active               Show the active project
+│   ├── get                  Get a project by id
+│   ├── create               Create a new project entry
+│   ├── load                 Mark a project as active
+│   ├── rename               Rename a project
+│   ├── archive              Archive a project
+│   └── remove               Remove a project
 │
-├── queue                     Inspect and mutate the daemon dispatch queue
+├── queue                    Inspect and mutate the daemon dispatch queue
 │   ├── list                 List queued dispatches
 │   ├── stats                Show queue statistics
-│   ├── enqueue              Enqueue a task-backed subject dispatch
+│   ├── enqueue              Enqueue a subject dispatch for a task, requirement, or custom title
 │   ├── hold                 Hold a queued subject
 │   ├── release              Release a held queued subject
-│   ├── drop                 Drop (remove) a queued subject dispatch
+│   ├── drop                 Drop (remove) a queued subject dispatch regardless of status
 │   └── reorder              Reorder queued subjects by subject id
 │
-├── task                     Task management
-│   ├── list                 List tasks (filterable)
-│   ├── prioritized          Tasks sorted by priority
-│   ├── next                 Get next ready task
-│   ├── stats                Task statistics
-│   ├── get                  Get task by id
-│   ├── create               Create task
-│   ├── update               Update task
-│   ├── delete               Delete task (confirmation)
-│   ├── assign               Assign task to a user or agent
-│   ├── checklist-add        Add checklist item
-│   ├── checklist-update     Toggle checklist item
-│   ├── dependency-add       Add dependency edge
-│   ├── dependency-remove    Remove dependency edge
+├── task                     Manage tasks, dependencies, status, and operational controls
+│   ├── list                 List tasks with optional filters
+│   ├── prioritized          List tasks sorted by priority/urgency
+│   ├── next                 Get the next ready task
+│   ├── stats                Show task statistics
+│   ├── get                  Get a task by id
+│   ├── create               Create a task
+│   ├── update               Update a task
+│   ├── delete               Delete a task (confirmation required)
+│   ├── assign               Assign an assignee to a task
+│   ├── checklist-add        Add a checklist item
+│   ├── checklist-update     Mark a checklist item complete/incomplete
+│   ├── dependency-add       Add a task dependency edge
+│   ├── dependency-remove    Remove a task dependency edge
 │   ├── status               Set task status
-│   ├── history              Show workflow dispatch history
-│   ├── pause                Pause task
-│   ├── resume               Resume paused task
-│   ├── cancel               Cancel task (confirmation)
+│   ├── history              Show workflow dispatch history for a task
+│   ├── pause                Pause a task
+│   ├── resume               Resume a paused task
+│   ├── cancel               Cancel a task (confirmation required)
+│   ├── reopen               Reopen a task from terminal state (Done/Cancelled) back to Backlog
 │   ├── set-priority         Set task priority
-│   ├── set-deadline         Set/clear task deadline
-│   └── rebalance-priority   Rebalance priorities by budget
+│   ├── set-deadline         Set or clear task deadline
+│   └── rebalance-priority   Rebalance task priorities using a high-priority budget policy
 │
-├── workflow                 Workflow execution & config
+├── workflow                 Run and control workflow execution
 │   ├── list                 List workflows
 │   ├── get                  Get workflow details
 │   ├── decisions            Show workflow decisions
-│   ├── run                  Start workflow (async, daemon)
-│   ├── execute              Execute workflow (sync, no daemon)
-│   ├── resume               Resume paused workflow
-│   ├── resume-status        Check resumability
-│   ├── pause                Pause workflow (confirmation)
-│   ├── cancel               Cancel workflow (confirmation)
-│   ├── update-definition    Update workflow definition by id
 │   ├── checkpoints
-│   │   ├── list             List checkpoints
-│   │   ├── get              Get checkpoint
-│   │   └── prune            Prune checkpoints
+│   │   ├── list             List checkpoints for a workflow
+│   │   ├── get              Get a specific checkpoint for a workflow
+│   │   └── prune            Prune checkpoints using count and/or age retention
+│   ├── run                  Run a workflow. Enqueues to daemon by default; use --sync to run in terminal
+│   ├── resume               Resume a paused workflow
+│   ├── resume-status        Check whether a workflow can be resumed
+│   ├── pause                Pause an active workflow (confirmation required)
+│   ├── cancel               Cancel a workflow (confirmation required)
 │   ├── phase
-│   │   └── approve          Approve pending phase gate
+│   │   ├── approve          Approve a pending phase gate
+│   │   └── reject           Reject a pending phase gate
 │   ├── phases
-│   │   ├── list             List phase definitions
-│   │   ├── get              Get phase by id
-│   │   ├── upsert           Create/replace phase
-│   │   └── remove           Remove phase
+│   │   ├── list             List configured workflow phases
+│   │   ├── get              Get a workflow phase by id
+│   │   ├── upsert           Create or replace a workflow phase definition
+│   │   └── remove           Remove a workflow phase definition (confirmation required)
 │   ├── definitions
-│   │   ├── list             List workflow definitions
-│   │   └── upsert           Create/replace workflow definition
+│   │   ├── list             List configured workflow definitions
+│   │   └── upsert           Create or replace a workflow definition
 │   ├── config
-│   │   ├── get              Read workflow config
-│   │   ├── validate         Validate config
-│   │   └── compile          Compile YAML workflows
+│   │   ├── get              Read resolved workflow config
+│   │   ├── validate         Validate workflow config shape and references
+│   │   └── compile          Validate and resolve YAML workflow files
 │   ├── state-machine
-│   │   ├── get              Read state-machine config
-│   │   ├── validate         Validate state-machine
-│   │   └── set              Replace state-machine config
-│   └── agent-runtime
-│       ├── get              Read agent-runtime config
-│       ├── validate         Validate agent-runtime config
-│       └── set              Replace agent-runtime config
+│   │   ├── get              Read workflow state-machine config
+│   │   ├── validate         Validate workflow state-machine config
+│   │   └── set              Replace workflow state-machine config JSON
+│   ├── agent-runtime
+│   │   ├── get              Read workflow agent-runtime config
+│   │   ├── validate         Validate workflow agent-runtime config
+│   │   └── set              Replace workflow agent-runtime config JSON
+│   ├── prompt
+│   │   └── render           Render workflow phase prompt text and prompt sections
+│   └── update-definition    Update a workflow definition by id
 │
-├── vision                   Project vision
-│   ├── draft                Draft vision
-│   ├── refine               Refine vision
-│   └── get                  Read vision
-│
-├── requirements             Requirements management
-│   ├── draft                Draft from project context
+├── requirements            Draft and manage project requirements
+│   ├── execute              Execute requirements into implementation tasks and optional workflows
 │   ├── list                 List requirements
-│   ├── get                  Get requirement by id
-│   ├── refine               Refine requirements
-│   ├── create               Create requirement
-│   ├── update               Update requirement
-│   ├── delete               Delete requirement
+│   ├── get                  Get a requirement by id
+│   ├── create               Create a requirement
+│   ├── update               Update a requirement
+│   ├── delete               Delete a requirement
 │   ├── graph
-│   │   ├── get              Read requirement graph
-│   │   └── save             Replace requirement graph
+│   │   ├── get              Read the requirement graph
+│   │   └── save             Replace the requirement graph with provided JSON
 │   ├── mockups
-│   │   ├── list             List mockups
-│   │   ├── create           Create mockup record
-│   │   ├── link             Link mockup to requirements
-│   │   └── get-file         Get mockup file
+│   │   ├── list             List requirement mockups
+│   │   ├── create           Create a mockup record
+│   │   ├── link             Link a mockup to requirements or flows
+│   │   └── get-file         Get a mockup file by relative path
 │   └── recommendations
-│       ├── scan             Run recommendation scan
-│       ├── list             List recommendation reports
-│       ├── apply            Apply recommendation report
+│       ├── scan             Run recommendation scan over current project context
+│       ├── list             List saved recommendation reports
+│       ├── apply            Apply a recommendation report
 │       ├── config-get       Read recommendation config
 │       └── config-update    Update recommendation config
 │
-├── architecture             Architecture graph
-│   ├── get                  Read architecture graph
-│   ├── set                  Replace architecture graph
-│   ├── suggest              Suggest links for a task
-│   ├── entity
-│   │   ├── list             List entities
-│   │   ├── get              Get entity by id
-│   │   ├── create           Create entity
-│   │   ├── update           Update entity
-│   │   └── delete           Delete entity
-│   └── edge
-│       ├── list             List edges
-│       ├── create           Create edge
-│       └── delete           Delete edge
+├── history                  Inspect and search execution history
+│   ├── task                 List history records for a task
+│   ├── get                  Get a history record by id
+│   ├── recent               List recent history records
+│   ├── search               Search history records
+│   └── cleanup              Remove old history records
 │
-├── review                   Review decisions (hidden)
-│   ├── entity               Review status for entity
-│   ├── record               Record review decision
-│   ├── task-status          Review status for task
-│   ├── requirement-status   Review status for requirement
-│   ├── handoff              Record role handoff
-│   └── dual-approve         Record dual-approval
+├── errors                   Inspect and retry recorded operational errors
+│   ├── list                 List recorded errors
+│   ├── get                  Get an error by id
+│   ├── stats                Show error summary stats
+│   ├── retry                Retry an error by id
+│   └── cleanup              Remove old error records
 │
-├── qa                       QA evaluation
-│   ├── evaluate             Evaluate QA gates
-│   ├── get                  Get evaluation result
-│   ├── list                 List evaluations
-│   └── approval
-│       ├── add              Add gate approval
-│       └── list             List gate approvals
-│
-├── history                  Execution history
-│   ├── task                 History for a task
-│   ├── get                  Get history record
-│   ├── recent               Recent history
-│   ├── search               Search history
-│   └── cleanup              Remove old records
-│
-├── errors                   Error tracking
-│   ├── list                 List errors
-│   ├── get                  Get error by id
-│   ├── stats                Error statistics
-│   ├── retry                Retry error
-│   └── cleanup              Remove old errors
-│
-├── git                      Git operations
+├── git                      Manage Git repositories, worktrees, and confirmation requests
 │   ├── repo
-│   │   ├── list             List repositories
-│   │   ├── get              Get repository
-│   │   ├── init             Init + register repo
-│   │   └── clone            Clone + register repo
-│   ├── branches             List branches
-│   ├── status               Repo status
-│   ├── commit               Commit changes
-│   ├── push                 Push branch
-│   ├── pull                 Pull branch
+│   │   ├── list             List registered repositories
+│   │   ├── get              Get details for one repository
+│   │   ├── init             Initialize and register a local repository
+│   │   └── clone            Clone and register a repository
+│   ├── branches             List repository branches
+│   ├── status               Show repository status
+│   ├── commit               Commit staged/untracked changes
+│   ├── push                 Push branch updates
+│   ├── pull                 Pull branch updates
 │   ├── worktree
-│   │   ├── create           Create worktree
-│   │   ├── list             List worktrees
-│   │   ├── get              Get worktree
-│   │   ├── remove           Remove worktree (confirmation)
-│   │   ├── prune            Prune task worktrees
-│   │   ├── pull             Pull in worktree
-│   │   ├── push             Push from worktree
-│   │   ├── sync             Pull + push worktree
-│   │   └── sync-status      Sync status
+│   │   ├── create           Create a repository worktree
+│   │   ├── list             List repository worktrees
+│   │   ├── get              Get one worktree by name
+│   │   ├── remove           Remove a worktree (confirmation required)
+│   │   ├── prune            Prune managed task worktrees for done/cancelled tasks
+│   │   ├── pull             Pull updates in a worktree
+│   │   ├── push             Push updates from a worktree
+│   │   ├── sync             Pull then push a worktree
+│   │   └── sync-status      Show synchronization status for a worktree
 │   └── confirm
-│       ├── request          Request confirmation
-│       ├── respond          Approve/reject confirmation
-│       └── outcome          Record operation outcome
+│       ├── request          Request a confirmation record for a destructive git operation
+│       ├── respond          Approve or reject a confirmation request
+│       └── outcome          Record operation outcome for a confirmation request
 │
-├── skill                    Skill management
-│   ├── search               Search skill catalog
-│   ├── install              Install skill
-│   ├── list                 List installed skills
-│   ├── update               Update skills
-│   └── publish              Publish skill version
+├── skill                    Search, install, update, and publish versioned skills
+│   ├── search               Search skills across built-in, user, project, and registry sources
+│   ├── install              Install a skill with deterministic resolution
+│   ├── list                 List all available skills (built-in, user, project, and installed)
+│   ├── show                 Show details of a resolved skill definition
+│   ├── update               Re-resolve one or all installed skills
+│   ├── publish              Publish a new skill version into the registry catalog
+│   └── registry
+│       ├── add              Register a new registry source or update an existing one
+│       ├── remove           Remove a registered registry source
+│       └── list             List all registered registry sources
 │
-├── model                    Model management
-│   ├── availability         Check model availability
-│   ├── status               Model + API key status
-│   ├── validate             Validate model selection
+├── model                    Inspect model availability, validation, and evaluations
+│   ├── availability         Check model availability for one or more model ids
+│   ├── status               Show configured model and API-key status
+│   ├── validate             Validate model selection for a task or explicit list
 │   ├── roster
-│   │   ├── refresh          Refresh model roster
-│   │   └── get              Get roster snapshot
+│   │   ├── refresh          Refresh model roster from providers
+│   │   └── get              Get current model roster snapshot
 │   └── eval
 │       ├── run              Run model evaluation
-│       └── report           Show evaluation report
-│
-├── runner                   Runner management
-│   ├── health               Runner health
-│   ├── orphans
-│   │   ├── detect           Detect orphans
-│   │   └── cleanup          Clean orphans
-│   └── restart-stats        Restart statistics
+│       └── report           Show latest model evaluation report
 │
 ├── pack                     Install, inspect, and pin workflow packs
-│   ├── install              Install a pack from local path or marketplace
-│   ├── list                 List discovered packs (active/inactive)
-│   ├── inspect              Inspect a discovered pack or local manifest
-│   ├── pin                  Pin a pack version/source or toggle enablement
+│   ├── install              Install a pack from a local path or marketplace registry
+│   ├── list                 List discovered packs and indicate which ones are active for this project
+│   ├── inspect              Inspect a discovered pack or a local pack manifest
+│   ├── pin                  Pin a pack version/source or toggle enablement for this project
 │   ├── search               Search packs across marketplace registries
 │   └── registry
 │       ├── add              Add a marketplace registry (git URL)
 │       ├── remove           Remove a marketplace registry
 │       ├── list             List all registered marketplace registries
-│       └── sync             Sync (re-clone) a registry for latest catalog
+│       └── sync             Sync (re-clone) a registry to get latest pack catalog
 │
-├── output                   Run output inspection
-│   ├── run                  Read run events
-│   ├── artifacts            List artifacts
-│   ├── download             Download artifact
-│   ├── files                List artifact files
-│   ├── jsonl                Read JSONL logs
-│   ├── monitor              Monitor run output
-│   └── cli                  Infer CLI provider
+├── runner                   Inspect runner health and orphaned runs
+│   ├── health               Show runner process health
+│   ├── orphans
+│   │   ├── detect           Detect orphaned runner processes
+│   │   └── cleanup          Clean orphaned runner processes
+│   └── restart-stats        Show runner restart statistics
 │
-├── mcp                      MCP server
-│   └── serve                Start MCP server
+├── status                   Show a unified project status dashboard
+├── output                   Inspect run output and artifacts
+│   ├── run                  Read run event payloads
+│   ├── phase-outputs        Read persisted workflow phase outputs
+│   ├── artifacts            List artifacts for an execution id
+│   ├── download             Download an artifact payload
+│   ├── jsonl                Read aggregated JSONL output streams for a run
+│   ├── monitor              Inspect run output with optional task/phase filtering
+│   └── cli                  Infer CLI provider details from run output
 │
-└── web                      Web UI
-    ├── serve                Start web server
-    └── open                 Open web UI in browser
+├── mcp                      Run the AO MCP service endpoint
+│   └── serve                Start the MCP server in the current process
+│
+├── web                      Serve and open the AO web UI
+│   ├── serve                 Start the AO web server
+│   └── open                  Open the AO web UI URL in a browser
+│
+├── setup                    Guided onboarding and configuration wizard
+├── sync                     Sync tasks and requirements with a remote ao-sync server
+│   ├── setup                Configure the sync server connection for this project
+│   ├── push                 Push local tasks and requirements to the sync server
+│   ├── pull                 Pull tasks and requirements from the sync server into local state
+│   ├── status               Show sync configuration and last sync status
+│   └── link                 Link this project to a specific remote project by ID
+│
+└── doctor                   Run environment and configuration diagnostics
 ```
 
 ## Summary
 
 | Metric | Count |
 |---|---|
-| Top-level commands | 26 |
-| Total subcommands (all levels) | ~130+ |
-| Commands with `--confirmation` pattern | 8 |
-| Commands with `--input-json` | 15+ |
-| Commands with `--dry-run` | 6 |
+| Top-level commands | 22 |
+| Total subcommands (all levels) | 194 |
+
+Counts exclude autogenerated `help` entries.

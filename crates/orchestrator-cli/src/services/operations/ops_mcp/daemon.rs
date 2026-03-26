@@ -42,6 +42,11 @@ pub(super) fn build_daemon_config_set_args(input: &DaemonConfigSetInput) -> Vec<
     push_opt_num(&mut args, "--stale-threshold-hours", input.stale_threshold_hours);
     push_opt_num(&mut args, "--phase-timeout-secs", input.phase_timeout_secs);
     push_opt_num(&mut args, "--idle-timeout-secs", input.idle_timeout_secs);
+    push_opt(&mut args, "--notification-config-json", input.notification_config_json.clone());
+    push_opt(&mut args, "--notification-config-file", input.notification_config_file.clone());
+    if input.clear_notification_config {
+        args.push("--clear-notification-config".to_string());
+    }
     args
 }
 
@@ -103,4 +108,27 @@ pub(super) fn build_daemon_logs_result(default_project_root: &str, input: Daemon
         "lines": lines,
         "has_more": has_more,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_daemon_config_set_args_includes_notification_config_flags() {
+        let input = DaemonConfigSetInput {
+            notification_config_json: Some("{\"schema\":\"ao.daemon-notification-config.v1\"}".to_string()),
+            notification_config_file: Some(".ao/notification-config.json".to_string()),
+            clear_notification_config: true,
+            ..Default::default()
+        };
+
+        let args = build_daemon_config_set_args(&input);
+
+        assert!(args.contains(&"--notification-config-json".to_string()));
+        assert!(args.contains(&"{\"schema\":\"ao.daemon-notification-config.v1\"}".to_string()));
+        assert!(args.contains(&"--notification-config-file".to_string()));
+        assert!(args.contains(&".ao/notification-config.json".to_string()));
+        assert!(args.contains(&"--clear-notification-config".to_string()));
+    }
 }

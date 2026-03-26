@@ -35,7 +35,13 @@ pub async fn project_task_terminal_workflow_status(
             }
         }
         WorkflowStatus::Cancelled => {
-            let _ = project_task_status(hub, task_id, TaskStatus::Cancelled).await;
+            if let Ok(task) = hub.tasks().get(task_id).await {
+                if !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled) {
+                    let _ = project_task_status(hub, task_id, TaskStatus::Cancelled).await;
+                }
+            } else {
+                let _ = project_task_status(hub, task_id, TaskStatus::Cancelled).await;
+            }
         }
         WorkflowStatus::Paused | WorkflowStatus::Running | WorkflowStatus::Pending => {}
     }

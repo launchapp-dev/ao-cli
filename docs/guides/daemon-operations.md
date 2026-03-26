@@ -60,14 +60,18 @@ Key configuration options:
 |---------|-------------|
 | `auto_merge` | Automatically merge PRs after successful workflow completion |
 | `auto_pr` | Automatically create PRs for completed work |
-| `max_workflows` | Maximum concurrent workflows the daemon will run |
-| `active_hours` | Time window during which the daemon schedules work |
+| `pool_size` | Maximum number of concurrent agents the daemon will run |
+| `active_hours` | Time window during which schedule-driven workflow dispatch is allowed |
+| `auto_run_ready` | Whether ready tasks are promoted during daemon ticks |
+
+`active_hours` only gates schedule-driven dispatch. Ready-task pickup is controlled separately by `auto_run_ready`.
 
 Update a specific setting:
 
 ```bash
-ao daemon config --set max_workflows=3
-ao daemon config --set auto_merge=true
+ao daemon config --pool-size 3
+ao daemon config --auto-merge true
+ao daemon config --auto-run-ready false
 ```
 
 ## Monitoring

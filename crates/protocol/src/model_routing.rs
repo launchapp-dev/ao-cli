@@ -136,7 +136,7 @@ pub fn canonical_model_id(model_id: &str) -> String {
         | "minimax/m2.5"
         | "minimax/m2-5"
         | "minimax/minimax-m2.5"
-        | "minimax/MiniMax-M2.7" => "minimax/MiniMax-M2.7".to_string(),
+        | "openrouter/minimax/minimax-m2.7" => "openrouter/minimax/minimax-m2.7".to_string(),
         "minimax-m2.1"
         | "minimax-m2-1"
         | "minimax/m2.1"
@@ -207,7 +207,7 @@ pub fn default_model_specs() -> Vec<(String, String)> {
         ("gemini-2.5-flash-lite".to_string(), "gemini".to_string()),
         ("gemini-3-pro".to_string(), "gemini".to_string()),
         ("gemini-3.1-pro-preview".to_string(), "gemini".to_string()),
-        ("minimax/MiniMax-M2.7".to_string(), "oai-runner".to_string()),
+        ("openrouter/minimax/minimax-m2.7".to_string(), "oai-runner".to_string()),
         ("zai-coding-plan/glm-5".to_string(), "oai-runner".to_string()),
     ]
 }
@@ -218,7 +218,7 @@ pub fn default_model_for_tool(tool_id: &str) -> Option<&'static str> {
         "codex" | "openai" => Some("gpt-5.4"),
         "gemini" => Some("gemini-2.5-pro"),
         "opencode" => Some("zai-coding-plan/glm-5"),
-        "oai-runner" => Some("minimax/MiniMax-M2.7"),
+        "oai-runner" => Some("openrouter/minimax/minimax-m2.7"),
         _ => None,
     }
 }
@@ -286,105 +286,6 @@ impl PhaseCapabilities {
     }
 }
 
-pub fn default_primary_model_for_phase(
-    complexity: Option<ModelRoutingComplexity>,
-    caps: &PhaseCapabilities,
-) -> &'static str {
-    if caps.is_ui_ux {
-        return "gemini-3.1-pro-preview";
-    }
-
-    if caps.is_research {
-        return "gemini-2.5-flash-lite";
-    }
-
-    if caps.is_review {
-        return match complexity.unwrap_or(ModelRoutingComplexity::Medium) {
-            ModelRoutingComplexity::High => "claude-opus-4-6",
-            ModelRoutingComplexity::Low | ModelRoutingComplexity::Medium => "claude-sonnet-4-6",
-        };
-    }
-
-    if caps.is_requirements {
-        return match complexity.unwrap_or(ModelRoutingComplexity::Medium) {
-            ModelRoutingComplexity::Low => "minimax/MiniMax-M2.7",
-            ModelRoutingComplexity::Medium | ModelRoutingComplexity::High => "claude-sonnet-4-6",
-        };
-    }
-
-    if caps.is_testing {
-        return match complexity.unwrap_or(ModelRoutingComplexity::Medium) {
-            ModelRoutingComplexity::Low => "minimax/MiniMax-M2.7",
-            ModelRoutingComplexity::Medium | ModelRoutingComplexity::High => "claude-sonnet-4-6",
-        };
-    }
-
-    match complexity.unwrap_or(ModelRoutingComplexity::Medium) {
-        ModelRoutingComplexity::Low => "zai-coding-plan/glm-5",
-        ModelRoutingComplexity::Medium | ModelRoutingComplexity::High => "claude-sonnet-4-6",
-    }
-}
-
-pub fn default_fallback_models_for_phase(
-    complexity: Option<ModelRoutingComplexity>,
-    caps: &PhaseCapabilities,
-) -> Vec<&'static str> {
-    if caps.is_ui_ux {
-        return vec![
-            "claude-sonnet-4-6",
-            "gemini-2.5-pro",
-            "zai-coding-plan/glm-5",
-            "minimax/MiniMax-M2.7",
-            "gpt-5.3-codex",
-        ];
-    }
-
-    if caps.is_research {
-        return vec![
-            "gemini-2.5-flash",
-            "claude-sonnet-4-6",
-            "gemini-3.1-pro-preview",
-            "zai-coding-plan/glm-5",
-            "minimax/MiniMax-M2.7",
-        ];
-    }
-
-    if caps.is_review {
-        return match complexity.unwrap_or(ModelRoutingComplexity::Medium) {
-            ModelRoutingComplexity::High => vec![
-                "claude-sonnet-4-6",
-                "gemini-3.1-pro-preview",
-                "zai-coding-plan/glm-5",
-                "minimax/MiniMax-M2.7",
-                "gpt-5.3-codex",
-            ],
-            ModelRoutingComplexity::Low | ModelRoutingComplexity::Medium => vec![
-                "gemini-3.1-pro-preview",
-                "zai-coding-plan/glm-5",
-                "minimax/MiniMax-M2.7",
-                "gpt-5.3-codex",
-                "claude-opus-4-6",
-            ],
-        };
-    }
-
-    match complexity.unwrap_or(ModelRoutingComplexity::Medium) {
-        ModelRoutingComplexity::Low => {
-            vec!["minimax/MiniMax-M2.7", "claude-sonnet-4-6", "gemini-3.1-pro-preview", "gpt-5.3-codex"]
-        }
-        ModelRoutingComplexity::Medium => {
-            vec!["zai-coding-plan/glm-5", "minimax/MiniMax-M2.7", "gemini-3.1-pro-preview", "gpt-5.3-codex"]
-        }
-        ModelRoutingComplexity::High => vec![
-            "claude-opus-4-6",
-            "zai-coding-plan/glm-5",
-            "minimax/MiniMax-M2.7",
-            "gemini-3.1-pro-preview",
-            "gpt-5.3-codex",
-        ],
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -410,7 +311,7 @@ mod tests {
         assert_eq!(canonical_model_id("gemini-flash-2.5-lite"), "gemini-2.5-flash-lite");
         assert_eq!(canonical_model_id("glm-5"), "zai-coding-plan/glm-5");
         assert_eq!(canonical_model_id("minimax-m2.1"), "minimax/MiniMax-M2.1");
-        assert_eq!(canonical_model_id("minimax-m2.5"), "minimax/MiniMax-M2.7");
+        assert_eq!(canonical_model_id("minimax-m2.5"), "openrouter/minimax/minimax-m2.7");
     }
 
     #[test]
@@ -419,83 +320,12 @@ mod tests {
         assert_eq!(tool_for_model_id("claude-opus-4-6"), "claude");
         assert_eq!(tool_for_model_id("openrouter/anthropic/claude-sonnet"), "claude");
         assert_eq!(tool_for_model_id("zai-coding-plan/glm-5"), "oai-runner");
-        assert_eq!(tool_for_model_id("minimax/MiniMax-M2.7"), "oai-runner");
+        assert_eq!(tool_for_model_id("openrouter/minimax/minimax-m2.7"), "oai-runner");
         assert_eq!(tool_for_model_id("gemini-2.5-pro"), "gemini");
         assert_eq!(tool_for_model_id("gemini-2.5-flash-lite"), "gemini");
         assert_eq!(tool_for_model_id("gpt-5.3-codex"), "codex");
     }
 
-    #[test]
-    fn complexity_policy_uses_opus_for_high_complexity_review() {
-        let caps = PhaseCapabilities::defaults_for_phase("code-review");
-        assert_eq!(default_primary_model_for_phase(Some(ModelRoutingComplexity::High), &caps), "claude-opus-4-6");
-        assert_eq!(default_primary_model_for_phase(Some(ModelRoutingComplexity::Medium), &caps), "claude-sonnet-4-6");
-    }
-
-    #[test]
-    fn low_complexity_routes_to_cheaper_models() {
-        let impl_caps = PhaseCapabilities::defaults_for_phase("implementation");
-        assert_eq!(
-            default_primary_model_for_phase(Some(ModelRoutingComplexity::Low), &impl_caps),
-            "zai-coding-plan/glm-5"
-        );
-        let req_caps = PhaseCapabilities::defaults_for_phase("requirements");
-        assert_eq!(
-            default_primary_model_for_phase(Some(ModelRoutingComplexity::Low), &req_caps),
-            "minimax/MiniMax-M2.7"
-        );
-        let test_caps = PhaseCapabilities::defaults_for_phase("testing");
-        assert_eq!(
-            default_primary_model_for_phase(Some(ModelRoutingComplexity::Low), &test_caps),
-            "minimax/MiniMax-M2.7"
-        );
-    }
-
-    #[test]
-    fn research_phases_route_to_flash_lite() {
-        let research_caps = PhaseCapabilities::defaults_for_phase("research");
-        assert_eq!(default_primary_model_for_phase(None, &research_caps), "gemini-2.5-flash-lite");
-        assert_eq!(
-            default_primary_model_for_phase(Some(ModelRoutingComplexity::Low), &research_caps),
-            "gemini-2.5-flash-lite"
-        );
-        assert_eq!(
-            default_primary_model_for_phase(Some(ModelRoutingComplexity::High), &research_caps),
-            "gemini-2.5-flash-lite"
-        );
-    }
-
-    #[test]
-    fn ui_ux_phases_still_use_pro_preview() {
-        let design_caps = PhaseCapabilities::defaults_for_phase("design");
-        assert_eq!(default_primary_model_for_phase(None, &design_caps), "gemini-3.1-pro-preview");
-    }
-
-    #[test]
-    fn research_fallbacks_include_flash_models() {
-        let research_caps = PhaseCapabilities::defaults_for_phase("research");
-        let fallbacks = default_fallback_models_for_phase(None, &research_caps);
-        assert_eq!(fallbacks[0], "gemini-2.5-flash");
-    }
-
-    #[test]
-    fn medium_complexity_defaults_to_claude_for_requirements_and_testing() {
-        let req_caps = PhaseCapabilities::defaults_for_phase("requirements");
-        assert_eq!(
-            default_primary_model_for_phase(Some(ModelRoutingComplexity::Medium), &req_caps),
-            "claude-sonnet-4-6"
-        );
-        let test_caps = PhaseCapabilities::defaults_for_phase("testing");
-        assert_eq!(
-            default_primary_model_for_phase(Some(ModelRoutingComplexity::Medium), &test_caps),
-            "claude-sonnet-4-6"
-        );
-        let impl_caps = PhaseCapabilities::defaults_for_phase("implementation");
-        assert_eq!(
-            default_primary_model_for_phase(Some(ModelRoutingComplexity::Medium), &impl_caps),
-            "claude-sonnet-4-6"
-        );
-    }
 
     #[test]
     fn phase_capabilities_defaults_are_correct() {
@@ -544,7 +374,7 @@ mod tests {
         assert_eq!(default_model_for_tool("codex"), Some("gpt-5.4"));
         assert_eq!(default_model_for_tool("gemini"), Some("gemini-2.5-pro"));
         assert_eq!(default_model_for_tool("opencode"), Some("zai-coding-plan/glm-5"));
-        assert_eq!(default_model_for_tool("oai-runner"), Some("minimax/MiniMax-M2.7"));
+        assert_eq!(default_model_for_tool("oai-runner"), Some("openrouter/minimax/minimax-m2.7"));
         assert_eq!(default_model_for_tool("unknown"), None);
     }
 

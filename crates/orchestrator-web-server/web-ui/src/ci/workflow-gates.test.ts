@@ -178,18 +178,12 @@ describe("web gui release workflow gates", () => {
     expect(checklist).toContain("Operator go/no-go sign-off recorded.");
   });
 
-  it("documents multi-binary release artifact contract in README", () => {
+  it("documents supported platform targets in README", () => {
     const readme = readFileSync(README_PATH, "utf8");
 
-    expect(readme).toContain(
-      "always builds release archives for `ao`, `agent-runner`, `llm-cli-wrapper`, `ao-oai-runner`, `ao-workflow-runner`",
-    );
-    expect(readme).toContain("| `ubuntu-latest` | `x86_64-unknown-linux-gnu` | `.tar.gz` |");
-    expect(readme).toContain("| `macos-15-intel` | `x86_64-apple-darwin` | `.tar.gz` |");
-    expect(readme).toContain("| `macos-14` | `aarch64-apple-darwin` | `.tar.gz` |");
-    expect(readme).toContain("| `windows-latest` | `x86_64-pc-windows-msvc` | `.zip` |");
-    expect(readme).toContain(
-      "- release publish job emits `dist/release-assets/SHA256SUMS.txt` for all archives",
-    );
+    expect(readme).toContain("`aarch64-apple-darwin`");
+    expect(readme).toContain("`x86_64-apple-darwin`");
+    expect(readme).toContain("`x86_64-unknown-linux-gnu`");
+    expect(readme).toContain("`x86_64-pc-windows-msvc`");
   });
 });

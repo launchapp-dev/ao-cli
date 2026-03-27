@@ -14,7 +14,7 @@ hero:
       link: /getting-started/
     - theme: alt
       text: View on GitHub
-      link: https://github.com/AudioGenius-ai/ao-cli
+      link: https://github.com/launchapp-dev/ao-cli
 
 features:
   - icon: "\U0001F3AF"

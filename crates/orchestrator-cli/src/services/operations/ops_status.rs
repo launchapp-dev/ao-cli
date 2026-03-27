@@ -31,6 +31,9 @@ struct StatusDashboard {
     task_summary: TaskSummarySlice,
     recent_completions: RecentCompletionsSlice,
     recent_failures: RecentFailuresSlice,
+    next_work: NextWorkSlice,
+    blocked_tasks: BlockedTasksSlice,
+    needs_attention: NeedsAttentionSlice,
     ci: CiStatusSlice,
 }
 
@@ -112,6 +115,58 @@ struct RecentFailureEntry {
 struct WorkflowStatusSnapshot {
     active_workflows: Vec<OrchestratorWorkflow>,
     recent_failures: Vec<RecentFailureEntry>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct NextWorkEntry {
+    task_id: String,
+    title: String,
+    priority: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct NextWorkSlice {
+    available: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    entry: Option<NextWorkEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct BlockedTaskEntry {
+    task_id: String,
+    title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    blocked_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct BlockedTasksSlice {
+    available: bool,
+    entries: Vec<BlockedTaskEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct NeedsAttentionEntry {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    task_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workflow_id: Option<String>,
+    title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    phase: Option<String>,
+    hours_stale: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct NeedsAttentionSlice {
+    available: bool,
+    entries: Vec<NeedsAttentionEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -206,10 +261,11 @@ pub(crate) async fn handle_status(hub: Arc<dyn ServiceHub>, project_root: &str, 
     let (task_stats, task_stats_error) = split_result(task_stats_result);
     let (workflow_snapshot, workflows_error) = split_result(workflow_snapshot_result);
 
+    let now = Utc::now();
     let dashboard = StatusDashboard {
         schema: STATUS_SCHEMA,
         project_root: project_root.to_string(),
-        generated_at: Utc::now(),
+        generated_at: now,
         daemon: build_daemon_slice(daemon_health.as_ref(), daemon_error.clone()),
         active_agents: build_active_agents_slice(
             daemon_health.as_ref(),
@@ -222,10 +278,18 @@ pub(crate) async fn handle_status(hub: Arc<dyn ServiceHub>, project_root: &str, 
             tasks.as_deref(),
             combine_errors([task_stats_error.as_deref(), tasks_error.as_deref()]),
         ),
-        recent_completions: build_recent_completions_slice(tasks.as_deref(), tasks_error),
+        recent_completions: build_recent_completions_slice(tasks.as_deref(), tasks_error.clone()),
         recent_failures: build_recent_failures_slice(
             workflow_snapshot.as_ref().map(|snapshot| snapshot.recent_failures.as_slice()),
-            workflows_error,
+            workflows_error.clone(),
+        ),
+        next_work: build_next_work_slice(tasks.as_deref(), tasks_error.clone()),
+        blocked_tasks: build_blocked_tasks_slice(tasks.as_deref(), tasks_error.clone()),
+        needs_attention: build_needs_attention_slice(
+            tasks.as_deref(),
+            workflow_snapshot.as_ref().map(|snapshot| snapshot.active_workflows.as_slice()),
+            now,
+            combine_errors([tasks_error.as_deref(), workflows_error.as_deref()]),
         ),
         ci: ci_slice,
     };
@@ -414,6 +478,89 @@ fn build_recent_failures_slice(failures: Option<&[RecentFailureEntry]>, error: O
         entries: failures.map(|entries| entries.to_vec()).unwrap_or_default(),
         error,
     }
+}
+
+fn build_next_work_slice(tasks: Option<&[OrchestratorTask]>, error: Option<String>) -> NextWorkSlice {
+    let entry = tasks
+        .iter()
+        .flat_map(|slice| slice.iter())
+        .filter(|task| task.status == TaskStatus::Ready)
+        .min_by_key(|task| (task.priority as i32, task.id.as_str()))
+        .map(|task| NextWorkEntry {
+            task_id: task.id.clone(),
+            title: task.title.clone(),
+            priority: task.priority.as_str().to_string(),
+        });
+
+    NextWorkSlice { available: tasks.is_some(), entry, error }
+}
+
+fn build_blocked_tasks_slice(tasks: Option<&[OrchestratorTask]>, error: Option<String>) -> BlockedTasksSlice {
+    let entries = tasks
+        .iter()
+        .flat_map(|slice| slice.iter())
+        .filter(|task| task.status == TaskStatus::Blocked)
+        .map(|task| BlockedTaskEntry {
+            task_id: task.id.clone(),
+            title: task.title.clone(),
+            blocked_reason: task.blocked_reason.clone(),
+        })
+        .collect();
+
+    BlockedTasksSlice { available: tasks.is_some(), entries, error }
+}
+
+fn build_needs_attention_slice(
+    tasks: Option<&[OrchestratorTask]>,
+    workflows: Option<&[OrchestratorWorkflow]>,
+    now: DateTime<Utc>,
+    error: Option<String>,
+) -> NeedsAttentionSlice {
+    let mut entries: Vec<NeedsAttentionEntry> = Vec::new();
+    let stale_threshold = chrono::Duration::hours(48);
+
+    if let Some(task_slice) = tasks {
+        for task in task_slice {
+            if task.status == TaskStatus::InProgress {
+                let updated_at = task.metadata.updated_at.with_timezone(&Utc);
+                let duration = now.signed_duration_since(updated_at);
+                if duration > stale_threshold {
+                    let hours_stale = (duration.num_minutes() / 60) as u32;
+                    entries.push(NeedsAttentionEntry {
+                        task_id: Some(task.id.clone()),
+                        workflow_id: None,
+                        title: task.title.clone(),
+                        phase: None,
+                        hours_stale,
+                    });
+                }
+            }
+        }
+    }
+
+    if let Some(workflow_slice) = workflows {
+        for workflow in workflow_slice {
+            if workflow.status == WorkflowStatus::Running {
+                let started_at = workflow.started_at.with_timezone(&Utc);
+                let duration = now.signed_duration_since(started_at);
+                if duration > stale_threshold {
+                    let hours_stale = (duration.num_minutes() / 60) as u32;
+                    let phase = workflow_active_phase(workflow);
+                    entries.push(NeedsAttentionEntry {
+                        task_id: None,
+                        workflow_id: Some(workflow.id.clone()),
+                        title: format!("Workflow: {}", workflow.id),
+                        phase: Some(phase),
+                        hours_stale,
+                    });
+                }
+            }
+        }
+    }
+
+    entries.sort_by_key(|entry| std::cmp::Reverse(entry.hours_stale));
+
+    NeedsAttentionSlice { available: tasks.is_some() || workflows.is_some(), entries, error }
 }
 
 fn latest_failed_phase(workflow: &OrchestratorWorkflow) -> (String, DateTime<Utc>, Option<String>) {
@@ -689,6 +836,61 @@ fn render_status_dashboard(dashboard: &StatusDashboard) -> String {
         }
     }
     if let Some(error) = dashboard.recent_failures.error.as_deref() {
+        let _ = writeln!(&mut output, "  error: {error}");
+    }
+    let _ = writeln!(&mut output);
+
+    let _ = writeln!(&mut output, "Next Work");
+    if let Some(entry) = dashboard.next_work.entry.as_ref() {
+        let _ = writeln!(
+            &mut output,
+            "  - task_id={} priority={} title={}",
+            entry.task_id, entry.priority, entry.title
+        );
+    } else {
+        let _ = writeln!(&mut output, "  entries: none");
+    }
+    if let Some(error) = dashboard.next_work.error.as_deref() {
+        let _ = writeln!(&mut output, "  error: {error}");
+    }
+    let _ = writeln!(&mut output);
+
+    let _ = writeln!(&mut output, "Blocked Tasks");
+    if dashboard.blocked_tasks.entries.is_empty() {
+        let _ = writeln!(&mut output, "  entries: none");
+    } else {
+        for entry in &dashboard.blocked_tasks.entries {
+            let _ = writeln!(
+                &mut output,
+                "  - task_id={} title={} blocked_reason={}",
+                entry.task_id,
+                entry.title,
+                entry.blocked_reason.as_deref().unwrap_or("n/a")
+            );
+        }
+    }
+    if let Some(error) = dashboard.blocked_tasks.error.as_deref() {
+        let _ = writeln!(&mut output, "  error: {error}");
+    }
+    let _ = writeln!(&mut output);
+
+    let _ = writeln!(&mut output, "Needs Attention");
+    if dashboard.needs_attention.entries.is_empty() {
+        let _ = writeln!(&mut output, "  entries: none");
+    } else {
+        for entry in &dashboard.needs_attention.entries {
+            let subject_id = entry.task_id.as_deref()
+                .or(entry.workflow_id.as_deref())
+                .unwrap_or("unknown");
+            let phase_str = entry.phase.as_deref().unwrap_or("n/a");
+            let _ = writeln!(
+                &mut output,
+                "  - {} hours_stale={} title={} phase={}",
+                subject_id, entry.hours_stale, entry.title, phase_str
+            );
+        }
+    }
+    if let Some(error) = dashboard.needs_attention.error.as_deref() {
         let _ = writeln!(&mut output, "  error: {error}");
     }
     let _ = writeln!(&mut output);

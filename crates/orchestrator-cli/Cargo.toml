@@ -47,6 +47,7 @@ fs2 = "0.4"
 protocol = { path = "../protocol", features = ["test-utils"] }
 tempfile = "3"
 toml = "1.0"
+shell-words = "1"
 
 [lints]
 workspace = true

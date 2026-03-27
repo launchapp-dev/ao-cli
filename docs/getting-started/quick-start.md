@@ -47,7 +47,7 @@ ao daemon start --autonomous
 ao task stats
 ao workflow list
 ao daemon status
-ao output tail
+ao output monitor --run-id <RUN_ID>
 ao status
 ```
 

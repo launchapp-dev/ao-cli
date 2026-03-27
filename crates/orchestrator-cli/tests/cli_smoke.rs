@@ -286,3 +286,93 @@ fn help_includes_workflow_monitor_command() -> Result<(), Box<dyn std::error::Er
 
     Ok(())
 }
+
+#[test]
+fn quick_start_documented_commands_exist() -> Result<(), Box<dyn std::error::Error>> {
+    let binary = assert_cmd::cargo::cargo_bin!("ao");
+
+    #[allow(non_camel_case_types)]
+    struct CommandAndFlags {
+        cmd: Vec<&'static str>,
+        flags: Vec<&'static str>,
+    }
+
+    let documented_commands = vec![
+        CommandAndFlags {
+            cmd: vec!["doctor"],
+            flags: vec![],
+        },
+        CommandAndFlags {
+            cmd: vec!["setup"],
+            flags: vec![],
+        },
+        CommandAndFlags {
+            cmd: vec!["task", "create"],
+            flags: vec!["--title", "--description", "--task-type", "--priority"],
+        },
+        CommandAndFlags {
+            cmd: vec!["workflow", "run"],
+            flags: vec!["--task-id", "--sync"],
+        },
+        CommandAndFlags {
+            cmd: vec!["task", "status"],
+            flags: vec!["--id", "--status"],
+        },
+        CommandAndFlags {
+            cmd: vec!["daemon", "start"],
+            flags: vec!["--autonomous"],
+        },
+        CommandAndFlags {
+            cmd: vec!["task", "stats"],
+            flags: vec![],
+        },
+        CommandAndFlags {
+            cmd: vec!["workflow", "list"],
+            flags: vec![],
+        },
+        CommandAndFlags {
+            cmd: vec!["daemon", "status"],
+            flags: vec![],
+        },
+        CommandAndFlags {
+            cmd: vec!["output", "monitor"],
+            flags: vec!["--run-id"],
+        },
+        CommandAndFlags {
+            cmd: vec!["status"],
+            flags: vec![],
+        },
+        CommandAndFlags {
+            cmd: vec!["requirements", "create"],
+            flags: vec!["--title", "--priority", "--acceptance-criterion"],
+        },
+        CommandAndFlags {
+            cmd: vec!["requirements", "execute"],
+            flags: vec!["--id"],
+        },
+    ];
+
+    for command_spec in documented_commands {
+        let mut args = command_spec.cmd.clone();
+        args.push("--help");
+
+        let output = Command::new(&binary).args(&args).output()?;
+        assert!(
+            output.status.success(),
+            "command 'ao {}' should have --help available",
+            command_spec.cmd.join(" ")
+        );
+
+        let help_text = String::from_utf8(output.stdout)?;
+        for flag in command_spec.flags {
+            assert!(
+                help_text.contains(flag),
+                "documented flag '{}' should appear in help for 'ao {}'",
+                flag,
+                command_spec.cmd.join(" ")
+            );
+        }
+    }
+
+    Ok(())
+}

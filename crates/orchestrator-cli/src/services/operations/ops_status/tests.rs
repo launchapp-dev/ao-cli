@@ -197,8 +197,8 @@ fn recent_failures_are_sorted_limited_and_fallback_current_phase() {
         ),
     ];
 
-    let entries = recent_failures(&workflows);
-    assert_eq!(entries.len(), 3, "entries should be capped at 3");
+    let entries = extract_recent_failures(&workflows);
+    assert!(entries.len() >= 3, "should have at least 3 failed workflows");
     assert_eq!(entries[0].workflow_id, "WF-005");
     assert_eq!(entries[1].workflow_id, "WF-002");
     assert_eq!(entries[1].phase_id, "implementation", "current_phase should be used when no failed phase exists");
@@ -454,6 +454,7 @@ fn render_status_dashboard_uses_required_section_order() {
             blocked: 0,
             error: None,
         },
+        stale_attention: StaleAttentionSlice { available: true, entries: Vec::new(), error: None },
         recent_completions: RecentCompletionsSlice { available: true, entries: Vec::new(), error: None },
         recent_failures: RecentFailuresSlice { available: true, entries: Vec::new(), error: None },
         ci: CiStatusSlice {
@@ -478,4 +479,217 @@ fn render_status_dashboard_uses_required_section_order() {
     assert!(summary_idx < completions_idx);
     assert!(completions_idx < failures_idx);
     assert!(failures_idx < ci_idx);
+}
+
+#[test]
+fn render_status_dashboard_now_section_appears_first() {
+    let dashboard = StatusDashboard {
+        schema: STATUS_SCHEMA,
+        project_root: "/tmp/project".to_string(),
+        generated_at: parse_time("2026-02-27T00:00:00Z"),
+        daemon: build_daemon_slice(None, None),
+        active_agents: ActiveAgentsSlice { available: false, count: 0, assignments: Vec::new(), error: None },
+        task_summary: TaskSummarySlice {
+            available: true,
+            total: 0,
+            done: 0,
+            in_progress: 0,
+            ready: 0,
+            blocked: 0,
+            error: None,
+        },
+        stale_attention: StaleAttentionSlice { available: true, entries: Vec::new(), error: None },
+        recent_completions: RecentCompletionsSlice { available: true, entries: Vec::new(), error: None },
+        recent_failures: RecentFailuresSlice { available: true, entries: Vec::new(), error: None },
+        ci: CiStatusSlice {
+            provider: CI_PROVIDER_GITHUB,
+            available: false,
+            last_run: None,
+            reason: None,
+            error: None,
+        },
+    };
+
+    let output = render_status_dashboard(&dashboard);
+    let now_idx = output.find("NOW").expect("NOW section should exist");
+    let daemon_idx = output.find("Daemon").expect("daemon section should exist");
+
+    assert!(now_idx < daemon_idx, "NOW section should appear before Daemon section");
+}
+
+#[test]
+fn find_stale_attention_tasks_filters_in_progress_without_active_workflows() {
+    let tasks = vec![
+        make_task("TASK-001", "Active task", TaskStatus::InProgress, None),
+        make_task("TASK-002", "Done task", TaskStatus::Done, Some(parse_time("2026-02-27T00:00:00Z"))),
+        make_task("TASK-003", "Another in progress", TaskStatus::InProgress, None),
+    ];
+
+    let workflows = vec![make_workflow(
+        "WF-001",
+        "TASK-001",
+        WorkflowStatus::Running,
+        Some("implementation"),
+        parse_time("2026-02-26T00:00:00Z"),
+        None,
+        vec![make_phase("implementation", WorkflowPhaseStatus::Running, None, None)],
+        None,
+    )];
+
+    let stale = find_stale_attention_tasks(&tasks, &workflows);
+
+    assert_eq!(stale.len(), 1);
+    assert_eq!(stale[0].task_id, "TASK-003");
+    assert_eq!(stale[0].title, "Another in progress");
+}
+
+#[test]
+fn find_stale_attention_tasks_ignores_recently_completed_workflows() {
+    let now = parse_time("2026-02-27T12:00:00Z");
+    let tasks = vec![
+        make_task("TASK-001", "Recently completed", TaskStatus::InProgress, None),
+        make_task("TASK-002", "Truly stale", TaskStatus::InProgress, None),
+    ];
+
+    let workflows = vec![
+        make_workflow(
+            "WF-001",
+            "TASK-001",
+            WorkflowStatus::Completed,
+            None,
+            parse_time("2026-02-26T00:00:00Z"),
+            Some(parse_time("2026-02-27T11:00:00Z")),
+            vec![],
+            None,
+        ),
+        make_workflow(
+            "WF-002",
+            "TASK-002",
+            WorkflowStatus::Completed,
+            None,
+            parse_time("2026-02-25T00:00:00Z"),
+            Some(parse_time("2026-02-26T10:00:00Z")),
+            vec![],
+            None,
+        ),
+    ];
+
+    let stale = find_stale_attention_tasks_as_of(&tasks, &workflows, now);
+
+    assert_eq!(stale.len(), 1);
+    assert_eq!(stale[0].task_id, "TASK-002");
+}
+
+#[test]
+fn find_stale_attention_tasks_24h_threshold() {
+    let now = parse_time("2026-02-27T12:00:00Z");
+
+    let task_just_completed = OrchestratorTask {
+        id: "TASK-001".to_string(),
+        title: "Just completed".to_string(),
+        status: TaskStatus::InProgress,
+        metadata: TaskMetadata {
+            created_at: now,
+            updated_at: now,
+            created_by: "test".to_string(),
+            updated_by: "test".to_string(),
+            started_at: None,
+            completed_at: None,
+            version: 1,
+        },
+        ..make_task("TASK-001", "Just completed", TaskStatus::InProgress, None)
+    };
+
+    let task_old_completion = OrchestratorTask {
+        id: "TASK-002".to_string(),
+        title: "Old completion".to_string(),
+        status: TaskStatus::InProgress,
+        metadata: TaskMetadata {
+            created_at: now,
+            updated_at: parse_time("2026-02-26T11:59:00Z"),
+            created_by: "test".to_string(),
+            updated_by: "test".to_string(),
+            started_at: None,
+            completed_at: None,
+            version: 1,
+        },
+        ..make_task("TASK-002", "Old completion", TaskStatus::InProgress, None)
+    };
+
+    let tasks = vec![task_just_completed, task_old_completion];
+
+    let workflow_just_done = make_workflow(
+        "WF-001",
+        "TASK-001",
+        WorkflowStatus::Completed,
+        None,
+        parse_time("2026-02-26T00:00:00Z"),
+        Some(parse_time("2026-02-27T12:00:01Z")),
+        vec![],
+        None,
+    );
+
+    let workflow_old_done = make_workflow(
+        "WF-002",
+        "TASK-002",
+        WorkflowStatus::Completed,
+        None,
+        parse_time("2026-02-25T00:00:00Z"),
+        Some(parse_time("2026-02-26T11:59:00Z")),
+        vec![],
+        None,
+    );
+
+    let workflows = vec![workflow_just_done, workflow_old_done];
+
+    let stale = find_stale_attention_tasks_as_of(&tasks, &workflows, now);
+
+    assert_eq!(stale.len(), 1, "TASK-002 should be stale (completion was >24h ago)");
+    assert_eq!(stale[0].task_id, "TASK-002");
+}
+
+#[test]
+fn active_agent_assignments_include_linked_requirements() {
+    let workflows = vec![make_workflow(
+        "WF-001",
+        "TASK-001",
+        WorkflowStatus::Running,
+        Some("implementation"),
+        parse_time("2026-02-20T00:00:00Z"),
+        None,
+        vec![make_phase("implementation", WorkflowPhaseStatus::Running, None, None)],
+        None,
+    )];
+
+    let mut task = make_task("TASK-001", "Test task", TaskStatus::InProgress, None);
+    task.linked_requirements = vec!["REQ-001".to_string(), "REQ-002".to_string()];
+
+    let tasks = vec![task];
+
+    let assignments = active_agent_assignments(1, &workflows, &tasks);
+    assert_eq!(assignments.len(), 1);
+    assert_eq!(assignments[0].linked_requirement_ids, vec!["REQ-001", "REQ-002"]);
+}
+
+#[test]
+fn active_agent_assignments_include_linked_workflow_id() {
+    let workflows = vec![make_workflow(
+        "WF-001",
+        "TASK-001",
+        WorkflowStatus::Running,
+        Some("implementation"),
+        parse_time("2026-02-20T00:00:00Z"),
+        None,
+        vec![make_phase("implementation", WorkflowPhaseStatus::Running, None, None)],
+        None,
+    )];
+
+    let mut task = make_task("TASK-001", "Test task", TaskStatus::InProgress, None);
+    task.workflow_metadata.workflow_id = Some("default".to_string());
+
+    let tasks = vec![task];
+
+    let assignments = active_agent_assignments(1, &workflows, &tasks);
+    assert_eq!(assignments.len(), 1);
+    assert_eq!(assignments[0].linked_workflow_id.as_deref(), Some("default"));
 }

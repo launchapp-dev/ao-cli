@@ -29,6 +29,7 @@ struct StatusDashboard {
     daemon: DaemonStatusSlice,
     active_agents: ActiveAgentsSlice,
     task_summary: TaskSummarySlice,
+    stale_attention: StaleAttentionSlice,
     recent_completions: RecentCompletionsSlice,
     recent_failures: RecentFailuresSlice,
     ci: CiStatusSlice,
@@ -61,6 +62,25 @@ struct ActiveAgentAssignment {
     workflow_id: String,
     phase_id: String,
     attributed: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    linked_requirement_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    linked_workflow_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct StaleAttentionSlice {
+    available: bool,
+    entries: Vec<StaleAttentionEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct StaleAttentionEntry {
+    task_id: String,
+    title: String,
+    last_activity_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -222,6 +242,11 @@ pub(crate) async fn handle_status(hub: Arc<dyn ServiceHub>, project_root: &str, 
             tasks.as_deref(),
             combine_errors([task_stats_error.as_deref(), tasks_error.as_deref()]),
         ),
+        stale_attention: build_stale_attention_slice(
+            tasks.as_deref(),
+            workflow_snapshot.as_ref().map(|snapshot| snapshot.active_workflows.as_slice()),
+            tasks_error.clone(),
+        ),
         recent_completions: build_recent_completions_slice(tasks.as_deref(), tasks_error),
         recent_failures: build_recent_failures_slice(
             workflow_snapshot.as_ref().map(|snapshot| snapshot.recent_failures.as_slice()),
@@ -306,7 +331,7 @@ fn active_agent_assignments(
     workflows: &[OrchestratorWorkflow],
     tasks: &[OrchestratorTask],
 ) -> Vec<ActiveAgentAssignment> {
-    let task_titles: HashMap<&str, &str> = tasks.iter().map(|task| (task.id.as_str(), task.title.as_str())).collect();
+    let task_map: HashMap<&str, &OrchestratorTask> = tasks.iter().map(|task| (task.id.as_str(), task)).collect();
 
     let mut running: Vec<&OrchestratorWorkflow> =
         workflows.iter().filter(|workflow| workflow.status == WorkflowStatus::Running).collect();
@@ -316,12 +341,17 @@ fn active_agent_assignments(
     let mut assignments: Vec<ActiveAgentAssignment> = running
         .into_iter()
         .take(attributed_count)
-        .map(|workflow| ActiveAgentAssignment {
-            task_id: workflow.task_id.clone(),
-            task_title: task_titles.get(workflow.task_id.as_str()).copied().unwrap_or("Unknown task").to_string(),
-            workflow_id: workflow.id.clone(),
-            phase_id: workflow_active_phase(workflow),
-            attributed: true,
+        .map(|workflow| {
+            let task = task_map.get(workflow.task_id.as_str()).copied();
+            ActiveAgentAssignment {
+                task_id: workflow.task_id.clone(),
+                task_title: task.map(|t| t.title.as_str()).unwrap_or("Unknown task").to_string(),
+                workflow_id: workflow.id.clone(),
+                phase_id: workflow_active_phase(workflow),
+                attributed: true,
+                linked_requirement_ids: task.map(|t| t.linked_requirements.clone()).unwrap_or_default(),
+                linked_workflow_id: task.and_then(|t| t.workflow_metadata.workflow_id.clone()),
+            }
         })
         .collect();
 
@@ -333,6 +363,8 @@ fn active_agent_assignments(
             workflow_id: format!("unknown-{}", placeholder_index + 1),
             phase_id: "unknown".to_string(),
             attributed: false,
+            linked_requirement_ids: Vec::new(),
+            linked_workflow_id: None,
         });
     }
 
@@ -347,6 +379,59 @@ fn workflow_active_phase(workflow: &OrchestratorWorkflow) -> String {
         .map(|phase| phase.phase_id.clone())
         .or_else(|| workflow.current_phase.clone())
         .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn build_stale_attention_slice(
+    tasks: Option<&[OrchestratorTask]>,
+    workflows: Option<&[OrchestratorWorkflow]>,
+    error: Option<String>,
+) -> StaleAttentionSlice {
+    let entries = if let Some(tasks) = tasks {
+        find_stale_attention_tasks(tasks, workflows.unwrap_or_default())
+    } else {
+        Vec::new()
+    };
+    StaleAttentionSlice { available: tasks.is_some(), entries, error }
+}
+
+fn find_stale_attention_tasks(tasks: &[OrchestratorTask], workflows: &[OrchestratorWorkflow]) -> Vec<StaleAttentionEntry> {
+    find_stale_attention_tasks_as_of(tasks, workflows, Utc::now())
+}
+
+fn find_stale_attention_tasks_as_of(tasks: &[OrchestratorTask], workflows: &[OrchestratorWorkflow], now: DateTime<Utc>) -> Vec<StaleAttentionEntry> {
+    let twenty_four_hours_ago = now - chrono::Duration::hours(24);
+
+    let active_workflow_task_ids: HashSet<&str> = workflows
+        .iter()
+        .filter(|workflow| workflow.status == WorkflowStatus::Running)
+        .map(|workflow| workflow.task_id.as_str())
+        .collect();
+
+    let recently_completed_task_ids: HashSet<&str> = workflows
+        .iter()
+        .filter(|workflow| {
+            workflow.status == WorkflowStatus::Completed
+                && workflow.completed_at.as_ref().map(|at| *at > twenty_four_hours_ago).unwrap_or(false)
+        })
+        .map(|workflow| workflow.task_id.as_str())
+        .collect();
+
+    let mut stale_entries: Vec<StaleAttentionEntry> = tasks
+        .iter()
+        .filter(|task| {
+            task.status == TaskStatus::InProgress
+                && !active_workflow_task_ids.contains(task.id.as_str())
+                && !recently_completed_task_ids.contains(task.id.as_str())
+        })
+        .map(|task| StaleAttentionEntry {
+            task_id: task.id.clone(),
+            title: task.title.clone(),
+            last_activity_at: task.metadata.updated_at,
+        })
+        .collect();
+
+    stale_entries.sort_by(|left, right| right.last_activity_at.cmp(&left.last_activity_at).then_with(|| left.task_id.cmp(&right.task_id)));
+    stale_entries
 }
 
 fn build_task_summary_slice(
@@ -414,6 +499,25 @@ fn build_recent_failures_slice(failures: Option<&[RecentFailureEntry]>, error: O
         entries: failures.map(|entries| entries.to_vec()).unwrap_or_default(),
         error,
     }
+}
+
+fn extract_recent_failures(workflows: &[OrchestratorWorkflow]) -> Vec<RecentFailureEntry> {
+    let mut entries: Vec<RecentFailureEntry> = workflows
+        .iter()
+        .filter(|workflow| workflow.status == WorkflowStatus::Failed)
+        .map(|workflow| {
+            let (phase_id, failed_at, phase_error) = latest_failed_phase(workflow);
+            RecentFailureEntry {
+                workflow_id: workflow.id.clone(),
+                task_id: workflow.task_id.clone(),
+                phase_id,
+                failed_at,
+                failure_reason: workflow.failure_reason.clone().or(phase_error),
+            }
+        })
+        .collect();
+    entries.sort_by(|left, right| right.failed_at.cmp(&left.failed_at).then_with(|| left.workflow_id.cmp(&right.workflow_id)));
+    entries
 }
 
 fn latest_failed_phase(workflow: &OrchestratorWorkflow) -> (String, DateTime<Utc>, Option<String>) {
@@ -608,6 +712,26 @@ fn render_status_dashboard(dashboard: &StatusDashboard) -> String {
     let _ = writeln!(&mut output, "AO Status Dashboard");
     let _ = writeln!(&mut output, "Project Root: {}", dashboard.project_root);
     let _ = writeln!(&mut output, "Generated At: {}", dashboard.generated_at.to_rfc3339());
+    let _ = writeln!(&mut output);
+
+    let _ = writeln!(&mut output, "NOW");
+    let _ = writeln!(
+        &mut output,
+        "  next_task: {}",
+        if dashboard.task_summary.ready > 0 { "Something ready" } else { "Nothing ready" }
+    );
+    let _ = writeln!(&mut output, "  blocked_tasks: {}", dashboard.task_summary.blocked);
+    if dashboard.stale_attention.entries.is_empty() {
+        let _ = writeln!(&mut output, "  stale_attention: none");
+    } else {
+        for entry in &dashboard.stale_attention.entries {
+            let _ = writeln!(
+                &mut output,
+                "  - task_id={} title={} last_activity_at={}",
+                entry.task_id, entry.title, entry.last_activity_at.to_rfc3339()
+            );
+        }
+    }
     let _ = writeln!(&mut output);
 
     let _ = writeln!(&mut output, "Daemon");

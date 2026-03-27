@@ -131,7 +131,7 @@ export default withMermaid(
       ],
 
       socialLinks: [
-        { icon: 'github', link: 'https://github.com/launchapp-dev/ao-cli' },
+        { icon: 'github', link: 'https://github.com/launchapp-dev/ao' },
       ],
 
       footer: {
@@ -140,7 +140,7 @@ export default withMermaid(
       },
 
       editLink: {
-        pattern: 'https://github.com/launchapp-dev/ao-cli/edit/main/docs/:path',
+        pattern: 'https://github.com/launchapp-dev/ao/edit/main/docs/:path',
         text: 'Edit this page on GitHub',
       },
 

@@ -17,7 +17,7 @@ AO currently resolves workflows from these sources:
 
 | Source | Typical Refs | What It Owns |
 |---|---|---|
-| Bundled kernel workflows | `ao.vision/draft`, `ao.vision/refine` | Core planning workflows that still ship with AO directly |
+| Bundled kernel workflows | `ao.vision/draft`, `ao.vision/refine` | Core planning workflow refs that still ship with AO directly and are invoked through dispatch, not a dedicated top-level command |
 | Bundled first-party packs | `ao.task/standard`, `ao.requirement/draft`, `ao.requirement/execute` | Task, requirement, review, and QA behavior shipped as pack overlays |
 | Installed machine packs | `vendor.pack/ref` | Shared packs installed under `~/.ao/packs/<pack-id>/<version>/` |
 | Project pack overrides | `vendor.pack/ref` | Per-project overrides under `.ao/plugins/<pack-id>/` |
@@ -35,16 +35,18 @@ teaching the daemon any new behavior.
 
 ## Canonical Workflow Refs
 
-Pack-qualified refs are now the canonical surface:
+Pack-qualified refs are the canonical surface. Current operator entrypoints
+dispatch them through the workflow engine:
 
-| Surface | Canonical Ref | Notes |
+| Operator Entry Point | Canonical Ref | Notes |
 |---|---|---|
-| `ao vision draft` | `ao.vision/draft` | Legacy alias `builtin/vision-draft` still works |
-| `ao vision refine` | `ao.vision/refine` | Legacy alias `builtin/vision-refine` still works |
-| `ao requirements draft` | `ao.requirement/draft` | Legacy alias `builtin/requirements-draft` still works |
-| `ao requirements refine` | `ao.requirement/refine` | Legacy alias `builtin/requirements-refine` still works |
-| `ao requirements execute --id REQ-001` | `ao.requirement/execute` | Legacy alias `builtin/requirements-execute` still works |
-| Default task workflow | `ao.task/standard` | Project-local refs such as `standard-workflow` can wrap it |
+| `ao workflow run ao.task/standard` | `ao.task/standard` | Explicit workflow ref execution through the CLI |
+| `ao requirements execute --id REQ-001` | `ao.requirement/execute` | Requirement execution resolves to the canonical pack ref |
+| `ao workflow run standard-workflow` | `ao.task/standard` | Repository-specific workflows can wrap canonical pack refs |
+
+AO still ships planning refs such as `ao.vision/draft` and `ao.vision/refine`,
+but they are consumed as workflow refs rather than surfaced as a dedicated
+`ao vision ...` command.
 
 The first-party pack boundary is currently most visible in task, requirement,
 review, and QA behavior. For example, task routing and task execution phases now

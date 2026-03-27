@@ -1,13 +1,14 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
+use std::path::Path;
 use std::process::{Command as ProcessCommand, Stdio};
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Utc};
 use orchestrator_core::{
-    DaemonHealth, DaemonStatus, OrchestratorTask, OrchestratorWorkflow, ServiceHub, TaskStatistics, TaskStatus,
-    WorkflowPhaseStatus, WorkflowStatus,
+    open_project_db, DaemonHealth, DaemonStatus, OrchestratorTask, OrchestratorWorkflow, ServiceHub, TaskStatistics,
+    TaskStatus, WorkflowPhaseStatus, WorkflowStateManager, WorkflowStatus,
 };
 use serde::{Deserialize, Serialize};
 
@@ -107,6 +108,12 @@ struct RecentFailureEntry {
     failure_reason: Option<String>,
 }
 
+#[derive(Debug)]
+struct WorkflowStatusSnapshot {
+    active_workflows: Vec<OrchestratorWorkflow>,
+    recent_failures: Vec<RecentFailureEntry>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct CiStatusSlice {
     provider: &'static str,
@@ -185,20 +192,19 @@ pub(crate) async fn handle_status(hub: Arc<dyn ServiceHub>, project_root: &str, 
     let daemon_service = hub.daemon();
     let tasks_service = hub.tasks();
     let task_stats_service = tasks_service.clone();
-    let workflows_service = hub.workflows();
 
-    let (daemon_result, tasks_result, task_stats_result, workflows_result, ci_slice) = tokio::join!(
+    let (daemon_result, tasks_result, task_stats_result, workflow_snapshot_result, ci_slice) = tokio::join!(
         daemon_service.health(),
         tasks_service.list(),
         task_stats_service.statistics(),
-        workflows_service.list(),
+        collect_workflow_status_snapshot(project_root),
         collect_ci_status(project_root),
     );
 
     let (daemon_health, daemon_error) = split_result(daemon_result);
     let (tasks, tasks_error) = split_result(tasks_result);
     let (task_stats, task_stats_error) = split_result(task_stats_result);
-    let (workflows, workflows_error) = split_result(workflows_result);
+    let (workflow_snapshot, workflows_error) = split_result(workflow_snapshot_result);
 
     let dashboard = StatusDashboard {
         schema: STATUS_SCHEMA,
@@ -207,7 +213,7 @@ pub(crate) async fn handle_status(hub: Arc<dyn ServiceHub>, project_root: &str, 
         daemon: build_daemon_slice(daemon_health.as_ref(), daemon_error.clone()),
         active_agents: build_active_agents_slice(
             daemon_health.as_ref(),
-            workflows.as_deref(),
+            workflow_snapshot.as_ref().map(|snapshot| snapshot.active_workflows.as_slice()),
             tasks.as_deref(),
             combine_errors([daemon_error.as_deref(), workflows_error.as_deref(), tasks_error.as_deref()]),
         ),
@@ -217,7 +223,10 @@ pub(crate) async fn handle_status(hub: Arc<dyn ServiceHub>, project_root: &str, 
             combine_errors([task_stats_error.as_deref(), tasks_error.as_deref()]),
         ),
         recent_completions: build_recent_completions_slice(tasks.as_deref(), tasks_error),
-        recent_failures: build_recent_failures_slice(workflows.as_deref(), workflows_error),
+        recent_failures: build_recent_failures_slice(
+            workflow_snapshot.as_ref().map(|snapshot| snapshot.recent_failures.as_slice()),
+            workflows_error,
+        ),
         ci: ci_slice,
     };
 
@@ -400,36 +409,14 @@ fn recent_completions(tasks: &[OrchestratorTask]) -> Vec<RecentCompletionEntry> 
 }
 
 fn build_recent_failures_slice(
-    workflows: Option<&[OrchestratorWorkflow]>,
+    failures: Option<&[RecentFailureEntry]>,
     error: Option<String>,
 ) -> RecentFailuresSlice {
     RecentFailuresSlice {
-        available: workflows.is_some(),
-        entries: workflows.map(recent_failures).unwrap_or_default(),
+        available: failures.is_some(),
+        entries: failures.map(|entries| entries.to_vec()).unwrap_or_default(),
         error,
     }
-}
-
-fn recent_failures(workflows: &[OrchestratorWorkflow]) -> Vec<RecentFailureEntry> {
-    let mut entries: Vec<RecentFailureEntry> = workflows
-        .iter()
-        .filter(|workflow| workflow.status == WorkflowStatus::Failed)
-        .map(|workflow| {
-            let (phase_id, failed_at, phase_error) = latest_failed_phase(workflow);
-            RecentFailureEntry {
-                workflow_id: workflow.id.clone(),
-                task_id: workflow.task_id.clone(),
-                phase_id,
-                failed_at,
-                failure_reason: workflow.failure_reason.clone().or(phase_error),
-            }
-        })
-        .collect();
-    entries.sort_by(|left, right| {
-        right.failed_at.cmp(&left.failed_at).then_with(|| left.workflow_id.cmp(&right.workflow_id))
-    });
-    entries.truncate(RECENT_FAILURES_LIMIT);
-    entries
 }
 
 fn latest_failed_phase(workflow: &OrchestratorWorkflow) -> (String, DateTime<Utc>, Option<String>) {
@@ -452,6 +439,70 @@ fn latest_failed_phase(workflow: &OrchestratorWorkflow) -> (String, DateTime<Utc
     let phase_error = failed_phase.and_then(|phase| phase.error_message.clone());
 
     (phase_id, failed_at, phase_error)
+}
+
+async fn collect_workflow_status_snapshot(project_root: &str) -> Result<WorkflowStatusSnapshot> {
+    let project_root = project_root.to_string();
+    tokio::task::spawn_blocking(move || load_workflow_status_snapshot(project_root.as_str()))
+        .await
+        .map_err(|error| anyhow!("failed to collect workflow status snapshot: {error}"))?
+}
+
+fn load_workflow_status_snapshot(project_root: &str) -> Result<WorkflowStatusSnapshot> {
+    let manager = WorkflowStateManager::new(project_root);
+    Ok(WorkflowStatusSnapshot {
+        active_workflows: manager.list()?,
+        recent_failures: load_recent_failures(project_root, RECENT_FAILURES_LIMIT)?,
+    })
+}
+
+fn load_recent_failures(project_root: &str, limit: usize) -> Result<Vec<RecentFailureEntry>> {
+    let candidate_limit = i64::try_from(limit.saturating_mul(32)).context("recent failure limit overflow")?;
+    let conn = open_project_db(Path::new(project_root))?;
+    let mut stmt = conn.prepare(
+        "SELECT workflow_id, MAX(timestamp) AS failed_at
+         FROM checkpoints
+         WHERE status = 'failed'
+         GROUP BY workflow_id
+         ORDER BY failed_at DESC
+         LIMIT ?1",
+    )?;
+    let candidate_ids: Vec<String> = stmt
+        .query_map([candidate_limit], |row| row.get::<_, String>(0))?
+        .filter_map(|row| row.ok())
+        .collect();
+    drop(stmt);
+    drop(conn);
+
+    let manager = WorkflowStateManager::new(project_root);
+    let mut seen = HashSet::new();
+    let mut entries = Vec::new();
+    for workflow_id in candidate_ids {
+        if !seen.insert(workflow_id.clone()) {
+            continue;
+        }
+        let Ok(workflow) = manager.load(&workflow_id) else {
+            continue;
+        };
+        if workflow.status != WorkflowStatus::Failed {
+            continue;
+        }
+
+        let (phase_id, failed_at, phase_error) = latest_failed_phase(&workflow);
+        entries.push(RecentFailureEntry {
+            workflow_id: workflow.id.clone(),
+            task_id: workflow.task_id.clone(),
+            phase_id,
+            failed_at,
+            failure_reason: workflow.failure_reason.clone().or(phase_error),
+        });
+    }
+
+    entries.sort_by(|left, right| {
+        right.failed_at.cmp(&left.failed_at).then_with(|| left.workflow_id.cmp(&right.workflow_id))
+    });
+    entries.truncate(limit);
+    Ok(entries)
 }
 
 async fn collect_ci_status(project_root: &str) -> CiStatusSlice {

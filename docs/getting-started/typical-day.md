@@ -1,68 +1,70 @@
 # A Typical Day Using AO
 
-This is the common end-to-end loop: define intent, generate requirements,
-materialize tasks, and let the daemon execute task workflows.
+This is the common end-to-end loop: capture a requirement, turn it into tasks,
+and let AO run the resulting workflows.
 
 ## The Lifecycle
 
 ```mermaid
 flowchart TB
-    IDEA["Your Idea"]
-    --> VISION["ao vision draft<br/>workflow_ref: ao.vision/draft"]
-    --> REQS["ao requirements draft<br/>workflow_ref: ao.requirement/draft"]
-    --> EXECUTE["ao requirements execute --id REQ-001<br/>workflow_ref: ao.requirement/execute"]
+    IDEA["Your idea"]
+    --> REQUIREMENT["ao requirements create"]
+    --> REVIEW["ao requirements list / get / update"]
+    --> EXECUTE["ao requirements execute --id REQ-001"]
     --> DAEMON["ao daemon start --autonomous"]
 
-    DAEMON --> LOOP{"Daemon Tick"}
+    DAEMON --> LOOP{"Daemon tick"}
     LOOP -->|"Dispatch dequeued"| RUNNER["Spawn workflow-runner subprocess"]
-    RUNNER --> PIPELINE["Project workflow<br/>often wraps ao.task/standard"]
+    RUNNER --> PIPELINE["Project workflow or bundled pack workflow"]
     PIPELINE -->|"pass"| FACTS["Execution facts"]
     PIPELINE -->|"rework"| PIPELINE
-    FACTS --> PROJECTORS["Subject adapters + projectors"]
-    PROJECTORS --> DONE["Task / requirement state updated"]
+    FACTS --> PROJECTORS["Projectors update tasks and requirements"]
+    PROJECTORS --> DONE["Task and requirement state updated"]
 ```
 
 ## Typical Flow
 
-### 1. Define intent
+### 1. Capture the requirement
 
 ```bash
-ao vision draft
-ao requirements draft --include-codebase-scan
-ao requirements refine --id REQ-001
+ao requirements create --title "Add rate limiting" --priority high
+ao requirements list
+ao requirements get --id REQ-001
 ```
 
-Canonical refs for those commands are:
+### 2. Refine the scope
 
-- `ao.vision/draft`
-- `ao.requirement/draft`
-- `ao.requirement/refine`
+```bash
+ao requirements update --id REQ-001 --priority critical
+ao requirements recommendations scan
+```
 
-### 2. Turn requirements into work
+### 3. Execute the requirement into work
 
 ```bash
 ao requirements execute --id REQ-001
 ```
 
-This runs `ao.requirement/execute`, which plans and materializes task work
-through AO mutation surfaces.
+This creates or updates tasks through AO mutation surfaces and can start the
+corresponding workflows.
 
-### 3. Let task workflows run
+### 4. Let AO run
 
 ```bash
 ao daemon start --autonomous
 ```
 
-Project-local task refs such as `standard-workflow` usually delegate to bundled
-pack refs like `ao.task/standard`.
+Project-local workflows usually wrap bundled pack refs such as
+`ao.task/standard`.
 
-### 4. Watch the system
+### 5. Watch progress
 
 ```bash
 ao task stats
 ao workflow list
 ao daemon health
-ao output tail
+ao output monitor --run-id <run-id>
+ao status
 ```
 
 ## What the Daemon Actually Does
@@ -80,9 +82,9 @@ The daemon does not own task semantics, requirement semantics, or pack logic.
 
 That split lets AO support:
 
-- bundled first-party packs such as `ao.task` and `ao.requirement`
+- bundled first-party packs such as `ao.task`
 - installed machine packs under `~/.ao/packs/`
-- project overrides in `.ao/plugins/`
-- subprocess-based Node and Python integrations
+- project workflow overrides in `.ao/workflows.yaml` and `.ao/workflows/*.yaml`
+- machine-scoped runtime state under `~/.ao/<repo-scope>/`
 
 without expanding daemon responsibilities.

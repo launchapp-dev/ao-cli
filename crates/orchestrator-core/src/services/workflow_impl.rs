@@ -143,6 +143,19 @@ fn query_workflows(workflows: Vec<OrchestratorWorkflow>, query: &WorkflowQuery) 
     paginate_items(filtered, query.page)
 }
 
+fn workflow_query_can_use_db_page(query: &WorkflowQuery) -> bool {
+    query.page.limit.is_some()
+        && matches!(query.sort, WorkflowQuerySort::StartedAt)
+        && query.filter.workflow_ref.is_none()
+        && query.filter.task_id.is_none()
+        && query.filter.phase_id.is_none()
+        && query
+            .filter
+            .search_text
+            .as_deref()
+            .is_none_or(|value| value.trim().is_empty())
+}
+
 #[async_trait]
 impl WorkflowServiceApi for InMemoryServiceHub {
     async fn list(&self) -> Result<Vec<OrchestratorWorkflow>> {
@@ -284,23 +297,28 @@ impl WorkflowServiceApi for InMemoryServiceHub {
 #[async_trait]
 impl WorkflowServiceApi for FileServiceHub {
     async fn list(&self) -> Result<Vec<OrchestratorWorkflow>> {
-        let workflows = self.workflow_manager().list_all()?;
-        self.state.write().await.workflows =
-            workflows.iter().cloned().map(|workflow| (workflow.id.clone(), workflow)).collect();
-        Ok(workflows)
+        self.workflow_manager().list_all()
     }
 
     async fn query(&self, query: WorkflowQuery) -> Result<ListPage<OrchestratorWorkflow>> {
+        if workflow_query_can_use_db_page(&query) {
+            let manager = self.workflow_manager();
+            let (ids, total) = manager.query_ids(query.page, query.filter.status)?;
+            let mut items = Vec::with_capacity(ids.len());
+            for id in ids {
+                if let Ok(workflow) = manager.load(&id) {
+                    items.push(workflow);
+                }
+            }
+            return Ok(ListPage::new(items, total, query.page));
+        }
+
         let workflows = WorkflowServiceApi::list(self).await?;
         Ok(query_workflows(workflows, &query))
     }
 
     async fn get(&self, id: &str) -> Result<OrchestratorWorkflow> {
-        if let Ok(workflow) = self.workflow_manager().load(id) {
-            return Ok(workflow);
-        }
-
-        self.state.read().await.workflows.get(id).cloned().ok_or_else(|| not_found(format!("workflow not found: {id}")))
+        self.workflow_manager().load(id)
     }
 
     async fn decisions(&self, id: &str) -> Result<Vec<crate::types::WorkflowDecisionRecord>> {
@@ -321,7 +339,7 @@ impl WorkflowServiceApi for FileServiceHub {
         let retry_configs = load_phase_retry_configs(self.project_root.as_path());
         let workflow_config = crate::load_workflow_config_or_default(self.project_root.as_path());
         let task = if let Some(task_id) = input.subject.task_id() {
-            self.state.read().await.tasks.get(task_id).cloned()
+            crate::workflow::load_task(&self.project_root, task_id).ok()
         } else {
             None
         };

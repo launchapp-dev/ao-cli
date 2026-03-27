@@ -293,9 +293,48 @@ impl DaemonServiceApi for FileServiceHub {
     }
 
     async fn health(&self) -> Result<DaemonHealth> {
-        let mut status = self.status().await?;
         let config_dir = runner_config_dir(&self.project_root);
-        let runner_connected = is_agent_runner_ready(&config_dir).await;
+        let runner_connected = runner_ready_for_status(&config_dir).await;
+        let runner_pid_from_lock = runner_pid_from_lock_for_status(&config_dir);
+        let (mut status, should_mark_crashed, runner_alive) = {
+            let mut lock = self.state.write().await;
+            if lock.runner_pid.is_none() && runner_connected {
+                lock.runner_pid = runner_pid_from_lock;
+            }
+            let runner_pid = lock.runner_pid.or(runner_pid_from_lock);
+            if lock.runner_pid.is_none() {
+                lock.runner_pid = runner_pid;
+            }
+            let runner_alive = runner_pid.map(runner_process_alive_for_status).unwrap_or(false);
+            let should_mark_crashed = matches!(lock.daemon_status, DaemonStatus::Running | DaemonStatus::Paused)
+                && runner_pid.is_some()
+                && !runner_connected
+                && !runner_alive;
+            (lock.daemon_status, should_mark_crashed, runner_alive)
+        };
+
+        if should_mark_crashed {
+            status = mutate_daemon_state(self, |state| {
+                if state.runner_pid.is_none() {
+                    state.runner_pid = runner_pid_from_lock;
+                }
+                if matches!(state.daemon_status, DaemonStatus::Running | DaemonStatus::Paused)
+                    && state.runner_pid.is_some()
+                    && !runner_connected
+                    && !runner_alive
+                {
+                    state.daemon_status = DaemonStatus::Crashed;
+                    state.logs.push(LogEntry {
+                        timestamp: Utc::now(),
+                        level: LogLevel::Error,
+                        message: "agent-runner health check failed while daemon was active".to_string(),
+                    });
+                }
+                Ok(state.daemon_status)
+            })
+            .await?;
+        }
+
         let persisted_process_count = self.state.read().await.active_process_count;
         let active_agents = match persisted_process_count {
             Some(count) => count,
@@ -322,7 +361,9 @@ impl DaemonServiceApi for FileServiceHub {
 
         let pool_utilization_percent =
             pool_size.map(|ps| if ps == 0 { 0.0 } else { (active_agents as f64 / ps as f64) * 100.0 });
-        let queued_tasks = lock.tasks.values().filter(|t| t.status == TaskStatus::Ready).count() as u32;
+        let queued_tasks = crate::workflow::load_all_tasks(&self.project_root)
+            .map(|tasks| tasks.into_values().filter(|task| task.status == TaskStatus::Ready).count() as u32)
+            .unwrap_or(0);
 
         Ok(DaemonHealth {
             healthy: matches!(status, DaemonStatus::Running | DaemonStatus::Paused),

@@ -4,23 +4,33 @@ use std::path::{Path, PathBuf};
 pub fn scoped_state_root(project_root: &Path) -> Option<PathBuf> {
     let home = dirs::home_dir()?;
     let ao_root = home.join(".ao");
+    let scope_dir = ao_root.join(repository_scope_for_path(project_root));
 
-    if let Some(existing) = find_existing_scope_by_origin(&ao_root, project_root) {
-        return Some(existing);
+    if scope_dir.exists() {
+        return Some(scope_dir);
     }
 
-    let scope_dir = ao_root.join(repository_scope_for_path(project_root));
+    if let Some(existing) = find_existing_scope_by_origin(&ao_root, project_root) {
+        persist_project_root_marker(&existing, project_root);
+        return Some(existing);
+    }
 
     if !scope_dir.exists() {
         if let Err(_) = std::fs::create_dir_all(&scope_dir) {
             return Some(scope_dir);
         }
+        persist_project_root_marker(&scope_dir, project_root);
         if let Some(origin) = git_remote_origin(project_root) {
             let _ = std::fs::write(scope_dir.join(".git-origin"), origin);
         }
     }
 
     Some(scope_dir)
+}
+
+fn persist_project_root_marker(scope_dir: &Path, project_root: &Path) {
+    let canonical = project_root.canonicalize().unwrap_or_else(|_| project_root.to_path_buf());
+    let _ = std::fs::write(scope_dir.join(".project-root"), format!("{}\n", canonical.to_string_lossy()));
 }
 
 fn git_remote_origin(project_root: &Path) -> Option<String> {
@@ -118,7 +128,9 @@ pub fn repository_scope_for_path(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::EnvVarGuard;
     use proptest::prelude::*;
+    use tempfile::tempdir;
 
     #[test]
     fn sanitize_identifier_normalizes_expected_shapes() {
@@ -163,6 +175,40 @@ mod tests {
 
         let scope = repository_scope_for_path(&missing);
         assert!(scope.starts_with("missing-repo-2026-"));
+    }
+
+    #[test]
+    fn scoped_state_root_avoids_git_lookup_when_scope_already_exists() {
+        let temp = tempdir().expect("tempdir");
+        let home = temp.path().join("home");
+        let repo = temp.path().join("repo");
+        let bin = temp.path().join("bin");
+        let marker = temp.path().join("git-called");
+        std::fs::create_dir_all(home.join(".ao")).expect("ao root");
+        std::fs::create_dir_all(&repo).expect("repo root");
+        std::fs::create_dir_all(&bin).expect("bin dir");
+
+        let scope_dir = home.join(".ao").join(repository_scope_for_path(&repo));
+        std::fs::create_dir_all(&scope_dir).expect("scope dir");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let git_script = bin.join("git");
+            std::fs::write(&git_script, format!("#!/bin/sh\ntouch '{}'\nexit 1\n", marker.display()))
+                .expect("write fake git");
+            let mut perms = std::fs::metadata(&git_script).expect("metadata").permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&git_script, perms).expect("set perms");
+        }
+
+        let _home_guard = EnvVarGuard::set("HOME", Some(home.to_string_lossy().as_ref()));
+        let _path_guard = EnvVarGuard::set("PATH", Some(bin.to_string_lossy().as_ref()));
+
+        let resolved = scoped_state_root(&repo).expect("scope dir");
+        assert_eq!(resolved, scope_dir);
+        assert!(!marker.exists(), "existing scope lookup should not invoke git");
     }
 
     proptest! {

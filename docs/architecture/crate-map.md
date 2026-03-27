@@ -1,12 +1,13 @@
 # Crate Map
 
-The AO workspace contains 16 crates organized into seven groups by responsibility.
+The AO workspace contains 17 crates organized into seven groups by responsibility.
 
 ## Foundation
 
 | Crate | Description | Key Responsibility |
 |-------|-------------|-------------------|
 | [protocol](../../crates/protocol/README.md) | Wire protocol types shared across all crates | Defines IPC messages, configuration schemas, scoped state paths, model routing defaults, and CLI JSON envelope contracts |
+| [orchestrator-logging](../../crates/orchestrator-logging/Cargo.toml) | Shared tracing and logging utilities | Initializes tracing, writes structured JSONL logs, and manages log rotation for runtime processes |
 
 ## Core
 
@@ -20,15 +21,15 @@ The AO workspace contains 16 crates organized into seven groups by responsibilit
 
 | Crate | Description | Key Responsibility |
 |-------|-------------|-------------------|
-| [orchestrator-daemon-runtime](../../crates/orchestrator-daemon-runtime/README.md) | Daemon tick loop and dispatch engine | Project tick execution, dispatch queue management, process manager for workflow-runner subprocesses, schedule evaluation, completion reconciliation |
-| [workflow-runner](../../crates/workflow-runner/README.md) | Standalone workflow execution binary | Phase execution loop, runtime contract construction, IPC client to agent-runner, phase failover classification, merge recovery |
+| [orchestrator-daemon-runtime](../../crates/orchestrator-daemon-runtime/README.md) | Daemon tick loop and dispatch engine | Project tick execution, dispatch queue management, process manager for workflow-runner-v2 subprocesses, schedule evaluation, completion reconciliation |
+| [workflow-runner-v2](../../crates/workflow-runner-v2/Cargo.toml) | Standalone workflow execution binary | Phase execution loop, runtime contract construction, IPC client to agent-runner, phase failover classification, merge recovery |
 | [agent-runner](../../crates/agent-runner/README.md) | Standalone daemon managing LLM CLI processes | IPC server (Unix socket / TCP), token-based auth, output parsing (tool calls, artifacts, thinking blocks), environment sanitization, provider abstraction |
 
 ## CLI
 
 | Crate | Description | Key Responsibility |
 |-------|-------------|-------------------|
-| [orchestrator-cli](../../crates/orchestrator-cli/README.md) | Main `ao` binary (clap-based CLI) | CLI dispatch for 24+ top-level commands, JSON envelope output, MCP server (via rmcp), TUI, error classification |
+| [orchestrator-cli](../../crates/orchestrator-cli/README.md) | Main `ao` binary (clap-based CLI) | CLI dispatch for 22 top-level commands, JSON envelope output, MCP server (via rmcp), error classification |
 
 ## Web
 

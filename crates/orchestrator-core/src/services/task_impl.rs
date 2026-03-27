@@ -117,7 +117,7 @@ impl TaskServiceApi for FileServiceHub {
     }
 
     async fn list(&self) -> Result<Vec<OrchestratorTask>> {
-        Ok(self.state.read().await.tasks.values().cloned().collect())
+        Ok(crate::workflow::load_all_tasks(&self.project_root)?.into_values().collect())
     }
 
     async fn query(&self, query: TaskQuery) -> Result<ListPage<OrchestratorTask>> {
@@ -149,7 +149,7 @@ impl TaskServiceApi for FileServiceHub {
     }
 
     async fn get(&self, id: &str) -> Result<OrchestratorTask> {
-        self.state.read().await.tasks.get(id).cloned().ok_or_else(|| not_found(format!("task not found: {id}")))
+        crate::workflow::load_task(&self.project_root, id)
     }
 
     async fn create(&self, input: TaskCreateInput) -> Result<OrchestratorTask> {

@@ -1,8 +1,8 @@
 use super::*;
 use orchestrator_core::{
-    Assignee, ChecklistItem, Complexity, ImpactArea, Priority, ResourceRequirements, RiskLevel, Scope, SubjectRef,
-    TaskDependency, TaskMetadata, TaskType, WorkflowCheckpointMetadata, WorkflowDecisionRecord, WorkflowMachineState,
-    WorkflowMetadata, WorkflowPhaseExecution,
+    Assignee, ChecklistItem, Complexity, DependencyType, ImpactArea, Priority, ResourceRequirements, RiskLevel, Scope,
+    SubjectRef, TaskDependency, TaskMetadata, TaskType, WorkflowCheckpointMetadata, WorkflowDecisionRecord,
+    WorkflowMachineState, WorkflowMetadata, WorkflowPhaseExecution,
 };
 use std::collections::HashMap;
 
@@ -456,6 +456,8 @@ fn render_status_dashboard_uses_required_section_order() {
         },
         recent_completions: RecentCompletionsSlice { available: true, entries: Vec::new(), error: None },
         recent_failures: RecentFailuresSlice { available: true, entries: Vec::new(), error: None },
+        attention_items: AttentionItemsSlice { available: true, count: 0, entries: Vec::new(), error: None },
+        blocked_tasks: BlockedTasksSlice { available: true, count: 0, entries: Vec::new(), error: None },
         ci: CiStatusSlice {
             provider: CI_PROVIDER_GITHUB,
             available: false,
@@ -471,11 +473,64 @@ fn render_status_dashboard_uses_required_section_order() {
     let summary_idx = output.find("Task Summary").expect("task summary section should exist");
     let completions_idx = output.find("Recent Completions").expect("recent completions section should exist");
     let failures_idx = output.find("Recent Failures").expect("recent failures section should exist");
+    let attention_idx = output.find("Attention Items").expect("attention items section should exist");
+    let blocked_idx = output.find("Blocked Tasks").expect("blocked tasks section should exist");
     let ci_idx = output.find("CI Status").expect("ci section should exist");
 
     assert!(daemon_idx < agents_idx);
     assert!(agents_idx < summary_idx);
     assert!(summary_idx < completions_idx);
     assert!(completions_idx < failures_idx);
-    assert!(failures_idx < ci_idx);
+    assert!(failures_idx < attention_idx);
+    assert!(attention_idx < blocked_idx);
+    assert!(blocked_idx < ci_idx);
+}
+
+#[test]
+fn attention_items_identifies_stale_in_progress_tasks() {
+    let now = parse_time("2026-02-27T00:00:00Z");
+    let old_timestamp = parse_time("2026-02-24T00:00:00Z"); // 72 hours old
+    let recent_timestamp = parse_time("2026-02-26T12:00:00Z"); // 12 hours old
+
+    let mut old_task = make_task("TASK-001", "Stale Task", TaskStatus::InProgress, None);
+    old_task.metadata.updated_at = old_timestamp;
+
+    let mut recent_task = make_task("TASK-002", "Recent Task", TaskStatus::InProgress, None);
+    recent_task.metadata.updated_at = recent_timestamp;
+
+    let done_task = make_task("TASK-003", "Done Task", TaskStatus::Done, Some(recent_timestamp));
+
+    let tasks = vec![old_task, recent_task, done_task];
+
+    let slice = build_attention_items_slice(Some(&tasks), None);
+    assert!(slice.available);
+    assert_eq!(slice.count, 1);
+    assert_eq!(slice.entries.len(), 1);
+    assert_eq!(slice.entries[0].task_id, "TASK-001");
+    assert_eq!(slice.entries[0].hours_since_update, 72);
+}
+
+#[test]
+fn blocked_tasks_shows_individual_tasks_with_dependencies() {
+    let mut blocked_task = make_task("TASK-001", "Blocked Task", TaskStatus::Blocked, None);
+    blocked_task.blocked_reason = Some("waiting for TASK-002".to_string());
+    blocked_task.dependencies = vec![
+        TaskDependency { task_id: "TASK-002".to_string(), dependency_type: DependencyType::Blocks },
+        TaskDependency { task_id: "TASK-003".to_string(), dependency_type: DependencyType::Blocks },
+    ];
+
+    let ready_task = make_task("TASK-004", "Ready Task", TaskStatus::Ready, None);
+
+    let tasks = vec![blocked_task, ready_task];
+
+    let slice = build_blocked_tasks_slice(Some(&tasks), None);
+    assert!(slice.available);
+    assert_eq!(slice.count, 1);
+    assert_eq!(slice.entries.len(), 1);
+
+    let entry = &slice.entries[0];
+    assert_eq!(entry.task_id, "TASK-001");
+    assert_eq!(entry.title, "Blocked Task");
+    assert_eq!(entry.blocked_reason.as_deref(), Some("waiting for TASK-002"));
+    assert_eq!(entry.blocking_task_ids, vec!["TASK-002", "TASK-003"]);
 }

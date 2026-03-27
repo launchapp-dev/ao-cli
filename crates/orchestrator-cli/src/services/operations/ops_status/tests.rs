@@ -454,6 +454,15 @@ fn render_status_dashboard_uses_required_section_order() {
             blocked: 0,
             error: None,
         },
+        next_task: NextTaskSlice { available: false, task: None, error: None },
+        blocked_tasks: BlockedTasksSlice { available: true, count: 0, entries: Vec::new(), error: None },
+        stale_in_progress: StaleInProgressSlice {
+            available: true,
+            threshold_hours: 24,
+            count: 0,
+            entries: Vec::new(),
+            error: None,
+        },
         recent_completions: RecentCompletionsSlice { available: true, entries: Vec::new(), error: None },
         recent_failures: RecentFailuresSlice { available: true, entries: Vec::new(), error: None },
         ci: CiStatusSlice {
@@ -469,13 +478,19 @@ fn render_status_dashboard_uses_required_section_order() {
     let daemon_idx = output.find("Daemon").expect("daemon section should exist");
     let agents_idx = output.find("Active Agents").expect("active agents section should exist");
     let summary_idx = output.find("Task Summary").expect("task summary section should exist");
+    let next_task_idx = output.find("Next Task").expect("next task section should exist");
+    let blocked_idx = output.find("Blocked Tasks").expect("blocked tasks section should exist");
+    let stale_idx = output.find("Stale In Progress").expect("stale in progress section should exist");
     let completions_idx = output.find("Recent Completions").expect("recent completions section should exist");
     let failures_idx = output.find("Recent Failures").expect("recent failures section should exist");
     let ci_idx = output.find("CI Status").expect("ci section should exist");
 
     assert!(daemon_idx < agents_idx);
     assert!(agents_idx < summary_idx);
-    assert!(summary_idx < completions_idx);
+    assert!(summary_idx < next_task_idx);
+    assert!(next_task_idx < blocked_idx);
+    assert!(blocked_idx < stale_idx);
+    assert!(stale_idx < completions_idx);
     assert!(completions_idx < failures_idx);
     assert!(failures_idx < ci_idx);
 }

@@ -23,11 +23,12 @@ Do not keep outdated counts or removed crates alive in docs.
 
 ## Workspace
 
-16-crate Rust workspace. Main binary: `ao` (`crates/orchestrator-cli`).
+17-crate Rust workspace. Main binary: `ao` (`crates/orchestrator-cli`).
 
 ```text
 crates/
 ├── agent-runner/                # Runner process that launches and supervises AI CLIs
+├── orchestrator-logging/        # Shared tracing and log file utilities
 ├── llm-cli-wrapper/             # Claude/Codex/Gemini CLI integration layer
 ├── oai-runner/                  # OpenAI-compatible runner implementation
 ├── orchestrator-cli/            # Main `ao` binary
@@ -51,6 +52,7 @@ Runtime-critical binaries and supporting crates must stay healthy:
 - `agent-runner`
 - `llm-cli-wrapper`
 - `oai-runner`
+- `orchestrator-logging`
 - `workflow-runner-v2`
 - `orchestrator-daemon-runtime`
 
@@ -130,21 +132,20 @@ Visible top-level commands:
 - `queue`
 - `task`
 - `workflow`
-- `vision`
 - `requirements`
-- `architecture`
 - `history`
 - `errors`
 - `git`
 - `skill`
 - `model`
+- `pack`
 - `runner`
 - `status`
 - `output`
 - `mcp`
 - `web`
 - `setup`
-- `tui`
+- `sync`
 - `doctor`
 
 Hidden/internal top-level commands:

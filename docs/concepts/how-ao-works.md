@@ -72,6 +72,7 @@ Examples:
 
 - `ao requirements execute --id REQ-001`
 - `ao workflow run ao.task/standard`
+- `ao workflow run ao.vision/draft`
 - `ao mcp serve`
 - ready-queue and schedule dispatches
 
@@ -130,6 +131,10 @@ AO resolves workflows from a layered source model:
 Canonical workflow refs are pack-qualified, such as `ao.task/standard` and
 `ao.requirement/execute`. Legacy `builtin/*` aliases remain as migration
 shims, but they are no longer the preferred operator-facing surface.
+
+There is no dedicated `ao vision ...` command in the current CLI. Planning
+workflows still exist as canonical refs, but they are consumed through
+`ao workflow run` or project-local workflow YAML.
 
 ## MCP and External Runtimes
 

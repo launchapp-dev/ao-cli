@@ -1,6 +1,6 @@
 # Architecture Overview
 
-AO is a Rust-only agent orchestrator CLI built as a 16-crate Cargo workspace. It provides a CLI, daemon, agent runner, LLM wrappers, MCP server, and web UI for orchestrating AI agent workflows.
+AO is a Rust-only agent orchestrator CLI built as a 17-crate Cargo workspace. It provides a CLI, daemon, agent runner, LLM wrappers, MCP server, and web UI for orchestrating AI agent workflows.
 
 ## Crate Dependency Graph
 
@@ -12,10 +12,11 @@ graph TD
     STORE[orchestrator-store]
     CONFIG[orchestrator-config]
     DAEMON[orchestrator-daemon-runtime]
-    WR[workflow-runner]
+    WR[workflow-runner-v2]
     AR[agent-runner]
     LLM[llm-cli-wrapper]
     OAI[oai-runner]
+    LOG[orchestrator-logging]
     WAPI[orchestrator-web-api]
     WCON[orchestrator-web-contracts]
     WSRV[orchestrator-web-server]
@@ -33,13 +34,16 @@ graph TD
     CLI --> NOTIF
     CLI --> LLM
     CLI --> PROTO
+    CLI --> LOG
 
     WSRV --> WAPI
     WSRV --> WCON
+    WSRV --> LOG
     WAPI --> CORE
     WAPI --> DAEMON
     WAPI --> WCON
     WAPI --> PROTO
+    WAPI --> LOG
 
     DAEMON --> CORE
     DAEMON --> WR
@@ -47,6 +51,7 @@ graph TD
     DAEMON --> NOTIF
     DAEMON --> PROV
     DAEMON --> PROTO
+    DAEMON --> LOG
 
     GIT --> CORE
     GIT --> WR
@@ -55,6 +60,7 @@ graph TD
     WR --> CORE
     WR --> CONFIG
     WR --> PROTO
+    WR --> LOG
 
     CORE --> STORE
     CORE --> CONFIG
@@ -64,8 +70,10 @@ graph TD
 
     AR --> LLM
     AR --> PROTO
+    AR --> LOG
 
     OAI --> PROTO
+    OAI --> LOG
 
     STORE --> PROTO
     CONFIG --> PROTO
@@ -77,6 +85,8 @@ graph TD
 **protocol** sits at the foundation -- every crate depends on it for shared wire types, configuration, and IPC contracts.
 
 **orchestrator-core** occupies the middle layer, providing domain logic, state management, and the ServiceHub dependency injection pattern.
+
+**orchestrator-logging** centralizes tracing initialization and structured file logging for runtime binaries.
 
 **orchestrator-cli** sits at the top as the main `ao` binary, composing all other crates into the user-facing command surface.
 
@@ -90,6 +100,6 @@ graph TD
 
 ## Deep Dives
 
-- [Crate Map](crate-map.md) -- All 16 crates grouped by responsibility with descriptions
+- [Crate Map](crate-map.md) -- All 17 crates grouped by responsibility with descriptions
 - [ServiceHub Pattern](service-hub.md) -- Dependency injection via the ServiceHub trait
 - [llm-cli-wrapper Session Backends](llm-cli-wrapper-session-backends.md) -- Planned unified session facade for SDK-backed CLI integrations

@@ -159,13 +159,13 @@ impl PlanningServiceApi for FileServiceHub {
     }
 
     async fn list_requirements(&self) -> Result<Vec<RequirementItem>> {
-        let lock = self.state.read().await;
-        Ok(planning_shared::list_requirements_sorted(&lock))
+        let mut requirements: Vec<_> = crate::workflow::load_all_requirements(&self.project_root)?.into_values().collect();
+        planning_shared::sort_requirements(&mut requirements, RequirementQuerySort::Id);
+        Ok(requirements)
     }
 
     async fn get_requirement(&self, id: &str) -> Result<RequirementItem> {
-        let lock = self.state.read().await;
-        planning_shared::get_requirement(&lock, id)
+        crate::workflow::load_requirement(&self.project_root, id)
     }
 
     async fn refine_requirements(&self, input: RequirementsRefineInput) -> Result<Vec<RequirementItem>> {

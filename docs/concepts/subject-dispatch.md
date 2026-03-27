@@ -31,7 +31,7 @@ Common subject kinds today:
 |---|---|
 | `ao.task` | `TASK-042` |
 | `ao.requirement` | `REQ-007` |
-| `custom` | `vision-draft` |
+| `custom` | `planning-intake` |
 
 Compatibility adapters still preserve the existing task and requirement flows,
 but routing is now keyed by generic `kind` and `id`.
@@ -62,16 +62,20 @@ SubjectDispatch {
 
 ## Canonical Workflow Refs
 
-Examples of current workflow refs:
+Examples of current workflow refs consumed by dispatch:
 
 | Use Case | Subject | Workflow Ref |
 |---|---|---|
-| Vision draft | `custom:vision-draft` | `ao.vision/draft` |
+| Planning intake | `custom:planning-intake` | `ao.vision/draft` |
 | Requirement execution | `ao.requirement:REQ-007` | `ao.requirement/execute` |
 | Standard task delivery | `ao.task:TASK-042` | `ao.task/standard` |
 
 Legacy aliases such as `builtin/requirements-execute` still resolve, but they
 are compatibility shims rather than the preferred surface.
+
+The `ao.vision/draft` ref remains a valid dispatch target, but the current CLI
+does not expose a dedicated `ao vision ...` command. It is consumed through
+generic workflow dispatch or project-local YAML.
 
 ## Why This Boundary Matters
 

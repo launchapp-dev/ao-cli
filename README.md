@@ -4,18 +4,16 @@
 
 <br/>
 
-[![Typing SVG](https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=500&size=20&duration=3000&pause=1500&color=58A6FF&center=true&vCenter=true&multiline=true&repeat=true&random=false&width=700&height=80&lines=Define+your+engineering+team+as+YAML.;Dispatch+tasks+to+AI+agents+across+isolated+worktrees.;Review%2C+merge%2C+and+ship+%E2%80%94+while+you+sleep.)](https://github.com/launchapp-dev/ao-cli)
+[![Typing SVG](https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=500&size=20&duration=3000&pause=1500&color=58A6FF&center=true&vCenter=true&multiline=true&repeat=true&random=false&width=700&height=80&lines=Define+your+engineering+team+as+YAML.;Dispatch+tasks+to+AI+agents+across+isolated+worktrees.;Review%2C+merge%2C+and+ship+%E2%80%94+while+you+sleep.)](https://github.com/launchapp-dev/ao)
 
 <br/>
 <br/>
 <br/>
 
 
-<a href="https://github.com/launchapp-dev/ao-cli/releases/latest"><img src="https://img.shields.io/github/v/release/launchapp-dev/ao-cli?style=for-the-badge&color=1f6feb&labelColor=0d1117&logo=github&logoColor=f0f6fc" alt="Release" /></a>
+<a href="https://github.com/launchapp-dev/ao/releases/latest"><img src="https://img.shields.io/github/v/release/launchapp-dev/ao?style=for-the-badge&color=1f6feb&labelColor=0d1117&logo=github&logoColor=f0f6fc" alt="Release" /></a>
 &nbsp;
 <img src="https://img.shields.io/badge/rust-100%25-f0f6fc?style=for-the-badge&labelColor=0d1117&logo=rust&logoColor=f0f6fc" alt="Rust" />
-&nbsp;
-<img src="https://img.shields.io/badge/108k_LOC-16_crates-f0f6fc?style=for-the-badge&labelColor=0d1117" alt="Codebase" />
 &nbsp;
 <img src="https://img.shields.io/badge/macOS%20%7C%20Linux%20%7C%20Windows-f0f6fc?style=for-the-badge&labelColor=0d1117&logo=apple&logoColor=f0f6fc" alt="Platforms" />
 
@@ -26,18 +24,20 @@
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/launchapp-dev/ao-cli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/launchapp-dev/ao/main/install.sh | bash
 ```
+
+The upstream installer currently targets macOS. On Linux and Windows, use a release archive or build from source.
 
 <details>
 <summary><kbd>options</kbd></summary>
 
 ```bash
 # Specific version
-AO_VERSION=v0.0.11 curl -fsSL https://raw.githubusercontent.com/launchapp-dev/ao-cli/main/install.sh | bash
+AO_VERSION=v0.0.11 curl -fsSL https://raw.githubusercontent.com/launchapp-dev/ao/main/install.sh | bash
 
 # Custom directory
-AO_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/launchapp-dev/ao-cli/main/install.sh | bash
+AO_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/launchapp-dev/ao/main/install.sh | bash
 ```
 
 </details>
@@ -89,7 +89,7 @@ cd your-project                          # any git repo
 ao doctor                                # check prerequisites
 ao setup                                 # initialize .ao/
 
-ao task create --title "Add rate limiting" --type feature --priority high
+ao task create --title "Add rate limiting" --task-type feature --priority high
 ao workflow run --task-id TASK-001        # run once
 
 ao daemon start --autonomous             # or go fully autonomous
@@ -327,23 +327,21 @@ ao status        Project overview at a glance
 
 ## Architecture
 
-```
-108k lines of Rust · 16 crates
+AO is a Rust-only workspace with 17 crates. The major crates are:
 
-orchestrator-cli ·········· 30k    CLI commands and dispatch
-orchestrator-core ·········· 18k   Services, state, config
-orchestrator-config ········ 13k   Workflow YAML compilation
-workflow-runner-v2 ········· 9k    Phase execution engine
-agent-runner ··············· 6k    LLM CLI process management
-llm-cli-wrapper ············ 6k    CLI tool abstraction layer
-orchestrator-web-server ···· 5k    Embedded React dashboard
-protocol ··················· 5k    Shared types, model routing
-orchestrator-daemon ········ 4k    Daemon scheduler runtime
-oai-runner ················· 3k    OpenAI-compatible API client
-orchestrator-providers ····· 3k    Provider abstractions
-orchestrator-web-api ······· 3k    GraphQL API layer
-+ 4 supporting crates
-```
+- `orchestrator-cli` - CLI commands and dispatch
+- `orchestrator-core` - services, state, and workflow lifecycle
+- `orchestrator-config` - workflow YAML scaffolding, loading, and compilation
+- `workflow-runner-v2` - workflow execution runtime
+- `agent-runner` - LLM CLI process management
+- `llm-cli-wrapper` - CLI tool abstraction layer
+- `orchestrator-daemon-runtime` - daemon scheduler runtime
+- `orchestrator-logging` - shared logging utilities
+- `orchestrator-web-server` - embedded React dashboard
+- `orchestrator-web-api` - web API business logic
+- `orchestrator-providers` - provider integrations
+- `orchestrator-store` - persistence primitives
+- `protocol` - shared types and routing
 
 ```mermaid
 graph LR
@@ -356,7 +354,7 @@ graph LR
     B --> H[Config]
     H --> I[YAML Compiler]
     A --> J[Web Server]
-    J --> K[GraphQL API]
+    J --> K[Web API]
     K --> B
     C --> D
     style A fill:#1f6feb,stroke:#1f6feb,color:#fff
@@ -388,13 +386,17 @@ This project is licensed under the [Elastic License 2.0 (ELv2)](LICENSE). You ma
 **Update**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/launchapp-dev/ao-cli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/launchapp-dev/ao/main/install.sh | bash
 ```
 
 **Uninstall**
 
 ```bash
-rm -f ~/.local/bin/ao ~/.local/bin/agent-runner ~/.local/bin/llm-cli-wrapper
+rm -f ~/.local/bin/ao \
+  ~/.local/bin/agent-runner \
+  ~/.local/bin/llm-cli-wrapper \
+  ~/.local/bin/ao-oai-runner \
+  ~/.local/bin/ao-workflow-runner
 ```
 
 <br/>

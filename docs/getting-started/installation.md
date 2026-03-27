@@ -1,76 +1,95 @@
 # Installation
 
-## Build from Source
+## Fast Path: Upstream Installer
 
-AO is a Rust workspace. You need a working Rust toolchain (1.75+ recommended).
+Use the installer published from `launchapp-dev/ao`:
 
 ```bash
-# Clone the repository
-git clone https://github.com/your-org/ao-cli.git
-cd ao-cli
-
-# Build all runtime binaries (release mode)
-cargo ao-bin-build-release
-
-# Or build in debug mode for development
-cargo ao-bin-build
+curl -fsSL https://raw.githubusercontent.com/launchapp-dev/ao/main/install.sh | bash
 ```
 
-The build produces the `ao` binary along with supporting binaries (agent-runner, workflow-runner).
+Options:
 
-## Run Directly (Development)
+```bash
+# Install a specific release
+AO_VERSION=v0.0.11 curl -fsSL https://raw.githubusercontent.com/launchapp-dev/ao/main/install.sh | bash
 
-If you want to run without installing:
+# Install into a custom directory
+AO_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/launchapp-dev/ao/main/install.sh | bash
+```
+
+The upstream installer currently targets macOS. On Linux and Windows, use a release archive or build from source.
+
+## Release Archives
+
+Prebuilt releases are published at:
+
+- <https://github.com/launchapp-dev/ao/releases>
+
+Download the archive for your platform, extract it, and place these binaries on your `PATH`:
+
+- `ao`
+- `agent-runner`
+- `llm-cli-wrapper`
+- `ao-oai-runner`
+- `ao-workflow-runner`
+
+Supported release targets:
+
+| Target | Platform |
+|--------|----------|
+| `aarch64-apple-darwin` | macOS (Apple Silicon) |
+| `x86_64-apple-darwin` | macOS (Intel) |
+| `x86_64-unknown-linux-gnu` | Linux (x86_64) |
+| `x86_64-pc-windows-msvc` | Windows (x86_64) |
+
+## Build From Source
+
+```bash
+git clone https://github.com/launchapp-dev/ao.git
+cd ao
+
+# Verify the runtime binaries
+cargo ao-bin-check
+
+# Debug build
+cargo ao-bin-build
+
+# Release build
+cargo ao-bin-build-release
+```
+
+To run the CLI directly during development:
 
 ```bash
 cargo run -p orchestrator-cli -- --help
 ```
 
-This compiles and runs the CLI in one step. Useful during development.
-
-## Check Binaries
-
-Verify that all required binaries are present and correctly linked:
-
-```bash
-cargo ao-bin-check
-```
-
-## Release Binaries
-
-Pre-built binaries are available on the [GitHub Releases](https://github.com/your-org/ao-cli/releases) page for the following targets:
-
-| Target | Platform |
-|--------|----------|
-| `x86_64-unknown-linux-gnu` | Linux (x86_64) |
-| `x86_64-apple-darwin` | macOS (Intel) |
-| `aarch64-apple-darwin` | macOS (Apple Silicon) |
-| `x86_64-pc-windows-msvc` | Windows (x86_64) |
-
-Download the appropriate archive, extract it, and place the `ao` binary on your `PATH`.
-
 ## Verify Installation
 
 ```bash
-# Check the installed version
 ao --version
-
-# Run environment diagnostics
 ao doctor
 ```
 
-`ao doctor` checks for required dependencies, verifies configuration, and reports any issues. Use `ao doctor --fix` to attempt automatic remediation of common problems.
+Run `ao doctor` inside a git repository to verify the local environment and AO prerequisites.
 
 ## Prerequisites
 
-AO orchestrates AI CLI tools. Depending on which agents and models you use, you may need one or more of:
+AO itself is a Rust application, but autonomous workflows need at least one supported AI coding CLI on your `PATH`:
 
-- [Claude CLI](https://docs.anthropic.com/en/docs/claude-cli) (`claude`)
-- [Codex CLI](https://github.com/openai/codex) (`codex`)
-- [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`)
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+- [OpenAI Codex CLI](https://github.com/openai/codex)
+- [Gemini CLI](https://github.com/google-gemini/gemini-cli)
 
-These are not required to install AO itself, but workflows that invoke AI agents will need the appropriate CLI tool available on your `PATH`.
+Example installs:
+
+```bash
+npm install -g @anthropic-ai/claude-code
+npm install -g @openai/codex
+npm install -g @google/gemini-cli
+```
 
 ## Next Steps
 
-Once installed, proceed to the [Quick Start](quick-start.md) to configure your first project.
+Proceed to the [Quick Start](quick-start.md) to initialize a repository and run the first workflow.

@@ -12,7 +12,7 @@ pub use phase_plan::{
 pub use resume::{ResumabilityStatus, ResumeConfig, WorkflowResumeManager};
 pub use state_machine::WorkflowStateMachine;
 pub use state_manager::{
-    delete_requirement, delete_task, load_all_requirements, load_all_tasks, load_task,
+    delete_requirement, delete_task, load_all_requirements, load_all_tasks, load_requirement, load_task,
     migrate_tasks_and_requirements_from_core_state, open_project_db, save_requirement, save_task, CleanupResult,
     WorkflowCheckpointPruneResult, WorkflowStateManager, DEFAULT_CHECKPOINT_RETENTION_KEEP_LAST_PER_PHASE,
 };

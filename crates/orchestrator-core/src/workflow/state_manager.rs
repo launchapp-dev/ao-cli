@@ -6,7 +6,7 @@ use chrono::{Duration, Utc};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 
-use crate::types::{CheckpointReason, OrchestratorWorkflow, WorkflowCheckpoint};
+use crate::types::{CheckpointReason, ListPageRequest, OrchestratorWorkflow, WorkflowCheckpoint};
 
 pub const DEFAULT_CHECKPOINT_RETENTION_KEEP_LAST_PER_PHASE: usize = 3;
 
@@ -96,6 +96,53 @@ impl WorkflowStateManager {
             .filter_map(|json| serde_json::from_str::<OrchestratorWorkflow>(&json).ok())
             .collect();
         Ok(workflows)
+    }
+
+    pub fn query_ids(&self, page: ListPageRequest, status: Option<crate::types::WorkflowStatus>) -> Result<(Vec<String>, usize)> {
+        let conn = self.open_db()?;
+
+        let total: usize = match status {
+            Some(status) => conn.query_row(
+                "SELECT COUNT(*) FROM workflows WHERE status = ?1",
+                params![status_str(status)],
+                |row| row.get(0),
+            )?,
+            None => conn.query_row("SELECT COUNT(*) FROM workflows", [], |row| row.get(0))?,
+        };
+
+        let (start, end) = page.bounds(total);
+        let limit = end.saturating_sub(start);
+        if limit == 0 {
+            return Ok((Vec::new(), total));
+        }
+
+        let sql_with_status =
+            "SELECT id
+             FROM workflows
+             WHERE status = ?1
+             ORDER BY COALESCE((SELECT MIN(timestamp) FROM checkpoints WHERE workflow_id = workflows.id), '') DESC,
+                      id ASC
+             LIMIT ?2 OFFSET ?3";
+        let sql_all =
+            "SELECT id
+             FROM workflows
+             ORDER BY COALESCE((SELECT MIN(timestamp) FROM checkpoints WHERE workflow_id = workflows.id), '') DESC,
+                      id ASC
+             LIMIT ?1 OFFSET ?2";
+
+        let mut stmt = conn.prepare(match status { Some(_) => sql_with_status, None => sql_all })?;
+        let ids: Vec<String> = match status {
+            Some(status) => stmt
+                .query_map(params![status_str(status), limit as i64, start as i64], |row| row.get::<_, String>(0))?
+                .filter_map(|row| row.ok())
+                .collect(),
+            None => stmt
+                .query_map(params![limit as i64, start as i64], |row| row.get::<_, String>(0))?
+                .filter_map(|row| row.ok())
+                .collect(),
+        };
+
+        Ok((ids, total))
     }
 
     pub fn cleanup_terminal_workflows(&self, max_age_hours: u64) -> Result<CleanupResult> {
@@ -513,6 +560,15 @@ pub fn save_requirement(project_root: &std::path::Path, req: &crate::types::Requ
         params![req.id, req.status.to_string(), data],
     )?;
     Ok(())
+}
+
+pub fn load_requirement(project_root: &std::path::Path, req_id: &str) -> Result<crate::types::RequirementItem> {
+    let conn = open_project_db(project_root)?;
+    let data: Vec<u8> = conn
+        .query_row("SELECT json FROM requirements WHERE id = ?1", params![req_id], |row| row.get(0))
+        .map_err(|_| anyhow!("requirement not found: {req_id}"))?;
+    let json = decompress_json(&data)?;
+    Ok(serde_json::from_str(&json)?)
 }
 
 pub fn load_all_requirements(

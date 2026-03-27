@@ -33,26 +33,27 @@ cargo build -p agent-runner
 
 ## Workspace Structure
 
-The workspace contains 16 crates organized under `crates/`:
+The workspace contains 17 crates organized under `crates/`:
 
 ```
 crates/
-├── protocol/                    # Wire types, IPC contracts, config schemas
-├── orchestrator-store/          # Atomic JSON persistence primitives
-├── orchestrator-config/         # Workflow/runtime config parsing
-├── orchestrator-core/           # Domain logic, ServiceHub, state machines
-├── orchestrator-providers/      # External integrations (Jira, Linear, GitLab)
-├── orchestrator-notifications/  # Webhook notifications
-├── orchestrator-git-ops/        # Git branch/merge operations
-├── orchestrator-daemon-runtime/ # Daemon tick loop, dispatch queue
-├── workflow-runner/             # Phase execution binary
 ├── agent-runner/                # LLM CLI process manager
 ├── llm-cli-wrapper/             # CLI tool abstraction layer
 ├── oai-runner/                  # OpenAI API streaming client
 ├── orchestrator-cli/            # Main `ao` binary
+├── orchestrator-config/         # Workflow/runtime config parsing
+├── orchestrator-core/           # Domain logic, ServiceHub, state machines
+├── orchestrator-daemon-runtime/ # Daemon tick loop, dispatch queue
+├── orchestrator-git-ops/        # Git branch/merge operations
+├── orchestrator-logging/        # Shared tracing and structured logging
+├── orchestrator-notifications/  # Webhook notifications
+├── orchestrator-providers/      # External integrations (Jira, Linear, GitLab)
+├── orchestrator-store/          # Atomic JSON persistence primitives
 ├── orchestrator-web-api/        # Web API business logic
 ├── orchestrator-web-contracts/  # Shared web types
-└── orchestrator-web-server/     # Axum HTTP server
+├── orchestrator-web-server/     # Axum HTTP server
+├── protocol/                    # Wire types, IPC contracts, config schemas
+└── workflow-runner-v2/          # Phase execution binary
 ```
 
 The `default-members` in `Cargo.toml` includes `orchestrator-cli`, `agent-runner`, `llm-cli-wrapper`, and `oai-runner` -- these are the four runtime binaries that get built by default.

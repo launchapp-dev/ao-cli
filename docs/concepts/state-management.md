@@ -10,29 +10,35 @@ Typical layout:
 ```text
 .ao/
 ├── config.json
+├── pm-config.json
+├── plugins/
+├── workflows.yaml
+├── workflows/
+```
+
+## Repo-Scoped Runtime State
+
+```text
+~/.ao/<repo-scope>/
 ├── core-state.json
 ├── resume-config.json
 ├── docs/
 ├── requirements/
 ├── tasks/
-├── plugins/
-├── workflows.yaml
-├── workflows/
-│   ├── custom.yaml
-│   ├── standard-workflow.yaml
-│   ├── hotfix-workflow.yaml
-│   └── research-workflow.yaml
+├── index/
+├── state/
+│   ├── pack-selection.v1.json
+│   ├── state-machines.v1.json
+│   ├── reviews.json
+│   ├── handoffs.json
+│   ├── history.json
+│   ├── errors.json
+│   ├── qa-results.json
+│   └── qa-review-approvals.json
 ├── runs/
 ├── artifacts/
-└── state/
-    ├── pack-selection.v1.json
-    ├── state-machines.v1.json
-    ├── reviews.json
-    ├── handoffs.json
-    ├── history.json
-    ├── errors.json
-    ├── qa-results.json
-    └── qa-review-approvals.json
+├── logs/
+└── worktrees/
 ```
 
 ## What Lives Where
@@ -56,34 +62,28 @@ Per-project pack overrides live in:
 These directories can override installed or bundled pack workflows and runtime
 assets without changing the daemon or core code.
 
-### Pack Selection State
+### Repo-Scoped State
 
-Project pack selection is stored in:
+Repo-scoped runtime state lives in:
 
-- `.ao/state/pack-selection.v1.json`
+- `~/.ao/<repo-scope>/core-state.json`
+- `~/.ao/<repo-scope>/resume-config.json`
+- `~/.ao/<repo-scope>/state/`
+- `~/.ao/<repo-scope>/requirements/`
+- `~/.ao/<repo-scope>/tasks/`
+- `~/.ao/<repo-scope>/docs/`
 
 This is managed by `ao pack pin`, `ao pack install --activate`, and related AO
 commands.
-
-### Domain State
-
-AO domain records remain under:
-
-- `requirements/`
-- `tasks/`
-- `docs/`
-
-Those files are still AO-managed state, even though task and requirement
-behavior now resolves through bundled first-party packs.
 
 ### Execution Data
 
 Transient and historical execution data lives in:
 
-- `.ao/runs/<run_id>/events.jsonl`
-- `.ao/artifacts/<execution_id>/...`
-- `.ao/state/history.json`
-- `.ao/state/errors.json`
+- `~/.ao/<repo-scope>/runs/<run_id>/events.jsonl`
+- `~/.ao/<repo-scope>/artifacts/<execution_id>/...`
+- `~/.ao/<repo-scope>/state/history.json`
+- `~/.ao/<repo-scope>/state/errors.json`
 
 ## Machine-Level Pack Storage
 
@@ -103,6 +103,7 @@ state:
 These are distinct concerns:
 
 - `~/.ao/packs/` stores reusable installed packs
+- `~/.ao/config.json` stores machine-local user config
 - `~/.ao/<repo-scope>/...` stores repository-scoped runtime data
 
 ## Mutation Policy

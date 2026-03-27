@@ -955,7 +955,7 @@ export type DaemonClearLogsMutation = { __typename?: 'MutationRoot', daemonClear
 export type DashboardQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type DashboardQuery = { __typename?: 'QueryRoot', taskStats: { __typename?: 'GqlTaskStats', total: number, byStatus?: string | null, byPriority?: string | null }, daemonHealth: { __typename?: 'GqlDaemonHealth', healthy: boolean, status: string, runnerConnected: boolean, daemonPid?: number | null, activeDaemons: number }, agentRuns: Array<{ __typename?: 'GqlAgentRun', runId: string, taskId?: string | null, taskTitle?: string | null, workflowId?: string | null, phaseId?: string | null, status: string }>, systemInfo: { __typename?: 'GqlSystemInfo', platform?: string | null, version?: string | null, daemonStatus?: string | null, projectRoot?: string | null }, queueStats: { __typename?: 'GqlQueueStats', depth: number } };
+export type DashboardQuery = { __typename?: 'QueryRoot', taskStats: { __typename?: 'GqlTaskStats', total: number, byStatus?: string | null, byPriority?: string | null }, tasksNext?: { __typename?: 'GqlTask', id: string, title: string, priority: GqlPriority, priorityRaw: string } | null, staleTasks: Array<{ __typename?: 'GqlTask', id: string }>, blockedTasks: Array<{ __typename?: 'GqlTask', id: string }>, daemonHealth: { __typename?: 'GqlDaemonHealth', healthy: boolean, status: string, runnerConnected: boolean, daemonPid?: number | null, activeDaemons: number }, agentRuns: Array<{ __typename?: 'GqlAgentRun', runId: string, taskId?: string | null, taskTitle?: string | null, workflowId?: string | null, phaseId?: string | null, status: string }>, systemInfo: { __typename?: 'GqlSystemInfo', platform?: string | null, version?: string | null, daemonStatus?: string | null, projectRoot?: string | null }, queueStats: { __typename?: 'GqlQueueStats', depth: number } };
 
 export type ReadyTasksQueryVariables = Exact<{
   search?: InputMaybe<Scalars['String']['input']>;
@@ -1449,6 +1449,18 @@ export const DashboardDocument = new TypedDocumentString(`
     total
     byStatus
     byPriority
+  }
+  tasksNext {
+    id
+    title
+    priority
+    priorityRaw
+  }
+  staleTasks: tasks(status: "in_progress") {
+    id
+  }
+  blockedTasks: tasks(status: "blocked") {
+    id
   }
   daemonHealth {
     healthy

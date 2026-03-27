@@ -25,6 +25,9 @@ export function DashboardPage() {
   const health = data?.daemonHealth;
   const agents = data?.agentRuns ?? [];
   const sys = data?.systemInfo;
+  const nextTask = data?.tasksNext;
+  const staleTasks = data?.staleTasks ?? [];
+  const blockedTasksList = data?.blockedTasks ?? [];
 
   const byStatus: Record<string, number> = stats?.byStatus ? JSON.parse(stats.byStatus) : {};
   const byPriority: Record<string, number> = stats?.byPriority ? JSON.parse(stats.byPriority) : {};
@@ -32,6 +35,8 @@ export function DashboardPage() {
   const blocked = byStatus["blocked"] ?? 0;
   const failed = byStatus["failed"] ?? 0;
   const ready = byStatus["ready"] ?? 0;
+  const staleCount = staleTasks.length;
+  const blockedCount = blockedTasksList.length;
 
   const priorityCritical = byPriority["critical"] ?? 0;
   const priorityHigh = byPriority["high"] ?? 0;
@@ -74,6 +79,51 @@ export function DashboardPage() {
           <Link to="/queue">View Queue</Link>
         </Button>
       </div>
+
+      <Card className="border-border/40 bg-card/60">
+        <CardHeader className="pb-2 pt-3 px-4">
+          <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground/60 font-medium">What to do now</CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-4 space-y-3">
+          {nextTask ? (
+            <div className="space-y-3">
+              <div className="p-3 rounded-lg border border-border/40 bg-muted/30">
+                <Link to={`/tasks/${nextTask.id}`} className="block hover:opacity-80 transition-opacity">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">{nextTask.title}</p>
+                      <p className="text-xs text-muted-foreground mt-1">Next recommended task</p>
+                    </div>
+                    {nextTask.priority && (
+                      <Badge variant="outline" className="text-[10px] h-fit px-1.5 capitalize text-nowrap">
+                        {nextTask.priorityRaw?.toLowerCase() ?? nextTask.priority}
+                      </Badge>
+                    )}
+                  </div>
+                </Link>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center py-4 gap-2">
+              <p className="text-sm text-muted-foreground/60">No tasks ready</p>
+            </div>
+          )}
+
+          {blockedCount > 0 && (
+            <Link to="/tasks?status=blocked" className="flex items-center gap-2 text-sm text-foreground/80 hover:text-foreground transition-colors px-3 py-2 rounded-lg hover:bg-muted/40">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500 flex-shrink-0" />
+              <span>{blockedCount} task{blockedCount !== 1 ? "s" : ""} blocked</span>
+            </Link>
+          )}
+
+          {staleCount > 0 && (
+            <Link to="/tasks?status=in_progress" className="flex items-center gap-2 text-sm text-foreground/80 hover:text-foreground transition-colors px-3 py-2 rounded-lg hover:bg-muted/40">
+              <span className="h-1.5 w-1.5 rounded-full bg-orange-500 flex-shrink-0" />
+              <span>{staleCount} task{staleCount !== 1 ? "s" : ""} in progress</span>
+            </Link>
+          )}
+        </CardContent>
+      </Card>
 
       {needsAttention && (
         <Card className="border-amber-500/40 bg-amber-500/5">

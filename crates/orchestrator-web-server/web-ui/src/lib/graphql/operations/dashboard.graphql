@@ -1,5 +1,8 @@
 query Dashboard {
   taskStats { total byStatus byPriority }
+  tasksNext { id title priority priorityRaw }
+  staleTasks: tasks(status: "in_progress") { id }
+  blockedTasks: tasks(status: "blocked") { id }
   daemonHealth { healthy status runnerConnected activeDaemons: activeAgents daemonPid }
   agentRuns { runId taskId taskTitle workflowId phaseId status }
   systemInfo { platform version daemonStatus projectRoot }

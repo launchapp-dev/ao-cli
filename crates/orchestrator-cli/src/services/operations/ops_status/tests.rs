@@ -124,6 +124,26 @@ fn recent_completions_are_sorted_and_limited() {
     assert_eq!(ids, vec!["TASK-003", "TASK-001", "TASK-002", "TASK-004", "TASK-005"]);
 }
 
+fn recent_failures_from_workflows(workflows: &[OrchestratorWorkflow], limit: usize) -> Vec<RecentFailureEntry> {
+    let mut entries: Vec<RecentFailureEntry> = workflows
+        .iter()
+        .filter(|workflow| workflow.status == WorkflowStatus::Failed)
+        .map(|workflow| {
+            let (phase_id, failed_at, phase_error) = latest_failed_phase(workflow);
+            RecentFailureEntry {
+                workflow_id: workflow.id.clone(),
+                task_id: workflow.task_id.clone(),
+                phase_id,
+                failed_at,
+                failure_reason: workflow.failure_reason.clone().or(phase_error),
+            }
+        })
+        .collect();
+    entries.sort_by(|left, right| right.failed_at.cmp(&left.failed_at).then_with(|| left.workflow_id.cmp(&right.workflow_id)));
+    entries.truncate(limit);
+    entries
+}
+
 #[test]
 fn recent_failures_are_sorted_limited_and_fallback_current_phase() {
     let workflows = vec![
@@ -197,7 +217,7 @@ fn recent_failures_are_sorted_limited_and_fallback_current_phase() {
         ),
     ];
 
-    let entries = recent_failures(&workflows);
+    let entries = recent_failures_from_workflows(&workflows, 3);
     assert_eq!(entries.len(), 3, "entries should be capped at 3");
     assert_eq!(entries[0].workflow_id, "WF-005");
     assert_eq!(entries[1].workflow_id, "WF-002");
@@ -463,6 +483,15 @@ fn render_status_dashboard_uses_required_section_order() {
             reason: Some("gh CLI is not installed".to_string()),
             error: None,
         },
+        next_task: NextTaskSlice {
+            available: false,
+            task_id: None,
+            title: None,
+            priority: None,
+            linked_requirement_ids: None,
+            reason: Some("no ready tasks".to_string()),
+            error: None,
+        },
     };
 
     let output = render_status_dashboard(&dashboard);
@@ -472,10 +501,117 @@ fn render_status_dashboard_uses_required_section_order() {
     let completions_idx = output.find("Recent Completions").expect("recent completions section should exist");
     let failures_idx = output.find("Recent Failures").expect("recent failures section should exist");
     let ci_idx = output.find("CI Status").expect("ci section should exist");
+    let next_task_idx = output.find("Next Task").expect("next task section should exist");
 
     assert!(daemon_idx < agents_idx);
     assert!(agents_idx < summary_idx);
     assert!(summary_idx < completions_idx);
     assert!(completions_idx < failures_idx);
     assert!(failures_idx < ci_idx);
+    assert!(ci_idx < next_task_idx);
+}
+
+#[test]
+fn find_next_ready_task_selects_highest_priority_then_earliest_created() {
+    let mut medium_created_later = make_task("TASK-001", "medium-later", TaskStatus::Ready, None);
+    medium_created_later.priority = Priority::Medium;
+    medium_created_later.metadata.created_at = parse_time("2026-02-02T00:00:00Z");
+
+    let mut high_created_earlier = make_task("TASK-002", "high-earlier", TaskStatus::Ready, None);
+    high_created_earlier.priority = Priority::High;
+    high_created_earlier.metadata.created_at = parse_time("2026-02-01T00:00:00Z");
+
+    let mut high_created_later = make_task("TASK-003", "high-later", TaskStatus::Ready, None);
+    high_created_later.priority = Priority::High;
+    high_created_later.metadata.created_at = parse_time("2026-02-03T00:00:00Z");
+
+    let mut done = make_task("TASK-004", "done", TaskStatus::Done, None);
+    done.priority = Priority::Critical;
+
+    let tasks = vec![medium_created_later, high_created_later, high_created_earlier, done];
+
+    let next = find_next_ready_task(&tasks).expect("should find a ready task");
+    assert_eq!(next.id, "TASK-002", "should select highest priority ready task");
+    assert_eq!(next.priority, Priority::High);
+}
+
+#[test]
+fn find_next_ready_task_returns_none_when_no_ready_tasks() {
+    let tasks = vec![
+        make_task("TASK-001", "in-progress", TaskStatus::InProgress, None),
+        make_task("TASK-002", "done", TaskStatus::Done, None),
+        make_task("TASK-003", "backlog", TaskStatus::Backlog, None),
+    ];
+
+    let next = find_next_ready_task(&tasks);
+    assert!(next.is_none(), "should return none when no ready tasks exist");
+}
+
+#[test]
+fn build_next_task_slice_when_ready_task_exists() {
+    let mut task = make_task("TASK-001", "Test task", TaskStatus::Ready, None);
+    task.priority = Priority::High;
+    task.linked_requirements = vec!["REQ-001".to_string(), "REQ-002".to_string()];
+
+    let slice = build_next_task_slice(Some(&[task]), Some(&DaemonHealth {
+        healthy: true,
+        status: DaemonStatus::Running,
+        runner_connected: true,
+        runner_pid: Some(123),
+        active_agents: 1,
+        pool_size: Some(5),
+        project_root: Some("/tmp".to_string()),
+        daemon_pid: None,
+        process_alive: None,
+        pool_utilization_percent: None,
+        queued_tasks: None,
+        total_agents_spawned: None,
+        total_agents_completed: None,
+        total_agents_failed: None,
+    }), None);
+
+    assert!(slice.available);
+    assert_eq!(slice.task_id.as_deref(), Some("TASK-001"));
+    assert_eq!(slice.title.as_deref(), Some("Test task"));
+    assert_eq!(slice.priority.as_deref(), Some("high"));
+    assert_eq!(
+        slice.linked_requirement_ids.as_ref(),
+        Some(&vec!["REQ-001".to_string(), "REQ-002".to_string()])
+    );
+    assert!(slice.reason.is_none());
+}
+
+#[test]
+fn build_next_task_slice_when_no_ready_tasks() {
+    let tasks = vec![make_task("TASK-001", "blocked", TaskStatus::Blocked, None)];
+
+    let slice = build_next_task_slice(Some(&tasks), Some(&DaemonHealth {
+        healthy: true,
+        status: DaemonStatus::Running,
+        runner_connected: true,
+        runner_pid: Some(123),
+        active_agents: 0,
+        pool_size: Some(5),
+        project_root: Some("/tmp".to_string()),
+        daemon_pid: None,
+        process_alive: None,
+        pool_utilization_percent: None,
+        queued_tasks: None,
+        total_agents_spawned: None,
+        total_agents_completed: None,
+        total_agents_failed: None,
+    }), None);
+
+    assert!(!slice.available);
+    assert_eq!(slice.reason.as_deref(), Some("no ready tasks"));
+}
+
+#[test]
+fn build_next_task_slice_when_daemon_not_running() {
+    let tasks = vec![make_task("TASK-001", "ready", TaskStatus::Ready, None)];
+
+    let slice = build_next_task_slice(Some(&tasks), None, None);
+
+    assert!(!slice.available);
+    assert_eq!(slice.reason.as_deref(), Some("daemon not running"));
 }

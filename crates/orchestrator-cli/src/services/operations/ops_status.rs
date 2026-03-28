@@ -7,8 +7,8 @@ use std::sync::Arc;
 use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Utc};
 use orchestrator_core::{
-    open_project_db, DaemonHealth, DaemonStatus, OrchestratorTask, OrchestratorWorkflow, ServiceHub, TaskStatistics,
-    TaskStatus, WorkflowPhaseStatus, WorkflowStateManager, WorkflowStatus,
+    open_project_db, DaemonHealth, DaemonStatus, OrchestratorTask, OrchestratorWorkflow, Priority, ServiceHub,
+    TaskStatistics, TaskStatus, WorkflowPhaseStatus, WorkflowStateManager, WorkflowStatus,
 };
 use serde::{Deserialize, Serialize};
 
@@ -32,6 +32,7 @@ struct StatusDashboard {
     recent_completions: RecentCompletionsSlice,
     recent_failures: RecentFailuresSlice,
     ci: CiStatusSlice,
+    next_task: NextTaskSlice,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -120,6 +121,23 @@ struct CiStatusSlice {
     available: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     last_run: Option<CiRunSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct NextTaskSlice {
+    available: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    task_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    priority: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    linked_requirement_ids: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     reason: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -222,12 +240,17 @@ pub(crate) async fn handle_status(hub: Arc<dyn ServiceHub>, project_root: &str, 
             tasks.as_deref(),
             combine_errors([task_stats_error.as_deref(), tasks_error.as_deref()]),
         ),
-        recent_completions: build_recent_completions_slice(tasks.as_deref(), tasks_error),
+        recent_completions: build_recent_completions_slice(tasks.as_deref(), tasks_error.clone()),
         recent_failures: build_recent_failures_slice(
             workflow_snapshot.as_ref().map(|snapshot| snapshot.recent_failures.as_slice()),
             workflows_error,
         ),
         ci: ci_slice,
+        next_task: build_next_task_slice(
+            tasks.as_deref(),
+            daemon_health.as_ref(),
+            tasks_error,
+        ),
     };
 
     if json {
@@ -414,6 +437,81 @@ fn build_recent_failures_slice(failures: Option<&[RecentFailureEntry]>, error: O
         entries: failures.map(|entries| entries.to_vec()).unwrap_or_default(),
         error,
     }
+}
+
+fn build_next_task_slice(
+    tasks: Option<&[OrchestratorTask]>,
+    daemon_health: Option<&DaemonHealth>,
+    error: Option<String>,
+) -> NextTaskSlice {
+    let Some(tasks_list) = tasks else {
+        return NextTaskSlice {
+            available: false,
+            task_id: None,
+            title: None,
+            priority: None,
+            linked_requirement_ids: None,
+            reason: Some("tasks unavailable".to_string()),
+            error,
+        };
+    };
+
+    if daemon_health.is_none() {
+        return NextTaskSlice {
+            available: false,
+            task_id: None,
+            title: None,
+            priority: None,
+            linked_requirement_ids: None,
+            reason: Some("daemon not running".to_string()),
+            error,
+        };
+    }
+
+    let next_ready_task = find_next_ready_task(tasks_list);
+
+    match next_ready_task {
+        Some(task) => NextTaskSlice {
+            available: true,
+            task_id: Some(task.id.clone()),
+            title: Some(task.title.clone()),
+            priority: Some(task.priority.as_str().to_string()),
+            linked_requirement_ids: if task.linked_requirements.is_empty() {
+                None
+            } else {
+                Some(task.linked_requirements.clone())
+            },
+            reason: None,
+            error,
+        },
+        None => NextTaskSlice {
+            available: false,
+            task_id: None,
+            title: None,
+            priority: None,
+            linked_requirement_ids: None,
+            reason: Some("no ready tasks".to_string()),
+            error,
+        },
+    }
+}
+
+fn find_next_ready_task(tasks: &[OrchestratorTask]) -> Option<&OrchestratorTask> {
+    let priority_order = [Priority::Critical, Priority::High, Priority::Medium, Priority::Low];
+
+    for target_priority in &priority_order {
+        let mut candidates: Vec<&OrchestratorTask> = tasks
+            .iter()
+            .filter(|task| task.status == TaskStatus::Ready && &task.priority == target_priority)
+            .collect();
+
+        if !candidates.is_empty() {
+            candidates.sort_by_key(|task| task.metadata.created_at);
+            return candidates.first().copied();
+        }
+    }
+
+    None
 }
 
 fn latest_failed_phase(workflow: &OrchestratorWorkflow) -> (String, DateTime<Utc>, Option<String>) {
@@ -713,6 +811,28 @@ fn render_status_dashboard(dashboard: &StatusDashboard) -> String {
         let _ = writeln!(&mut output, "  reason: {reason}");
     }
     if let Some(error) = dashboard.ci.error.as_deref() {
+        let _ = writeln!(&mut output, "  error: {error}");
+    }
+    let _ = writeln!(&mut output);
+
+    let _ = writeln!(&mut output, "Next Task");
+    if dashboard.next_task.available {
+        if let (Some(task_id), Some(title)) = (dashboard.next_task.task_id.as_deref(), dashboard.next_task.title.as_deref()) {
+            let _ = writeln!(&mut output, "  task_id: {task_id}");
+            let _ = writeln!(&mut output, "  title: {title}");
+            if let Some(priority) = dashboard.next_task.priority.as_deref() {
+                let _ = writeln!(&mut output, "  priority: {priority}");
+            }
+            if let Some(reqs) = dashboard.next_task.linked_requirement_ids.as_ref() {
+                let _ = writeln!(&mut output, "  linked_requirement_ids: {}", reqs.join(", "));
+            }
+        }
+    } else {
+        if let Some(reason) = dashboard.next_task.reason.as_deref() {
+            let _ = writeln!(&mut output, "  reason: {reason}");
+        }
+    }
+    if let Some(error) = dashboard.next_task.error.as_deref() {
         let _ = writeln!(&mut output, "  error: {error}");
     }
 

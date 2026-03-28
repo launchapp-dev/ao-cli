@@ -95,6 +95,8 @@ pub(crate) enum Command {
     },
     /// Show a unified project status dashboard.
     Status,
+    /// Show unified work inbox and current focus (next task, active workflows, blocked/stale items).
+    Now,
     /// Inspect run output and artifacts.
     Output {
         #[command(subcommand)]

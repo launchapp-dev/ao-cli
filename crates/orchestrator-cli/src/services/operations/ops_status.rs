@@ -5,10 +5,10 @@ use std::process::{Command as ProcessCommand, Stdio};
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use orchestrator_core::{
-    open_project_db, DaemonHealth, DaemonStatus, OrchestratorTask, OrchestratorWorkflow, ServiceHub, TaskStatistics,
-    TaskStatus, WorkflowPhaseStatus, WorkflowStateManager, WorkflowStatus,
+    open_project_db, DaemonHealth, DaemonStatus, OrchestratorTask, OrchestratorWorkflow, Priority, ServiceHub,
+    TaskStatistics, TaskStatus, WorkflowPhaseStatus, WorkflowStateManager, WorkflowStatus,
 };
 use serde::{Deserialize, Serialize};
 
@@ -17,6 +17,8 @@ use crate::print_value;
 const STATUS_SCHEMA: &str = "ao.status.v1";
 const RECENT_COMPLETIONS_LIMIT: usize = 5;
 const RECENT_FAILURES_LIMIT: usize = 3;
+const STALE_ITEMS_LIMIT: usize = 5;
+const STALE_THRESHOLD_SECS: i64 = 24 * 60 * 60;
 const CI_PROVIDER_GITHUB: &str = "github";
 const GH_RUN_LIST_FIELDS: &str =
     "databaseId,displayTitle,name,workflowName,status,conclusion,event,headBranch,headSha,createdAt,updatedAt,url";
@@ -31,6 +33,8 @@ struct StatusDashboard {
     task_summary: TaskSummarySlice,
     recent_completions: RecentCompletionsSlice,
     recent_failures: RecentFailuresSlice,
+    next_task: NextTaskSlice,
+    stale_items: StaleItemsSlice,
     ci: CiStatusSlice,
 }
 
@@ -106,6 +110,39 @@ struct RecentFailureEntry {
     failed_at: DateTime<Utc>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     failure_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct NextTaskSlice {
+    available: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    task: Option<NextTaskEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct NextTaskEntry {
+    task_id: String,
+    title: String,
+    priority: String,
+    #[serde(default)]
+    linked_requirement_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct StaleItemsSlice {
+    available: bool,
+    entries: Vec<StaleTaskEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct StaleTaskEntry {
+    task_id: String,
+    title: String,
+    last_activity: DateTime<Utc>,
 }
 
 #[derive(Debug)]
@@ -222,10 +259,16 @@ pub(crate) async fn handle_status(hub: Arc<dyn ServiceHub>, project_root: &str, 
             tasks.as_deref(),
             combine_errors([task_stats_error.as_deref(), tasks_error.as_deref()]),
         ),
-        recent_completions: build_recent_completions_slice(tasks.as_deref(), tasks_error),
+        recent_completions: build_recent_completions_slice(tasks.as_deref(), tasks_error.clone()),
         recent_failures: build_recent_failures_slice(
             workflow_snapshot.as_ref().map(|snapshot| snapshot.recent_failures.as_slice()),
-            workflows_error,
+            workflows_error.clone(),
+        ),
+        next_task: build_next_task_slice(tasks.as_deref(), tasks_error.clone()),
+        stale_items: build_stale_items_slice(
+            tasks.as_deref(),
+            workflow_snapshot.as_ref().map(|snapshot| snapshot.active_workflows.as_slice()),
+            tasks_error,
         ),
         ci: ci_slice,
     };
@@ -414,6 +457,92 @@ fn build_recent_failures_slice(failures: Option<&[RecentFailureEntry]>, error: O
         entries: failures.map(|entries| entries.to_vec()).unwrap_or_default(),
         error,
     }
+}
+
+fn build_next_task_slice(tasks: Option<&[OrchestratorTask]>, error: Option<String>) -> NextTaskSlice {
+    NextTaskSlice {
+        available: tasks.is_some(),
+        task: tasks.and_then(next_ready_task),
+        error,
+    }
+}
+
+fn next_ready_task(tasks: &[OrchestratorTask]) -> Option<NextTaskEntry> {
+    let mut ready_tasks: Vec<&OrchestratorTask> =
+        tasks.iter().filter(|task| task.status == TaskStatus::Ready).collect();
+
+    if ready_tasks.is_empty() {
+        return None;
+    }
+
+    ready_tasks.sort_by(|left, right| {
+        right.priority.cmp(&left.priority).then_with(|| left.id.cmp(&right.id))
+    });
+
+    ready_tasks.first().map(|task| NextTaskEntry {
+        task_id: task.id.clone(),
+        title: task.title.clone(),
+        priority: task.priority.as_str().to_string(),
+        linked_requirement_ids: task.linked_requirements.clone(),
+    })
+}
+
+fn build_stale_items_slice(
+    tasks: Option<&[OrchestratorTask]>,
+    workflows: Option<&[OrchestratorWorkflow]>,
+    error: Option<String>,
+) -> StaleItemsSlice {
+    let entries = match (tasks, workflows) {
+        (Some(tasks), Some(workflows)) => stale_in_progress_tasks(tasks, workflows),
+        _ => Vec::new(),
+    };
+
+    StaleItemsSlice {
+        available: tasks.is_some() && workflows.is_some(),
+        entries,
+        error,
+    }
+}
+
+fn stale_in_progress_tasks(tasks: &[OrchestratorTask], workflows: &[OrchestratorWorkflow]) -> Vec<StaleTaskEntry> {
+    let now = Utc::now();
+    let stale_threshold = Duration::seconds(STALE_THRESHOLD_SECS);
+
+    let workflow_map: HashMap<&str, &OrchestratorWorkflow> =
+        workflows.iter().map(|wf| (wf.task_id.as_str(), wf)).collect();
+
+    let mut stale_tasks: Vec<StaleTaskEntry> = tasks
+        .iter()
+        .filter(|task| task.status == TaskStatus::InProgress)
+        .filter_map(|task| {
+            let workflow = workflow_map.get(task.id.as_str())?;
+            let last_activity = last_workflow_activity(workflow);
+            let time_since_activity = now.signed_duration_since(last_activity);
+
+            if time_since_activity > stale_threshold {
+                Some(StaleTaskEntry {
+                    task_id: task.id.clone(),
+                    title: task.title.clone(),
+                    last_activity,
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    stale_tasks.sort_by(|left, right| left.last_activity.cmp(&right.last_activity));
+    stale_tasks.truncate(STALE_ITEMS_LIMIT);
+    stale_tasks
+}
+
+fn last_workflow_activity(workflow: &OrchestratorWorkflow) -> DateTime<Utc> {
+    workflow
+        .phases
+        .iter()
+        .filter_map(|phase| phase.completed_at.as_ref().cloned())
+        .max()
+        .unwrap_or_else(|| workflow.started_at.with_timezone(&Utc))
 }
 
 fn latest_failed_phase(workflow: &OrchestratorWorkflow) -> (String, DateTime<Utc>, Option<String>) {
@@ -689,6 +818,41 @@ fn render_status_dashboard(dashboard: &StatusDashboard) -> String {
         }
     }
     if let Some(error) = dashboard.recent_failures.error.as_deref() {
+        let _ = writeln!(&mut output, "  error: {error}");
+    }
+    let _ = writeln!(&mut output);
+
+    let _ = writeln!(&mut output, "Next Task");
+    if let Some(task) = dashboard.next_task.task.as_ref() {
+        let _ = writeln!(
+            &mut output,
+            "  task_id={} title={} priority={}",
+            task.task_id, task.title, task.priority
+        );
+        if !task.linked_requirement_ids.is_empty() {
+            let _ = writeln!(&mut output, "  linked_requirements: {}", task.linked_requirement_ids.join(", "));
+        }
+    } else {
+        let _ = writeln!(&mut output, "  entry: none");
+    }
+    if let Some(error) = dashboard.next_task.error.as_deref() {
+        let _ = writeln!(&mut output, "  error: {error}");
+    }
+    let _ = writeln!(&mut output);
+
+    let _ = writeln!(&mut output, "Stale Items");
+    if dashboard.stale_items.entries.is_empty() {
+        let _ = writeln!(&mut output, "  entries: none");
+    } else {
+        for entry in &dashboard.stale_items.entries {
+            let _ = writeln!(
+                &mut output,
+                "  - task_id={} title={} last_activity={}",
+                entry.task_id, entry.title, entry.last_activity.to_rfc3339()
+            );
+        }
+    }
+    if let Some(error) = dashboard.stale_items.error.as_deref() {
         let _ = writeln!(&mut output, "  error: {error}");
     }
     let _ = writeln!(&mut output);

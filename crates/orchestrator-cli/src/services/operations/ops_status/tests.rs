@@ -420,6 +420,67 @@ fn ci_status_reports_lookup_errors_non_fatally() {
 }
 
 #[test]
+fn next_ready_task_sorts_by_priority_and_returns_first() {
+    let tasks = vec![
+        make_task("TASK-001", "low-priority", TaskStatus::Ready, None),
+        make_task("TASK-002", "high-priority", TaskStatus::Ready, None),
+        make_task("TASK-003", "medium-priority", TaskStatus::Ready, None),
+        make_task("TASK-004", "in-progress", TaskStatus::InProgress, None),
+    ];
+    let mut task_mut = tasks[1].clone();
+    task_mut.priority = Priority::High;
+    let mut task_vec = vec![tasks[0].clone(), task_mut, tasks[2].clone(), tasks[3].clone()];
+
+    let next_task = next_ready_task(&task_vec);
+    assert!(next_task.is_some(), "should find a ready task");
+    let entry = next_task.unwrap();
+    assert_eq!(entry.task_id, "TASK-002", "highest priority ready task should be selected");
+    assert_eq!(entry.priority, "high");
+}
+
+#[test]
+fn next_ready_task_returns_none_when_no_ready_tasks() {
+    let tasks = vec![
+        make_task("TASK-001", "backlog", TaskStatus::Backlog, None),
+        make_task("TASK-002", "in-progress", TaskStatus::InProgress, None),
+    ];
+
+    let next_task = next_ready_task(&tasks);
+    assert!(next_task.is_none(), "should return none when no ready tasks");
+}
+
+#[test]
+fn stale_in_progress_tasks_filters_by_status_and_maps_workflows() {
+    let past_time = parse_time("2026-02-01T00:00:00Z");
+    let base_time = parse_time("2026-02-20T00:00:00Z");
+
+    let tasks = vec![
+        make_task("TASK-001", "in-progress-no-workflow", TaskStatus::InProgress, None),
+        make_task("TASK-002", "in-progress-with-workflow", TaskStatus::InProgress, None),
+        make_task("TASK-003", "done", TaskStatus::Done, None),
+    ];
+
+    let workflows = vec![
+        make_workflow(
+            "WF-002",
+            "TASK-002",
+            WorkflowStatus::Running,
+            Some("implementation"),
+            base_time,
+            None,
+            vec![make_phase("implementation", WorkflowPhaseStatus::Running, Some(base_time), None)],
+            None,
+        ),
+    ];
+
+    let stale_tasks = stale_in_progress_tasks(&tasks, &workflows);
+    assert_eq!(stale_tasks.len(), 2, "should include both in-progress tasks");
+    let task_ids: Vec<&str> = stale_tasks.iter().map(|t| t.task_id.as_str()).collect();
+    assert!(task_ids.contains(&"TASK-001"), "should include task without workflow");
+    assert!(task_ids.contains(&"TASK-002"), "should include task with workflow");
+}
+
+#[test]
 fn render_status_dashboard_uses_required_section_order() {
     let dashboard = StatusDashboard {
         schema: STATUS_SCHEMA,
@@ -456,6 +517,8 @@ fn render_status_dashboard_uses_required_section_order() {
         },
         recent_completions: RecentCompletionsSlice { available: true, entries: Vec::new(), error: None },
         recent_failures: RecentFailuresSlice { available: true, entries: Vec::new(), error: None },
+        next_task: NextTaskSlice { available: true, task: None, error: None },
+        stale_items: StaleItemsSlice { available: true, entries: Vec::new(), error: None },
         ci: CiStatusSlice {
             provider: CI_PROVIDER_GITHUB,
             available: false,
@@ -471,11 +534,15 @@ fn render_status_dashboard_uses_required_section_order() {
     let summary_idx = output.find("Task Summary").expect("task summary section should exist");
     let completions_idx = output.find("Recent Completions").expect("recent completions section should exist");
     let failures_idx = output.find("Recent Failures").expect("recent failures section should exist");
+    let next_task_idx = output.find("Next Task").expect("next task section should exist");
+    let stale_idx = output.find("Stale Items").expect("stale items section should exist");
     let ci_idx = output.find("CI Status").expect("ci section should exist");
 
     assert!(daemon_idx < agents_idx);
     assert!(agents_idx < summary_idx);
     assert!(summary_idx < completions_idx);
     assert!(completions_idx < failures_idx);
-    assert!(failures_idx < ci_idx);
+    assert!(failures_idx < next_task_idx);
+    assert!(next_task_idx < stale_idx);
+    assert!(stale_idx < ci_idx);
 }

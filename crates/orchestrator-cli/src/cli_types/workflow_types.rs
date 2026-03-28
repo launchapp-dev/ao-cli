@@ -60,6 +60,11 @@ pub(crate) enum WorkflowCommand {
         #[command(subcommand)]
         command: WorkflowPromptCommand,
     },
+    /// Manage workflow notes and comments.
+    Notes {
+        #[command(subcommand)]
+        command: WorkflowNotesCommand,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -366,4 +371,30 @@ pub(crate) struct WorkflowStateMachineSetArgs {
 pub(crate) struct WorkflowAgentRuntimeSetArgs {
     #[arg(long, value_name = "JSON", help = "Workflow agent-runtime configuration JSON payload.")]
     pub(crate) input_json: String,
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum WorkflowNotesCommand {
+    /// Add a note to a workflow.
+    Add(WorkflowNotesAddArgs),
+    /// List notes for a workflow.
+    List(WorkflowNotesListArgs),
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct WorkflowNotesAddArgs {
+    #[arg(long, value_name = "WORKFLOW_ID", help = "Workflow identifier.")]
+    pub(crate) workflow_id: String,
+    #[arg(long, value_name = "TEXT", help = "Note text/body.")]
+    pub(crate) text: String,
+    #[arg(long, value_name = "PHASE_ID", help = "Optional phase id to associate with the note.")]
+    pub(crate) phase_id: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct WorkflowNotesListArgs {
+    #[arg(long, value_name = "WORKFLOW_ID", help = "Workflow identifier.")]
+    pub(crate) workflow_id: String,
+    #[arg(long, value_name = "PHASE_ID", help = "Optional phase id to filter notes.")]
+    pub(crate) phase_id: Option<String>,
 }

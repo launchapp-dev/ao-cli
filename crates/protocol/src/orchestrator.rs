@@ -1438,6 +1438,15 @@ pub struct OrchestratorProject {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowNote {
+    pub timestamp: DateTime<Utc>,
+    pub author: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase_id: Option<String>,
+    pub body: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrchestratorWorkflow {
     pub id: String,
     pub task_id: String,
@@ -1467,6 +1476,8 @@ pub struct OrchestratorWorkflow {
     pub total_reworks: u32,
     #[serde(default)]
     pub decision_history: Vec<WorkflowDecisionRecord>,
+    #[serde(default)]
+    pub note_history: Vec<WorkflowNote>,
 }
 
 fn default_workflow_subject_ref() -> SubjectRef {

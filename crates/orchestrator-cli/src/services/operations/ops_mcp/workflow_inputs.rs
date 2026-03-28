@@ -107,3 +107,28 @@ pub(super) struct WorkflowPhaseApproveInput {
     #[serde(default)]
     pub(super) project_root: Option<String>,
 }
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub(super) struct WorkflowNotesAddInput {
+    pub(super) workflow_id: String,
+    pub(super) text: String,
+    #[serde(default)]
+    pub(super) phase_id: Option<String>,
+    #[serde(default)]
+    pub(super) project_root: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub(super) struct WorkflowNotesListInput {
+    pub(super) workflow_id: String,
+    #[serde(default)]
+    pub(super) phase_id: Option<String>,
+    #[serde(default)]
+    pub(super) limit: Option<usize>,
+    #[serde(default)]
+    pub(super) offset: Option<usize>,
+    #[serde(default)]
+    pub(super) max_tokens: Option<usize>,
+    #[serde(default)]
+    pub(super) project_root: Option<String>,
+}

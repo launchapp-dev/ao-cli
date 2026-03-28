@@ -288,6 +288,24 @@ impl WorkflowServiceApi for InMemoryServiceHub {
         });
         Ok(())
     }
+
+    async fn add_note(&self, id: &str, note: crate::types::WorkflowNote) -> Result<OrchestratorWorkflow> {
+        let mut lock = self.state.write().await;
+        let workflow = lock.workflows.get_mut(id).ok_or_else(|| not_found(format!("workflow not found: {id}")))?;
+        workflow.note_history.push(note);
+        workflow.note_history.sort_by_key(|n| n.timestamp);
+        Ok(workflow.clone())
+    }
+
+    async fn list_notes(&self, id: &str, phase_id: Option<&str>) -> Result<Vec<crate::types::WorkflowNote>> {
+        let workflow = WorkflowServiceApi::get(self, id).await?;
+        let mut notes = workflow.note_history;
+        notes.sort_by_key(|n| n.timestamp);
+        if let Some(phase) = phase_id {
+            notes.retain(|n| n.phase_id.as_deref() == Some(phase));
+        }
+        Ok(notes)
+    }
 }
 
 #[async_trait]
@@ -587,5 +605,189 @@ impl WorkflowServiceApi for FileServiceHub {
         manager.save(&workflow)?;
         self.state.write().await.workflows.insert(id.to_string(), workflow.clone());
         Ok(())
+    }
+
+    async fn add_note(&self, id: &str, note: crate::types::WorkflowNote) -> Result<OrchestratorWorkflow> {
+        let manager = self.workflow_manager();
+        let mut workflow = manager.load(id)?;
+        workflow.note_history.push(note);
+        workflow.note_history.sort_by_key(|n| n.timestamp);
+        manager.save(&workflow)?;
+        self.state.write().await.workflows.insert(id.to_string(), workflow.clone());
+        Ok(workflow)
+    }
+
+    async fn list_notes(&self, id: &str, phase_id: Option<&str>) -> Result<Vec<crate::types::WorkflowNote>> {
+        let workflow = WorkflowServiceApi::get(self, id).await?;
+        let mut notes = workflow.note_history;
+        notes.sort_by_key(|n| n.timestamp);
+        if let Some(phase) = phase_id {
+            notes.retain(|n| n.phase_id.as_deref() == Some(phase));
+        }
+        Ok(notes)
+    }
+}
+
+#[cfg(test)]
+mod workflow_notes_tests {
+    use super::*;
+    use crate::services::InMemoryServiceHub;
+    use crate::types::{TaskCreateInput, Priority, TaskType, WorkflowRunInput};
+
+    #[tokio::test]
+    async fn add_note_persists_and_sorts_by_timestamp() {
+        let hub = Arc::new(InMemoryServiceHub::new());
+
+        let task = hub
+            .tasks()
+            .create(TaskCreateInput {
+                title: "test task".to_string(),
+                description: "workflow notes test".to_string(),
+                task_type: Some(TaskType::Feature),
+                priority: Some(Priority::Medium),
+                created_by: Some("test".to_string()),
+                tags: Vec::new(),
+                linked_requirements: Vec::new(),
+                linked_architecture_entities: Vec::new(),
+            })
+            .await
+            .expect("task should be created");
+
+        let workflow = hub
+            .workflows()
+            .run(WorkflowRunInput::for_task(task.id, None))
+            .await
+            .expect("workflow should run");
+
+        let note1 = crate::types::WorkflowNote {
+            timestamp: chrono::Utc::now(),
+            author: "agent1".to_string(),
+            phase_id: Some("phase1".to_string()),
+            body: "first note".to_string(),
+        };
+
+        let workflow_updated = hub
+            .workflows()
+            .add_note(&workflow.id, note1.clone())
+            .await
+            .expect("note should be added");
+
+        assert_eq!(workflow_updated.note_history.len(), 1);
+        assert_eq!(workflow_updated.note_history[0].body, "first note");
+    }
+
+    #[tokio::test]
+    async fn list_notes_returns_chronological_order() {
+        let hub = Arc::new(InMemoryServiceHub::new());
+
+        let task = hub
+            .tasks()
+            .create(TaskCreateInput {
+                title: "test task".to_string(),
+                description: "workflow notes list test".to_string(),
+                task_type: Some(TaskType::Feature),
+                priority: Some(Priority::Medium),
+                created_by: Some("test".to_string()),
+                tags: Vec::new(),
+                linked_requirements: Vec::new(),
+                linked_architecture_entities: Vec::new(),
+            })
+            .await
+            .expect("task should be created");
+
+        let workflow = hub
+            .workflows()
+            .run(WorkflowRunInput::for_task(task.id, None))
+            .await
+            .expect("workflow should run");
+
+        let base_time = chrono::Utc::now();
+        let note1 = crate::types::WorkflowNote {
+            timestamp: base_time,
+            author: "agent1".to_string(),
+            phase_id: None,
+            body: "note1".to_string(),
+        };
+
+        hub.workflows()
+            .add_note(&workflow.id, note1)
+            .await
+            .expect("note1 should be added");
+
+        let notes = hub
+            .workflows()
+            .list_notes(&workflow.id, None)
+            .await
+            .expect("notes should be listed");
+
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].body, "note1");
+    }
+
+    #[tokio::test]
+    async fn list_notes_filters_by_phase_id() {
+        let hub = Arc::new(InMemoryServiceHub::new());
+
+        let task = hub
+            .tasks()
+            .create(TaskCreateInput {
+                title: "test task".to_string(),
+                description: "workflow notes phase filter test".to_string(),
+                task_type: Some(TaskType::Feature),
+                priority: Some(Priority::Medium),
+                created_by: Some("test".to_string()),
+                tags: Vec::new(),
+                linked_requirements: Vec::new(),
+                linked_architecture_entities: Vec::new(),
+            })
+            .await
+            .expect("task should be created");
+
+        let workflow = hub
+            .workflows()
+            .run(WorkflowRunInput::for_task(task.id, None))
+            .await
+            .expect("workflow should run");
+
+        let note_phase1 = crate::types::WorkflowNote {
+            timestamp: chrono::Utc::now(),
+            author: "agent1".to_string(),
+            phase_id: Some("phase1".to_string()),
+            body: "phase1 note".to_string(),
+        };
+
+        let note_phase2 = crate::types::WorkflowNote {
+            timestamp: chrono::Utc::now() + chrono::Duration::seconds(1),
+            author: "agent2".to_string(),
+            phase_id: Some("phase2".to_string()),
+            body: "phase2 note".to_string(),
+        };
+
+        hub.workflows()
+            .add_note(&workflow.id, note_phase1)
+            .await
+            .expect("note_phase1 should be added");
+
+        hub.workflows()
+            .add_note(&workflow.id, note_phase2)
+            .await
+            .expect("note_phase2 should be added");
+
+        let all_notes = hub
+            .workflows()
+            .list_notes(&workflow.id, None)
+            .await
+            .expect("all notes should be listed");
+
+        assert_eq!(all_notes.len(), 2);
+
+        let phase1_notes = hub
+            .workflows()
+            .list_notes(&workflow.id, Some("phase1"))
+            .await
+            .expect("phase1 notes should be listed");
+
+        assert_eq!(phase1_notes.len(), 1);
+        assert_eq!(phase1_notes[0].body, "phase1 note");
     }
 }

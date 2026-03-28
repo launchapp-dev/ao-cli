@@ -96,7 +96,7 @@ pub use types::{
     TaskPriorityRebalanceChange, TaskPriorityRebalanceOptions, TaskPriorityRebalancePlan, TaskQuery, TaskQuerySort,
     TaskStatistics, TaskStatus, TaskType, TaskUpdateInput, VisionDocument, VisionDraftInput, WorkflowCheckpoint,
     WorkflowCheckpointMetadata, WorkflowDecisionAction, WorkflowDecisionRecord, WorkflowDecisionRisk,
-    WorkflowDecisionSource, WorkflowFilter, WorkflowMachineEvent, WorkflowMachineState, WorkflowMetadata,
+    WorkflowDecisionSource, WorkflowFilter, WorkflowMachineEvent, WorkflowMachineState, WorkflowMetadata, WorkflowNote,
     WorkflowPhaseExecution, WorkflowPhaseStatus, WorkflowQuery, WorkflowQuerySort, WorkflowRunInput, WorkflowStatus,
     WorkflowSubject, DEFAULT_HIGH_PRIORITY_BUDGET_PERCENT, MAX_DISPATCH_HISTORY_ENTRIES, SUBJECT_KIND_CUSTOM,
     SUBJECT_KIND_REQUIREMENT, SUBJECT_KIND_TASK,

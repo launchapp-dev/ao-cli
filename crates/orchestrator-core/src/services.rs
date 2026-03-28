@@ -173,6 +173,8 @@ pub trait WorkflowServiceApi: Send + Sync {
     async fn mark_merge_conflict(&self, id: &str, error: String) -> Result<OrchestratorWorkflow>;
     async fn resolve_merge_conflict(&self, id: &str) -> Result<OrchestratorWorkflow>;
     async fn record_feedback(&self, id: &str, feedback: String) -> Result<()>;
+    async fn add_note(&self, id: &str, note: crate::types::WorkflowNote) -> Result<OrchestratorWorkflow>;
+    async fn list_notes(&self, id: &str, phase_id: Option<&str>) -> Result<Vec<crate::types::WorkflowNote>>;
 }
 
 #[async_trait]

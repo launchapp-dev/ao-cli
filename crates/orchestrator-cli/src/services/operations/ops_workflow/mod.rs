@@ -11,8 +11,8 @@ use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use orchestrator_core::{
     dispatch_workflow_event, ensure_workflow_config_compiled, load_workflow_config, services::ServiceHub,
-    workflow_ref_for_task, ListPageRequest, WorkflowEvent, WorkflowFilter, WorkflowQuery, WorkflowResumeManager,
-    WorkflowRunInput, REQUIREMENT_TASK_GENERATION_WORKFLOW_REF,
+    workflow_ref_for_task, ListPageRequest, WorkflowEvent, WorkflowFilter, WorkflowNote, WorkflowQuery,
+    WorkflowResumeManager, WorkflowRunInput, REQUIREMENT_TASK_GENERATION_WORKFLOW_REF,
 };
 use serde_json::Value;
 use uuid::Uuid;
@@ -21,8 +21,8 @@ use self::execute::WorkflowExecuteArgs;
 use crate::{
     dry_run_envelope, ensure_destructive_confirmation, parse_workflow_query_sort_opt, parse_workflow_status_opt,
     print_value, WorkflowAgentRuntimeCommand, WorkflowCheckpointCommand, WorkflowCommand, WorkflowConfigCommand,
-    WorkflowDefinitionsCommand, WorkflowPhaseCommand, WorkflowPhasesCommand, WorkflowPromptCommand,
-    WorkflowStateMachineCommand,
+    WorkflowDefinitionsCommand, WorkflowNotesCommand, WorkflowPhaseCommand, WorkflowPhasesCommand,
+    WorkflowPromptCommand, WorkflowStateMachineCommand,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -500,6 +500,23 @@ pub(crate) async fn handle_workflow(
             }
             WorkflowAgentRuntimeCommand::Set(args) => {
                 print_value(config::set_agent_runtime_payload(project_root, &args.input_json)?, json)
+            }
+        },
+        WorkflowCommand::Notes { command } => match command {
+            WorkflowNotesCommand::Add(args) => {
+                let author = std::env::var("USER").unwrap_or_else(|_| "unknown".to_string());
+                let note = WorkflowNote {
+                    timestamp: Utc::now(),
+                    author,
+                    phase_id: args.phase_id,
+                    body: args.text,
+                };
+                let updated_workflow = workflows.add_note(&args.workflow_id, note).await?;
+                print_value(updated_workflow, json)
+            }
+            WorkflowNotesCommand::List(args) => {
+                let notes = workflows.list_notes(&args.workflow_id, args.phase_id.as_deref()).await?;
+                print_value(notes, json)
             }
         },
     }

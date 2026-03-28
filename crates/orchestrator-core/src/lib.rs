@@ -6,6 +6,7 @@ pub mod daemon_tick_metrics;
 pub mod doctor;
 pub mod domain_state;
 pub mod execution_projection;
+pub mod inbox;
 pub mod model_quality;
 pub mod providers;
 pub mod runtime_contract;
@@ -48,6 +49,10 @@ pub use execution_projection::{
     project_task_blocked_with_reason, project_task_execution_fact, project_task_status,
     project_task_terminal_workflow_status, project_task_workflow_start, ExecutionProjector, ExecutionProjectorRegistry,
     WORKFLOW_RUNNER_BLOCKED_PREFIX,
+};
+pub use inbox::{
+    collect_inbox, ActiveWorkflowItem, AvailabilityEnvelope, BlockedItem, InboxPayload,
+    DEFAULT_STALENESS_THRESHOLD_SECS,
 };
 pub use model_quality::{
     is_model_suppressed_for_phase, load_model_quality_ledger, model_quality_ledger_path, record_model_phase_outcome,

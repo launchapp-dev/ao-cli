@@ -65,6 +65,12 @@ async fn run(cli: Cli) -> Result<()> {
                 Command::Requirements { command } => {
                     services::operations::handle_requirements(command, hub.clone(), &project_root, cli.json).await
                 }
+                Command::Vision { command } => {
+                    services::operations::handle_vision(command, hub.clone(), &project_root, cli.json).await
+                }
+                Command::Planning { command } => {
+                    services::operations::handle_planning(command, hub.clone(), &project_root, cli.json).await
+                }
                 Command::History { command } => {
                     services::operations::handle_history(command, hub.clone(), &project_root, cli.json).await
                 }

@@ -58,6 +58,17 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: RequirementsCommand,
     },
+    /// Draft and refine project vision.
+    #[command(hide = true)]
+    Vision {
+        #[command(subcommand)]
+        command: VisionCommand,
+    },
+    /// Plan and refine vision and requirements.
+    Planning {
+        #[command(subcommand)]
+        command: PlanningCommand,
+    },
     /// Inspect and search execution history.
     History {
         #[command(subcommand)]

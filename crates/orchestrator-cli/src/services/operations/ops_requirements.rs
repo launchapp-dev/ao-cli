@@ -15,7 +15,7 @@ mod state;
 use crate::{
     parse_requirement_category_opt, parse_requirement_priority_opt, parse_requirement_query_sort_opt,
     parse_requirement_status_opt, parse_requirement_type_opt, print_ok, print_value, RequirementGraphCommand,
-    RequirementsCommand, RequirementsExecuteArgs,
+    RequirementsCommand, RequirementsExecuteArgs, RequirementsDraftArgs, RequirementsRefineArgs,
 };
 use graph::{load_requirements_graph, save_requirements_graph, RequirementsGraphState};
 use mockups::handle_requirement_mockups;
@@ -49,6 +49,14 @@ pub(crate) async fn handle_requirements(
     match command {
         RequirementsCommand::Execute(args) => {
             let execute_args = build_requirements_execute_args(args)?;
+            super::ops_workflow::execute::handle_workflow_execute(execute_args, hub.clone(), project_root, json).await
+        }
+        RequirementsCommand::Draft(args) => {
+            let execute_args = build_requirements_draft_args(args)?;
+            super::ops_workflow::execute::handle_workflow_execute(execute_args, hub.clone(), project_root, json).await
+        }
+        RequirementsCommand::Refine(args) => {
+            let execute_args = build_requirements_refine_args(args)?;
             super::ops_workflow::execute::handle_workflow_execute(execute_args, hub.clone(), project_root, json).await
         }
         RequirementsCommand::List(args) => {
@@ -122,6 +130,40 @@ fn build_requirements_execute_args(args: RequirementsExecuteArgs) -> Result<Work
         tool: None,
         phase_timeout_secs: None,
         input_json,
+        vars: Vec::new(),
+    })
+}
+
+fn build_requirements_draft_args(args: RequirementsDraftArgs) -> Result<WorkflowExecuteArgs> {
+    Ok(WorkflowExecuteArgs {
+        workflow_id: None,
+        task_id: None,
+        requirement_id: None,
+        title: None,
+        description: None,
+        workflow_ref: Some("builtin/requirements-draft".to_string()),
+        phase: None,
+        model: None,
+        tool: None,
+        phase_timeout_secs: None,
+        input_json: args.input_json,
+        vars: Vec::new(),
+    })
+}
+
+fn build_requirements_refine_args(args: RequirementsRefineArgs) -> Result<WorkflowExecuteArgs> {
+    Ok(WorkflowExecuteArgs {
+        workflow_id: None,
+        task_id: None,
+        requirement_id: None,
+        title: None,
+        description: None,
+        workflow_ref: Some("builtin/requirements-refine".to_string()),
+        phase: None,
+        model: None,
+        tool: None,
+        phase_timeout_secs: None,
+        input_json: args.input_json,
         vars: Vec::new(),
     })
 }

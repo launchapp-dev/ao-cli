@@ -9,6 +9,12 @@ use super::{
 pub(crate) enum RequirementsCommand {
     /// Execute a requirement into implementation tasks and optional workflows.
     Execute(RequirementsExecuteArgs),
+    /// Draft requirements.
+    #[command(hide = true)]
+    Draft(RequirementsDraftArgs),
+    /// Refine requirements.
+    #[command(hide = true)]
+    Refine(RequirementsRefineArgs),
     /// List requirements.
     List(RequirementsListArgs),
     /// Get a requirement by id.
@@ -246,6 +252,18 @@ pub(crate) struct RecommendationConfigUpdateArgs {
     pub(crate) mode: Option<String>,
     #[arg(long)]
     pub(crate) enabled: Option<bool>,
+    #[arg(long, value_name = "JSON", help = INPUT_JSON_PRECEDENCE_HELP)]
+    pub(crate) input_json: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct RequirementsDraftArgs {
+    #[arg(long, value_name = "JSON", help = INPUT_JSON_PRECEDENCE_HELP)]
+    pub(crate) input_json: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct RequirementsRefineArgs {
     #[arg(long, value_name = "JSON", help = INPUT_JSON_PRECEDENCE_HELP)]
     pub(crate) input_json: Option<String>,
 }

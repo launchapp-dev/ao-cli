@@ -48,6 +48,18 @@ fn builtin_workflow_config_includes_planning_workflow_refs() {
 }
 
 #[test]
+fn builtin_workflow_config_contains_all_builtin_refs() {
+    let config = builtin_workflow_config();
+    let workflow_ids = config.workflows.iter().map(|workflow| workflow.id.as_str()).collect::<Vec<_>>();
+
+    assert!(workflow_ids.contains(&"builtin/vision-draft"));
+    assert!(workflow_ids.contains(&"builtin/vision-refine"));
+    assert!(workflow_ids.contains(&"builtin/requirements-draft"));
+    assert!(workflow_ids.contains(&"builtin/requirements-refine"));
+    assert!(workflow_ids.contains(&"builtin/requirements-execute"));
+}
+
+#[test]
 fn missing_v2_file_reports_actionable_error() {
     let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let temp = tempfile::tempdir().expect("tempdir");

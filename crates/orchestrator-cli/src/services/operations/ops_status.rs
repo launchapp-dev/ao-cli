@@ -10,6 +10,7 @@ use orchestrator_core::{
     open_project_db, DaemonHealth, DaemonStatus, OrchestratorTask, OrchestratorWorkflow, ServiceHub, TaskStatistics,
     TaskStatus, WorkflowPhaseStatus, WorkflowStateManager, WorkflowStatus,
 };
+use orchestrator_daemon_runtime::queue_stats;
 use serde::{Deserialize, Serialize};
 
 use crate::print_value;
@@ -31,7 +32,34 @@ struct StatusDashboard {
     task_summary: TaskSummarySlice,
     recent_completions: RecentCompletionsSlice,
     recent_failures: RecentFailuresSlice,
+    next_task: NextTaskSlice,
+    queue: QueueSlice,
     ci: CiStatusSlice,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct NextTaskSlice {
+    available: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    task: Option<NextTaskEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct NextTaskEntry {
+    task_id: String,
+    title: String,
+    priority: String,
+    linked_requirement_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct QueueSlice {
+    available: bool,
+    pending_count: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -192,12 +220,16 @@ pub(crate) async fn handle_status(hub: Arc<dyn ServiceHub>, project_root: &str, 
     let daemon_service = hub.daemon();
     let tasks_service = hub.tasks();
     let task_stats_service = tasks_service.clone();
+    let next_tasks_service = tasks_service.clone();
+    let project_root_clone = project_root.to_string();
 
-    let (daemon_result, tasks_result, task_stats_result, workflow_snapshot_result, ci_slice) = tokio::join!(
+    let (daemon_result, tasks_result, task_stats_result, workflow_snapshot_result, next_task_result, queue_result, ci_slice) = tokio::join!(
         daemon_service.health(),
         tasks_service.list(),
         task_stats_service.statistics(),
         collect_workflow_status_snapshot(project_root),
+        next_tasks_service.next_task(),
+        collect_queue_stats(&project_root_clone),
         collect_ci_status(project_root),
     );
 
@@ -205,6 +237,9 @@ pub(crate) async fn handle_status(hub: Arc<dyn ServiceHub>, project_root: &str, 
     let (tasks, tasks_error) = split_result(tasks_result);
     let (task_stats, task_stats_error) = split_result(task_stats_result);
     let (workflow_snapshot, workflows_error) = split_result(workflow_snapshot_result);
+    let (next_task_opt, next_task_error) = split_result(next_task_result);
+    let next_task = next_task_opt.flatten();
+    let (queue_stats_result, queue_error) = split_result(queue_result);
 
     let dashboard = StatusDashboard {
         schema: STATUS_SCHEMA,
@@ -227,6 +262,8 @@ pub(crate) async fn handle_status(hub: Arc<dyn ServiceHub>, project_root: &str, 
             workflow_snapshot.as_ref().map(|snapshot| snapshot.recent_failures.as_slice()),
             workflows_error,
         ),
+        next_task: build_next_task_slice(next_task, next_task_error),
+        queue: build_queue_slice(queue_stats_result, queue_error),
         ci: ci_slice,
     };
 
@@ -500,6 +537,45 @@ fn load_recent_failures(project_root: &str, limit: usize) -> Result<Vec<RecentFa
     Ok(entries)
 }
 
+fn build_next_task_slice(next_task: Option<OrchestratorTask>, error: Option<String>) -> NextTaskSlice {
+    match next_task {
+        Some(task) => {
+            let priority = match task.priority {
+                orchestrator_core::Priority::Critical => "critical",
+                orchestrator_core::Priority::High => "high",
+                orchestrator_core::Priority::Medium => "medium",
+                orchestrator_core::Priority::Low => "low",
+            };
+            NextTaskSlice {
+                available: true,
+                task: Some(NextTaskEntry {
+                    task_id: task.id,
+                    title: task.title,
+                    priority: priority.to_string(),
+                    linked_requirement_ids: task.linked_requirements,
+                }),
+                error,
+            }
+        }
+        None => NextTaskSlice { available: true, task: None, error },
+    }
+}
+
+fn build_queue_slice(queue_stats: Option<orchestrator_daemon_runtime::QueueStats>, error: Option<String>) -> QueueSlice {
+    match queue_stats {
+        Some(stats) => QueueSlice { available: true, pending_count: stats.pending, error },
+        None => QueueSlice { available: false, pending_count: 0, error },
+    }
+}
+
+async fn collect_queue_stats(project_root: &str) -> Result<orchestrator_daemon_runtime::QueueStats> {
+    let project_root = project_root.to_string();
+    tokio::task::spawn_blocking(move || queue_stats(project_root.as_str()))
+        .await
+        .map_err(|error| anyhow!("failed to collect queue stats: {error}"))
+        .and_then(|result| result)
+}
+
 async fn collect_ci_status(project_root: &str) -> CiStatusSlice {
     let project_root = project_root.to_string();
     match tokio::task::spawn_blocking(move || ci_status_from_lookup(lookup_ci_status(project_root.as_str()))).await {
@@ -689,6 +765,47 @@ fn render_status_dashboard(dashboard: &StatusDashboard) -> String {
         }
     }
     if let Some(error) = dashboard.recent_failures.error.as_deref() {
+        let _ = writeln!(&mut output, "  error: {error}");
+    }
+    let _ = writeln!(&mut output);
+
+    let _ = writeln!(&mut output, "Next Task");
+    if let Some(task) = dashboard.next_task.task.as_ref() {
+        let _ = writeln!(
+            &mut output,
+            "  task_id: {}",
+            task.task_id
+        );
+        let _ = writeln!(
+            &mut output,
+            "  title: {}",
+            task.title
+        );
+        let _ = writeln!(
+            &mut output,
+            "  priority: {}",
+            task.priority
+        );
+        let _ = writeln!(
+            &mut output,
+            "  linked_requirement_ids: {}",
+            if task.linked_requirement_ids.is_empty() {
+                "none".to_string()
+            } else {
+                task.linked_requirement_ids.join(", ")
+            }
+        );
+    } else {
+        let _ = writeln!(&mut output, "  task: none");
+    }
+    if let Some(error) = dashboard.next_task.error.as_deref() {
+        let _ = writeln!(&mut output, "  error: {error}");
+    }
+    let _ = writeln!(&mut output);
+
+    let _ = writeln!(&mut output, "Queue");
+    let _ = writeln!(&mut output, "  pending_count: {}", dashboard.queue.pending_count);
+    if let Some(error) = dashboard.queue.error.as_deref() {
         let _ = writeln!(&mut output, "  error: {error}");
     }
     let _ = writeln!(&mut output);

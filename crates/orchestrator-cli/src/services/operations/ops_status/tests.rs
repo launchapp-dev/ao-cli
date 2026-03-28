@@ -105,6 +105,28 @@ fn make_workflow(
     }
 }
 
+fn recent_failures(workflows: &[OrchestratorWorkflow]) -> Vec<RecentFailureEntry> {
+    let mut entries = workflows
+        .iter()
+        .filter(|w| w.status == WorkflowStatus::Failed)
+        .map(|workflow| {
+            let (phase_id, failed_at, phase_error) = latest_failed_phase(workflow);
+            RecentFailureEntry {
+                workflow_id: workflow.id.clone(),
+                task_id: workflow.task_id.clone(),
+                phase_id,
+                failed_at,
+                failure_reason: workflow.failure_reason.clone().or(phase_error),
+            }
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by(|left, right| {
+        right.failed_at.cmp(&left.failed_at).then_with(|| left.workflow_id.cmp(&right.workflow_id))
+    });
+    entries.truncate(3);
+    entries
+}
+
 #[test]
 fn recent_completions_are_sorted_and_limited() {
     let tasks = vec![
@@ -456,6 +478,8 @@ fn render_status_dashboard_uses_required_section_order() {
         },
         recent_completions: RecentCompletionsSlice { available: true, entries: Vec::new(), error: None },
         recent_failures: RecentFailuresSlice { available: true, entries: Vec::new(), error: None },
+        next_task: NextTaskSlice { available: true, task: None, error: None },
+        queue: QueueSlice { available: true, pending_count: 0, error: None },
         ci: CiStatusSlice {
             provider: CI_PROVIDER_GITHUB,
             available: false,
@@ -471,11 +495,87 @@ fn render_status_dashboard_uses_required_section_order() {
     let summary_idx = output.find("Task Summary").expect("task summary section should exist");
     let completions_idx = output.find("Recent Completions").expect("recent completions section should exist");
     let failures_idx = output.find("Recent Failures").expect("recent failures section should exist");
+    let next_task_idx = output.find("Next Task").expect("next task section should exist");
+    let queue_idx = output.find("Queue").expect("queue section should exist");
     let ci_idx = output.find("CI Status").expect("ci section should exist");
 
     assert!(daemon_idx < agents_idx);
     assert!(agents_idx < summary_idx);
     assert!(summary_idx < completions_idx);
     assert!(completions_idx < failures_idx);
-    assert!(failures_idx < ci_idx);
+    assert!(failures_idx < next_task_idx);
+    assert!(next_task_idx < queue_idx);
+    assert!(queue_idx < ci_idx);
+}
+
+#[test]
+fn next_task_slice_shows_task_when_available() {
+    let task = make_task("TASK-001", "Implement feature X", TaskStatus::Ready, None);
+    let slice = build_next_task_slice(Some(task), None);
+
+    assert!(slice.available);
+    assert!(slice.task.is_some());
+    let entry = slice.task.unwrap();
+    assert_eq!(entry.task_id, "TASK-001");
+    assert_eq!(entry.title, "Implement feature X");
+    assert_eq!(entry.priority, "medium");
+    assert!(entry.linked_requirement_ids.is_empty());
+}
+
+#[test]
+fn next_task_slice_shows_null_when_no_task_available() {
+    let slice = build_next_task_slice(None, None);
+
+    assert!(slice.available);
+    assert!(slice.task.is_none());
+}
+
+#[test]
+fn next_task_slice_includes_linked_requirement_ids() {
+    let mut task = make_task("TASK-002", "Feature with reqs", TaskStatus::Ready, None);
+    task.linked_requirements = vec!["REQ-001".to_string(), "REQ-002".to_string()];
+    let slice = build_next_task_slice(Some(task), None);
+
+    assert!(slice.available);
+    let entry = slice.task.unwrap();
+    assert_eq!(entry.linked_requirement_ids, vec!["REQ-001", "REQ-002"]);
+}
+
+#[test]
+fn next_task_slice_includes_error_when_present() {
+    let slice = build_next_task_slice(None, Some("failed to fetch next task".to_string()));
+
+    assert!(slice.available);
+    assert!(slice.task.is_none());
+    assert_eq!(slice.error.as_deref(), Some("failed to fetch next task"));
+}
+
+#[test]
+fn queue_slice_shows_pending_count() {
+    let stats = orchestrator_daemon_runtime::QueueStats {
+        total: 10,
+        pending: 3,
+        assigned: 2,
+        held: 5,
+    };
+    let slice = build_queue_slice(Some(stats), None);
+
+    assert!(slice.available);
+    assert_eq!(slice.pending_count, 3);
+}
+
+#[test]
+fn queue_slice_marks_unavailable_when_no_stats() {
+    let slice = build_queue_slice(None, None);
+
+    assert!(!slice.available);
+    assert_eq!(slice.pending_count, 0);
+}
+
+#[test]
+fn queue_slice_includes_error_when_present() {
+    let slice = build_queue_slice(None, Some("daemon queue unreachable".to_string()));
+
+    assert!(!slice.available);
+    assert_eq!(slice.error.as_deref(), Some("daemon queue unreachable"));
 }

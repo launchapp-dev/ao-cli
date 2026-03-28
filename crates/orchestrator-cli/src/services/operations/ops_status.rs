@@ -29,6 +29,8 @@ struct StatusDashboard {
     daemon: DaemonStatusSlice,
     active_agents: ActiveAgentsSlice,
     task_summary: TaskSummarySlice,
+    next_task: NextTaskSlice,
+    blocked_tasks: BlockedTasksSlice,
     recent_completions: RecentCompletionsSlice,
     recent_failures: RecentFailuresSlice,
     ci: CiStatusSlice,
@@ -71,6 +73,42 @@ struct TaskSummarySlice {
     in_progress: usize,
     ready: usize,
     blocked: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct NextTaskEntry {
+    id: String,
+    title: String,
+    priority: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    linked_requirement_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct NextTaskSlice {
+    available: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    task: Option<NextTaskEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct BlockedTaskEntry {
+    id: String,
+    title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    blocked_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    blocked_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct BlockedTasksSlice {
+    available: bool,
+    entries: Vec<BlockedTaskEntry>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
@@ -222,6 +260,8 @@ pub(crate) async fn handle_status(hub: Arc<dyn ServiceHub>, project_root: &str, 
             tasks.as_deref(),
             combine_errors([task_stats_error.as_deref(), tasks_error.as_deref()]),
         ),
+        next_task: build_next_task_slice(tasks.as_deref(), tasks_error.clone()),
+        blocked_tasks: build_blocked_tasks_slice(tasks.as_deref(), tasks_error.clone()),
         recent_completions: build_recent_completions_slice(tasks.as_deref(), tasks_error),
         recent_failures: build_recent_failures_slice(
             workflow_snapshot.as_ref().map(|snapshot| snapshot.recent_failures.as_slice()),
@@ -379,6 +419,60 @@ fn build_task_summary_slice(
     }
 
     TaskSummarySlice { available: false, total: 0, done: 0, in_progress: 0, ready: 0, blocked: 0, error }
+}
+
+fn priority_order(priority: &orchestrator_core::Priority) -> u8 {
+    match priority {
+        orchestrator_core::Priority::Critical => 0,
+        orchestrator_core::Priority::High => 1,
+        orchestrator_core::Priority::Medium => 2,
+        orchestrator_core::Priority::Low => 3,
+    }
+}
+
+fn build_next_task_slice(tasks: Option<&[OrchestratorTask]>, error: Option<String>) -> NextTaskSlice {
+    if let Some(tasks) = tasks {
+        let next_task = tasks
+            .iter()
+            .filter(|task| task.status == TaskStatus::Ready)
+            .max_by(|left, right| {
+                let left_order = priority_order(&left.priority);
+                let right_order = priority_order(&right.priority);
+                match left_order.cmp(&right_order) {
+                    std::cmp::Ordering::Equal => left.id.cmp(&right.id),
+                    other => other.reverse(),
+                }
+            })
+            .map(|task| NextTaskEntry {
+                id: task.id.clone(),
+                title: task.title.clone(),
+                priority: task.priority.as_str().to_string(),
+                linked_requirement_ids: task.linked_requirements.clone(),
+            });
+
+        return NextTaskSlice { available: true, task: next_task, error };
+    }
+
+    NextTaskSlice { available: false, task: None, error }
+}
+
+fn build_blocked_tasks_slice(tasks: Option<&[OrchestratorTask]>, error: Option<String>) -> BlockedTasksSlice {
+    let entries = tasks
+        .map(|task_list| {
+            task_list
+                .iter()
+                .filter(|task| task.status.is_blocked())
+                .map(|task| BlockedTaskEntry {
+                    id: task.id.clone(),
+                    title: task.title.clone(),
+                    blocked_reason: task.blocked_reason.clone(),
+                    blocked_at: task.blocked_at.as_ref().map(|dt| dt.with_timezone(&Utc)),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    BlockedTasksSlice { available: tasks.is_some(), entries, error }
 }
 
 fn build_recent_completions_slice(tasks: Option<&[OrchestratorTask]>, error: Option<String>) -> RecentCompletionsSlice {
@@ -649,6 +743,44 @@ fn render_status_dashboard(dashboard: &StatusDashboard) -> String {
     let _ = writeln!(&mut output, "  ready: {}", dashboard.task_summary.ready);
     let _ = writeln!(&mut output, "  blocked: {}", dashboard.task_summary.blocked);
     if let Some(error) = dashboard.task_summary.error.as_deref() {
+        let _ = writeln!(&mut output, "  error: {error}");
+    }
+    let _ = writeln!(&mut output);
+
+    let _ = writeln!(&mut output, "Next Task");
+    if let Some(task) = dashboard.next_task.task.as_ref() {
+        let _ = writeln!(
+            &mut output,
+            "  - id={} title={} priority={}",
+            task.id, task.title, task.priority
+        );
+        if !task.linked_requirement_ids.is_empty() {
+            let _ = writeln!(&mut output, "    linked_requirements: {}", task.linked_requirement_ids.join(", "));
+        }
+    } else {
+        let _ = writeln!(&mut output, "  entries: none");
+    }
+    if let Some(error) = dashboard.next_task.error.as_deref() {
+        let _ = writeln!(&mut output, "  error: {error}");
+    }
+    let _ = writeln!(&mut output);
+
+    let _ = writeln!(&mut output, "Blocked Tasks");
+    if dashboard.blocked_tasks.entries.is_empty() {
+        let _ = writeln!(&mut output, "  entries: none");
+    } else {
+        for entry in &dashboard.blocked_tasks.entries {
+            let _ = writeln!(
+                &mut output,
+                "  - id={} title={} blocked_reason={} blocked_at={}",
+                entry.id,
+                entry.title,
+                entry.blocked_reason.as_deref().unwrap_or("n/a"),
+                entry.blocked_at.map(|dt| dt.to_rfc3339()).as_deref().unwrap_or("n/a")
+            );
+        }
+    }
+    if let Some(error) = dashboard.blocked_tasks.error.as_deref() {
         let _ = writeln!(&mut output, "  error: {error}");
     }
     let _ = writeln!(&mut output);

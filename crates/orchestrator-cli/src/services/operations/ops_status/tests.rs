@@ -105,6 +105,28 @@ fn make_workflow(
     }
 }
 
+fn recent_failures(workflows: &[OrchestratorWorkflow]) -> Vec<RecentFailureEntry> {
+    let mut entries: Vec<RecentFailureEntry> = workflows
+        .iter()
+        .filter(|workflow| workflow.status == WorkflowStatus::Failed)
+        .map(|workflow| {
+            let (phase_id, failed_at, failure_reason) = latest_failed_phase(workflow);
+            RecentFailureEntry {
+                workflow_id: workflow.id.clone(),
+                task_id: workflow.task_id.clone(),
+                phase_id,
+                failed_at,
+                failure_reason,
+            }
+        })
+        .collect();
+    entries.sort_by(|left, right| {
+        right.failed_at.cmp(&left.failed_at).then_with(|| left.workflow_id.cmp(&right.workflow_id))
+    });
+    entries.truncate(3);
+    entries
+}
+
 #[test]
 fn recent_completions_are_sorted_and_limited() {
     let tasks = vec![
@@ -454,6 +476,8 @@ fn render_status_dashboard_uses_required_section_order() {
             blocked: 0,
             error: None,
         },
+        next_task: NextTaskSlice { available: true, task: None, error: None },
+        blocked_tasks: BlockedTasksSlice { available: true, entries: Vec::new(), error: None },
         recent_completions: RecentCompletionsSlice { available: true, entries: Vec::new(), error: None },
         recent_failures: RecentFailuresSlice { available: true, entries: Vec::new(), error: None },
         ci: CiStatusSlice {
@@ -469,13 +493,95 @@ fn render_status_dashboard_uses_required_section_order() {
     let daemon_idx = output.find("Daemon").expect("daemon section should exist");
     let agents_idx = output.find("Active Agents").expect("active agents section should exist");
     let summary_idx = output.find("Task Summary").expect("task summary section should exist");
+    let next_task_idx = output.find("Next Task").expect("next task section should exist");
+    let blocked_tasks_idx = output.find("Blocked Tasks").expect("blocked tasks section should exist");
     let completions_idx = output.find("Recent Completions").expect("recent completions section should exist");
     let failures_idx = output.find("Recent Failures").expect("recent failures section should exist");
     let ci_idx = output.find("CI Status").expect("ci section should exist");
 
     assert!(daemon_idx < agents_idx);
     assert!(agents_idx < summary_idx);
-    assert!(summary_idx < completions_idx);
+    assert!(summary_idx < next_task_idx);
+    assert!(next_task_idx < blocked_tasks_idx);
+    assert!(blocked_tasks_idx < completions_idx);
     assert!(completions_idx < failures_idx);
     assert!(failures_idx < ci_idx);
+}
+
+#[test]
+fn next_task_slice_selects_highest_priority_ready_task() {
+    let tasks = vec![
+        make_task("TASK-001", "Low priority", TaskStatus::Ready, None),
+        make_task("TASK-002", "High priority", TaskStatus::Ready, None),
+        make_task("TASK-003", "In progress", TaskStatus::InProgress, None),
+    ];
+    let mut task_003 = tasks[2].clone();
+    task_003.priority = orchestrator_core::Priority::Critical;
+
+    let mut task_001 = tasks[0].clone();
+    task_001.priority = orchestrator_core::Priority::Low;
+
+    let mut task_002 = tasks[1].clone();
+    task_002.priority = orchestrator_core::Priority::High;
+
+    let slice = build_next_task_slice(Some(&[task_001, task_002, task_003]), None);
+    assert!(slice.available);
+    assert_eq!(slice.task.as_ref().map(|t| t.id.as_str()), Some("TASK-002"));
+    assert_eq!(slice.task.as_ref().map(|t| t.priority.as_str()), Some("high"));
+}
+
+#[test]
+fn next_task_slice_includes_linked_requirement_ids() {
+    let mut task = make_task("TASK-001", "Test", TaskStatus::Ready, None);
+    task.linked_requirements = vec!["REQ-001".to_string(), "REQ-002".to_string()];
+
+    let slice = build_next_task_slice(Some(&[task]), None);
+    assert!(slice.available);
+    let next_task = slice.task.as_ref().expect("task should exist");
+    assert_eq!(next_task.linked_requirement_ids, vec!["REQ-001", "REQ-002"]);
+}
+
+#[test]
+fn next_task_slice_returns_none_when_no_ready_tasks() {
+    let tasks = vec![
+        make_task("TASK-001", "In progress", TaskStatus::InProgress, None),
+        make_task("TASK-002", "Done", TaskStatus::Done, None),
+    ];
+
+    let slice = build_next_task_slice(Some(&tasks), None);
+    assert!(slice.available);
+    assert!(slice.task.is_none());
+}
+
+#[test]
+fn blocked_tasks_slice_collects_all_blocked_tasks() {
+    let mut task_001 = make_task("TASK-001", "Blocked", TaskStatus::Blocked, None);
+    let blocked_at = parse_time("2026-02-20T10:00:00Z");
+    task_001.blocked_at = Some(blocked_at);
+    task_001.blocked_reason = Some("waiting for dependency".to_string());
+
+    let mut task_002 = make_task("TASK-002", "On hold", TaskStatus::OnHold, None);
+    task_002.blocked_at = Some(parse_time("2026-02-21T10:00:00Z"));
+    task_002.blocked_reason = Some("paused".to_string());
+
+    let task_003 = make_task("TASK-003", "Ready", TaskStatus::Ready, None);
+
+    let slice = build_blocked_tasks_slice(Some(&[task_001, task_002, task_003]), None);
+    assert!(slice.available);
+    assert_eq!(slice.entries.len(), 2);
+    assert_eq!(slice.entries[0].id, "TASK-001");
+    assert_eq!(slice.entries[0].blocked_reason.as_deref(), Some("waiting for dependency"));
+    assert_eq!(slice.entries[1].id, "TASK-002");
+}
+
+#[test]
+fn blocked_tasks_slice_returns_empty_when_no_blocked_tasks() {
+    let tasks = vec![
+        make_task("TASK-001", "Ready", TaskStatus::Ready, None),
+        make_task("TASK-002", "Done", TaskStatus::Done, None),
+    ];
+
+    let slice = build_blocked_tasks_slice(Some(&tasks), None);
+    assert!(slice.available);
+    assert!(slice.entries.is_empty());
 }

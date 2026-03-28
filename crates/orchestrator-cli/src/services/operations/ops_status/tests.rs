@@ -456,6 +456,8 @@ fn render_status_dashboard_uses_required_section_order() {
         },
         recent_completions: RecentCompletionsSlice { available: true, entries: Vec::new(), error: None },
         recent_failures: RecentFailuresSlice { available: true, entries: Vec::new(), error: None },
+        next_task: None,
+        stale_in_progress: Vec::new(),
         ci: CiStatusSlice {
             provider: CI_PROVIDER_GITHUB,
             available: false,
@@ -469,13 +471,213 @@ fn render_status_dashboard_uses_required_section_order() {
     let daemon_idx = output.find("Daemon").expect("daemon section should exist");
     let agents_idx = output.find("Active Agents").expect("active agents section should exist");
     let summary_idx = output.find("Task Summary").expect("task summary section should exist");
+    let next_task_idx = output.find("Next Task Recommendation").expect("next task section should exist");
+    let stale_idx = output.find("Stale In-Progress Tasks").expect("stale in-progress section should exist");
     let completions_idx = output.find("Recent Completions").expect("recent completions section should exist");
     let failures_idx = output.find("Recent Failures").expect("recent failures section should exist");
     let ci_idx = output.find("CI Status").expect("ci section should exist");
 
     assert!(daemon_idx < agents_idx);
     assert!(agents_idx < summary_idx);
-    assert!(summary_idx < completions_idx);
+    assert!(summary_idx < next_task_idx);
+    assert!(next_task_idx < stale_idx);
+    assert!(stale_idx < completions_idx);
     assert!(completions_idx < failures_idx);
     assert!(failures_idx < ci_idx);
+}
+
+#[test]
+fn next_task_summary_selects_highest_priority_ready_task() {
+    let tasks = vec![
+        make_task_with_priority("TASK-003", "Low priority", TaskStatus::Ready, Priority::Low),
+        make_task_with_priority("TASK-001", "Critical priority", TaskStatus::Ready, Priority::Critical),
+        make_task_with_priority("TASK-004", "Backlog task", TaskStatus::Backlog, Priority::High),
+        make_task_with_priority("TASK-002", "High priority", TaskStatus::Ready, Priority::High),
+    ];
+
+    let result = build_next_task_summary(Some(&tasks));
+    assert!(result.is_some());
+    let summary = result.unwrap();
+    assert_eq!(summary.task_id, "TASK-001", "should select critical priority task");
+    assert_eq!(summary.priority, "critical");
+}
+
+#[test]
+fn next_task_summary_breaks_ties_by_task_id() {
+    let tasks = vec![
+        make_task_with_priority("TASK-002", "Second", TaskStatus::Ready, Priority::High),
+        make_task_with_priority("TASK-001", "First", TaskStatus::Ready, Priority::High),
+    ];
+
+    let result = build_next_task_summary(Some(&tasks));
+    assert!(result.is_some());
+    let summary = result.unwrap();
+    assert_eq!(summary.task_id, "TASK-001", "should break ties by task id");
+}
+
+#[test]
+fn next_task_summary_returns_none_when_no_ready_tasks() {
+    let tasks = vec![
+        make_task("TASK-001", "In progress", TaskStatus::InProgress, None),
+        make_task("TASK-002", "Backlog", TaskStatus::Backlog, None),
+    ];
+
+    let result = build_next_task_summary(Some(&tasks));
+    assert!(result.is_none());
+}
+
+#[test]
+fn next_task_summary_returns_none_for_empty_tasks() {
+    let result = build_next_task_summary(Some(&[]));
+    assert!(result.is_none());
+}
+
+#[test]
+fn stale_in_progress_list_identifies_old_tasks() {
+    let base_time = parse_time("2026-02-28T00:00:00Z");
+    let threshold_hours = 24;
+    let tasks = vec![
+        make_task_with_started_at("TASK-001", "Very old", TaskStatus::InProgress, Some(parse_time("2026-02-20T00:00:00Z"))),
+        make_task_with_started_at("TASK-002", "Recent", TaskStatus::InProgress, Some(parse_time("2026-02-27T12:00:00Z"))),
+        make_task_with_started_at("TASK-003", "Exactly 24 hours old", TaskStatus::InProgress, Some(parse_time("2026-02-27T00:00:00Z"))),
+        make_task_with_started_at("TASK-004", "Done task", TaskStatus::Done, Some(parse_time("2026-02-20T00:00:00Z"))),
+    ];
+
+    let stale = build_stale_in_progress_list(Some(&tasks), threshold_hours, base_time);
+    assert_eq!(stale.len(), 2, "should identify two stale tasks");
+
+    let ids: Vec<&str> = stale.iter().map(|e| e.task_id.as_str()).collect();
+    assert!(ids.contains(&"TASK-001"));
+    assert!(ids.contains(&"TASK-003"));
+    assert!(!ids.contains(&"TASK-002"), "recent task should not be stale");
+    assert!(!ids.contains(&"TASK-004"), "done task should not be checked");
+}
+
+#[test]
+fn stale_in_progress_list_respects_threshold_setting() {
+    let base_time = parse_time("2026-02-28T00:00:00Z");
+    let threshold_hours = 12;
+    let tasks = vec![
+        make_task_with_started_at("TASK-001", "Old", TaskStatus::InProgress, Some(parse_time("2026-02-27T10:00:00Z"))),
+    ];
+
+    let stale = build_stale_in_progress_list(Some(&tasks), threshold_hours, base_time);
+    assert_eq!(stale.len(), 1, "task should be stale at 12 hour threshold");
+    assert_eq!(stale[0].age_hours, 14);
+}
+
+#[test]
+fn stale_in_progress_list_skips_tasks_without_started_at() {
+    let base_time = parse_time("2026-02-28T00:00:00Z");
+    let tasks = vec![
+        make_task("TASK-001", "Never started", TaskStatus::InProgress, None),
+    ];
+
+    let stale = build_stale_in_progress_list(Some(&tasks), 24, base_time);
+    assert_eq!(stale.len(), 0, "task without started_at should be skipped");
+}
+
+#[test]
+fn stale_in_progress_list_returns_empty_for_none_tasks() {
+    let stale = build_stale_in_progress_list(None, 24, parse_time("2026-02-28T00:00:00Z"));
+    assert_eq!(stale.len(), 0);
+}
+
+fn make_task_with_priority(id: &str, title: &str, status: TaskStatus, priority: Priority) -> OrchestratorTask {
+    let now = parse_time("2026-02-01T00:00:00Z");
+    OrchestratorTask {
+        id: id.to_string(),
+        title: title.to_string(),
+        description: String::new(),
+        task_type: TaskType::Feature,
+        status,
+        blocked_reason: None,
+        blocked_at: None,
+        blocked_phase: None,
+        blocked_by: None,
+        priority,
+        risk: RiskLevel::Medium,
+        scope: Scope::Medium,
+        complexity: Complexity::Medium,
+        impact_area: Vec::<ImpactArea>::new(),
+        assignee: Assignee::Unassigned,
+        estimated_effort: None,
+        linked_requirements: Vec::new(),
+        linked_architecture_entities: Vec::new(),
+        dependencies: Vec::<TaskDependency>::new(),
+        checklist: Vec::<ChecklistItem>::new(),
+        tags: Vec::new(),
+        workflow_metadata: WorkflowMetadata::default(),
+        worktree_path: None,
+        branch_name: None,
+        metadata: TaskMetadata {
+            created_at: now,
+            updated_at: now,
+            created_by: "test".to_string(),
+            updated_by: "test".to_string(),
+            started_at: None,
+            completed_at: None,
+            version: 1,
+        },
+        deadline: None,
+        paused: false,
+        cancelled: false,
+        resolution: None,
+        resource_requirements: ResourceRequirements::default(),
+        consecutive_dispatch_failures: None,
+        last_dispatch_failure_at: None,
+        dispatch_history: Vec::new(),
+    }
+}
+
+fn make_task_with_started_at(
+    id: &str,
+    title: &str,
+    status: TaskStatus,
+    started_at: Option<DateTime<Utc>>,
+) -> OrchestratorTask {
+    let now = parse_time("2026-02-01T00:00:00Z");
+    OrchestratorTask {
+        id: id.to_string(),
+        title: title.to_string(),
+        description: String::new(),
+        task_type: TaskType::Feature,
+        status,
+        blocked_reason: None,
+        blocked_at: None,
+        blocked_phase: None,
+        blocked_by: None,
+        priority: Priority::Medium,
+        risk: RiskLevel::Medium,
+        scope: Scope::Medium,
+        complexity: Complexity::Medium,
+        impact_area: Vec::<ImpactArea>::new(),
+        assignee: Assignee::Unassigned,
+        estimated_effort: None,
+        linked_requirements: Vec::new(),
+        linked_architecture_entities: Vec::new(),
+        dependencies: Vec::<TaskDependency>::new(),
+        checklist: Vec::<ChecklistItem>::new(),
+        tags: Vec::new(),
+        workflow_metadata: WorkflowMetadata::default(),
+        worktree_path: None,
+        branch_name: None,
+        metadata: TaskMetadata {
+            created_at: now,
+            updated_at: now,
+            created_by: "test".to_string(),
+            updated_by: "test".to_string(),
+            started_at,
+            completed_at: None,
+            version: 1,
+        },
+        deadline: None,
+        paused: false,
+        cancelled: false,
+        resolution: None,
+        resource_requirements: ResourceRequirements::default(),
+        consecutive_dispatch_failures: None,
+        last_dispatch_failure_at: None,
+        dispatch_history: Vec::new(),
+    }
 }

@@ -17,9 +17,24 @@ use crate::print_value;
 const STATUS_SCHEMA: &str = "ao.status.v1";
 const RECENT_COMPLETIONS_LIMIT: usize = 5;
 const RECENT_FAILURES_LIMIT: usize = 3;
+const DEFAULT_STALE_THRESHOLD_HOURS: u64 = 24;
 const CI_PROVIDER_GITHUB: &str = "github";
 const GH_RUN_LIST_FIELDS: &str =
     "databaseId,displayTitle,name,workflowName,status,conclusion,event,headBranch,headSha,createdAt,updatedAt,url";
+
+#[derive(Debug, Clone, Serialize)]
+struct NextTaskSummary {
+    task_id: String,
+    title: String,
+    priority: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct StaleTaskEntry {
+    task_id: String,
+    title: String,
+    age_hours: u64,
+}
 
 #[derive(Debug, Clone, Serialize)]
 struct StatusDashboard {
@@ -31,6 +46,10 @@ struct StatusDashboard {
     task_summary: TaskSummarySlice,
     recent_completions: RecentCompletionsSlice,
     recent_failures: RecentFailuresSlice,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    next_task: Option<NextTaskSummary>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    stale_in_progress: Vec<StaleTaskEntry>,
     ci: CiStatusSlice,
 }
 
@@ -206,6 +225,7 @@ pub(crate) async fn handle_status(hub: Arc<dyn ServiceHub>, project_root: &str, 
     let (task_stats, task_stats_error) = split_result(task_stats_result);
     let (workflow_snapshot, workflows_error) = split_result(workflow_snapshot_result);
 
+    let stale_threshold_hours = get_stale_threshold_hours();
     let dashboard = StatusDashboard {
         schema: STATUS_SCHEMA,
         project_root: project_root.to_string(),
@@ -227,6 +247,8 @@ pub(crate) async fn handle_status(hub: Arc<dyn ServiceHub>, project_root: &str, 
             workflow_snapshot.as_ref().map(|snapshot| snapshot.recent_failures.as_slice()),
             workflows_error,
         ),
+        next_task: build_next_task_summary(tasks.as_deref()),
+        stale_in_progress: build_stale_in_progress_list(tasks.as_deref(), stale_threshold_hours, Utc::now()),
         ci: ci_slice,
     };
 
@@ -405,6 +427,28 @@ fn recent_completions(tasks: &[OrchestratorTask]) -> Vec<RecentCompletionEntry> 
         right.completed_at.cmp(&left.completed_at).then_with(|| left.task_id.cmp(&right.task_id))
     });
     entries.truncate(RECENT_COMPLETIONS_LIMIT);
+    entries
+}
+
+fn recent_failures(workflows: &[OrchestratorWorkflow]) -> Vec<RecentFailureEntry> {
+    let mut entries: Vec<RecentFailureEntry> = workflows
+        .iter()
+        .filter(|workflow| workflow.status == WorkflowStatus::Failed)
+        .map(|workflow| {
+            let (phase_id, failed_at, phase_error) = latest_failed_phase(workflow);
+            RecentFailureEntry {
+                workflow_id: workflow.id.clone(),
+                task_id: workflow.task_id.clone(),
+                phase_id,
+                failed_at,
+                failure_reason: workflow.failure_reason.clone().or(phase_error),
+            }
+        })
+        .collect();
+    entries.sort_by(|left, right| {
+        right.failed_at.cmp(&left.failed_at).then_with(|| left.workflow_id.cmp(&right.workflow_id))
+    });
+    entries.truncate(RECENT_FAILURES_LIMIT);
     entries
 }
 
@@ -603,6 +647,84 @@ fn parse_gh_run_list(payload: &str) -> Result<Option<CiRunSummary>> {
     }))
 }
 
+fn get_stale_threshold_hours() -> u64 {
+    std::env::var("AO_STALE_THRESHOLD_HOURS")
+        .ok()
+        .and_then(|val| val.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_STALE_THRESHOLD_HOURS)
+}
+
+fn build_next_task_summary(tasks: Option<&[OrchestratorTask]>) -> Option<NextTaskSummary> {
+    let tasks = tasks?;
+    let mut ready_tasks: Vec<&OrchestratorTask> =
+        tasks.iter().filter(|task| task.status == TaskStatus::Ready).collect();
+
+    if ready_tasks.is_empty() {
+        return None;
+    }
+
+    ready_tasks.sort_by(|a, b| {
+        priority_order(&b.priority)
+            .cmp(&priority_order(&a.priority))
+            .then_with(|| a.id.cmp(&b.id))
+    });
+
+    let task = ready_tasks.into_iter().next().map(|t| t)?;
+    Some(NextTaskSummary {
+        task_id: task.id.clone(),
+        title: task.title.clone(),
+        priority: task.priority.as_str().to_string(),
+    })
+}
+
+fn priority_order(priority: &orchestrator_core::Priority) -> u32 {
+    use orchestrator_core::Priority;
+    match priority {
+        Priority::Critical => 4,
+        Priority::High => 3,
+        Priority::Medium => 2,
+        Priority::Low => 1,
+    }
+}
+
+fn build_stale_in_progress_list(
+    tasks: Option<&[OrchestratorTask]>,
+    threshold_hours: u64,
+    now: DateTime<Utc>,
+) -> Vec<StaleTaskEntry> {
+    let tasks = match tasks {
+        Some(t) => t,
+        None => return Vec::new(),
+    };
+
+    let threshold_secs = threshold_hours * 3600;
+    let mut stale_tasks: Vec<StaleTaskEntry> = tasks
+        .iter()
+        .filter(|task| task.status == TaskStatus::InProgress)
+        .filter_map(|task| {
+            task.metadata.started_at.as_ref().and_then(|started_at| {
+                let duration = now.signed_duration_since(*started_at);
+                let age_secs = duration.num_seconds().max(0) as u64;
+                if age_secs >= threshold_secs {
+                    let age_hours = (age_secs + 1800) / 3600;
+                    Some(StaleTaskEntry {
+                        task_id: task.id.clone(),
+                        title: task.title.clone(),
+                        age_hours,
+                    })
+                } else {
+                    None
+                }
+            })
+        })
+        .collect();
+
+    stale_tasks.sort_by(|a, b| {
+        b.age_hours.cmp(&a.age_hours).then_with(|| a.task_id.cmp(&b.task_id))
+    });
+    stale_tasks
+}
+
 fn render_status_dashboard(dashboard: &StatusDashboard) -> String {
     let mut output = String::new();
     let _ = writeln!(&mut output, "AO Status Dashboard");
@@ -650,6 +772,28 @@ fn render_status_dashboard(dashboard: &StatusDashboard) -> String {
     let _ = writeln!(&mut output, "  blocked: {}", dashboard.task_summary.blocked);
     if let Some(error) = dashboard.task_summary.error.as_deref() {
         let _ = writeln!(&mut output, "  error: {error}");
+    }
+    let _ = writeln!(&mut output);
+
+    let _ = writeln!(&mut output, "Next Task Recommendation");
+    if let Some(next) = dashboard.next_task.as_ref() {
+        let _ = writeln!(
+            &mut output,
+            "  task_id={} title={} priority={}",
+            next.task_id, next.title, next.priority
+        );
+    } else {
+        let _ = writeln!(&mut output, "  none (no ready tasks available)");
+    }
+    let _ = writeln!(&mut output);
+
+    let _ = writeln!(&mut output, "Stale In-Progress Tasks");
+    if dashboard.stale_in_progress.is_empty() {
+        let _ = writeln!(&mut output, "  entries: none");
+    } else {
+        for entry in &dashboard.stale_in_progress {
+            let _ = writeln!(&mut output, "  - task_id={} age_hours={} title={}", entry.task_id, entry.age_hours, entry.title);
+        }
     }
     let _ = writeln!(&mut output);
 

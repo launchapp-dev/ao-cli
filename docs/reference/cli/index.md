@@ -249,6 +249,60 @@ ao
 └── doctor                   Run environment and configuration diagnostics
 ```
 
+## Status Command (`ao status`)
+
+The `ao status` command displays a unified project status dashboard with both human-readable text output and JSON format.
+
+### JSON Schema (ao.status.v1)
+
+The JSON output includes the following top-level fields:
+
+- **schema**: `"ao.status.v1"` — schema identifier and version
+- **project_root**: absolute path to the project
+- **generated_at**: ISO 8601 timestamp of dashboard generation
+- **daemon**: daemon health and status information
+  - **status**: one of `starting`, `running`, `paused`, `stopping`, `stopped`, `crashed`
+  - **running**: boolean indicating if daemon is active
+  - **runner_connected**: boolean indicating if runner process is connected
+  - **runner_pid**: optional process ID of the runner
+- **active_agents**: information about currently running agents
+  - **count**: number of active agents
+  - **assignments**: array of agent task assignments
+- **task_summary**: aggregate task counts by status
+  - **total**, **done**, **in_progress**, **ready**, **blocked**: counts
+- **next_task**: recommended next task to work on (optional)
+  - **task_id**: highest-priority ready task identifier
+  - **title**: task title
+  - **priority**: priority level (`critical`, `high`, `medium`, `low`)
+  - **null** when no ready tasks exist
+- **stale_in_progress**: array of tasks stuck in progress (optional)
+  - **task_id**: task identifier
+  - **title**: task title
+  - **age_hours**: hours since task entered in-progress state
+  - default threshold: 24 hours (configurable via `AO_STALE_THRESHOLD_HOURS`)
+- **recent_completions**: most recently completed tasks
+  - array limited to 5 entries, sorted by completion time
+- **recent_failures**: most recent workflow failures
+  - array limited to 3 entries, sorted by failure time
+- **ci**: CI/CD pipeline status (GitHub Actions)
+  - **provider**: currently always `"github"`
+  - **available**: boolean indicating if GitHub CLI is available
+  - **last_run**: most recent workflow run (optional)
+
+### Configuration
+
+The stale in-progress detection threshold can be customized:
+
+```bash
+# Check for tasks in progress longer than 12 hours
+AO_STALE_THRESHOLD_HOURS=12 ao status
+
+# Check for tasks in progress longer than 48 hours
+AO_STALE_THRESHOLD_HOURS=48 ao status
+```
+
+Default threshold is 24 hours.
+
 ## Summary
 
 | Metric | Count |

@@ -124,6 +124,28 @@ fn recent_completions_are_sorted_and_limited() {
     assert_eq!(ids, vec!["TASK-003", "TASK-001", "TASK-002", "TASK-004", "TASK-005"]);
 }
 
+fn recent_failures(workflows: &[OrchestratorWorkflow]) -> Vec<RecentFailureEntry> {
+    let mut entries: Vec<RecentFailureEntry> = workflows
+        .iter()
+        .filter(|wf| wf.status == WorkflowStatus::Failed)
+        .map(|wf| {
+            let (phase_id, failed_at, phase_error) = latest_failed_phase(wf);
+            RecentFailureEntry {
+                workflow_id: wf.id.clone(),
+                task_id: wf.task_id.clone(),
+                phase_id,
+                failed_at,
+                failure_reason: wf.failure_reason.clone().or(phase_error),
+            }
+        })
+        .collect();
+    entries.sort_by(|left, right| {
+        right.failed_at.cmp(&left.failed_at).then_with(|| left.workflow_id.cmp(&right.workflow_id))
+    });
+    entries.truncate(RECENT_FAILURES_LIMIT);
+    entries
+}
+
 #[test]
 fn recent_failures_are_sorted_limited_and_fallback_current_phase() {
     let workflows = vec![
@@ -420,6 +442,89 @@ fn ci_status_reports_lookup_errors_non_fatally() {
 }
 
 #[test]
+fn blocked_items_slice_filters_blocked_tasks() {
+    let tasks = vec![
+        make_task("TASK-001", "Done", TaskStatus::Done, None),
+        make_task("TASK-002", "In Progress", TaskStatus::InProgress, None),
+        make_task("TASK-003", "Blocked", TaskStatus::Blocked, None),
+        make_task("TASK-004", "On Hold", TaskStatus::OnHold, None),
+        make_task("TASK-005", "Ready", TaskStatus::Ready, None),
+    ];
+
+    let mut blocked_003 = make_task("TASK-003", "Blocked", TaskStatus::Blocked, None);
+    blocked_003.blocked_reason = Some("waiting for approval".to_string());
+    blocked_003.blocked_by = Some("TASK-001".to_string());
+
+    let mut blocked_004 = make_task("TASK-004", "On Hold", TaskStatus::OnHold, None);
+    blocked_004.blocked_reason = Some("under review".to_string());
+    blocked_004.blocked_by = None;
+
+    let tasks = vec![
+        make_task("TASK-001", "Done", TaskStatus::Done, None),
+        make_task("TASK-002", "In Progress", TaskStatus::InProgress, None),
+        blocked_003,
+        blocked_004,
+        make_task("TASK-005", "Ready", TaskStatus::Ready, None),
+    ];
+
+    let slice = build_blocked_items_slice(Some(&tasks), None);
+    assert!(slice.available);
+    assert_eq!(slice.count, 2);
+    assert_eq!(slice.items.len(), 2);
+    assert_eq!(slice.items[0].task_id, "TASK-003");
+    assert_eq!(slice.items[0].blocked_reason.as_deref(), Some("waiting for approval"));
+    assert_eq!(slice.items[0].blocked_by.as_deref(), Some("TASK-001"));
+    assert_eq!(slice.items[1].task_id, "TASK-004");
+    assert_eq!(slice.items[1].blocked_reason.as_deref(), Some("under review"));
+    assert!(slice.items[1].blocked_by.is_none());
+}
+
+#[test]
+fn stale_attention_slice_filters_stale_tasks() {
+    let now = parse_time("2026-02-27T12:00:00Z");
+    let mut stale_task = make_task("TASK-001", "Stale", TaskStatus::InProgress, None);
+    stale_task.metadata.updated_at = parse_time("2026-02-25T11:00:00Z");
+
+    let mut fresh_task = make_task("TASK-002", "Fresh", TaskStatus::InProgress, None);
+    fresh_task.metadata.updated_at = parse_time("2026-02-27T11:00:00Z");
+
+    let tasks = vec![stale_task, fresh_task];
+
+    let slice = build_stale_attention_slice(Some(&tasks), None, now, None);
+    assert!(slice.available);
+    assert_eq!(slice.count, 1);
+    assert_eq!(slice.items[0].entity_type, "task");
+    assert_eq!(slice.items[0].id, "TASK-001");
+    assert!(slice.items[0].hours_stale > 48.0);
+}
+
+#[test]
+fn stale_attention_slice_filters_stale_workflow_phases() {
+    let now = parse_time("2026-02-27T12:00:00Z");
+    let stale_phase = make_phase("implementation", WorkflowPhaseStatus::Running, None, None);
+    let mut stale_phase = stale_phase;
+    stale_phase.started_at = Some(parse_time("2026-02-26T11:00:00Z"));
+
+    let workflows = vec![make_workflow(
+        "WF-001",
+        "TASK-001",
+        WorkflowStatus::Running,
+        Some("implementation"),
+        parse_time("2026-02-20T00:00:00Z"),
+        None,
+        vec![stale_phase],
+        None,
+    )];
+
+    let slice = build_stale_attention_slice(None, Some(&workflows), now, None);
+    assert!(slice.available);
+    assert_eq!(slice.count, 1);
+    assert_eq!(slice.items[0].entity_type, "workflow_phase");
+    assert_eq!(slice.items[0].id, "WF-001");
+    assert!(slice.items[0].hours_stale > 24.0);
+}
+
+#[test]
 fn render_status_dashboard_uses_required_section_order() {
     let dashboard = StatusDashboard {
         schema: STATUS_SCHEMA,
@@ -456,6 +561,8 @@ fn render_status_dashboard_uses_required_section_order() {
         },
         recent_completions: RecentCompletionsSlice { available: true, entries: Vec::new(), error: None },
         recent_failures: RecentFailuresSlice { available: true, entries: Vec::new(), error: None },
+        blocked_items: BlockedItemsSlice { available: true, count: 0, items: Vec::new(), error: None },
+        stale_attention: StaleAttentionSlice { available: true, count: 0, items: Vec::new(), error: None },
         ci: CiStatusSlice {
             provider: CI_PROVIDER_GITHUB,
             available: false,
@@ -471,11 +578,15 @@ fn render_status_dashboard_uses_required_section_order() {
     let summary_idx = output.find("Task Summary").expect("task summary section should exist");
     let completions_idx = output.find("Recent Completions").expect("recent completions section should exist");
     let failures_idx = output.find("Recent Failures").expect("recent failures section should exist");
+    let blocked_idx = output.find("Blocked Items").expect("blocked items section should exist");
+    let stale_idx = output.find("Stale Attention").expect("stale attention section should exist");
     let ci_idx = output.find("CI Status").expect("ci section should exist");
 
     assert!(daemon_idx < agents_idx);
     assert!(agents_idx < summary_idx);
     assert!(summary_idx < completions_idx);
     assert!(completions_idx < failures_idx);
-    assert!(failures_idx < ci_idx);
+    assert!(failures_idx < blocked_idx);
+    assert!(blocked_idx < stale_idx);
+    assert!(stale_idx < ci_idx);
 }

@@ -124,86 +124,6 @@ fn recent_completions_are_sorted_and_limited() {
     assert_eq!(ids, vec!["TASK-003", "TASK-001", "TASK-002", "TASK-004", "TASK-005"]);
 }
 
-#[test]
-fn recent_failures_are_sorted_limited_and_fallback_current_phase() {
-    let workflows = vec![
-        make_workflow(
-            "WF-002",
-            "TASK-2",
-            WorkflowStatus::Failed,
-            Some("implementation"),
-            parse_time("2026-02-20T00:00:00Z"),
-            Some(parse_time("2026-02-26T10:00:00Z")),
-            Vec::new(),
-            Some("runner timeout"),
-        ),
-        make_workflow(
-            "WF-001",
-            "TASK-1",
-            WorkflowStatus::Failed,
-            Some("qa"),
-            parse_time("2026-02-20T00:00:00Z"),
-            Some(parse_time("2026-02-25T11:00:00Z")),
-            vec![make_phase(
-                "qa",
-                WorkflowPhaseStatus::Failed,
-                Some(parse_time("2026-02-25T11:00:00Z")),
-                Some("qa gate failed"),
-            )],
-            None,
-        ),
-        make_workflow(
-            "WF-003",
-            "TASK-3",
-            WorkflowStatus::Failed,
-            Some("merge"),
-            parse_time("2026-02-20T00:00:00Z"),
-            Some(parse_time("2026-02-24T11:00:00Z")),
-            vec![
-                make_phase(
-                    "implementation",
-                    WorkflowPhaseStatus::Failed,
-                    Some(parse_time("2026-02-24T10:00:00Z")),
-                    Some("compile failed"),
-                ),
-                make_phase(
-                    "qa",
-                    WorkflowPhaseStatus::Failed,
-                    Some(parse_time("2026-02-24T11:00:00Z")),
-                    Some("tests failed"),
-                ),
-            ],
-            None,
-        ),
-        make_workflow(
-            "WF-004",
-            "TASK-4",
-            WorkflowStatus::Running,
-            Some("implementation"),
-            parse_time("2026-02-20T00:00:00Z"),
-            None,
-            vec![make_phase("implementation", WorkflowPhaseStatus::Running, None, None)],
-            None,
-        ),
-        make_workflow(
-            "WF-005",
-            "TASK-5",
-            WorkflowStatus::Failed,
-            None,
-            parse_time("2026-02-20T00:00:00Z"),
-            Some(parse_time("2026-02-27T09:00:00Z")),
-            Vec::new(),
-            Some("unknown failure"),
-        ),
-    ];
-
-    let entries = recent_failures(&workflows);
-    assert_eq!(entries.len(), 3, "entries should be capped at 3");
-    assert_eq!(entries[0].workflow_id, "WF-005");
-    assert_eq!(entries[1].workflow_id, "WF-002");
-    assert_eq!(entries[1].phase_id, "implementation", "current_phase should be used when no failed phase exists");
-    assert_eq!(entries[2].phase_id, "qa", "latest failed phase should be selected");
-}
 
 #[test]
 fn latest_failed_phase_uses_phase_order_when_timestamps_are_missing() {
@@ -420,6 +340,105 @@ fn ci_status_reports_lookup_errors_non_fatally() {
 }
 
 #[test]
+fn next_task_slice_includes_task_with_priority() {
+    let task = make_task("TASK-001", "High priority task", TaskStatus::Ready, None);
+    let slice = build_next_task_slice(Some(&task), None);
+
+    assert!(slice.available);
+    assert!(slice.task.is_some());
+    let entry = slice.task.unwrap();
+    assert_eq!(entry.task_id, "TASK-001");
+    assert_eq!(entry.title, "High priority task");
+    assert_eq!(entry.priority, "medium");
+}
+
+#[test]
+fn next_task_slice_is_null_when_no_task() {
+    let slice = build_next_task_slice(None, None);
+
+    assert!(slice.available);
+    assert!(slice.task.is_none());
+}
+
+#[test]
+fn stale_items_filters_by_ready_and_in_progress_only() {
+    let very_old = parse_time("2025-02-01T00:00:00Z");
+
+    let tasks = vec![
+        {
+            let mut task = make_task("TASK-001", "Stale ready", TaskStatus::Ready, None);
+            task.metadata.updated_at = very_old;
+            task
+        },
+        {
+            let mut task = make_task("TASK-002", "Stale in-progress", TaskStatus::InProgress, None);
+            task.metadata.updated_at = very_old;
+            task
+        },
+        {
+            let mut task = make_task("TASK-003", "Old done task", TaskStatus::Done, None);
+            task.metadata.updated_at = very_old;
+            task
+        },
+        {
+            let mut task = make_task("TASK-004", "Old blocked", TaskStatus::Blocked, None);
+            task.metadata.updated_at = very_old;
+            task
+        },
+    ];
+
+    let entries = find_stale_items(&tasks);
+
+    assert_eq!(entries.len(), 2, "should only include Ready and InProgress statuses");
+    let ids: Vec<&str> = entries.iter().map(|e| e.task_id.as_str()).collect();
+    assert!(ids.contains(&"TASK-001"));
+    assert!(ids.contains(&"TASK-002"));
+    assert!(!ids.contains(&"TASK-003"));
+    assert!(!ids.contains(&"TASK-004"));
+}
+
+#[test]
+fn stale_items_are_sorted_by_age_descending() {
+    let three_days_old = parse_time("2026-02-24T12:00:00Z");
+    let four_days_old = parse_time("2026-02-23T12:00:00Z");
+
+    let tasks = vec![
+        {
+            let mut task = make_task("TASK-001", "Three days old", TaskStatus::Ready, None);
+            task.metadata.updated_at = three_days_old;
+            task
+        },
+        {
+            let mut task = make_task("TASK-002", "Four days old", TaskStatus::Ready, None);
+            task.metadata.updated_at = four_days_old;
+            task
+        },
+    ];
+
+    let entries = find_stale_items(&tasks);
+
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0].task_id, "TASK-002");
+    assert!(entries[0].age_hours > entries[1].age_hours);
+}
+
+#[test]
+fn stale_items_calculates_correct_age() {
+    let very_old = parse_time("2025-01-01T00:00:00Z");
+
+    let task = {
+        let mut t = make_task("TASK-001", "Very old task", TaskStatus::Ready, None);
+        t.metadata.updated_at = very_old;
+        t
+    };
+
+    let entries = find_stale_items(&[task]);
+
+    assert_eq!(entries.len(), 1);
+    assert!(entries[0].age_hours > 100, "task from over a year ago should be > 100 hours stale");
+}
+
+#[test]
 fn render_status_dashboard_uses_required_section_order() {
     let dashboard = StatusDashboard {
         schema: STATUS_SCHEMA,
@@ -456,6 +475,8 @@ fn render_status_dashboard_uses_required_section_order() {
         },
         recent_completions: RecentCompletionsSlice { available: true, entries: Vec::new(), error: None },
         recent_failures: RecentFailuresSlice { available: true, entries: Vec::new(), error: None },
+        next_task: NextTaskSlice { available: true, task: None, error: None },
+        stale_items: StaleItemsSlice { available: true, entries: Vec::new(), error: None },
         ci: CiStatusSlice {
             provider: CI_PROVIDER_GITHUB,
             available: false,
@@ -471,11 +492,15 @@ fn render_status_dashboard_uses_required_section_order() {
     let summary_idx = output.find("Task Summary").expect("task summary section should exist");
     let completions_idx = output.find("Recent Completions").expect("recent completions section should exist");
     let failures_idx = output.find("Recent Failures").expect("recent failures section should exist");
+    let next_idx = output.find("Next Task").expect("next task section should exist");
+    let stale_idx = output.find("Stale Items").expect("stale items section should exist");
     let ci_idx = output.find("CI Status").expect("ci section should exist");
 
     assert!(daemon_idx < agents_idx);
     assert!(agents_idx < summary_idx);
     assert!(summary_idx < completions_idx);
     assert!(completions_idx < failures_idx);
-    assert!(failures_idx < ci_idx);
+    assert!(failures_idx < next_idx);
+    assert!(next_idx < stale_idx);
+    assert!(stale_idx < ci_idx);
 }

@@ -125,3 +125,72 @@ fn build_requirements_execute_args(args: RequirementsExecuteArgs) -> Result<Work
         vars: Vec::new(),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn requirements_execute_start_workflows_true_dispatches_execute_ref() {
+        let args = RequirementsExecuteArgs {
+            requirement_id: "REQ-1".to_string(),
+            start_workflows: true,
+            workflow_ref: None,
+            include_wont: false,
+            input_json: None,
+        };
+
+        let result = build_requirements_execute_args(args).expect("should build args successfully");
+
+        assert_eq!(result.workflow_ref, Some(REQUIREMENT_TASK_GENERATION_RUN_WORKFLOW_REF.to_string()));
+        assert_eq!(result.requirement_id, Some("REQ-1".to_string()));
+    }
+
+    #[test]
+    fn requirements_execute_start_workflows_false_dispatches_plan_ref() {
+        let args = RequirementsExecuteArgs {
+            requirement_id: "REQ-1".to_string(),
+            start_workflows: false,
+            workflow_ref: None,
+            include_wont: false,
+            input_json: None,
+        };
+
+        let result = build_requirements_execute_args(args).expect("should build args successfully");
+
+        assert_eq!(result.workflow_ref, Some(REQUIREMENT_TASK_GENERATION_WORKFLOW_REF.to_string()));
+        assert_eq!(result.requirement_id, Some("REQ-1".to_string()));
+    }
+
+    #[test]
+    fn requirements_execute_empty_id_returns_error() {
+        let args = RequirementsExecuteArgs {
+            requirement_id: "".to_string(),
+            start_workflows: true,
+            workflow_ref: None,
+            include_wont: false,
+            input_json: None,
+        };
+
+        let result = build_requirements_execute_args(args);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("missing --id value"));
+    }
+
+    #[test]
+    fn requirements_execute_whitespace_id_returns_error() {
+        let args = RequirementsExecuteArgs {
+            requirement_id: "   ".to_string(),
+            start_workflows: true,
+            workflow_ref: None,
+            include_wont: false,
+            input_json: None,
+        };
+
+        let result = build_requirements_execute_args(args);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("missing --id value"));
+    }
+}

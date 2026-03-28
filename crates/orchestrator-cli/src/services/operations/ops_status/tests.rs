@@ -105,6 +105,29 @@ fn make_workflow(
     }
 }
 
+fn recent_failures(workflows: &[OrchestratorWorkflow]) -> Vec<RecentFailureEntry> {
+    let mut entries: Vec<RecentFailureEntry> = workflows
+        .iter()
+        .filter(|workflow| workflow.status == WorkflowStatus::Failed)
+        .map(|workflow| {
+            let (phase_id, failed_at, phase_error) = latest_failed_phase(workflow);
+            RecentFailureEntry {
+                workflow_id: workflow.id.clone(),
+                task_id: workflow.task_id.clone(),
+                phase_id,
+                failed_at,
+                failure_reason: workflow.failure_reason.clone().or(phase_error),
+            }
+        })
+        .collect();
+
+    entries.sort_by(|left, right| {
+        right.failed_at.cmp(&left.failed_at).then_with(|| left.workflow_id.cmp(&right.workflow_id))
+    });
+    entries.truncate(3);
+    entries
+}
+
 #[test]
 fn recent_completions_are_sorted_and_limited() {
     let tasks = vec![
@@ -463,9 +486,17 @@ fn render_status_dashboard_uses_required_section_order() {
             reason: Some("gh CLI is not installed".to_string()),
             error: None,
         },
+        next_actions: Some(NextActionsSlice {
+            available: true,
+            next_task: None,
+            blocked_workflows: Vec::new(),
+            stale_tasks: Vec::new(),
+            error: None,
+        }),
     };
 
     let output = render_status_dashboard(&dashboard);
+    let next_actions_idx = output.find("Next Actions").expect("next actions section should exist");
     let daemon_idx = output.find("Daemon").expect("daemon section should exist");
     let agents_idx = output.find("Active Agents").expect("active agents section should exist");
     let summary_idx = output.find("Task Summary").expect("task summary section should exist");
@@ -473,6 +504,7 @@ fn render_status_dashboard_uses_required_section_order() {
     let failures_idx = output.find("Recent Failures").expect("recent failures section should exist");
     let ci_idx = output.find("CI Status").expect("ci section should exist");
 
+    assert!(next_actions_idx < daemon_idx);
     assert!(daemon_idx < agents_idx);
     assert!(agents_idx < summary_idx);
     assert!(summary_idx < completions_idx);

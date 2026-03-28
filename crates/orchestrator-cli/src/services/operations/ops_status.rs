@@ -8,7 +8,7 @@ use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Utc};
 use orchestrator_core::{
     open_project_db, DaemonHealth, DaemonStatus, OrchestratorTask, OrchestratorWorkflow, ServiceHub, TaskStatistics,
-    TaskStatus, WorkflowPhaseStatus, WorkflowStateManager, WorkflowStatus,
+    TaskStatus, WorkflowMachineState, WorkflowPhaseStatus, WorkflowStateManager, WorkflowStatus,
 };
 use serde::{Deserialize, Serialize};
 
@@ -32,6 +32,8 @@ struct StatusDashboard {
     recent_completions: RecentCompletionsSlice,
     recent_failures: RecentFailuresSlice,
     ci: CiStatusSlice,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    next_actions: Option<NextActionsSlice>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -127,6 +129,47 @@ struct CiStatusSlice {
 }
 
 #[derive(Debug, Clone, Serialize)]
+struct NextActionsSlice {
+    available: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    next_task: Option<NextTaskEntry>,
+    #[serde(default)]
+    blocked_workflows: Vec<BlockedWorkflowEntry>,
+    #[serde(default)]
+    stale_tasks: Vec<StaleTaskEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct NextTaskEntry {
+    task_id: String,
+    title: String,
+    status: String,
+    priority: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    assignee: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct BlockedWorkflowEntry {
+    workflow_id: String,
+    task_id: String,
+    phase_id: String,
+    reason: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct StaleTaskEntry {
+    task_id: String,
+    title: String,
+    status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    last_updated: Option<DateTime<Utc>>,
+    days_stale: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
 struct CiRunSummary {
     id: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -206,6 +249,12 @@ pub(crate) async fn handle_status(hub: Arc<dyn ServiceHub>, project_root: &str, 
     let (task_stats, task_stats_error) = split_result(task_stats_result);
     let (workflow_snapshot, workflows_error) = split_result(workflow_snapshot_result);
 
+    let next_actions = build_next_actions_slice(
+        tasks.as_deref(),
+        workflow_snapshot.as_ref().map(|snapshot| snapshot.active_workflows.as_slice()),
+        combine_errors([tasks_error.as_deref(), workflows_error.as_deref()]),
+    );
+
     let dashboard = StatusDashboard {
         schema: STATUS_SCHEMA,
         project_root: project_root.to_string(),
@@ -228,6 +277,7 @@ pub(crate) async fn handle_status(hub: Arc<dyn ServiceHub>, project_root: &str, 
             workflows_error,
         ),
         ci: ci_slice,
+        next_actions,
     };
 
     if json {
@@ -603,11 +653,176 @@ fn parse_gh_run_list(payload: &str) -> Result<Option<CiRunSummary>> {
     }))
 }
 
+fn build_next_actions_slice(
+    tasks: Option<&[OrchestratorTask]>,
+    workflows: Option<&[OrchestratorWorkflow]>,
+    error: Option<String>,
+) -> Option<NextActionsSlice> {
+    if tasks.is_none() && workflows.is_none() {
+        return Some(NextActionsSlice {
+            available: false,
+            next_task: None,
+            blocked_workflows: Vec::new(),
+            stale_tasks: Vec::new(),
+            error,
+        });
+    }
+
+    let next_task = tasks.and_then(find_next_task);
+    let blocked_workflows = workflows.map(find_blocked_workflows).unwrap_or_default();
+    let stale_tasks = tasks.map(find_stale_tasks).unwrap_or_default();
+
+    Some(NextActionsSlice {
+        available: tasks.is_some() || workflows.is_some(),
+        next_task,
+        blocked_workflows,
+        stale_tasks,
+        error,
+    })
+}
+
+fn find_next_task(tasks: &[OrchestratorTask]) -> Option<NextTaskEntry> {
+    fn priority_order(priority: &orchestrator_core::types::Priority) -> u8 {
+        match priority {
+            orchestrator_core::types::Priority::Critical => 4,
+            orchestrator_core::types::Priority::High => 3,
+            orchestrator_core::types::Priority::Medium => 2,
+            orchestrator_core::types::Priority::Low => 1,
+        }
+    }
+
+    tasks
+        .iter()
+        .filter(|task| matches!(task.status, TaskStatus::Ready | TaskStatus::Backlog))
+        .max_by(|a, b| {
+            priority_order(&b.priority)
+                .cmp(&priority_order(&a.priority))
+                .then_with(|| a.metadata.created_at.cmp(&b.metadata.created_at))
+        })
+        .map(|task| NextTaskEntry {
+            task_id: task.id.clone(),
+            title: task.title.clone(),
+            status: task.status.to_string(),
+            priority: task.priority.as_str().to_string(),
+            assignee: match &task.assignee {
+                orchestrator_core::types::Assignee::Agent { role, .. } => Some(format!("agent:{}", role)),
+                orchestrator_core::types::Assignee::Human { user_id } => Some(user_id.clone()),
+                orchestrator_core::types::Assignee::Unassigned => None,
+            },
+        })
+}
+
+fn find_blocked_workflows(workflows: &[OrchestratorWorkflow]) -> Vec<BlockedWorkflowEntry> {
+    workflows
+        .iter()
+        .filter(|workflow| {
+            matches!(
+                workflow.status,
+                WorkflowStatus::Paused | WorkflowStatus::Escalated | WorkflowStatus::Failed
+            ) || matches!(workflow.machine_state, WorkflowMachineState::EvaluateGates)
+        })
+        .map(|workflow| {
+            let reason = match workflow.status {
+                WorkflowStatus::Escalated => "awaiting human approval".to_string(),
+                WorkflowStatus::Paused => "paused".to_string(),
+                WorkflowStatus::Failed => workflow.failure_reason.clone().unwrap_or_else(|| "failed".to_string()),
+                _ if matches!(workflow.machine_state, WorkflowMachineState::EvaluateGates) => {
+                    "awaiting gate approval".to_string()
+                }
+                _ => "blocked".to_string(),
+            };
+            BlockedWorkflowEntry {
+                workflow_id: workflow.id.clone(),
+                task_id: workflow.task_id.clone(),
+                phase_id: workflow.current_phase.clone().unwrap_or_else(|| "unknown".to_string()),
+                reason,
+            }
+        })
+        .collect()
+}
+
+fn find_stale_tasks(tasks: &[OrchestratorTask]) -> Vec<StaleTaskEntry> {
+    let now = Utc::now();
+    let stale_threshold = chrono::Duration::hours(48);
+
+    let mut stale: Vec<StaleTaskEntry> = tasks
+        .iter()
+        .filter(|task| task.status == TaskStatus::InProgress)
+        .filter_map(|task| {
+            let last_updated = task.metadata.updated_at;
+            let duration_since_update = now.signed_duration_since(last_updated);
+
+            if duration_since_update > stale_threshold {
+                let days_stale = duration_since_update.num_hours() / 24;
+                Some(StaleTaskEntry {
+                    task_id: task.id.clone(),
+                    title: task.title.clone(),
+                    status: task.status.to_string(),
+                    last_updated: Some(last_updated),
+                    days_stale: days_stale.try_into().unwrap_or(u32::MAX),
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    stale.sort_by(|a, b| b.days_stale.cmp(&a.days_stale));
+    stale
+}
+
 fn render_status_dashboard(dashboard: &StatusDashboard) -> String {
     let mut output = String::new();
     let _ = writeln!(&mut output, "AO Status Dashboard");
     let _ = writeln!(&mut output, "Project Root: {}", dashboard.project_root);
     let _ = writeln!(&mut output, "Generated At: {}", dashboard.generated_at.to_rfc3339());
+    let _ = writeln!(&mut output);
+
+    let _ = writeln!(&mut output, "Next Actions");
+    if let Some(next_actions) = &dashboard.next_actions {
+        if let Some(next_task) = &next_actions.next_task {
+            let _ = writeln!(
+                &mut output,
+                "  Next Task: [{}] {} ({})",
+                next_task.task_id, next_task.title, next_task.priority
+            );
+            let _ = writeln!(&mut output, "    status: {}", next_task.status);
+            if let Some(assignee) = &next_task.assignee {
+                let _ = writeln!(&mut output, "    assignee: {}", assignee);
+            }
+        } else {
+            let _ = writeln!(&mut output, "  Next Task: none");
+        }
+        if !next_actions.blocked_workflows.is_empty() {
+            let _ = writeln!(&mut output, "  Blocked Workflows:");
+            for entry in &next_actions.blocked_workflows {
+                let _ = writeln!(
+                    &mut output,
+                    "    - workflow_id={} task_id={} phase_id={} reason={}",
+                    entry.workflow_id, entry.task_id, entry.phase_id, entry.reason
+                );
+            }
+        } else {
+            let _ = writeln!(&mut output, "  Blocked Workflows: none");
+        }
+        if !next_actions.stale_tasks.is_empty() {
+            let _ = writeln!(&mut output, "  Stale Tasks (not updated >48h):");
+            for entry in &next_actions.stale_tasks {
+                let _ = writeln!(
+                    &mut output,
+                    "    - [{}] {} ({}d stale)",
+                    entry.task_id, entry.title, entry.days_stale
+                );
+            }
+        } else {
+            let _ = writeln!(&mut output, "  Stale Tasks: none");
+        }
+        if let Some(error) = &next_actions.error {
+            let _ = writeln!(&mut output, "  error: {error}");
+        }
+    } else {
+        let _ = writeln!(&mut output, "  unavailable");
+    }
     let _ = writeln!(&mut output);
 
     let _ = writeln!(&mut output, "Daemon");

@@ -55,12 +55,12 @@ struct ActiveAgentsSlice {
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct ActiveAgentAssignment {
-    task_id: String,
-    task_title: String,
-    workflow_id: String,
-    phase_id: String,
-    attributed: bool,
+pub(crate) struct ActiveAgentAssignment {
+    pub(crate) task_id: String,
+    pub(crate) task_title: String,
+    pub(crate) workflow_id: String,
+    pub(crate) phase_id: String,
+    pub(crate) attributed: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -301,7 +301,8 @@ fn build_active_agents_slice(
     ActiveAgentsSlice { available: daemon_health.is_some(), count, assignments, error }
 }
 
-fn active_agent_assignments(
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn active_agent_assignments(
     active_count: usize,
     workflows: &[OrchestratorWorkflow],
     tasks: &[OrchestratorTask],
@@ -416,7 +417,35 @@ fn build_recent_failures_slice(failures: Option<&[RecentFailureEntry]>, error: O
     }
 }
 
-fn latest_failed_phase(workflow: &OrchestratorWorkflow) -> (String, DateTime<Utc>, Option<String>) {
+#[cfg(test)]
+pub(crate) fn recent_failures(workflows: &[OrchestratorWorkflow]) -> Vec<RecentFailureEntry> {
+    let mut entries: Vec<RecentFailureEntry> = workflows
+        .iter()
+        .filter(|workflow| workflow.status == WorkflowStatus::Failed)
+        .map(|workflow| {
+            let (phase_id, failed_at, phase_error) = latest_failed_phase(workflow);
+            RecentFailureEntry {
+                workflow_id: workflow.id.clone(),
+                task_id: workflow.task_id.clone(),
+                phase_id,
+                failed_at,
+                failure_reason: workflow.failure_reason.clone().or(phase_error),
+            }
+        })
+        .collect();
+    entries.sort_by(|left, right| {
+        right.failed_at.cmp(&left.failed_at).then_with(|| left.workflow_id.cmp(&right.workflow_id))
+    });
+    entries.truncate(RECENT_FAILURES_LIMIT);
+    entries
+}
+
+#[cfg(test)]
+pub(crate) fn latest_failed_phase(workflow: &OrchestratorWorkflow) -> (String, DateTime<Utc>, Option<String>) {
+    _latest_failed_phase(workflow)
+}
+
+fn _latest_failed_phase(workflow: &OrchestratorWorkflow) -> (String, DateTime<Utc>, Option<String>) {
     let failed_phase = workflow
         .phases
         .iter()
@@ -483,7 +512,7 @@ fn load_recent_failures(project_root: &str, limit: usize) -> Result<Vec<RecentFa
             continue;
         }
 
-        let (phase_id, failed_at, phase_error) = latest_failed_phase(&workflow);
+        let (phase_id, failed_at, phase_error) = _latest_failed_phase(&workflow);
         entries.push(RecentFailureEntry {
             workflow_id: workflow.id.clone(),
             task_id: workflow.task_id.clone(),

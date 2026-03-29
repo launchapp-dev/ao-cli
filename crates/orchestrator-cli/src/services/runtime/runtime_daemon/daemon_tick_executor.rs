@@ -85,9 +85,13 @@ impl DefaultProjectTickServices for CliProjectTickServices {
                 let any_success = task_workflows
                     .iter()
                     .any(|w| matches!(w.status, WorkflowStatus::Completed | WorkflowStatus::Escalated));
-                let new_status = if any_success { TaskStatus::Done } else { TaskStatus::Blocked };
-                let _ = hub.tasks().set_status(&task.id, new_status, false).await;
-                reconciled += 1;
+                // Only auto-transition to Blocked on failure. Task completion is never
+                // automatic — only an agent or human should mark a task done after
+                // verifying the work actually landed.
+                if !any_success {
+                    let _ = hub.tasks().set_status(&task.id, TaskStatus::Blocked, false).await;
+                    reconciled += 1;
+                }
             }
         }
         Ok(reconciled)

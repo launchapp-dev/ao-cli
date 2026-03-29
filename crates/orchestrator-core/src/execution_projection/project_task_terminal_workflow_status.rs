@@ -23,7 +23,10 @@ pub async fn project_task_terminal_workflow_status(
 
     match workflow_status {
         WorkflowStatus::Completed => {
-            let _ = project_task_status(hub, task_id, TaskStatus::Done).await;
+            // Task completion is intentionally NOT automatic.
+            // Only an agent (via MCP tool) or a human (via CLI) should mark a task done
+            // after verifying the work actually landed. Workflow completion means the
+            // workflow ran — not that the task is finished.
         }
         WorkflowStatus::Failed | WorkflowStatus::Escalated => {
             let reason = failure_reason.unwrap_or_else(|| default_failure_reason(workflow_status));

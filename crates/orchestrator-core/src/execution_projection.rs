@@ -67,7 +67,9 @@ pub async fn project_task_execution_fact(hub: Arc<dyn ServiceHub>, _root: &str, 
         match status {
             WorkflowStatus::Pending | WorkflowStatus::Running | WorkflowStatus::Paused => return,
             WorkflowStatus::Completed => {
-                let _ = project_task_status(hub, task_id, TaskStatus::Done).await;
+                // Workflow completion does not auto-mark the task done.
+                // Only an agent or human should mark a task done after verifying
+                // that the work actually landed (e.g. PR merged).
                 return;
             }
             WorkflowStatus::Cancelled => {
@@ -79,7 +81,8 @@ pub async fn project_task_execution_fact(hub: Arc<dyn ServiceHub>, _root: &str, 
     }
 
     if fact.success {
-        let _ = project_task_status(hub, task_id, TaskStatus::Done).await;
+        // Successful execution does not auto-mark the task done.
+        // Only an agent or human should mark a task done after verification.
         return;
     }
 
@@ -210,7 +213,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn project_execution_fact_uses_task_projector_for_subject_kind() {
+    async fn project_execution_fact_does_not_auto_mark_task_done_on_success() {
         let hub = Arc::new(InMemoryServiceHub::new());
         upsert_task(&hub, "TASK-1", TaskStatus::Ready).await;
 
@@ -232,11 +235,11 @@ mod tests {
 
         assert!(projected);
         let updated = hub.tasks().get("TASK-1").await.expect("task should exist");
-        assert_eq!(updated.status, TaskStatus::Done);
+        assert_eq!(updated.status, TaskStatus::Ready, "task should NOT be auto-marked done");
     }
 
     #[tokio::test]
-    async fn project_execution_fact_preserves_legacy_task_fact_compatibility() {
+    async fn project_execution_fact_does_not_auto_mark_done_for_legacy_facts() {
         let hub = Arc::new(InMemoryServiceHub::new());
         upsert_task(&hub, "TASK-2", TaskStatus::Ready).await;
 
@@ -259,7 +262,7 @@ mod tests {
         assert!(projected);
         assert_eq!(execution_fact_subject_kind(&fact), Some(SUBJECT_KIND_TASK));
         let updated = hub.tasks().get("TASK-2").await.expect("task should exist");
-        assert_eq!(updated.status, TaskStatus::Done);
+        assert_eq!(updated.status, TaskStatus::Ready, "task should NOT be auto-marked done");
     }
 
     #[tokio::test]

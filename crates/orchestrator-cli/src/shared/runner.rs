@@ -102,6 +102,8 @@ pub(crate) fn build_agent_context(args: &AgentRunArgs, project_root: &str) -> Re
         context_obj.entry("timeout_secs".to_string()).or_insert_with(|| Value::from(timeout_secs));
     }
 
+    context_obj.insert("detach".to_string(), Value::Bool(args.detach));
+
     if let Some(runtime_contract_json) = &args.runtime_contract_json {
         context_obj.insert("runtime_contract".to_string(), serde_json::from_str::<Value>(runtime_contract_json)?);
     } else if !context_obj.contains_key("runtime_contract") {
@@ -309,6 +311,36 @@ mod tests {
         let context = build_agent_context(&args, &canonical_root.to_string_lossy()).expect("build context");
         let cwd = context["cwd"].as_str().expect("cwd should be present");
         assert!(cwd.contains("worktrees/task-42"), "cwd should point to worktree: {cwd}");
+        assert_eq!(context["detach"], Value::Bool(false));
+    }
+
+    #[test]
+    fn build_agent_context_preserves_detach_flag() {
+        let _lock = crate::shared::test_env_lock().lock().expect("env lock should be available");
+        let tmp = TempDir::new().expect("temp dir");
+        let project_root = tmp.path().join("repo");
+        std::fs::create_dir_all(&project_root).expect("create project root");
+        let canonical_root = project_root.canonicalize().expect("canonicalize root");
+
+        let args = AgentRunArgs {
+            run_id: None,
+            tool: "codex".to_string(),
+            model: Some("gpt-5.4".to_string()),
+            prompt: Some("hello".to_string()),
+            cwd: None,
+            context_json: None,
+            timeout_secs: None,
+            runtime_contract_json: None,
+            detach: true,
+            stream: true,
+            save_jsonl: false,
+            jsonl_dir: None,
+            start_runner: false,
+            runner_scope: None,
+        };
+
+        let context = build_agent_context(&args, &canonical_root.to_string_lossy()).expect("build context");
+        assert_eq!(context["detach"], Value::Bool(true));
     }
 
     #[test]

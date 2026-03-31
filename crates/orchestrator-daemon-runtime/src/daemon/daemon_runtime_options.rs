@@ -46,7 +46,10 @@ impl DaemonRuntimeOptions {
             Ok(c) => c,
             Err(_) => return,
         };
+        self.reload_from_config(&config);
+    }
 
+    pub fn reload_from_config(&mut self, config: &orchestrator_core::DaemonProjectConfig) {
         if let Some(v) = config.pool_size {
             self.pool_size = Some(v);
         }

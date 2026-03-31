@@ -433,9 +433,6 @@ fn spawn_autonomous_daemon_run(project_root: &str, args: &DaemonStartArgs) -> Re
     if let Some(interval_secs) = args.scheduler.interval_secs {
         command.arg("--interval-secs").arg(interval_secs.to_string());
     }
-    if let Some(auto_run_ready) = args.scheduler.auto_run_ready {
-        command.arg("--auto-run-ready").arg(auto_run_ready.to_string());
-    }
     if let Some(stale_threshold_hours) = args.scheduler.stale_threshold_hours {
         command.arg("--stale-threshold-hours").arg(stale_threshold_hours.to_string());
     }
@@ -443,18 +440,6 @@ fn spawn_autonomous_daemon_run(project_root: &str, args: &DaemonStartArgs) -> Re
         command.arg("--max-tasks-per-tick").arg(max_tasks_per_tick.to_string());
     }
     command.stdout(Stdio::from(stdout_log)).stderr(Stdio::from(stderr_log)).stdin(Stdio::null());
-    if let Some(auto_merge) = args.scheduler.auto_merge {
-        command.arg("--auto-merge").arg(auto_merge.to_string());
-    }
-    if let Some(auto_pr) = args.scheduler.auto_pr {
-        command.arg("--auto-pr").arg(auto_pr.to_string());
-    }
-    if let Some(auto_commit_before_merge) = args.scheduler.auto_commit_before_merge {
-        command.arg("--auto-commit-before-merge").arg(auto_commit_before_merge.to_string());
-    }
-    if let Some(auto_prune_worktrees_after_merge) = args.scheduler.auto_prune_worktrees_after_merge {
-        command.arg("--auto-prune-worktrees-after-merge").arg(auto_prune_worktrees_after_merge.to_string());
-    }
     if let Some(phase_timeout_secs) = args.scheduler.phase_timeout_secs {
         command.arg("--phase-timeout-secs").arg(phase_timeout_secs.to_string());
     }

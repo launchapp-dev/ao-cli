@@ -1016,7 +1016,6 @@ fn build_daemon_start_args_with_flags() {
     let input = DaemonStartInput {
         pool_size: Some(4),
         skip_runner: Some(true),
-        auto_run_ready: Some(true),
         runner_scope: Some("project".to_string()),
         ..Default::default()
     };
@@ -1029,8 +1028,6 @@ fn build_daemon_start_args_with_flags() {
             "--pool-size".to_string(),
             "4".to_string(),
             "--skip-runner".to_string(),
-            "--auto-run-ready".to_string(),
-            "true".to_string(),
             "--runner-scope".to_string(),
             "project".to_string(),
         ]

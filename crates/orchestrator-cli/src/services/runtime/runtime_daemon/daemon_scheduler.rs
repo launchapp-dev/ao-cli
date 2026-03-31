@@ -10,11 +10,13 @@ pub(crate) use project_tick_ops::{slim_project_tick_driver, SlimProjectTickDrive
 pub(super) fn runtime_options_from_cli(args: &DaemonRunArgs, project_root: &str) -> DaemonRuntimeOptions {
     let project_path = std::path::Path::new(project_root);
     let mut options = DaemonRuntimeOptions::default();
-    let persisted_auto_run_ready =
-        orchestrator_core::load_daemon_project_config(project_path).ok().and_then(|config| config.auto_run_ready);
-
+    let persisted_config = orchestrator_core::load_daemon_project_config(project_path).ok();
+    let persisted_auto_run_ready = persisted_config.as_ref().and_then(|config| config.auto_run_ready);
     // Load persisted runtime settings as baseline before CLI overrides.
-    options.reload_from_project_config(project_path);
+    // Uses the already-loaded config to avoid a redundant file read.
+    if let Some(ref config) = persisted_config {
+        options.reload_from_config(config);
+    }
 
     // CLI args always take precedence over persisted config.
     if let Some(v) = args.scheduler.pool_size {
@@ -36,9 +38,7 @@ pub(super) fn runtime_options_from_cli(args: &DaemonRunArgs, project_root: &str)
     options.idle_timeout_secs = args.scheduler.idle_timeout_secs;
     options.once = args.once;
 
-    if let Some(v) = args.scheduler.auto_run_ready {
-        options.auto_run_ready = v;
-    } else if persisted_auto_run_ready.is_none() {
+    if persisted_auto_run_ready.is_none() {
         if let Some(v) =
             load_workflow_config_or_default(project_path).config.daemon.as_ref().map(|daemon| daemon.auto_run_ready)
         {
@@ -85,11 +85,6 @@ mod tests {
             scheduler: crate::DaemonSchedulerArgs {
                 pool_size: None,
                 interval_secs: Some(5),
-                auto_run_ready: None,
-                auto_merge: None,
-                auto_pr: None,
-                auto_commit_before_merge: None,
-                auto_prune_worktrees_after_merge: None,
                 startup_cleanup: true,
                 resume_interrupted: true,
                 reconcile_stale: true,
@@ -140,11 +135,6 @@ mod tests {
             scheduler: crate::DaemonSchedulerArgs {
                 pool_size: None,
                 interval_secs: None,
-                auto_run_ready: None,
-                auto_merge: None,
-                auto_pr: None,
-                auto_commit_before_merge: None,
-                auto_prune_worktrees_after_merge: None,
                 startup_cleanup: true,
                 resume_interrupted: true,
                 reconcile_stale: true,

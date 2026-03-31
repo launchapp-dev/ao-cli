@@ -17,11 +17,6 @@ pub(super) fn build_daemon_start_args(input: &DaemonStartInput) -> Vec<String> {
     push_opt_num(&mut args, "--idle-timeout-secs", input.idle_timeout_secs);
     push_bool_flag(&mut args, "--skip-runner", input.skip_runner);
     push_bool_flag(&mut args, "--autonomous", input.autonomous);
-    push_bool_set(&mut args, "--auto-run-ready", input.auto_run_ready);
-    push_bool_set(&mut args, "--auto-merge", input.auto_merge);
-    push_bool_set(&mut args, "--auto-pr", input.auto_pr);
-    push_bool_set(&mut args, "--auto-commit-before-merge", input.auto_commit_before_merge);
-    push_bool_set(&mut args, "--auto-prune-worktrees-after-merge", input.auto_prune_worktrees_after_merge);
     push_bool_set(&mut args, "--startup-cleanup", input.startup_cleanup);
     push_bool_set(&mut args, "--resume-interrupted", input.resume_interrupted);
     push_bool_set(&mut args, "--reconcile-stale", input.reconcile_stale);

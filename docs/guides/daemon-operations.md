@@ -13,6 +13,7 @@ ao daemon start --autonomous
 ```
 
 This forks a child process and redirects stderr to `.ao/daemon.log`. The daemon will continuously poll for ready tasks and dispatch workflows.
+Use `ao daemon config ...` to change scheduling or automation behavior; `start` only controls process startup.
 
 ### Foreground Mode
 
@@ -23,6 +24,7 @@ ao daemon run
 ```
 
 Output streams directly to your terminal. Use Ctrl+C to stop.
+Like `start`, this reads persisted daemon config and workflow YAML rather than accepting automation overrides inline.
 
 ## Stopping the Daemon
 

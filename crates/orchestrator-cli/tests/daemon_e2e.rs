@@ -8,13 +8,12 @@ use test_harness::CliHarness;
 #[test]
 fn daemon_run_once_completes_single_tick_with_no_work() -> Result<()> {
     let harness = CliHarness::new()?;
+    harness.run_json_ok(&["daemon", "config", "--auto-run-ready", "false"])?;
 
     let output = harness.run_json_output(&[
         "daemon",
         "run",
         "--once",
-        "--auto-run-ready",
-        "false",
         "--startup-cleanup",
         "false",
         "--reconcile-stale",
@@ -44,13 +43,12 @@ fn daemon_run_once_sees_ready_task_but_skips_dispatch_when_auto_run_disabled() -
         "verify daemon tick sees but skips this task",
     ])?;
     harness.run_json_ok(&["task", "status", "--id", "TASK-001", "--status", "ready"])?;
+    harness.run_json_ok(&["daemon", "config", "--auto-run-ready", "false"])?;
 
     let output = harness.run_json_output(&[
         "daemon",
         "run",
         "--once",
-        "--auto-run-ready",
-        "false",
         "--startup-cleanup",
         "false",
         "--reconcile-stale",
@@ -123,13 +121,12 @@ fn daemon_run_once_reconciles_dependency_gates() -> Result<()> {
         "blocked-by",
     ])?;
     harness.run_json_ok(&["task", "status", "--id", "TASK-002", "--status", "ready"])?;
+    harness.run_json_ok(&["daemon", "config", "--auto-run-ready", "false"])?;
 
     let output = harness.run_json_output(&[
         "daemon",
         "run",
         "--once",
-        "--auto-run-ready",
-        "false",
         "--startup-cleanup",
         "false",
         "--reconcile-stale",
@@ -185,13 +182,12 @@ fn queue_enqueue_dispatch_round_trip() -> Result<()> {
     assert_eq!(entry_status, "pending", "enqueued entry should be pending before daemon tick");
     let entry_task_id = entries[0].get("task_id").and_then(Value::as_str).unwrap_or("");
     assert_eq!(entry_task_id, "TASK-001", "enqueued entry should reference the correct task");
+    harness.run_json_ok(&["daemon", "config", "--auto-run-ready", "true"])?;
 
     let output = harness.run_json_output(&[
         "daemon",
         "run",
         "--once",
-        "--auto-run-ready",
-        "true",
         "--startup-cleanup",
         "false",
         "--reconcile-stale",
@@ -244,13 +240,12 @@ fn daemon_run_once_with_stale_reconciliation_handles_stale_in_progress_tasks() -
         "will become stale in-progress",
     ])?;
     harness.run_json_ok(&["task", "status", "--id", "TASK-001", "--status", "in-progress"])?;
+    harness.run_json_ok(&["daemon", "config", "--auto-run-ready", "false"])?;
 
     let output = harness.run_json_output(&[
         "daemon",
         "run",
         "--once",
-        "--auto-run-ready",
-        "false",
         "--startup-cleanup",
         "false",
         "--reconcile-stale",

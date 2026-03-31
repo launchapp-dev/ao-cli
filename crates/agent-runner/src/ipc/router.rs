@@ -39,6 +39,10 @@ fn event_kind(event: &AgentRunEvent) -> &'static str {
     }
 }
 
+fn run_is_connection_owned(req: &AgentRunRequest) -> bool {
+    !req.context.get("detach").and_then(|value| value.as_bool()).unwrap_or(false)
+}
+
 pub(super) async fn write_json_line<W: AsyncWrite + Unpin, T: serde::Serialize>(
     writer: &mut W,
     payload: &T,
@@ -145,6 +149,7 @@ where
                 );
 
                 if let Ok(req) = serde_json::from_str::<AgentRunRequest>(text) {
+                    let connection_owns_run = run_is_connection_owned(&req);
                     let run_id = req.run_id.clone();
                     let broadcast_rx = handlers::run::handle_run_request(
                         req,
@@ -154,8 +159,10 @@ where
                     )
                     .await?;
                     if let Some(rx) = broadcast_rx {
-                        connection_run_ids.push(run_id);
-                        *active_broadcast_rx = Some(rx);
+                        if connection_owns_run {
+                            connection_run_ids.push(run_id);
+                            *active_broadcast_rx = Some(rx);
+                        }
                     }
                 } else if let Ok(req) = serde_json::from_str::<ModelStatusRequest>(text) {
                     handlers::status::handle_model_status_request(
@@ -294,5 +301,31 @@ mod tests {
         assert_eq!(read_len, 0, "server should close idle unauthenticated connection");
 
         server_task.await.expect("join server task").expect("handle connection");
+    }
+
+    #[test]
+    fn detached_runs_are_not_owned_by_connection() {
+        let req = AgentRunRequest {
+            protocol_version: protocol::PROTOCOL_VERSION.to_string(),
+            run_id: RunId("run-detached".to_string()),
+            model: protocol::ModelId("claude-sonnet-4-6".to_string()),
+            context: serde_json::json!({ "detach": true }),
+            timeout_secs: None,
+        };
+
+        assert!(!run_is_connection_owned(&req));
+    }
+
+    #[test]
+    fn attached_runs_remain_owned_by_connection() {
+        let req = AgentRunRequest {
+            protocol_version: protocol::PROTOCOL_VERSION.to_string(),
+            run_id: RunId("run-attached".to_string()),
+            model: protocol::ModelId("claude-sonnet-4-6".to_string()),
+            context: serde_json::json!({}),
+            timeout_secs: None,
+        };
+
+        assert!(run_is_connection_owned(&req));
     }
 }

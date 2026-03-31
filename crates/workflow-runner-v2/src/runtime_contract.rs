@@ -402,11 +402,7 @@ pub fn inject_default_stdio_mcp_with_config(
 
         resolved_servers.push(protocol::McpRuntimeServerConfig {
             name: mcp_config.agent_id.clone(),
-            transport: protocol::McpRuntimeServerTransport::Stdio {
-                command,
-                args,
-                env: Default::default(),
-            },
+            transport: protocol::McpRuntimeServerTransport::Stdio { command, args, env: Default::default() },
         });
     }
 
@@ -415,26 +411,22 @@ pub fn inject_default_stdio_mcp_with_config(
     };
 
     if let Some(mcp) = runtime_contract.get_mut("mcp").and_then(Value::as_object_mut) {
-        let has_primary_stdio =
-            mcp.get("stdio").and_then(Value::as_object).and_then(|stdio| stdio.get("command")).and_then(Value::as_str)
-                .is_some_and(|v| !v.trim().is_empty());
-        let has_primary_endpoint =
-            mcp.get("endpoint").and_then(Value::as_str).is_some_and(|v| !v.trim().is_empty());
+        let has_primary_stdio = mcp
+            .get("stdio")
+            .and_then(Value::as_object)
+            .and_then(|stdio| stdio.get("command"))
+            .and_then(Value::as_str)
+            .is_some_and(|v| !v.trim().is_empty());
+        let has_primary_endpoint = mcp.get("endpoint").and_then(Value::as_str).is_some_and(|v| !v.trim().is_empty());
 
         if !has_primary_stdio && !has_primary_endpoint {
             match primary_server.transport {
                 protocol::McpRuntimeServerTransport::Stdio { command, args, env } => {
                     let mut stdio = serde_json::Map::new();
                     stdio.insert("command".to_string(), Value::String(command));
-                    stdio.insert(
-                        "args".to_string(),
-                        serde_json::to_value(args).expect("stdio args should serialize"),
-                    );
+                    stdio.insert("args".to_string(), serde_json::to_value(args).expect("stdio args should serialize"));
                     if !env.is_empty() {
-                        stdio.insert(
-                            "env".to_string(),
-                            serde_json::to_value(env).expect("stdio env should serialize"),
-                        );
+                        stdio.insert("env".to_string(), serde_json::to_value(env).expect("stdio env should serialize"));
                     }
                     mcp.insert("stdio".to_string(), Value::Object(stdio));
                 }
@@ -456,6 +448,17 @@ pub fn inject_default_stdio_mcp_with_config(
                 .or(primary_server.name.as_deref().filter(|value| !value.trim().is_empty()))
                 .unwrap_or("ao");
             mcp.insert("agent_id".to_string(), Value::String(agent_id.to_string()));
+        }
+
+        let has_effective_primary = mcp
+            .get("stdio")
+            .and_then(Value::as_object)
+            .and_then(|stdio| stdio.get("command"))
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty())
+            || mcp.get("endpoint").and_then(Value::as_str).is_some_and(|value| !value.trim().is_empty());
+        if supports_mcp && has_effective_primary {
+            mcp.insert("enforce_only".to_string(), Value::Bool(true));
         }
     }
 
@@ -848,10 +851,8 @@ mod tests {
             runtime_contract.pointer("/mcp/endpoint").and_then(Value::as_str),
             Some("https://primary.example/mcp")
         );
-        assert_eq!(
-            runtime_contract.pointer("/mcp/auth_token").and_then(Value::as_str),
-            Some("Bearer primary")
-        );
+        assert_eq!(runtime_contract.pointer("/mcp/auth_token").and_then(Value::as_str), Some("Bearer primary"));
+        assert_eq!(runtime_contract.pointer("/mcp/enforce_only").and_then(Value::as_bool), Some(true));
         assert_eq!(runtime_contract.pointer("/mcp/agent_id").and_then(Value::as_str), Some("ao"));
         assert_eq!(
             runtime_contract.pointer("/mcp/additional_servers/docs/command").and_then(Value::as_str),
@@ -876,10 +877,7 @@ mod tests {
                 command: "https://docs.example/mcp".to_string(),
                 args: Vec::new(),
                 transport: Some("streamable-http".to_string()),
-                config: BTreeMap::from([(
-                    "auth_token".to_string(),
-                    Value::String("Bearer docs".to_string()),
-                )]),
+                config: BTreeMap::from([("auth_token".to_string(), Value::String("Bearer docs".to_string()))]),
                 tools: Vec::new(),
                 env: BTreeMap::new(),
             },

@@ -58,7 +58,7 @@ pub struct CliCapability {
     pub supports_long_context: bool,
     pub max_context_tokens: Option<usize>,
     pub supports_mcp: bool,
-    pub mcp_endpoint: Option<String>,
+    pub mcp_endpoints: Vec<String>,
 }
 
 /// CLI status
@@ -106,7 +106,7 @@ impl CliCapability {
                 supports_long_context: true,
                 max_context_tokens: Some(200_000),
                 supports_mcp: true,
-                mcp_endpoint: None,
+                mcp_endpoints: Vec::new(),
             },
             CliType::Codex => Self {
                 supports_file_editing: true,
@@ -116,7 +116,7 @@ impl CliCapability {
                 supports_long_context: false,
                 max_context_tokens: Some(128_000),
                 supports_mcp: true,
-                mcp_endpoint: None,
+                mcp_endpoints: Vec::new(),
             },
             CliType::Gemini => Self {
                 supports_file_editing: true,
@@ -126,7 +126,7 @@ impl CliCapability {
                 supports_long_context: true,
                 max_context_tokens: Some(1_000_000),
                 supports_mcp: true,
-                mcp_endpoint: None,
+                mcp_endpoints: Vec::new(),
             },
             CliType::OpenCode => Self {
                 supports_file_editing: true,
@@ -136,7 +136,7 @@ impl CliCapability {
                 supports_long_context: true,
                 max_context_tokens: Some(200_000),
                 supports_mcp: true,
-                mcp_endpoint: None,
+                mcp_endpoints: Vec::new(),
             },
             CliType::OaiRunner => Self {
                 supports_file_editing: true,
@@ -146,7 +146,7 @@ impl CliCapability {
                 supports_long_context: true,
                 max_context_tokens: Some(200_000),
                 supports_mcp: true,
-                mcp_endpoint: None,
+                mcp_endpoints: Vec::new(),
             },
             CliType::Aider => Self {
                 supports_file_editing: true,
@@ -156,7 +156,7 @@ impl CliCapability {
                 supports_long_context: false,
                 max_context_tokens: Some(128_000),
                 supports_mcp: false,
-                mcp_endpoint: None,
+                mcp_endpoints: Vec::new(),
             },
             _ => Self {
                 supports_file_editing: false,
@@ -166,7 +166,7 @@ impl CliCapability {
                 supports_long_context: false,
                 max_context_tokens: None,
                 supports_mcp: false,
-                mcp_endpoint: None,
+                mcp_endpoints: Vec::new(),
             },
         }
     }
@@ -183,5 +183,7 @@ mod tests {
 
         assert!(codex.supports_mcp);
         assert!(gemini.supports_mcp);
+        assert!(codex.mcp_endpoints.is_empty());
+        assert!(gemini.mcp_endpoints.is_empty());
     }
 }

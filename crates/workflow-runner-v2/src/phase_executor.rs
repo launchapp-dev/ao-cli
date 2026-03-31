@@ -1808,12 +1808,17 @@ pub async fn run_workflow_phase(params: &PhaseRunParams<'_>) -> Result<PhaseRunR
 mod tests {
     use super::{
         phase_outcome_is_complete, phase_session_resume_plan, process_phase_event_stream, resolve_claude_profile_env,
-        PhaseExecutionOutcome,
+        run_workflow_phase, PhaseExecutionOutcome, PhaseRunParams,
     };
     use crate::runtime_support::{inject_cli_launch_env, WorkflowPhaseRuntimeSettings};
 
     use std::collections::BTreeMap;
 
+    #[cfg(unix)]
+    use orchestrator_config::{
+        agent_runtime_config::{builtin_agent_runtime_config, write_agent_runtime_config, AgentRuntimeOverrides},
+        workflow_config::{builtin_workflow_config, write_workflow_config},
+    };
     #[test]
     fn initial_attempt_starts_a_fresh_native_session() {
         let plan = phase_session_resume_plan("wf-1", "requirements", "session-123", 0, 1);
@@ -1874,6 +1879,16 @@ mod tests {
     use protocol::{OutputStreamType, RunId, Timestamp};
     use tokio::io::AsyncBufReadExt;
     use uuid::Uuid;
+    #[cfg(unix)]
+    use {
+        std::{
+            env, fs,
+            os::unix::fs::PermissionsExt,
+            path::{Path, PathBuf},
+            sync::{Mutex, OnceLock},
+        },
+        tokio::{net::UnixListener, sync::mpsc},
+    };
 
     fn make_event_stream(events: &[protocol::AgentRunEvent]) -> Vec<u8> {
         events.iter().map(|e| serde_json::to_string(e).unwrap() + "\n").collect::<String>().into_bytes()
@@ -1906,6 +1921,127 @@ mod tests {
         let bytes = make_event_stream(events);
         let reader = tokio::io::BufReader::new(bytes.as_slice());
         process_phase_event_stream(reader.lines(), run_id, "wf-test", "impl", false, false, "", run_dir, None).await
+    }
+
+    #[cfg(unix)]
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    #[cfg(unix)]
+    struct EnvVarGuard {
+        key: &'static str,
+        original: Option<String>,
+    }
+
+    #[cfg(unix)]
+    impl EnvVarGuard {
+        fn set_path(key: &'static str, value: &Path) -> Self {
+            let original = env::var(key).ok();
+            env::set_var(key, value);
+            Self { key, original }
+        }
+
+        fn set_raw(key: &'static str, value: &str) -> Self {
+            let original = env::var(key).ok();
+            env::set_var(key, value);
+            Self { key, original }
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match self.original.as_deref() {
+                Some(value) => env::set_var(self.key, value),
+                None => env::remove_var(self.key),
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    fn write_executable(path: &Path, body: &str) {
+        fs::write(path, body).expect("fixture executable should be written");
+        let mut perms = fs::metadata(path).expect("fixture executable metadata").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(path, perms).expect("fixture executable should be chmod +x");
+    }
+
+    #[cfg(unix)]
+    fn write_oai_runner_capture_shim(bin_dir: &Path, fixture_path: &Path) {
+        fs::create_dir_all(bin_dir).expect("fixture bin dir should exist");
+        write_executable(
+            &bin_dir.join("ao-oai-runner"),
+            &format!(
+                r#"#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "ao-oai-runner 0.1.0"
+  exit 0
+fi
+: "${{AO_TEST_ARGS_CAPTURE:?AO_TEST_ARGS_CAPTURE is required}}"
+printf "%s\n" "$@" > "$AO_TEST_ARGS_CAPTURE"
+cat "{}"
+"#,
+                fixture_path.display()
+            ),
+        );
+    }
+
+    #[cfg(unix)]
+    fn read_capture_lines(path: &Path) -> Vec<String> {
+        fs::read_to_string(path).expect("capture file should exist").lines().map(str::to_string).collect()
+    }
+
+    #[cfg(unix)]
+    async fn serve_single_runner_request(project_root: PathBuf) {
+        let runner_dir = crate::ipc::runner_config_dir(&project_root);
+        fs::create_dir_all(&runner_dir).expect("runner config dir should exist");
+        protocol::Config::ensure_token_exists(&runner_dir).expect("runner token should exist");
+        let socket_path = runner_dir.join("agent-runner.sock");
+        let _ = fs::remove_file(&socket_path);
+
+        let listener = UnixListener::bind(&socket_path).expect("runner socket should bind");
+        let (stream, _) = listener.accept().await.expect("runner socket should accept a client");
+        let (read_half, mut write_half) = stream.into_split();
+        let mut lines = tokio::io::BufReader::new(read_half).lines();
+
+        let auth_line =
+            lines.next_line().await.expect("runner auth line should read").expect("runner auth line should exist");
+        let _: protocol::IpcAuthRequest =
+            serde_json::from_str(auth_line.trim()).expect("runner auth payload should parse");
+        crate::ipc::write_json_line(&mut write_half, &protocol::IpcAuthResult::ok())
+            .await
+            .expect("runner auth response should write");
+
+        let request_line = lines
+            .next_line()
+            .await
+            .expect("runner request line should read")
+            .expect("runner request line should exist");
+        let request: protocol::AgentRunRequest =
+            serde_json::from_str(request_line.trim()).expect("runner request should parse");
+        let (cleanup_tx, _cleanup_rx) = mpsc::channel(8);
+        let (event_tx, _event_rx) = mpsc::channel(8);
+        let mut runner = agent_runner::runner::Runner::new(cleanup_tx);
+        let mut events = runner.handle_run_request(request, event_tx);
+
+        loop {
+            match events.recv().await {
+                Ok(event) => {
+                    let is_terminal = matches!(
+                        event,
+                        protocol::AgentRunEvent::Finished { .. } | protocol::AgentRunEvent::Error { .. }
+                    );
+                    crate::ipc::write_json_line(&mut write_half, &event).await.expect("runner event should write");
+                    if is_terminal {
+                        break;
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
     }
 
     #[tokio::test]
@@ -2080,6 +2216,166 @@ mod tests {
         assert!(json_contents.contains("\"result\""), "JSON payload from OutputChunk should be extracted");
 
         let _ = std::fs::remove_dir_all(&run_dir);
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn run_workflow_phase_projects_project_and_runtime_mcp_servers_into_oai_runner_launch() {
+        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = tempfile::tempdir().expect("home tempdir");
+        let _home_guard = EnvVarGuard::set_path("HOME", home.path());
+
+        let project = tempfile::tempdir().expect("project tempdir");
+        fs::write(project.path().join("README.md"), "# test\n").expect("readme should be written");
+
+        let fixture_path = project.path().join("oai-runner-fixture.jsonl");
+        fs::write(&fixture_path, "{\"type\":\"result\",\"text\":\"PINEAPPLE_42\"}\n")
+            .expect("oai-runner fixture should be written");
+
+        let bin_dir = project.path().join("bin");
+        write_oai_runner_capture_shim(&bin_dir, &fixture_path);
+
+        let args_capture = project.path().join("oai-runner.args");
+        let _args_guard =
+            EnvVarGuard::set_raw("AO_TEST_ARGS_CAPTURE", args_capture.to_str().expect("capture path should be utf-8"));
+        let original_path = env::var("PATH").unwrap_or_default();
+        let _path_guard = EnvVarGuard::set_raw("PATH", &format!("{}:{}", bin_dir.display(), original_path));
+
+        let workflow = builtin_workflow_config();
+        write_workflow_config(project.path(), &workflow).expect("workflow config should write");
+
+        let mut runtime = builtin_agent_runtime_config();
+        let phase = runtime.phases.get_mut("research").expect("research phase should exist");
+        phase.runtime = Some(AgentRuntimeOverrides {
+            tool: Some("oai-runner".to_string()),
+            model: Some("openrouter/minimax/minimax-m2.7".to_string()),
+            max_attempts: Some(1),
+            max_continuations: Some(0),
+            ..AgentRuntimeOverrides::default()
+        });
+        write_agent_runtime_config(project.path(), &runtime).expect("runtime config should write");
+
+        let project_config = protocol::Config {
+            agent_runner_token: None,
+            mcp_servers: BTreeMap::from([
+                (
+                    "docs".to_string(),
+                    protocol::ProjectMcpServerEntry {
+                        transport: protocol::ProjectMcpServerTransport::StreamableHttp {
+                            url: "https://docs.example/mcp".to_string(),
+                            auth_token: Some("Bearer docs".to_string()),
+                        },
+                        assign_to: vec!["default".to_string()],
+                    },
+                ),
+                (
+                    "project-stdio".to_string(),
+                    protocol::ProjectMcpServerEntry {
+                        transport: protocol::ProjectMcpServerTransport::Stdio {
+                            command: "project-mcp".to_string(),
+                            args: vec!["serve".to_string()],
+                            env: BTreeMap::from([("PROJECT_TOKEN".to_string(), "secret".to_string())]),
+                        },
+                        assign_to: vec!["default".to_string()],
+                    },
+                ),
+            ]),
+            claude_profiles: BTreeMap::new(),
+        };
+        project_config
+            .save(project.path().to_str().expect("project path should be utf-8"))
+            .expect("project config should save");
+
+        let server_handle = tokio::spawn(serve_single_runner_request(project.path().to_path_buf()));
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let routing = protocol::PhaseRoutingConfig::default();
+        let runtime_mcp_config = protocol::McpRuntimeConfig {
+            agent_id: Some("ao".to_string()),
+            servers: vec![
+                protocol::McpRuntimeServerConfig {
+                    name: Some("ao".to_string()),
+                    transport: protocol::McpRuntimeServerTransport::StreamableHttp {
+                        url: "https://primary.example/mcp".to_string(),
+                        auth_token: Some("Bearer primary".to_string()),
+                    },
+                },
+                protocol::McpRuntimeServerConfig {
+                    name: Some("runtime-stdio".to_string()),
+                    transport: protocol::McpRuntimeServerTransport::Stdio {
+                        command: "runtime-mcp".to_string(),
+                        args: vec!["serve".to_string()],
+                        env: BTreeMap::from([("RUNTIME_TOKEN".to_string(), "runtime-secret".to_string())]),
+                    },
+                },
+            ],
+            ..Default::default()
+        };
+
+        let result = run_workflow_phase(&PhaseRunParams {
+            project_root: project.path().to_str().expect("project path should be utf-8"),
+            execution_cwd: project.path().to_str().expect("project path should be utf-8"),
+            workflow_id: "wf-mcp-config-e2e",
+            workflow_ref: "standard-workflow",
+            subject_id: "TASK-EOE-1",
+            subject_title: "Verify MCP propagation",
+            subject_description: "Ensure project config MCP servers reach the launched native runner.",
+            task_complexity: None,
+            phase_id: "research",
+            phase_attempt: 0,
+            overrides: None,
+            pipeline_vars: None,
+            dispatch_input: None,
+            schedule_input: None,
+            routing: &routing,
+            mcp_config: Some(&runtime_mcp_config),
+            phase_timeout_secs: Some(5),
+        })
+        .await
+        .expect("workflow phase should succeed");
+
+        server_handle.await.expect("runner server task should complete");
+
+        assert_eq!(result.tool.as_deref(), Some("oai-runner"));
+        assert!(matches!(result.outcome, PhaseExecutionOutcome::Completed { .. }));
+
+        let args = read_capture_lines(&args_capture);
+        assert_eq!(args.first().map(String::as_str), Some("run"));
+        let mcp_index =
+            args.iter().position(|arg| arg == "--mcp-config").expect("oai-runner launch should include mcp config");
+        let config_json: serde_json::Value =
+            serde_json::from_str(args.get(mcp_index + 1).expect("mcp config payload should exist"))
+                .expect("mcp config should parse");
+        let entries = config_json.as_array().expect("oai-runner mcp config should be an array");
+        assert_eq!(entries.len(), 4, "expected primary runtime server plus 3 additional servers");
+        assert!(
+            entries.iter().any(|entry| {
+                entry.get("url").and_then(serde_json::Value::as_str) == Some("https://primary.example/mcp")
+                    && entry.get("auth_token").and_then(serde_json::Value::as_str) == Some("Bearer primary")
+            }),
+            "expected primary runtime HTTP MCP server in launch payload: {entries:?}"
+        );
+        assert!(
+            entries.iter().any(|entry| {
+                entry.get("url").and_then(serde_json::Value::as_str) == Some("https://docs.example/mcp")
+                    && entry.get("auth_token").and_then(serde_json::Value::as_str) == Some("Bearer docs")
+            }),
+            "expected project-config HTTP MCP server in launch payload: {entries:?}"
+        );
+        assert!(
+            entries.iter().any(|entry| {
+                entry.get("command").and_then(serde_json::Value::as_str) == Some("runtime-mcp")
+                    && entry.pointer("/env/RUNTIME_TOKEN").and_then(serde_json::Value::as_str) == Some("runtime-secret")
+            }),
+            "expected runtime-config stdio MCP server in launch payload: {entries:?}"
+        );
+        assert!(
+            entries.iter().any(|entry| {
+                entry.get("command").and_then(serde_json::Value::as_str) == Some("project-mcp")
+                    && entry.pointer("/env/PROJECT_TOKEN").and_then(serde_json::Value::as_str) == Some("secret")
+            }),
+            "expected project-config stdio MCP server in launch payload: {entries:?}"
+        );
     }
 
     #[tokio::test]

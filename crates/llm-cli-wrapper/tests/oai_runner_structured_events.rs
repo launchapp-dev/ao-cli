@@ -28,7 +28,7 @@ async fn subprocess_backend_preserves_oai_runner_structured_events() {
         prompt: String::new(),
         cwd: PathBuf::from("."),
         project_root: None,
-        mcp_endpoint: None,
+        mcp_endpoints: Vec::new(),
         permission_mode: None,
         timeout_secs: Some(5),
         env_vars: Vec::new(),

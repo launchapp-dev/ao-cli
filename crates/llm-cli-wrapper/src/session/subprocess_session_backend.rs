@@ -269,7 +269,7 @@ mod tests {
             prompt: String::new(),
             cwd: PathBuf::from("."),
             project_root: None,
-            mcp_endpoint: None,
+            mcp_endpoints: Vec::new(),
             permission_mode: None,
             timeout_secs: None,
             env_vars: Vec::new(),

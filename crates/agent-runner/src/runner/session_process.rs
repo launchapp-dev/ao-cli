@@ -27,6 +27,27 @@ fn truncate_for_log(text: &str, max_chars: usize) -> String {
     format!("{truncated}…")
 }
 
+fn session_request_mcp_endpoints(contract: &Value) -> Vec<String> {
+    let mut endpoints = Vec::new();
+
+    if let Some(endpoint) =
+        contract.pointer("/mcp/endpoint").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty())
+    {
+        endpoints.push(endpoint.to_string());
+    }
+
+    if let Some(additional_servers) = contract.pointer("/mcp/additional_servers").and_then(Value::as_object) {
+        for entry in additional_servers.values() {
+            if let Some(url) = entry.get("url").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty())
+            {
+                endpoints.push(url.to_string());
+            }
+        }
+    }
+
+    endpoints
+}
+
 pub(super) fn use_native_session_backend(tool: &str, _runtime_contract: Option<&Value>) -> bool {
     matches!(
         tool.to_ascii_lowercase().as_str(),
@@ -238,7 +259,7 @@ fn build_session_request(
         prompt: prompt.to_string(),
         cwd: std::path::PathBuf::from(cwd),
         project_root: None,
-        mcp_endpoint: merged_contract.pointer("/mcp/endpoint").and_then(Value::as_str).map(ToString::to_string),
+        mcp_endpoints: session_request_mcp_endpoints(&merged_contract),
         permission_mode: None,
         timeout_secs,
         env_vars: merged_env.into_iter().collect(),

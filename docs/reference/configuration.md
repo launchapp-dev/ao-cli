@@ -11,6 +11,11 @@ Repository-local AO configuration created during setup.
 Project-local `mcp_servers` entries support both stdio servers and remote
 streamable HTTP endpoints. Legacy stdio entries remain valid.
 
+Use this file as the project-level MCP registry when you want contributors to
+discover reusable servers for a repository. Workflow YAML can then reference
+those server names on agents, and native `oai-runner` sessions receive the
+resolved server list through `--mcp-config`.
+
 Example:
 
 ```json
@@ -38,7 +43,12 @@ Typical uses:
 
 - define repo-specific workflow ids such as `standard-workflow`
 - define the repository's default workflow explicitly
-- declare project MCP servers, agents, variables, phases, and workflow definitions
+- declare agents, variables, phases, workflow definitions, and the MCP server
+  names those agents are allowed to use
+
+Workflow YAML is the authored execution layer; `.ao/config.json` is the project
+registry/discovery layer for reusable MCP server endpoints. The effective agent
+runtime is compiled from both sources before a runner is launched.
 
 ### `.ao/plugins/<pack-id>/`
 
@@ -111,6 +121,9 @@ Behavior resolves in this order:
 3. project pack overrides in `.ao/plugins/`
 4. project YAML in `.ao/workflows.yaml` and `.ao/workflows/*.yaml`
 5. installed packs in `~/.ao/packs/`
+
+For MCP servers specifically, the compiled runtime may also pick up entries
+from `.ao/config.json` before being translated into the runner launch contract.
 
 ## Environment Variables
 

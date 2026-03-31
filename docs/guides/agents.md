@@ -44,6 +44,13 @@ streamable-http shape:
 Use `auth_token` when the remote MCP server expects an auth header. This value
 is forwarded as the HTTP auth header value by `oai-runner`.
 
+The practical flow is:
+
+- register reusable server endpoints in `.ao/config.json`
+- reference those server names from workflow YAML agent definitions
+- let AO compile the effective runtime from the project registry plus workflow
+  YAML and pass the resolved servers to `oai-runner` via `--mcp-config`
+
 ---
 
 ## Task Management (`ao.task.*`)

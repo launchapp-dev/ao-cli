@@ -28,6 +28,11 @@ and project YAML can override installed pack workflows.
 
 Declares external MCP servers that agents can connect to during execution.
 
+This section is the workflow-authored binding layer for agent-accessible
+servers, whether the endpoint is declared here or registered in
+`.ao/config.json`. The compiled runtime turns the effective server set into
+the `oai-runner --mcp-config` launch contract.
+
 ```yaml
 mcp_servers:
   <server_name>:

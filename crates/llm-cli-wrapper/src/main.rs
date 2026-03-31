@@ -230,8 +230,11 @@ async fn main() -> anyhow::Result<()> {
                 if let Some(max_tokens) = metadata.capabilities.max_context_tokens {
                     println!("  Max context: {} tokens", max_tokens);
                 }
-                if let Some(ref endpoint) = metadata.capabilities.mcp_endpoint {
-                    println!("  MCP Endpoint: {}", endpoint);
+                if !metadata.capabilities.mcp_endpoints.is_empty() {
+                    println!("  MCP Endpoints:");
+                    for endpoint in &metadata.capabilities.mcp_endpoints {
+                        println!("    - {}", endpoint);
+                    }
                 }
             } else {
                 error!("CLI not found: {}", cli);

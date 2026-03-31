@@ -2,6 +2,8 @@ use crate::pricing;
 use serde_json::json;
 use std::io::Write;
 
+const JS_LINE_TERMINATORS: &[char] = &['\u{2028}', '\u{2029}'];
+
 pub struct OutputFormatter {
     json_mode: bool,
     text_buffer: String,
@@ -44,7 +46,7 @@ impl OutputFormatter {
                 "type": "result",
                 "text": self.text_buffer
             });
-            println!("{}", event);
+            self.emit_json(&event);
             self.text_buffer.clear();
         }
     }
@@ -56,7 +58,7 @@ impl OutputFormatter {
                 "tool_name": tool_name,
                 "arguments": arguments
             });
-            println!("{}", event);
+            self.emit_json(&event);
         }
     }
 
@@ -67,7 +69,7 @@ impl OutputFormatter {
                 "tool_name": tool_name,
                 "output": result
             });
-            println!("{}", event);
+            self.emit_json(&event);
         } else {
             println!("\n[Tool Result: {}]", tool_name);
             println!("{}", result);
@@ -81,7 +83,7 @@ impl OutputFormatter {
                 "tool_name": tool_name,
                 "error": error
             });
-            println!("{}", event);
+            self.emit_json(&event);
         } else {
             eprintln!("\n[Tool Error: {}] {}", tool_name, error);
         }
@@ -122,7 +124,7 @@ impl OutputFormatter {
             if let Some(cost) = req_cost {
                 event["cost_usd"] = json!(cost);
             }
-            println!("{}", event);
+            self.emit_json(&event);
         }
     }
 
@@ -160,7 +162,7 @@ impl OutputFormatter {
             event["cost_usd"] = json!(null);
             event["pricing"] = json!(null);
         }
-        println!("{}", event);
+        self.emit_json(&event);
     }
 
     pub fn emit_session_summary(&self) {
@@ -197,7 +199,7 @@ impl OutputFormatter {
                 }
                 event["pricing"] = pricing_obj;
             }
-            println!("{}", event);
+            self.emit_json(&event);
         } else {
             // Emit cost event in text mode too (JSON line, parseable by CI)
             self.emit_cost_event();
@@ -229,6 +231,19 @@ impl OutputFormatter {
 
     pub fn newline(&self) {
         println!();
+    }
+
+    fn emit_json(&self, value: &serde_json::Value) {
+        println!("{}", ndjson_safe_json(value));
+    }
+}
+
+fn ndjson_safe_json(value: &serde_json::Value) -> String {
+    let json = serde_json::to_string(value).unwrap_or_else(|_| "null".to_string());
+    if json.contains(JS_LINE_TERMINATORS) {
+        json.replace('\u{2028}', "\\u2028").replace('\u{2029}', "\\u2029")
+    } else {
+        json
     }
 }
 
@@ -398,5 +413,20 @@ mod tests {
         // Should not panic, should return early
         formatter.emit_session_summary();
         assert_eq!(formatter.total_tokens, 0);
+    }
+
+    #[test]
+    fn ndjson_safe_json_escapes_js_line_terminators() {
+        let value = json!({
+            "type": "result",
+            "text": "alpha\u{2028}beta\u{2029}gamma"
+        });
+
+        let serialized = ndjson_safe_json(&value);
+
+        assert!(serialized.contains("\\u2028"));
+        assert!(serialized.contains("\\u2029"));
+        assert!(!serialized.contains('\u{2028}'));
+        assert!(!serialized.contains('\u{2029}'));
     }
 }

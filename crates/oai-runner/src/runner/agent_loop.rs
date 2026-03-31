@@ -8,10 +8,15 @@ use crate::api::types::*;
 use crate::config::StructuredOutputSupport;
 use crate::tools::{executor, mcp_client};
 
+#[path = "tool_batch.rs"]
+mod tool_batch;
+
 use super::context;
 use super::output::OutputFormatter;
 
 const SCHEMA_RETRY_LIMIT: usize = 3;
+const CONTEXT_PRESSURE_RETRY_LIMIT: usize = 1;
+const CONTEXT_PRESSURE_TRUNCATION_RESERVE_BONUS: usize = 1024;
 
 fn config_dir() -> PathBuf {
     let dir = std::env::var("AO_CONFIG_DIR")
@@ -154,6 +159,137 @@ fn synthesize_fallback(model: &str, summary: &str, confidence: f64) -> Value {
     })
 }
 
+fn persist_session_snapshot(session_id: Option<&str>, messages: &[ChatMessage]) {
+    if let Some(sid) = session_id {
+        if let Err(e) = save_session_messages_to(&config_dir(), sid, messages) {
+            eprintln!("[oai-runner] Warning: failed to save session {}: {}", sid, e);
+        }
+    }
+}
+
+fn is_context_pressure_error_message(message: &str) -> bool {
+    let message = message.to_lowercase();
+    let markers = [
+        "context window",
+        "maximum context",
+        "context length",
+        "context limit",
+        "prompt too long",
+        "prompt is too long",
+        "prompt exceeds",
+        "input too long",
+        "too many tokens",
+        "token limit",
+        "messages resulted in",
+        "exceeds the context",
+        "maximum output",
+        "max output",
+        "max_tokens",
+        "output tokens",
+        "request entity too large",
+        "payload too large",
+    ];
+    message.contains("api returned 413")
+        || message.contains("413 request entity too large")
+        || markers.iter().any(|marker| message.contains(marker))
+}
+
+fn is_context_pressure_error(error: &anyhow::Error) -> bool {
+    is_context_pressure_error_message(&error.to_string())
+}
+
+async fn compact_conversation_history(
+    client: &ApiClient,
+    model: &str,
+    messages: &mut Vec<ChatMessage>,
+    compaction_history: &mut Vec<String>,
+    session_id: Option<&str>,
+    label: &str,
+) -> bool {
+    let Some((compaction_msgs, compact_end)) = context::build_compaction_prompt(messages) else {
+        return false;
+    };
+
+    if label.is_empty() {
+        eprintln!("[oai-runner] Context at capacity, compacting conversation history via LLM");
+    } else {
+        eprintln!("[oai-runner] Context at capacity{}, compacting conversation history via LLM", label);
+    }
+
+    let compaction_request = ChatRequest {
+        model: model.to_string(),
+        messages: compaction_msgs,
+        stream: false,
+        tools: None,
+        max_tokens: Some(2048),
+        response_format: None,
+        stream_options: None,
+    };
+
+    match client.stream_chat(&compaction_request, &mut |_| {}).await {
+        Ok((summary_msg, _)) => {
+            let summary = summary_msg.content.as_deref().unwrap_or("(compaction failed)");
+            let transcript = context::build_pre_compaction_transcript(messages, compact_end);
+            if let Some(sid) = session_id {
+                append_compaction_history(&config_dir(), sid, &transcript);
+            }
+            compaction_history.push(transcript);
+            context::apply_compaction(messages, compact_end, summary);
+            true
+        }
+        Err(e) => {
+            if label.is_empty() {
+                eprintln!("[oai-runner] Compaction LLM call failed, falling back to truncation: {}", e);
+            } else {
+                eprintln!("[oai-runner] Compaction LLM call failed{}: {}, falling back to truncation", label, e);
+            }
+            false
+        }
+    }
+}
+
+fn apply_context_pressure_truncation(
+    messages: &mut Vec<ChatMessage>,
+    context_limit: usize,
+    max_tokens: usize,
+    bonus_reserve: usize,
+) -> bool {
+    let before_tokens = context::estimate_total_tokens(messages);
+    let reserve = max_tokens.saturating_add(bonus_reserve);
+    context::truncate_to_fit(messages, context_limit, reserve);
+    context::sanitize_tool_call_pairs(messages);
+    let after_tokens = context::estimate_total_tokens(messages);
+    after_tokens < before_tokens
+}
+
+async fn recover_from_context_pressure(
+    client: &ApiClient,
+    model: &str,
+    messages: &mut Vec<ChatMessage>,
+    compaction_history: &mut Vec<String>,
+    session_id: Option<&str>,
+    context_limit: usize,
+    max_tokens: usize,
+    label: &str,
+) -> bool {
+    let before_tokens = context::estimate_total_tokens(messages);
+    let compacted = compact_conversation_history(client, model, messages, compaction_history, session_id, label).await;
+
+    let changed = apply_context_pressure_truncation(
+        messages,
+        context_limit,
+        max_tokens,
+        CONTEXT_PRESSURE_TRUNCATION_RESERVE_BONUS,
+    ) || context::estimate_total_tokens(messages) < before_tokens
+        || compacted;
+
+    if changed {
+        persist_session_snapshot(session_id, messages);
+    }
+
+    changed
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn run_agent_loop(
     client: &ApiClient,
@@ -279,36 +415,16 @@ pub async fn run_agent_loop(
             anyhow::bail!("Cancelled by shutdown signal");
         }
 
+        let mut context_preflight_changed = false;
         if context::needs_compaction(&messages, context_limit, max_tokens) {
-            if let Some((compaction_msgs, compact_end)) = context::build_compaction_prompt(&messages) {
-                eprintln!("[oai-runner] Context at capacity, compacting conversation history via LLM");
-                let compaction_request = ChatRequest {
-                    model: model.to_string(),
-                    messages: compaction_msgs,
-                    stream: false,
-                    tools: None,
-                    max_tokens: Some(2048),
-                    response_format: None,
-                    stream_options: None,
-                };
-                match client.stream_chat(&compaction_request, &mut |_| {}).await {
-                    Ok((summary_msg, _)) => {
-                        let summary = summary_msg.content.as_deref().unwrap_or("(compaction failed)");
-                        let transcript = context::build_pre_compaction_transcript(&messages, compact_end);
-                        if let Some(sid) = session_id {
-                            append_compaction_history(&config_dir(), sid, &transcript);
-                        }
-                        compaction_history.push(transcript);
-                        context::apply_compaction(&mut messages, compact_end, summary);
-                    }
-                    Err(e) => {
-                        eprintln!("[oai-runner] Compaction LLM call failed, falling back to truncation: {}", e);
-                    }
-                }
-            }
+            context_preflight_changed |=
+                compact_conversation_history(client, model, &mut messages, &mut compaction_history, session_id, "")
+                    .await;
         }
-        context::truncate_to_fit(&mut messages, context_limit, max_tokens);
-        context::sanitize_tool_call_pairs(&mut messages);
+        context_preflight_changed |= apply_context_pressure_truncation(&mut messages, context_limit, max_tokens, 0);
+        if context_preflight_changed {
+            persist_session_snapshot(session_id, &messages);
+        }
 
         let format = if has_final_message_tool {
             None // Don't send response_format when using final_message_json tool
@@ -322,21 +438,56 @@ pub async fn run_agent_loop(
             }
         };
 
-        let request = ChatRequest {
-            model: model.to_string(),
-            messages: messages.clone(),
-            stream: true,
-            tools: Some(api_tools.to_vec()),
-            max_tokens: Some(max_tokens as u32),
-            response_format: format,
-            stream_options: Some(StreamOptions { include_usage: true }),
-        };
+        let mut context_pressure_retries_remaining = CONTEXT_PRESSURE_RETRY_LIMIT;
+        let (assistant_msg, usage) = loop {
+            let request = ChatRequest {
+                model: model.to_string(),
+                messages: messages.clone(),
+                stream: true,
+                tools: Some(api_tools.to_vec()),
+                max_tokens: Some(max_tokens as u32),
+                response_format: format.clone(),
+                stream_options: Some(StreamOptions { include_usage: true }),
+            };
+            let mut emitted_any = false;
+            let stream_result = client
+                .stream_chat(&request, &mut |chunk| {
+                    emitted_any = true;
+                    output.text_chunk(chunk);
+                })
+                .await;
 
-        let (assistant_msg, usage) = client
-            .stream_chat(&request, &mut |chunk| {
-                output.text_chunk(chunk);
-            })
-            .await?;
+            match stream_result {
+                Ok(result) => break result,
+                Err(e) => {
+                    if emitted_any || context_pressure_retries_remaining == 0 || !is_context_pressure_error(&e) {
+                        return Err(e);
+                    }
+
+                    eprintln!("[oai-runner] Context-pressure request failed; compacting and retrying once: {}", e);
+                    let recovered = recover_from_context_pressure(
+                        client,
+                        model,
+                        &mut messages,
+                        &mut compaction_history,
+                        session_id,
+                        context_limit,
+                        max_tokens,
+                        " during reactive recovery",
+                    )
+                    .await;
+                    if !recovered {
+                        eprintln!(
+                            "[oai-runner] Context-pressure recovery did not reduce the transcript; aborting retry."
+                        );
+                        return Err(e);
+                    }
+
+                    context_pressure_retries_remaining -= 1;
+                    continue;
+                }
+            }
+        };
 
         if let Some(u) = &usage {
             output.metadata(u);
@@ -451,7 +602,9 @@ pub async fn run_agent_loop(
             }
         }
 
-        for (tc_idx, tc) in tool_calls.iter().enumerate() {
+        let mut tc_idx = 0;
+        while tc_idx < tool_calls.len() {
+            let tc = &tool_calls[tc_idx];
             if cancel_token.is_cancelled() {
                 eprintln!(
                     "[oai-runner] Cancelled between tool calls, synthesizing {} remaining results",
@@ -471,6 +624,50 @@ pub async fn run_agent_loop(
 
             let tool_name =
                 tool_name_reverse_map.get(&tc.function.name).cloned().unwrap_or_else(|| tc.function.name.clone());
+
+            if tool_batch::is_parallel_read_only_tool(&tool_name) {
+                let batch_len = tool_batch::parallel_read_only_batch_len(tool_calls, tc_idx);
+                let batch_calls = &tool_calls[tc_idx..tc_idx + batch_len];
+
+                for batch_tc in batch_calls {
+                    let batch_tool_name = tool_name_reverse_map
+                        .get(&batch_tc.function.name)
+                        .cloned()
+                        .unwrap_or_else(|| batch_tc.function.name.clone());
+                    let batch_args: serde_json::Value =
+                        serde_json::from_str(&batch_tc.function.arguments).unwrap_or(serde_json::Value::Null);
+                    output.tool_call(&batch_tool_name, &batch_args);
+                }
+
+                let batch_outcomes =
+                    tool_batch::execute_parallel_read_only_tools(batch_calls, working_dir, cancel_token.clone())
+                        .await?;
+
+                for outcome in batch_outcomes {
+                    if outcome.emit_result {
+                        if let Some(err_msg) = outcome.error.as_deref() {
+                            output.tool_error(&outcome.tool_name, err_msg);
+                        } else {
+                            output.tool_result(&outcome.tool_name, &outcome.result);
+                        }
+                    }
+
+                    messages.push(ChatMessage {
+                        reasoning_content: None,
+                        role: "tool".to_string(),
+                        content: Some(outcome.result),
+                        tool_calls: None,
+                        tool_call_id: Some(outcome.tool_call_id),
+                    });
+
+                    if let Some(sid) = session_id {
+                        let _ = save_session_messages_to(&config_dir(), sid, &messages);
+                    }
+                }
+
+                tc_idx += batch_len;
+                continue;
+            }
 
             let args: serde_json::Value =
                 serde_json::from_str(&tc.function.arguments).unwrap_or(serde_json::Value::Null);
@@ -601,6 +798,7 @@ pub async fn run_agent_loop(
             if let Some(sid) = session_id {
                 let _ = save_session_messages_to(&config_dir(), sid, &messages);
             }
+            tc_idx += 1;
         }
 
         if turn == max_turns - 1 {
@@ -1183,5 +1381,41 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn detects_context_pressure_error_messages() {
+        assert!(is_context_pressure_error_message("API returned 400 Bad Request: maximum context length exceeded"));
+        assert!(is_context_pressure_error_message("prompt too long"));
+        assert!(is_context_pressure_error_message("API returned 413 Request Entity Too Large"));
+        assert!(!is_context_pressure_error_message("API returned 400 Bad Request: invalid tool name"));
+    }
+
+    #[test]
+    fn recovery_truncation_is_conservative_but_effective() {
+        let mut messages = vec![ChatMessage {
+            reasoning_content: None,
+            role: "system".to_string(),
+            content: Some("You are helpful.".to_string()),
+            tool_calls: None,
+            tool_call_id: None,
+        }];
+        for i in 0..10 {
+            messages.push(ChatMessage {
+                reasoning_content: None,
+                role: "user".to_string(),
+                content: Some(format!("{} {}", i, "x ".repeat(400))),
+                tool_calls: None,
+                tool_call_id: None,
+            });
+        }
+
+        let before = context::estimate_total_tokens(&messages);
+        let changed =
+            apply_context_pressure_truncation(&mut messages, 1024, 64, CONTEXT_PRESSURE_TRUNCATION_RESERVE_BONUS);
+        let after = context::estimate_total_tokens(&messages);
+
+        assert!(changed);
+        assert!(after < before);
     }
 }

@@ -52,8 +52,11 @@ fn get_str<'a>(args: &'a Value, key: &str) -> Result<&'a str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
     use std::fs;
+    use std::time::Duration;
     use tempfile::TempDir;
+    use tokio::time::sleep;
 
     fn setup_temp_dir() -> TempDir {
         let dir = TempDir::new().unwrap();
@@ -61,6 +64,10 @@ mod tests {
         fs::create_dir_all(dir.path().join("src")).unwrap();
         fs::write(dir.path().join("src/main.rs"), "fn main() {}\n").unwrap();
         dir
+    }
+
+    fn shell_quote(path: &std::path::Path) -> String {
+        format!("'{}'", path.display().to_string().replace('\'', r#"'"'"'"#))
     }
 
     #[tokio::test]
@@ -157,6 +164,53 @@ mod tests {
         let dir = setup_temp_dir();
         let result = execute_tool("execute_command", r#"{"command": "exit 42"}"#, dir.path()).await.unwrap();
         assert!(result.contains("[exit code: 42]"));
+    }
+
+    #[test]
+    fn sanitize_environment_entries_filters_untrusted_variables() {
+        let entries = vec![
+            (OsString::from("HOME"), OsString::from("/tmp/home")),
+            (OsString::from("LC_ALL"), OsString::from("C.UTF-8")),
+            (OsString::from("AWS_SECRET_ACCESS_KEY"), OsString::from("secret")),
+        ];
+
+        let sanitized = bash::sanitize_environment_entries(entries);
+        let keys: Vec<String> =
+            sanitized.iter().filter_map(|(key, _)| key.to_str().map(|s| s.to_string())).collect();
+
+        assert!(keys.contains(&"HOME".to_string()));
+        assert!(keys.contains(&"LC_ALL".to_string()));
+        assert!(keys.contains(&"PATH".to_string()));
+        assert!(!keys.contains(&"AWS_SECRET_ACCESS_KEY".to_string()));
+    }
+
+    #[tokio::test]
+    async fn execute_command_times_out_and_cleans_up_background_work() {
+        let dir = setup_temp_dir();
+        let leaked_path = dir.path().join("leaked.txt");
+        let leaked_path_shell = shell_quote(&leaked_path);
+        let command = format!("sh -c '(sleep 2; echo leaked > \"$1\") & wait' sh {}", leaked_path_shell);
+
+        let result = execute_tool(
+            "execute_command",
+            &serde_json::json!({ "command": command, "timeout_secs": 1 }).to_string(),
+            dir.path(),
+        )
+        .await
+        .unwrap();
+
+        assert!(result.contains("Command timed out after 1s"));
+
+        sleep(Duration::from_millis(1500)).await;
+        assert!(!leaked_path.exists(), "timed out command left background work running");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn execute_command_reports_signal_termination() {
+        let dir = setup_temp_dir();
+        let result = execute_tool("execute_command", r#"{"command": "kill -9 $$"}"#, dir.path()).await.unwrap();
+        assert!(result.contains("terminated by signal"));
     }
 
     #[tokio::test]

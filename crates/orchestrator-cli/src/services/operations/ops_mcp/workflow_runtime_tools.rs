@@ -47,6 +47,17 @@ impl AoMcpServer {
     }
 
     #[tool(
+        name = "ao.workflow.context",
+        description = "Get unified workflow context (current phase, rework count, subject metadata, prior phase summaries, and most recent decision). Purpose: Retrieve comprehensive workflow state in a single call without multiple round-trips. Prerequisites: Workflow must exist. Example: {\"id\": \"wf-abc123\"}. Sequencing: Use after ao.workflow.list to get workflow ID, or ao.workflow.get for full workflow details.",
+        input_schema = ao_schema_for_type::<WorkflowContextInput>()
+    )]
+    async fn ao_workflow_context(&self, params: Parameters<WorkflowContextInput>) -> Result<CallToolResult, McpError> {
+        let input = params.0;
+        let args = vec!["workflow".to_string(), "context".to_string(), "--id".to_string(), input.id];
+        self.run_tool("ao.workflow.context", args, input.project_root).await
+    }
+
+    #[tool(
         name = "ao.workflow.pause",
         description = "Pause a running workflow. Purpose: Temporarily halt workflow execution without cancelling. Prerequisites: Workflow must be running. Example: {\"id\": \"wf-abc123\"}. Sequencing: Use ao.workflow.get to check status first, then ao.workflow.resume to continue.",
         input_schema = ao_schema_for_type::<WorkflowDestructiveInput>()

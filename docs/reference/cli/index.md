@@ -81,6 +81,7 @@ ao
 ├── workflow                 Run and control workflow execution
 │   ├── list                 List workflows
 │   ├── get                  Get workflow details
+│   ├── context              Get unified workflow context (phase, rework count, subject, prior summaries)
 │   ├── decisions            Show workflow decisions
 │   ├── checkpoints
 │   │   ├── list             List checkpoints for a workflow

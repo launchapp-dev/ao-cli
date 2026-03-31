@@ -60,6 +60,8 @@ pub(crate) enum WorkflowCommand {
         #[command(subcommand)]
         command: WorkflowPromptCommand,
     },
+    /// Get unified workflow context (phase, rework count, subject metadata, prior summaries).
+    Context(IdArgs),
 }
 
 #[derive(Debug, Args)]

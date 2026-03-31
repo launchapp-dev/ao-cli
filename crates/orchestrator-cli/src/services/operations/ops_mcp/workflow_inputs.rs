@@ -107,3 +107,10 @@ pub(super) struct WorkflowPhaseApproveInput {
     #[serde(default)]
     pub(super) project_root: Option<String>,
 }
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub(super) struct WorkflowContextInput {
+    pub(super) id: String,
+    #[serde(default)]
+    pub(super) project_root: Option<String>,
+}

@@ -1480,6 +1480,28 @@ impl OrchestratorWorkflow {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowPriorPhaseSummary {
+    pub phase_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verdict: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowContextResponse {
+    pub workflow_id: String,
+    pub current_phase_id: Option<String>,
+    pub rework_count: u32,
+    pub subject_metadata: SubjectRef,
+    pub prior_phase_summaries: Vec<WorkflowPriorPhaseSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub most_recent_decision: Option<WorkflowDecisionRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectCreateInput {
     pub name: String,
     pub path: String,

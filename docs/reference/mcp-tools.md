@@ -78,6 +78,7 @@ Every tool accepts an optional `project_root` parameter to override the default 
 | `ao.workflow.run-multiple` | Batch-run workflows for multiple tasks | `runs[]` (each: `task_id`, `workflow_ref`, `input_json`), `on_error` |
 | `ao.workflow.execute` | Execute a workflow synchronously (no daemon) | `task_id`, `workflow_ref`, `phase`, `model`, `tool`, `phase_timeout_secs`, `input_json` |
 | `ao.workflow.get` | Get full workflow state by ID | `id` |
+| `ao.workflow.context` | Get unified workflow context (current phase, rework count, subject metadata, prior summaries, recent decision) | `id` |
 | `ao.workflow.list` | List workflow executions | `status`, `workflow_ref`, `task_id`, `phase_id`, `search`, `sort`, `limit`, `offset`, `max_tokens` |
 | `ao.workflow.pause` | Pause a running workflow | `id`, `confirm`, `dry_run` |
 | `ao.workflow.cancel` | Cancel a running workflow permanently | `id`, `confirm`, `dry_run` |

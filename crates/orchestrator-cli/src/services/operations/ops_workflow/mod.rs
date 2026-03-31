@@ -14,6 +14,7 @@ use orchestrator_core::{
     workflow_ref_for_task, ListPageRequest, WorkflowEvent, WorkflowFilter, WorkflowQuery, WorkflowResumeManager,
     WorkflowRunInput, REQUIREMENT_TASK_GENERATION_WORKFLOW_REF,
 };
+use protocol::{WorkflowContextResponse, WorkflowDecisionAction, WorkflowPriorPhaseSummary};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -285,6 +286,44 @@ fn build_workflow_query(args: crate::WorkflowListArgs) -> Result<WorkflowQuery> 
     })
 }
 
+fn build_workflow_context(workflow: &protocol::OrchestratorWorkflow) -> WorkflowContextResponse {
+    let rework_count = workflow
+        .decision_history
+        .iter()
+        .filter(|record| matches!(record.decision, WorkflowDecisionAction::Rework))
+        .count() as u32;
+
+    // Build prior phase summaries from decision history (since verdict info is there)
+    let mut prior_phase_summaries = Vec::new();
+    let current_phase = workflow.current_phase.as_deref();
+    for decision in &workflow.decision_history {
+        // Skip decisions for the current or future phases
+        if Some(decision.phase_id.as_str()) == current_phase {
+            break;
+        }
+        // Only add the latest decision per phase
+        if !prior_phase_summaries.iter().any(|s: &WorkflowPriorPhaseSummary| s.phase_id == decision.phase_id) {
+            prior_phase_summaries.push(WorkflowPriorPhaseSummary {
+                phase_id: decision.phase_id.clone(),
+                verdict: Some(format!("{:?}", decision.decision).to_ascii_lowercase()),
+                reason: if decision.reason.is_empty() { None } else { Some(decision.reason.clone()) },
+                confidence: Some(decision.confidence),
+            });
+        }
+    }
+
+    let most_recent_decision = workflow.decision_history.last().cloned();
+
+    WorkflowContextResponse {
+        workflow_id: workflow.id.clone(),
+        current_phase_id: workflow.current_phase.clone(),
+        rework_count,
+        subject_metadata: workflow.subject.clone(),
+        prior_phase_summaries,
+        most_recent_decision,
+    }
+}
+
 pub(crate) async fn handle_workflow(
     command: WorkflowCommand,
     hub: Arc<dyn ServiceHub>,
@@ -299,6 +338,11 @@ pub(crate) async fn handle_workflow(
             print_value(page.items, json)
         }
         WorkflowCommand::Get(args) => print_value(workflows.get(&args.id).await?, json),
+        WorkflowCommand::Context(args) => {
+            let workflow = workflows.get(&args.id).await?;
+            let context = build_workflow_context(&workflow);
+            print_value(context, json)
+        }
         WorkflowCommand::Decisions(args) => print_value(workflows.decisions(&args.id).await?, json),
         WorkflowCommand::Checkpoints { command } => match command {
             WorkflowCheckpointCommand::List(args) => print_value(workflows.list_checkpoints(&args.id).await?, json),
@@ -585,7 +629,6 @@ mod tests {
         assert_eq!(dispatch.workflow_ref, orchestrator_core::workflow_ref_for_task(&task));
         assert_eq!(dispatch.trigger_source, "manual-cli-run");
     }
-
 
     #[tokio::test]
     async fn resolve_workflow_run_dispatch_from_input_accepts_legacy_workflow_run_input() {

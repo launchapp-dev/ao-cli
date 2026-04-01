@@ -148,7 +148,10 @@ impl TriggerDispatch {
 /// If the trigger has a static `input` object, the event payload is nested
 /// under the key `"webhook_payload"`.  Otherwise the event payload itself
 /// becomes the task input.
-fn merge_trigger_input(static_input: Option<&serde_json::Value>, event_payload: &serde_json::Value) -> serde_json::Value {
+fn merge_trigger_input(
+    static_input: Option<&serde_json::Value>,
+    event_payload: &serde_json::Value,
+) -> serde_json::Value {
     match static_input {
         Some(serde_json::Value::Object(map)) => {
             let mut merged = map.clone();

@@ -12,13 +12,13 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
+use hmac::{Hmac, Mac};
 use include_dir::{include_dir, Dir};
 use orchestrator_core::{ListPage, ListPageRequest};
 use orchestrator_web_api::{WebApiError, WebApiService};
 use orchestrator_web_contracts::{http_status_for_exit_code, CliEnvelopeService, DaemonEventRecord};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{json, Value};
-use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -811,10 +811,7 @@ async fn trigger_webhook_handler(
                 }
             };
 
-            let signature_header = headers
-                .get("x-ao-signature")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("");
+            let signature_header = headers.get("x-ao-signature").and_then(|v| v.to_str().ok()).unwrap_or("");
 
             let expected_sig = compute_hmac_sha256_hex(secret.as_bytes(), &body);
             let expected_header = format!("sha256={}", expected_sig);
@@ -845,7 +842,9 @@ async fn trigger_webhook_handler(
 
     let now = chrono::Utc::now();
     match state.api.trigger_webhook_enqueue(&trigger_id, payload, now) {
-        Ok(data) => (StatusCode::ACCEPTED, Json(orchestrator_web_contracts::CliEnvelopeService::ok(data))).into_response(),
+        Ok(data) => {
+            (StatusCode::ACCEPTED, Json(orchestrator_web_contracts::CliEnvelopeService::ok(data))).into_response()
+        }
         Err(error) => error_response(error),
     }
 }

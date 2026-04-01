@@ -1,7 +1,5 @@
 use chrono::{DateTime, Utc};
-use orchestrator_core::{
-    load_trigger_state, load_workflow_config_or_default, save_trigger_state, WebhookEvent,
-};
+use orchestrator_core::{load_trigger_state, load_workflow_config_or_default, save_trigger_state, WebhookEvent};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -39,9 +37,7 @@ impl WebApiService {
             .triggers
             .iter()
             .find(|t| t.id.eq_ignore_ascii_case(trigger_id))
-            .ok_or_else(|| {
-                WebApiError::new("not_found", format!("trigger '{}' not found", trigger_id), 3)
-            })?;
+            .ok_or_else(|| WebApiError::new("not_found", format!("trigger '{}' not found", trigger_id), 3))?;
 
         // Only webhook types can receive HTTP deliveries.
         if !matches!(
@@ -49,24 +45,15 @@ impl WebApiService {
             orchestrator_core::workflow_config::TriggerType::Webhook
                 | orchestrator_core::workflow_config::TriggerType::GithubWebhook
         ) {
-            return Err(WebApiError::new(
-                "not_found",
-                format!("trigger '{}' is not a webhook trigger", trigger_id),
-                3,
-            ));
+            return Err(WebApiError::new("not_found", format!("trigger '{}' is not a webhook trigger", trigger_id), 3));
         }
 
         if !trigger.enabled {
-            return Err(WebApiError::new(
-                "not_found",
-                format!("trigger '{}' is disabled", trigger_id),
-                3,
-            ));
+            return Err(WebApiError::new("not_found", format!("trigger '{}' is disabled", trigger_id), 3));
         }
 
         // Parse webhook-specific config for rate limit.
-        let wh_config =
-            orchestrator_core::workflow_config::WebhookTriggerConfig::from_value(&trigger.config);
+        let wh_config = orchestrator_core::workflow_config::WebhookTriggerConfig::from_value(&trigger.config);
         let max_per_minute = wh_config.max_triggers_per_minute;
 
         // Load (or default) trigger state and apply rate limiting.
@@ -74,10 +61,8 @@ impl WebApiService {
         let run_state = state.triggers.entry(trigger_id.to_string()).or_default();
 
         // Advance / reset the rolling-minute window.
-        let window_elapsed = run_state
-            .rate_window_start
-            .map(|start| now.signed_duration_since(start).num_seconds())
-            .unwrap_or(61); // No window yet → treat as expired.
+        let window_elapsed =
+            run_state.rate_window_start.map(|start| now.signed_duration_since(start).num_seconds()).unwrap_or(61); // No window yet → treat as expired.
 
         if window_elapsed >= 60 {
             // Start a new window.
@@ -88,21 +73,14 @@ impl WebApiService {
         if run_state.rate_window_count >= max_per_minute {
             return Err(WebApiError::new(
                 "rate_limited",
-                format!(
-                    "trigger '{}' has exceeded {} requests/minute",
-                    trigger_id, max_per_minute
-                ),
+                format!("trigger '{}' has exceeded {} requests/minute", trigger_id, max_per_minute),
                 8,
             ));
         }
 
         // Accept the event.
         run_state.rate_window_count += 1;
-        run_state.pending_events.push(WebhookEvent {
-            event_id: Uuid::new_v4().to_string(),
-            received_at: now,
-            payload,
-        });
+        run_state.pending_events.push(WebhookEvent { event_id: Uuid::new_v4().to_string(), received_at: now, payload });
 
         // Persist state (fail-fast: the caller should know if we couldn't queue).
         save_trigger_state(project_root, &state)

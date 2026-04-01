@@ -79,13 +79,12 @@ pub(crate) async fn handle_trigger(command: TriggerCommand, project_root: &str, 
             }
 
             // Parse the payload.
-            let payload_value: serde_json::Value = serde_json::from_str(&payload)
-                .map_err(|e| anyhow::anyhow!("invalid JSON payload: {}", e))?;
+            let payload_value: serde_json::Value =
+                serde_json::from_str(&payload).map_err(|e| anyhow::anyhow!("invalid JSON payload: {}", e))?;
 
             // Directly queue the event to TriggerState (bypasses HTTP server,
             // useful for local testing without running the daemon web server).
-            let mut state =
-                orchestrator_core::load_trigger_state(Path::new(project_root)).unwrap_or_default();
+            let mut state = orchestrator_core::load_trigger_state(Path::new(project_root)).unwrap_or_default();
             let run_state = state.triggers.entry(trigger_id.clone()).or_default();
 
             let event_id = Uuid::new_v4().to_string();

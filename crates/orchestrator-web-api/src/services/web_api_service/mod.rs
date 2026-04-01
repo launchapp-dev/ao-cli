@@ -2,7 +2,6 @@ mod daemon_handlers;
 mod event_stream;
 mod parsing;
 mod projects_handlers;
-mod triggers_handlers;
 mod queue_handlers;
 mod requests;
 mod requirements_handlers;
@@ -10,6 +9,7 @@ mod reviews_handlers;
 mod skills_handlers;
 mod system_handlers;
 mod tasks_handlers;
+mod triggers_handlers;
 mod vision_handlers;
 mod workflows_handlers;
 

@@ -4,7 +4,7 @@ use std::path::Path;
 use anyhow::Result;
 use orchestrator_core::{
     daemon_project_config_path, load_daemon_project_config, update_daemon_project_config, write_daemon_project_config,
-    DaemonProjectConfig, DaemonProjectConfigPatch, DoctorCheckStatus, DoctorReport, FileServiceHub,
+    DaemonProjectConfig, DaemonProjectConfigPatch, DoctorCheckStatus, DoctorCheckResult, DoctorReport, FileServiceHub,
 };
 use serde::Serialize;
 
@@ -33,6 +33,17 @@ struct SetupBlockedItem {
     remediation: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+struct RepositoryReadinessState {
+    status: String,
+    healthy: bool,
+    checks: serde_json::Value,
+    blocked_count: usize,
+    remediatable_count: usize,
+    next_steps: Vec<String>,
+}
+
 #[derive(Debug, Clone)]
 struct DesiredDaemonConfig {
     auto_merge_enabled: bool,
@@ -56,6 +67,7 @@ pub(crate) async fn handle_setup(args: SetupArgs, project_root: &str, json: bool
         "warn": count_checks(&doctor_before, DoctorCheckStatus::Warn),
         "fail": count_checks(&doctor_before, DoctorCheckStatus::Fail),
     });
+    let readiness_before = build_readiness_state(&doctor_before);
 
     if args.plan {
         return print_value(
@@ -67,6 +79,7 @@ pub(crate) async fn handle_setup(args: SetupArgs, project_root: &str, json: bool
                     "doctor": doctor_summary,
                     "daemon_config_path": daemon_project_config_path(project_root_path).display().to_string(),
                 },
+                "readiness": readiness_before,
                 "required_changes": {
                     "daemon_config": daemon_plan,
                 },
@@ -96,6 +109,7 @@ pub(crate) async fn handle_setup(args: SetupArgs, project_root: &str, json: bool
 
     let doctor_after = DoctorReport::run_for_project(project_root_path);
     let doctor_fix_applied = doctor_fix_actions.iter().any(|action| action.status == "applied");
+    let readiness_after = build_readiness_state(&doctor_after);
 
     let mut changed_domains = Vec::new();
     let mut unchanged_domains = Vec::new();
@@ -125,6 +139,8 @@ pub(crate) async fn handle_setup(args: SetupArgs, project_root: &str, json: bool
                 "project_root": project_root,
                 "daemon_config_path": daemon_project_config_path(project_root_path).display().to_string(),
             },
+            "readiness_before": readiness_before,
+            "readiness_after": readiness_after,
             "required_changes": {
                 "daemon_config": daemon_plan,
             },
@@ -293,6 +309,45 @@ fn remediation_needed(report: &DoctorReport, remediation_id: &str) -> bool {
     report.checks.iter().any(|check| {
         check.remediation.id == remediation_id && check.remediation.available && check.status != DoctorCheckStatus::Ok
     })
+}
+
+fn build_readiness_state(report: &DoctorReport) -> RepositoryReadinessState {
+    let blocked_count = report.checks.iter().filter(|c| c.status == DoctorCheckStatus::Fail).count();
+    let remediatable_count = report
+        .checks
+        .iter()
+        .filter(|c| c.status == DoctorCheckStatus::Warn && c.remediation.available)
+        .count();
+
+    let status = match report.result {
+        DoctorCheckResult::Healthy => "healthy".to_string(),
+        DoctorCheckResult::Degraded => "degraded".to_string(),
+        DoctorCheckResult::Unhealthy => "unhealthy".to_string(),
+    };
+
+    let healthy = report.result == DoctorCheckResult::Healthy;
+
+    let mut next_steps = Vec::new();
+    if !healthy {
+        if blocked_count > 0 {
+            next_steps.push("resolve critical issues blocking repo activation".to_string());
+        }
+        if remediatable_count > 0 {
+            next_steps.push("run 'ao doctor --fix' to apply available remediations".to_string());
+        }
+    }
+    if !report.checks.iter().any(|c| c.id == "daemon_config_valid_json" && c.status == DoctorCheckStatus::Ok) {
+        next_steps.push("run 'ao setup' to configure daemon automation settings".to_string());
+    }
+
+    RepositoryReadinessState {
+        status,
+        healthy,
+        checks: serde_json::json!(report.checks),
+        blocked_count,
+        remediatable_count,
+        next_steps,
+    }
 }
 
 #[cfg(test)]

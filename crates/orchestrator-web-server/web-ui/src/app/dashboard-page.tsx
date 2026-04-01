@@ -25,6 +25,7 @@ export function DashboardPage() {
   const health = data?.daemonHealth;
   const agents = data?.agentRuns ?? [];
   const sys = data?.systemInfo;
+  const readiness = data?.repositoryReadiness;
 
   const byStatus: Record<string, number> = stats?.byStatus ? JSON.parse(stats.byStatus) : {};
   const byPriority: Record<string, number> = stats?.byPriority ? JSON.parse(stats.byPriority) : {};
@@ -40,6 +41,7 @@ export function DashboardPage() {
   const priorityTotal = priorityCritical + priorityHigh + priorityMedium + priorityLow;
 
   const needsAttention = blocked > 0 || failed > 0;
+  const hasReadinessIssues = !readiness?.healthy;
 
   return (
     <div className="space-y-6">
@@ -74,6 +76,41 @@ export function DashboardPage() {
           <Link to="/queue">View Queue</Link>
         </Button>
       </div>
+
+      {hasReadinessIssues && (
+        <Card className={readiness?.status === "unhealthy" ? "border-destructive/40 bg-destructive/5" : "border-amber-500/40 bg-amber-500/5"}>
+          <CardContent className="pt-3 pb-3 px-4">
+            <p className={`text-xs uppercase tracking-wider font-medium mb-2 ${
+              readiness?.status === "unhealthy" ? "text-destructive/80" : "text-amber-500/80"
+            }`}>
+              {readiness?.status === "unhealthy" ? "Repository Issues Detected" : "Repository Setup Incomplete"}
+            </p>
+            {readiness && readiness.blockedCount > 0 && (
+              <div className="text-xs text-foreground/70 mb-2">
+                {readiness.blockedCount} critical issue{readiness.blockedCount !== 1 ? "s" : ""} blocking activation
+              </div>
+            )}
+            {readiness && readiness.remediableCount > 0 && (
+              <div className="text-xs text-foreground/70 mb-2">
+                {readiness.remediableCount} issue{readiness.remediableCount !== 1 ? "s" : ""} can be auto-fixed
+              </div>
+            )}
+            {readiness?.nextSteps && readiness.nextSteps.length > 0 && (
+              <div className="space-y-1">
+                {readiness.nextSteps.slice(0, 2).map((step, i) => (
+                  <div key={i} className="flex items-start gap-2 text-xs text-foreground/70">
+                    <span className="text-primary/60 mt-0.5">→</span>
+                    <span>{step}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <Button variant="outline" size="sm" asChild className="mt-2">
+              <Link to="/settings/daemon">View Setup</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {needsAttention && (
         <Card className="border-amber-500/40 bg-amber-500/5">

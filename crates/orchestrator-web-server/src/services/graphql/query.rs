@@ -6,10 +6,10 @@ use serde::de::DeserializeOwned;
 use super::gql_err;
 use super::types::{
     GqlAgentProfile, GqlAgentRun, GqlDaemonHealth, GqlDaemonLog, GqlDaemonStatus, GqlKeyValue, GqlMcpServer,
-    GqlPhaseCatalogEntry, GqlPhaseOutput, GqlProject, GqlQueueEntry, GqlQueueStats, GqlRequirement,
-    GqlRequirementConnection, GqlSkill, GqlSkillDetail, GqlSystemInfo, GqlTask, GqlTaskConnection, GqlTaskStats,
-    GqlToolDefinition, GqlVision, GqlWorkflow, GqlWorkflowCheckpoint, GqlWorkflowConfig, GqlWorkflowConnection,
-    GqlWorkflowDefinition, GqlWorkflowSchedule, RawRequirement, RawTask, RawWorkflow,
+    GqlPhaseCatalogEntry, GqlPhaseOutput, GqlProject, GqlQueueEntry, GqlQueueStats, GqlRepositoryReadiness,
+    GqlRequirement, GqlRequirementConnection, GqlSkill, GqlSkillDetail, GqlSystemInfo, GqlTask, GqlTaskConnection,
+    GqlTaskStats, GqlToolDefinition, GqlVision, GqlWorkflow, GqlWorkflowCheckpoint, GqlWorkflowConfig,
+    GqlWorkflowConnection, GqlWorkflowDefinition, GqlWorkflowSchedule, RawRequirement, RawTask, RawWorkflow,
 };
 
 pub struct QueryRoot;
@@ -677,6 +677,26 @@ impl QueryRoot {
             version: val.get("version").and_then(|v| v.as_str()).map(String::from),
             daemon_status: val.get("daemon_status").and_then(|v| v.as_str()).map(String::from),
             project_root: val.get("project_root").and_then(|v| v.as_str()).map(String::from),
+        })
+    }
+
+    async fn repository_readiness(&self, ctx: &Context<'_>) -> Result<GqlRepositoryReadiness> {
+        let api = ctx.data::<WebApiService>()?;
+        let val = api.repository_readiness().await.map_err(gql_err)?;
+        Ok(GqlRepositoryReadiness {
+            status: val.get("status").and_then(|v| v.as_str()).map(String::from).unwrap_or_default(),
+            healthy: val.get("healthy").and_then(|v| v.as_bool()).unwrap_or(false),
+            blocked_count: val.get("blocked_count").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+            remediable_count: val.get("remediatable_count").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+            next_steps: val
+                .get("next_steps")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default(),
         })
     }
 }

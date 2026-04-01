@@ -413,6 +413,15 @@ pub struct GqlSystemInfo {
 }
 
 #[derive(SimpleObject, Debug, Clone)]
+pub struct GqlRepositoryReadiness {
+    pub status: String,
+    pub healthy: bool,
+    pub blocked_count: i32,
+    pub remediable_count: i32,
+    pub next_steps: Vec<String>,
+}
+
+#[derive(SimpleObject, Debug, Clone)]
 pub struct GqlWorkflowConfig {
     pub mcp_servers: Vec<GqlMcpServer>,
     pub phase_catalog: Vec<GqlPhaseCatalogEntry>,

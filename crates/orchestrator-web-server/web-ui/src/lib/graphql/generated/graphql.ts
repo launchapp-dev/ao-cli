@@ -198,6 +198,15 @@ export type GqlQueueStats = {
   throughput?: Maybe<Scalars['Float']['output']>;
 };
 
+export type GqlRepositoryReadiness = {
+  __typename?: 'GqlRepositoryReadiness';
+  blockedCount: Scalars['Int']['output'];
+  healthy: Scalars['Boolean']['output'];
+  nextSteps: Array<Scalars['String']['output']>;
+  remediableCount: Scalars['Int']['output'];
+  status: Scalars['String']['output'];
+};
+
 export type GqlRequirement = {
   __typename?: 'GqlRequirement';
   acceptanceCriteria: Array<Scalars['String']['output']>;
@@ -735,6 +744,7 @@ export type QueryRoot = {
   queue: Array<GqlQueueEntry>;
   queueStats: GqlQueueStats;
   readyTasks: Array<GqlTask>;
+  repositoryReadiness: GqlRepositoryReadiness;
   requirement?: Maybe<GqlRequirement>;
   requirements: Array<GqlRequirement>;
   requirementsPaginated: GqlRequirementConnection;
@@ -955,7 +965,7 @@ export type DaemonClearLogsMutation = { __typename?: 'MutationRoot', daemonClear
 export type DashboardQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type DashboardQuery = { __typename?: 'QueryRoot', taskStats: { __typename?: 'GqlTaskStats', total: number, byStatus?: string | null, byPriority?: string | null }, daemonHealth: { __typename?: 'GqlDaemonHealth', healthy: boolean, status: string, runnerConnected: boolean, daemonPid?: number | null, activeDaemons: number }, agentRuns: Array<{ __typename?: 'GqlAgentRun', runId: string, taskId?: string | null, taskTitle?: string | null, workflowId?: string | null, phaseId?: string | null, status: string }>, systemInfo: { __typename?: 'GqlSystemInfo', platform?: string | null, version?: string | null, daemonStatus?: string | null, projectRoot?: string | null }, queueStats: { __typename?: 'GqlQueueStats', depth: number } };
+export type DashboardQuery = { __typename?: 'QueryRoot', taskStats: { __typename?: 'GqlTaskStats', total: number, byStatus?: string | null, byPriority?: string | null }, daemonHealth: { __typename?: 'GqlDaemonHealth', healthy: boolean, status: string, runnerConnected: boolean, daemonPid?: number | null, activeDaemons: number }, agentRuns: Array<{ __typename?: 'GqlAgentRun', runId: string, taskId?: string | null, taskTitle?: string | null, workflowId?: string | null, phaseId?: string | null, status: string }>, systemInfo: { __typename?: 'GqlSystemInfo', platform?: string | null, version?: string | null, daemonStatus?: string | null, projectRoot?: string | null }, repositoryReadiness: { __typename?: 'GqlRepositoryReadiness', status: string, healthy: boolean, blockedCount: number, remediableCount: number, nextSteps: Array<string> }, queueStats: { __typename?: 'GqlQueueStats', depth: number } };
 
 export type ReadyTasksQueryVariables = Exact<{
   search?: InputMaybe<Scalars['String']['input']>;
@@ -1470,6 +1480,13 @@ export const DashboardDocument = new TypedDocumentString(`
     version
     daemonStatus
     projectRoot
+  }
+  repositoryReadiness {
+    status
+    healthy
+    blockedCount
+    remediableCount
+    nextSteps
   }
   queueStats {
     depth

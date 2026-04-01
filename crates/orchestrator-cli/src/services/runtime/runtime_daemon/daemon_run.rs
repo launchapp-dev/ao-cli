@@ -287,11 +287,7 @@ mod tests {
         // Cancel the workflow so all task workflows are terminal with no success.
         // The stale-in-progress reconciler only auto-transitions tasks to Blocked
         // when every workflow failed/cancelled (it never auto-completes tasks).
-        let workflow = primary_hub
-            .workflows()
-            .cancel(&workflow.id)
-            .await
-            .expect("workflow should cancel");
+        let workflow = primary_hub.workflows().cancel(&workflow.id).await.expect("workflow should cancel");
         assert_eq!(workflow.status, orchestrator_core::WorkflowStatus::Cancelled);
 
         primary_hub

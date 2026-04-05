@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use super::*;
 
 #[derive(Debug, Parser)]
-#[command(name = "ao", about = "Agent Orchestrator CLI", version)]
+#[command(name = "animus", about = "Agent Orchestrator CLI", version)]
 pub(crate) struct Cli {
     #[arg(long, global = true, help = "Emit machine-readable JSON output using the ao.cli.v1 envelope.")]
     pub(crate) json: bool,

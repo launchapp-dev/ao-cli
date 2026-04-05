@@ -69,7 +69,8 @@ fn checkpoint_retention_requires_positive_keep_last_per_phase() {
 #[test]
 fn validation_rejects_on_verdict_targeting_nonexistent_phase() {
     let mut config = builtin_workflow_config();
-    let standard_pipeline = config.workflows.iter_mut().find(|p| p.id == "standard-workflow").expect("standard workflow");
+    let standard_pipeline =
+        config.workflows.iter_mut().find(|p| p.id == "standard-workflow").expect("standard workflow");
 
     let mut on_verdict = HashMap::new();
     on_verdict.insert(
@@ -100,7 +101,8 @@ fn validation_rejects_on_verdict_targeting_nonexistent_phase() {
 #[test]
 fn validation_rejects_zero_max_rework_attempts() {
     let mut config = builtin_workflow_config();
-    let standard_pipeline = config.workflows.iter_mut().find(|p| p.id == "standard-workflow").expect("standard workflow");
+    let standard_pipeline =
+        config.workflows.iter_mut().find(|p| p.id == "standard-workflow").expect("standard workflow");
 
     standard_pipeline.phases[1] = WorkflowPhaseEntry::Rich(WorkflowPhaseConfig {
         id: "implementation".to_string(),
@@ -247,7 +249,8 @@ fn pipeline_definition_deserializes_mixed_phase_entries() {
 #[test]
 fn resolve_workflow_skip_guards_extracts_guards_from_config() {
     let mut config = builtin_workflow_config();
-    let standard_pipeline = config.workflows.iter_mut().find(|p| p.id == "standard-workflow").expect("standard workflow");
+    let standard_pipeline =
+        config.workflows.iter_mut().find(|p| p.id == "standard-workflow").expect("standard workflow");
     standard_pipeline.phases = vec![
         "requirements".to_string().into(),
         WorkflowPhaseEntry::Rich(WorkflowPhaseConfig {
@@ -1429,6 +1432,85 @@ workflows:
         "error should mention unknown MCP server reference: {}",
         message
     );
+}
+
+#[test]
+fn validate_allows_agent_profile_reference_to_project_config_mcp_server() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project_config = protocol::Config {
+        agent_runner_token: None,
+        mcp_servers: BTreeMap::from([(
+            "docs".to_string(),
+            protocol::ProjectMcpServerEntry {
+                command: "project-mcp".to_string(),
+                args: vec!["serve".to_string()],
+                env: BTreeMap::new(),
+                assign_to: vec!["researcher".to_string()],
+                transport: Some("stdio".to_string()),
+                url: None,
+            },
+        )]),
+        claude_profiles: BTreeMap::new(),
+    };
+    project_config.save(temp.path().to_str().expect("project path should be utf-8")).expect("project config");
+
+    let yaml = r#"
+agents:
+  researcher:
+    system_prompt: "You are a research agent focused on code analysis"
+    mcp_servers:
+      - docs
+
+default_workflow_ref: standard
+workflows:
+  - id: standard
+    name: Standard
+    phases:
+      - requirements
+      - implementation
+      - testing
+"#;
+    let config = parse_yaml_workflow_config(yaml).expect("should parse");
+    validate_workflow_config_with_project_root(&config, Some(temp.path()))
+        .expect("project-config MCP server reference should validate");
+}
+
+#[test]
+fn validate_allows_phase_binding_reference_to_project_config_mcp_server() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project_config = protocol::Config {
+        agent_runner_token: None,
+        mcp_servers: BTreeMap::from([(
+            "docs".to_string(),
+            protocol::ProjectMcpServerEntry {
+                command: "project-mcp".to_string(),
+                args: vec!["serve".to_string()],
+                env: BTreeMap::new(),
+                assign_to: vec!["default".to_string()],
+                transport: Some("stdio".to_string()),
+                url: None,
+            },
+        )]),
+        claude_profiles: BTreeMap::new(),
+    };
+    project_config.save(temp.path().to_str().expect("project path should be utf-8")).expect("project config");
+
+    let yaml = r#"
+default_workflow_ref: standard
+phase_mcp_bindings:
+  research:
+    servers:
+      - docs
+
+workflows:
+  - id: standard
+    name: Standard
+    phases:
+      - research
+"#;
+    let config = parse_yaml_workflow_config(yaml).expect("should parse");
+    validate_workflow_config_with_project_root(&config, Some(temp.path()))
+        .expect("project-config phase MCP binding should validate");
 }
 
 #[test]

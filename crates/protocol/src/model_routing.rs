@@ -77,16 +77,10 @@ impl McpRuntimeConfig {
             });
         }
 
-        self.endpoint
-            .clone()
-            .filter(|value| !value.trim().is_empty())
-            .map(|url| McpRuntimeServerConfig {
-                name: self.agent_id.clone(),
-                transport: McpRuntimeServerTransport::StreamableHttp {
-                    url,
-                    auth_token: None,
-                },
-            })
+        self.endpoint.clone().filter(|value| !value.trim().is_empty()).map(|url| McpRuntimeServerConfig {
+            name: self.agent_id.clone(),
+            transport: McpRuntimeServerTransport::StreamableHttp { url, auth_token: None },
+        })
     }
 }
 

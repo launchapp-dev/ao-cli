@@ -11,19 +11,8 @@ const MAX_OUTPUT_CHARS: usize = 50_000;
 #[cfg(unix)]
 const DEFAULT_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 
-const SAFE_ENV_VARS: &[&str] = &[
-    "HOME",
-    "LANG",
-    "LC_ALL",
-    "LC_CTYPE",
-    "LOGNAME",
-    "PATH",
-    "SHELL",
-    "TERM",
-    "TMPDIR",
-    "USER",
-    "XDG_RUNTIME_DIR",
-];
+const SAFE_ENV_VARS: &[&str] =
+    &["HOME", "LANG", "LC_ALL", "LC_CTYPE", "LOGNAME", "PATH", "SHELL", "TERM", "TMPDIR", "USER", "XDG_RUNTIME_DIR"];
 
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
@@ -51,14 +40,8 @@ pub async fn execute_command(working_dir: &Path, command: &str, timeout_secs: Op
     let mut child = shell_command.spawn().map_err(|e| anyhow!("Failed to spawn command: {}", e))?;
     let pid = child.id();
 
-    let mut stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| anyhow!("Failed to capture stdout"))?;
-    let mut stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| anyhow!("Failed to capture stderr"))?;
+    let mut stdout = child.stdout.take().ok_or_else(|| anyhow!("Failed to capture stdout"))?;
+    let mut stderr = child.stderr.take().ok_or_else(|| anyhow!("Failed to capture stderr"))?;
 
     let stdout_handle = tokio::spawn(async move {
         let mut buffer = Vec::new();
@@ -83,10 +66,7 @@ pub async fn execute_command(working_dir: &Path, command: &str, timeout_secs: Op
 
     if exit_status.is_none() {
         terminate_child_process_tree(&mut child, pid).await;
-        let _ = child
-            .wait()
-            .await
-            .map_err(|e| anyhow!("Failed to reap timed out command: {}", e))?;
+        let _ = child.wait().await.map_err(|e| anyhow!("Failed to reap timed out command: {}", e))?;
     }
 
     let stdout = join_reader(stdout_handle, "stdout").await?;
@@ -155,7 +135,10 @@ fn default_path_value() -> OsString {
     }
 }
 
-async fn join_reader(handle: tokio::task::JoinHandle<Result<Vec<u8>, std::io::Error>>, stream_name: &str) -> Result<String> {
+async fn join_reader(
+    handle: tokio::task::JoinHandle<Result<Vec<u8>, std::io::Error>>,
+    stream_name: &str,
+) -> Result<String> {
     let bytes = handle
         .await
         .map_err(|e| anyhow!("Failed to join {} reader task: {}", stream_name, e))?

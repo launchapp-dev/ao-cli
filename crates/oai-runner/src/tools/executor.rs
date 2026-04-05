@@ -175,8 +175,7 @@ mod tests {
         ];
 
         let sanitized = bash::sanitize_environment_entries(entries);
-        let keys: Vec<String> =
-            sanitized.iter().filter_map(|(key, _)| key.to_str().map(|s| s.to_string())).collect();
+        let keys: Vec<String> = sanitized.iter().filter_map(|(key, _)| key.to_str().map(|s| s.to_string())).collect();
 
         assert!(keys.contains(&"HOME".to_string()));
         assert!(keys.contains(&"LC_ALL".to_string()));

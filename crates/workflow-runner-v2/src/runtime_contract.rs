@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use orchestrator_config::McpServerDefinition;
 use serde_json::Value;
 use tracing::warn;
 
@@ -388,6 +389,41 @@ fn remove_additional_mcp_server_collisions(
     filtered
 }
 
+fn project_server_assigned_to_agent(entry: &protocol::ProjectMcpServerEntry, agent_id: Option<&str>) -> bool {
+    entry.assign_to.is_empty()
+        || agent_id.is_some_and(|id| entry.assign_to.iter().any(|candidate| candidate.eq_ignore_ascii_case(id)))
+}
+
+fn workflow_mcp_server_json(definition: &McpServerDefinition) -> Value {
+    let mut entry_json = serde_json::json!({
+        "command": definition.command,
+        "args": definition.args,
+        "env": definition.env,
+    });
+    if let Some(transport) = &definition.transport {
+        entry_json["transport"] = serde_json::Value::String(transport.clone());
+    }
+    if let Some(url) = &definition.url {
+        entry_json["url"] = serde_json::Value::String(url.clone());
+    }
+    entry_json
+}
+
+fn project_mcp_server_json(entry: &protocol::ProjectMcpServerEntry) -> Value {
+    let mut entry_json = serde_json::json!({
+        "command": entry.command,
+        "args": entry.args,
+        "env": entry.env,
+    });
+    if let Some(transport) = &entry.transport {
+        entry_json["transport"] = serde_json::Value::String(transport.clone());
+    }
+    if let Some(url) = &entry.url {
+        entry_json["url"] = serde_json::Value::String(url.clone());
+    }
+    entry_json
+}
+
 pub fn inject_project_mcp_servers(
     runtime_contract: &mut Value,
     project_root: &str,
@@ -404,23 +440,10 @@ pub fn inject_project_mcp_servers(
     let agent_id = ctx.phase_agent_id(phase_id);
     let mut servers = serde_json::Map::new();
     for (name, entry) in &project_config.mcp_servers {
-        let assigned = entry.assign_to.is_empty()
-            || agent_id.as_deref().is_some_and(|id| entry.assign_to.iter().any(|a| a.eq_ignore_ascii_case(id)));
-        if !assigned {
+        if !project_server_assigned_to_agent(entry, agent_id.as_deref()) {
             continue;
         }
-        let mut entry_json = serde_json::json!({
-            "command": entry.command,
-            "args": entry.args,
-            "env": entry.env,
-        });
-        if let Some(transport) = &entry.transport {
-            entry_json["transport"] = serde_json::Value::String(transport.clone());
-        }
-        if let Some(url) = &entry.url {
-            entry_json["url"] = serde_json::Value::String(url.clone());
-        }
-        servers.insert(name.clone(), entry_json);
+        servers.insert(name.clone(), project_mcp_server_json(entry));
     }
     let servers = remove_additional_mcp_server_collisions(runtime_contract, servers);
     if servers.is_empty() {
@@ -431,10 +454,12 @@ pub fn inject_project_mcp_servers(
     }
 }
 
-pub fn inject_workflow_mcp_servers(runtime_contract: &mut Value, ctx: &RuntimeConfigContext, phase_id: &str) {
-    if ctx.workflow_config.config.mcp_servers.is_empty() {
-        return;
-    }
+pub fn inject_workflow_mcp_servers(
+    runtime_contract: &mut Value,
+    project_root: &str,
+    ctx: &RuntimeConfigContext,
+    phase_id: &str,
+) {
     let agent_id = ctx.phase_agent_id(phase_id);
     let workflow_profile_servers: Vec<String> = agent_id
         .as_deref()
@@ -460,27 +485,27 @@ pub fn inject_workflow_mcp_servers(runtime_contract: &mut Value, ctx: &RuntimeCo
             allowed_servers.insert(trimmed.to_string());
         }
     }
+    if allowed_servers.is_empty() {
+        return;
+    }
+
+    let project_config = protocol::Config::load_or_default(project_root).ok();
 
     let existing =
         runtime_contract.pointer("/mcp/additional_servers").and_then(Value::as_object).cloned().unwrap_or_default();
     let mut servers = existing;
 
-    for (name, definition) in &ctx.workflow_config.config.mcp_servers {
-        if !allowed_servers.is_empty() && !allowed_servers.contains(name) {
+    for name in allowed_servers {
+        if let Some(definition) = ctx.workflow_config.config.mcp_servers.get(&name) {
+            servers.insert(name, workflow_mcp_server_json(definition));
             continue;
         }
-        let mut entry_json = serde_json::json!({
-            "command": definition.command,
-            "args": definition.args,
-            "env": definition.env,
-        });
-        if let Some(transport) = &definition.transport {
-            entry_json["transport"] = serde_json::Value::String(transport.clone());
+
+        if let Some(definition) = project_config.as_ref().and_then(|config| config.mcp_servers.get(&name)) {
+            if project_server_assigned_to_agent(definition, agent_id.as_deref()) {
+                servers.insert(name, project_mcp_server_json(definition));
+            }
         }
-        if let Some(url) = &definition.url {
-            entry_json["url"] = serde_json::Value::String(url.clone());
-        }
-        servers.insert(name.clone(), entry_json);
     }
     let servers = remove_additional_mcp_server_collisions(runtime_contract, servers);
     if servers.is_empty() {
@@ -515,34 +540,15 @@ pub fn inject_named_mcp_servers(
         }
 
         if let Some(definition) = ctx.workflow_config.config.mcp_servers.get(name) {
-            let mut entry_json = serde_json::json!({
-                "command": definition.command,
-                "args": definition.args,
-                "env": definition.env,
-            });
-            if let Some(transport) = &definition.transport {
-                entry_json["transport"] = serde_json::Value::String(transport.clone());
-            }
-            if let Some(url) = &definition.url {
-                entry_json["url"] = serde_json::Value::String(url.clone());
-            }
-            servers.insert(name.to_string(), entry_json);
+            servers.insert(name.to_string(), workflow_mcp_server_json(definition));
             continue;
         }
 
         if let Some(definition) = project_config.mcp_servers.get(name) {
-            let mut entry_json = serde_json::json!({
-                "command": definition.command,
-                "args": definition.args,
-                "env": definition.env,
-            });
-            if let Some(transport) = &definition.transport {
-                entry_json["transport"] = serde_json::Value::String(transport.clone());
+            if !project_server_assigned_to_agent(definition, ctx.phase_agent_id(phase_id).as_deref()) {
+                continue;
             }
-            if let Some(url) = &definition.url {
-                entry_json["url"] = serde_json::Value::String(url.clone());
-            }
-            servers.insert(name.to_string(), entry_json);
+            servers.insert(name.to_string(), project_mcp_server_json(definition));
             continue;
         }
 
@@ -613,7 +619,7 @@ mod tests {
         let mut runtime_contract = serde_json::json!({
             "mcp": {}
         });
-        inject_workflow_mcp_servers(&mut runtime_contract, &ctx, "research");
+        inject_workflow_mcp_servers(&mut runtime_contract, "/Users/samishukri/ao-cli", &ctx, "research");
 
         let additional_servers = runtime_contract
             .pointer("/mcp/additional_servers")
@@ -648,7 +654,7 @@ mod tests {
                 }
             }
         });
-        inject_workflow_mcp_servers(&mut runtime_contract, &ctx, "requirements");
+        inject_workflow_mcp_servers(&mut runtime_contract, "/Users/samishukri/ao-cli", &ctx, "requirements");
 
         assert!(
             runtime_contract.pointer("/mcp/additional_servers").is_none(),
@@ -694,6 +700,113 @@ mod tests {
         assert!(
             runtime_contract.pointer("/mcp/additional_servers").is_none(),
             "named MCP injection should not duplicate the primary ao server"
+        );
+    }
+
+    #[test]
+    fn inject_workflow_mcp_servers_does_not_attach_unreferenced_workflow_servers() {
+        let mut workflow_config = builtin_workflow_config();
+        workflow_config.mcp_servers.insert(
+            "docs".to_string(),
+            McpServerDefinition {
+                command: "node".to_string(),
+                args: vec!["server.js".to_string()],
+                transport: Some("stdio".to_string()),
+                url: None,
+                config: BTreeMap::new(),
+                tools: Vec::new(),
+                env: BTreeMap::new(),
+            },
+        );
+        let loaded_workflow_config = LoadedWorkflowConfig {
+            metadata: WorkflowConfigMetadata {
+                schema: workflow_config.schema.clone(),
+                version: workflow_config.version,
+                hash: workflow_config_hash(&workflow_config),
+                source: WorkflowConfigSource::Builtin,
+            },
+            config: workflow_config,
+            path: PathBuf::from("builtin"),
+        };
+        let ctx = RuntimeConfigContext {
+            agent_runtime_config: builtin_agent_runtime_config(),
+            workflow_config: loaded_workflow_config,
+        };
+
+        let mut runtime_contract = serde_json::json!({
+            "mcp": {
+                "agent_id": "ao",
+                "stdio": {
+                    "command": "/Users/samishukri/ao-cli/target/debug/ao",
+                    "args": ["--project-root", "/Users/samishukri/ao-cli", "mcp", "serve"]
+                }
+            }
+        });
+        inject_workflow_mcp_servers(&mut runtime_contract, "/Users/samishukri/ao-cli", &ctx, "requirements");
+
+        assert!(
+            runtime_contract.pointer("/mcp/additional_servers").is_none(),
+            "workflow MCP definitions should not be attached unless referenced by the phase or agent"
+        );
+    }
+
+    #[test]
+    fn inject_workflow_mcp_servers_resolves_project_config_names() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut workflow_config = builtin_workflow_config();
+        workflow_config
+            .phase_mcp_bindings
+            .insert("requirements".to_string(), PhaseMcpBinding { servers: vec!["docs".to_string()] });
+
+        let loaded_workflow_config = LoadedWorkflowConfig {
+            metadata: WorkflowConfigMetadata {
+                schema: workflow_config.schema.clone(),
+                version: workflow_config.version,
+                hash: workflow_config_hash(&workflow_config),
+                source: WorkflowConfigSource::Builtin,
+            },
+            config: workflow_config,
+            path: PathBuf::from("builtin"),
+        };
+        let ctx = RuntimeConfigContext {
+            agent_runtime_config: builtin_agent_runtime_config(),
+            workflow_config: loaded_workflow_config,
+        };
+
+        let project_config = protocol::Config {
+            agent_runner_token: None,
+            mcp_servers: BTreeMap::from([(
+                "docs".to_string(),
+                protocol::ProjectMcpServerEntry {
+                    command: "project-mcp".to_string(),
+                    args: vec!["serve".to_string()],
+                    env: BTreeMap::from([("DOCS_TOKEN".to_string(), "secret".to_string())]),
+                    assign_to: Vec::new(),
+                    transport: Some("stdio".to_string()),
+                    url: None,
+                },
+            )]),
+            claude_profiles: BTreeMap::new(),
+        };
+        project_config.save(temp.path().to_str().expect("project path should be utf-8")).expect("project config");
+
+        let mut runtime_contract = serde_json::json!({
+            "mcp": {}
+        });
+        inject_workflow_mcp_servers(
+            &mut runtime_contract,
+            temp.path().to_str().expect("project path should be utf-8"),
+            &ctx,
+            "requirements",
+        );
+
+        assert_eq!(
+            runtime_contract.pointer("/mcp/additional_servers/docs/command").and_then(Value::as_str),
+            Some("project-mcp")
+        );
+        assert_eq!(
+            runtime_contract.pointer("/mcp/additional_servers/docs/env/DOCS_TOKEN").and_then(Value::as_str),
+            Some("secret")
         );
     }
 

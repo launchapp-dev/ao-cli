@@ -6,6 +6,7 @@ use rmcp::transport::streamable_http_client::{StreamableHttpClientTransport, Str
 use rmcp::{RoleClient, ServiceExt};
 use serde::Deserialize;
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use tokio::process::Command;
 
@@ -17,6 +18,8 @@ pub struct McpServerConfig {
     pub command: String,
     #[serde(default)]
     pub args: Vec<String>,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
     /// HTTP endpoint URL. When set, uses HTTP/SSE transport instead of stdio.
     #[serde(default)]
     pub url: Option<String>,
@@ -52,6 +55,9 @@ pub async fn connect(config: &McpServerConfig) -> Result<McpClient> {
     let mut cmd = Command::new(&config.command);
     for arg in &config.args {
         cmd.arg(arg);
+    }
+    if !config.env.is_empty() {
+        cmd.envs(config.env.iter());
     }
 
     let transport = TokioChildProcess::new(cmd).context("failed to spawn MCP server process")?;

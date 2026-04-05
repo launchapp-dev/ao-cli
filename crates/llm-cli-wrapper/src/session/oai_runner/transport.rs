@@ -3,6 +3,7 @@ use std::process::Stdio;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
+use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, oneshot};
@@ -77,7 +78,8 @@ pub(crate) fn oai_runner_invocation_for_request(
     request: &SessionRequest,
     resume_session_id: Option<&str>,
 ) -> Result<LaunchInvocation> {
-    if let Some(invocation) = parse_launch_from_runtime_contract(request.extras.get("runtime_contract"))? {
+    if let Some(mut invocation) = parse_launch_from_runtime_contract(request.extras.get("runtime_contract"))? {
+        inject_runtime_contract_mcp_config(&mut invocation, request.extras.get("runtime_contract"))?;
         return Ok(invocation);
     }
 
@@ -100,8 +102,121 @@ pub(crate) fn oai_runner_invocation_for_request(
         env: Default::default(),
         prompt_via_stdin: false,
     };
+    inject_runtime_contract_mcp_config(&mut invocation, request.extras.get("runtime_contract"))?;
     ensure_flag_value(&mut invocation.args, "--format", "json", 1);
     Ok(invocation)
+}
+
+fn inject_runtime_contract_mcp_config(
+    invocation: &mut LaunchInvocation,
+    runtime_contract: Option<&Value>,
+) -> Result<()> {
+    let Some(config_json) = runtime_contract_mcp_config_json(runtime_contract) else {
+        return Ok(());
+    };
+
+    let insert_at = invocation.args.iter().position(|entry| entry == "run").map(|index| index + 1).unwrap_or(0);
+    ensure_flag_value(&mut invocation.args, "--mcp-config", &config_json, insert_at);
+    Ok(())
+}
+
+fn runtime_contract_mcp_config_json(runtime_contract: Option<&Value>) -> Option<String> {
+    let contract = runtime_contract?;
+    let mut servers = Vec::new();
+
+    if let Some(url) =
+        contract.pointer("/mcp/endpoint").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty())
+    {
+        servers.push(serde_json::json!({
+            "url": url,
+            "transport": "http"
+        }));
+    } else if let Some(command) =
+        contract.pointer("/mcp/stdio/command").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty())
+    {
+        let args = contract
+            .pointer("/mcp/stdio/args")
+            .and_then(Value::as_array)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let env = contract
+            .pointer("/mcp/stdio/env")
+            .and_then(Value::as_object)
+            .map(|entries| {
+                entries
+                    .iter()
+                    .filter_map(|(key, value)| value.as_str().map(|value| (key.clone(), value.to_string())))
+                    .collect::<HashMap<_, _>>()
+            })
+            .unwrap_or_default();
+        servers.push(serde_json::json!({
+            "command": command,
+            "args": args,
+            "env": env,
+        }));
+    }
+
+    if let Some(additional) = contract.pointer("/mcp/additional_servers").and_then(Value::as_object) {
+        for entry in additional.values() {
+            if let Some(url) = entry.get("url").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty())
+            {
+                servers.push(serde_json::json!({
+                    "url": url,
+                    "transport": "http"
+                }));
+                continue;
+            }
+
+            let Some(command) =
+                entry.get("command").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty())
+            else {
+                continue;
+            };
+
+            let args = entry
+                .get("args")
+                .and_then(Value::as_array)
+                .map(|values| {
+                    values
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let env = entry
+                .get("env")
+                .and_then(Value::as_object)
+                .map(|entries| {
+                    entries
+                        .iter()
+                        .filter_map(|(key, value)| value.as_str().map(|value| (key.clone(), value.to_string())))
+                        .collect::<HashMap<_, _>>()
+                })
+                .unwrap_or_default();
+            servers.push(serde_json::json!({
+                "command": command,
+                "args": args,
+                "env": env,
+            }));
+        }
+    }
+
+    if servers.is_empty() {
+        None
+    } else {
+        serde_json::to_string(&servers).ok()
+    }
 }
 
 async fn run_oai_runner_session(
@@ -264,6 +379,7 @@ fn kill_process_group(pid: u32) {
 mod tests {
     use super::*;
 
+    use serde_json::json;
     use tokio::process::Command;
     use tokio::sync::oneshot;
 
@@ -299,5 +415,56 @@ mod tests {
             .expect("child should exit after process-group kill")
             .expect("child wait should succeed");
         assert!(!status.success());
+    }
+
+    #[test]
+    fn invocation_derives_mcp_config_from_runtime_contract() {
+        let request = SessionRequest {
+            tool: "oai-runner".to_string(),
+            model: "openrouter/minimax/minimax-m2.7".to_string(),
+            prompt: "hello".to_string(),
+            cwd: ".".into(),
+            project_root: None,
+            mcp_endpoints: vec![],
+            permission_mode: None,
+            timeout_secs: None,
+            env_vars: vec![],
+            extras: json!({
+                "runtime_contract": {
+                    "mcp": {
+                        "endpoint": "https://primary.example/mcp",
+                        "additional_servers": {
+                            "docs": {
+                                "url": "https://docs.example/mcp"
+                            },
+                            "project-stdio": {
+                                "command": "project-mcp",
+                                "args": ["serve"],
+                                "env": {
+                                    "PROJECT_TOKEN": "secret"
+                                }
+                            }
+                        }
+                    }
+                }
+            }),
+        };
+
+        let invocation = oai_runner_invocation_for_request(&request, None).expect("invocation should build");
+        let mcp_idx =
+            invocation.args.iter().position(|arg| arg == "--mcp-config").expect("mcp config flag should be present");
+        let config_json = invocation.args.get(mcp_idx + 1).expect("mcp config payload should exist");
+        let entries: Vec<Value> = serde_json::from_str(config_json).expect("mcp config should parse");
+        assert_eq!(entries.len(), 3);
+        assert!(entries
+            .iter()
+            .any(|entry| entry.get("url").and_then(Value::as_str) == Some("https://primary.example/mcp")));
+        assert!(entries
+            .iter()
+            .any(|entry| entry.get("url").and_then(Value::as_str) == Some("https://docs.example/mcp")));
+        assert!(entries.iter().any(|entry| {
+            entry.get("command").and_then(Value::as_str) == Some("project-mcp")
+                && entry.pointer("/env/PROJECT_TOKEN").and_then(Value::as_str) == Some("secret")
+        }));
     }
 }

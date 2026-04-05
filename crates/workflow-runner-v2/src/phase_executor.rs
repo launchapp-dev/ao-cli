@@ -1122,7 +1122,7 @@ async fn run_workflow_phase_with_agent(params: PhaseAgentParams<'_>) -> Result<A
                     );
                     inject_agent_tool_policy(&mut runtime_contract, ctx, phase_id);
                     inject_project_mcp_servers(&mut runtime_contract, project_root, ctx, phase_id);
-                    inject_workflow_mcp_servers(&mut runtime_contract, ctx, phase_id);
+                    inject_workflow_mcp_servers(&mut runtime_contract, project_root, ctx, phase_id);
                     if let Some(policy) = applied_skills.application.tool_policy.as_ref() {
                         set_mcp_tool_policy(&mut runtime_contract, policy);
                     }
@@ -2261,22 +2261,23 @@ cat "{}"
                 (
                     "docs".to_string(),
                     protocol::ProjectMcpServerEntry {
-                        transport: protocol::ProjectMcpServerTransport::StreamableHttp {
-                            url: "https://docs.example/mcp".to_string(),
-                            auth_token: Some("Bearer docs".to_string()),
-                        },
-                        assign_to: vec!["default".to_string()],
+                        command: String::new(),
+                        args: Vec::new(),
+                        env: BTreeMap::new(),
+                        assign_to: Vec::new(),
+                        transport: Some("http".to_string()),
+                        url: Some("https://docs.example/mcp".to_string()),
                     },
                 ),
                 (
                     "project-stdio".to_string(),
                     protocol::ProjectMcpServerEntry {
-                        transport: protocol::ProjectMcpServerTransport::Stdio {
-                            command: "project-mcp".to_string(),
-                            args: vec!["serve".to_string()],
-                            env: BTreeMap::from([("PROJECT_TOKEN".to_string(), "secret".to_string())]),
-                        },
-                        assign_to: vec!["default".to_string()],
+                        command: "project-mcp".to_string(),
+                        args: vec!["serve".to_string()],
+                        env: BTreeMap::from([("PROJECT_TOKEN".to_string(), "secret".to_string())]),
+                        assign_to: Vec::new(),
+                        transport: Some("stdio".to_string()),
+                        url: None,
                     },
                 ),
             ]),
@@ -2341,8 +2342,10 @@ cat "{}"
 
         let args = read_capture_lines(&args_capture);
         assert_eq!(args.first().map(String::as_str), Some("run"));
-        let mcp_index =
-            args.iter().position(|arg| arg == "--mcp-config").expect("oai-runner launch should include mcp config");
+        let mcp_index = args
+            .iter()
+            .position(|arg| arg == "--mcp-config")
+            .unwrap_or_else(|| panic!("oai-runner launch should include mcp config, got args: {args:?}"));
         let config_json: serde_json::Value =
             serde_json::from_str(args.get(mcp_index + 1).expect("mcp config payload should exist"))
                 .expect("mcp config should parse");
@@ -2358,7 +2361,6 @@ cat "{}"
         assert!(
             entries.iter().any(|entry| {
                 entry.get("url").and_then(serde_json::Value::as_str) == Some("https://docs.example/mcp")
-                    && entry.get("auth_token").and_then(serde_json::Value::as_str) == Some("Bearer docs")
             }),
             "expected project-config HTTP MCP server in launch payload: {entries:?}"
         );

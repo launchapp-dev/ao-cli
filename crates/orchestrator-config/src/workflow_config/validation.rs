@@ -36,7 +36,7 @@ pub fn validate_workflow_and_runtime_configs_with_project_root(
     runtime: &AgentRuntimeConfig,
     project_root: Option<&Path>,
 ) -> Result<()> {
-    validate_workflow_config(workflow)?;
+    validate_workflow_config_with_project_root(workflow, project_root)?;
 
     let mut errors = Vec::new();
     let mut known_claude_profiles: Option<BTreeSet<String>> = None;
@@ -211,6 +211,18 @@ pub fn validate_workflow_config(config: &WorkflowConfig) -> Result<()> {
 
 pub fn validate_workflow_config_with_project_root(config: &WorkflowConfig, project_root: Option<&Path>) -> Result<()> {
     let mut errors = Vec::new();
+    let mut known_project_mcp_servers = BTreeSet::new();
+
+    if let Some(project_root) = project_root {
+        match protocol::Config::load_or_default(&project_root.to_string_lossy()) {
+            Ok(project_config) => {
+                known_project_mcp_servers.extend(project_config.mcp_servers.keys().cloned());
+            }
+            Err(error) => {
+                errors.push(format!("failed to load project AO config for MCP validation: {error}"));
+            }
+        }
+    }
 
     if config.schema.trim() != WORKFLOW_CONFIG_SCHEMA_ID {
         errors.push(format!("schema must be '{}' (got '{}')", WORKFLOW_CONFIG_SCHEMA_ID, config.schema));
@@ -499,7 +511,7 @@ pub fn validate_workflow_config_with_project_root(config: &WorkflowConfig, proje
                 errors.push(format!("agent_profiles['{}'].mcp_servers must not contain empty values", agent_id));
                 continue;
             }
-            if !config.mcp_servers.contains_key(server) {
+            if !config.mcp_servers.contains_key(server) && !known_project_mcp_servers.contains(server) {
                 errors.push(format!(
                     "agent_profiles['{}'].mcp_servers references unknown MCP server '{}'",
                     agent_id, server
@@ -522,7 +534,7 @@ pub fn validate_workflow_config_with_project_root(config: &WorkflowConfig, proje
                 errors.push(format!("phase_mcp_bindings['{}'].servers must not contain empty values", phase_id));
                 continue;
             }
-            if !config.mcp_servers.contains_key(server) {
+            if !config.mcp_servers.contains_key(server) && !known_project_mcp_servers.contains(server) {
                 errors.push(format!(
                     "phase_mcp_bindings['{}'].servers references unknown MCP server '{}'",
                     phase_id, server

@@ -256,10 +256,7 @@ fn runner_retries_after_context_pressure_api_failure_with_a_smaller_request() {
     save_session(&ao_config_dir, session_id, &session_messages);
 
     let server = TestServer::spawn(vec![
-        ResponseSpec::Error {
-            status: 400,
-            body: "maximum context length exceeded".to_string(),
-        },
+        ResponseSpec::Error { status: 400, body: "maximum context length exceeded".to_string() },
         ResponseSpec::Sse(vec![json!({
             "choices": [{
                 "delta": { "content": "summary" }
@@ -298,11 +295,8 @@ fn runner_retries_after_context_pressure_api_failure_with_a_smaller_request() {
     assert!(output.status.success(), "runner should recover: {}", String::from_utf8_lossy(&output.stderr));
 
     let events = stdout_events(&output);
-    let final_result = events
-        .iter()
-        .rev()
-        .find(|event| event["type"] == "result")
-        .and_then(|event| event["text"].as_str());
+    let final_result =
+        events.iter().rev().find(|event| event["type"] == "result").and_then(|event| event["text"].as_str());
     assert_eq!(
         final_result,
         Some("Recovered after retry"),
@@ -372,12 +366,7 @@ fn runner_surfaces_shell_timeout_cleanup_through_the_main_loop() {
         .iter()
         .find(|event| event["type"] == "tool_result" && event["tool_name"] == "execute_command")
         .expect("expected execute_command tool result");
-    assert!(
-        shell_result["output"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("Command timed out after 1s")
-    );
+    assert!(shell_result["output"].as_str().unwrap_or_default().contains("Command timed out after 1s"));
     assert_eq!(events.last().and_then(|event| event["text"].as_str()), Some("shell done"));
 
     thread::sleep(Duration::from_millis(1500));

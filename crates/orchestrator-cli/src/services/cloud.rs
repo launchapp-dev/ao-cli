@@ -525,12 +525,7 @@ async fn handle_destroy(args: DeployDestroyArgs, project_root: &str, json: bool)
 
     let client = build_client(&token)?;
     let resp = client
-        .delete(&format!(
-            "{}/api/cli/projects/{}/daemons/{}",
-            server.trim_end_matches('/'),
-            project_id,
-            daemon_id
-        ))
+        .delete(&format!("{}/api/cli/projects/{}/daemons/{}", server.trim_end_matches('/'), project_id, daemon_id))
         .send()
         .await
         .context("Failed to connect to daemon destruction endpoint")?;
@@ -549,7 +544,8 @@ async fn handle_destroy(args: DeployDestroyArgs, project_root: &str, json: bool)
     deploy_config.status = Some("destroyed".to_string());
     deploy_config.save_for_project(project_root)?;
 
-    let result = DeployDestroyResult { app_name: args.app_name, status: "destroyed".to_string(), machines_destroyed: 1 };
+    let result =
+        DeployDestroyResult { app_name: args.app_name, status: "destroyed".to_string(), machines_destroyed: 1 };
 
     if !json {
         eprintln!("Deployment destroyed successfully!");
@@ -845,12 +841,7 @@ async fn handle_start(args: DeployStartArgs, project_root: &str, json: bool) -> 
 
     let client = build_client(&token)?;
     let resp = client
-        .post(&format!(
-            "{}/api/cli/projects/{}/daemons/{}/start",
-            server.trim_end_matches('/'),
-            project_id,
-            daemon_id
-        ))
+        .post(&format!("{}/api/cli/projects/{}/daemons/{}/start", server.trim_end_matches('/'), project_id, daemon_id))
         .send()
         .await
         .context("Failed to connect to daemon start endpoint")?;
@@ -910,12 +901,7 @@ async fn handle_stop(args: DeployStopArgs, project_root: &str, json: bool) -> Re
 
     let client = build_client(&token)?;
     let resp = client
-        .post(&format!(
-            "{}/api/cli/projects/{}/daemons/{}/stop",
-            server.trim_end_matches('/'),
-            project_id,
-            daemon_id
-        ))
+        .post(&format!("{}/api/cli/projects/{}/daemons/{}/stop", server.trim_end_matches('/'), project_id, daemon_id))
         .send()
         .await
         .context("Failed to connect to daemon stop endpoint")?;
@@ -976,12 +962,7 @@ async fn handle_status_deploy(args: DeployStatusArgs, project_root: &str, json: 
 
     let client = build_client(&token)?;
     let resp = client
-        .get(&format!(
-            "{}/api/cli/projects/{}/daemons/{}",
-            server.trim_end_matches('/'),
-            project_id,
-            daemon_id
-        ))
+        .get(&format!("{}/api/cli/projects/{}/daemons/{}", server.trim_end_matches('/'), project_id, daemon_id))
         .send()
         .await
         .context("Failed to connect to daemon status endpoint")?;

@@ -8,6 +8,7 @@
 pub mod agent_runner;
 pub mod common;
 pub mod config;
+pub mod config_bundle;
 pub mod credentials;
 pub mod daemon;
 pub mod daemon_event_record;
@@ -30,6 +31,7 @@ pub use config::{
     cli_tracker_path, daemon_events_log_path, default_allowed_tool_prefixes, parse_env_bool, parse_env_bool_opt,
     ClaudeProfileEntry, Config, ProjectMcpServerEntry,
 };
+pub use config_bundle::ConfigBundle;
 pub use daemon::*;
 pub use daemon_event_record::*;
 pub use deploy_config::DeployConfig;

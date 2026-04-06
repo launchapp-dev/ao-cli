@@ -6,7 +6,7 @@ pub(crate) enum CloudCommand {
     Login(CloudLoginArgs),
     /// Configure the sync server connection for this project.
     Setup(CloudSetupArgs),
-    /// Push local tasks and requirements to the sync server.
+    /// Push local tasks, requirements, and workflow config to the sync server.
     Push,
     /// Pull tasks and requirements from the sync server into local state.
     Pull,

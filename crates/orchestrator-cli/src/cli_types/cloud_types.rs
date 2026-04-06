@@ -23,7 +23,11 @@ pub(crate) enum CloudCommand {
 
 #[derive(Debug, Parser)]
 pub(crate) struct CloudLoginArgs {
-    #[arg(long, env = "ANIMUS_CLOUD_URL", help = "Animus Cloud URL [default: https://animus.launchapp.dev] [env: ANIMUS_CLOUD_URL]")]
+    #[arg(
+        long,
+        env = "ANIMUS_CLOUD_URL",
+        help = "Animus Cloud URL [default: https://animus.launchapp.dev] [env: ANIMUS_CLOUD_URL]"
+    )]
     pub(crate) server: Option<String>,
     #[arg(long, help = "Skip opening browser (print URL instead)")]
     pub(crate) no_browser: bool,

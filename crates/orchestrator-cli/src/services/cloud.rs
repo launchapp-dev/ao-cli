@@ -32,16 +32,15 @@ pub(crate) async fn handle_cloud(
 }
 
 async fn handle_login(args: CloudLoginArgs, json: bool) -> Result<()> {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
 
     let server = args.server.unwrap_or_else(|| "https://animus.launchapp.dev".to_string());
     let server = server.trim_end_matches('/');
     let client_id = "animus-cli";
 
     // Step 1: Start a local HTTP server to receive the OAuth callback
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .context("Failed to bind local callback server")?;
+    let listener =
+        tokio::net::TcpListener::bind("127.0.0.1:0").await.context("Failed to bind local callback server")?;
     let port = listener.local_addr()?.port();
     let redirect_uri = format!("http://localhost:{}/callback", port);
 

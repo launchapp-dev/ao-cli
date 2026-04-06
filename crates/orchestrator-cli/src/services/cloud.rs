@@ -38,10 +38,12 @@ async fn handle_login(args: CloudLoginArgs, json: bool) -> Result<()> {
     let server = server.trim_end_matches('/');
     let client_id = "animus-cli";
 
-    // Step 1: Start a local HTTP server to receive the OAuth callback
-    let listener =
-        tokio::net::TcpListener::bind("127.0.0.1:0").await.context("Failed to bind local callback server")?;
-    let port = listener.local_addr()?.port();
+    // Step 1: Start a local HTTP server on a fixed port for the OAuth callback.
+    // Port 19823 is registered as a valid redirect_uri in the Animus Cloud OAuth client.
+    let port: u16 = 19823;
+    let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port))
+        .await
+        .context("Failed to bind port 19823. Is another animus login running?")?;
     let redirect_uri = format!("http://localhost:{}/callback", port);
 
     // Step 2: Generate PKCE code verifier + challenge (S256)

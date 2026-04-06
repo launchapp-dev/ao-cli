@@ -12,6 +12,25 @@ pub(crate) enum CloudCommand {
     Status,
     /// Link this project to a specific remote project by ID.
     Link(CloudLinkArgs),
+    /// Manage deployments on ao-cloud.
+    Deploy {
+        #[command(subcommand)]
+        command: DeployCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum DeployCommand {
+    /// Create a new deployment
+    Create(DeployCreateArgs),
+    /// Destroy an existing deployment
+    Destroy(DeployDestroyArgs),
+    /// Start a created deployment
+    Start(DeployStartArgs),
+    /// Stop a running deployment
+    Stop(DeployStopArgs),
+    /// Show deployment state
+    Status(DeployStatusArgs),
 }
 
 #[derive(Debug, Parser)]
@@ -26,4 +45,38 @@ pub(crate) struct CloudSetupArgs {
 pub(crate) struct CloudLinkArgs {
     #[arg(long, help = "Remote project ID to link to")]
     pub(crate) project_id: String,
+}
+
+#[derive(Debug, Parser)]
+pub(crate) struct DeployCreateArgs {
+    #[arg(long, help = "Application name for the deployment")]
+    pub(crate) app_name: String,
+    #[arg(long, help = "Deployment region (e.g., fra)")]
+    pub(crate) region: String,
+    #[arg(long, help = "Machine size (e.g., shared-cpu-1x, performance-1x)")]
+    pub(crate) machine_size: String,
+}
+
+#[derive(Debug, Parser)]
+pub(crate) struct DeployDestroyArgs {
+    #[arg(long, help = "Application name of the deployment to destroy")]
+    pub(crate) app_name: String,
+}
+
+#[derive(Debug, Parser)]
+pub(crate) struct DeployStartArgs {
+    #[arg(long, help = "Application name of the deployment to start")]
+    pub(crate) app_name: String,
+}
+
+#[derive(Debug, Parser)]
+pub(crate) struct DeployStopArgs {
+    #[arg(long, help = "Application name of the deployment to stop")]
+    pub(crate) app_name: String,
+}
+
+#[derive(Debug, Parser)]
+pub(crate) struct DeployStatusArgs {
+    #[arg(long, help = "Application name to check status for")]
+    pub(crate) app_name: String,
 }

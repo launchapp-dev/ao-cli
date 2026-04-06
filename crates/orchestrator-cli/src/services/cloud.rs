@@ -168,11 +168,55 @@ async fn handle_setup(args: CloudSetupArgs, project_root: &str, json: bool) -> R
 }
 
 async fn handle_link(args: CloudLinkArgs, project_root: &str, json: bool) -> Result<()> {
+    let config = SyncConfig::load_for_project(project_root);
+    let server = config.server_url()?;
+    let token = config.bearer_token()?;
+
+    let project_id = if let Some(ref id) = args.project_id {
+        // Explicit project_id provided
+        id.clone()
+    } else {
+        // Auto-detect from git remote
+        let origin_url = get_git_origin(project_root)
+            .ok_or_else(|| anyhow::anyhow!("Could not detect git remote. Run: animus cloud link --project-id <id>"))?;
+
+        let (owner, repo) = parse_github_repo(&origin_url)
+            .ok_or_else(|| anyhow::anyhow!("Could not parse GitHub repo from remote URL: {}. Run: animus cloud link --project-id <id>", origin_url))?;
+
+        // Call /api/cli/projects/ensure to check for GitHub App installation
+        let client = build_client(&token)?;
+        let ensure_url = format!(
+            "{}/api/cli/projects/ensure?owner={}&repo={}",
+            server.trim_end_matches('/'),
+            urlencoding(&owner),
+            urlencoding(&repo)
+        );
+
+        let resp = client
+            .post(&ensure_url)
+            .send()
+            .await
+            .context("Failed to connect to projects endpoint")?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            if status.as_u16() == 404 {
+                anyhow::bail!("No GitHub App installation found for {}/{}. Run: animus cloud link --project-id <id>", owner, repo);
+            }
+            anyhow::bail!("Project detection failed ({status}): {body}");
+        }
+
+        let body = resp.json::<EnsureProjectResponse>().await
+            .context("Failed to parse projects response")?;
+        body.project_id
+    };
+
     let mut config = SyncConfig::load_for_project(project_root);
-    config.project_id = Some(args.project_id.clone());
+    config.project_id = Some(project_id.clone());
     config.save_for_project(project_root)?;
 
-    let result = serde_json::json!({ "linked": true, "project_id": args.project_id });
+    let result = serde_json::json!({ "linked": true, "project_id": project_id });
     print_value(result, json)
 }
 
@@ -442,6 +486,90 @@ fn urlencoding(s: &str) -> String {
         .collect()
 }
 
+fn parse_github_repo(url: &str) -> Option<(String, String)> {
+    // Handle both HTTPS and SSH GitHub URLs
+    // HTTPS: https://github.com/owner/repo or https://github.com/owner/repo.git
+    // SSH: git@github.com:owner/repo or git@github.com:owner/repo.git
+
+    let url = url.trim();
+
+    // SSH URL format: git@github.com:owner/repo[.git]
+    if let Some(stripped) = url.strip_prefix("git@github.com:") {
+        let repo_part = stripped.trim_end_matches(".git").trim_end_matches('/');
+        let parts: Vec<&str> = repo_part.split('/').collect();
+        if parts.len() >= 2 {
+            return Some((parts[0].to_string(), parts[1].to_string()));
+        }
+    }
+
+    // HTTPS URL format: https://github.com/owner/repo[.git]
+    if let Some(stripped) = url.strip_prefix("https://github.com/") {
+        let repo_part = stripped.trim_end_matches(".git").trim_end_matches('/');
+        let parts: Vec<&str> = repo_part.split('/').collect();
+        if parts.len() >= 2 {
+            return Some((parts[0].to_string(), parts[1].to_string()));
+        }
+    }
+
+    // Also try with http (less common but possible)
+    if let Some(stripped) = url.strip_prefix("http://github.com/") {
+        let repo_part = stripped.trim_end_matches(".git").trim_end_matches('/');
+        let parts: Vec<&str> = repo_part.split('/').collect();
+        if parts.len() >= 2 {
+            return Some((parts[0].to_string(), parts[1].to_string()));
+        }
+    }
+
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_github_repo_https() {
+        let result = parse_github_repo("https://github.com/anthropics/claude-code");
+        assert_eq!(result, Some(("anthropics".to_string(), "claude-code".to_string())));
+    }
+
+    #[test]
+    fn test_parse_github_repo_https_with_git() {
+        let result = parse_github_repo("https://github.com/anthropics/claude-code.git");
+        assert_eq!(result, Some(("anthropics".to_string(), "claude-code".to_string())));
+    }
+
+    #[test]
+    fn test_parse_github_repo_ssh() {
+        let result = parse_github_repo("git@github.com:anthropics/claude-code");
+        assert_eq!(result, Some(("anthropics".to_string(), "claude-code".to_string())));
+    }
+
+    #[test]
+    fn test_parse_github_repo_ssh_with_git() {
+        let result = parse_github_repo("git@github.com:anthropics/claude-code.git");
+        assert_eq!(result, Some(("anthropics".to_string(), "claude-code".to_string())));
+    }
+
+    #[test]
+    fn test_parse_github_repo_with_trailing_slash() {
+        let result = parse_github_repo("https://github.com/anthropics/claude-code/");
+        assert_eq!(result, Some(("anthropics".to_string(), "claude-code".to_string())));
+    }
+
+    #[test]
+    fn test_parse_github_repo_http() {
+        let result = parse_github_repo("http://github.com/anthropics/claude-code");
+        assert_eq!(result, Some(("anthropics".to_string(), "claude-code".to_string())));
+    }
+
+    #[test]
+    fn test_parse_github_repo_invalid() {
+        let result = parse_github_repo("https://gitlab.com/anthropics/claude-code");
+        assert_eq!(result, None);
+    }
+}
+
 #[derive(Serialize)]
 struct SetupResult {
     server: String,
@@ -483,6 +611,11 @@ struct ProjectResponse {
 struct ProjectInfo {
     id: String,
     name: String,
+}
+
+#[derive(Deserialize)]
+struct EnsureProjectResponse {
+    project_id: String,
 }
 
 #[derive(Serialize)]

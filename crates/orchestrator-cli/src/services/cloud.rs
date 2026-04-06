@@ -32,39 +32,21 @@ pub(crate) async fn handle_cloud(
 }
 
 async fn handle_login(args: CloudLoginArgs, json: bool) -> Result<()> {
-    use sha2::{Digest, Sha256};
-
     let server = args.server.unwrap_or_else(|| "https://animus.launchapp.dev".to_string());
     let server = server.trim_end_matches('/');
-    let client_id = "animus-cli";
 
-    // Step 1: Start a local HTTP server on a fixed port for the OAuth callback.
-    // Port 19823 is registered as a valid redirect_uri in the Animus Cloud OAuth client.
+    // Step 1: Start a local HTTP server to receive the session token
     let port: u16 = 19823;
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port))
         .await
         .context("Failed to bind port 19823. Is another animus login running?")?;
-    let redirect_uri = format!("http://localhost:{}/callback", port);
-
-    // Step 2: Generate PKCE code verifier + challenge (S256)
-    let code_verifier = uuid::Uuid::new_v4().to_string() + &uuid::Uuid::new_v4().to_string();
-    let code_challenge = {
-        let mut hasher = Sha256::new();
-        hasher.update(code_verifier.as_bytes());
-        let hash = hasher.finalize();
-        base64_url_encode(&hash)
-    };
     let state = uuid::Uuid::new_v4().to_string();
 
-    // Step 3: Open browser to the OAuth 2.1 authorize endpoint
+    // Step 2: Open browser to the cloud CLI auth endpoint
+    // Flow: /api/cli/auth/start → GitHub OAuth → /api/cli/auth/complete → localhost:19823/callback?token=TOKEN
     let auth_url = format!(
-        "{}/api/auth/oauth2/authorize?client_id={}&response_type=code&redirect_uri={}&scope={}&state={}&code_challenge={}&code_challenge_method=S256",
-        server,
-        client_id,
-        urlencoding::encode(&redirect_uri),
-        urlencoding::encode("openid profile email offline_access"),
-        urlencoding::encode(&state),
-        urlencoding::encode(&code_challenge),
+        "{}/api/cli/auth/start?port={}&state={}",
+        server, port, urlencoding::encode(&state),
     );
 
     if args.no_browser {
@@ -80,8 +62,8 @@ async fn handle_login(args: CloudLoginArgs, json: bool) -> Result<()> {
         }
     }
 
-    // Step 4: Wait for the authorization code callback
-    let auth_code = tokio::time::timeout(Duration::from_secs(120), async {
+    // Step 3: Wait for the cloud to redirect back with the session token
+    let token = tokio::time::timeout(Duration::from_secs(120), async {
         let (stream, _) = listener.accept().await.context("Failed to accept connection")?;
 
         let mut buf = vec![0u8; 4096];
@@ -92,8 +74,7 @@ async fn handle_login(args: CloudLoginArgs, json: bool) -> Result<()> {
         let path = request.lines().next().unwrap_or("");
         let url_part = path.split_whitespace().nth(1).unwrap_or("");
 
-        let mut received_code = None;
-        let mut received_state = None;
+        let mut received_token = None;
         let mut received_error = None;
 
         if let Some(query) = url_part.split('?').nth(1) {
@@ -102,8 +83,7 @@ async fn handle_login(args: CloudLoginArgs, json: bool) -> Result<()> {
                 let key = kv.next().unwrap_or("");
                 let value = kv.next().unwrap_or("");
                 match key {
-                    "code" => received_code = Some(urlencoding::decode(value).unwrap_or_default().to_string()),
-                    "state" => received_state = Some(urlencoding::decode(value).unwrap_or_default().to_string()),
+                    "token" => received_token = Some(urlencoding::decode(value).unwrap_or_default().to_string()),
                     "error" => received_error = Some(urlencoding::decode(value).unwrap_or_default().to_string()),
                     _ => {}
                 }
@@ -111,7 +91,7 @@ async fn handle_login(args: CloudLoginArgs, json: bool) -> Result<()> {
         }
 
         // Send browser response
-        let (status, html) = if received_code.is_some() {
+        let (status, html) = if received_token.is_some() {
             ("200 OK", "<html><body><h1>Authentication successful!</h1><p>You can close this tab and return to the terminal.</p></body></html>")
         } else {
             ("400 Bad Request", "<html><body><h1>Authentication failed</h1><p>Please try again.</p></body></html>")
@@ -127,47 +107,15 @@ async fn handle_login(args: CloudLoginArgs, json: bool) -> Result<()> {
             anyhow::bail!("OAuth error: {}", err);
         }
 
-        // Validate state
-        if received_state.as_deref() != Some(&state) {
-            anyhow::bail!("State mismatch — possible CSRF. Try again.");
-        }
-
-        received_code.ok_or_else(|| anyhow::anyhow!("No authorization code received"))
+        received_token.ok_or_else(|| anyhow::anyhow!("No token received. Check that login completed in your browser."))
     })
     .await
     .map_err(|_| anyhow::anyhow!("Authentication timeout — user did not complete login within 2 minutes"))??;
 
-    // Step 5: Exchange authorization code for tokens
-    if !json {
-        eprintln!("Exchanging authorization code for token...");
-    }
-
-    let http_client = reqwest::Client::new();
-    let token_resp = http_client
-        .post(&format!("{}/api/auth/oauth2/token", server))
-        .form(&[
-            ("grant_type", "authorization_code"),
-            ("code", &auth_code),
-            ("code_verifier", &code_verifier),
-            ("client_id", client_id),
-            ("redirect_uri", &redirect_uri),
-        ])
-        .send()
-        .await
-        .context("Failed to exchange authorization code")?;
-
-    if !token_resp.status().is_success() {
-        let status = token_resp.status();
-        let body = token_resp.text().await.unwrap_or_default();
-        anyhow::bail!("Token exchange failed ({status}): {body}");
-    }
-
-    let token_data: TokenResponse = token_resp.json().await.context("Failed to parse token response")?;
-
-    // Step 6: Store tokens in SyncConfig
+    // Step 4: Store token
     let mut config = SyncConfig::load_global();
     config.server = Some(server.to_string());
-    config.token = Some(token_data.access_token.clone());
+    config.token = Some(token.clone());
     config.save_global()?;
 
     let result = LoginResult {

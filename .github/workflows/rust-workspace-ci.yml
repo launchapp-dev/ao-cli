@@ -98,8 +98,8 @@ jobs:
       - name: Cache Cargo build artifacts
         uses: Swatinem/rust-cache@v2
 
-      - name: Smoke test ao help
-        run: cargo run --locked -p orchestrator-cli --bin ao -- --help
+      - name: Smoke test animus help
+        run: cargo run --locked -p orchestrator-cli --bin animus -- --help
 
       - name: Smoke test llm-cli-wrapper help
         run: cargo run --locked -p llm-cli-wrapper --bin llm-cli-wrapper -- --help

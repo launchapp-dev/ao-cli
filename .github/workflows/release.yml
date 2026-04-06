@@ -224,7 +224,7 @@ jobs:
           stage_dir = Path(os.environ["STAGE_DIR"])
           metadata_path = stage_dir / "release-metadata.json"
           metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-          expected_binaries = ["ao", "agent-runner", "llm-cli-wrapper", "ao-oai-runner", "ao-workflow-runner"]
+          expected_binaries = ["animus", "agent-runner", "llm-cli-wrapper", "ao-oai-runner", "ao-workflow-runner"]
 
           required_pairs = {
               "schema": "ao.release.v1",

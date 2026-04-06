@@ -247,7 +247,7 @@ ao
 │   ├── push                 Push local tasks, requirements, and workflow config to the sync server
 │   ├── pull                 Pull tasks and requirements from the sync server into local state
 │   ├── status               Show sync configuration and last sync status
-│   ├── link                 Link this project to a specific remote project by ID
+│   ├── link                 Link this project (auto-detects from git remote or uses explicit project ID)
 │   └── deploy               Manage deployments on ao-cloud
 │
 └── doctor                   Run environment and configuration diagnostics

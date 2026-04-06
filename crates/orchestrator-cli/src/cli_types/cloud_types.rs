@@ -53,8 +53,8 @@ pub(crate) struct CloudSetupArgs {
 
 #[derive(Debug, Parser)]
 pub(crate) struct CloudLinkArgs {
-    #[arg(long, help = "Remote project ID to link to")]
-    pub(crate) project_id: String,
+    #[arg(long, help = "Remote project ID to link to (auto-detects from git remote if not provided)")]
+    pub(crate) project_id: Option<String>,
 }
 
 #[derive(Debug, Parser)]

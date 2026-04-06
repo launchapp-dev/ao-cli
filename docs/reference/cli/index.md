@@ -244,7 +244,7 @@ ao
 ├── cloud                    Sync tasks and requirements with a remote ao-sync server
 │   ├── login                Authenticate with animus cloud using device auth flow
 │   ├── setup                Configure the sync server connection for this project
-│   ├── push                 Push local tasks and requirements to the sync server
+│   ├── push                 Push local tasks, requirements, and workflow config to the sync server
 │   ├── pull                 Pull tasks and requirements from the sync server into local state
 │   ├── status               Show sync configuration and last sync status
 │   ├── link                 Link this project to a specific remote project by ID

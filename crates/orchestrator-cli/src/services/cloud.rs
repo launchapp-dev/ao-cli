@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -5,7 +6,7 @@ use anyhow::{Context, Result};
 use orchestrator_core::{FileServiceHub, ServiceHub};
 use protocol::orchestrator::{OrchestratorTask, RequirementItem};
 use protocol::sync_config::SyncConfig;
-use protocol::DeployConfig;
+use protocol::{ConfigBundle, DeployConfig};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -175,6 +176,44 @@ async fn handle_link(args: CloudLinkArgs, project_root: &str, json: bool) -> Res
     print_value(result, json)
 }
 
+fn build_config_bundle(project_root: &str) -> Result<ConfigBundle> {
+    let mut bundle = ConfigBundle::new();
+    let ao_dir = PathBuf::from(project_root).join(".ao");
+
+    // Collect workflow YAML files
+    if let Ok(entries) = std::fs::read_dir(ao_dir.join("workflows")) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().map_or(false, |ext| ext == "yaml" || ext == "yml") {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    if let Some(file_name) = path.file_name() {
+                        let key = format!(".ao/workflows/{}", file_name.to_string_lossy());
+                        bundle.add_file(key, content);
+                    }
+                }
+            }
+        }
+    }
+
+    // Collect root workflows.yaml
+    let workflows_file = ao_dir.join("workflows.yaml");
+    if workflows_file.exists() {
+        if let Ok(content) = std::fs::read_to_string(&workflows_file) {
+            bundle.add_file(".ao/workflows.yaml".to_string(), content);
+        }
+    }
+
+    // Collect config.json
+    let config_file = ao_dir.join("config.json");
+    if config_file.exists() {
+        if let Ok(content) = std::fs::read_to_string(&config_file) {
+            bundle.add_file(".ao/config.json".to_string(), content);
+        }
+    }
+
+    Ok(bundle)
+}
+
 async fn handle_push(hub: Arc<FileServiceHub>, project_root: &str, json: bool) -> Result<()> {
     let config = SyncConfig::load_for_project(project_root);
     let server = config.server_url()?;
@@ -205,6 +244,25 @@ async fn handle_push(hub: Arc<FileServiceHub>, project_root: &str, json: bool) -
 
     let sync_resp: SyncResponse = resp.json().await.context("Failed to parse sync response")?;
 
+    // Push config bundle to cloud
+    let config_bundle = build_config_bundle(project_root)?;
+    let config_files_count = config_bundle.file_count();
+
+    if !config_bundle.is_empty() {
+        let config_resp = client
+            .post(&format!("{}/api/projects/{}/configs", server.trim_end_matches('/'), project_id))
+            .json(&config_bundle)
+            .send()
+            .await
+            .context("Failed to connect to configs endpoint")?;
+
+        if !config_resp.status().is_success() {
+            let status = config_resp.status();
+            let body = config_resp.text().await.unwrap_or_default();
+            anyhow::bail!("Config push failed ({status}): {body}");
+        }
+    }
+
     let mut config = SyncConfig::load_for_project(project_root);
     config.last_synced_at = Some(sync_resp.server_time.clone());
     config.save_for_project(project_root)?;
@@ -212,6 +270,7 @@ async fn handle_push(hub: Arc<FileServiceHub>, project_root: &str, json: bool) -
     let result = PushResult {
         tasks_sent: tasks_count,
         requirements_sent: reqs_count,
+        config_files_sent: config_files_count,
         conflicts: sync_resp.conflicts.len(),
         server_time: sync_resp.server_time,
     };
@@ -395,6 +454,7 @@ struct SetupResult {
 struct PushResult {
     tasks_sent: usize,
     requirements_sent: usize,
+    config_files_sent: usize,
     conflicts: usize,
     server_time: String,
 }

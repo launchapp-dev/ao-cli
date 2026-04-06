@@ -32,99 +32,103 @@ pub(crate) async fn handle_cloud(
 }
 
 async fn handle_login(args: CloudLoginArgs, json: bool) -> Result<()> {
-    let server = args.server.unwrap_or_else(|| "https://api.animus.cloud".to_string());
+    let server = args.server.unwrap_or_else(|| "https://animus.launchapp.dev".to_string());
     let server = server.trim_end_matches('/');
 
-    // Step 1: Initiate device auth flow
-    let client = reqwest::Client::new();
-    let resp = client
-        .post(&format!("{}/api/cli/auth/initiate", server))
-        .send()
+    // Step 1: Start a local HTTP server to receive the OAuth callback
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
-        .context("Failed to connect to auth server")?;
+        .context("Failed to bind local callback server")?;
+    let port = listener.local_addr()?.port();
+    let state = uuid::Uuid::new_v4().to_string();
 
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        anyhow::bail!("Auth initiation failed ({status}): {body}");
-    }
+    // Step 2: Open browser to the cloud auth endpoint
+    let auth_url = format!(
+        "{}/api/cli/auth/start?port={}&state={}",
+        server, port, state
+    );
 
-    let auth_response: AuthInitiateResponse = resp.json().await.context("Failed to parse auth response")?;
-
-    // Step 2: Open browser or print URL
-    let auth_url = &auth_response.auth_url;
     if args.no_browser {
         if !json {
             eprintln!("Open the following URL in your browser to authenticate:");
             eprintln!("{}", auth_url);
-            eprintln!("Device code: {}", auth_response.device_code);
         }
     } else {
-        // Attempt to open browser
-        let _ = open_browser(auth_url);
+        let _ = open_browser(&auth_url);
         if !json {
             eprintln!("Opening browser for authentication...");
             eprintln!("If browser did not open, visit: {}", auth_url);
         }
     }
 
-    // Step 3: Poll for completion
-    let max_attempts = 120; // 2 minutes with 1 second polling
-    let poll_interval = Duration::from_secs(1);
+    // Step 3: Wait for the cloud to redirect back to localhost with the token
+    // The cloud redirects to: http://localhost:{port}/callback?token=TOKEN&state=STATE
+    let token = tokio::time::timeout(Duration::from_secs(120), async {
+        let (stream, _) = listener.accept().await.context("Failed to accept connection")?;
 
-    for attempt in 0..max_attempts {
-        tokio::time::sleep(poll_interval).await;
+        let mut buf = vec![0u8; 4096];
+        stream.readable().await?;
+        let n = stream.try_read(&mut buf).unwrap_or(0);
+        let request = String::from_utf8_lossy(&buf[..n]).to_string();
 
-        let resp = client
-            .post(&format!("{}/api/cli/auth/complete", server))
-            .json(&AuthCompleteRequest { device_code: auth_response.device_code.clone() })
-            .send()
-            .await;
+        // Parse the GET request to extract token and state from query params
+        let path = request.lines().next().unwrap_or("");
+        let url_part = path.split_whitespace().nth(1).unwrap_or("");
 
-        match resp {
-            Ok(r) if r.status().is_success() => {
-                let complete_response: AuthCompleteResponse =
-                    r.json().await.context("Failed to parse completion response")?;
+        let mut received_token = None;
+        let mut received_state = None;
 
-                // Step 4: Store token in SyncConfig
-                let mut config = SyncConfig::load_global();
-                config.server = Some(server.to_string());
-                config.token = Some(complete_response.token.clone());
-                config.save_global()?;
-
-                let result = LoginResult {
-                    authenticated: true,
-                    server: server.to_string(),
-                    message: "Successfully authenticated with animus cloud".to_string(),
-                };
-
-                if !json {
-                    eprintln!("✓ Authentication successful!");
-                    eprintln!("Server: {}", server);
+        if let Some(query) = url_part.split('?').nth(1) {
+            for param in query.split('&') {
+                let mut kv = param.splitn(2, '=');
+                let key = kv.next().unwrap_or("");
+                let value = kv.next().unwrap_or("");
+                match key {
+                    "token" => received_token = Some(urlencoding::decode(value).unwrap_or_default().to_string()),
+                    "state" => received_state = Some(urlencoding::decode(value).unwrap_or_default().to_string()),
+                    _ => {}
                 }
-
-                return print_value(result, json);
-            }
-            Ok(r) if r.status().as_u16() == 400 => {
-                // Not yet complete, continue polling
-                continue;
-            }
-            Ok(r) => {
-                let status = r.status();
-                let body = r.text().await.unwrap_or_default();
-                anyhow::bail!("Auth completion failed ({status}): {body}");
-            }
-            Err(e) if attempt < max_attempts - 1 => {
-                // Network error, retry
-                continue;
-            }
-            Err(e) => {
-                anyhow::bail!("Auth completion request failed: {}", e);
             }
         }
+
+        // Send a response to the browser
+        let html = "<html><body><h1>Authentication successful!</h1><p>You can close this tab and return to the terminal.</p></body></html>";
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            html.len(),
+            html
+        );
+        stream.writable().await?;
+        let _ = stream.try_write(response.as_bytes());
+
+        // Validate state to prevent CSRF
+        if received_state.as_deref() != Some(&state) {
+            anyhow::bail!("State mismatch — possible CSRF attack. Try again.");
+        }
+
+        received_token.ok_or_else(|| anyhow::anyhow!("No token received in callback"))
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("Authentication timeout — user did not complete login within 2 minutes"))??;
+
+    // Step 4: Store token in SyncConfig
+    let mut config = SyncConfig::load_global();
+    config.server = Some(server.to_string());
+    config.token = Some(token.clone());
+    config.save_global()?;
+
+    let result = LoginResult {
+        authenticated: true,
+        server: server.to_string(),
+        message: "Successfully authenticated with animus cloud".to_string(),
+    };
+
+    if !json {
+        eprintln!("✓ Authentication successful!");
+        eprintln!("Server: {}", server);
     }
 
-    anyhow::bail!("Authentication timeout - user did not complete login within 2 minutes")
+    print_value(result, json)
 }
 
 async fn handle_setup(args: CloudSetupArgs, project_root: &str, json: bool) -> Result<()> {
@@ -1030,22 +1034,6 @@ struct DeployStatusDeployResult {
     region: Option<String>,
     machines: Vec<String>,
     last_deployed_at: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct AuthInitiateResponse {
-    device_code: String,
-    auth_url: String,
-}
-
-#[derive(Serialize)]
-struct AuthCompleteRequest {
-    device_code: String,
-}
-
-#[derive(Deserialize)]
-struct AuthCompleteResponse {
-    token: String,
 }
 
 #[derive(Serialize)]

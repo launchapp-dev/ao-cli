@@ -1,5 +1,5 @@
 # ── Stage 1: Build all daemon binaries ─────────────────────────────────────────
-FROM rust:1.85-bookworm AS builder
+FROM rust:1.89-bookworm AS builder
 
 ARG TARGETARCH=amd64
 ARG BUILDARCH=amd64

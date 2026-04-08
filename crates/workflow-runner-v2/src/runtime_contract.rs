@@ -836,10 +836,12 @@ mod tests {
 
         // Verify that evidence is NOT in the required fields when required_evidence is empty
         let required_fields = schema.get("required").and_then(Value::as_array).expect("required should be an array");
-        let required_field_strings: Vec<&str> =
-            required_fields.iter().filter_map(|v| v.as_str()).collect();
+        let required_field_strings: Vec<&str> = required_fields.iter().filter_map(|v| v.as_str()).collect();
 
-        assert!(!required_field_strings.contains(&"evidence"), "evidence should not be required when required_evidence is empty");
+        assert!(
+            !required_field_strings.contains(&"evidence"),
+            "evidence should not be required when required_evidence is empty"
+        );
         assert!(required_field_strings.contains(&"verdict"), "verdict should be required");
         assert!(required_field_strings.contains(&"confidence"), "confidence should be required");
 

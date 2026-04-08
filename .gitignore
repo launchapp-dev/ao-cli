@@ -42,6 +42,9 @@ docs/.vitepress/dist/
 # Claude Code local settings
 .claude/settings.local.json
 
+# AO Cloud credentials (contains tokens)
+.ao/sync.json
+
 # Managed worktree MCP fallback config
 /.mcp.json
 

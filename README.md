@@ -86,14 +86,44 @@ You define agents, wire them into phases, compose phases into workflows, schedul
 
 ```bash
 cd your-project                          # any git repo
-animus doctor                            # check prerequisites
-animus setup                             # initialize .ao/
+animus doctor                            # check prerequisites and auto-remediate
+animus setup                             # initialize .ao/ with your agents and workflows
 
+# Option 1: Run workflows on demand
 animus task create --title "Add rate limiting" --task-type feature --priority high
-animus workflow run --task-id TASK-001   # run once
+animus workflow run --task-id TASK-001
 
-animus daemon start --autonomous         # or go fully autonomous
+# Option 2: Go fully autonomous (v0.3.0+)
+animus daemon start --autonomous         # continuous execution with event triggers
 ```
+
+### v0.3.0: Autonomous Mode is Production-Ready
+
+The daemon now runs as your primary software delivery engine. Enable event triggers, cloud sync, and automatic quality gates:
+
+```bash
+animus config set daemon.autonomous true
+animus config set cloud.sync enabled
+animus daemon start                      # runs forever, responds to webhooks and cron
+```
+
+---
+
+## Cloud Integration (v0.3.0+)
+
+Sync your Animus state to a cloud backend for team visibility, distributed execution, and webhook-driven automation.
+
+```bash
+animus cloud login                       # authenticate with your workspace
+animus cloud sync --status               # check sync status
+animus config set cloud.webhook-url "https://your-domain.com/webhook"
+```
+
+Features:
+- **Team Sync**: All team members see the same task queue, execution logs, and run history
+- **Webhook Triggers**: GitHub, Linear, Slack, and custom webhooks trigger workflows automatically
+- **Distributed Daemon**: Run multiple daemon instances across regions with automatic failover
+- **Execution Timeline**: Inspect runs, decisions, and agent reasoning in the cloud dashboard
 
 ---
 
@@ -173,9 +203,9 @@ workflows:
 </td>
 <td width="50%">
 
-### Schedules
+### Schedules & Event Triggers (v0.3.0+)
 
-Cron-based autonomous execution. The daemon runs your workflows on a cadence.
+Cron-based autonomous execution **and** event-driven triggers. The daemon responds to webhooks, git events, and external integrations.
 
 ```yaml
 schedules:
@@ -184,10 +214,14 @@ schedules:
     workflow_ref: work-planner
     enabled: true
 
-  - id: pr-reviewer
-    cron: "*/5 * * * *"
+triggers:
+  - id: pr-opened
+    event: "github.pull_request.opened"
     workflow_ref: pr-reviewer
-    enabled: true
+  
+  - id: task-updated
+    event: "linear.issue.updated"
+    workflow_ref: work-planner
 ```
 
 </td>
@@ -311,11 +345,12 @@ claude --plugin-dir ~/animus-skills
 ```
 animus task          Create, list, update, prioritize tasks
 animus workflow      Run and manage multi-phase workflows
-animus daemon        Start/stop the autonomous scheduler
+animus daemon        Start/stop the autonomous scheduler (v0.3.0: event-driven)
 animus queue         Inspect and manage the dispatch queue
 animus agent         Control agent runner processes
 animus output        Stream and inspect agent output
-animus doctor        Health checks and auto-remediation
+animus doctor        Health checks, auto-remediation, and troubleshooting (v0.3.0+)
+animus cloud         Sync state, manage webhooks, and access cloud dashboard (v0.3.0+)
 animus setup         Interactive project initialization
 animus requirements  Manage product requirements
 animus mcp           Start Animus as an MCP server
@@ -335,11 +370,12 @@ Animus is a Rust-only workspace with 17 crates. The major crates are:
 - `workflow-runner-v2` - workflow execution runtime
 - `agent-runner` - LLM CLI process management
 - `llm-cli-wrapper` - CLI tool abstraction layer
-- `orchestrator-daemon-runtime` - daemon scheduler runtime
+- `orchestrator-daemon-runtime` - daemon scheduler, cron, event triggers (v0.3.0+)
+- `orchestrator-providers` - provider integrations (cloud sync, webhooks, auth)
+- `orchestrator-notifications` - event streaming and cloud syncing (v0.3.0+)
 - `orchestrator-logging` - shared logging utilities
 - `orchestrator-web-server` - embedded React dashboard
 - `orchestrator-web-api` - web API business logic
-- `orchestrator-providers` - provider integrations
 - `orchestrator-store` - persistence primitives
 - `protocol` - shared types and routing
 

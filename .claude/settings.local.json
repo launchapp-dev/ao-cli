@@ -164,7 +164,10 @@
       "Read(//Users/samishukri/brain/knowledge/docs/**)",
       "Bash(for scope_dir in /Users/samishukri/.ao/discord-bot-saas-4294beae643d /Users/samishukri/.ao/launchapp-crm-515aa75c3565 /Users/samishukri/.ao/saas-template-launch-app-test-ca8c252d6529 /Users/samishukri/.ao/brain-253100e5e8c4 /Users/samishukri/.ao/saas-template-launch-app-test-e169d88a782e /Users/samishukri/.ao/launchapp-nuxt-7b659680c7d4 /Users/samishukri/.ao/design-system-153ea3b24de5 /Users/samishukri/.ao/condohub-38e714980fd7 /Users/samishukri/.ao/postpilot-c67d4654773c /Users/samishukri/.ao/ao-desktop-6412a6745e89 /Users/samishukri/.ao/invoicer-150c3859dd36 /Users/samishukri/.ao/launchapp-lite-92c74ae17f4a /Users/samishukri/.ao/saas-template-launch-app-test-8319607d9c47 /Users/samishukri/.ao/launchapp-sveltekit-51aab1a77fe3)",
       "Bash(head -5 echo \"--- $scope_dir ---\" done)",
-      "Skill(review)"
+      "Skill(review)",
+      "Bash(du -sh ~/.ao/ao-v2-ce198799430d/*/)",
+      "Bash(du -sh ~/.ao/ao-cli-1222ef9c4f94/*/)",
+      "Bash(du -sh ~/.ao/*/worktrees/)"
     ]
   },
   "enableAllProjectMcpServers": true,

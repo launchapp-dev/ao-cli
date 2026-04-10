@@ -1981,6 +1981,9 @@ if [ "$1" = "--version" ]; then
 fi
 : "${{AO_TEST_ARGS_CAPTURE:?AO_TEST_ARGS_CAPTURE is required}}"
 printf "%s\n" "$@" > "$AO_TEST_ARGS_CAPTURE"
+if [ -n "${{AO_TEST_ENV_CAPTURE:-}}" ]; then
+  env | sort > "$AO_TEST_ENV_CAPTURE"
+fi
 cat "{}"
 "#,
                 fixture_path.display()
@@ -2238,6 +2241,9 @@ cat "{}"
         let args_capture = project.path().join("oai-runner.args");
         let _args_guard =
             EnvVarGuard::set_raw("AO_TEST_ARGS_CAPTURE", args_capture.to_str().expect("capture path should be utf-8"));
+        let env_capture = project.path().join("oai-runner.env");
+        let _env_guard =
+            EnvVarGuard::set_raw("AO_TEST_ENV_CAPTURE", env_capture.to_str().expect("capture path should be utf-8"));
         let original_path = env::var("PATH").unwrap_or_default();
         let _path_guard = EnvVarGuard::set_raw("PATH", &format!("{}:{}", bin_dir.display(), original_path));
 
@@ -2350,11 +2356,13 @@ cat "{}"
             serde_json::from_str(args.get(mcp_index + 1).expect("mcp config payload should exist"))
                 .expect("mcp config should parse");
         let entries = config_json.as_array().expect("oai-runner mcp config should be an array");
-        assert_eq!(entries.len(), 4, "expected primary runtime server plus 3 additional servers");
+        assert_eq!(entries.len(), 4, "expected primary runtime server plus 3 additional servers: {entries:?}");
         assert!(
             entries.iter().any(|entry| {
                 entry.get("url").and_then(serde_json::Value::as_str) == Some("https://primary.example/mcp")
-                    && entry.get("auth_token").and_then(serde_json::Value::as_str) == Some("Bearer primary")
+                    && entry.get("auth_token_env").and_then(serde_json::Value::as_str)
+                        == Some("AO_OAI_RUNNER_MCP_AUTH_TOKEN_1")
+                    && entry.get("auth_token").is_none()
             }),
             "expected primary runtime HTTP MCP server in launch payload: {entries:?}"
         );
@@ -2377,6 +2385,12 @@ cat "{}"
                     && entry.pointer("/env/PROJECT_TOKEN").and_then(serde_json::Value::as_str) == Some("secret")
             }),
             "expected project-config stdio MCP server in launch payload: {entries:?}"
+        );
+
+        let env_lines = read_capture_lines(&env_capture);
+        assert!(
+            env_lines.iter().any(|line| line == "AO_OAI_RUNNER_MCP_AUTH_TOKEN_1=Bearer primary"),
+            "expected MCP auth token to be injected via environment, got: {env_lines:?}"
         );
     }
 

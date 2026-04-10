@@ -23,6 +23,10 @@ pub struct McpServerConfig {
     /// HTTP endpoint URL. When set, uses HTTP/SSE transport instead of stdio.
     #[serde(default)]
     pub url: Option<String>,
+    #[serde(default)]
+    pub auth_token: Option<String>,
+    #[serde(default)]
+    pub auth_token_env: Option<String>,
     /// Transport type hint ("stdio" or "http"). Presence of `url` takes precedence.
     #[serde(default)]
     pub transport: Option<String>,
@@ -43,10 +47,21 @@ pub async fn connect(config: &McpServerConfig) -> Result<McpClient> {
             .as_deref()
             .filter(|u| !u.trim().is_empty())
             .ok_or_else(|| anyhow::anyhow!("HTTP MCP server config is missing 'url'"))?;
-        let transport = StreamableHttpClientTransport::with_client(
-            reqwest::Client::new(),
-            StreamableHttpClientTransportConfig::with_uri(url),
-        );
+        let client = {
+            let mut builder = reqwest::Client::builder();
+            if let Some(auth_token) = resolve_http_auth_token(config)? {
+                let mut headers = reqwest::header::HeaderMap::new();
+                headers.insert(
+                    reqwest::header::AUTHORIZATION,
+                    reqwest::header::HeaderValue::from_str(&auth_token)
+                        .map_err(|e| anyhow::anyhow!("invalid MCP auth token header: {}", e))?,
+                );
+                builder = builder.default_headers(headers);
+            }
+            builder.build().map_err(|e| anyhow::anyhow!("failed to build MCP HTTP client: {}", e))?
+        };
+        let transport =
+            StreamableHttpClientTransport::with_client(client, StreamableHttpClientTransportConfig::with_uri(url));
         let service: RunningService<RoleClient, ()> =
             ().serve(transport).await.map_err(|e| anyhow::anyhow!("failed to initialize HTTP MCP session: {}", e))?;
         return Ok(McpClient { service, tool_names: Vec::new() });
@@ -66,6 +81,24 @@ pub async fn connect(config: &McpServerConfig) -> Result<McpClient> {
         ().serve(transport).await.map_err(|e| anyhow::anyhow!("failed to initialize MCP session: {}", e))?;
 
     Ok(McpClient { service, tool_names: Vec::new() })
+}
+
+fn resolve_http_auth_token(config: &McpServerConfig) -> Result<Option<String>> {
+    if let Some(auth_token) = config.auth_token.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        return Ok(Some(auth_token.to_string()));
+    }
+
+    let Some(env_key) = config.auth_token_env.as_deref().map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+
+    let auth_token =
+        std::env::var(env_key).map_err(|_| anyhow::anyhow!("MCP auth token env var '{}' is not set", env_key))?;
+    let auth_token = auth_token.trim();
+    if auth_token.is_empty() {
+        anyhow::bail!("MCP auth token env var '{}' is empty", env_key);
+    }
+    Ok(Some(auth_token.to_string()))
 }
 
 pub async fn connect_all(configs: &[McpServerConfig]) -> Result<Vec<McpClient>> {
@@ -189,5 +222,27 @@ mod tests {
 
         let def = mcp_tool_to_openai(&tool);
         assert_eq!(def.function.description, "");
+    }
+
+    #[test]
+    fn resolve_http_auth_token_prefers_env_reference_without_serialized_secret() {
+        let config = McpServerConfig {
+            command: String::new(),
+            args: Vec::new(),
+            env: BTreeMap::new(),
+            url: Some("https://primary.example/mcp".to_string()),
+            auth_token: None,
+            auth_token_env: Some("AO_OAI_RUNNER_MCP_AUTH_TOKEN_TEST".to_string()),
+            transport: Some("http".to_string()),
+        };
+
+        unsafe {
+            std::env::set_var("AO_OAI_RUNNER_MCP_AUTH_TOKEN_TEST", "Bearer primary");
+        }
+        let token = resolve_http_auth_token(&config).expect("env token should resolve");
+        assert_eq!(token.as_deref(), Some("Bearer primary"));
+        unsafe {
+            std::env::remove_var("AO_OAI_RUNNER_MCP_AUTH_TOKEN_TEST");
+        }
     }
 }

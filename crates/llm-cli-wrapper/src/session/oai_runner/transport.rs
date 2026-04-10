@@ -111,7 +111,7 @@ fn inject_runtime_contract_mcp_config(
     invocation: &mut LaunchInvocation,
     runtime_contract: Option<&Value>,
 ) -> Result<()> {
-    let Some(config_json) = runtime_contract_mcp_config_json(runtime_contract) else {
+    let Some(config_json) = runtime_contract_mcp_config_json(invocation, runtime_contract) else {
         return Ok(());
     };
 
@@ -120,17 +120,22 @@ fn inject_runtime_contract_mcp_config(
     Ok(())
 }
 
-fn runtime_contract_mcp_config_json(runtime_contract: Option<&Value>) -> Option<String> {
+fn runtime_contract_mcp_config_json(
+    invocation: &mut LaunchInvocation,
+    runtime_contract: Option<&Value>,
+) -> Option<String> {
     let contract = runtime_contract?;
     let mut servers = Vec::new();
 
     if let Some(url) =
         contract.pointer("/mcp/endpoint").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty())
     {
-        servers.push(serde_json::json!({
-            "url": url,
-            "transport": "http"
-        }));
+        let auth_token = contract
+            .pointer("/mcp/auth_token")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        servers.push(http_mcp_server_entry(invocation, url, auth_token));
     } else if let Some(command) =
         contract.pointer("/mcp/stdio/command").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty())
     {
@@ -168,10 +173,9 @@ fn runtime_contract_mcp_config_json(runtime_contract: Option<&Value>) -> Option<
         for entry in additional.values() {
             if let Some(url) = entry.get("url").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty())
             {
-                servers.push(serde_json::json!({
-                    "url": url,
-                    "transport": "http"
-                }));
+                let auth_token =
+                    entry.get("auth_token").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty());
+                servers.push(http_mcp_server_entry(invocation, url, auth_token));
                 continue;
             }
 
@@ -216,6 +220,30 @@ fn runtime_contract_mcp_config_json(runtime_contract: Option<&Value>) -> Option<
         None
     } else {
         serde_json::to_string(&servers).ok()
+    }
+}
+
+fn http_mcp_server_entry(invocation: &mut LaunchInvocation, url: &str, auth_token: Option<&str>) -> Value {
+    let mut entry = serde_json::json!({
+        "url": url,
+        "transport": "http"
+    });
+    if let Some(auth_token) = auth_token {
+        let env_key = next_mcp_auth_env_key(&invocation.env);
+        invocation.env.insert(env_key.clone(), auth_token.to_string());
+        entry["auth_token_env"] = Value::String(env_key);
+    }
+    entry
+}
+
+fn next_mcp_auth_env_key(env: &std::collections::BTreeMap<String, String>) -> String {
+    let mut index = 1usize;
+    loop {
+        let candidate = format!("AO_OAI_RUNNER_MCP_AUTH_TOKEN_{index}");
+        if !env.contains_key(&candidate) {
+            return candidate;
+        }
+        index += 1;
     }
 }
 
@@ -433,9 +461,11 @@ mod tests {
                 "runtime_contract": {
                     "mcp": {
                         "endpoint": "https://primary.example/mcp",
+                        "auth_token": "Bearer primary",
                         "additional_servers": {
                             "docs": {
-                                "url": "https://docs.example/mcp"
+                                "url": "https://docs.example/mcp",
+                                "auth_token": "Bearer docs"
                             },
                             "project-stdio": {
                                 "command": "project-mcp",
@@ -456,15 +486,22 @@ mod tests {
         let config_json = invocation.args.get(mcp_idx + 1).expect("mcp config payload should exist");
         let entries: Vec<Value> = serde_json::from_str(config_json).expect("mcp config should parse");
         assert_eq!(entries.len(), 3);
-        assert!(entries
+        let primary = entries
             .iter()
-            .any(|entry| entry.get("url").and_then(Value::as_str) == Some("https://primary.example/mcp")));
-        assert!(entries
+            .find(|entry| entry.get("url").and_then(Value::as_str) == Some("https://primary.example/mcp"))
+            .expect("primary HTTP MCP entry should exist");
+        assert_eq!(primary.get("auth_token_env").and_then(Value::as_str), Some("AO_OAI_RUNNER_MCP_AUTH_TOKEN_1"));
+        assert!(primary.get("auth_token").is_none(), "raw auth token should not be serialized into args");
+        let docs = entries
             .iter()
-            .any(|entry| entry.get("url").and_then(Value::as_str) == Some("https://docs.example/mcp")));
+            .find(|entry| entry.get("url").and_then(Value::as_str) == Some("https://docs.example/mcp"))
+            .expect("docs HTTP MCP entry should exist");
+        assert_eq!(docs.get("auth_token_env").and_then(Value::as_str), Some("AO_OAI_RUNNER_MCP_AUTH_TOKEN_2"));
         assert!(entries.iter().any(|entry| {
             entry.get("command").and_then(Value::as_str) == Some("project-mcp")
                 && entry.pointer("/env/PROJECT_TOKEN").and_then(Value::as_str) == Some("secret")
         }));
+        assert_eq!(invocation.env.get("AO_OAI_RUNNER_MCP_AUTH_TOKEN_1").map(String::as_str), Some("Bearer primary"));
+        assert_eq!(invocation.env.get("AO_OAI_RUNNER_MCP_AUTH_TOKEN_2").map(String::as_str), Some("Bearer docs"));
     }
 }

@@ -2594,12 +2594,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "orchestrator-plugin-host"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "orchestrator-plugin-protocol",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "orchestrator-plugin-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "orchestrator-providers"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "orchestrator-plugin-host",
+ "orchestrator-plugin-protocol",
  "protocol",
  "serde",
  "serde_json",

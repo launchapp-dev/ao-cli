@@ -5,6 +5,8 @@ edition = "2021"
 
 [dependencies]
 protocol = { workspace = true }
+orchestrator-plugin-host = { workspace = true }
+orchestrator-plugin-protocol = { workspace = true }
 anyhow = "1.0"
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }

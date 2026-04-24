@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
+use crate::agent_state::{list_agent_messages, load_agent_memory, AgentMessage};
 use crate::config_context::RuntimeConfigContext;
 use crate::phase_output::{build_workflow_pipeline_context, format_prior_phase_outputs, load_prior_phase_outputs};
-use orchestrator_config::SkillApplicationResult;
+use orchestrator_config::{AgentChannelConfig, AgentProfile, SkillApplicationResult};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
@@ -126,6 +127,8 @@ pub(crate) fn render_phase_prompt_with_ctx_overrides(
     let subject_description = params.subject_description;
     let phase_id = params.phase_id;
     let caps = capabilities_override.unwrap_or_else(|| ctx.phase_capabilities(phase_id));
+    let agent_id = ctx.phase_agent_id(phase_id);
+    let agent_profile = agent_id.as_deref().and_then(|id| ctx.agent_runtime_config.agent_profile(id));
     let phase_decision_contract = ctx.phase_decision_contract(phase_id).cloned();
     let phase_action_rule = phase_action_rule(&caps);
     let phase_contract = ctx.phase_output_contract(phase_id).cloned();
@@ -286,6 +289,14 @@ pub(crate) fn render_phase_prompt_with_ctx_overrides(
             }
         }
     }
+    if let (Some(agent_id), Some(profile)) = (agent_id.as_deref(), agent_profile) {
+        if let Some(memory_context) = render_agent_memory_context(project_root, agent_id, profile) {
+            prompt_sections.push(memory_context);
+        }
+        if let Some(message_context) = render_agent_message_context(project_root, agent_id, profile, ctx) {
+            prompt_sections.push(message_context);
+        }
+    }
     prompt_sections.push(phase_prompt);
     if let Some(skill_result) = skill_result {
         for suffix in &skill_result.prompt_suffixes {
@@ -297,6 +308,11 @@ pub(crate) fn render_phase_prompt_with_ctx_overrides(
     let phase_prompt_body = prompt_sections.join("\n\n");
 
     let mut system_prompt_sections = Vec::new();
+    if let Some(profile) = agent_profile {
+        if let Some(agent_context) = render_agent_identity_context(agent_id.as_deref(), profile) {
+            system_prompt_sections.push(agent_context);
+        }
+    }
     if let Some(prompt) = ctx.phase_system_prompt(phase_id) {
         if let Some(expanded) = expand_prompt_fragment(&prompt, &inputs.pipeline_vars) {
             system_prompt_sections.push(expanded);
@@ -352,6 +368,120 @@ fn expand_prompt_fragment(fragment: &str, pipeline_vars: &HashMap<String, String
     }
 
     Some(orchestrator_core::workflow_config::expand_variables(trimmed, pipeline_vars))
+}
+
+fn tail_chars(value: &str, max_chars: usize) -> String {
+    let count = value.chars().count();
+    if count <= max_chars {
+        return value.to_string();
+    }
+    value.chars().skip(count.saturating_sub(max_chars)).collect()
+}
+
+fn render_agent_identity_context(agent_id: Option<&str>, profile: &AgentProfile) -> Option<String> {
+    let mut lines = Vec::new();
+    if let Some(name) = profile.name.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        lines.push(format!("Name: {name}"));
+    }
+    if let Some(agent_id) = agent_id.map(str::trim).filter(|value| !value.is_empty()) {
+        lines.push(format!("Profile id: {agent_id}"));
+    }
+    if let Some(persona) = profile.persona.as_ref() {
+        if let Some(style) = persona.style.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+            lines.push(format!("Style: {style}"));
+        }
+        if !persona.traits.is_empty() {
+            let traits = persona
+                .traits
+                .iter()
+                .map(String::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .collect::<Vec<_>>();
+            if !traits.is_empty() {
+                lines.push(format!("Traits: {}", traits.join(", ")));
+            }
+        }
+        if let Some(instructions) = persona.instructions.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+            lines.push(format!("Persona instructions:\n{instructions}"));
+        }
+        if !persona.customizations.is_empty() {
+            if let Ok(customizations) = serde_json::to_string(&persona.customizations) {
+                lines.push(format!("Customizations: {customizations}"));
+            }
+        }
+    }
+    (!lines.is_empty()).then(|| format!("Agent identity:\n{}", lines.join("\n")))
+}
+
+fn render_agent_memory_context(project_root: &str, agent_id: &str, profile: &AgentProfile) -> Option<String> {
+    if !profile.memory.enabled {
+        return None;
+    }
+    let memory = load_agent_memory(project_root, agent_id).ok()?;
+    if memory.entries.is_empty() {
+        return None;
+    }
+    let mut sections = Vec::new();
+    for entry in memory.entries.iter().rev().take(20).rev() {
+        let mut line = format!("- [{}] {}", entry.created_at, entry.text.trim());
+        if let Some(source) = entry.source.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+            line.push_str(&format!(" (source: {source})"));
+        }
+        sections.push(line);
+    }
+    let max_chars = profile.memory.max_context_chars.unwrap_or(4000);
+    Some(format!("Agent memory:\n{}", tail_chars(&sections.join("\n"), max_chars)))
+}
+
+fn channel_context_limit(channel: Option<&AgentChannelConfig>, profile: &AgentProfile) -> usize {
+    profile
+        .communication
+        .max_context_chars
+        .or_else(|| channel.and_then(|config| config.max_context_chars))
+        .unwrap_or(4000)
+}
+
+fn message_visible_to_agent(message: &AgentMessage, agent_id: &str) -> bool {
+    message.from_agent.eq_ignore_ascii_case(agent_id)
+        || message.to_agent.as_deref().is_none()
+        || message.to_agent.as_deref().is_some_and(|target| target.eq_ignore_ascii_case(agent_id))
+}
+
+fn render_agent_message_context(
+    project_root: &str,
+    agent_id: &str,
+    profile: &AgentProfile,
+    ctx: &RuntimeConfigContext,
+) -> Option<String> {
+    if !profile.communication.enabled || profile.communication.channels.is_empty() {
+        return None;
+    }
+
+    let mut sections = Vec::new();
+    for channel in &profile.communication.channels {
+        let channel_name = channel.trim();
+        if channel_name.is_empty() {
+            continue;
+        }
+        let channel_config = ctx.workflow_config.config.agent_channels.get(channel_name);
+        let messages = list_agent_messages(project_root, Some(channel_name), None, Some(20)).ok()?;
+        let visible =
+            messages.into_iter().filter(|message| message_visible_to_agent(message, agent_id)).collect::<Vec<_>>();
+        if visible.is_empty() {
+            continue;
+        }
+
+        let mut lines = Vec::new();
+        for message in visible {
+            let target = message.to_agent.as_deref().map(|target| format!(" -> {target}")).unwrap_or_default();
+            lines.push(format!("- [{}] {}{}: {}", message.created_at, message.from_agent, target, message.text.trim()));
+        }
+        let max_chars = channel_context_limit(channel_config, profile);
+        sections.push(format!("Channel `{channel_name}` messages:\n{}", tail_chars(&lines.join("\n"), max_chars)));
+    }
+
+    (!sections.is_empty()).then(|| format!("Agent communication context:\n{}", sections.join("\n\n")))
 }
 
 fn phase_decision_example_for_prompt(

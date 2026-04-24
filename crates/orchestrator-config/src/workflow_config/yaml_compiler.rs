@@ -2,11 +2,10 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 
 use super::builtins::builtin_workflow_config;
 use super::types::*;
-use super::validation::validate_workflow_config_with_project_root;
 use super::yaml_parser::{parse_yaml_workflow_config_with_base, workflow_config_to_yaml_file};
 use super::yaml_types::*;
 
@@ -101,6 +100,11 @@ pub fn merge_yaml_into_config(base: WorkflowConfig, yaml: WorkflowConfig) -> Wor
         agent_profiles.insert(key, value);
     }
 
+    let mut agent_channels = base.agent_channels;
+    for (key, value) in yaml.agent_channels {
+        agent_channels.insert(key, value);
+    }
+
     let mut tools_set: HashSet<String> = base.tools_allowlist.into_iter().collect();
     for tool in yaml.tools_allowlist {
         tools_set.insert(tool);
@@ -176,6 +180,7 @@ pub fn merge_yaml_into_config(base: WorkflowConfig, yaml: WorkflowConfig) -> Wor
         checkpoint_retention: base.checkpoint_retention,
         phase_definitions,
         agent_profiles,
+        agent_channels,
         tools_allowlist,
         mcp_servers,
         phase_mcp_bindings,
@@ -235,11 +240,7 @@ pub fn validate_and_compile_yaml_workflows(project_root: &Path) -> Result<Option
         return Ok(None);
     }
 
-    let yaml_config =
-        compile_yaml_workflow_files(project_root)?.ok_or_else(|| anyhow!("no YAML workflow files found"))?;
-    let final_config = merge_yaml_into_config(builtin_workflow_config(), yaml_config);
-
-    validate_workflow_config_with_project_root(&final_config, Some(project_root))?;
+    let final_config = super::loading::load_workflow_config_with_metadata(project_root)?.config;
     let output_path = if single_file.exists() { single_file } else { workflows_dir };
     Ok(Some(CompileYamlResult { config: final_config, source_files, output_path }))
 }

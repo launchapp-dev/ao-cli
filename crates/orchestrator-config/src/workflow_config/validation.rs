@@ -147,6 +147,10 @@ fn lookup_workflow_agent_profile<'a>(workflow: &'a WorkflowConfig, agent_id: &st
         .map(|(_, profile)| profile)
 }
 
+fn has_workflow_agent_profile(workflow: &WorkflowConfig, agent_id: &str) -> bool {
+    lookup_workflow_agent_profile(workflow, agent_id).is_some()
+}
+
 fn validate_claude_profile_selection(
     field_path: &str,
     profile_name: &str,
@@ -488,6 +492,38 @@ pub fn validate_workflow_config_with_project_root(config: &WorkflowConfig, proje
     }
 
     for (agent_id, profile) in &config.agent_profiles {
+        if agent_id.trim().is_empty() {
+            errors.push("agent_profiles contains an empty agent id".to_string());
+            continue;
+        }
+        if profile.name.as_deref().is_some_and(|value| value.trim().is_empty()) {
+            errors.push(format!("agent_profiles['{}'].name must not be empty", agent_id));
+        }
+        if let Some(persona) = profile.persona.as_ref() {
+            if persona.style.as_deref().is_some_and(|value| value.trim().is_empty()) {
+                errors.push(format!("agent_profiles['{}'].persona.style must not be empty", agent_id));
+            }
+            if persona.instructions.as_deref().is_some_and(|value| value.trim().is_empty()) {
+                errors.push(format!("agent_profiles['{}'].persona.instructions must not be empty", agent_id));
+            }
+            if persona.traits.iter().any(|value| value.trim().is_empty()) {
+                errors.push(format!("agent_profiles['{}'].persona.traits must not contain empty values", agent_id));
+            }
+            if persona.customizations.keys().any(|value| value.trim().is_empty()) {
+                errors
+                    .push(format!("agent_profiles['{}'].persona.customizations must not contain empty keys", agent_id));
+            }
+        }
+        if profile.memory.scope.as_deref().is_some_and(|value| value.trim().is_empty()) {
+            errors.push(format!("agent_profiles['{}'].memory.scope must not be empty", agent_id));
+        }
+        if profile.memory.max_context_chars == Some(0) {
+            errors.push(format!("agent_profiles['{}'].memory.max_context_chars must be greater than 0", agent_id));
+        }
+        if profile.communication.max_context_chars == Some(0) {
+            errors
+                .push(format!("agent_profiles['{}'].communication.max_context_chars must be greater than 0", agent_id));
+        }
         validate_skill_references(
             format!("agent_profiles['{}'].skills", agent_id).as_str(),
             &profile.skills,
@@ -503,6 +539,86 @@ pub fn validate_workflow_config_with_project_root(config: &WorkflowConfig, proje
                 errors.push(format!(
                     "agent_profiles['{}'].mcp_servers references unknown MCP server '{}'",
                     agent_id, server
+                ));
+            }
+        }
+        if profile.communication.enabled
+            && profile.communication.channels.is_empty()
+            && profile.communication.can_message.is_empty()
+        {
+            errors.push(format!(
+                "agent_profiles['{}'].communication requires at least one channel or can_message target when enabled",
+                agent_id
+            ));
+        }
+        for channel in &profile.communication.channels {
+            if channel.trim().is_empty() {
+                errors.push(format!(
+                    "agent_profiles['{}'].communication.channels must not contain empty values",
+                    agent_id
+                ));
+                continue;
+            }
+            match config.agent_channels.get(channel) {
+                Some(channel_config)
+                    if !channel_config.participants.is_empty()
+                        && !channel_config
+                            .participants
+                            .iter()
+                            .any(|participant| participant.eq_ignore_ascii_case(agent_id)) =>
+                {
+                    errors.push(format!(
+                        "agent_profiles['{}'].communication.channels references channel '{}' where the agent is not a participant",
+                        agent_id, channel
+                    ));
+                }
+                Some(_) => {}
+                None => errors.push(format!(
+                    "agent_profiles['{}'].communication.channels references unknown channel '{}'",
+                    agent_id, channel
+                )),
+            }
+        }
+        for target in &profile.communication.can_message {
+            if target.trim().is_empty() {
+                errors.push(format!(
+                    "agent_profiles['{}'].communication.can_message must not contain empty values",
+                    agent_id
+                ));
+                continue;
+            }
+            if !has_workflow_agent_profile(config, target) {
+                errors.push(format!(
+                    "agent_profiles['{}'].communication.can_message references unknown agent '{}'",
+                    agent_id, target
+                ));
+            }
+        }
+    }
+
+    for (channel_name, channel) in &config.agent_channels {
+        if channel_name.trim().is_empty() {
+            errors.push("agent_channels contains an empty channel name".to_string());
+            continue;
+        }
+        if channel.description.as_deref().is_some_and(|value| value.trim().is_empty()) {
+            errors.push(format!("agent_channels['{}'].description must not be empty", channel_name));
+        }
+        if channel.participants.is_empty() {
+            errors.push(format!("agent_channels['{}'].participants must include at least one agent", channel_name));
+        }
+        if channel.max_context_chars == Some(0) {
+            errors.push(format!("agent_channels['{}'].max_context_chars must be greater than 0", channel_name));
+        }
+        for participant in &channel.participants {
+            if participant.trim().is_empty() {
+                errors.push(format!("agent_channels['{}'].participants must not contain empty values", channel_name));
+                continue;
+            }
+            if !has_workflow_agent_profile(config, participant) {
+                errors.push(format!(
+                    "agent_channels['{}'].participants references unknown agent '{}'",
+                    channel_name, participant
                 ));
             }
         }

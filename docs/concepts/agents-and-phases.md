@@ -11,18 +11,35 @@ An agent is not a long-running process. It is created for a phase, executes, ret
 ```yaml
 agents:
   senior-engineer:
+    name: Ada
     model: claude-sonnet-4-6
     system_prompt: |
       You are a senior software engineer. Write production-quality code,
       run tests, and commit your changes.
+    persona:
+      style: direct
+      traits: [pragmatic, rigorous]
+    memory:
+      enabled: true
+      scope: project
+    communication:
+      enabled: true
+      channels: [engineering]
     mcp_servers: [ao, github]
 ```
 
 | Field | Purpose |
 |-------|---------|
+| `name` | Human-readable display name used in prompt/UI surfaces. |
 | `model` | The LLM model to use (e.g. `claude-sonnet-4-6`, `gemini-3.1-pro-preview`). |
 | `system_prompt` | Role-specific instructions that shape the agent's behavior. |
+| `persona` | Optional style, traits, instructions, and customizations injected into system context. |
+| `memory` | Optional project-scoped memory. Enabled agents receive bounded stored memory in phase prompts. |
+| `communication` | Optional channel/direct-message permissions. Enabled agents receive bounded recent channel messages in phase prompts. |
 | `mcp_servers` | List of MCP server names (defined at the workflow level) the agent can call. |
+
+Agent memory and messages are project-scoped runtime state under `~/.ao/<repo-scope>/state/agents/`.
+Use `ao agent memory ...` and `ao agent message ...` or the equivalent MCP tools to update them.
 
 ---
 

@@ -15,8 +15,9 @@ A workflow YAML file can contain any combination of these top-level sections:
 ```yaml
 mcp_servers:     # MCP server definitions
 agents:          # Agent profile definitions
-variables:       # Variable declarations with defaults
-pipelines:       # Named workflow pipelines (collections of phases)
+agent_channels:  # Agent communication channel definitions
+phases:          # Reusable phase execution definitions
+workflows:       # Named workflow pipelines
 ```
 
 All sections are optional. Multiple YAML files in `.ao/workflows/` are merged,
@@ -75,10 +76,26 @@ Declares agent profiles that phases can reference. Each profile specifies the mo
 ```yaml
 agents:
   <profile_name>:
+    name: <string>               # Optional. Display name used in prompts/UI.
     description: <string>        # Optional. Human-readable description.
     system_prompt: |             # Optional. System prompt for the agent.
       You are a code reviewer...
     role: <string>               # Optional. Role identifier.
+    persona:                     # Optional. Personality/style configuration.
+      style: <string>
+      traits: [<string>, ...]
+      instructions: <string>
+      customizations: {}
+    memory:                      # Optional. Project-scoped memory behavior.
+      enabled: true
+      scope: project
+      max_context_chars: 6000
+      write_policy: explicit
+    communication:               # Optional. Project-scoped channel access.
+      enabled: true
+      channels: [engineering]
+      can_message: [reviewer]
+      max_context_chars: 8000
     model: <string>              # Optional. Model to use (e.g., claude-sonnet-4-6).
     tool: <string>               # Optional. CLI tool to use (e.g., claude, codex, gemini).
     tool_profile: <string>       # Optional. Named global Claude profile; only valid with tool=claude.
@@ -98,9 +115,13 @@ agents:
 
 | Field | Type | Required | Description |
 |---|---|---|---|
+| `name` | string | no | Human-readable display name for this agent |
 | `description` | string | no | Human-readable description of the agent |
 | `system_prompt` | string | no | System prompt injected into the agent's context |
 | `role` | string | no | Role identifier for the agent |
+| `persona` | object | no | Personality/style config injected into the agent's system context |
+| `memory` | object | no | Project-scoped memory settings. When enabled, bounded memory entries are injected into phase prompts |
+| `communication` | object | no | Channel and direct-message permissions. When enabled, bounded recent channel messages are injected into phase prompts |
 | `model` | string | no | LLM model identifier |
 | `tool` | string | no | CLI tool to invoke (claude, codex, gemini, etc.) |
 | `tool_profile` | string | no | Named global Claude profile to resolve into launch env; only valid for `claude` |
@@ -114,6 +135,31 @@ Agent profiles defined in YAML are merged into the agent runtime config during c
 Claude profile references resolve against the user's global AO config, not the
 repository. This keeps account-specific paths such as `CLAUDE_CONFIG_DIR` out
 of project files.
+
+---
+
+## agent_channels
+
+Declares project-scoped communication channels for YAML-defined agents.
+
+```yaml
+agent_channels:
+  engineering:
+    description: Implementation coordination
+    participants: [architect, implementer, reviewer]
+    max_context_chars: 8000
+```
+
+Messages are stored under the scoped runtime state directory and can be written
+through `ao agent message send` or the MCP tool `ao.agent.message.send`. Agents
+only receive channel context when their profile has `communication.enabled:
+true` and lists that channel.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `description` | string | no | Human-readable channel description |
+| `participants` | string[] | yes | Agent profile IDs allowed in the channel |
+| `max_context_chars` | number | no | Maximum recent channel context injected into prompts |
 
 ---
 

@@ -4,12 +4,98 @@ use super::{parse_positive_u64, RunnerScopeArg};
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum AgentCommand {
+    /// List configured agent profiles.
+    List,
+    /// Get a configured agent profile.
+    Get(AgentGetArgs),
     /// Start an agent run.
     Run(AgentRunArgs),
     /// Control an existing agent run.
     Control(AgentControlArgs),
     /// Read status for a run id.
     Status(AgentStatusArgs),
+    /// Read and update project-scoped agent memory.
+    Memory {
+        #[command(subcommand)]
+        command: AgentMemoryCommand,
+    },
+    /// Send and inspect project-scoped agent messages.
+    Message {
+        #[command(subcommand)]
+        command: AgentMessageCommand,
+    },
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct AgentGetArgs {
+    #[arg(long, value_name = "AGENT_ID", help = "Configured agent profile id.")]
+    pub(crate) id: String,
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum AgentMemoryCommand {
+    /// Read memory for a configured agent.
+    Get(AgentMemoryGetArgs),
+    /// Append a memory entry for a configured agent.
+    Append(AgentMemoryAppendArgs),
+    /// Clear memory for a configured agent.
+    Clear(AgentMemoryClearArgs),
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct AgentMemoryGetArgs {
+    #[arg(long, value_name = "AGENT_ID", help = "Configured agent profile id.")]
+    pub(crate) agent: String,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct AgentMemoryAppendArgs {
+    #[arg(long, value_name = "AGENT_ID", help = "Configured agent profile id.")]
+    pub(crate) agent: String,
+    #[arg(long, value_name = "TEXT", help = "Memory text to append.")]
+    pub(crate) text: String,
+    #[arg(long, value_name = "SOURCE", help = "Optional source label for the memory entry.")]
+    pub(crate) source: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct AgentMemoryClearArgs {
+    #[arg(long, value_name = "AGENT_ID", help = "Configured agent profile id.")]
+    pub(crate) agent: String,
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum AgentMessageCommand {
+    /// Send a message on an agent channel.
+    Send(AgentMessageSendArgs),
+    /// List agent messages.
+    List(AgentMessageListArgs),
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct AgentMessageSendArgs {
+    #[arg(long, value_name = "CHANNEL", help = "Configured agent channel name.")]
+    pub(crate) channel: String,
+    #[arg(long, value_name = "AGENT_ID", help = "Sender agent profile id.")]
+    pub(crate) from: String,
+    #[arg(long, value_name = "AGENT_ID", help = "Optional recipient agent profile id.")]
+    pub(crate) to: Option<String>,
+    #[arg(long, value_name = "TEXT", help = "Message text.")]
+    pub(crate) text: String,
+    #[arg(long, value_name = "WORKFLOW_ID", help = "Optional workflow id context.")]
+    pub(crate) workflow_id: Option<String>,
+    #[arg(long, value_name = "PHASE_ID", help = "Optional phase id context.")]
+    pub(crate) phase_id: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct AgentMessageListArgs {
+    #[arg(long, value_name = "CHANNEL", help = "Filter messages by channel.")]
+    pub(crate) channel: Option<String>,
+    #[arg(long, value_name = "AGENT_ID", help = "Filter messages sent by or addressed to an agent.")]
+    pub(crate) agent: Option<String>,
+    #[arg(long, value_name = "COUNT", help = "Maximum messages to return.")]
+    pub(crate) limit: Option<usize>,
 }
 
 #[derive(Debug, Args)]

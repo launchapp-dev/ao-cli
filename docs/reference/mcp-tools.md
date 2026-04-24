@@ -6,13 +6,20 @@ Every tool accepts an optional `project_root` parameter to override the default 
 
 ---
 
-## Agent Control (3 tools)
+## Agent Control (10 tools)
 
 | Tool | Description | Key Parameters |
 |---|---|---|
+| `ao.agent.list` | List configured project agent profiles | `project_root` |
+| `ao.agent.get` | Get a configured agent profile | `id`, `project_root` |
 | `ao.agent.run` | Launch an AI agent to execute work | `tool`, `model`, `prompt`, `cwd`, `timeout_secs`, `context_json`, `runtime_contract_json`, `detach`, `run_id`, `runner_scope`, `project_root` |
 | `ao.agent.control` | Control a running agent (pause/resume/terminate) | `run_id`, `action` (`pause`, `resume`, `terminate`), `runner_scope` |
 | `ao.agent.status` | Get status of an agent run | `run_id`, `runner_scope` |
+| `ao.agent.memory.get` | Read project-scoped agent memory | `agent`, `project_root` |
+| `ao.agent.memory.append` | Append project-scoped agent memory | `agent`, `text`, `source`, `project_root` |
+| `ao.agent.memory.clear` | Clear project-scoped agent memory | `agent`, `project_root` |
+| `ao.agent.message.send` | Send a message on a configured agent channel | `channel`, `from`, `to`, `text`, `workflow_id`, `phase_id`, `project_root` |
+| `ao.agent.message.list` | List project-scoped agent messages | `channel`, `agent`, `limit`, `project_root` |
 
 ---
 

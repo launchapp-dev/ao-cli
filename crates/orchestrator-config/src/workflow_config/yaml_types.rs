@@ -176,6 +176,8 @@ pub(super) struct YamlWorkflowFile {
     pub(super) phases: BTreeMap<String, YamlPhaseDefinition>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(super) agents: BTreeMap<String, AgentProfile>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(super) agent_channels: BTreeMap<String, AgentChannelConfig>,
     /// Top-level model registry. Agents reference entries by name in their
     /// `models:` list to build primary + fallback chains.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]

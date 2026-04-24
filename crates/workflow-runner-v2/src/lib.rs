@@ -1,3 +1,4 @@
+pub mod agent_state;
 pub mod config_context;
 pub mod direct_exec;
 pub mod ensure_execution_cwd;
@@ -17,6 +18,10 @@ pub mod workflow_execute;
 pub mod workflow_helpers;
 pub mod workflow_merge_recovery;
 
+pub use agent_state::{
+    append_agent_memory, clear_agent_memory, list_agent_messages, load_agent_memory, send_agent_message,
+    AgentMemoryDocument, AgentMemoryEntry, AgentMessage,
+};
 pub use ensure_execution_cwd::ensure_execution_cwd;
 pub use ipc::*;
 pub use payload_traversal::{

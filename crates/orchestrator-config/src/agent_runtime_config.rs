@@ -289,6 +289,55 @@ pub struct AgentCapabilities {
     pub flags: BTreeMap<String, bool>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct AgentPersonaConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub traits: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub customizations: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentMemoryWritePolicy {
+    Explicit,
+    PhaseSummary,
+}
+
+impl Default for AgentMemoryWritePolicy {
+    fn default() -> Self {
+        Self::Explicit
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct AgentMemoryConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_context_chars: Option<usize>,
+    #[serde(default)]
+    pub write_policy: AgentMemoryWritePolicy,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct AgentCommunicationConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub channels: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub can_message: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_context_chars: Option<usize>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AgentProjectOverrides {
     #[serde(default)]
@@ -301,14 +350,22 @@ pub struct AgentProjectOverrides {
     pub env: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AgentProfile {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     #[serde(default)]
     pub description: String,
     #[serde(default)]
     pub system_prompt: String,
     #[serde(default)]
     pub role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persona: Option<AgentPersonaConfig>,
+    #[serde(default)]
+    pub memory: AgentMemoryConfig,
+    #[serde(default)]
+    pub communication: AgentCommunicationConfig,
     #[serde(default)]
     pub mcp_servers: Vec<String>,
     #[serde(default)]
@@ -851,9 +908,13 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
             (
                 "default".to_string(),
                 AgentProfile {
+                    name: None,
                     description: "Default workflow phase agent profile".to_string(),
                     system_prompt: "You are the workflow phase execution agent. Produce deterministic, repository-safe outputs and keep changes scoped to the active phase.".to_string(),
                     role: None,
+                    persona: None,
+                    memory: AgentMemoryConfig::default(),
+                    communication: AgentCommunicationConfig::default(),
                     mcp_servers: Vec::new(),
                     tool_policy: AgentToolPolicy::default(),
                     skills: vec![],
@@ -880,9 +941,13 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
             (
                 "implementation".to_string(),
                 AgentProfile {
+                    name: None,
                     description: "Compatibility alias for the software engineer persona.".to_string(),
                     system_prompt: "You are the software engineer execution agent. Implement production-ready code changes, add or update tests, and perform rigorous code review while keeping edits minimal and verifiable.".to_string(),
                     role: Some("software_engineer".to_string()),
+                    persona: None,
+                    memory: AgentMemoryConfig::default(),
+                    communication: AgentCommunicationConfig::default(),
                     mcp_servers: swe_mcp_servers.clone(),
                     tool_policy: swe_tool_policy.clone(),
                     skills: vec![
@@ -914,9 +979,13 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
             (
                 "em".to_string(),
                 AgentProfile {
+                    name: None,
                     description: "Engineering Manager persona for prioritization, queue management, and scheduling.".to_string(),
                     system_prompt: "You are the Engineering Manager agent. Prioritize work, manage queue health, sequence delivery safely, and keep execution plans realistic and dependency-aware.".to_string(),
                     role: Some("engineering_manager".to_string()),
+                    persona: None,
+                    memory: AgentMemoryConfig::default(),
+                    communication: AgentCommunicationConfig::default(),
                     mcp_servers: vec!["ao".to_string()],
                     tool_policy: AgentToolPolicy {
                         allow: vec![
@@ -969,9 +1038,13 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
             (
                 "po".to_string(),
                 AgentProfile {
+                    name: None,
                     description: "Product Owner persona for requirements, vision, acceptance criteria, and deliverable validation.".to_string(),
                     system_prompt: "You are the Product Owner agent. Refine requirements into clear acceptance criteria, align work to product vision, and validate deliverables against user outcomes.".to_string(),
                     role: Some("product_owner".to_string()),
+                    persona: None,
+                    memory: AgentMemoryConfig::default(),
+                    communication: AgentCommunicationConfig::default(),
                     mcp_servers: vec!["ao".to_string()],
                     tool_policy: AgentToolPolicy {
                         allow: vec![
@@ -1026,9 +1099,13 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
             (
                 "swe".to_string(),
                 AgentProfile {
+                    name: None,
                     description: "Software Engineer persona for implementation, testing, and code review.".to_string(),
                     system_prompt: "You are the software engineer execution agent. Implement production-ready code changes, add or update tests, and perform rigorous code review while keeping edits minimal and verifiable.".to_string(),
                     role: Some("software_engineer".to_string()),
+                    persona: None,
+                    memory: AgentMemoryConfig::default(),
+                    communication: AgentCommunicationConfig::default(),
                     mcp_servers: swe_mcp_servers,
                     tool_policy: swe_tool_policy,
                     skills: vec![
@@ -1383,6 +1460,9 @@ pub(crate) fn merge_agent_runtime_overlay(base: &mut AgentRuntimeConfig, overlay
 }
 
 fn merge_agent_profile(base: &mut AgentProfile, overlay: &AgentProfile) {
+    if overlay.name.is_some() {
+        base.name = overlay.name.clone();
+    }
     if !overlay.description.trim().is_empty() {
         base.description = overlay.description.clone();
     }
@@ -1391,6 +1471,15 @@ fn merge_agent_profile(base: &mut AgentProfile, overlay: &AgentProfile) {
     }
     if overlay.role.is_some() {
         base.role = overlay.role.clone();
+    }
+    if overlay.persona.is_some() {
+        base.persona = overlay.persona.clone();
+    }
+    if overlay.memory != AgentMemoryConfig::default() {
+        base.memory = overlay.memory.clone();
+    }
+    if overlay.communication != AgentCommunicationConfig::default() {
+        base.communication = overlay.communication.clone();
     }
     if !overlay.mcp_servers.is_empty() {
         base.mcp_servers = overlay.mcp_servers.clone();
@@ -1501,6 +1590,7 @@ pub fn write_agent_runtime_config(project_root: &Path, config: &AgentRuntimeConf
         checkpoint_retention: crate::workflow_config::WorkflowCheckpointRetentionConfig::default(),
         phase_definitions: config.phases.clone(),
         agent_profiles: config.agents.clone(),
+        agent_channels: BTreeMap::new(),
         tools_allowlist: config.tools_allowlist.clone(),
         mcp_servers: BTreeMap::new(),
         phase_mcp_bindings: BTreeMap::new(),
@@ -1808,6 +1898,42 @@ fn validate_agent_runtime_config(config: &AgentRuntimeConfig) -> Result<()> {
 
         if profile.role.as_deref().is_some_and(|value| value.trim().is_empty()) {
             return Err(anyhow!("agents['{}'].role must not be empty", agent_id));
+        }
+
+        if profile.name.as_deref().is_some_and(|value| value.trim().is_empty()) {
+            return Err(anyhow!("agents['{}'].name must not be empty", agent_id));
+        }
+
+        if let Some(persona) = profile.persona.as_ref() {
+            if persona.style.as_deref().is_some_and(|value| value.trim().is_empty()) {
+                return Err(anyhow!("agents['{}'].persona.style must not be empty", agent_id));
+            }
+            if persona.instructions.as_deref().is_some_and(|value| value.trim().is_empty()) {
+                return Err(anyhow!("agents['{}'].persona.instructions must not be empty", agent_id));
+            }
+            if persona.traits.iter().any(|value| value.trim().is_empty()) {
+                return Err(anyhow!("agents['{}'].persona.traits must not contain empty values", agent_id));
+            }
+            if persona.customizations.keys().any(|value| value.trim().is_empty()) {
+                return Err(anyhow!("agents['{}'].persona.customizations must not contain empty keys", agent_id));
+            }
+        }
+
+        if profile.memory.scope.as_deref().is_some_and(|value| value.trim().is_empty()) {
+            return Err(anyhow!("agents['{}'].memory.scope must not be empty", agent_id));
+        }
+        if profile.memory.max_context_chars == Some(0) {
+            return Err(anyhow!("agents['{}'].memory.max_context_chars must be greater than 0", agent_id));
+        }
+
+        if profile.communication.max_context_chars == Some(0) {
+            return Err(anyhow!("agents['{}'].communication.max_context_chars must be greater than 0", agent_id));
+        }
+        if profile.communication.channels.iter().any(|value| value.trim().is_empty()) {
+            return Err(anyhow!("agents['{}'].communication.channels must not contain empty values", agent_id));
+        }
+        if profile.communication.can_message.iter().any(|value| value.trim().is_empty()) {
+            return Err(anyhow!("agents['{}'].communication.can_message must not contain empty values", agent_id));
         }
 
         if profile.mcp_servers.iter().any(|server| server.trim().is_empty()) {

@@ -32,9 +32,18 @@ animus
 │   └── config               Update daemon automation configuration
 │
 ├── agent                    Run and inspect agent executions
+│   ├── list                 List configured agent profiles
+│   ├── get                  Get a configured agent profile
 │   ├── run                  Start an agent run
 │   ├── control              Control an existing agent run
-│   └── status               Read status for a run id
+│   ├── status               Read status for a run id
+│   ├── memory
+│   │   ├── get              Read memory for a configured agent
+│   │   ├── append           Append a memory entry for a configured agent
+│   │   └── clear            Clear memory for a configured agent
+│   └── message
+│       ├── send             Send a message on an agent channel
+│       └── list             List agent messages
 │
 ├── project                  Manage project registration and metadata
 │   ├── list                 List registered projects

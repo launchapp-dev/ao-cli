@@ -575,6 +575,16 @@ pub struct DaemonConfig {
     pub mcp: Option<protocol::McpRuntimeConfig>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct AgentChannelConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub participants: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_context_chars: Option<usize>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowConfig {
     pub schema: String,
@@ -590,6 +600,8 @@ pub struct WorkflowConfig {
     pub phase_definitions: BTreeMap<String, PhaseExecutionDefinition>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub agent_profiles: BTreeMap<String, AgentProfile>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub agent_channels: BTreeMap<String, AgentChannelConfig>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools_allowlist: Vec<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]

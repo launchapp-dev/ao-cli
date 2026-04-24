@@ -7,6 +7,7 @@ use crate::PhaseExecutionDefinition;
 
 use super::builtins::builtin_workflow_config;
 use super::types::*;
+use super::yaml_compiler::merge_yaml_into_config;
 use super::yaml_scaffold::title_case_phase_id;
 use super::yaml_types::*;
 
@@ -265,6 +266,7 @@ pub(super) fn workflow_config_to_yaml_file(config: &WorkflowConfig) -> YamlWorkf
             .map(|(id, definition)| (id.clone(), phase_execution_definition_to_yaml(definition)))
             .collect(),
         agents: config.agent_profiles.clone(),
+        agent_channels: config.agent_channels.clone(),
         models: BTreeMap::new(),
         tools_allowlist: config.tools_allowlist.clone(),
         mcp_servers: config.mcp_servers.clone(),
@@ -366,7 +368,7 @@ pub fn parse_yaml_workflow_config_with_base(yaml_str: &str, base: &WorkflowConfi
     }
 
     let default_workflow_ref = yaml_file.default_workflow_ref.unwrap_or_default();
-    let mut phase_catalog = yaml_file.phase_catalog.unwrap_or_else(|| base.phase_catalog.clone());
+    let mut phase_catalog = yaml_file.phase_catalog.unwrap_or_default();
     for (id, ui_def) in auto_phase_catalog {
         phase_catalog.entry(id).or_insert(ui_def);
     }
@@ -379,15 +381,16 @@ pub fn parse_yaml_workflow_config_with_base(yaml_str: &str, base: &WorkflowConfi
         }
     }
 
-    Ok(WorkflowConfig {
+    let overlay = WorkflowConfig {
         schema: WORKFLOW_CONFIG_SCHEMA_ID.to_string(),
         version: WORKFLOW_CONFIG_VERSION,
         default_workflow_ref,
         phase_catalog,
-        workflows: if workflows.is_empty() { base.workflows.clone() } else { workflows },
+        workflows,
         checkpoint_retention: WorkflowCheckpointRetentionConfig::default(),
         phase_definitions,
         agent_profiles,
+        agent_channels: yaml_file.agent_channels,
         tools_allowlist: yaml_file.tools_allowlist,
         mcp_servers: yaml_file.mcp_servers,
         phase_mcp_bindings: yaml_file.phase_mcp_bindings,
@@ -396,7 +399,9 @@ pub fn parse_yaml_workflow_config_with_base(yaml_str: &str, base: &WorkflowConfi
         schedules: yaml_file.schedules,
         triggers: yaml_file.triggers,
         daemon: yaml_file.daemon,
-    })
+    };
+
+    Ok(merge_yaml_into_config(base.clone(), overlay))
 }
 
 pub fn parse_yaml_workflow_config(yaml_str: &str) -> Result<WorkflowConfig> {
@@ -438,9 +443,13 @@ mod tests {
 
     fn make_empty_profile() -> AgentProfile {
         AgentProfile {
+            name: None,
             description: "test".to_string(),
             system_prompt: "test prompt".to_string(),
             role: None,
+            persona: None,
+            memory: Default::default(),
+            communication: Default::default(),
             mcp_servers: vec![],
             tool_policy: Default::default(),
             skills: vec![],
@@ -589,6 +598,48 @@ phases:
         assert_eq!(swe.tool.as_deref(), Some("claude"));
         assert_eq!(swe.fallback_models, vec!["gpt-4o"]);
         assert_eq!(swe.fallback_tools, vec!["oai-runner"]);
+    }
+
+    #[test]
+    fn yaml_agent_persona_memory_and_channels_parse() {
+        let yaml = r#"
+agents:
+  architect:
+    name: Mira
+    system_prompt: Keep designs explicit.
+    persona:
+      style: direct
+      traits: [skeptical, concise]
+      instructions: Prefer small interfaces.
+    memory:
+      enabled: true
+      scope: project
+      max_context_chars: 1200
+      write_policy: explicit
+    communication:
+      enabled: true
+      channels: [engineering]
+      can_message: [implementer]
+  implementer:
+    system_prompt: Build the change.
+agent_channels:
+  engineering:
+    participants: [architect, implementer]
+    max_context_chars: 2000
+phases:
+  design:
+    mode: agent
+    agent: architect
+workflows:
+- id: test
+  phases: [design]
+"#;
+        let config = parse_yaml_workflow_config(yaml).expect("parse yaml");
+        let architect = config.agent_profiles.get("architect").expect("architect agent");
+        assert_eq!(architect.name.as_deref(), Some("Mira"));
+        assert!(architect.memory.enabled);
+        assert!(architect.communication.enabled);
+        assert!(config.agent_channels.contains_key("engineering"));
     }
 
     #[test]

@@ -44,3 +44,54 @@ pub(super) struct AgentStatusInput {
     #[serde(default)]
     pub(super) project_root: Option<String>,
 }
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub(super) struct AgentProfileInput {
+    pub(super) id: String,
+    #[serde(default)]
+    pub(super) project_root: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub(super) struct AgentMemoryGetInput {
+    pub(super) agent: String,
+    #[serde(default)]
+    pub(super) project_root: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub(super) struct AgentMemoryAppendInput {
+    pub(super) agent: String,
+    pub(super) text: String,
+    #[serde(default)]
+    pub(super) source: Option<String>,
+    #[serde(default)]
+    pub(super) project_root: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub(super) struct AgentMessageSendInput {
+    pub(super) channel: String,
+    pub(super) from: String,
+    #[serde(default)]
+    pub(super) to: Option<String>,
+    pub(super) text: String,
+    #[serde(default)]
+    pub(super) workflow_id: Option<String>,
+    #[serde(default)]
+    pub(super) phase_id: Option<String>,
+    #[serde(default)]
+    pub(super) project_root: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub(super) struct AgentMessageListInput {
+    #[serde(default)]
+    pub(super) channel: Option<String>,
+    #[serde(default)]
+    pub(super) agent: Option<String>,
+    #[serde(default)]
+    pub(super) limit: Option<usize>,
+    #[serde(default)]
+    pub(super) project_root: Option<String>,
+}

@@ -699,6 +699,7 @@ fn empty_workflow_overlay_base() -> WorkflowConfig {
         checkpoint_retention: crate::WorkflowCheckpointRetentionConfig::default(),
         phase_definitions: BTreeMap::new(),
         agent_profiles: BTreeMap::new(),
+        agent_channels: BTreeMap::new(),
         tools_allowlist: Vec::new(),
         mcp_servers: BTreeMap::new(),
         phase_mcp_bindings: BTreeMap::new(),

@@ -12,7 +12,7 @@ animus init --template task-queue --non-interactive
 
 `animus init` is the primary first-run flow. It bootstraps the project-local `.ao/` config, copies the selected template workflow wrappers into the repo, and provisions repo-scoped runtime state under `~/.ao/<repo-scope>/`.
 
-If you are running in a real terminal and want the guided picker instead of an explicit template id, run `animus init`. The bundled first-party templates are:
+If you are running in a real terminal and want the guided picker instead of an explicit template id, run `animus init`. The default LaunchApp template registry currently provides:
 
 - `task-queue` for queue-driven delivery with aggressive daemon defaults
 - `conductor` for planning-heavy requirement intake and queue execution

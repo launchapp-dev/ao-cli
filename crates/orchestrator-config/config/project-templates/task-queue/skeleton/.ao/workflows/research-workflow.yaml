@@ -1,6 +1,0 @@
-workflows:
-  - id: research-workflow
-    name: Task Queue Research Workflow
-    description: Triage work before it enters the active queue.
-    phases:
-      - workflow_ref: ao.task/triage

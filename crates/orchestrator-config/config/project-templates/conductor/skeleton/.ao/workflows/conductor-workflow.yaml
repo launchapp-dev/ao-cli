@@ -1,6 +1,0 @@
-workflows:
-  - id: conductor-workflow
-    name: Conductor Planning Workflow
-    description: Turn requirements into concrete work that the queue can execute.
-    phases:
-      - workflow_ref: ao.requirement/plan

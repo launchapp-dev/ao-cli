@@ -1,6 +1,6 @@
 schema = "ao.pack.v1"
 id = "ao.task"
-version = "0.1.0"
+version = "0.1.1"
 kind = "domain-pack"
 title = "AO Task"
 description = "Bundled first-party task workflows and subject handling."

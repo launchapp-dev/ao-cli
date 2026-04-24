@@ -28,13 +28,13 @@ pub mod types {
 
 pub use agent_runtime_config::*;
 pub use pack_config::{
-    activate_pack_mcp_overlay, apply_pack_mcp_overlay, check_pack_runtime_requirements,
-    ensure_pack_runtime_requirements, load_pack_manifest, load_pack_manifest_from_file, load_pack_mcp_overlay,
-    pack_manifest_path, parse_pack_manifest, validate_pack_manifest, validate_pack_manifest_assets,
-    ExternalRuntimeKind, LoadedPackManifest, PackCompatibility, PackDependency, PackKind, PackManifest, PackMcp,
-    PackMcpOverlay, PackNativeModule, PackOwnership, PackOwnershipMode, PackPermissions, PackRuntime, PackRuntimeCheck,
-    PackRuntimeCheckStatus, PackRuntimeReport, PackRuntimeRequirement, PackSchedules, PackSecrets, PackSubjects,
-    PackWorkflows, PACK_MANIFEST_FILE_NAME, PACK_MANIFEST_SCHEMA_ID,
+    activate_pack_mcp_overlay, apply_pack_mcp_overlay, check_pack_runtime_requirements, ensure_bundled_pack_installed,
+    ensure_pack_runtime_requirements, has_bundled_pack, load_pack_manifest, load_pack_manifest_from_file,
+    load_pack_mcp_overlay, pack_manifest_path, parse_pack_manifest, validate_pack_manifest,
+    validate_pack_manifest_assets, ExternalRuntimeKind, LoadedPackManifest, PackCompatibility, PackDependency,
+    PackKind, PackManifest, PackMcp, PackMcpOverlay, PackNativeModule, PackOwnership, PackOwnershipMode,
+    PackPermissions, PackRuntime, PackRuntimeCheck, PackRuntimeCheckStatus, PackRuntimeReport, PackRuntimeRequirement,
+    PackSchedules, PackSecrets, PackSubjects, PackWorkflows, PACK_MANIFEST_FILE_NAME, PACK_MANIFEST_SCHEMA_ID,
 };
 pub use pack_marketplace::{
     add_marketplace_registry, clone_marketplace_pack, get_github_token, load_marketplace_state, parse_github_url,
@@ -53,11 +53,13 @@ pub use pack_selection::{
     PackSelectionState, PACK_SELECTION_FILE_NAME, PACK_SELECTION_SCHEMA_ID,
 };
 pub use project_template::{
-    list_bundled_project_templates, load_bundled_project_template, load_project_template_from_dir,
-    load_project_template_from_file, parse_project_template_manifest, LoadedProjectTemplate, ProjectTemplateDaemon,
-    ProjectTemplateFile, ProjectTemplateManifest, ProjectTemplatePack, ProjectTemplateSource,
+    default_project_template_registry_url, list_project_templates_from_default_registry,
+    list_project_templates_from_registry_root, load_project_template_from_default_registry,
+    load_project_template_from_dir, load_project_template_from_file, load_project_template_from_registry_root,
+    parse_project_template_manifest, sync_default_project_template_registry, LoadedProjectTemplate,
+    ProjectTemplateDaemon, ProjectTemplateFile, ProjectTemplateManifest, ProjectTemplatePack, ProjectTemplateSource,
     ProjectTemplateSourceKind, ProjectTemplateSourceMode, ProjectTemplateSummary, PROJECT_TEMPLATE_MANIFEST_FILE_NAME,
-    PROJECT_TEMPLATE_MANIFEST_SCHEMA_ID,
+    PROJECT_TEMPLATE_MANIFEST_SCHEMA_ID, PROJECT_TEMPLATE_REGISTRY_URL_ENV,
 };
 pub use skill_definition::*;
 pub use workflow_config::*;

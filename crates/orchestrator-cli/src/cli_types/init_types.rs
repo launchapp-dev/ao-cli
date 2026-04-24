@@ -2,7 +2,12 @@ use clap::{ArgAction, Args};
 
 #[derive(Debug, Args)]
 pub(crate) struct InitArgs {
-    #[arg(long, value_name = "TEMPLATE_ID", help = "Bundled project template id to initialize from.", conflicts_with = "path")]
+    #[arg(
+        long,
+        value_name = "TEMPLATE_ID",
+        help = "Project template id to initialize from the default template registry.",
+        conflicts_with = "path"
+    )]
     pub(crate) template: Option<String>,
     #[arg(
         long,

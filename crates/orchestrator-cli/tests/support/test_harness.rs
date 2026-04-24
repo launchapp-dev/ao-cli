@@ -34,7 +34,15 @@ impl CliHarness {
 
     pub fn run_json_ok(&self, args: &[&str]) -> Result<Value> {
         let output = self.run_json_command(args)?;
+        self.expect_json_ok(args, output)
+    }
 
+    pub fn run_json_ok_with_env(&self, args: &[&str], envs: &[(&str, &str)]) -> Result<Value> {
+        let output = self.run_json_command_with_env(args, envs)?;
+        self.expect_json_ok(args, output)
+    }
+
+    fn expect_json_ok(&self, args: &[&str], output: std::process::Output) -> Result<Value> {
         if !output.status.success() {
             anyhow::bail!(
                 "command failed ({:?}): animus --json --project-root {} {}\nstdout:\n{}\nstderr:\n{}",
@@ -66,7 +74,15 @@ impl CliHarness {
 
     pub fn run_json_err_with_exit(&self, args: &[&str]) -> Result<(Value, i32)> {
         let output = self.run_json_command(args)?;
+        self.expect_json_err_with_exit(args, output)
+    }
 
+    pub fn run_json_err_with_exit_and_env(&self, args: &[&str], envs: &[(&str, &str)]) -> Result<(Value, i32)> {
+        let output = self.run_json_command_with_env(args, envs)?;
+        self.expect_json_err_with_exit(args, output)
+    }
+
+    fn expect_json_err_with_exit(&self, args: &[&str], output: std::process::Output) -> Result<(Value, i32)> {
         if output.status.success() {
             anyhow::bail!(
                 "expected command to fail but it succeeded: animus --json --project-root {} {}\nstdout:\n{}\nstderr:\n{}",
@@ -95,7 +111,12 @@ impl CliHarness {
     }
 
     fn run_json_command(&self, args: &[&str]) -> Result<std::process::Output> {
-        Command::new(&self.binary_path)
+        self.run_json_command_with_env(args, &[])
+    }
+
+    fn run_json_command_with_env(&self, args: &[&str], envs: &[(&str, &str)]) -> Result<std::process::Output> {
+        let mut command = Command::new(&self.binary_path);
+        command
             .arg("--json")
             .arg("--project-root")
             .arg(self.project_root.path())
@@ -104,8 +125,10 @@ impl CliHarness {
             .env("XDG_CONFIG_HOME", self.config_root.path())
             .env("AO_CONFIG_DIR", self.config_root.path())
             .env("AGENT_ORCHESTRATOR_CONFIG_DIR", self.config_root.path())
-            .env("AO_SKIP_RUNNER_START", "1")
-            .output()
-            .with_context(|| format!("failed to execute animus command: {}", args.join(" ")))
+            .env("AO_SKIP_RUNNER_START", "1");
+        for (key, value) in envs {
+            command.env(key, value);
+        }
+        command.output().with_context(|| format!("failed to execute animus command: {}", args.join(" ")))
     }
 }

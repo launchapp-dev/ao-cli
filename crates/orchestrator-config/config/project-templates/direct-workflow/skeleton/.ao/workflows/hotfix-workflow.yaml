@@ -1,6 +1,0 @@
-workflows:
-  - id: hotfix-workflow
-    name: Direct Workflow Hotfix
-    description: Explicit quick-fix wrapper for urgent changes.
-    phases:
-      - workflow_ref: ao.task/quick-fix

@@ -4,9 +4,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use orchestrator_config::{
-    list_bundled_project_templates, load_bundled_project_template, load_pack_inventory, load_pack_selection_state,
-    load_project_template_from_dir, save_pack_selection_state, LoadedProjectTemplate, PackRegistrySource,
-    PackSelectionEntry, PackSelectionSource, ProjectTemplateSourceKind, ProjectTemplateSummary,
+    ensure_bundled_pack_installed, has_bundled_pack, list_project_templates_from_default_registry, load_pack_inventory,
+    load_pack_selection_state, load_project_template_from_default_registry, load_project_template_from_dir,
+    save_pack_selection_state, LoadedProjectTemplate, PackRegistrySource, PackSelectionEntry, PackSelectionSource,
+    ProjectTemplateSourceKind, ProjectTemplateSummary,
 };
 use orchestrator_core::{
     daemon_project_config_path, load_daemon_project_config, update_daemon_project_config, write_daemon_project_config,
@@ -45,6 +46,12 @@ struct InitPackPlan {
     action: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     source: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct InitPackApply {
+    installed_packs: Vec<String>,
+    pack_selection_updated: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -89,7 +96,8 @@ pub(crate) async fn handle_init(args: InitArgs, project_root: &str, json: bool) 
     };
 
     let existing_before = existing_template_paths(project_root_path, &loaded_template);
-    let template_file_plan = build_template_file_plan(project_root_path, &loaded_template, &existing_before, args.force);
+    let template_file_plan =
+        build_template_file_plan(project_root_path, &loaded_template, &existing_before, args.force);
     let pack_plan = build_pack_plan(project_root_path, &loaded_template)?;
 
     let doctor_before = DoctorReport::run_for_project(project_root_path);
@@ -121,7 +129,7 @@ pub(crate) async fn handle_init(args: InitArgs, project_root: &str, json: bool) 
                 "apply": {
                     "applied": false,
                     "changed_domains": [],
-                    "unchanged_domains": ["template_files", "daemon_config", "pack_selection"],
+                    "unchanged_domains": ["template_files", "daemon_config", "pack_installation", "pack_selection"],
                 },
                 "next_steps": loaded_template.manifest.next_steps,
             }),
@@ -136,7 +144,7 @@ pub(crate) async fn handle_init(args: InitArgs, project_root: &str, json: bool) 
 
     FileServiceHub::new(project_root_path)?;
     let written_files = write_template_files(project_root_path, &loaded_template)?;
-    let pack_selection_updated = apply_template_packs(project_root_path, &loaded_template)?;
+    let pack_apply = apply_template_packs(project_root_path, &loaded_template)?;
     let daemon_config_updated =
         persist_desired_daemon_config(project_root_path, &desired_config, daemon_config_exists_before)?;
     let doctor_after = DoctorReport::run_for_project(project_root_path);
@@ -158,10 +166,15 @@ pub(crate) async fn handle_init(args: InitArgs, project_root: &str, json: bool) 
     } else {
         unchanged_domains.push("daemon_config");
     }
-    if pack_selection_updated {
+    if pack_apply.pack_selection_updated {
         changed_domains.push("pack_selection");
     } else {
         unchanged_domains.push("pack_selection");
+    }
+    if pack_apply.installed_packs.is_empty() {
+        unchanged_domains.push("pack_installation");
+    } else {
+        changed_domains.push("pack_installation");
     }
 
     print_value(
@@ -185,7 +198,8 @@ pub(crate) async fn handle_init(args: InitArgs, project_root: &str, json: bool) 
                 "unchanged_domains": unchanged_domains,
                 "written_files": written_files,
                 "daemon_config_updated": daemon_config_updated,
-                "pack_selection_updated": pack_selection_updated,
+                "installed_packs": pack_apply.installed_packs,
+                "pack_selection_updated": pack_apply.pack_selection_updated,
             },
             "doctor_before": doctor_before,
             "doctor_after": doctor_after,
@@ -197,7 +211,7 @@ pub(crate) async fn handle_init(args: InitArgs, project_root: &str, json: bool) 
 
 fn resolve_template(args: &InitArgs, mode: InitMode) -> Result<LoadedProjectTemplate> {
     match (args.template.as_deref(), args.path.as_deref()) {
-        (Some(template_id), None) => load_bundled_project_template(template_id),
+        (Some(template_id), None) => load_project_template_from_default_registry(template_id),
         (None, Some(path)) => {
             let path = PathBuf::from(path.trim());
             if path.as_os_str().is_empty() {
@@ -213,12 +227,10 @@ fn resolve_template(args: &InitArgs, mode: InitMode) -> Result<LoadedProjectTemp
                         "guided init must be run in an interactive terminal; rerun with --template or --path and --non-interactive"
                     ));
                 }
-                let template = prompt_template_selection(&list_bundled_project_templates()?)?;
-                load_bundled_project_template(&template.id)
+                let template = prompt_template_selection(&list_project_templates_from_default_registry()?)?;
+                load_project_template_from_default_registry(&template.id)
             }
-            InitMode::NonInteractive => {
-                Err(invalid_input_error("non-interactive init requires --template or --path"))
-            }
+            InitMode::NonInteractive => Err(invalid_input_error("non-interactive init requires --template or --path")),
         },
     }
 }
@@ -242,23 +254,14 @@ fn resolve_desired_config(
             .auto_merge
             .unwrap_or(template.manifest.daemon.auto_merge.unwrap_or(current.auto_merge_enabled)),
         auto_pr_enabled: args.auto_pr.unwrap_or(template.manifest.daemon.auto_pr.unwrap_or(current.auto_pr_enabled)),
-        auto_commit_before_merge: args.auto_commit_before_merge.unwrap_or(
-            template
-                .manifest
-                .daemon
-                .auto_commit_before_merge
-                .unwrap_or(current.auto_commit_before_merge),
-        ),
+        auto_commit_before_merge: args
+            .auto_commit_before_merge
+            .unwrap_or(template.manifest.daemon.auto_commit_before_merge.unwrap_or(current.auto_commit_before_merge)),
     }
 }
 
 fn existing_template_paths(project_root: &Path, template: &LoadedProjectTemplate) -> BTreeSet<PathBuf> {
-    template
-        .files
-        .iter()
-        .map(|file| project_root.join(&file.relative_path))
-        .filter(|path| path.exists())
-        .collect()
+    template.files.iter().map(|file| project_root.join(&file.relative_path)).filter(|path| path.exists()).collect()
 }
 
 fn build_template_file_plan(
@@ -273,7 +276,11 @@ fn build_template_file_plan(
         .map(|file| {
             let path = project_root.join(&file.relative_path);
             let action = if existing_before.contains(&path) {
-                if force { "overwrite" } else { "conflict" }
+                if force {
+                    "overwrite"
+                } else {
+                    "conflict"
+                }
             } else {
                 "create"
             };
@@ -293,12 +300,17 @@ fn build_pack_plan(project_root: &Path, template: &LoadedProjectTemplate) -> Res
         .packs
         .iter()
         .map(|pack| {
-            let entry = inventory
-                .entries
-                .iter()
-                .find(|entry| entry.pack_id.eq_ignore_ascii_case(&pack.id) && pack_source_matches(pack.source, entry.source));
+            let entry = inventory.entries.iter().find(|entry| {
+                entry.pack_id.eq_ignore_ascii_case(&pack.id) && pack_source_matches(pack.source, entry.source)
+            });
             let action = if pack.activate {
-                if entry.is_some() { "activate" } else { "missing" }
+                if entry.is_some() {
+                    "activate"
+                } else if has_bundled_pack(&pack.id) {
+                    "install_and_activate"
+                } else {
+                    "missing"
+                }
             } else {
                 "skip"
             };
@@ -339,11 +351,12 @@ fn write_template_files(project_root: &Path, template: &LoadedProjectTemplate) -
     Ok(written)
 }
 
-fn apply_template_packs(project_root: &Path, template: &LoadedProjectTemplate) -> Result<bool> {
+fn apply_template_packs(project_root: &Path, template: &LoadedProjectTemplate) -> Result<InitPackApply> {
     if template.manifest.packs.is_empty() {
-        return Ok(false);
+        return Ok(InitPackApply { installed_packs: Vec::new(), pack_selection_updated: false });
     }
 
+    let installed_packs = ensure_template_packs_available(project_root, template)?;
     let inventory = load_pack_inventory(project_root)?;
     let mut state = load_pack_selection_state(project_root)?;
     let mut updated = false;
@@ -356,7 +369,9 @@ fn apply_template_packs(project_root: &Path, template: &LoadedProjectTemplate) -
         let source = inventory
             .entries
             .iter()
-            .find(|entry| entry.pack_id.eq_ignore_ascii_case(&pack.id) && pack_source_matches(pack.source, entry.source))
+            .find(|entry| {
+                entry.pack_id.eq_ignore_ascii_case(&pack.id) && pack_source_matches(pack.source, entry.source)
+            })
             .map(|entry| selection_source_for(entry.source))
             .ok_or_else(|| invalid_input_error(format!("template references unavailable pack '{}'", pack.id)))?;
 
@@ -372,7 +387,35 @@ fn apply_template_packs(project_root: &Path, template: &LoadedProjectTemplate) -
     if updated {
         save_pack_selection_state(project_root, &state)?;
     }
-    Ok(updated)
+    Ok(InitPackApply { installed_packs, pack_selection_updated: updated })
+}
+
+fn ensure_template_packs_available(project_root: &Path, template: &LoadedProjectTemplate) -> Result<Vec<String>> {
+    if template.manifest.packs.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let inventory = load_pack_inventory(project_root)?;
+    let mut installed = Vec::new();
+
+    for pack in &template.manifest.packs {
+        if !pack.activate {
+            continue;
+        }
+        let present = inventory.entries.iter().any(|entry| {
+            entry.pack_id.eq_ignore_ascii_case(&pack.id) && pack_source_matches(pack.source, entry.source)
+        });
+        if present || !has_bundled_pack(&pack.id) {
+            continue;
+        }
+
+        let loaded = ensure_bundled_pack_installed(&pack.id)?;
+        installed.push(loaded.manifest.id);
+    }
+
+    installed.sort();
+    installed.dedup();
+    Ok(installed)
 }
 
 fn selection_source_for(source: PackRegistrySource) -> PackSelectionSource {
@@ -476,10 +519,49 @@ fn remediation_needed(report: &DoctorReport, remediation_id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
+    use orchestrator_config::{
+        ProjectTemplateDaemon, ProjectTemplateFile, ProjectTemplateManifest, ProjectTemplateSource,
+        ProjectTemplateSourceMode,
+    };
+
+    fn template_fixture(
+        id: &str,
+        pattern: &str,
+        daemon: ProjectTemplateDaemon,
+        files: Vec<ProjectTemplateFile>,
+    ) -> LoadedProjectTemplate {
+        LoadedProjectTemplate {
+            source_kind: ProjectTemplateSourceKind::Local,
+            template_root: None,
+            manifest: ProjectTemplateManifest {
+                schema: "animus.template.v1".to_string(),
+                id: id.to_string(),
+                version: "0.1.0".to_string(),
+                title: id.to_string(),
+                description: format!("{id} template"),
+                pattern: pattern.to_string(),
+                source: ProjectTemplateSource { mode: ProjectTemplateSourceMode::Copy, root: "skeleton".to_string() },
+                daemon,
+                packs: Vec::new(),
+                next_steps: Vec::new(),
+            },
+            files,
+        }
+    }
 
     #[test]
     fn build_template_file_plan_marks_conflicts_without_force() {
-        let template = load_bundled_project_template("task-queue").expect("template should load");
+        let template = template_fixture(
+            "task-queue",
+            "task-queue",
+            ProjectTemplateDaemon::default(),
+            vec![ProjectTemplateFile {
+                relative_path: PathBuf::from(".ao/workflows/custom.yaml"),
+                contents: b"default_workflow_ref: standard-workflow\n".to_vec(),
+            }],
+        );
         let temp = tempfile::tempdir().expect("tempdir should exist");
         let conflict_path = temp.path().join(".ao/workflows/custom.yaml");
         std::fs::create_dir_all(conflict_path.parent().expect("parent")).expect("parent should exist");
@@ -492,7 +574,16 @@ mod tests {
 
     #[test]
     fn resolve_desired_config_prefers_explicit_overrides() {
-        let template = load_bundled_project_template("direct-workflow").expect("template should load");
+        let template = template_fixture(
+            "direct-workflow",
+            "direct-workflow",
+            ProjectTemplateDaemon {
+                auto_merge: Some(false),
+                auto_pr: Some(false),
+                auto_commit_before_merge: Some(false),
+            },
+            Vec::new(),
+        );
         let current =
             DaemonProjectConfig { auto_merge_enabled: true, auto_pr_enabled: true, auto_commit_before_merge: true };
         let args = InitArgs {

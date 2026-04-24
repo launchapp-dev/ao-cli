@@ -731,6 +731,119 @@ workflows:
     assert_eq!(standard.name, "Compiled Standard");
 }
 
+#[test]
+fn validate_and_compile_yaml_includes_installed_pack_workflows() {
+    let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let home = tempfile::tempdir().expect("home tempdir");
+    let project = tempfile::tempdir().expect("project tempdir");
+    let _home_guard = EnvVarGuard::set("HOME", home.path());
+
+    crate::ensure_bundled_pack_installed("ao.requirement").expect("install bundled requirement pack");
+    crate::save_pack_selection_state(
+        project.path(),
+        &crate::PackSelectionState {
+            schema: crate::PACK_SELECTION_SCHEMA_ID.to_string(),
+            selections: vec![crate::PackSelectionEntry {
+                pack_id: "ao.requirement".to_string(),
+                version: None,
+                source: Some(crate::PackSelectionSource::Installed),
+                enabled: true,
+            }],
+        },
+    )
+    .expect("save pack selection");
+
+    let workflows_dir = project.path().join(".ao").join("workflows");
+    fs::create_dir_all(&workflows_dir).expect("create workflows dir");
+    fs::write(
+        workflows_dir.join("custom.yaml"),
+        "default_workflow_ref: conductor-workflow\n\ntools_allowlist:\n  - cargo\n  - animus\n",
+    )
+    .expect("write custom workflow");
+    fs::write(
+        workflows_dir.join("conductor-workflow.yaml"),
+        r#"
+workflows:
+  - id: conductor-workflow
+    name: Conductor Planning Workflow
+    phases:
+      - workflow_ref: ao.requirement/plan
+"#,
+    )
+    .expect("write conductor workflow");
+    fs::write(
+        workflows_dir.join("standard-workflow.yaml"),
+        r#"
+workflows:
+  - id: standard-workflow
+    name: Standard Workflow
+    phases:
+      - workflow_ref: ao.task/standard
+"#,
+    )
+    .expect("write standard workflow");
+
+    let result = validate_and_compile_yaml_workflows(project.path()).expect("compile should succeed");
+    let compile_result = result.expect("should have result");
+    let workflow_ids = compile_result.config.workflows.iter().map(|workflow| workflow.id.as_str()).collect::<Vec<_>>();
+    assert!(workflow_ids.contains(&"conductor-workflow"));
+    assert!(workflow_ids.contains(&"ao.requirement/plan"));
+    assert!(workflow_ids.contains(&"ao.task/standard"));
+
+    let reloaded = load_workflow_config(project.path()).expect("reload config");
+    assert!(reloaded.workflows.iter().any(|workflow| workflow.id == "ao.requirement/plan"));
+    assert!(reloaded.workflows.iter().any(|workflow| workflow.id == "ao.task/standard"));
+}
+
+#[test]
+fn validate_and_compile_yaml_preserves_task_pack_tools_allowlist() {
+    let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let home = tempfile::tempdir().expect("home tempdir");
+    let project = tempfile::tempdir().expect("project tempdir");
+    let _home_guard = EnvVarGuard::set("HOME", home.path());
+
+    crate::ensure_bundled_pack_installed("ao.task").expect("install bundled task pack");
+    crate::save_pack_selection_state(
+        project.path(),
+        &crate::PackSelectionState {
+            schema: crate::PACK_SELECTION_SCHEMA_ID.to_string(),
+            selections: vec![crate::PackSelectionEntry {
+                pack_id: "ao.task".to_string(),
+                version: None,
+                source: Some(crate::PackSelectionSource::Installed),
+                enabled: true,
+            }],
+        },
+    )
+    .expect("save pack selection");
+
+    let workflows_dir = project.path().join(".ao").join("workflows");
+    fs::create_dir_all(&workflows_dir).expect("create workflows dir");
+    fs::write(
+        workflows_dir.join("custom.yaml"),
+        "default_workflow_ref: standard-workflow\n\ntools_allowlist:\n  - cargo\n  - animus\n",
+    )
+    .expect("write custom workflow");
+    fs::write(
+        workflows_dir.join("standard-workflow.yaml"),
+        r#"
+workflows:
+  - id: standard-workflow
+    name: Standard Workflow
+    phases:
+      - workflow_ref: ao.task/standard
+"#,
+    )
+    .expect("write standard workflow");
+
+    let result = validate_and_compile_yaml_workflows(project.path()).expect("compile should succeed");
+    let compile_result = result.expect("should have result");
+    assert!(compile_result.config.tools_allowlist.iter().any(|tool| tool == "ao"));
+    assert!(compile_result.config.tools_allowlist.iter().any(|tool| tool == "cargo"));
+    assert!(compile_result.config.tools_allowlist.iter().any(|tool| tool == "animus"));
+    assert!(compile_result.config.phase_definitions.contains_key("subject-activate"));
+}
+
 fn make_pipeline(id: &str, phases: Vec<WorkflowPhaseEntry>) -> WorkflowDefinition {
     WorkflowDefinition {
         id: id.to_string(),

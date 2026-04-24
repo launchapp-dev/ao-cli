@@ -250,7 +250,7 @@ animus
 │   └── open                  Open the AO web UI URL in a browser
 │
 ├── init                     Initialize an Animus project from a template
-│   (no subcommands)         Supports bundled or local copy templates, plan mode, and daemon defaults
+│   (no subcommands)         Supports registry-backed or local copy templates, plan mode, and daemon defaults
 │
 ├── setup                    Guided onboarding and configuration wizard
 ├── cloud                    Sync tasks and requirements with a remote ao-sync server

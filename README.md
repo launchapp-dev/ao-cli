@@ -357,7 +357,7 @@ animus agent         Control agent runner processes
 animus output        Stream and inspect agent output
 animus doctor        Health checks, auto-remediation, and troubleshooting (v0.3.0+)
 animus cloud         Sync state, manage webhooks, and access cloud dashboard (v0.3.0+)
-animus init          Initialize a project from a bundled or local template
+animus init          Initialize a project from the default template registry or a local template
 animus setup         Lower-level bootstrap and configuration wizard
 animus requirements  Manage product requirements
 animus mcp           Start Animus as an MCP server

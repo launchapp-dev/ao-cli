@@ -1,6 +1,0 @@
-workflows:
-  - id: hotfix-workflow
-    name: Conductor Hotfix Workflow
-    description: Fast-track wrapper for urgent fixes in a conductor-managed project.
-    phases:
-      - workflow_ref: ao.task/quick-fix

@@ -1,3 +1,6 @@
+tools_allowlist:
+  - ao
+
 phase_catalog:
   subject-activate:
     label: Activate Subject

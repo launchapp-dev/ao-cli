@@ -2,7 +2,7 @@
 
 ## What `animus init` Does
 
-`animus init` is the primary first-run command for a repository. It initializes both the project-local Animus config and the repo-scoped runtime state that Animus uses while the repository is active, then applies a bundled or local project template on top of that bootstrap.
+`animus init` is the primary first-run command for a repository. It initializes both the project-local Animus config and the repo-scoped runtime state that Animus uses while the repository is active, then applies a registry-backed or local project template on top of that bootstrap.
 
 On first run it:
 
@@ -37,7 +37,7 @@ Supported but not created by default:
 .ao/plugins/<pack-id>/
 ```
 
-Use the YAML files in `.ao/workflows/` or `.ao/workflows.yaml` to define repository-specific workflows and defaults. Bundled templates ship curated workflow wrappers, and local templates can add their own starter files the same way.
+Use the YAML files in `.ao/workflows/` or `.ao/workflows.yaml` to define repository-specific workflows and defaults. Registry templates ship curated workflow wrappers, and local templates can add their own starter files the same way.
 
 ## Repo-Scoped Runtime State
 

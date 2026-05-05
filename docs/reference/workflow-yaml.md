@@ -151,7 +151,7 @@ agent_channels:
 ```
 
 Messages are stored under the scoped runtime state directory and can be written
-through `ao agent message send` or the MCP tool `ao.agent.message.send`. Agents
+through `animus agent message send` or the MCP tool `ao.agent.message.send`. Agents
 only receive channel context when their profile has `communication.enabled:
 true` and lists that channel.
 

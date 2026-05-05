@@ -17,9 +17,9 @@ planning execute, fallback compatibility, and invalid-config recovery.
 | UX brief surface | Covered in |
 | --- | --- |
 | `S1` Pipeline config authoring (`.ao/state/workflow-config.v2.json`) | `wireframes.html` (`S1 Config Authoring`) + `phase-plan-config-wireframe.tsx` (`SCENARIOS.config`) |
-| `S2` Workflow run (`ao workflow run`) | `wireframes.html` (`S2 Direct Workflow Run`) + `phase-plan-config-wireframe.tsx` (`WorkflowRunSurfaceWireframe`) |
+| `S2` Workflow run (`animus workflow run`) | `wireframes.html` (`S2 Direct Workflow Run`) + `phase-plan-config-wireframe.tsx` (`WorkflowRunSurfaceWireframe`) |
 | `S3` Requirements execution with workflow start | `wireframes.html` (`S3 Planning Execute Parity`) + `phase-plan-config-wireframe.tsx` (`PlanningParityWireframe`) |
-| `S4` Workflow inspection (`ao workflow get`, checkpoints) | `wireframes.html` (`S4 Workflow Inspection`) + `phase-plan-config-wireframe.tsx` (`InspectionSurfaceWireframe`) |
+| `S4` Workflow inspection (`animus workflow get`, checkpoints) | `wireframes.html` (`S4 Workflow Inspection`) + `phase-plan-config-wireframe.tsx` (`InspectionSurfaceWireframe`) |
 | `S5` Misconfiguration error surface | `wireframes.html` (`S5 Fallback and Invalid Config`) + `phase-plan-config-wireframe.tsx` (`ErrorSurfaceWireframe`) |
 
 ## State Coverage

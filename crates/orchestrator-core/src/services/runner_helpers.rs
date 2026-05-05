@@ -327,6 +327,17 @@ pub(super) fn find_agent_runner_binary() -> Result<PathBuf> {
             if sibling.exists() {
                 return Ok(sibling);
             }
+
+            // When the current binary is a cargo test in `target/<profile>/deps/`,
+            // the agent-runner sibling lives one directory up. Look there before
+            // falling back to cwd-relative or PATH lookups so concurrent tests that
+            // mutate cwd cannot redirect us to a stale `~/.local/bin/agent-runner`.
+            if let Some(parent_dir) = exe_dir.parent() {
+                let parent_sibling = parent_dir.join(binary_name);
+                if parent_sibling.exists() {
+                    return Ok(parent_sibling);
+                }
+            }
         }
     }
 

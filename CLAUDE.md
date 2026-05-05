@@ -208,11 +208,11 @@ AO is meant to self-host its planning and execution state.
 Common flow:
 
 ```bash
-ao task next
-ao task status --id TASK-XXX --status in-progress
-ao workflow run --task-id TASK-XXX
-ao queue list
-ao daemon health
+animus task next
+animus task status --id TASK-XXX --status in-progress
+animus workflow run --task-id TASK-XXX
+animus queue list
+animus daemon health
 ```
 
 If a task is specifically about persistence or migrations, it can justify direct state-file work.

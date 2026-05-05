@@ -149,7 +149,15 @@ mod tests {
     use super::*;
     use std::fs;
 
-    fn ensure_stable_home() {
+    fn pack_fixture_lock() -> &'static std::sync::Mutex<()> {
+        // Pack fixture tests share `~/.ao/packs` via the stable test HOME. Serialize access so
+        // parallel tests don't race on remove_dir_all + write_pack_fixture.
+        static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        LOCK.get_or_init(|| std::sync::Mutex::new(()))
+    }
+
+    fn ensure_stable_home() -> std::sync::MutexGuard<'static, ()> {
+        let guard = pack_fixture_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let home = crate::test_env::stable_test_home().to_path_buf();
         let global_config_dir = protocol::Config::global_config_dir();
         std::fs::create_dir_all(&global_config_dir).expect("create global config dir");
@@ -160,6 +168,7 @@ mod tests {
             std::fs::remove_dir_all(&machine_packs_dir).expect("clear shared machine pack fixtures");
         }
         std::env::set_var("HOME", home);
+        guard
     }
 
     fn write_pack_fixture(root: &std::path::Path, pack_id: &str, version: &str, workflow_id: &str) {
@@ -216,7 +225,7 @@ workflows:
 
     #[test]
     fn resolve_phase_plan_errors_when_workflow_config_is_missing() {
-        ensure_stable_home();
+        let _home_lock = ensure_stable_home();
         let temp = tempfile::tempdir().expect("tempdir");
 
         let error = resolve_phase_plan_for_workflow_ref(Some(temp.path()), Some("ui-ux"))
@@ -245,7 +254,7 @@ workflows:
 
     #[test]
     fn resolve_phase_plan_errors_when_workflow_config_is_invalid() {
-        ensure_stable_home();
+        let _home_lock = ensure_stable_home();
         let temp = tempfile::tempdir().expect("tempdir");
         let state_dir = crate::workflow_config::workflow_config_path(temp.path())
             .parent()
@@ -264,7 +273,7 @@ workflows:
 
     #[test]
     fn resolve_phase_plan_errors_when_legacy_workflow_config_exists_without_v2() {
-        ensure_stable_home();
+        let _home_lock = ensure_stable_home();
         let temp = tempfile::tempdir().expect("tempdir");
         let legacy_path = crate::legacy_workflow_config_paths(temp.path())[0].clone();
         let parent = legacy_path.parent().expect("legacy parent directory");
@@ -280,7 +289,7 @@ workflows:
 
     #[test]
     fn resolve_phase_plan_errors_when_pipeline_is_missing_from_config() {
-        ensure_stable_home();
+        let _home_lock = ensure_stable_home();
         let temp = tempfile::tempdir().expect("tempdir");
 
         crate::write_workflow_config(temp.path(), &crate::builtin_workflow_config()).expect("write workflow config");
@@ -294,7 +303,7 @@ workflows:
 
     #[test]
     fn resolve_phase_plan_uses_config_phases_for_standard_pipeline() {
-        ensure_stable_home();
+        let _home_lock = ensure_stable_home();
         let temp = tempfile::tempdir().expect("tempdir");
         let mut workflow_config = crate::builtin_workflow_config();
 
@@ -316,7 +325,7 @@ workflows:
 
     #[test]
     fn resolve_phase_plan_uses_config_default_pipeline_when_none_is_requested() {
-        ensure_stable_home();
+        let _home_lock = ensure_stable_home();
         let temp = tempfile::tempdir().expect("tempdir");
         let mut workflow_config = crate::builtin_workflow_config();
         workflow_config.default_workflow_ref = UI_UX_WORKFLOW_REF.to_string();
@@ -330,7 +339,7 @@ workflows:
 
     #[test]
     fn resolve_phase_plan_prefers_explicit_config_pipeline_before_alias_normalization() {
-        ensure_stable_home();
+        let _home_lock = ensure_stable_home();
         let temp = tempfile::tempdir().expect("tempdir");
         let mut workflow_config = crate::builtin_workflow_config();
 
@@ -353,7 +362,7 @@ workflows:
 
     #[test]
     fn resolve_phase_plan_requires_pack_install_for_canonical_requirement_workflow_refs() {
-        ensure_stable_home();
+        let _home_lock = ensure_stable_home();
         let temp = tempfile::tempdir().expect("tempdir");
 
         crate::write_workflow_config(temp.path(), &crate::builtin_workflow_config()).expect("write workflow config");
@@ -366,7 +375,7 @@ workflows:
 
     #[test]
     fn resolve_phase_plan_uses_machine_installed_pack_workflows() {
-        ensure_stable_home();
+        let _home_lock = ensure_stable_home();
         let temp = tempfile::tempdir().expect("project tempdir");
 
         write_pack_fixture(
@@ -383,7 +392,7 @@ workflows:
 
     #[test]
     fn resolve_phase_plan_requires_pack_install_for_optional_pack_workflows() {
-        ensure_stable_home();
+        let _home_lock = ensure_stable_home();
         let temp = tempfile::tempdir().expect("tempdir");
 
         let quick_fix_error = resolve_phase_plan_for_workflow_ref(Some(temp.path()), Some("ao.task/quick-fix"))

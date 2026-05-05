@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "crates/agent-runner",
+  "crates/ao-plugin-smoke",
   "crates/protocol",
   "crates/llm-cli-wrapper",
   "crates/orchestrator-daemon-runtime",

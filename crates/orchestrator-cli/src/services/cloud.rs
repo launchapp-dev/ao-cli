@@ -601,13 +601,13 @@ async fn handle_destroy(args: DeployDestroyArgs, project_root: &str, json: bool)
     if let Some(ref configured_app) = deploy_config.app_name {
         if configured_app != &args.app_name {
             anyhow::bail!(
-                "App name mismatch: configured '{}' but attempting to destroy '{}'. Use 'ao cloud deploy status' to check.",
+                "App name mismatch: configured '{}' but attempting to destroy '{}'. Use 'animus cloud deploy status' to check.",
                 configured_app,
                 args.app_name
             );
         }
     } else {
-        anyhow::bail!("No deployment configured for this project. Run 'ao cloud deploy create' first.");
+        anyhow::bail!("No deployment configured for this project. Run 'animus cloud deploy create' first.");
     }
 
     // Get the daemon ID from local config
@@ -983,13 +983,13 @@ async fn handle_start(args: DeployStartArgs, project_root: &str, json: bool) -> 
     if let Some(ref configured_app) = deploy_config.app_name {
         if configured_app != &args.app_name {
             anyhow::bail!(
-                "App name mismatch: configured '{}' but attempting to start '{}'. Use 'ao cloud deploy status' to check.",
+                "App name mismatch: configured '{}' but attempting to start '{}'. Use 'animus cloud deploy status' to check.",
                 configured_app,
                 args.app_name
             );
         }
     } else {
-        anyhow::bail!("No deployment configured for this project. Run 'ao cloud deploy create' first.");
+        anyhow::bail!("No deployment configured for this project. Run 'animus cloud deploy create' first.");
     }
 
     // Get the daemon ID from local config
@@ -1043,13 +1043,13 @@ async fn handle_stop(args: DeployStopArgs, project_root: &str, json: bool) -> Re
     if let Some(ref configured_app) = deploy_config.app_name {
         if configured_app != &args.app_name {
             anyhow::bail!(
-                "App name mismatch: configured '{}' but attempting to stop '{}'. Use 'ao cloud deploy status' to check.",
+                "App name mismatch: configured '{}' but attempting to stop '{}'. Use 'animus cloud deploy status' to check.",
                 configured_app,
                 args.app_name
             );
         }
     } else {
-        anyhow::bail!("No deployment configured for this project. Run 'ao cloud deploy create' first.");
+        anyhow::bail!("No deployment configured for this project. Run 'animus cloud deploy create' first.");
     }
 
     // Get the daemon ID from local config
@@ -1103,14 +1103,14 @@ async fn handle_status_deploy(args: DeployStatusArgs, project_root: &str, json: 
     if let Some(ref configured_app) = deploy_config.app_name {
         if configured_app != &args.app_name {
             anyhow::bail!(
-                "App name mismatch: configured '{}' but checking status for '{}'. Use 'ao cloud deploy status --app-name {}' to check configured deployment.",
+                "App name mismatch: configured '{}' but checking status for '{}'. Use 'animus cloud deploy status --app-name {}' to check configured deployment.",
                 configured_app,
                 args.app_name,
                 configured_app
             );
         }
     } else {
-        anyhow::bail!("No deployment configured for this project. Run 'ao cloud deploy create' first.");
+        anyhow::bail!("No deployment configured for this project. Run 'animus cloud deploy create' first.");
     }
 
     // Get the daemon ID from local config

@@ -103,9 +103,9 @@ If automatic resolution fails, the workflow is marked as blocked and the conflic
 ## Managing Worktrees
 
 ```bash
-ao git worktree list          # List active worktrees
-ao git worktree cleanup       # Remove worktrees for completed tasks
-ao runner orphans-detect      # Detect orphaned runner processes in stale worktrees
+animus git worktree list          # List active worktrees
+animus git worktree cleanup       # Remove worktrees for completed tasks
+animus runner orphans-detect      # Detect orphaned runner processes in stale worktrees
 ```
 
 The daemon performs orphan recovery on startup, detecting worktrees whose runner processes are no longer alive.

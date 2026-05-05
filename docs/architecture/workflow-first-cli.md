@@ -42,10 +42,10 @@ This keeps the runtime aligned with the plugin-pack kernel design:
 
 | Command | Canonical Ref |
 |---|---|
-| `ao workflow run ao.vision/draft --title "..." --sync` | `ao.vision/draft` |
-| `ao workflow run ao.requirement/draft --title "..." --sync` | `ao.requirement/draft` |
-| `ao requirements execute --id REQ-001` | `ao.requirement/execute` |
-| `ao workflow run ao.task/standard` | `ao.task/standard` |
+| `animus workflow run ao.vision/draft --title "..." --sync` | `ao.vision/draft` |
+| `animus workflow run ao.requirement/draft --title "..." --sync` | `ao.requirement/draft` |
+| `animus requirements execute --id REQ-001` | `ao.requirement/execute` |
+| `animus workflow run ao.task/standard` | `ao.task/standard` |
 
 ## Related Docs
 

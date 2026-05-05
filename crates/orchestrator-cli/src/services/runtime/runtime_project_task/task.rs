@@ -215,7 +215,7 @@ pub(crate) async fn handle_task(
                             "delete task from project state",
                         ],
                         "next_step": format!(
-                            "rerun 'ao task delete --id {} --confirm {}' to apply",
+                            "rerun 'animus task delete --id {} --confirm {}' to apply",
                             task_id,
                             task_id
                         ),
@@ -359,7 +359,7 @@ pub(crate) async fn handle_task(
                             "set task status to cancelled",
                         ],
                         "next_step": format!(
-                            "rerun 'ao task cancel --id {} --confirm {}' to apply",
+                            "rerun 'animus task cancel --id {} --confirm {}' to apply",
                             task_id, task_id
                         ),
                     }),
@@ -477,7 +477,7 @@ pub(crate) async fn handle_task(
                             "rebalance remaining tasks to medium/low",
                         ],
                         "next_step": format!(
-                            "rerun 'ao task rebalance-priority --apply --confirm {}' to apply",
+                            "rerun 'animus task rebalance-priority --apply --confirm {}' to apply",
                             CONFIRM_TOKEN
                         ),
                         "plan": plan,
@@ -488,7 +488,7 @@ pub(crate) async fn handle_task(
 
             if args.confirm.as_deref().map(str::trim) != Some(CONFIRM_TOKEN) {
                 return Err(invalid_input_error(format!(
-                    "CONFIRMATION_REQUIRED: rerun 'ao task rebalance-priority --apply --confirm {CONFIRM_TOKEN}'; run without --apply to preview changes"
+                    "CONFIRMATION_REQUIRED: rerun 'animus task rebalance-priority --apply --confirm {CONFIRM_TOKEN}'; run without --apply to preview changes"
                 )));
             }
 

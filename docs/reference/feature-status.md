@@ -19,7 +19,7 @@ This page clarifies which AO features are **shipped and stable**, **in-flight (p
 | Task Status Lifecycle | **Shipped** | Progress tasks through backlog → todo → ready → in_progress → done/cancelled states |
 | Task Prioritization | **Shipped** | Set and rebalance task priority with budget policies |
 | Task Blockers | **Shipped** | Mark tasks as blocked with reasons and automatic unblock detection |
-| Requirements as First-Class | **Shipped** | Define requirements separately from tasks; use `ao requirements execute` to materialize work |
+| Requirements as First-Class | **Shipped** | Define requirements separately from tasks; use `animus requirements execute` to materialize work |
 
 ### Workflows and Execution
 
@@ -55,7 +55,7 @@ This page clarifies which AO features are **shipped and stable**, **in-flight (p
 | Workflow Commands | **Shipped** | Workflow execution, status, checkpoints, and phase management |
 | Daemon Commands | **Shipped** | Daemon lifecycle, health, queue, and event inspection |
 | Git Integration (`ao git`) | **Shipped** | Worktree creation, branch management, push/pull, confirmation requests |
-| MCP Integration (`ao mcp serve`) | **Shipped** | Expose AO state and operations as MCP tools for use by AI agents |
+| MCP Integration (`animus mcp serve`) | **Shipped** | Expose AO state and operations as MCP tools for use by AI agents |
 | Skill Management (`ao skill`) | **Shipped** | Search, install, update, and publish versioned skills |
 | Model Management (`ao model`) | **Shipped** | Check model availability, validate model selection, view model roster |
 | History and Error Inspection | **Shipped** | Inspect execution history and recorded operational errors |
@@ -75,7 +75,7 @@ This page clarifies which AO features are **shipped and stable**, **in-flight (p
 
 | Feature | Status | Description |
 |---------|--------|-------------|
-| Web UI (`ao web serve`) | **Shipped** | React-based web dashboard for task, workflow, and requirement management |
+| Web UI (`animus web serve`) | **Shipped** | React-based web dashboard for task, workflow, and requirement management |
 | Web UI — Task Dashboard | **Shipped** | View, filter, search, and manage tasks from the web UI |
 | Web UI — Workflow Monitoring | **Shipped** | Monitor active and completed workflows with phase details |
 | Web UI — Dark Mode | **Shipped** | Built-in dark mode theme support |

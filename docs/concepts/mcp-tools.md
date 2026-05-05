@@ -11,7 +11,7 @@ teaching the daemon new behavior.
 AO ships an MCP server:
 
 ```bash
-ao mcp serve
+animus mcp serve
 ```
 
 It exposes AO mutation and query tools such as:

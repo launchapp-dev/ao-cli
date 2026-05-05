@@ -9,7 +9,7 @@ The AO daemon is the autonomous scheduler that picks up tasks, dispatches workfl
 Start the daemon as a detached background process:
 
 ```bash
-ao daemon start --autonomous
+animus daemon start --autonomous
 ```
 
 This forks a child process and redirects stderr to `.ao/daemon.log`. The daemon will continuously poll for ready tasks and dispatch workflows.
@@ -19,7 +19,7 @@ This forks a child process and redirects stderr to `.ao/daemon.log`. The daemon 
 Run the daemon in the foreground for debugging:
 
 ```bash
-ao daemon run
+animus daemon run
 ```
 
 Output streams directly to your terminal. Use Ctrl+C to stop.
@@ -29,7 +29,7 @@ Output streams directly to your terminal. Use Ctrl+C to stop.
 Graceful shutdown with drain (waits for in-progress phases to complete):
 
 ```bash
-ao daemon stop
+animus daemon stop
 ```
 
 ## Pausing and Resuming
@@ -37,13 +37,13 @@ ao daemon stop
 Pause the scheduler without stopping the daemon process. In-progress work continues but no new work is picked up:
 
 ```bash
-ao daemon pause
+animus daemon pause
 ```
 
 Resume scheduling:
 
 ```bash
-ao daemon resume
+animus daemon resume
 ```
 
 ## Configuration
@@ -51,7 +51,7 @@ ao daemon resume
 View and update daemon automation settings:
 
 ```bash
-ao daemon config
+animus daemon config
 ```
 
 Key configuration options:
@@ -69,9 +69,9 @@ Key configuration options:
 Update a specific setting:
 
 ```bash
-ao daemon config --pool-size 3
-ao daemon config --auto-merge true
-ao daemon config --auto-run-ready false
+animus daemon config --pool-size 3
+animus daemon config --auto-merge true
+animus daemon config --auto-run-ready false
 ```
 
 ## Monitoring
@@ -81,7 +81,7 @@ ao daemon config --auto-run-ready false
 Check whether the daemon is running and its current state:
 
 ```bash
-ao daemon status
+animus daemon status
 ```
 
 ### Health Check
@@ -89,7 +89,7 @@ ao daemon status
 Detailed health information including uptime and resource usage:
 
 ```bash
-ao daemon health
+animus daemon health
 ```
 
 ### Logs
@@ -97,7 +97,7 @@ ao daemon health
 Read daemon logs:
 
 ```bash
-ao daemon logs
+animus daemon logs
 ```
 
 The daemon writes structured JSON log lines to `.ao/daemon.log`. Log rotation occurs at 10MB (rotated file: `.ao/daemon.log.1`).
@@ -105,7 +105,7 @@ The daemon writes structured JSON log lines to `.ao/daemon.log`. Log rotation oc
 Clear logs when they grow too large:
 
 ```bash
-ao daemon clear-logs
+animus daemon clear-logs
 ```
 
 ### Events
@@ -113,7 +113,7 @@ ao daemon clear-logs
 Stream the event history to see what the daemon has been doing:
 
 ```bash
-ao daemon events
+animus daemon events
 ```
 
 ### Agent Visibility
@@ -121,7 +121,7 @@ ao daemon events
 List agents currently managed by the daemon:
 
 ```bash
-ao daemon agents
+animus daemon agents
 ```
 
 ## Diagnostics
@@ -141,7 +141,7 @@ The log contains structured JSON lines with event types like `daemon_startup`, `
 The runner is a separate process from the daemon. It spawns CLI tools (claude, codex, gemini). Check its health:
 
 ```bash
-ao runner health
+animus runner health
 ```
 
 ### Orphan Detection
@@ -149,13 +149,13 @@ ao runner health
 Detect orphaned runner processes that lost their parent:
 
 ```bash
-ao runner orphans detect
+animus runner orphans detect
 ```
 
 Clean them up:
 
 ```bash
-ao runner orphans cleanup
+animus runner orphans cleanup
 ```
 
 ### Restart Statistics
@@ -163,7 +163,7 @@ ao runner orphans cleanup
 View how often the runner has restarted:
 
 ```bash
-ao runner restart-stats
+animus runner restart-stats
 ```
 
 ## Common Patterns
@@ -171,25 +171,25 @@ ao runner restart-stats
 ### Start Daemon and Monitor
 
 ```bash
-ao daemon start --autonomous
-ao daemon status
-ao daemon events
+animus daemon start --autonomous
+animus daemon status
+animus daemon events
 ```
 
 ### Pause While Making Manual Changes
 
 ```bash
-ao daemon pause
+animus daemon pause
 # Make your changes...
-ao daemon resume
+animus daemon resume
 ```
 
 ### Debug a Stuck Workflow
 
 ```bash
-ao daemon status           # Check daemon state
-ao daemon logs             # Look for errors
-ao runner health           # Check runner process
-ao workflow list            # Find the stuck workflow
-ao workflow get --id WF-001 # Inspect workflow state
+animus daemon status           # Check daemon state
+animus daemon logs             # Look for errors
+animus runner health           # Check runner process
+animus workflow list            # Find the stuck workflow
+animus workflow get --id WF-001 # Inspect workflow state
 ```

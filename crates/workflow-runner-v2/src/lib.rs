@@ -45,3 +45,32 @@ pub use workflow_helpers::{
     task_requires_research, workflow_has_active_research, workflow_has_completed_research, PhaseExecutionEvent,
 };
 pub use workflow_merge_recovery::MergeConflictContext;
+
+#[cfg(test)]
+pub(crate) mod test_env {
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    /// Returns the per-process test home directory and pins HOME to it on first call.
+    pub fn stable_test_home() -> &'static std::path::Path {
+        static HOME: OnceLock<std::path::PathBuf> = OnceLock::new();
+        HOME.get_or_init(|| {
+            let home_dir = std::env::temp_dir()
+                .join(format!("ao-workflow-runner-v2-test-home-{}", std::process::id()))
+                .join("home");
+            std::fs::create_dir_all(&home_dir).expect("create shared workflow-runner-v2 test home");
+            std::env::set_var("HOME", &home_dir);
+            home_dir
+        })
+    }
+
+    /// Process-wide lock for tests that depend on `protocol::scoped_state_root`. Hold the guard
+    /// for the entirety of the test body. Diagnosed cause: under parallel cargo-test execution,
+    /// scope-dir state in `~/.ao/.../` accumulates from many concurrent tempdirs and triggers
+    /// `find_existing_scope_by_origin` collisions / partial state visibility that flips
+    /// scoped_state_root's resolved path between writes and reads. Serializing avoids the race.
+    pub fn scoped_state_serializer() -> MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        stable_test_home();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}

@@ -658,6 +658,8 @@ mod tests {
 
     #[test]
     fn inject_named_mcp_servers_skips_primary_agent_id_collisions() {
+        let temp = tempfile::tempdir().expect("tempdir for project root");
+        let project_root = temp.path().to_string_lossy().to_string();
         let loaded_workflow_config = LoadedWorkflowConfig {
             metadata: WorkflowConfigMetadata {
                 schema: builtin_workflow_config().schema.clone(),
@@ -678,11 +680,11 @@ mod tests {
                 "agent_id": "ao",
                 "stdio": {
                     "command": "/path/to/ao/target/debug/ao",
-                    "args": ["--project-root", "/path/to/project", "mcp", "serve"]
+                    "args": ["--project-root", &project_root, "mcp", "serve"]
                 }
             }
         });
-        inject_named_mcp_servers(&mut runtime_contract, "/path/to/project", &ctx, "requirements", &["ao".to_string()])
+        inject_named_mcp_servers(&mut runtime_contract, &project_root, &ctx, "requirements", &["ao".to_string()])
             .expect("named MCP injection should succeed");
 
         assert!(

@@ -6,7 +6,7 @@ All accepted enum values across the AO system. These values are case-insensitive
 
 ## Task Status
 
-Used by: `ao task status`, `ao task list --status`, `ao task update --status`
+Used by: `animus task status`, `animus task list --status`, `animus task update --status`
 
 | Value | Aliases | Description |
 |---|---|---|
@@ -29,7 +29,7 @@ Used by: `ao task status`, `ao task list --status`, `ao task update --status`
 
 ## Task Type
 
-Used by: `ao task create --task-type`, `ao task list --task-type`
+Used by: `animus task create --task-type`, `animus task list --task-type`
 
 | Value | Aliases | Description |
 |---|---|---|
@@ -48,7 +48,7 @@ Used by: `ao task create --task-type`, `ao task list --task-type`
 
 ## Task Priority
 
-Used by: `ao task set-priority --priority`, `ao task create --priority`, `ao task list --priority`
+Used by: `animus task set-priority --priority`, `animus task create --priority`, `animus task list --priority`
 
 | Value | Description |
 |---|---|
@@ -63,7 +63,7 @@ Used by: `ao task set-priority --priority`, `ao task create --priority`, `ao tas
 
 ## Requirement Priority (MoSCoW)
 
-Used by: `ao requirements create --priority`, `ao requirements update --priority`
+Used by: `animus requirements create --priority`, `animus requirements update --priority`
 
 | Value | Description |
 |---|---|
@@ -80,7 +80,7 @@ Used by: `ao requirements create --priority`, `ao requirements update --priority
 
 ## Requirement Status
 
-Used by: `ao requirements update --status`, `ao requirements list --status`
+Used by: `animus requirements update --status`, `animus requirements list --status`
 
 | Value | Description |
 |---|---|
@@ -165,7 +165,7 @@ Used by: `ao.task.bulk-status`, `ao.task.bulk-update`, `ao.workflow.run-multiple
 
 ## Agent Action
 
-Used by: `ao agent control --action`, `ao.agent.control`
+Used by: `animus agent control --action`, `ao.agent.control`
 
 | Value | Description |
 |---|---|

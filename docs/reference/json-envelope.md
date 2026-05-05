@@ -128,7 +128,7 @@ data=$(ao task get --id TASK-001 --json 2>/dev/null)
 echo "$data" | jq '.data.status'
 
 # Capture error
-ao task get --id NONEXISTENT --json 2>err.json
+animus task get --id NONEXISTENT --json 2>err.json
 cat err.json | jq '.error.code'
 ```
 

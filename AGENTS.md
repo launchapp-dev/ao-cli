@@ -183,20 +183,20 @@ cargo test -p orchestrator-cli
 cargo test --workspace
 
 ao status
-ao project list
-ao task prioritized
-ao task next
-ao queue list
-ao daemon health
-ao workflow list
+animus project list
+animus task prioritized
+animus task next
+animus queue list
+animus daemon health
+animus workflow list
 ```
 
 ## Self-Hosting Flow
 
 ```bash
-ao task next
-ao task status --id TASK-XXX --status in-progress
-ao workflow run --task-id TASK-XXX
-ao output monitor --run-id <run-id>
-ao task status --id TASK-XXX --status done
+animus task next
+animus task status --id TASK-XXX --status in-progress
+animus workflow run --task-id TASK-XXX
+animus output monitor --run-id <run-id>
+animus task status --id TASK-XXX --status done
 ```

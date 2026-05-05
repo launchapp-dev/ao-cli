@@ -74,10 +74,10 @@ Installed packs live at:
 Manage them with:
 
 ```bash
-ao pack list
-ao pack inspect --pack-id ao.task
-ao pack install --path /tmp/vendor.pack --activate
-ao pack pin --pack-id vendor.pack --version =1.2.3
+animus pack list
+animus pack inspect --pack-id ao.task
+animus pack install --path /tmp/vendor.pack --activate
+animus pack pin --pack-id vendor.pack --version =1.2.3
 ```
 
 ## Configuration Precedence

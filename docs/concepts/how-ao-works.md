@@ -70,10 +70,10 @@ encode domain behavior.
 
 Examples:
 
-- `ao requirements execute --id REQ-001`
-- `ao workflow run ao.task/standard`
-- `ao workflow run ao.vision/draft`
-- `ao mcp serve`
+- `animus requirements execute --id REQ-001`
+- `animus workflow run ao.task/standard`
+- `animus workflow run ao.vision/draft`
+- `animus mcp serve`
 - ready-queue and schedule dispatches
 
 ### Layer 2: Daemon Runtime
@@ -134,7 +134,7 @@ shims, but they are no longer the preferred operator-facing surface.
 
 There is no dedicated `ao vision ...` command in the current CLI. Planning
 workflows still exist as canonical refs, but they are consumed through
-`ao workflow run <workflow_ref>` or project-local workflow YAML.
+`animus workflow run <workflow_ref>` or project-local workflow YAML.
 
 ## MCP and External Runtimes
 

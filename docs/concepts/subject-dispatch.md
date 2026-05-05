@@ -62,7 +62,7 @@ SubjectDispatch {
 
 ## Canonical Workflow Refs
 
-Examples of current workflow refs consumed by dispatch and `ao workflow run`:
+Examples of current workflow refs consumed by dispatch and `animus workflow run`:
 
 | Use Case | Subject | Workflow Ref |
 |---|---|---|

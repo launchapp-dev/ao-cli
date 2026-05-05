@@ -106,11 +106,11 @@ The daemon emits facts; it never interprets them. This separation means adding a
 ## Starting and Stopping
 
 ```bash
-ao daemon start --autonomous    # Start daemon in background (forks child process)
-ao daemon status                # Check daemon health and active workflows
-ao daemon pause                 # Pause dispatch (running workflows continue)
-ao daemon resume                # Resume dispatch
-ao daemon stop                  # Graceful shutdown
+animus daemon start --autonomous    # Start daemon in background (forks child process)
+animus daemon status                # Check daemon health and active workflows
+animus daemon pause                 # Pause dispatch (running workflows continue)
+animus daemon resume                # Resume dispatch
+animus daemon stop                  # Graceful shutdown
 ```
 
 When started with `--autonomous`, the daemon forks a child process. Stderr is redirected to `<project_root>/.ao/daemon.log` (with log rotation at 10MB).

@@ -7,7 +7,7 @@ AO is built using AO. The project's own requirements and tasks are tracked throu
 The development cycle follows this pattern:
 
 1. Requirements are drafted and refined using `ao requirements`
-2. Tasks are created from requirements using `ao requirements execute --id REQ-001`
+2. Tasks are created from requirements using `animus requirements execute --id REQ-001`
 3. The daemon picks up tasks and dispatches workflows
 4. Agents implement, test, and review changes
 5. Completed work is merged back into the codebase
@@ -17,19 +17,19 @@ The development cycle follows this pattern:
 List all requirements:
 
 ```bash
-ao requirements list
+animus requirements list
 ```
 
 View prioritized tasks:
 
 ```bash
-ao task list --sort priority
+animus task list --sort priority
 ```
 
 Check task statistics for overall progress:
 
 ```bash
-ao task stats
+animus task stats
 ```
 
 ## Working on a Task
@@ -37,19 +37,19 @@ ao task stats
 Get the next highest-priority ready task:
 
 ```bash
-ao task next
+animus task next
 ```
 
 Start work on it:
 
 ```bash
-ao task status --id TASK-XXX --status in-progress
+animus task status --id TASK-XXX --status in-progress
 ```
 
 Complete the task:
 
 ```bash
-ao task status --id TASK-XXX --status done
+animus task status --id TASK-XXX --status done
 ```
 
 ## Autonomous Execution
@@ -57,7 +57,7 @@ ao task status --id TASK-XXX --status done
 For fully autonomous operation, start the daemon:
 
 ```bash
-ao daemon start --autonomous
+animus daemon start --autonomous
 ```
 
 The daemon will:
@@ -73,17 +73,17 @@ The daemon will:
 Monitor progress:
 
 ```bash
-ao daemon status
-ao daemon events
-ao task stats
+animus daemon status
+animus daemon events
+animus task stats
 ```
 
 ## Task State Management
 
-When the daemon encounters issues, tasks may end up in a blocked state. Always use `ao task status` to reset:
+When the daemon encounters issues, tasks may end up in a blocked state. Always use `animus task status` to reset:
 
 ```bash
-ao task status --id TASK-XXX --status ready
+animus task status --id TASK-XXX --status ready
 ```
 
 This clears all blocking metadata (`paused`, `blocked_at`, `blocked_reason`, `blocked_by`). Never edit task JSON files in `.ao/` directly.
@@ -93,12 +93,12 @@ This clears all blocking metadata (`paused`, `blocked_at`, `blocked_reason`, `bl
 When running the daemon from inside a Claude Code session, the `CLAUDECODE` environment variable is inherited. This prevents the `claude` CLI from starting. Unset it before launching:
 
 ```bash
-env -u CLAUDECODE ao daemon start --autonomous
+env -u CLAUDECODE animus daemon start --autonomous
 ```
 
 Or:
 
 ```bash
 unset CLAUDECODE
-ao daemon start --autonomous
+animus daemon start --autonomous
 ```

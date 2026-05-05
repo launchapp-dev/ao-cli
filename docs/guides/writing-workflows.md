@@ -379,4 +379,4 @@ pipelines:
 - Reuse agents across phases by referencing the same agent name.
 - Order phases so that fast-failing checks (lint, tests) run before expensive reviews.
 - Keep `max_rework_attempts` reasonable (2-3) to avoid infinite loops.
-- Validate your workflow config with `ao workflow config validate`.
+- Validate your workflow config with `animus workflow config validate`.

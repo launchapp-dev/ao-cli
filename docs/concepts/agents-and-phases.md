@@ -39,7 +39,7 @@ agents:
 | `mcp_servers` | List of MCP server names (defined at the workflow level) the agent can call. |
 
 Agent memory and messages are project-scoped runtime state under `~/.ao/<repo-scope>/state/agents/`.
-Use `ao agent memory ...` and `ao agent message ...` or the equivalent MCP tools to update them.
+Use `animus agent memory ...` and `animus agent message ...` or the equivalent MCP tools to update them.
 
 ---
 

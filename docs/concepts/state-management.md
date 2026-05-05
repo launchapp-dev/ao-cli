@@ -68,9 +68,9 @@ Do not hand-edit AO-managed runtime JSON or SQLite state unless you are explicit
 
 Approved mutation surfaces:
 
-- CLI commands such as `ao task status`
+- CLI commands such as `animus task status`
 - AO MCP tools such as `ao.task.update`
-- pack commands such as `ao pack pin`
+- pack commands such as `animus pack pin`
 
 ## Repository Scope
 

@@ -7,19 +7,19 @@ AO includes an embedded web dashboard for visual project management. It provides
 Launch the web server (default port 3000):
 
 ```bash
-ao web serve
+animus web serve
 ```
 
 Specify a custom port:
 
 ```bash
-ao web serve --port 8080
+animus web serve --port 8080
 ```
 
 Open the dashboard in your default browser:
 
 ```bash
-ao web open
+animus web open
 ```
 
 ## Features

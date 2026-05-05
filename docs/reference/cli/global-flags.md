@@ -11,7 +11,7 @@ Enables machine-readable JSON output using the [`ao.cli.v1` envelope](../json-en
 - The envelope schema is always `"ao.cli.v1"`.
 
 ```bash
-ao task list --json
+animus task list --json
 ```
 
 ```json
@@ -32,7 +32,7 @@ current working directory. The CLI also honors `PROJECT_ROOT` as an environment
 override, but `--project-root` wins when both are present.
 
 ```bash
-ao task list --project-root /path/to/my-project
+animus task list --project-root /path/to/my-project
 ```
 
 This flag is required when running AO commands from outside a project
@@ -50,7 +50,7 @@ mutation.
 Pass structured input as a JSON string. Used by commands that accept complex input beyond simple flags.
 
 ```bash
-ao task create --input-json '{"title": "Fix bug", "priority": "high", "tags": ["urgent"]}'
+animus task create --input-json '{"title": "Fix bug", "priority": "high", "tags": ["urgent"]}'
 ```
 
 Many mutation and workflow commands accept `--input-json` as an alternative to

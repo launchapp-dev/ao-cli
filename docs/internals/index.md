@@ -19,7 +19,7 @@ This section documents the internal mechanisms of AO for contributors who want t
 **Three-process model**: The daemon spawns `ao-workflow-runner` processes, which in turn communicate with the `ao-agent-runner` daemon over IPC. The agent runner manages the actual LLM CLI tool processes (claude, codex, gemini, opencode).
 
 ```
-ao daemon (tick loop)
+animus daemon (tick loop)
   └── ao-workflow-runner (phase execution)
         └── ao-agent-runner (LLM CLI management)
               └── claude / codex / gemini / opencode

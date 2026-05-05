@@ -102,7 +102,7 @@ pub(crate) fn validate_state_machine_payload(project_root: &str) -> Value {
 pub(crate) fn set_state_machine_payload(project_root: &str, input_json: &str) -> Result<Value> {
     let document: orchestrator_core::StateMachinesDocument =
         serde_json::from_str(input_json).with_context(|| {
-            "invalid --input-json payload for workflow state-machine set; run 'ao workflow state-machine set --help' for schema"
+            "invalid --input-json payload for workflow state-machine set; run 'animus workflow state-machine set --help' for schema"
         })?;
     let compiled = orchestrator_core::write_state_machines_document(Path::new(project_root), &document)?;
     let path = orchestrator_core::state_machines_path(Path::new(project_root));
@@ -165,7 +165,7 @@ pub(crate) fn validate_agent_runtime_payload(project_root: &str) -> Value {
 pub(crate) fn set_agent_runtime_payload(project_root: &str, input_json: &str) -> Result<Value> {
     let config: orchestrator_core::AgentRuntimeConfig =
         serde_json::from_str(input_json).with_context(|| {
-            "invalid --input-json payload for workflow agent-runtime set; run 'ao workflow agent-runtime set --help' for schema"
+            "invalid --input-json payload for workflow agent-runtime set; run 'animus workflow agent-runtime set --help' for schema"
         })?;
     orchestrator_core::write_agent_runtime_config(Path::new(project_root), &config)?;
     let path = agent_runtime_path(project_root);

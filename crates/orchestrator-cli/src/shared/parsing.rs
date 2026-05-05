@@ -76,7 +76,7 @@ pub(crate) fn ensure_destructive_confirmation(
     }
 
     Err(invalid_input_error(format!(
-        "CONFIRMATION_REQUIRED: rerun 'ao {command_path} {id_flag} {expected} --confirm {expected}'; use --dry-run to preview changes"
+        "CONFIRMATION_REQUIRED: rerun 'animus {command_path} {id_flag} {expected} --confirm {expected}'; use --dry-run to preview changes"
     )))
 }
 
@@ -507,7 +507,7 @@ mod tests {
             .expect_err("mismatched token should fail");
         let message = error.to_string();
         assert!(message.contains("CONFIRMATION_REQUIRED"));
-        assert!(message.contains("ao task delete --id TASK-123 --confirm TASK-123"));
+        assert!(message.contains("animus task delete --id TASK-123 --confirm TASK-123"));
         assert!(message.contains("--dry-run"));
     }
 

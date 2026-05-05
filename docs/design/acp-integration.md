@@ -134,11 +134,11 @@ AO is a Rust-only agent orchestrator with:
 
 | ACP Concept | AO Equivalent | Mapping |
 |---|---|---|
-| `session/new` | `ao workflow new` | Creates a new workflow task with isolation |
-| `session/load` | `ao workflow status --id` or task recovery | Resumes workflow state from scoped runtime |
-| `session/list` | `ao queue list` or `ao workflow list` | Lists active/pending tasks |
-| `session/prompt` | `ao task run` with input | Accepts user input, executes workflow step |
-| `session/cancel` | `ao task cancel --id` | Cancels running workflow |
+| `session/new` | `animus workflow new` | Creates a new workflow task with isolation |
+| `session/load` | `animus workflow status --id` or task recovery | Resumes workflow state from scoped runtime |
+| `session/list` | `animus queue list` or `animus workflow list` | Lists active/pending tasks |
+| `session/prompt` | `animus task run` with input | Accepts user input, executes workflow step |
+| `session/cancel` | `animus task cancel --id` | Cancels running workflow |
 | `session/setMode` | Workflow config mode selection | Switch between agent execution strategies |
 
 #### Agent Capabilities → AO Services

@@ -9,7 +9,7 @@ implementation.
 Start with a requirement record:
 
 ```bash
-ao requirements create \
+animus requirements create \
   --title "Add rate limiting" \
   --description "Protect the API from burst traffic." \
   --priority high
@@ -23,14 +23,14 @@ carry a category, type, source, and acceptance criteria.
 List and inspect existing requirements:
 
 ```bash
-ao requirements list
-ao requirements get --id REQ-001
+animus requirements list
+animus requirements get --id REQ-001
 ```
 
 Update a requirement as the scope becomes clearer:
 
 ```bash
-ao requirements update \
+animus requirements update \
   --id REQ-001 \
   --title "Add request rate limiting" \
   --priority critical
@@ -44,11 +44,11 @@ Requirements support the lifecycle states used by the CLI and state machine:
 When a requirement is ready, execute it into tasks:
 
 ```bash
-ao requirements execute --id REQ-001
+animus requirements execute --id REQ-001
 ```
 
 Execution turns the requirement into one or more tasks and can optionally start
-workflows for the generated tasks. Use `ao task list` and `ao workflow list` to
+workflows for the generated tasks. Use `animus task list` and `animus workflow list` to
 inspect the results.
 
 ## Manage Relationships
@@ -56,16 +56,16 @@ inspect the results.
 Use the requirement graph to understand links between requirements:
 
 ```bash
-ao requirements graph get
+animus requirements graph get
 ```
 
 Use the recommendations surface when you want AO to scan for improvements or
 gaps:
 
 ```bash
-ao requirements recommendations scan
-ao requirements recommendations list
-ao requirements recommendations apply --report-id REC-001
+animus requirements recommendations scan
+animus requirements recommendations list
+animus requirements recommendations apply --report-id REC-001
 ```
 
 ## Optional Mockups
@@ -73,8 +73,8 @@ ao requirements recommendations apply --report-id REC-001
 Requirements can also carry mockup records and linked assets:
 
 ```bash
-ao requirements mockups list
-ao requirements mockups create --name "Rate limit banner" --description "Draft UI for 429 states"
+animus requirements mockups list
+animus requirements mockups create --name "Rate limit banner" --description "Draft UI for 429 states"
 ```
 
 ## Practical Loop

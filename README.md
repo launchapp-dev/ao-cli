@@ -4,12 +4,10 @@
 
 <br/>
 
-[![Typing SVG](https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=500&size=20&duration=3000&pause=1500&color=58A6FF&center=true&vCenter=true&multiline=true&repeat=true&random=false&width=700&height=80&lines=Define+your+engineering+team+as+YAML.;Dispatch+tasks+to+AI+agents+across+isolated+worktrees.;Review%2C+merge%2C+and+ship+%E2%80%94+while+you+sleep.)](https://github.com/samishukri/animus)
+[![Typing SVG](https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=500&size=20&duration=3000&pause=1500&color=58A6FF&center=true&vCenter=true&multiline=true&repeat=true&random=false&width=700&height=80&lines=Define+your+engineering+team+as+YAML.;Dispatch+tasks+to+AI+agents+across+isolated+worktrees.;Review%2C+merge%2C+and+ship+%E2%80%94+while+you+sleep.)](https://github.com/launchapp-dev/ao)
 
 <br/>
 <br/>
-<br/>
-
 
 <a href="https://github.com/launchapp-dev/ao/releases/latest"><img src="https://img.shields.io/github/v/release/launchapp-dev/ao?style=for-the-badge&color=1f6feb&labelColor=0d1117&logo=github&logoColor=f0f6fc" alt="Release" /></a>
 &nbsp;
@@ -27,7 +25,17 @@
 
 <br/>
 
-## Install
+## Install — 30 seconds
+
+### One paste, any agent
+
+Open a fresh **Claude Code** (or **Codex** / **OpenCode** / **Cursor**) session and paste this. The agent installs the Animus CLI, clones `animus-skills`, runs the setup script, and adds the project section to `CLAUDE.md` / `AGENTS.md`. You'll be running workflows in about a minute.
+
+> Install Animus + Animus Skills: run **`curl -fsSL https://raw.githubusercontent.com/launchapp-dev/ao/main/install.sh | bash`** to install the `animus` CLI, then **`git clone --single-branch --depth 1 https://github.com/launchapp-dev/animus-skills.git ~/.claude/skills/animus-skills && cd ~/.claude/skills/animus-skills && ./setup`** to link the skills and write `.mcp.json`. Then add an "Animus" section to CLAUDE.md (or AGENTS.md for Codex) listing the slash commands: `/animus-setup`, `/animus-getting-started`, `/animus-mcp-setup`, `/animus-workflow-authoring`, `/animus-pack-authoring`, `/animus-skill-authoring`, `/animus-troubleshooting`. Restart the agent so the new `animus` MCP server is picked up. From a project root, run `/animus-setup` to scaffold `.ao/` and the first workflow.
+
+For Codex CLI, swap the clone path to `~/.codex/skills/animus-skills` and edit `AGENTS.md` instead of `CLAUDE.md`.
+
+### Manual install (no agent)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/launchapp-dev/ao/main/install.sh | bash
@@ -91,45 +99,20 @@ You define agents, wire them into phases, compose phases into workflows, schedul
 ## Quick Start
 
 ```bash
-cd your-project                          # any git repo
-animus doctor                            # check prerequisites and auto-remediate
-animus init --template task-queue --non-interactive  # initialize .ao/ with a queue-first workflow template
+cd your-project                                  # any git repo
+animus doctor                                    # check prerequisites and auto-remediate
+animus init --template task-queue --non-interactive   # scaffold .ao/ from the task-queue template
 
-# Option 1: Run workflows on demand
+# Option 1: run a workflow on demand
 animus task create --title "Add rate limiting" --task-type feature --priority high
 animus workflow run --task-id TASK-001
 
-# Option 2: Go fully autonomous (v0.3.0+)
-animus daemon start --autonomous         # continuous execution with event triggers
+# Option 2: go fully autonomous
+animus daemon start --autonomous                 # daemon executes ready tasks continuously
+animus daemon health                             # verify it's up
 ```
 
-### v0.3.0: Autonomous Mode is Production-Ready
-
-The daemon now runs as your primary software delivery engine. Enable event triggers, cloud sync, and automatic quality gates:
-
-```bash
-animus config set daemon.autonomous true
-animus config set cloud.sync enabled
-animus daemon start                      # runs forever, responds to webhooks and cron
-```
-
----
-
-## Cloud Integration (v0.3.0+)
-
-Sync your Animus state to a cloud backend for team visibility, distributed execution, and webhook-driven automation.
-
-```bash
-animus cloud login                       # authenticate with your workspace
-animus cloud sync --status               # check sync status
-animus config set cloud.webhook-url "https://your-domain.com/webhook"
-```
-
-Features:
-- **Team Sync**: All team members see the same task queue, execution logs, and run history
-- **Webhook Triggers**: GitHub, Linear, Slack, and custom webhooks trigger workflows automatically
-- **Distributed Daemon**: Run multiple daemon instances across regions with automatic failover
-- **Execution Timeline**: Inspect runs, decisions, and agent reasoning in the cloud dashboard
+Bundled `init` templates: **`task-queue`**, **`conductor`**, **`direct-workflow`**.
 
 ---
 
@@ -148,7 +131,7 @@ agents:
   default:
     model: claude-sonnet-4-6
     tool: claude
-    mcp_servers: ["animus", "context7"]
+    mcp_servers: ["ao", "context7"]
 
   work-planner:
     system_prompt: |
@@ -209,9 +192,9 @@ workflows:
 </td>
 <td width="50%">
 
-### Schedules & Event Triggers (v0.3.0+)
+### Schedules & Triggers
 
-Cron-based autonomous execution **and** event-driven triggers. The daemon responds to webhooks, git events, and external integrations.
+Cron-based autonomous execution and event-driven triggers. Trigger types: `file_watcher`, `webhook` (generic HTTP), `github_webhook` (with event filtering).
 
 ```yaml
 schedules:
@@ -222,12 +205,11 @@ schedules:
 
 triggers:
   - id: pr-opened
-    event: "github.pull_request.opened"
+    type: github_webhook
     workflow_ref: pr-reviewer
-  
-  - id: task-updated
-    event: "linear.issue.updated"
-    workflow_ref: work-planner
+    enabled: true
+    config:
+      events: ["pull_request"]
 ```
 
 </td>
@@ -302,14 +284,34 @@ Every task gets its own git worktree. Agents work in parallel on separate branch
 
 ---
 
-## Claude Code Integration
+## Cloud Sync (optional)
 
-Install [**Animus Skills**](https://github.com/samishukri/animus-skills) for deep Animus integration inside Claude Code:
+Sync your Animus project state to a backend so a second machine, a teammate, or a hosted runner can pick up the same queue and run history.
 
 ```bash
-git clone https://github.com/samishukri/animus-skills.git ~/animus-skills
-claude --plugin-dir ~/animus-skills
+animus cloud login                     # OAuth device flow
+animus cloud link                      # link this repo to a cloud project
+animus cloud push                      # upload local config + state bundle
+animus cloud pull                      # pull remote bundle into this checkout
+animus cloud status                    # show link + last-sync state
+animus cloud deploy create             # provision a hosted runner for this repo
+animus cloud deploy {start|stop|status|destroy}
 ```
+
+Cloud sync is opt-in — the daemon and CLI work fully offline without it.
+
+---
+
+## Claude Code Integration
+
+[**Animus Skills**](https://github.com/launchapp-dev/animus-skills) is the companion skill bundle. Install with the one-paste prompt above, or directly:
+
+```bash
+git clone https://github.com/launchapp-dev/animus-skills.git ~/animus-skills
+cd ~/animus-skills && ./setup           # auto-detects installed agent hosts
+```
+
+The `./setup` script supports `--host claude|codex|opencode|cursor|slate|kiro|all`, `--no-cli` (skip animus install), and `--no-mcp` (skip writing project `.mcp.json`).
 
 <table>
 <tr>
@@ -319,12 +321,13 @@ claude --plugin-dir ~/animus-skills
 
 | Command | What it does |
 |:---|:---|
-| `/setup-animus` | Initialize Animus in your project |
-| `/getting-started` | Install, concepts, first task |
-| `/workflow-authoring` | Write custom YAML workflows |
-| `/pack-authoring` | Build workflow packs |
-| `/mcp-setup` | Connect AI tools via MCP |
-| `/troubleshooting` | Debug common issues |
+| `/animus-setup` | Initialize Animus in your project |
+| `/animus-getting-started` | Install, concepts, first task |
+| `/animus-mcp-setup` | Connect AI tools via MCP |
+| `/animus-workflow-authoring` | Write custom YAML workflows |
+| `/animus-pack-authoring` | Build workflow packs |
+| `/animus-skill-authoring` | Author Animus skills |
+| `/animus-troubleshooting` | Debug common issues |
 
 </td>
 <td width="50%">
@@ -333,12 +336,14 @@ claude --plugin-dir ~/animus-skills
 
 | Skill | Coverage |
 |:---|:---|
-| `configuration` | Config files, state layout, model routing |
-| `task-management` | Full task lifecycle via CLI and MCP |
-| `daemon-operations` | Daemon monitoring and troubleshooting |
-| `workflow-patterns` | Patterns from 150+ autonomous PRs |
-| `agent-personas` | PO, architect, auditor agents |
-| `mcp-tools` | Complete `animus.*` tool reference |
+| `animus-configuration` | Config files, state layout, model routing |
+| `animus-task-management` | Full task lifecycle via CLI and MCP |
+| `animus-daemon-operations` | Daemon monitoring and troubleshooting |
+| `animus-queue-management` | Dispatch queue operations |
+| `animus-workflow-patterns` | Patterns from 150+ autonomous PRs |
+| `animus-agent-personas` | PO, architect, auditor agents |
+| `animus-mcp-tools` | Complete `animus.*` tool reference |
+| `animus-mcp-servers-for-agents` | Context7, GitHub, memory MCP wiring |
 
 </td>
 </tr>
@@ -351,40 +356,54 @@ claude --plugin-dir ~/animus-skills
 ```
 animus task          Create, list, update, prioritize tasks
 animus workflow      Run and manage multi-phase workflows
-animus daemon        Start/stop the autonomous scheduler (v0.3.0: event-driven)
+animus daemon        Start/stop the autonomous scheduler (--autonomous, health, stream)
 animus queue         Inspect and manage the dispatch queue
 animus agent         Control agent runner processes
+animus runner        Inspect and restart the agent runner pool
 animus output        Stream and inspect agent output
-animus doctor        Health checks, auto-remediation, and troubleshooting (v0.3.0+)
-animus cloud         Sync state, manage webhooks, and access cloud dashboard (v0.3.0+)
-animus init          Initialize a project from the default template registry or a local template
-animus setup         Lower-level bootstrap and configuration wizard
+animus trigger       Manage event triggers (file_watcher, webhook, github_webhook)
+animus pack          Install, list, and update workflow packs
+animus plugin        Manage stdio plugins
+animus skill         Install and inspect Animus skills
+animus model         Inspect the model registry and routing
+animus project       Per-project config and scope helpers
 animus requirements  Manage product requirements
+animus git           Worktree and branch helpers
+animus history       Inspect run history
+animus errors        Browse phase and runtime error reports
+animus init          Initialize a project from a template registry or local template
+animus setup         Lower-level bootstrap and configuration wizard
+animus cloud         Cloud sync (login, link, push, pull, status, deploy)
 animus mcp           Start Animus as an MCP server
 animus web           Launch the embedded web dashboard
 animus status        Project overview at a glance
+animus doctor        Health checks, auto-remediation, and troubleshooting
 ```
+
+Run `animus --help` for the full surface.
 
 ---
 
 ## Architecture
 
-Animus is a Rust-only workspace with 17 crates. The major crates are:
+Animus is a Rust workspace. The core crates:
 
-- `orchestrator-cli` - CLI commands and dispatch
-- `orchestrator-core` - services, state, and workflow lifecycle
-- `orchestrator-config` - workflow YAML scaffolding, loading, and compilation
-- `workflow-runner-v2` - workflow execution runtime
-- `agent-runner` - LLM CLI process management
-- `llm-cli-wrapper` - CLI tool abstraction layer
-- `orchestrator-daemon-runtime` - daemon scheduler, cron, event triggers (v0.3.0+)
-- `orchestrator-providers` - provider integrations (cloud sync, webhooks, auth)
-- `orchestrator-notifications` - event streaming and cloud syncing (v0.3.0+)
-- `orchestrator-logging` - shared logging utilities
-- `orchestrator-web-server` - embedded React dashboard
-- `orchestrator-web-api` - web API business logic
-- `orchestrator-store` - persistence primitives
-- `protocol` - shared types and routing
+- `orchestrator-cli` — CLI commands and dispatch
+- `orchestrator-core` — services, state, and workflow lifecycle
+- `orchestrator-config` — workflow YAML scaffolding, loading, and compilation
+- `orchestrator-store` — persistence primitives
+- `protocol` — shared types and routing
+- `workflow-runner-v2` — workflow execution runtime
+- `agent-runner` — LLM CLI process management
+- `llm-cli-wrapper` — CLI tool abstraction layer
+- `oai-runner` — OpenAI-compatible runner
+- `orchestrator-daemon-runtime` — daemon scheduler, cron, event triggers
+- `orchestrator-providers` — provider integrations
+- `orchestrator-git-ops` — worktree and branch management
+- `orchestrator-notifications` — event streaming and notifications
+- `orchestrator-logging` — shared logging utilities
+- `orchestrator-plugin-host` / `orchestrator-plugin-protocol` — stdio plugin foundation
+- `orchestrator-web-contracts` / `orchestrator-web-api` / `orchestrator-web-server` — embedded React 18 dashboard
 
 ```mermaid
 graph LR

@@ -483,11 +483,23 @@ async fn process_phase_event_stream<R: AsyncBufRead + Unpin>(
     parse_commit_message: bool,
     parse_phase_decision: bool,
     expected_result_kind: &str,
-    _event_run_dir: Option<&std::path::Path>,
+    event_run_dir: Option<&std::path::Path>,
     project_root: Option<&str>,
 ) -> Result<PhaseExecutionOutcome> {
     let run_logger =
         project_root.map(|root| orchestrator_logging::Logger::for_run(std::path::Path::new(root), &run_id.0));
+    if let Some(dir) = event_run_dir {
+        if let Err(error) = std::fs::create_dir_all(dir) {
+            tracing::warn!(
+                run_id = %run_id.0,
+                phase_id,
+                workflow_id,
+                run_dir = %dir.display(),
+                %error,
+                "failed to create run dir for event persistence"
+            );
+        }
+    }
     let mut pending_commit_message: Option<String> = None;
     let mut pending_phase_decision: Option<orchestrator_core::PhaseDecision> = None;
     let mut pending_result_payload: Option<Value> = None;
@@ -502,6 +514,19 @@ async fn process_phase_event_stream<R: AsyncBufRead + Unpin>(
         let Ok(event) = serde_json::from_str::<AgentRunEvent>(line) else {
             continue;
         };
+
+        if let Some(dir) = event_run_dir {
+            if let Err(error) = crate::ipc::persist_run_event(dir, &event) {
+                tracing::warn!(
+                    run_id = %run_id.0,
+                    phase_id,
+                    workflow_id,
+                    run_dir = %dir.display(),
+                    %error,
+                    "failed to persist agent run event"
+                );
+            }
+        }
         if !event_matches_run(&event, run_id) {
             continue;
         }

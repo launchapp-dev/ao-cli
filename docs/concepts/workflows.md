@@ -40,9 +40,9 @@ dispatch them through the workflow engine:
 
 | Operator Entry Point | Canonical Ref | Notes |
 |---|---|---|
-| `ao workflow run ao.task/standard` | `ao.task/standard` | Explicit workflow ref execution through the CLI |
-| `ao requirements execute --id REQ-001` | `ao.requirement/execute` | Requirement execution resolves to the canonical pack ref |
-| `ao workflow run standard-workflow` | `ao.task/standard` | Repository-specific workflows can wrap canonical pack refs |
+| `animus workflow run ao.task/standard` | `ao.task/standard` | Explicit workflow ref execution through the CLI |
+| `animus requirements execute --id REQ-001` | `ao.requirement/execute` | Requirement execution resolves to the canonical pack ref |
+| `animus workflow run standard-workflow` | `ao.task/standard` | Repository-specific workflows can wrap canonical pack refs |
 
 AO still ships planning refs such as `ao.vision/draft` and `ao.vision/refine`,
 but they are consumed as workflow refs rather than surfaced as a dedicated
@@ -77,10 +77,10 @@ These packs can contribute:
 Operators can inspect and control which packs are active for a project:
 
 ```bash
-ao pack list
-ao pack inspect --pack-id ao.task
-ao pack install --path /tmp/vendor.pack --activate
-ao pack pin --pack-id ao.task --version =0.1.0
+animus pack list
+animus pack inspect --pack-id ao.task
+animus pack install --path /tmp/vendor.pack --activate
+animus pack pin --pack-id ao.task --version =0.1.0
 ```
 
 Project-specific pack selections are stored in

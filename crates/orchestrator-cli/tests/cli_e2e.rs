@@ -751,7 +751,7 @@ fn e2e_task_delete_requires_confirmation_and_supports_dry_run() -> Result<()> {
     assert_eq!(
         confirmation_message,
         format!(
-            "CONFIRMATION_REQUIRED: rerun 'ao task delete --id {} --confirm {}'; use --dry-run to preview changes",
+            "CONFIRMATION_REQUIRED: rerun 'animus task delete --id {} --confirm {}'; use --dry-run to preview changes",
             task_id, task_id
         ),
         "task delete confirmation message should use canonical token order"
@@ -789,7 +789,7 @@ fn e2e_task_control_cancel_requires_confirmation_and_supports_dry_run() -> Resul
     assert_eq!(
         confirmation_message,
         format!(
-            "CONFIRMATION_REQUIRED: rerun 'ao task cancel --id {} --confirm {}'; use --dry-run to preview changes",
+            "CONFIRMATION_REQUIRED: rerun 'animus task cancel --id {} --confirm {}'; use --dry-run to preview changes",
             task_id, task_id
         ),
         "task cancel confirmation message should use canonical token order"
@@ -947,7 +947,7 @@ fn e2e_workflow_destructive_commands_require_confirmation_and_dry_run_support() 
     assert_eq!(
         pause_confirmation_message,
         format!(
-            "CONFIRMATION_REQUIRED: rerun 'ao workflow pause --id {} --confirm {}'; use --dry-run to preview changes",
+            "CONFIRMATION_REQUIRED: rerun 'animus workflow pause --id {} --confirm {}'; use --dry-run to preview changes",
             workflow_id, workflow_id
         ),
         "workflow pause confirmation message should use canonical token order"
@@ -962,7 +962,7 @@ fn e2e_workflow_destructive_commands_require_confirmation_and_dry_run_support() 
     assert_eq!(
         cancel_confirmation_message,
         format!(
-            "CONFIRMATION_REQUIRED: rerun 'ao workflow cancel --id {} --confirm {}'; use --dry-run to preview changes",
+            "CONFIRMATION_REQUIRED: rerun 'animus workflow cancel --id {} --confirm {}'; use --dry-run to preview changes",
             workflow_id, workflow_id
         ),
         "workflow cancel confirmation message should use canonical token order"
@@ -985,7 +985,7 @@ fn e2e_workflow_destructive_commands_require_confirmation_and_dry_run_support() 
     assert_eq!(
         remove_confirmation_message,
         format!(
-            "CONFIRMATION_REQUIRED: rerun 'ao workflow phases remove --phase {} --confirm {}'; use --dry-run to preview changes",
+            "CONFIRMATION_REQUIRED: rerun 'animus workflow phases remove --phase {} --confirm {}'; use --dry-run to preview changes",
             phase_id, phase_id
         ),
         "workflow phases remove confirmation message should use canonical token order"

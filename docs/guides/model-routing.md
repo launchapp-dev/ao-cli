@@ -43,8 +43,8 @@ This takes highest precedence.
 AO resolves agent runtime from the authored workflow YAML under `.ao/workflows.yaml` and `.ao/workflows/*.yaml`, merged with bundled defaults. You can inspect the effective runtime with:
 
 ```bash
-ao workflow agent-runtime get
-ao workflow agent-runtime validate
+animus workflow agent-runtime get
+animus workflow agent-runtime validate
 ```
 
 The resolved payload includes the source path and the merged agent definitions. A minimal authored override still looks like this in YAML:
@@ -56,7 +56,7 @@ agents:
     tool: claude
 ```
 
-If you prefer to replace the runtime as structured JSON, `ao workflow agent-runtime set` still accepts the compiled schema directly:
+If you prefer to replace the runtime as structured JSON, `animus workflow agent-runtime set` still accepts the compiled schema directly:
 
 ```json
 {
@@ -101,8 +101,8 @@ Each model maps to a CLI tool. The mapping is determined by model name prefix:
 You can check model and API key status:
 
 ```bash
-ao model status
-ao model availability
+animus model status
+animus model availability
 ```
 
 ## Write-Capable Tools
@@ -142,14 +142,14 @@ When the primary model fails, AO tries fallback models in order. Fallbacks vary 
 Check whether a model is valid and available:
 
 ```bash
-ao model validate --model claude-sonnet-4-6
+animus model validate --model claude-sonnet-4-6
 ```
 
 Refresh the model roster:
 
 ```bash
-ao model roster refresh
-ao model roster get
+animus model roster refresh
+animus model roster get
 ```
 
 ## Agent Runtime Config Commands
@@ -157,7 +157,7 @@ ao model roster get
 Read, validate, and set the resolved agent runtime:
 
 ```bash
-ao workflow agent-runtime get
-ao workflow agent-runtime validate
-ao workflow agent-runtime set --input-json '{"agents":{"default":{"model":null,"tool":null}}}'
+animus workflow agent-runtime get
+animus workflow agent-runtime validate
+animus workflow agent-runtime set --input-json '{"agents":{"default":{"model":null,"tool":null}}}'
 ```

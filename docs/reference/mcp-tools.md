@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-All MCP tools exposed by `ao mcp serve`. These tools allow AI agents to interact with the AO orchestrator over the Model Context Protocol. Each tool wraps an `ao` CLI command, accepting JSON input and returning structured results.
+All MCP tools exposed by `animus mcp serve`. These tools allow AI agents to interact with the AO orchestrator over the Model Context Protocol. Each tool wraps an `ao` CLI command, accepting JSON input and returning structured results.
 
 Every tool accepts an optional `project_root` parameter to override the default project root.
 
@@ -158,6 +158,21 @@ Every tool accepts an optional `project_root` parameter to override the default 
 | `ao.runner.orphans-detect` | Find orphaned runner processes | `project_root` |
 | `ao.runner.orphans-cleanup` | Clean up orphaned runner processes by run ID | `run_id`, `project_root` |
 | `ao.runner.restart-stats` | View runner uptime and restart history | `project_root` |
+
+---
+
+## Plugins (2 tools)
+
+Discovered AO STDIO plugins are reachable from MCP clients via these meta-tools.
+Plugins themselves can declare additional `mcp_tools` in their `initialize` response;
+those are aggregated automatically.
+
+| Tool | Description | Key Parameters |
+|---|---|---|
+| `ao.plugin.list` | List discovered plugins (providers, subject backends, custom) with name, version, kind, source, and path. | `project_root` (optional) |
+| `ao.plugin.call` | Send a JSON-RPC request to a discovered plugin. The plugin is spawned (or reused) and handshaked before the call. | `name`, `method`, `params` (optional), `project_root` (optional) |
+
+Discovery order: `~/.config/ao/plugins.yaml` → `.ao/plugins/` → `$AO_PLUGIN_PATH` → `$PATH` (`ao-provider-*` / `ao-plugin-*` prefixes).
 
 ---
 

@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 
+use super::plugin_backend::{discover_provider_plugins, PluginSessionBackend};
 use super::{
     claude::ClaudeSessionBackend, codex::CodexSessionBackend, gemini::GeminiSessionBackend,
     oai_runner::OaiRunnerSessionBackend, opencode::OpenCodeSessionBackend, session_backend::SessionBackend,
@@ -14,6 +17,7 @@ pub struct SessionBackendResolver {
     opencode: Arc<OpenCodeSessionBackend>,
     oai_runner: Arc<OaiRunnerSessionBackend>,
     subprocess: Arc<SubprocessSessionBackend>,
+    plugin_providers: HashMap<String, Arc<PluginSessionBackend>>,
 }
 
 impl SessionBackendResolver {
@@ -25,10 +29,32 @@ impl SessionBackendResolver {
             opencode: Arc::new(OpenCodeSessionBackend::new()),
             oai_runner: Arc::new(OaiRunnerSessionBackend::new()),
             subprocess: Arc::new(SubprocessSessionBackend::new()),
+            plugin_providers: HashMap::new(),
         }
     }
 
+    /// Construct a resolver that prefers discovered AO STDIO provider plugins for any tool
+    /// whose name matches a discovered plugin's `provider_tool` (default: plugin name minus
+    /// the `ao-provider-` prefix). In-tree backends remain as fallback for tools without
+    /// a discovered plugin.
+    pub fn with_plugin_discovery(project_root: &Path) -> Self {
+        let mut resolver = Self::new();
+        resolver.refresh_plugin_providers(project_root);
+        resolver
+    }
+
+    /// Re-scan plugin discovery sources and replace the cached provider map.
+    pub fn refresh_plugin_providers(&mut self, project_root: &Path) {
+        self.plugin_providers = discover_provider_plugins(project_root)
+            .into_iter()
+            .map(|plugin| (plugin.provider_tool.to_ascii_lowercase(), plugin.into_backend()))
+            .collect();
+    }
+
     pub fn fallback_reason(&self, request: &SessionRequest) -> Option<String> {
+        if self.plugin_providers.contains_key(&request.tool.to_ascii_lowercase()) {
+            return None;
+        }
         if request.tool.eq_ignore_ascii_case("claude")
             || request.tool.eq_ignore_ascii_case("codex")
             || request.tool.eq_ignore_ascii_case("gemini")
@@ -43,6 +69,10 @@ impl SessionBackendResolver {
     }
 
     pub fn resolve(&self, request: &SessionRequest) -> Arc<dyn SessionBackend> {
+        let tool_lower = request.tool.to_ascii_lowercase();
+        if let Some(plugin) = self.plugin_providers.get(&tool_lower) {
+            return plugin.clone();
+        }
         if request.tool.eq_ignore_ascii_case("claude") {
             return self.claude.clone();
         }

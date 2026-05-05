@@ -154,6 +154,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "ao-provider-claude"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "llm-cli-wrapper",
+ "orchestrator-plugin-protocol",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "ao-provider-codex"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "llm-cli-wrapper",
+ "orchestrator-plugin-protocol",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "ascii_utils"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2064,6 +2090,8 @@ dependencies = [
  "clap",
  "colored",
  "orchestrator-logging",
+ "orchestrator-plugin-host",
+ "orchestrator-plugin-protocol",
  "protocol",
  "regex",
  "serde",

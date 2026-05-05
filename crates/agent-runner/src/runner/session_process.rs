@@ -88,7 +88,7 @@ pub(super) async fn spawn_session_process(
     let session_request =
         build_session_request(tool, model, prompt, runtime_contract, cwd, env, timeout_secs, invocation)?;
     let idle_timeout_secs = resolve_idle_timeout_secs(tool, timeout_secs, runtime_contract);
-    let resolver = SessionBackendResolver::new();
+    let resolver = SessionBackendResolver::with_plugin_discovery(std::path::Path::new(cwd));
     let backend = resolver.resolve(&session_request);
     let mut run = match resume_session_id.map(str::trim).filter(|s| !s.is_empty()) {
         Some(session_id) => backend

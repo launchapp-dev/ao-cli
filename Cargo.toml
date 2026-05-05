@@ -2,6 +2,8 @@
 members = [
   "crates/agent-runner",
   "crates/ao-plugin-smoke",
+  "crates/ao-provider-claude",
+  "crates/ao-provider-codex",
   "crates/protocol",
   "crates/llm-cli-wrapper",
   "crates/orchestrator-daemon-runtime",

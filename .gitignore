@@ -60,3 +60,6 @@ TEST_RESULTS*.md
 
 # Local clone of external research repo, not part of this project
 /awesome-ai-coding-tools/
+
+# Test-time scoped state (created when integration tests resolve project_root inside this crate)
+/crates/orchestrator-cli/.ao/

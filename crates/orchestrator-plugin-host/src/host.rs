@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
@@ -9,19 +10,39 @@ use orchestrator_plugin_protocol::{
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite};
 use tokio::process::{Child, ChildStdin, ChildStdout};
+use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
 use crate::StdioTransport;
+
+/// Sink for plugin stderr lines. Receives `(plugin_name, line)` on each stderr line.
+pub type PluginStderrSink = Arc<dyn Fn(&str, &str) + Send + Sync>;
+
+/// Channel that receives plugin-emitted JSON-RPC notifications (no `id`).
+pub type PluginNotificationRx = mpsc::Receiver<RpcNotification>;
+type PluginNotificationTx = mpsc::Sender<RpcNotification>;
 
 pub struct PluginHost<R = ChildStdout, W = ChildStdin> {
     pub name: String,
     child: Option<Child>,
     transport: StdioTransport<R, W>,
     next_id: u64,
+    notification_tx: Option<PluginNotificationTx>,
 }
 
 impl PluginHost<ChildStdout, ChildStdin> {
     pub async fn spawn(binary_path: &Path, args: &[&str]) -> Result<Self> {
+        Self::spawn_with_stderr(binary_path, args, None).await
+    }
+
+    /// Spawn a plugin and route every stderr line through the supplied sink in addition
+    /// to the standard `tracing::warn!` log. Use this from the host runtime so plugin
+    /// diagnostics land in the project's structured `events.jsonl`.
+    pub async fn spawn_with_stderr(
+        binary_path: &Path,
+        args: &[&str],
+        stderr_sink: Option<PluginStderrSink>,
+    ) -> Result<Self> {
         let name = binary_path.file_name().and_then(|value| value.to_str()).unwrap_or("plugin").to_string();
         let mut command = tokio::process::Command::new(binary_path);
         command
@@ -40,10 +61,19 @@ impl PluginHost<ChildStdout, ChildStdin> {
             let mut lines = tokio::io::BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
                 warn!(plugin = %stderr_plugin_name, "{}", line);
+                if let Some(sink) = stderr_sink.as_ref() {
+                    sink(&stderr_plugin_name, &line);
+                }
             }
         });
 
-        Ok(Self { name, child: Some(child), transport: StdioTransport::new(stdout, stdin), next_id: 1 })
+        Ok(Self {
+            name,
+            child: Some(child),
+            transport: StdioTransport::new(stdout, stdin),
+            next_id: 1,
+            notification_tx: None,
+        })
     }
 }
 
@@ -53,7 +83,25 @@ where
     W: AsyncWrite + Unpin,
 {
     pub fn from_streams(name: impl Into<String>, reader: R, writer: W) -> Self {
-        Self { name: name.into(), child: None, transport: StdioTransport::new(reader, writer), next_id: 1 }
+        Self {
+            name: name.into(),
+            child: None,
+            transport: StdioTransport::new(reader, writer),
+            next_id: 1,
+            notification_tx: None,
+        }
+    }
+
+    /// Subscribe to JSON-RPC notifications (frames with no `id`) emitted by the
+    /// plugin. The returned receiver is fed by `send_and_receive` whenever it
+    /// observes a notification on the way to a request response.
+    ///
+    /// If you don't subscribe, notifications are silently dropped — same as
+    /// before this method existed.
+    pub fn subscribe_notifications(&mut self, capacity: usize) -> PluginNotificationRx {
+        let (tx, rx) = mpsc::channel(capacity);
+        self.notification_tx = Some(tx);
+        rx
     }
 
     pub fn next_request_id(&self) -> u64 {
@@ -65,11 +113,26 @@ where
         let expected_id = serde_json::json!(id);
 
         loop {
-            let response = self
+            let frame = self
                 .transport
-                .read_message::<RpcResponse>()
+                .read_message::<Value>()
                 .await?
                 .ok_or_else(|| anyhow!("plugin closed while waiting for response to '{method}'"))?;
+
+            // Notifications carry no `id` field; forward (or drop) and keep waiting.
+            if frame.get("id").is_none() {
+                if let Some(tx) = self.notification_tx.clone() {
+                    if let Ok(notification) = serde_json::from_value::<RpcNotification>(frame) {
+                        let _ = tx.try_send(notification);
+                    }
+                } else {
+                    debug!(plugin = %self.name, "dropped plugin notification (no subscriber)");
+                }
+                continue;
+            }
+
+            let response: RpcResponse = serde_json::from_value(frame)
+                .map_err(|error| anyhow!("plugin '{}' sent malformed response: {error}", self.name))?;
             if response.id.as_ref() == Some(&expected_id) {
                 return Ok(response);
             }

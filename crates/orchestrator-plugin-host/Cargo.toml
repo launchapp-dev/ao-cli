@@ -9,7 +9,7 @@ orchestrator-plugin-protocol = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
-tokio = { version = "1", features = ["io-util", "process", "rt", "macros", "time"] }
+tokio = { version = "1", features = ["io-util", "process", "rt", "macros", "time", "sync"] }
 tracing = "0.1"
 
 [dev-dependencies]

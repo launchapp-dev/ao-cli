@@ -1,17 +1,20 @@
 [package]
-name = "ao-provider-codex"
+name = "ao-provider-mock"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "ao-provider-codex"
+name = "ao-provider-mock"
 path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
 ao-provider-runtime = { path = "../ao-provider-runtime" }
+async-trait = "0.1"
 cli-wrapper = { path = "../llm-cli-wrapper", package = "llm-cli-wrapper" }
+serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "io-util", "sync"] }
+uuid = { version = "1", features = ["v4"] }
 
 [lints]
 workspace = true

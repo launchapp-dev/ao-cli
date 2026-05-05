@@ -7,10 +7,12 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use orchestrator_plugin_host::PluginHost;
+use orchestrator_logging::Logger;
+use orchestrator_plugin_host::{PluginHost, PluginStderrSink};
+use orchestrator_plugin_protocol::RpcNotification;
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -41,6 +43,7 @@ pub struct PluginSessionBackend {
     pub(crate) binary_path: PathBuf,
     pub(crate) provider_tool: String,
     pub(crate) display_name: String,
+    pub(crate) project_root: Option<PathBuf>,
 }
 
 impl PluginSessionBackend {
@@ -52,7 +55,34 @@ impl PluginSessionBackend {
         let plugin_name = plugin_name.into();
         let provider_tool = provider_tool.into();
         let display_name = format!("Plugin Provider ({plugin_name})");
-        Self { plugin_name, binary_path, provider_tool, display_name }
+        Self { plugin_name, binary_path, provider_tool, display_name, project_root: None }
+    }
+
+    /// Bind a project root so structured log entries about every spawn / call /
+    /// stderr line land in `~/.ao/<repo-scope>/logs/events.jsonl` for that project.
+    #[must_use]
+    pub fn with_project_root(mut self, project_root: impl Into<PathBuf>) -> Self {
+        self.project_root = Some(project_root.into());
+        self
+    }
+
+    fn project_logger(&self) -> Option<Logger> {
+        self.project_root.as_ref().map(|root| Logger::for_project(root))
+    }
+
+    fn stderr_sink_for(&self) -> Option<PluginStderrSink> {
+        let root = self.project_root.clone()?;
+        let plugin_name = self.plugin_name.clone();
+        Some(Arc::new(move |emitting_plugin: &str, line: &str| {
+            let logger = Logger::for_project(&root);
+            logger
+                .warn("plugin.stderr", line)
+                .meta(json!({
+                    "plugin": plugin_name,
+                    "emitter": emitting_plugin,
+                }))
+                .emit();
+        }))
     }
 
     fn build_run_params(&self, request: &SessionRequest, resume_session: Option<&str>) -> Value {
@@ -103,70 +133,168 @@ impl PluginSessionBackend {
         let backend_label = format!("plugin:{}", self.plugin_name);
         let control_session_id = Uuid::new_v4().to_string();
         let run_timeout = Duration::from_secs(request.timeout_secs.unwrap_or(DEFAULT_PLUGIN_RUN_TIMEOUT_SECS));
+        let started_at = Instant::now();
 
-        let mut host = PluginHost::spawn(&self.binary_path, &[]).await.map_err(|error| {
-            Error::ExecutionFailed(format!("plugin '{}' spawn failed: {error}", self.plugin_name))
-        })?;
-        if let Err(error) = host.handshake().await {
-            graceful_shutdown(host).await;
-            return Err(Error::ExecutionFailed(format!(
-                "plugin '{}' handshake failed: {error}",
-                self.plugin_name
-            )));
+        if let Some(logger) = self.project_logger() {
+            logger
+                .info("plugin.dispatch.start", format!("{} → {}", self.plugin_name, method))
+                .meta(json!({
+                    "plugin": self.plugin_name,
+                    "method": method,
+                    "tool": request.tool,
+                    "model": request.model,
+                    "control_session_id": control_session_id,
+                    "resume_session": resume_session,
+                }))
+                .emit();
         }
 
-        let request_future = host.request(method.to_string(), Some(params));
-        let response = match tokio::time::timeout(run_timeout, request_future).await {
-            Ok(Ok(value)) => value,
-            Ok(Err(error)) => {
-                graceful_shutdown(host).await;
-                return Err(Error::ExecutionFailed(format!(
-                    "plugin '{}' {method} failed ({}): {}",
-                    self.plugin_name, error.code, error.message
-                )));
-            }
-            Err(_) => {
-                graceful_shutdown(host).await;
-                return Err(Error::ExecutionFailed(format!(
-                    "plugin '{}' {method} timed out after {}s",
-                    self.plugin_name,
-                    run_timeout.as_secs()
-                )));
+        let mut host = match PluginHost::spawn_with_stderr(&self.binary_path, &[], self.stderr_sink_for()).await {
+            Ok(host) => host,
+            Err(error) => {
+                let message = format!("plugin '{}' spawn failed: {error}", self.plugin_name);
+                if let Some(logger) = self.project_logger() {
+                    logger.error("plugin.dispatch.spawn", &message).err(error.to_string()).emit();
+                }
+                return Err(Error::ExecutionFailed(message));
             }
         };
-        graceful_shutdown(host).await;
 
-        let session_id = response
-            .get("session_id")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned)
-            .or(Some(control_session_id));
-        let exit_code = response.get("exit_code").and_then(Value::as_i64).map(|n| n as i32);
-        let output = response.get("output").and_then(Value::as_str).unwrap_or_default().to_string();
-        let metadata = response.get("metadata").cloned().unwrap_or(Value::Null);
+        // Subscribe before handshake so even handshake-time notifications are visible.
+        let mut notifications = host.subscribe_notifications(64);
 
-        let (tx, rx) = mpsc::channel(16);
-        let plugin_label = backend_label.clone();
-        let session_id_clone = session_id.clone();
+        if let Err(error) = host.handshake().await {
+            graceful_shutdown(host).await;
+            let message = format!("plugin '{}' handshake failed: {error}", self.plugin_name);
+            if let Some(logger) = self.project_logger() {
+                logger.error("plugin.dispatch.handshake", &message).err(error.to_string()).emit();
+            }
+            return Err(Error::ExecutionFailed(message));
+        }
+
+        // Hand the SessionRun receiver out IMMEDIATELY so the caller can read live
+        // stream events while the plugin is still working. The actual JSON-RPC call
+        // runs in a background task that forwards notifications and produces the
+        // final result.
+        let (tx, rx) = mpsc::channel::<SessionEvent>(64);
+        let session_id_for_started = Some(control_session_id.clone());
+        let backend_for_started = backend_label.clone();
+        let _ = tx
+            .send(SessionEvent::Started {
+                backend: backend_for_started,
+                session_id: session_id_for_started,
+                pid: None,
+            })
+            .await;
+
+        let plugin_name_for_task = self.plugin_name.clone();
+        let backend_label_for_task = backend_label.clone();
+        let project_root_for_task = self.project_root.clone();
+        let method_string = method.to_string();
+        let stream_tx = tx.clone();
         tokio::spawn(async move {
-            let _ = tx
-                .send(SessionEvent::Started {
-                    backend: plugin_label.clone(),
-                    session_id: session_id_clone.clone(),
-                    pid: None,
-                })
-                .await;
-            if !output.is_empty() {
-                let _ = tx.send(SessionEvent::FinalText { text: output }).await;
+            // Forward notifications until the request future completes. Scope the
+            // borrow of `host` so we can call shutdown on it after the request
+            // future resolves.
+            let response = {
+                let mut request_future = Box::pin(host.request(method_string.clone(), Some(params)));
+                let timeout_future = tokio::time::sleep(run_timeout);
+                tokio::pin!(timeout_future);
+                loop {
+                    tokio::select! {
+                        biased;
+                        Some(notification) = notifications.recv() => {
+                            forward_plugin_notification(&plugin_name_for_task, notification, &stream_tx).await;
+                        }
+                        result = &mut request_future => {
+                            break Some(result);
+                        }
+                        _ = &mut timeout_future => {
+                            break None;
+                        }
+                    }
+                }
+            };
+
+            // Drain any straggling notifications before producing the final frames.
+            while let Ok(notification) = notifications.try_recv() {
+                forward_plugin_notification(&plugin_name_for_task, notification, &stream_tx).await;
             }
-            if !matches!(metadata, Value::Null) {
-                let _ = tx.send(SessionEvent::Metadata { metadata }).await;
+
+            let logger = project_root_for_task.as_ref().map(|root| Logger::for_project(root));
+            let duration_ms = started_at.elapsed().as_millis() as u64;
+
+            let outcome = match response {
+                Some(Ok(value)) => Some(value),
+                Some(Err(error)) => {
+                    let message = format!(
+                        "plugin '{}' {method_string} failed ({}): {}",
+                        plugin_name_for_task, error.code, error.message
+                    );
+                    let _ = stream_tx.send(SessionEvent::Error { message: message.clone(), recoverable: false }).await;
+                    if let Some(logger) = logger.as_ref() {
+                        logger
+                            .error("plugin.dispatch.error", &message)
+                            .duration(duration_ms)
+                            .meta(json!({ "plugin": plugin_name_for_task, "method": method_string }))
+                            .emit();
+                    }
+                    let _ = stream_tx.send(SessionEvent::Finished { exit_code: Some(1) }).await;
+                    graceful_shutdown(host).await;
+                    return;
+                }
+                None => {
+                    let message = format!(
+                        "plugin '{}' {method_string} timed out after {}s",
+                        plugin_name_for_task,
+                        run_timeout.as_secs()
+                    );
+                    let _ = stream_tx.send(SessionEvent::Error { message: message.clone(), recoverable: false }).await;
+                    if let Some(logger) = logger.as_ref() {
+                        logger
+                            .error("plugin.dispatch.timeout", &message)
+                            .duration(duration_ms)
+                            .meta(json!({ "plugin": plugin_name_for_task, "method": method_string, "timeout_secs": run_timeout.as_secs() }))
+                            .emit();
+                    }
+                    let _ = stream_tx.send(SessionEvent::Finished { exit_code: Some(124) }).await;
+                    graceful_shutdown(host).await;
+                    return;
+                }
+            };
+
+            graceful_shutdown(host).await;
+
+            if let Some(response) = outcome {
+                let exit_code = response.get("exit_code").and_then(Value::as_i64).map(|n| n as i32);
+                let output = response.get("output").and_then(Value::as_str).unwrap_or_default().to_string();
+                let metadata = response.get("metadata").cloned().unwrap_or(Value::Null);
+
+                if !output.is_empty() {
+                    let _ = stream_tx.send(SessionEvent::FinalText { text: output }).await;
+                }
+                if !matches!(metadata, Value::Null) {
+                    let _ = stream_tx.send(SessionEvent::Metadata { metadata }).await;
+                }
+
+                if let Some(logger) = logger.as_ref() {
+                    logger
+                        .info("plugin.dispatch.complete", format!("{} → {} ok", plugin_name_for_task, method_string))
+                        .duration(duration_ms)
+                        .meta(json!({
+                            "plugin": plugin_name_for_task,
+                            "method": method_string,
+                            "exit_code": exit_code,
+                            "backend": backend_label_for_task,
+                        }))
+                        .emit();
+                }
+                let _ = stream_tx.send(SessionEvent::Finished { exit_code }).await;
             }
-            let _ = tx.send(SessionEvent::Finished { exit_code }).await;
         });
 
         Ok(SessionRun {
-            session_id,
+            session_id: Some(control_session_id),
             events: rx,
             selected_backend: backend_label,
             fallback_reason: None,
@@ -176,7 +304,13 @@ impl PluginSessionBackend {
 
     async fn dispatch_cancel(&self, session_id: &str) -> Result<()> {
         let cancel_timeout = Duration::from_secs(DEFAULT_PLUGIN_CANCEL_TIMEOUT_SECS);
-        let mut host = PluginHost::spawn(&self.binary_path, &[]).await.map_err(|error| {
+        if let Some(logger) = self.project_logger() {
+            logger
+                .info("plugin.cancel", format!("{} → cancel {}", self.plugin_name, session_id))
+                .meta(json!({ "plugin": self.plugin_name, "session_id": session_id }))
+                .emit();
+        }
+        let mut host = PluginHost::spawn_with_stderr(&self.binary_path, &[], self.stderr_sink_for()).await.map_err(|error| {
             Error::ExecutionFailed(format!("plugin '{}' spawn failed: {error}", self.plugin_name))
         })?;
         if let Err(error) = host.handshake().await {
@@ -245,17 +379,75 @@ async fn graceful_shutdown(host: PluginHost) {
     let _ = tokio::time::timeout(Duration::from_secs(PLUGIN_SHUTDOWN_TIMEOUT_SECS), host.shutdown()).await;
 }
 
+/// Translate a JSON-RPC notification emitted by a provider plugin into the
+/// matching SessionEvent and forward it to the SessionRun receiver.
+async fn forward_plugin_notification(
+    plugin_name: &str,
+    notification: RpcNotification,
+    tx: &mpsc::Sender<SessionEvent>,
+) {
+    match notification.method.as_str() {
+        "agent/output" => {
+            if let Some(text) = notification.params.as_ref().and_then(|p| p.get("text")).and_then(Value::as_str) {
+                let _ = tx.send(SessionEvent::TextDelta { text: text.to_string() }).await;
+            }
+        }
+        "agent/thinking" => {
+            if let Some(text) = notification.params.as_ref().and_then(|p| p.get("text")).and_then(Value::as_str) {
+                let _ = tx.send(SessionEvent::Thinking { text: text.to_string() }).await;
+            }
+        }
+        "agent/toolCall" => {
+            let params = notification.params.unwrap_or(Value::Null);
+            let tool_name = params.get("name").and_then(Value::as_str).unwrap_or_default().to_string();
+            let arguments = params.get("arguments").cloned().unwrap_or(Value::Null);
+            let server = params.get("server").and_then(Value::as_str).map(ToOwned::to_owned);
+            let _ = tx.send(SessionEvent::ToolCall { tool_name, arguments, server }).await;
+        }
+        "agent/toolResult" => {
+            let params = notification.params.unwrap_or(Value::Null);
+            let tool_name = params.get("name").and_then(Value::as_str).unwrap_or_default().to_string();
+            let output = params.get("output").cloned().unwrap_or(Value::Null);
+            let success = params.get("success").and_then(Value::as_bool).unwrap_or(true);
+            let _ = tx.send(SessionEvent::ToolResult { tool_name, output, success }).await;
+        }
+        "agent/error" => {
+            let params = notification.params.unwrap_or(Value::Null);
+            let message = params.get("message").and_then(Value::as_str).unwrap_or_default().to_string();
+            let recoverable = params.get("recoverable").and_then(Value::as_bool).unwrap_or(true);
+            let _ = tx.send(SessionEvent::Error { message, recoverable }).await;
+        }
+        "$/progress" | "agent/progress" => {
+            if let Some(params) = notification.params {
+                let _ = tx.send(SessionEvent::Metadata { metadata: params }).await;
+            }
+        }
+        other => {
+            // Unrecognized notification: surface as metadata so consumers can still inspect.
+            tracing::debug!(plugin = %plugin_name, method = %other, "unrecognized plugin notification");
+            if let Some(params) = notification.params {
+                let _ = tx.send(SessionEvent::Metadata { metadata: json!({ "method": other, "params": params }) }).await;
+            }
+        }
+    }
+}
+
 /// Snapshot of a discovered provider plugin used to lazily build a `PluginSessionBackend`.
 #[derive(Debug, Clone)]
 pub struct DiscoveredProviderPlugin {
     pub plugin_name: String,
     pub provider_tool: String,
     pub binary_path: PathBuf,
+    pub project_root: Option<PathBuf>,
 }
 
 impl DiscoveredProviderPlugin {
     pub fn into_backend(self) -> Arc<PluginSessionBackend> {
-        Arc::new(PluginSessionBackend::new(self.plugin_name, self.binary_path, self.provider_tool))
+        let mut backend = PluginSessionBackend::new(self.plugin_name, self.binary_path, self.provider_tool);
+        if let Some(root) = self.project_root {
+            backend = backend.with_project_root(root);
+        }
+        Arc::new(backend)
     }
 }
 
@@ -264,7 +456,8 @@ impl DiscoveredProviderPlugin {
 /// `ao-provider-` prefix.
 pub fn discover_provider_plugins(project_root: &std::path::Path) -> Vec<DiscoveredProviderPlugin> {
     use orchestrator_plugin_host::discover_plugins;
-    discover_plugins(project_root)
+    let project_root = project_root.to_path_buf();
+    discover_plugins(&project_root)
         .unwrap_or_default()
         .into_iter()
         .filter(|plugin| plugin.manifest.plugin_kind == orchestrator_plugin_protocol::PLUGIN_KIND_PROVIDER)
@@ -274,7 +467,12 @@ pub fn discover_provider_plugins(project_root: &std::path::Path) -> Vec<Discover
                 .strip_prefix("ao-provider-")
                 .map(ToOwned::to_owned)
                 .unwrap_or_else(|| plugin.name.clone());
-            DiscoveredProviderPlugin { plugin_name: plugin.name, provider_tool, binary_path: plugin.path }
+            DiscoveredProviderPlugin {
+                plugin_name: plugin.name,
+                provider_tool,
+                binary_path: plugin.path,
+                project_root: Some(project_root.clone()),
+            }
         })
         .collect()
 }

@@ -10,6 +10,39 @@ pub(crate) enum PluginCommand {
     Call(PluginCallArgs),
     /// Health-check a plugin by spawning it, completing the handshake, and pinging.
     Ping(PluginPingArgs),
+    /// Install a plugin binary from a local path or URL into ~/.ao/plugins/.
+    Install(PluginInstallArgs),
+    /// Remove a previously installed plugin from ~/.ao/plugins/ and plugins.yaml.
+    Uninstall(PluginUninstallArgs),
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct PluginInstallArgs {
+    /// Local path to the plugin binary to install.
+    #[arg(long, value_name = "PATH", group = "source")]
+    pub(crate) path: Option<String>,
+    /// URL to download the plugin binary from (https only).
+    #[arg(long, value_name = "URL", group = "source")]
+    pub(crate) url: Option<String>,
+    /// Optional logical plugin name. Defaults to the binary file name.
+    #[arg(long, value_name = "NAME")]
+    pub(crate) name: Option<String>,
+    /// Expected SHA256 hex digest. When supplied, the install fails if the
+    /// downloaded/copied binary's checksum does not match.
+    #[arg(long, value_name = "HEX")]
+    pub(crate) sha256: Option<String>,
+    /// Overwrite an existing installed plugin with the same name.
+    #[arg(long, default_value_t = false)]
+    pub(crate) force: bool,
+    /// Skip running `--manifest` against the installed binary to verify it.
+    #[arg(long, default_value_t = false)]
+    pub(crate) skip_manifest_check: bool,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct PluginUninstallArgs {
+    #[arg(long, value_name = "NAME", help = "Logical plugin name to uninstall.")]
+    pub(crate) name: String,
 }
 
 #[derive(Debug, Args)]

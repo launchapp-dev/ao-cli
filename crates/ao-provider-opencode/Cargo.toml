@@ -1,10 +1,10 @@
 [package]
-name = "ao-provider-codex"
+name = "ao-provider-opencode"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "ao-provider-codex"
+name = "ao-provider-opencode"
 path = "src/main.rs"
 
 [dependencies]

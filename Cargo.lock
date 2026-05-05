@@ -158,12 +158,9 @@ name = "ao-provider-claude"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "ao-provider-runtime",
  "llm-cli-wrapper",
- "orchestrator-plugin-protocol",
- "serde",
- "serde_json",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -171,6 +168,60 @@ name = "ao-provider-codex"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "ao-provider-runtime",
+ "llm-cli-wrapper",
+ "tokio",
+]
+
+[[package]]
+name = "ao-provider-gemini"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ao-provider-runtime",
+ "llm-cli-wrapper",
+ "tokio",
+]
+
+[[package]]
+name = "ao-provider-mock"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ao-provider-runtime",
+ "async-trait",
+ "llm-cli-wrapper",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "ao-provider-oai"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ao-provider-runtime",
+ "llm-cli-wrapper",
+ "tokio",
+]
+
+[[package]]
+name = "ao-provider-opencode"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ao-provider-runtime",
+ "llm-cli-wrapper",
+ "tokio",
+]
+
+[[package]]
+name = "ao-provider-runtime"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
  "llm-cli-wrapper",
  "orchestrator-plugin-protocol",
  "serde",

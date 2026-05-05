@@ -6,12 +6,14 @@ use orchestrator_plugin_protocol::McpTool;
 use serde_json::Value;
 use tokio::process::{ChildStdin, ChildStdout};
 
+use crate::host::PluginStderrSink;
 use crate::{DiscoveredPlugin, PluginDiscovery, PluginHost};
 
 pub struct PluginRegistry {
     discovered: HashMap<String, DiscoveredPlugin>,
     running: HashMap<String, PluginHost<ChildStdout, ChildStdin>>,
     mcp_tools: HashMap<String, (String, McpTool)>,
+    stderr_sink: Option<PluginStderrSink>,
 }
 
 impl PluginRegistry {
@@ -23,7 +25,15 @@ impl PluginRegistry {
             .map(|plugin| (plugin.name.clone(), plugin))
             .collect();
 
-        Ok(Self { discovered, running: HashMap::new(), mcp_tools: HashMap::new() })
+        Ok(Self { discovered, running: HashMap::new(), mcp_tools: HashMap::new(), stderr_sink: None })
+    }
+
+    /// Route every spawned plugin's stderr through the supplied sink. Useful for
+    /// surfacing plugin diagnostics into structured project logs.
+    #[must_use]
+    pub fn with_stderr_sink(mut self, sink: PluginStderrSink) -> Self {
+        self.stderr_sink = Some(sink);
+        self
     }
 
     pub fn list_plugins(&self) -> impl Iterator<Item = &DiscoveredPlugin> {
@@ -37,7 +47,7 @@ impl PluginRegistry {
     pub async fn get_plugin(&mut self, name: &str) -> Result<&mut PluginHost<ChildStdout, ChildStdin>> {
         if !self.running.contains_key(name) {
             let path = self.discovered.get(name).ok_or_else(|| anyhow!("unknown plugin '{name}'"))?.path.clone();
-            let mut host = PluginHost::spawn(&path, &[]).await?;
+            let mut host = PluginHost::spawn_with_stderr(&path, &[], self.stderr_sink.clone()).await?;
             let result = host.handshake().await?;
             self.register_mcp_tools(name, result.capabilities.mcp_tools)?;
             self.running.insert(name.to_string(), host);

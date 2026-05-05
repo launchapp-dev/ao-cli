@@ -1,9 +1,18 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use protocol::CLI_SCHEMA_ID;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tempfile::TempDir;
+
+fn parse_envelope_from_bytes(bytes: &[u8]) -> Result<Value> {
+    let text = std::str::from_utf8(bytes).context("output was not valid utf-8")?;
+    text.lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with('{'))
+        .find_map(|line| serde_json::from_str::<Value>(line).ok())
+        .ok_or_else(|| anyhow!("no JSON envelope found in output:\n{text}"))
+}
 
 pub struct CliHarness {
     binary_path: PathBuf,
@@ -54,7 +63,7 @@ impl CliHarness {
             );
         }
 
-        let payload = serde_json::from_slice::<Value>(&output.stdout)
+        let payload = parse_envelope_from_bytes(&output.stdout)
             .with_context(|| format!("failed to parse json output from animus command: {}", args.join(" ")))?;
 
         if payload.get("schema").and_then(Value::as_str) != Some(CLI_SCHEMA_ID) {
@@ -93,7 +102,7 @@ impl CliHarness {
             );
         }
 
-        let payload = serde_json::from_slice::<Value>(&output.stderr)
+        let payload = parse_envelope_from_bytes(&output.stderr)
             .with_context(|| format!("failed to parse json error output from animus command: {}", args.join(" ")))?;
 
         if payload.get("schema").and_then(Value::as_str) != Some(CLI_SCHEMA_ID) {

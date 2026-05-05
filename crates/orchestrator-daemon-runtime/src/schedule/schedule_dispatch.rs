@@ -238,7 +238,7 @@ mod tests {
         let schedules = vec![orchestrator_core::WorkflowSchedule {
             id: "disabled".to_string(),
             cron: "30 12 * * *".to_string(),
-            workflow_ref: Some("standard".to_string()),
+            workflow_ref: Some("standard-workflow".to_string()),
             command: None,
             input: None,
             enabled: false,
@@ -255,7 +255,7 @@ mod tests {
         let schedules = vec![orchestrator_core::WorkflowSchedule {
             id: "midday".to_string(),
             cron: "30 12 * * *".to_string(),
-            workflow_ref: Some("standard".to_string()),
+            workflow_ref: Some("standard-workflow".to_string()),
             command: None,
             input: None,
             enabled: true,
@@ -272,7 +272,7 @@ mod tests {
         let schedules = vec![orchestrator_core::WorkflowSchedule {
             id: "daily".to_string(),
             cron: "@daily".to_string(),
-            workflow_ref: Some("standard".to_string()),
+            workflow_ref: Some("standard-workflow".to_string()),
             command: None,
             input: None,
             enabled: true,
@@ -289,7 +289,7 @@ mod tests {
         let schedules = vec![orchestrator_core::WorkflowSchedule {
             id: "broken".to_string(),
             cron: "*/0 * * * *".to_string(),
-            workflow_ref: Some("standard".to_string()),
+            workflow_ref: Some("standard-workflow".to_string()),
             command: None,
             input: None,
             enabled: true,
@@ -306,7 +306,7 @@ mod tests {
         let schedules = vec![orchestrator_core::WorkflowSchedule {
             id: "recent".to_string(),
             cron: "30 12 * * *".to_string(),
-            workflow_ref: Some("standard".to_string()),
+            workflow_ref: Some("standard-workflow".to_string()),
             command: None,
             input: None,
             enabled: true,
@@ -334,7 +334,7 @@ mod tests {
         config.schedules.push(orchestrator_core::WorkflowSchedule {
             id: "nightly".to_string(),
             cron: "30 12 * * *".to_string(),
-            workflow_ref: Some("standard".to_string()),
+            workflow_ref: Some("standard-workflow".to_string()),
             command: None,
             input: Some(json!({"scope":"nightly"})),
             enabled: true,
@@ -368,7 +368,7 @@ mod tests {
         let calls = pipeline_calls.lock().expect("pipeline lock");
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].0, "nightly");
-        assert_eq!(calls[0].1, "standard");
+        assert_eq!(calls[0].1, "standard-workflow");
         assert_eq!(calls[0].2.as_deref(), Some(r#"{"scope":"nightly"}"#));
         assert_eq!(
             outcomes,

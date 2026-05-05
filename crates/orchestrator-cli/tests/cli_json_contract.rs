@@ -33,7 +33,7 @@ fn json_success_envelope_contract_is_stable() -> Result<()> {
 
     let version = harness.run_json_ok(&["version"])?;
     assert_success_envelope(&version);
-    assert_eq!(version.pointer("/data/binary").and_then(Value::as_str), Some("ao"));
+    assert_eq!(version.pointer("/data/binary").and_then(Value::as_str), Some("animus"));
 
     let stats = harness.run_json_ok(&["task", "stats"])?;
     assert_success_envelope(&stats);
@@ -81,11 +81,9 @@ fn status_command_json_payload_includes_dashboard_schema_and_slices() -> Result<
 fn json_success_envelope_wraps_print_ok_messages() -> Result<()> {
     let harness = CliHarness::new()?;
 
-    harness.run_json_ok(&["architecture", "entity", "create", "--id", "api", "--name", "API"])?;
-
-    let deleted = harness.run_json_ok(&["architecture", "entity", "delete", "--id", "api"])?;
-    assert_success_envelope(&deleted);
-    assert_eq!(deleted.pointer("/data/message").and_then(Value::as_str), Some("architecture entity deleted"));
+    let cleared = harness.run_json_ok(&["daemon", "clear-logs"])?;
+    assert_success_envelope(&cleared);
+    assert_eq!(cleared.pointer("/data/message").and_then(Value::as_str), Some("daemon logs cleared"));
 
     Ok(())
 }
@@ -110,17 +108,10 @@ fn json_error_envelope_maps_invalid_input_and_not_found() -> Result<()> {
 fn json_error_envelope_maps_conflict() -> Result<()> {
     let harness = CliHarness::new()?;
 
-    harness.run_json_ok(&["architecture", "entity", "create", "--id", "api", "--name", "API"])?;
+    harness.run_json_ok(&["init", "--template", "task-queue", "--non-interactive"])?;
 
-    let (payload, status) = harness.run_json_err_with_exit(&[
-        "architecture",
-        "entity",
-        "create",
-        "--id",
-        "api",
-        "--name",
-        "Duplicate API",
-    ])?;
+    let (payload, status) =
+        harness.run_json_err_with_exit(&["init", "--template", "task-queue", "--non-interactive"])?;
 
     assert_eq!(status, 4, "conflict should exit with code 4");
     assert_error_envelope(&payload, "conflict", 4);

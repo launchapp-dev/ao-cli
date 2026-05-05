@@ -66,6 +66,8 @@ mod output_tail_resolution;
 mod output_tail_types;
 #[path = "ops_mcp/output_tools.rs"]
 mod output_tools;
+#[path = "ops_mcp/plugin_tools.rs"]
+mod plugin_tools;
 #[path = "ops_mcp/queue_command_args.rs"]
 mod queue_command_args;
 #[path = "ops_mcp/queue_inputs.rs"]
@@ -152,10 +154,17 @@ const MAX_MCP_LIST_MAX_TOKENS: usize = 12_000;
 const BATCH_RESULT_SCHEMA: &str = "ao.mcp.batch.result.v1";
 const MAX_BATCH_SIZE: usize = 100;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct AoMcpServer {
     default_project_root: String,
     tool_router: ToolRouter<Self>,
+    plugin_registry: std::sync::Arc<tokio::sync::Mutex<Option<orchestrator_plugin_host::PluginRegistry>>>,
+}
+
+impl std::fmt::Debug for AoMcpServer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AoMcpServer").field("default_project_root", &self.default_project_root).finish_non_exhaustive()
+    }
 }
 
 impl AoMcpServer {
@@ -256,9 +265,14 @@ fn new_ao_mcp_server(default_project_root: &str) -> AoMcpServer {
         + AoMcpServer::output_tool_router()
         + AoMcpServer::runner_tool_router()
         + AoMcpServer::workflow_runtime_tools()
-        + AoMcpServer::workflow_definition_tools();
+        + AoMcpServer::workflow_definition_tools()
+        + AoMcpServer::plugin_tool_router();
 
-    AoMcpServer { default_project_root: default_project_root.to_string(), tool_router }
+    AoMcpServer {
+        default_project_root: default_project_root.to_string(),
+        tool_router,
+        plugin_registry: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
+    }
 }
 
 #[tool_handler(router = self.tool_router)]

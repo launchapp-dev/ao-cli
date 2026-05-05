@@ -1,6 +1,15 @@
 use crate::ProjectTickSummary;
 
 #[derive(Debug, Clone)]
+pub struct DiscoveredPluginSummary {
+    pub name: String,
+    pub version: String,
+    pub plugin_kind: String,
+    pub source: &'static str,
+    pub path: String,
+}
+
+#[derive(Debug, Clone)]
 pub enum DaemonRunEvent {
     Startup {
         project_root: String,
@@ -12,6 +21,14 @@ pub enum DaemonRunEvent {
     },
     StartupCleanup {
         project_root: String,
+    },
+    PluginsDiscovered {
+        project_root: String,
+        plugins: Vec<DiscoveredPluginSummary>,
+    },
+    PluginsDiscoveryFailed {
+        project_root: String,
+        error: String,
     },
     OrphanDetection {
         project_root: String,

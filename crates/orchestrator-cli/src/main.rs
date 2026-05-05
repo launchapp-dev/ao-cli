@@ -44,6 +44,7 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Setup(args) => services::operations::handle_setup(args, &project_root, cli.json).await,
         Command::Doctor(args) => services::operations::handle_doctor(&project_root, args, cli.json).await,
         Command::Pack { command } => services::operations::handle_pack(command, &project_root, cli.json).await,
+        Command::Plugin { command } => services::operations::handle_plugin(command, &project_root, cli.json).await,
         Command::Status => services::operations::handle_status(&project_root, cli.json).await,
         Command::Daemon { command: DaemonCommand::Status } => {
             services::runtime::handle_daemon_status_command(&project_root, cli.json).await
@@ -91,6 +92,7 @@ async fn run(cli: Cli) -> Result<()> {
                     services::operations::handle_model(command, hub.clone(), &project_root, cli.json).await
                 }
                 Command::Pack { .. } => unreachable!("handled before hub creation"),
+                Command::Plugin { .. } => unreachable!("handled before hub creation"),
                 Command::Runner { command } => {
                     services::operations::handle_runner(command, hub.clone(), &project_root, cli.json).await
                 }

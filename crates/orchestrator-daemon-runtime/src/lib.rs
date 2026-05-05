@@ -6,7 +6,7 @@ mod tick;
 
 pub use daemon::{
     run_daemon, DaemonEventLog, DaemonEventsPollResponse, DaemonRunEvent, DaemonRunGuard, DaemonRunHooks,
-    DaemonRuntimeOptions, DaemonRuntimeState,
+    DaemonRuntimeOptions, DaemonRuntimeState, DiscoveredPluginSummary,
 };
 pub use dispatch::{
     active_workflow_subject_ids, active_workflow_task_ids, build_completion_reconciliation_plan, build_runner_command,

@@ -584,8 +584,12 @@ mod tests {
             },
             Vec::new(),
         );
-        let current =
-            DaemonProjectConfig { auto_merge_enabled: true, auto_pr_enabled: true, auto_commit_before_merge: true };
+        let current = DaemonProjectConfig {
+            auto_merge_enabled: true,
+            auto_pr_enabled: true,
+            auto_commit_before_merge: true,
+            ..DaemonProjectConfig::default()
+        };
         let args = InitArgs {
             template: Some("direct-workflow".to_string()),
             path: None,

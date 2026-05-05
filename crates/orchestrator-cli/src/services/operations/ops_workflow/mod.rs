@@ -11,8 +11,8 @@ use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use orchestrator_core::{
     dispatch_workflow_event, ensure_workflow_config_compiled, load_workflow_config, services::ServiceHub,
-    workflow_ref_for_task, ListPageRequest, WorkflowEvent, WorkflowFilter, WorkflowQuery, WorkflowResumeManager,
-    WorkflowRunInput, REQUIREMENT_TASK_GENERATION_WORKFLOW_REF,
+    ListPageRequest, OrchestratorTask, WorkflowEvent, WorkflowFilter, WorkflowQuery, WorkflowResumeManager,
+    WorkflowRunInput, REQUIREMENT_TASK_GENERATION_WORKFLOW_REF, STANDARD_WORKFLOW_REF, UI_UX_WORKFLOW_REF,
 };
 use serde_json::Value;
 use uuid::Uuid;
@@ -41,7 +41,7 @@ async fn resolve_workflow_run_dispatch(
             let task = hub.tasks().get(&tid).await?;
             Ok(protocol::SubjectDispatch::for_task_with_metadata(
                 task.id.clone(),
-                workflow_ref.unwrap_or_else(|| workflow_ref_for_task(&task)),
+                workflow_ref.unwrap_or_else(|| default_workflow_ref_for_task(&task, project_root)),
                 "manual-cli-run",
                 Utc::now(),
             ))
@@ -94,7 +94,7 @@ async fn resolve_workflow_run_dispatch_from_input(
         let task = hub.tasks().get(&id).await?;
         Ok(protocol::SubjectDispatch::for_task_with_metadata(
             task.id.clone(),
-            workflow_ref.unwrap_or_else(|| workflow_ref_for_task(&task)),
+            workflow_ref.unwrap_or_else(|| default_workflow_ref_for_task(&task, project_root)),
             "manual-cli-run",
             Utc::now(),
         )
@@ -207,6 +207,19 @@ fn parse_workflow_vars(raw_vars: &[String]) -> Result<std::collections::HashMap<
 
 fn default_project_workflow_ref(project_root: &str) -> String {
     orchestrator_core::load_workflow_config_or_default(Path::new(project_root)).config.default_workflow_ref
+}
+
+fn default_workflow_ref_for_task(task: &OrchestratorTask, project_root: &str) -> String {
+    if task.is_frontend_related() {
+        UI_UX_WORKFLOW_REF.to_string()
+    } else {
+        let project_default = default_project_workflow_ref(project_root);
+        if project_default.trim().is_empty() {
+            STANDARD_WORKFLOW_REF.to_string()
+        } else {
+            project_default
+        }
+    }
 }
 
 async fn resolve_workflow_run_dispatch_from_raw_input(
@@ -349,7 +362,14 @@ pub(crate) async fn handle_workflow(
                         .await?
                     }
                 };
-                print_value(workflows.run(dispatch.to_workflow_run_input()).await?, json)
+                let workflow = workflows.run(dispatch.to_workflow_run_input()).await?;
+                if !json {
+                    eprintln!(
+                        "dispatched workflow {} (status={:?}) — tail with: ao daemon events --follow, or rerun with --sync to stream phase events",
+                        workflow.id, workflow.status
+                    );
+                }
+                print_value(workflow, json)
             }
         }
         WorkflowCommand::Prompt { command } => match command {

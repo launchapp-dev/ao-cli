@@ -40,13 +40,24 @@ fn runner_pid_from_lock_for_status(config_dir: &Path) -> Option<u32> {
     read_runner_pid_from_lock(config_dir)
 }
 
-fn runner_process_alive_for_status(pid: u32) -> bool {
+fn daemon_pid_for_status(project_root: &Path) -> Option<u32> {
     #[cfg(test)]
-    if let Some(alive) = test_runner_alive_override() {
+    if let Some(pid) = test_daemon_pid_override() {
+        return pid;
+    }
+
+    let pm_config_path = crate::daemon_project_config_path(project_root);
+    let daemon_dir = pm_config_path.parent()?;
+    std::fs::read_to_string(daemon_dir.join("daemon.pid")).ok()?.trim().parse::<u32>().ok()
+}
+
+fn daemon_process_alive_for_status(pid: u32) -> bool {
+    #[cfg(test)]
+    if let Some(alive) = test_daemon_process_alive_override() {
         return alive;
     }
 
-    is_runner_process_alive(pid)
+    protocol::is_process_alive(pid)
 }
 
 async fn mutate_daemon_state<T>(hub: &FileServiceHub, mutator: impl FnOnce(&mut CoreState) -> Result<T>) -> Result<T> {
@@ -68,13 +79,14 @@ pub async fn load_daemon_health_snapshot(project_root: &Path) -> Result<DaemonHe
     let runner_connected = runner_ready_for_status(&config_dir).await;
     let runner_pid_from_lock = runner_pid_from_lock_for_status(&config_dir);
     let runner_pid = snapshot.runner_pid.or(runner_pid_from_lock);
-    let runner_alive = runner_pid.map(runner_process_alive_for_status).unwrap_or(false);
+
+    let daemon_pid = daemon_pid_for_status(project_root);
+    let process_alive = daemon_pid.map(daemon_process_alive_for_status);
 
     let mut status = snapshot.daemon_status;
     if matches!(status, DaemonStatus::Running | DaemonStatus::Paused)
-        && runner_pid.is_some()
-        && !runner_connected
-        && !runner_alive
+        && daemon_pid.is_some()
+        && process_alive == Some(false)
     {
         status = DaemonStatus::Crashed;
     }
@@ -87,15 +99,9 @@ pub async fn load_daemon_health_snapshot(project_root: &Path) -> Result<DaemonHe
         None => 0,
     };
 
-    let pm_config_path = crate::daemon_project_config_path(project_root);
-    let daemon_dir = pm_config_path.parent().map(|path| path.to_path_buf());
     let pool_size = snapshot
         .daemon_pool_size
         .or_else(|| crate::load_daemon_project_config(project_root).ok().and_then(|config| config.pool_size));
-    let daemon_pid = daemon_dir.as_ref().and_then(|dir| {
-        std::fs::read_to_string(dir.join("daemon.pid")).ok().and_then(|value| value.trim().parse::<u32>().ok())
-    });
-    let process_alive = daemon_pid.map(protocol::is_process_alive);
     if matches!(status, DaemonStatus::Stopped) && process_alive == Some(true) {
         status = DaemonStatus::Running;
     }
@@ -313,8 +319,10 @@ impl DaemonServiceApi for FileServiceHub {
         let config_dir = runner_config_dir(&self.project_root);
         let runner_ready = runner_ready_for_status(&config_dir).await;
         let runner_pid_from_lock = runner_pid_from_lock_for_status(&config_dir);
+        let daemon_pid = daemon_pid_for_status(&self.project_root);
+        let daemon_process_alive = daemon_pid.map(daemon_process_alive_for_status);
 
-        let (status, should_mark_crashed, runner_alive) = {
+        let (status, should_mark_crashed) = {
             let mut lock = self.state.write().await;
             if lock.runner_pid.is_none() && runner_ready {
                 lock.runner_pid = runner_pid_from_lock;
@@ -323,12 +331,10 @@ impl DaemonServiceApi for FileServiceHub {
             if lock.runner_pid.is_none() {
                 lock.runner_pid = runner_pid;
             }
-            let runner_alive = runner_pid.map(runner_process_alive_for_status).unwrap_or(false);
             let should_mark_crashed = matches!(lock.daemon_status, DaemonStatus::Running | DaemonStatus::Paused)
-                && runner_pid.is_some()
-                && !runner_ready
-                && !runner_alive;
-            (lock.daemon_status, should_mark_crashed, runner_alive)
+                && daemon_pid.is_some()
+                && daemon_process_alive == Some(false);
+            (lock.daemon_status, should_mark_crashed)
         };
 
         if should_mark_crashed {
@@ -337,15 +343,14 @@ impl DaemonServiceApi for FileServiceHub {
                     state.runner_pid = runner_pid_from_lock;
                 }
                 if matches!(state.daemon_status, DaemonStatus::Running | DaemonStatus::Paused)
-                    && state.runner_pid.is_some()
-                    && !runner_ready
-                    && !runner_alive
+                    && daemon_pid.is_some()
+                    && daemon_process_alive == Some(false)
                 {
                     state.daemon_status = DaemonStatus::Crashed;
                     state.logs.push(LogEntry {
                         timestamp: Utc::now(),
                         level: LogLevel::Error,
-                        message: "agent-runner health check failed while daemon was active".to_string(),
+                        message: "daemon pid liveness check failed while daemon was active".to_string(),
                     });
                 }
                 Ok(state.daemon_status)
@@ -360,7 +365,9 @@ impl DaemonServiceApi for FileServiceHub {
         let config_dir = runner_config_dir(&self.project_root);
         let runner_connected = runner_ready_for_status(&config_dir).await;
         let runner_pid_from_lock = runner_pid_from_lock_for_status(&config_dir);
-        let (mut status, should_mark_crashed, runner_alive) = {
+        let daemon_pid = daemon_pid_for_status(&self.project_root);
+        let process_alive = daemon_pid.map(daemon_process_alive_for_status);
+        let (mut status, should_mark_crashed) = {
             let mut lock = self.state.write().await;
             if lock.runner_pid.is_none() && runner_connected {
                 lock.runner_pid = runner_pid_from_lock;
@@ -369,12 +376,10 @@ impl DaemonServiceApi for FileServiceHub {
             if lock.runner_pid.is_none() {
                 lock.runner_pid = runner_pid;
             }
-            let runner_alive = runner_pid.map(runner_process_alive_for_status).unwrap_or(false);
             let should_mark_crashed = matches!(lock.daemon_status, DaemonStatus::Running | DaemonStatus::Paused)
-                && runner_pid.is_some()
-                && !runner_connected
-                && !runner_alive;
-            (lock.daemon_status, should_mark_crashed, runner_alive)
+                && daemon_pid.is_some()
+                && process_alive == Some(false);
+            (lock.daemon_status, should_mark_crashed)
         };
 
         if should_mark_crashed {
@@ -383,15 +388,14 @@ impl DaemonServiceApi for FileServiceHub {
                     state.runner_pid = runner_pid_from_lock;
                 }
                 if matches!(state.daemon_status, DaemonStatus::Running | DaemonStatus::Paused)
-                    && state.runner_pid.is_some()
-                    && !runner_connected
-                    && !runner_alive
+                    && daemon_pid.is_some()
+                    && process_alive == Some(false)
                 {
                     state.daemon_status = DaemonStatus::Crashed;
                     state.logs.push(LogEntry {
                         timestamp: Utc::now(),
                         level: LogLevel::Error,
-                        message: "agent-runner health check failed while daemon was active".to_string(),
+                        message: "daemon pid liveness check failed while daemon was active".to_string(),
                     });
                 }
                 Ok(state.daemon_status)
@@ -408,17 +412,11 @@ impl DaemonServiceApi for FileServiceHub {
         let lock = self.state.read().await;
 
         // Read pool_size from pm-config as fallback when core-state has stale/missing value
-        let pm_config_path = crate::daemon_project_config_path(&self.project_root);
-        let daemon_dir = pm_config_path.parent().map(|p| p.to_path_buf());
         let pool_size = lock
             .daemon_pool_size
             .or_else(|| crate::load_daemon_project_config(&self.project_root).ok().and_then(|c| c.pool_size));
 
         // If core-state says stopped but daemon process is alive, report as running
-        let daemon_pid = daemon_dir.as_ref().and_then(|dir| {
-            std::fs::read_to_string(dir.join("daemon.pid")).ok().and_then(|s| s.trim().parse::<u32>().ok())
-        });
-        let process_alive = daemon_pid.map(protocol::is_process_alive);
         if matches!(status, DaemonStatus::Stopped) && process_alive == Some(true) {
             status = DaemonStatus::Running;
         }
@@ -490,7 +488,8 @@ struct RunnerLifecycleTestHooks {
     stop_calls: usize,
     runner_ready: Option<bool>,
     runner_pid_from_lock: Option<Option<u32>>,
-    runner_alive: Option<bool>,
+    daemon_pid_from_file: Option<Option<u32>>,
+    daemon_process_alive: Option<bool>,
     skip_persist: bool,
 }
 
@@ -544,8 +543,13 @@ fn test_runner_pid_override() -> Option<Option<u32>> {
 }
 
 #[cfg(test)]
-fn test_runner_alive_override() -> Option<bool> {
-    with_runner_lifecycle_test_hooks(|hooks| hooks.runner_alive)
+fn test_daemon_pid_override() -> Option<Option<u32>> {
+    with_runner_lifecycle_test_hooks(|hooks| hooks.daemon_pid_from_file)
+}
+
+#[cfg(test)]
+fn test_daemon_process_alive_override() -> Option<bool> {
+    with_runner_lifecycle_test_hooks(|hooks| hooks.daemon_process_alive)
 }
 
 #[cfg(test)]
@@ -713,7 +717,6 @@ mod tests {
         with_runner_lifecycle_test_hooks(|hooks| {
             hooks.runner_ready = Some(false);
             hooks.runner_pid_from_lock = Some(Some(8123));
-            hooks.runner_alive = Some(true);
             hooks.skip_persist = true;
         });
 
@@ -737,7 +740,8 @@ mod tests {
         with_runner_lifecycle_test_hooks(|hooks| {
             hooks.runner_ready = Some(false);
             hooks.runner_pid_from_lock = Some(Some(8124));
-            hooks.runner_alive = Some(false);
+            hooks.daemon_pid_from_file = Some(Some(4001));
+            hooks.daemon_process_alive = Some(false);
             hooks.skip_persist = true;
         });
 
@@ -755,7 +759,7 @@ mod tests {
         assert_eq!(state.daemon_status, DaemonStatus::Crashed);
         assert!(state.logs.iter().any(|entry| {
             entry.level == LogLevel::Error
-                && entry.message == "agent-runner health check failed while daemon was active"
+                && entry.message == "daemon pid liveness check failed while daemon was active"
         }));
     }
 
@@ -765,7 +769,8 @@ mod tests {
         with_runner_lifecycle_test_hooks(|hooks| {
             hooks.runner_ready = Some(false);
             hooks.runner_pid_from_lock = Some(Some(8125));
-            hooks.runner_alive = Some(false);
+            hooks.daemon_pid_from_file = Some(Some(4002));
+            hooks.daemon_process_alive = Some(false);
             hooks.skip_persist = true;
         });
 
@@ -783,7 +788,32 @@ mod tests {
         assert_eq!(state.daemon_status, DaemonStatus::Crashed);
         assert!(state.logs.iter().any(|entry| {
             entry.level == LogLevel::Error
-                && entry.message == "agent-runner health check failed while daemon was active"
+                && entry.message == "daemon pid liveness check failed while daemon was active"
         }));
+    }
+
+    #[tokio::test]
+    async fn file_hub_status_keeps_running_when_runner_is_dead_but_daemon_pid_is_alive() {
+        let _guard = RunnerLifecycleHooksGuard::new();
+        with_runner_lifecycle_test_hooks(|hooks| {
+            hooks.runner_ready = Some(false);
+            hooks.runner_pid_from_lock = Some(Some(8126));
+            hooks.daemon_pid_from_file = Some(Some(4003));
+            hooks.daemon_process_alive = Some(true);
+            hooks.skip_persist = true;
+        });
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let hub = new_file_hub(&temp);
+        {
+            let mut lock = hub.state.write().await;
+            lock.daemon_status = DaemonStatus::Running;
+            lock.runner_pid = Some(8126);
+        }
+
+        let status = DaemonServiceApi::status(&hub).await.expect("status");
+        assert_eq!(status, DaemonStatus::Running);
+        let state = hub.state.read().await;
+        assert_eq!(state.daemon_status, DaemonStatus::Running);
     }
 }

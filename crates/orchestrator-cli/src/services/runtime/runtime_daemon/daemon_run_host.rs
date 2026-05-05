@@ -81,6 +81,20 @@ impl DefaultDaemonRunHost {
             DaemonRunEvent::ConfigReloaded { setting, .. } => {
                 self.logger.info("config", format!("hot-reloaded: {setting}")).emit();
             }
+            DaemonRunEvent::PluginsDiscovered { plugins, .. } => {
+                let count = plugins.len();
+                if count == 0 {
+                    self.logger.info("plugins", "no AO plugins discovered").emit();
+                } else {
+                    let names: Vec<String> = plugins.iter().map(|p| format!("{}@{}", p.name, p.version)).collect();
+                    self.logger
+                        .info("plugins", format!("discovered {count} plugin(s): {}", names.join(", ")))
+                        .emit();
+                }
+            }
+            DaemonRunEvent::PluginsDiscoveryFailed { error, .. } => {
+                self.logger.warn("plugins", "plugin discovery failed").err(error).emit();
+            }
         }
     }
 
@@ -318,6 +332,25 @@ impl DaemonRunHooks for DefaultDaemonRunHost {
                 );
                 Ok(())
             }
+            DaemonRunEvent::PluginsDiscovered { project_root, plugins } => {
+                let payload = json!({
+                    "count": plugins.len(),
+                    "plugins": plugins.iter().map(|p| json!({
+                        "name": p.name,
+                        "version": p.version,
+                        "plugin_kind": p.plugin_kind,
+                        "source": p.source,
+                        "path": p.path,
+                    })).collect::<Vec<_>>(),
+                });
+                self.emit_daemon_event_with_notifications("plugins-discovered", Some(project_root), payload)
+            }
+            DaemonRunEvent::PluginsDiscoveryFailed { project_root, error } => self
+                .emit_daemon_event_with_notifications(
+                    "plugins-discovery-failed",
+                    Some(project_root),
+                    json!({ "error": error }),
+                ),
         }
     }
 

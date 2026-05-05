@@ -88,6 +88,11 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: PackCommand,
     },
+    /// Discover, inspect, and call AO STDIO plugins.
+    Plugin {
+        #[command(subcommand)]
+        command: PluginCommand,
+    },
     /// Inspect runner health and orphaned runs.
     Runner {
         #[command(subcommand)]

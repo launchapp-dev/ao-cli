@@ -10,6 +10,7 @@ mod mcp_types;
 mod model_types;
 mod output_types;
 mod pack_types;
+mod plugin_types;
 mod queue_types;
 
 mod project_types;
@@ -36,6 +37,7 @@ pub(crate) use mcp_types::*;
 pub(crate) use model_types::*;
 pub(crate) use output_types::*;
 pub(crate) use pack_types::*;
+pub(crate) use plugin_types::*;
 pub(crate) use queue_types::*;
 
 pub(crate) use project_types::*;

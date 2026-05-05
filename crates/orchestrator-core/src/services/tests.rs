@@ -645,8 +645,9 @@ async fn file_hub_persists_workflows_with_machine_state() {
 
 #[tokio::test]
 async fn file_hub_complete_phase_with_decision_honors_rework_routing() {
+    ensure_test_config_env();
     let temp = tempfile::tempdir().expect("tempdir");
-    let mut workflow_config = crate::load_workflow_config(temp.path()).expect("load workflow config");
+    let mut workflow_config = crate::load_workflow_config_or_default(temp.path()).config;
     for (phase_id, label, category) in
         [("implement", "Implement", "build"), ("qa-review", "QA Review", "qa"), ("push-branch", "Push Branch", "git")]
     {
@@ -831,9 +832,13 @@ async fn file_hub_uses_custom_pipeline_from_workflow_config_v2() {
     runtime_config.agents.insert(
         "default".to_string(),
         crate::AgentProfile {
+            name: None,
             description: "default".to_string(),
             system_prompt: "default prompt".to_string(),
             role: None,
+            persona: None,
+            memory: Default::default(),
+            communication: Default::default(),
             mcp_servers: Vec::new(),
             tool_policy: Default::default(),
             skills: Vec::new(),

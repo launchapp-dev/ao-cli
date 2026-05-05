@@ -341,8 +341,12 @@ mod tests {
             auto_commit_before_merge: None,
             doctor_fix: false,
         };
-        let current =
-            DaemonProjectConfig { auto_merge_enabled: true, auto_pr_enabled: false, auto_commit_before_merge: false };
+        let current = DaemonProjectConfig {
+            auto_merge_enabled: true,
+            auto_pr_enabled: false,
+            auto_commit_before_merge: false,
+            ..DaemonProjectConfig::default()
+        };
 
         let desired = guided_plan_desired_config(&args, &current);
         assert!(desired.auto_merge_enabled);

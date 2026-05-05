@@ -103,10 +103,18 @@ async fn resolve_workflow_run_dispatch_from_body(
         return Ok(dispatch);
     }
     if let Ok(input) = serde_json::from_value::<WorkflowRunInput>(body.clone()) {
-        return resolve_workflow_run_dispatch_from_input(hub, project_root, input).await;
+        if workflow_run_input_has_explicit_subject(&input) {
+            return resolve_workflow_run_dispatch_from_input(hub, project_root, input).await;
+        }
     }
     let request: WorkflowRunRequest = parse_json_body(body)?;
     resolve_workflow_run_dispatch(hub, project_root, request).await
+}
+
+fn workflow_run_input_has_explicit_subject(input: &WorkflowRunInput) -> bool {
+    input.subject.task_id().is_some_and(|id| !id.is_empty())
+        || input.subject.requirement_id().is_some_and(|id| !id.is_empty())
+        || !input.subject.id().is_empty()
 }
 
 fn resolve_requirement_workflow_ref(project_root: &str) -> Result<String, String> {

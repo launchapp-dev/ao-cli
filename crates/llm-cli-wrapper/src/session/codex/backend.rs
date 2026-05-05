@@ -42,11 +42,11 @@ impl SessionBackend for CodexSessionBackend {
     }
 
     async fn start_session(&self, request: SessionRequest) -> Result<SessionRun> {
-        start_codex_session(request, false).await
+        start_codex_session(request, None).await
     }
 
-    async fn resume_session(&self, request: SessionRequest, _session_id: &str) -> Result<SessionRun> {
-        start_codex_session(request, true).await
+    async fn resume_session(&self, request: SessionRequest, session_id: &str) -> Result<SessionRun> {
+        start_codex_session(request, Some(session_id)).await
     }
 
     async fn terminate_session(&self, session_id: &str) -> Result<()> {
@@ -85,11 +85,61 @@ mod tests {
             extras: json!({}),
         };
 
-        let invocation = codex_invocation_for_request(&request, false).expect("launch should build");
+        let invocation = codex_invocation_for_request(&request, None).expect("launch should build");
         assert_eq!(invocation.command, "codex");
         assert!(invocation.args.contains(&"exec".to_string()));
         assert!(invocation.args.contains(&"--json".to_string()));
         assert!(invocation.args.contains(&"--full-auto".to_string()));
+    }
+
+    #[test]
+    fn codex_invocation_resumes_requested_session_id() {
+        let request = SessionRequest {
+            tool: "codex".to_string(),
+            model: "gpt-5".to_string(),
+            prompt: "continue".to_string(),
+            cwd: PathBuf::from("."),
+            project_root: None,
+            mcp_endpoint: None,
+            permission_mode: None,
+            timeout_secs: None,
+            env_vars: Vec::new(),
+            extras: json!({}),
+        };
+
+        let invocation =
+            codex_invocation_for_request(&request, Some("session-123")).expect("resume launch should build");
+        assert_eq!(invocation.command, "codex");
+        assert_eq!(
+            invocation.args[..5],
+            [
+                "exec".to_string(),
+                "resume".to_string(),
+                "session-123".to_string(),
+                "--json".to_string(),
+                "--full-auto".to_string(),
+            ]
+        );
+        assert!(!invocation.args.contains(&"--last".to_string()));
+    }
+
+    #[test]
+    fn codex_invocation_rejects_empty_resume_session_id() {
+        let request = SessionRequest {
+            tool: "codex".to_string(),
+            model: "gpt-5".to_string(),
+            prompt: "continue".to_string(),
+            cwd: PathBuf::from("."),
+            project_root: None,
+            mcp_endpoint: None,
+            permission_mode: None,
+            timeout_secs: None,
+            env_vars: Vec::new(),
+            extras: json!({}),
+        };
+
+        let err = codex_invocation_for_request(&request, Some("   ")).expect_err("empty session id should error");
+        assert!(err.to_string().contains("empty session id"), "unexpected error: {err}");
     }
 
     #[test]

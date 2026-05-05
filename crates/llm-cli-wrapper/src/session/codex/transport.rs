@@ -14,8 +14,11 @@ use crate::session::{session_event::SessionEvent, session_request::SessionReques
 
 use super::parser::parse_codex_stdout_line;
 
-pub(crate) async fn start_codex_session(request: SessionRequest, resume_last_turn: bool) -> Result<SessionRun> {
-    let invocation = codex_invocation_for_request(&request, resume_last_turn)?;
+pub(crate) async fn start_codex_session(
+    request: SessionRequest,
+    resume_session_id: Option<&str>,
+) -> Result<SessionRun> {
+    let invocation = codex_invocation_for_request(&request, resume_session_id)?;
     let control_session_id = Uuid::new_v4().to_string();
     let control_session_id_for_run = control_session_id.clone();
     let (event_tx, event_rx) = mpsc::channel(128);
@@ -67,16 +70,20 @@ pub(crate) async fn terminate_codex_session(session_id: &str) -> Result<()> {
 
 pub(crate) fn codex_invocation_for_request(
     request: &SessionRequest,
-    resume_last_turn: bool,
+    resume_session_id: Option<&str>,
 ) -> Result<LaunchInvocation> {
     if let Some(invocation) = parse_launch_from_runtime_contract(request.extras.get("runtime_contract"))? {
         return Ok(invocation);
     }
 
     let mut args = vec!["exec".to_string()];
-    if resume_last_turn {
+    if let Some(raw) = resume_session_id {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Err(Error::ValidationFailed("codex resume requested with empty session id".to_string()));
+        }
         args.push("resume".to_string());
-        args.push("--last".to_string());
+        args.push(trimmed.to_string());
     }
     args.push("--json".to_string());
     args.push("--full-auto".to_string());

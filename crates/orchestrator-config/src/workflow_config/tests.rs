@@ -90,6 +90,7 @@ fn ui_ux_workflow_has_feature_branch_merge_configuration() {
 fn missing_v2_file_reports_actionable_error() {
     let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let temp = tempfile::tempdir().expect("tempdir");
+    let _home_guard = crate::test_support::EnvVarGuard::set("HOME", temp.path());
     let error = load_workflow_config(temp.path()).expect_err("missing workflow config should fail");
     assert!(error.to_string().contains("workflow config is missing"));
 }
@@ -1796,6 +1797,7 @@ tools_allowlist:
 #[test]
 fn cross_validation_accepts_workflow_defined_phases() {
     let yaml = r#"
+tools_allowlist: ["cargo"]
 phases:
   build:
     mode: command

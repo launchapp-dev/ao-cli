@@ -6,8 +6,11 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
+use orchestrator_plugin_host::PluginRegistry;
 use protocol::orchestrator::{SubjectRef, SUBJECT_KIND_CUSTOM, SUBJECT_KIND_REQUIREMENT, SUBJECT_KIND_TASK};
-use tracing::{debug, info};
+use serde_json::json;
+use tokio::sync::Mutex;
+use tracing::{debug, info, warn};
 
 use crate::{PlanningServiceApi, ProjectAdapter, SubjectContext, SubjectResolver, TaskServiceApi};
 
@@ -33,6 +36,7 @@ pub trait SubjectAdapter: Send + Sync {
 #[derive(Clone, Default)]
 pub struct SubjectAdapterRegistry {
     adapters: HashMap<String, Arc<dyn SubjectAdapter>>,
+    plugin_fallback: Option<Arc<PluginSubjectFallback>>,
 }
 
 impl SubjectAdapterRegistry {
@@ -47,13 +51,29 @@ impl SubjectAdapterRegistry {
         self
     }
 
+    /// Resolve unknown subject kinds via discovered subject_backend plugins.
+    ///
+    /// Plugins must respond to `<kind>/get` with `{ id, title?, description?, attributes? }`.
+    #[must_use]
+    pub fn with_plugin_fallback(mut self, project_root: impl Into<PathBuf>) -> Self {
+        self.plugin_fallback = Some(Arc::new(PluginSubjectFallback::new(project_root.into())));
+        self
+    }
+
     pub async fn resolve_subject_context(
         &self,
         subject: &SubjectRef,
         fallback_title: Option<&str>,
         fallback_description: Option<&str>,
     ) -> Result<SubjectContext> {
-        self.adapter_for(subject)?.resolve_context(subject, fallback_title, fallback_description).await
+        let kind = subject_kind(subject);
+        if let Some(adapter) = self.adapters.get(kind) {
+            return adapter.resolve_context(subject, fallback_title, fallback_description).await;
+        }
+        if let Some(fallback) = &self.plugin_fallback {
+            return fallback.resolve_context(subject, fallback_title, fallback_description).await;
+        }
+        Err(anyhow!("no subject adapter registered for subject kind '{kind}'"))
     }
 
     pub async fn ensure_execution_cwd(
@@ -62,13 +82,132 @@ impl SubjectAdapterRegistry {
         subject: &SubjectRef,
         subject_context: &SubjectContext,
     ) -> Result<String> {
-        self.adapter_for(subject)?.ensure_execution_cwd(project_root, subject, subject_context).await
+        let kind = subject_kind(subject);
+        if let Some(adapter) = self.adapters.get(kind) {
+            return adapter.ensure_execution_cwd(project_root, subject, subject_context).await;
+        }
+        if self.plugin_fallback.is_some() {
+            return Ok(project_root.to_string());
+        }
+        Err(anyhow!("no subject adapter registered for subject kind '{kind}'"))
+    }
+}
+
+/// Resolves unknown subject kinds by routing `<kind>/get` requests to discovered
+/// `subject_backend` plugins via their STDIO connections.
+pub struct PluginSubjectFallback {
+    project_root: PathBuf,
+    registry: Mutex<Option<PluginRegistry>>,
+}
+
+impl PluginSubjectFallback {
+    fn new(project_root: PathBuf) -> Self {
+        Self { project_root, registry: Mutex::new(None) }
     }
 
-    fn adapter_for(&self, subject: &SubjectRef) -> Result<&Arc<dyn SubjectAdapter>> {
-        let kind = subject_kind(subject);
-        self.adapters.get(kind).ok_or_else(|| anyhow!("no subject adapter registered for subject kind '{kind}'"))
+    async fn ensure_registry(&self) -> Result<()> {
+        let mut guard = self.registry.lock().await;
+        if guard.is_none() {
+            let registry = PluginRegistry::discover(&self.project_root)
+                .with_context(|| format!("plugin discovery failed for {}", self.project_root.display()))?;
+            *guard = Some(registry);
+        }
+        Ok(())
     }
+
+    async fn resolve_context(
+        &self,
+        subject: &SubjectRef,
+        fallback_title: Option<&str>,
+        fallback_description: Option<&str>,
+    ) -> Result<SubjectContext> {
+        self.ensure_registry().await?;
+        let kind = subject.kind().to_string();
+        let id = subject.id().to_string();
+        let mut guard = self.registry.lock().await;
+        let registry = guard.as_mut().expect("plugin registry should be initialized");
+
+        // Find the plugin that owns this subject kind by inspecting initialize-time capabilities.
+        // We probe each discovered plugin lazily via get_plugin (which initializes on demand).
+        let candidates: Vec<String> = registry.list_plugins().map(|p| p.name.clone()).collect();
+        let mut owner: Option<String> = None;
+        for name in candidates {
+            let host = registry.get_plugin(&name).await.map_err(|err| {
+                anyhow!("failed to load plugin '{name}' while resolving subject kind '{kind}': {err}")
+            })?;
+            // Inspect capabilities by re-invoking handshake idempotently is not possible; we rely on
+            // the plugin advertising the method via mcp_tools. As a pragmatic check, try `<kind>/get`
+            // and accept the plugin that responds without `METHOD_NOT_FOUND`.
+            let probe = host.request(format!("{kind}/get"), Some(json!({ "id": id }))).await;
+            match probe {
+                Ok(value) => {
+                    return build_context_from_plugin(subject, value, fallback_title, fallback_description);
+                }
+                Err(err) if err.code == orchestrator_plugin_protocol::error_codes::METHOD_NOT_FOUND => {
+                    debug!(plugin = %name, kind, "plugin does not handle subject kind");
+                    continue;
+                }
+                Err(err) => {
+                    warn!(plugin = %name, kind, code = err.code, message = %err.message, "plugin error during subject resolution");
+                    owner.replace(name);
+                    break;
+                }
+            }
+        }
+
+        Err(anyhow!(
+            "no subject_backend plugin handled '{}/get' for subject id '{}' (last_error_owner={:?})",
+            kind,
+            id,
+            owner
+        ))
+    }
+}
+
+impl std::fmt::Debug for PluginSubjectFallback {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PluginSubjectFallback").field("project_root", &self.project_root).finish_non_exhaustive()
+    }
+}
+
+fn build_context_from_plugin(
+    subject: &SubjectRef,
+    response: serde_json::Value,
+    fallback_title: Option<&str>,
+    fallback_description: Option<&str>,
+) -> Result<SubjectContext> {
+    let title = response
+        .get("title")
+        .and_then(serde_json::Value::as_str)
+        .map(ToOwned::to_owned)
+        .or_else(|| fallback_title.map(ToOwned::to_owned))
+        .unwrap_or_else(|| subject.id().to_string());
+    let description = response
+        .get("description")
+        .and_then(serde_json::Value::as_str)
+        .map(ToOwned::to_owned)
+        .or_else(|| fallback_description.map(ToOwned::to_owned))
+        .unwrap_or_default();
+    let attributes = response
+        .get("attributes")
+        .and_then(serde_json::Value::as_object)
+        .map(|map| {
+            map.iter()
+                .filter_map(|(k, v)| match v {
+                    serde_json::Value::String(s) => Some((k.clone(), s.clone())),
+                    other => Some((k.clone(), other.to_string())),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(SubjectContext {
+        subject_kind: subject.kind().to_string(),
+        subject_id: subject.id().to_string(),
+        subject_title: title,
+        subject_description: description,
+        attributes,
+        task: None,
+    })
 }
 
 #[must_use]
@@ -609,6 +748,12 @@ impl BuiltinSubjectResolver {
     {
         Self { registry: builtin_subject_adapter_registry(hub) }
     }
+
+    #[must_use]
+    pub fn with_plugin_fallback(mut self, project_root: impl Into<PathBuf>) -> Self {
+        self.registry = self.registry.with_plugin_fallback(project_root);
+        self
+    }
 }
 
 #[async_trait]
@@ -635,6 +780,12 @@ impl BuiltinProjectAdapter {
         T: TaskServiceApi + PlanningServiceApi + Send + Sync + 'static,
     {
         Self { registry: builtin_subject_adapter_registry(hub) }
+    }
+
+    #[must_use]
+    pub fn with_plugin_fallback(mut self, project_root: impl Into<PathBuf>) -> Self {
+        self.registry = self.registry.with_plugin_fallback(project_root);
+        self
     }
 }
 

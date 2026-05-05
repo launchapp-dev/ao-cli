@@ -683,7 +683,7 @@ impl ServiceHub for FileServiceHub {
     }
 
     fn subject_resolver(&self) -> Arc<dyn SubjectResolver> {
-        Arc::new(BuiltinSubjectResolver::new(Arc::new(self.clone())))
+        Arc::new(BuiltinSubjectResolver::new(Arc::new(self.clone())).with_plugin_fallback(self.project_root.clone()))
     }
 
     fn workflows(&self) -> Arc<dyn WorkflowServiceApi> {
@@ -699,7 +699,7 @@ impl ServiceHub for FileServiceHub {
     }
 
     fn project_adapter(&self) -> Arc<dyn ProjectAdapter> {
-        Arc::new(BuiltinProjectAdapter::new(Arc::new(self.clone())))
+        Arc::new(BuiltinProjectAdapter::new(Arc::new(self.clone())).with_plugin_fallback(self.project_root.clone()))
     }
 
     fn review(&self) -> Arc<dyn ReviewServiceApi> {

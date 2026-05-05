@@ -9,7 +9,7 @@ mod run_daemon;
 
 pub use daemon_event_log::DaemonEventLog;
 pub use daemon_events_poll_response::DaemonEventsPollResponse;
-pub use daemon_run_event::DaemonRunEvent;
+pub use daemon_run_event::{DaemonRunEvent, DiscoveredPluginSummary};
 pub use daemon_run_guard::DaemonRunGuard;
 pub use daemon_run_hooks::DaemonRunHooks;
 pub use daemon_runtime_options::DaemonRuntimeOptions;

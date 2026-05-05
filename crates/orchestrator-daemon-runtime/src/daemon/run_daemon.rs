@@ -13,6 +13,7 @@ use crate::DaemonRunGuard;
 use crate::DaemonRunHooks;
 use crate::DaemonRuntimeOptions;
 use crate::DaemonRuntimeState;
+use crate::DiscoveredPluginSummary;
 use crate::ProjectTickHooks;
 use crate::ProjectTickRunMode;
 
@@ -54,6 +55,8 @@ where
             })?;
         }
     }
+
+    discover_plugins_for_daemon(project_root, &primary_root, hooks)?;
 
     match orchestrator_core::validate_and_compile_yaml_workflows(Path::new(project_root)) {
         Ok(Some(result)) => {
@@ -158,6 +161,44 @@ where
 
     hooks.handle_event(DaemonRunEvent::Status { project_root: primary_root.clone(), status: "stopped".to_string() })?;
     hooks.handle_event(DaemonRunEvent::Shutdown { project_root: primary_root, daemon_pid })?;
+    Ok(())
+}
+
+fn discover_plugins_for_daemon<H: DaemonRunHooks>(
+    project_root: &str,
+    primary_root: &str,
+    hooks: &mut H,
+) -> Result<()> {
+    use orchestrator_plugin_host::DiscoverySource;
+    match orchestrator_plugin_host::discover_plugins(Path::new(project_root)) {
+        Ok(plugins) => {
+            let summaries = plugins
+                .into_iter()
+                .map(|p| DiscoveredPluginSummary {
+                    name: p.name,
+                    version: p.manifest.version,
+                    plugin_kind: p.manifest.plugin_kind,
+                    source: match p.source {
+                        DiscoverySource::ExplicitConfig => "explicit_config",
+                        DiscoverySource::ProjectLocal => "project_local",
+                        DiscoverySource::PluginPath => "plugin_path",
+                        DiscoverySource::SystemPath => "system_path",
+                    },
+                    path: p.path.display().to_string(),
+                })
+                .collect::<Vec<_>>();
+            hooks.handle_event(DaemonRunEvent::PluginsDiscovered {
+                project_root: primary_root.to_string(),
+                plugins: summaries,
+            })?;
+        }
+        Err(error) => {
+            hooks.handle_event(DaemonRunEvent::PluginsDiscoveryFailed {
+                project_root: primary_root.to_string(),
+                error: error.to_string(),
+            })?;
+        }
+    }
     Ok(())
 }
 

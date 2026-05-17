@@ -12,11 +12,11 @@ message-based exit-code classification with typed errors while preserving
 current CLI output and exit semantics.
 
 ## Non-Negotiable Constraints
-- Keep `ao.cli.v1` success/error envelope shape unchanged.
+- Keep `animus.cli.v1` success/error envelope shape unchanged.
 - Keep numeric exit-code contract unchanged (`2/3/4/5/1`).
 - Keep changes scoped to `orchestrator-cli` in this task.
 - Do not classify by message substrings in `shared/output.rs`.
-- Do not manually edit `.ao/*.json`.
+- Do not manually edit `.animus/*.json`.
 
 ## Proposed Change Surface
 

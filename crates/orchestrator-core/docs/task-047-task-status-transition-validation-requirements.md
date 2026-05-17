@@ -42,7 +42,7 @@ In scope for implementation:
 Out of scope:
 - Task lifecycle state machine ( state machine enginefull for tasks)
 - Changes to daemon scheduling logic beyond status validation
-- Direct/manual edits to `/.ao/*.json`
+- Direct/manual edits to `/.animus/*.json`
 
 ## Constraints
 - Keep validation deterministic for both in-memory and file-backed hubs

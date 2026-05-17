@@ -47,18 +47,14 @@ impl AoMcpServer {
 #[tool_router(router = plugin_tool_router, vis = "pub(super)")]
 impl AoMcpServer {
     #[tool(
-        name = "ao.plugin.list",
-        description = "List discovered AO STDIO plugins (providers, subject backends, custom). Returns name, version, kind, source, and path for each plugin found via plugins.yaml, .ao/plugins/, or AO_PLUGIN_PATH.",
+        name = "animus.plugin.list",
+        description = "List discovered AO STDIO plugins (providers, subject backends, custom). Returns name, version, kind, source, and path for each plugin found via plugins.yaml, .animus/plugins/, or ANIMUS_PLUGIN_PATH.",
         input_schema = ao_schema_for_type::<PluginListInput>()
     )]
-    async fn ao_plugin_list(
-        &self,
-        params: Parameters<PluginListInput>,
-    ) -> Result<CallToolResult, McpError> {
+    async fn ao_plugin_list(&self, params: Parameters<PluginListInput>) -> Result<CallToolResult, McpError> {
         let project_root = self.project_root_or_default(params.0.project_root);
-        let plugins = discover_plugins(Path::new(&project_root)).map_err(|err| {
-            McpError::internal_error(format!("plugin discovery failed: {err}"), None)
-        })?;
+        let plugins = discover_plugins(Path::new(&project_root))
+            .map_err(|err| McpError::internal_error(format!("plugin discovery failed: {err}"), None))?;
         let rows: Vec<Value> = plugins
             .into_iter()
             .map(|p| {
@@ -78,20 +74,17 @@ impl AoMcpServer {
             })
             .collect();
         Ok(CallToolResult::structured(json!({
-            "tool": "ao.plugin.list",
+            "tool": "animus.plugin.list",
             "result": rows,
         })))
     }
 
     #[tool(
-        name = "ao.plugin.call",
+        name = "animus.plugin.call",
         description = "Send a JSON-RPC request to a discovered plugin and return its response. The plugin is spawned (or reused), handshaked, then invoked with the supplied method and optional params.",
         input_schema = ao_schema_for_type::<PluginCallInput>()
     )]
-    async fn ao_plugin_call(
-        &self,
-        params: Parameters<PluginCallInput>,
-    ) -> Result<CallToolResult, McpError> {
+    async fn ao_plugin_call(&self, params: Parameters<PluginCallInput>) -> Result<CallToolResult, McpError> {
         let PluginCallInput { project_root, name, method, params: rpc_params } = params.0;
         let project_root = self.project_root_or_default(project_root);
         let trimmed_name = name.trim().to_string();
@@ -105,18 +98,18 @@ impl AoMcpServer {
 
         self.ensure_plugin_registry(&project_root).await?;
         let mut guard = self.plugin_registry.lock().await;
-        let registry = guard.as_mut().expect("plugin registry should be initialized");
+        let registry =
+            guard.as_mut().ok_or_else(|| McpError::internal_error("plugin registry not initialized", None))?;
         let host = registry
             .get_plugin(&trimmed_name)
             .await
             .map_err(|err| McpError::internal_error(format!("failed to load plugin '{trimmed_name}': {err}"), None))?;
-        let result = host
-            .request(trimmed_method.clone(), rpc_params)
-            .await
-            .map_err(|err| McpError::internal_error(format!("plugin call failed ({}): {}", err.code, err.message), None))?;
+        let result = host.request(trimmed_method.clone(), rpc_params).await.map_err(|err| {
+            McpError::internal_error(format!("plugin call failed ({}): {}", err.code, err.message), None)
+        })?;
 
         Ok(CallToolResult::structured(json!({
-            "tool": "ao.plugin.call",
+            "tool": "animus.plugin.call",
             "result": {
                 "name": trimmed_name,
                 "method": trimmed_method,

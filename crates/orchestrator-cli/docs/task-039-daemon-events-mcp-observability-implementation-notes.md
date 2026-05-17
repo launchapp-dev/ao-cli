@@ -7,16 +7,16 @@
 
 ## Purpose
 Translate TASK-039 into a concrete implementation slice that:
-- fixes `ao.daemon.events` MCP results returning `null`, and
+- fixes `animus.daemon.events` MCP results returning `null`, and
 - guarantees scheduler outcomes are available as queryable daemon events through
   a polling-safe interface.
 
 ## Non-Negotiable Constraints
-- Keep daemon event schema `ao.daemon.event.v1` unchanged.
+- Keep daemon event schema `animus.daemon.event.v1` unchanged.
 - Keep terminal CLI `ao daemon events` follow/tail behavior intact.
 - Keep changes scoped to `orchestrator-cli` daemon/MCP event surfaces.
 - Preserve deterministic ordering and bounded result size.
-- Do not manually edit `.ao/*.json`.
+- Do not manually edit `.animus/*.json`.
 
 ## Proposed Change Surface
 
@@ -30,7 +30,7 @@ Translate TASK-039 into a concrete implementation slice that:
 - Keep streaming-oriented CLI loop (`handle_daemon_events_impl`) behavior
   available for terminal use.
 
-### 2) Fix MCP `ao.daemon.events` Output Shaping
+### 2) Fix MCP `animus.daemon.events` Output Shaping
 - Target: `crates/orchestrator-cli/src/services/operations/ops_mcp.rs`
 - Replace raw command-output parsing dependency for daemon events with structured
   polling data from daemon event reader helpers.
@@ -69,7 +69,7 @@ Translate TASK-039 into a concrete implementation slice that:
 
 ## Suggested Implementation Sequence
 1. Add daemon event polling reader helper(s) in `daemon_events.rs` with tests.
-2. Wire `ao.daemon.events` MCP tool to structured polling output.
+2. Wire `animus.daemon.events` MCP tool to structured polling output.
 3. Verify scheduler summary/error event coverage and patch minimal gaps.
 4. Add/adjust MCP + daemon runtime tests.
 5. Run targeted tests and fix regressions introduced by TASK-039 changes.

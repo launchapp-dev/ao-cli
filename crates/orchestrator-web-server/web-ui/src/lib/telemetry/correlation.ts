@@ -1,4 +1,4 @@
-export const AO_CORRELATION_HEADER = "X-AO-Correlation-ID";
+export const ANIMUS_CORRELATION_HEADER = "X-AO-Correlation-ID";
 
 const CORRELATION_PREFIX = "ao-web";
 let correlationSequence = 0;

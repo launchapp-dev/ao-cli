@@ -262,7 +262,7 @@ impl FileServiceHub {
     pub fn new(project_root: impl AsRef<Path>) -> Result<Self> {
         let project_root = project_root.as_ref().to_path_buf();
         Self::bootstrap_project_base_configs(&project_root)?;
-        let scoped_root = protocol::scoped_state_root(&project_root).unwrap_or_else(|| project_root.join(".ao"));
+        let scoped_root = protocol::scoped_state_root(&project_root).unwrap_or_else(|| project_root.join(".animus"));
         let state_file = scoped_root.join("core-state.json");
         let logs_file = logs_file_for_state_file(&state_file);
 
@@ -474,7 +474,7 @@ impl FileServiceHub {
         if scoped_root.join("core-state.json").exists() {
             return Ok(());
         }
-        let legacy_ao = project_root.join(".ao");
+        let legacy_ao = project_root.join(".animus");
         if !legacy_ao.join("core-state.json").exists() {
             return Ok(());
         }
@@ -553,7 +553,7 @@ impl FileServiceHub {
     fn bootstrap_project_base_configs(project_root: &Path) -> Result<()> {
         std::fs::create_dir_all(project_root)?;
 
-        let ao_dir = project_root.join(".ao");
+        let ao_dir = project_root.join(".animus");
         std::fs::create_dir_all(&ao_dir)?;
 
         Self::maybe_migrate_state_to_scoped_root(project_root)?;

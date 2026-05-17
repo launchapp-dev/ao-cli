@@ -73,10 +73,10 @@ mod tests {
         std::fs::create_dir_all(&project).expect("project dir should be created");
         let project_canonical = project.canonicalize().expect("project path should canonicalize");
 
-        let worktree = root.join(".ao").join("scope-abc123").join("worktrees").join("task-task-011");
+        let worktree = root.join(".animus").join("scope-abc123").join("worktrees").join("task-task-011");
         std::fs::create_dir_all(&worktree).expect("managed worktree should be created");
         std::fs::write(
-            root.join(".ao").join("scope-abc123").join(".project-root"),
+            root.join(".animus").join("scope-abc123").join(".project-root"),
             format!("{}\n", project_canonical.to_string_lossy()),
         )
         .expect("project marker should be written");
@@ -158,12 +158,12 @@ mod tests {
         std::fs::create_dir_all(&project).expect("project should be created");
         std::fs::create_dir_all(&other_project).expect("other project should be created");
 
-        let worktree = root.join(".ao").join("scope-abc").join("worktrees").join("task-1");
+        let worktree = root.join(".animus").join("scope-abc").join("worktrees").join("task-1");
         std::fs::create_dir_all(&worktree).expect("worktree should be created");
 
         let other_canonical = other_project.canonicalize().expect("path should canonicalize");
         std::fs::write(
-            root.join(".ao").join("scope-abc").join(".project-root"),
+            root.join(".animus").join("scope-abc").join(".project-root"),
             format!("{}\n", other_canonical.to_string_lossy()),
         )
         .expect("marker should be written");

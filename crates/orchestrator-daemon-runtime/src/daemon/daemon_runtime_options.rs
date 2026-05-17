@@ -38,7 +38,7 @@ impl DaemonRuntimeOptions {
     ///
     /// Each `Some(..)` field in the project config overrides the corresponding value
     /// in `self`; `None` fields are left untouched so that CLI defaults are preserved
-    /// for settings that have never been explicitly configured via `ao.daemon config-set`.
+    /// for settings that have never been explicitly configured via `animus.daemon config-set`.
     ///
     /// This is called once per scheduler tick to enable hot-reload without restart.
     pub fn reload_from_project_config(&mut self, project_root: &std::path::Path) {

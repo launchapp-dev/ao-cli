@@ -27,7 +27,7 @@ impl DeployConfig {
     }
 
     pub fn load_for_project(project_root: &str) -> Self {
-        let project_path = PathBuf::from(project_root).join(".ao").join("deploy.json");
+        let project_path = PathBuf::from(project_root).join(".animus").join("deploy.json");
         if let Some(project_config) = Self::try_load_from(&project_path) {
             return project_config.merge_with_global();
         }
@@ -45,7 +45,7 @@ impl DeployConfig {
     }
 
     pub fn save_for_project(&self, project_root: &str) -> anyhow::Result<()> {
-        let path = PathBuf::from(project_root).join(".ao").join("deploy.json");
+        let path = PathBuf::from(project_root).join(".animus").join("deploy.json");
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -69,9 +69,9 @@ impl DeployConfig {
 
     fn global_path() -> PathBuf {
         if let Ok(home) = std::env::var("HOME") {
-            return PathBuf::from(home).join(".ao").join("deploy.json");
+            return PathBuf::from(home).join(".animus").join("deploy.json");
         }
-        PathBuf::from(".ao").join("deploy.json")
+        PathBuf::from(".animus").join("deploy.json")
     }
 
     fn try_load_from(path: &PathBuf) -> Option<Self> {

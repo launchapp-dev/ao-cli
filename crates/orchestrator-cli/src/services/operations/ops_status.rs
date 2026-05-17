@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::print_value;
 
-const STATUS_SCHEMA: &str = "ao.status.v1";
+const STATUS_SCHEMA: &str = "animus.status.v1";
 const RECENT_COMPLETIONS_LIMIT: usize = 5;
 const RECENT_FAILURES_LIMIT: usize = 3;
 const CI_PROVIDER_GITHUB: &str = "github";

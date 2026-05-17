@@ -24,7 +24,7 @@ expanding default phase catalogs/pipelines.
 - Preserve behavior for non-conflict merge failures.
 - Do not destroy conflict context before recovery attempt.
 - Avoid destructive git operations in automated path.
-- Keep `.ao` mutation policy intact (no manual edits to `/.ao/*.json`).
+- Keep `.ao` mutation policy intact (no manual edits to `/.animus/*.json`).
 - Keep recovery output machine-parseable and contract validated.
 
 ## Proposed Change Surface

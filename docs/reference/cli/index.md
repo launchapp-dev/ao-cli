@@ -6,7 +6,7 @@ Complete reference of every `animus` command, subcommand, and key flag. This tre
 
 | Flag | Description |
 |---|---|
-| `--json` | Machine-readable JSON output (`ao.cli.v1` envelope) |
+| `--json` | Machine-readable JSON output (`animus.cli.v1` envelope) |
 | `--project-root <PATH>` | Override project root resolution for the current command |
 
 ---
@@ -224,12 +224,12 @@ animus
 │       └── sync             Sync (re-clone) a registry to get latest pack catalog
 │
 ├── plugin                   Discover, inspect, install, and call AO STDIO plugins
-│   ├── list                 Discover plugins via plugins.yaml, .ao/plugins/, and AO_PLUGIN_PATH
+│   ├── list                 Discover plugins via plugins.yaml, .animus/plugins/, and ANIMUS_PLUGIN_PATH
 │   ├── info                 Print a plugin's manifest plus initialize-time capabilities
 │   ├── call                 Send a JSON-RPC request to a plugin and print its response
 │   ├── ping                 Health-check a plugin by spawning, handshaking, and pinging
-│   ├── install              Install a plugin binary (--path or --url) into ~/.ao/plugins/
-│   └── uninstall            Remove a previously installed plugin from ~/.ao/plugins/
+│   ├── install              Install a plugin binary (--path or --url) into ~/.animus/plugins/
+│   └── uninstall            Remove a previously installed plugin from ~/.animus/plugins/
 │
 ├── runner                   Inspect runner health and orphaned runs
 │   ├── health               Show runner process health

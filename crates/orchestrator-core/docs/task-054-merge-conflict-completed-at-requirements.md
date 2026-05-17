@@ -18,7 +18,7 @@ required.
 | Merge-conflict entry | `crates/orchestrator-core/src/workflow/lifecycle_executor.rs` (`mark_merge_conflict`) | requires `status == Completed`, sets `machine_state = MergeConflict`, writes `failure_reason`, sets `completed_at = Some(Utc::now())` | non-terminal conflict state receives completion timestamp |
 | Merge-conflict resolution | `crates/orchestrator-core/src/workflow/lifecycle_executor.rs` (`resolve_merge_conflict`) | transitions to `Completed`, clears `failure_reason`, sets `completed_at` | resolution behavior is valid, but pre-resolution timestamp semantics are wrong |
 | Built-in workflow machine terminal metadata | `crates/orchestrator-core/src/state_machines/schema.rs` (`builtin_state_machines_document`) | `terminal_states` includes `MergeConflict` | contradicts task intent: merge conflict is recoverable and should be non-terminal |
-| Repo state-machine JSON | `.ao/state/state-machines.v1.json` | workflow terminal states omit `merge-conflict`; merge-conflict transitions absent | runtime may rely on lifecycle executor fallback assignment; requirements must preserve compatibility |
+| Repo state-machine JSON | `.animus/state/state-machines.v1.json` | workflow terminal states omit `merge-conflict`; merge-conflict transitions absent | runtime may rely on lifecycle executor fallback assignment; requirements must preserve compatibility |
 | Regression coverage | `crates/orchestrator-core/src/workflow/tests.rs` | merge-conflict tests assert state/failure-reason transitions, but not `completed_at` semantics | timestamp regression is currently unguarded |
 
 ## Problem Statement

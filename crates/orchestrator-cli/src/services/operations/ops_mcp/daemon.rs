@@ -117,8 +117,8 @@ mod tests {
     #[test]
     fn build_daemon_config_set_args_includes_notification_config_flags() {
         let input = DaemonConfigSetInput {
-            notification_config_json: Some("{\"schema\":\"ao.daemon-notification-config.v1\"}".to_string()),
-            notification_config_file: Some(".ao/notification-config.json".to_string()),
+            notification_config_json: Some("{\"schema\":\"animus.daemon-notification-config.v1\"}".to_string()),
+            notification_config_file: Some(".animus/notification-config.json".to_string()),
             clear_notification_config: true,
             ..Default::default()
         };
@@ -126,9 +126,9 @@ mod tests {
         let args = build_daemon_config_set_args(&input);
 
         assert!(args.contains(&"--notification-config-json".to_string()));
-        assert!(args.contains(&"{\"schema\":\"ao.daemon-notification-config.v1\"}".to_string()));
+        assert!(args.contains(&"{\"schema\":\"animus.daemon-notification-config.v1\"}".to_string()));
         assert!(args.contains(&"--notification-config-file".to_string()));
-        assert!(args.contains(&".ao/notification-config.json".to_string()));
+        assert!(args.contains(&".animus/notification-config.json".to_string()));
         assert!(args.contains(&"--clear-notification-config".to_string()));
     }
 }

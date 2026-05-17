@@ -18,7 +18,7 @@ The low-level JSON helpers live in `crates/orchestrator-store/src/lib.rs`:
 Runtime state is scoped per repository under:
 
 ```text
-~/.ao/<repo-scope>/
+~/.animus/<repo-scope>/
 ```
 
 The scope name is derived from the canonical project path and includes a sanitized repo name plus a 12-hex SHA-256 prefix.
@@ -26,7 +26,7 @@ The scope name is derived from the canonical project path and includes a sanitiz
 ## Key Stores
 
 ```text
-~/.ao/<repo-scope>/
+~/.animus/<repo-scope>/
 ├── core-state.json
 ├── resume-config.json
 ├── workflow.db
@@ -72,7 +72,7 @@ JSON stores for operational records such as:
 
 AO still contains migration helpers for older layouts:
 
-- repo-local `.ao/` state can be migrated to `~/.ao/<repo-scope>/`
+- repo-local `.animus/` state can be migrated to `~/.animus/<repo-scope>/`
 - legacy workflow JSON files can be migrated into `workflow.db`
 - older `state/state-machines.v1.json` can be moved to `config/state-machines.v1.json`
 

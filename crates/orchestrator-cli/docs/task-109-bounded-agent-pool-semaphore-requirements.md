@@ -14,7 +14,7 @@ decisions outside the pool.
 Target behavior from task brief:
 - add `AgentPool` in a new `daemon_agent_pool.rs` module,
 - own semaphore permits based on configured pool size (`--max-agents` /
-  `AO_MAX_AGENTS` derived value),
+  `ANIMUS_MAX_AGENTS` derived value),
 - support non-blocking spawn admission (`try_spawn`) and graceful shutdown
   (`drain`),
 - forward agent completion results to a coordinator-facing `mpsc` channel,
@@ -27,7 +27,7 @@ Snapshot date: `2026-02-27`.
 | --- | --- | --- | --- |
 | Running-phase execution batching | `crates/orchestrator-cli/src/services/runtime/runtime_daemon/daemon_scheduler_project_tick.rs` (`execute_running_workflow_phases_for_project`) | builds scheduled runs inline, spawns all with `tokio::task::JoinSet`, then awaits completions in a batch loop | no reusable bounded pool abstraction and no non-blocking admission API |
 | Tick-level phase execution budget | `daemon_scheduler_project_tick.rs` (`project_tick`) | calls `execute_running_workflow_phases_for_project(..., args.max_tasks_per_tick)` once per tick | concurrency and lifecycle management are coupled to tick loop |
-| Agent-cap configuration source | `crates/orchestrator-cli/src/services/runtime/runtime_daemon.rs` + `crates/orchestrator-core/src/services/runner_helpers.rs` | daemon start/run sets `AO_MAX_AGENTS`; core reads env override and exposes `max_agents` in daemon health | no dedicated runtime pool type consuming this bound directly |
+| Agent-cap configuration source | `crates/orchestrator-cli/src/services/runtime/runtime_daemon.rs` + `crates/orchestrator-core/src/services/runner_helpers.rs` | daemon start/run sets `ANIMUS_MAX_AGENTS`; core reads env override and exposes `max_agents` in daemon health | no dedicated runtime pool type consuming this bound directly |
 | Completion handling | `daemon_scheduler_project_tick.rs` `JoinSet` join loop | completion processing and workflow/task updates are inlined in scheduler function | no channel handoff abstraction to support reactive coordinator fan-in |
 
 ## Problem Statement
@@ -61,7 +61,7 @@ Out of scope:
 - Replacing the daemon loop with a reactive `select!` coordinator (next batch).
 - Changing workflow decision semantics (`advance/rework/fail`) in result
   processing.
-- Manual edits to `/.ao/*.json`.
+- Manual edits to `/.animus/*.json`.
 
 ## Constraints
 - Pool behavior must be deterministic for identical admission/completion order.

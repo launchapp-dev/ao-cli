@@ -11,10 +11,10 @@
 
 ## AO State Evidence (2026-02-27)
 - Active task metadata exists in canonical project root and matches the prompt:
-  - `/Users/samishukri/ao-cli/.ao/tasks/TASK-040.json`
+  - `/Users/samishukri/ao-cli/.animus/tasks/TASK-040.json`
 - Worktree-local AO snapshot is older (tasks present through `TASK-036` only):
-  - `.ao/tasks/`
-  - `.ao/index/ao-cli-1222ef9c4f94/tasks/index.json`
+  - `.animus/tasks/`
+  - `.animus/index/ao-cli-1222ef9c4f94/tasks/index.json`
 - Assumption for implementation phase: use task prompt + canonical task file as source of truth for `TASK-040`, and avoid mutating `.ao` state manually in this worktree.
 
 ## Reproduction Evidence

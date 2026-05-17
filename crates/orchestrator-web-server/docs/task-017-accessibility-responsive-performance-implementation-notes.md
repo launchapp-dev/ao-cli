@@ -11,7 +11,7 @@ Translate `TASK-017` requirements into deterministic implementation slices for
 the build phase while preserving existing route and API behavior.
 
 ## Non-Negotiable Constraints
-- Keep `/api/v1` contracts and `ao.cli.v1` envelope behavior unchanged.
+- Keep `/api/v1` contracts and `animus.cli.v1` envelope behavior unchanged.
 - Do not manually edit `.ao` state files.
 - Preserve route topology and navigation targets from `TASK-011`.
 - Preserve telemetry/diagnostics behavior from `TASK-019`.

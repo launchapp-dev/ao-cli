@@ -7,7 +7,7 @@ shell and API-only behavior.
 
 ## Non-Negotiable Constraints
 - Keep changes scoped to web planning surfaces and required API endpoints.
-- Preserve `ao.cli.v1` response envelope for all JSON endpoints.
+- Preserve `animus.cli.v1` response envelope for all JSON endpoints.
 - Preserve `api_only` behavior and static fallback semantics.
 - Keep all `.ao` mutations inside service-driven handlers; do not write state
   files directly.

@@ -151,4 +151,4 @@ graph LR
 ## Notes
 
 - `setup` and `doctor` are handled before `FileServiceHub` initialization.
-- All `--json` responses use the `ao.cli.v1` schema envelope.
+- All `--json` responses use the `animus.cli.v1` schema envelope.

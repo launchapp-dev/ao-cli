@@ -39,7 +39,7 @@ When `--json` is active, errors are emitted to stderr as a JSON envelope:
 
 ```json
 {
-  "schema": "ao.cli.v1",
+  "schema": "animus.cli.v1",
   "ok": false,
   "error": {
     "code": "not_found",
@@ -53,7 +53,7 @@ The `error` object may include an optional `details` field with structured conte
 
 ```json
 {
-  "schema": "ao.cli.v1",
+  "schema": "animus.cli.v1",
   "ok": false,
   "error": {
     "code": "internal",

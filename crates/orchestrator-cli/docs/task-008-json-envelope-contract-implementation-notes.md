@@ -40,7 +40,7 @@ Translate TASK-008 requirements into concrete, low-risk test changes in
 - `unavailable`:
   - use isolated temp config dir and
     `agent runner-status --start-runner false`.
-  - set `AO_RUNNER_CONNECT_TIMEOUT_SECS=1` in test env to keep runtime bounded.
+  - set `ANIMUS_RUNNER_CONNECT_TIMEOUT_SECS=1` in test env to keep runtime bounded.
 - `internal`:
   - invoke command with `--project-root` targeting a regular file, forcing
     runtime bootstrap failure outside classified message patterns.
@@ -49,7 +49,7 @@ Translate TASK-008 requirements into concrete, low-risk test changes in
 For every mapped failure case:
 - parse JSON from `stderr`
 - assert:
-  - `schema == "ao.cli.v1"`
+  - `schema == "animus.cli.v1"`
   - `ok == false`
   - `error.code` matches expected mapping
   - `error.exit_code` matches expected mapping
@@ -58,7 +58,7 @@ For every mapped failure case:
 For success case:
 - parse JSON from `stdout`
 - assert:
-  - `schema == "ao.cli.v1"`
+  - `schema == "animus.cli.v1"`
   - `ok == true`
   - `data` is present
   - process exit status is `0`

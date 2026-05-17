@@ -72,8 +72,9 @@ async fn mutate_daemon_state<T>(hub: &FileServiceHub, mutator: impl FnOnce(&mut 
 }
 
 pub async fn load_daemon_health_snapshot(project_root: &Path) -> Result<DaemonHealth> {
-    let state_file =
-        protocol::scoped_state_root(project_root).unwrap_or_else(|| project_root.join(".ao")).join("core-state.json");
+    let state_file = protocol::scoped_state_root(project_root)
+        .unwrap_or_else(|| project_root.join(".animus"))
+        .join("core-state.json");
     let snapshot = state_store::load_daemon_state_snapshot(&state_file);
     let config_dir = runner_config_dir(project_root);
     let runner_connected = runner_ready_for_status(&config_dir).await;
@@ -585,7 +586,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn new_file_hub(temp: &TempDir) -> FileServiceHub {
-        let state_file = temp.path().join(".ao").join("core-state.json");
+        let state_file = temp.path().join(".animus").join("core-state.json");
         let logs_file = state_store::logs_file_for_state_file(&state_file);
         std::fs::create_dir_all(state_file.parent().expect("state file should have a parent directory"))
             .expect("state dir should exist");

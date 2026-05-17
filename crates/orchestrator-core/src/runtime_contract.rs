@@ -133,7 +133,7 @@ pub fn cli_tool_executable(tool: &str, config: &AgentRuntimeConfig) -> String {
         .get(&normalized)
         .or_else(|| builtin.cli_tools.get(&normalized))
         .and_then(|tc| tc.executable.clone())
-        .unwrap_or_else(|| if normalized == "oai-runner" { "ao-oai-runner".to_string() } else { normalized })
+        .unwrap_or_else(|| if normalized == "oai-runner" { "animus-oai-runner".to_string() } else { normalized })
 }
 
 pub fn cli_tool_read_only_flag(tool: &str, config: &AgentRuntimeConfig) -> Option<String> {
@@ -273,7 +273,7 @@ pub fn build_cli_launch_contract(
     };
 
     let default_command = match normalized.as_str() {
-        "oai-runner" => "ao-oai-runner".to_string(),
+        "oai-runner" => "animus-oai-runner".to_string(),
         _ => normalized,
     };
 
@@ -331,7 +331,7 @@ pub fn build_runtime_contract(
             "endpoint": mcp_endpoint,
             "enforce_only": enforce_mcp_only,
             "allowed_tool_prefixes": if enforce_mcp_only {
-                protocol::default_allowed_tool_prefixes(mcp_agent_id.unwrap_or("ao"))
+                protocol::default_allowed_tool_prefixes(mcp_agent_id.unwrap_or("animus"))
             } else {
                 Vec::<String>::new()
             }
@@ -370,7 +370,7 @@ mod tests {
             .and_then(Value::as_array)
             .expect("allowed tool prefixes should be present");
         assert!(
-            allowed_prefixes.iter().filter_map(Value::as_str).any(|prefix| prefix == "ao."),
+            allowed_prefixes.iter().filter_map(Value::as_str).any(|prefix| prefix == "animus."),
             "AO prefix should always be allowed under MCP-only enforcement"
         );
     }
@@ -383,8 +383,8 @@ mod tests {
             "Implement feature",
             None,
             None,
-            Some("http://127.0.0.1:7000/mcp/ao"),
-            Some("ao"),
+            Some("http://127.0.0.1:7000/mcp/animus"),
+            Some("animus"),
         )
         .expect("runtime contract should build");
 
@@ -396,8 +396,8 @@ mod tests {
             .iter()
             .filter_map(Value::as_str)
             .collect::<Vec<_>>();
-        assert!(allowed_prefixes.contains(&"ao."));
-        assert!(allowed_prefixes.contains(&"mcp__ao__"));
+        assert!(allowed_prefixes.contains(&"animus."));
+        assert!(allowed_prefixes.contains(&"mcp__animus__"));
     }
 
     #[test]
@@ -503,7 +503,7 @@ mod tests {
     fn cli_tool_flags_fall_back_to_builtin_when_project_config_omits_tool_metadata() {
         let config = AgentRuntimeConfig::default();
 
-        assert_eq!(cli_tool_executable("oai-runner", &config), "ao-oai-runner");
+        assert_eq!(cli_tool_executable("oai-runner", &config), "animus-oai-runner");
         assert_eq!(cli_tool_read_only_flag("oai-runner", &config), Some("--read-only".to_string()));
         assert_eq!(cli_tool_response_schema_flag("oai-runner", &config), Some("--response-schema".to_string()));
     }

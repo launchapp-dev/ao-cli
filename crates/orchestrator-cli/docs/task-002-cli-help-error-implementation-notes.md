@@ -20,7 +20,7 @@ and requirements traceability:
 
 ## Non-Negotiable Constraints
 - Keep command names and primary flag names backward compatible.
-- Preserve `ao.cli.v1` success/error envelope shape.
+- Preserve `animus.cli.v1` success/error envelope shape.
 - Preserve existing exit-code classification semantics.
 - Keep destructive operations side-effect free when `--dry-run` is set.
 - Do not manually edit `.ao` JSON state files.

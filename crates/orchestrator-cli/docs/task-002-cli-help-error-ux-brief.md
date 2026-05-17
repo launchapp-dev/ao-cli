@@ -8,7 +8,7 @@
 ## Inputs
 - Requirements baseline: `crates/orchestrator-cli/docs/task-002-cli-help-error-requirements.md`
 - Scoped command groups: `task`, `task-control`, `workflow`, `requirements`, `git`, root/global options
-- Message contracts to preserve: `ao.cli.v1` envelope, canonical invalid-value shape, canonical confirmation-required shape
+- Message contracts to preserve: `animus.cli.v1` envelope, canonical invalid-value shape, canonical confirmation-required shape
 
 ## UX Objective
 Define a deterministic CLI guidance experience that lets operators and automation:
@@ -21,7 +21,7 @@ Define a deterministic CLI guidance experience that lets operators and automatio
 | User | Primary job | UX success signal |
 | --- | --- | --- |
 | Operator | Find correct command/flags for task/workflow/git operations | Successful invocation after help lookup in one navigation path |
-| Automation engineer | Parse failures and route retries in CI scripts | Deterministic branch logic from `ao.cli.v1` and stable message tokens |
+| Automation engineer | Parse failures and route retries in CI scripts | Deterministic branch logic from `animus.cli.v1` and stable message tokens |
 | Reviewer/on-call | Triage command failures and guide rerun | Can copy/paste exact remediation command from output |
 
 ## Key Screens (CLI Surfaces)
@@ -63,7 +63,7 @@ Define a deterministic CLI guidance experience that lets operators and automatio
 
 ### Flow D: JSON automation handling
 1. Automation calls command with `--json`.
-2. On validation/confirmation failure, CLI emits `ao.cli.v1` error envelope.
+2. On validation/confirmation failure, CLI emits `animus.cli.v1` error envelope.
 3. Script branches on `ok`, `error.code`, and deterministic message contract.
 
 ## Responsive Terminal Behavior

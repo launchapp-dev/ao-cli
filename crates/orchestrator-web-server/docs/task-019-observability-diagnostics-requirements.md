@@ -36,11 +36,11 @@ In scope for implementation following this requirements phase:
 Out of scope for this task:
 - Shipping telemetry to external vendors/services.
 - Backend schema migrations for `.ao` state files.
-- Replacing `ao.cli.v1` response envelope shape.
+- Replacing `animus.cli.v1` response envelope shape.
 - Full analytics dashboards beyond the failed-action diagnostics panel.
 
 ## Constraints
-- Preserve all current `/api/v1` endpoint contracts and `ao.cli.v1` envelope
+- Preserve all current `/api/v1` endpoint contracts and `animus.cli.v1` envelope
   semantics.
 - Keep behavior deterministic and repository-local (no network dependency for
   telemetry storage).
@@ -190,7 +190,7 @@ Required event fields:
 - `AC-07`: Diagnostics panel renders recent failed actions with required fields.
 - `AC-08`: Diagnostics panel supports keyboard-only interaction and readable
   mobile layout.
-- `AC-09`: Existing `ao.cli.v1` envelope parsing behavior remains intact.
+- `AC-09`: Existing `animus.cli.v1` envelope parsing behavior remains intact.
 - `AC-10`: Existing route behavior and current action flows remain functional
   when no failures occur.
 

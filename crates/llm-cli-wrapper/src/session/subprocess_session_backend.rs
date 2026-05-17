@@ -226,7 +226,7 @@ fn launch_invocation_for_request(request: &SessionRequest) -> Result<LaunchInvoc
             }
             args.push(request.prompt.clone());
             LaunchInvocation {
-                command: "ao-oai-runner".to_string(),
+                command: "animus-oai-runner".to_string(),
                 args,
                 env: Default::default(),
                 prompt_via_stdin: false,

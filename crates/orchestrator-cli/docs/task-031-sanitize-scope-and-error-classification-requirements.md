@@ -39,13 +39,13 @@ In scope for implementation after this requirements phase:
   mapping
 
 Out of scope:
-- changing CLI envelope schema (`ao.cli.v1`)
+- changing CLI envelope schema (`animus.cli.v1`)
 - changing exit-code mapping values (`2/3/4/5/1`)
 - changing hash algorithm or suffix length (`12` lowercase hex chars)
 - deduplicating unrelated identifier sanitizers (for example
   `sanitize_identifier_for_git`, `sanitize_identifier_for_path`)
 - changing daemon scheduling/workflow/task-control behavior
-- manual edits to `/.ao/*.json`
+- manual edits to `/.animus/*.json`
 
 ## Constraints
 - Keep behavior deterministic and repository-safe:

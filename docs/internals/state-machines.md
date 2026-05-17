@@ -108,7 +108,7 @@ The `StateMachineMode` enum controls which definition source is used:
 | `Json` | Load from JSON file, fall back to builtin on parse errors |
 | `JsonStrict` | Load from JSON file, fail on parse errors |
 
-The mode is controlled by the `AO_STATE_MACHINE_MODE` environment variable (default: `Json`).
+The mode is controlled by the `ANIMUS_STATE_MACHINE_MODE` environment variable (default: `Json`).
 
 The `LoadedStateMachines` struct contains:
 - `compiled` -- The `CompiledStateMachines` with ready-to-use workflow and requirement lifecycle machines

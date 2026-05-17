@@ -29,7 +29,7 @@ pub(super) fn save_git_confirmations(project_root: &str, store: &GitConfirmation
 }
 
 pub(super) fn repos_root(project_root: &str) -> PathBuf {
-    Path::new(project_root).join(".ao").join("repos")
+    Path::new(project_root).join(".animus").join("repos")
 }
 
 pub(super) fn run_git(repo_path: &Path, args: &[&str]) -> Result<String> {

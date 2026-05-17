@@ -40,7 +40,7 @@ Out of scope:
 - Redesigning workflow pipeline catalogs or phase plan definitions.
 - Replacing existing non-merge phase AI recovery logic.
 - Broad git integration redesign beyond merge-conflict recovery surface.
-- Manual edits to `/.ao/*.json`.
+- Manual edits to `/.animus/*.json`.
 
 ## Constraints
 - Keep behavior deterministic and repository-safe.

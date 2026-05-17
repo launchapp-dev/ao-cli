@@ -154,7 +154,7 @@ Used in: `post_success.merge.strategy` in workflow YAML
 
 ## Batch on_error Policy
 
-Used by: `ao.task.bulk-status`, `ao.task.bulk-update`, `ao.workflow.run-multiple`
+Used by: `animus.task.bulk-status`, `animus.task.bulk-update`, `animus.workflow.run-multiple`
 
 | Value | Description |
 |---|---|
@@ -165,7 +165,7 @@ Used by: `ao.task.bulk-status`, `ao.task.bulk-update`, `ao.workflow.run-multiple
 
 ## Agent Action
 
-Used by: `animus agent control --action`, `ao.agent.control`
+Used by: `animus agent control --action`, `animus.agent.control`
 
 | Value | Description |
 |---|---|

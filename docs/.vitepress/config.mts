@@ -99,6 +99,7 @@ export default withMermaid(
           collapsed: true,
           items: [
             { text: 'Overview', link: '/architecture/' },
+            { text: 'Naming Contract', link: '/architecture/naming-contract' },
             { text: 'Crate Map', link: '/architecture/crate-map' },
             { text: 'ServiceHub Pattern', link: '/architecture/service-hub' },
             { text: 'Subject Dispatch Daemon', link: '/architecture/subject-dispatch-daemon' },

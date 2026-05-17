@@ -19,7 +19,7 @@ release outputs deterministic for:
 - Keep behavior deterministic across repeated runs for identical inputs.
 - Keep release publication tag-gated (`refs/tags/v*`) only.
 - Keep the platform matrix and runtime binary set explicitly defined.
-- Keep per-archive metadata manifest schema stable (`ao.release.v1`).
+- Keep per-archive metadata manifest schema stable (`animus.release.v1`).
 - Keep `.ao` state mutations command-driven; do not manually edit `.ao` files.
 
 ## Proposed Change Surface
@@ -78,13 +78,13 @@ Implementation targets:
 - Windows archive:
   - `ao-<version>-<target>.zip`
   - contains directory `ao-<version>-<target>/` with:
-    - `ao.exe`
+    - `animus.exe`
     - `agent-runner.exe`
     - `llm-cli-wrapper.exe`
     - `llm-mcp-server.exe`
     - `release-metadata.json`
 - `release-metadata.json` contract:
-  - `schema = "ao.release.v1"`
+  - `schema = "animus.release.v1"`
   - `version` and `target` match archive filename segments
   - `binaries` list remains `ao`, `agent-runner`, `llm-cli-wrapper`,
     `llm-mcp-server`

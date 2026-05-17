@@ -17,11 +17,11 @@ Key decisions:
 - Keep ordered backlog positioning out of scope for this task.
 
 ## Non-Negotiable Constraints
-- No direct edits to `/.ao/*.json`.
+- No direct edits to `/.animus/*.json`.
 - Deterministic output for identical task snapshots.
 - Existing `task prioritized` ordering semantics remain unchanged (priority rank
   + timestamp + id).
-- Output contract stays under `ao.cli.v1`.
+- Output contract stays under `animus.cli.v1`.
 
 ## Proposed Change Surface
 

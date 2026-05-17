@@ -53,7 +53,7 @@ Out of scope for this task:
 - Broad visual redesign beyond baseline hierarchy/clarity/readability upgrades.
 
 ## Constraints
-- Preserve existing `/api/v1` endpoint contracts and `ao.cli.v1` envelope
+- Preserve existing `/api/v1` endpoint contracts and `animus.cli.v1` envelope
   semantics.
 - Preserve route coverage and navigation targets defined by `APP_ROUTE_PATHS`.
 - Keep behavior deterministic and repository-local (no dependence on external

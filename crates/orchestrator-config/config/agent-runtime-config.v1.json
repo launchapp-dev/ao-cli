@@ -1,5 +1,5 @@
 {
-  "schema": "ao.agent-runtime-config.v1",
+  "schema": "animus.agent-runtime-config.v1",
   "version": 1,
   "agents": {
     "default": {

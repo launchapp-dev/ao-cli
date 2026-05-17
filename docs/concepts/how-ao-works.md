@@ -15,9 +15,9 @@ flowchart LR
 
     subgraph SOURCES["Workflow Sources"]
         direction TB
-        kernel["Bundled Kernel Workflows<br/>ao.vision/*"]
-        packs["Bundled + Installed Packs<br/>ao.task/*, ao.requirement/*"]
-        project["Project YAML + Overrides<br/>.ao/workflows*, .ao/plugins/"]
+        kernel["Bundled Kernel Workflows<br/>animus.vision/*"]
+        packs["Bundled + Installed Packs<br/>animus.task/*, animus.requirement/*"]
+        project["Project YAML + Overrides<br/>.animus/workflows*, .animus/plugins/"]
     end
 
     subgraph ENGINE["Execution Kernel"]
@@ -71,8 +71,8 @@ encode domain behavior.
 Examples:
 
 - `animus requirements execute --id REQ-001`
-- `animus workflow run ao.task/standard`
-- `animus workflow run ao.vision/draft`
+- `animus workflow run animus.task/standard`
+- `animus workflow run animus.vision/draft`
 - `animus mcp serve`
 - ready-queue and schedule dispatches
 
@@ -123,13 +123,13 @@ This is what keeps task and requirement behavior out of the daemon.
 
 AO resolves workflows from a layered source model:
 
-1. `.ao/plugins/<pack-id>/`
-2. `.ao/workflows.yaml` and `.ao/workflows/*.yaml`
-3. `~/.ao/packs/<pack-id>/<version>/`
+1. `.animus/plugins/<pack-id>/`
+2. `.animus/workflows.yaml` and `.animus/workflows/*.yaml`
+3. `~/.animus/packs/<pack-id>/<version>/`
 4. bundled kernel workflows and bundled first-party packs
 
-Canonical workflow refs are pack-qualified, such as `ao.task/standard` and
-`ao.requirement/execute`. Legacy `builtin/*` aliases remain as migration
+Canonical workflow refs are pack-qualified, such as `animus.task/standard` and
+`animus.requirement/execute`. Legacy `builtin/*` aliases remain as migration
 shims, but they are no longer the preferred operator-facing surface.
 
 There is no dedicated `ao vision ...` command in the current CLI. Planning

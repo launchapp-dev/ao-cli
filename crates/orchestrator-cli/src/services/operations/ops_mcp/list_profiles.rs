@@ -65,12 +65,12 @@ const WORKFLOW_CHECKPOINT_LIST_PROFILE: ListToolProfile = ListToolProfile {
 
 pub(super) fn list_tool_profile(tool_name: &str) -> Option<ListToolProfile> {
     match tool_name {
-        "ao.task.list" | "ao.task.prioritized" => Some(TASK_LIST_PROFILE),
-        "ao.requirements.list" => Some(REQUIREMENT_LIST_PROFILE),
-        "ao.queue.list" => Some(QUEUE_LIST_PROFILE),
-        "ao.workflow.list" => Some(WORKFLOW_LIST_PROFILE),
-        "ao.workflow.decisions" => Some(WORKFLOW_DECISION_LIST_PROFILE),
-        "ao.workflow.checkpoints.list" => Some(WORKFLOW_CHECKPOINT_LIST_PROFILE),
+        "animus.task.list" | "animus.task.prioritized" => Some(TASK_LIST_PROFILE),
+        "animus.requirements.list" => Some(REQUIREMENT_LIST_PROFILE),
+        "animus.queue.list" => Some(QUEUE_LIST_PROFILE),
+        "animus.workflow.list" => Some(WORKFLOW_LIST_PROFILE),
+        "animus.workflow.decisions" => Some(WORKFLOW_DECISION_LIST_PROFILE),
+        "animus.workflow.checkpoints.list" => Some(WORKFLOW_CHECKPOINT_LIST_PROFILE),
         _ => None,
     }
 }

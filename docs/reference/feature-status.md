@@ -26,7 +26,7 @@ This page clarifies which AO features are **shipped and stable**, **in-flight (p
 | Feature | Status | Description |
 |---------|--------|-------------|
 | Workflow Execution Engine | **Shipped** | Execute multi-phase workflows with phase rework and decision gates |
-| Workflow YAML Overlays | **Shipped** | Project-local `.ao/workflows.yaml` for custom workflow definitions |
+| Workflow YAML Overlays | **Shipped** | Project-local `.animus/workflows.yaml` for custom workflow definitions |
 | Workflow Packs | **In-Flight** | Bundled workflow libraries and versioned pack resolution; pack discovery functional, some features experimental |
 | Phase Execution | **Shipped** | Run phases sequentially with timeout and error recovery |
 | Phase Gates (Manual Approval) | **Shipped** | Workflow phases can require manual approval before advancing |
@@ -59,13 +59,13 @@ This page clarifies which AO features are **shipped and stable**, **in-flight (p
 | Skill Management (`ao skill`) | **Shipped** | Search, install, update, and publish versioned skills |
 | Model Management (`ao model`) | **Shipped** | Check model availability, validate model selection, view model roster |
 | History and Error Inspection | **Shipped** | Inspect execution history and recorded operational errors |
-| Template-Driven Project Init | **In-Flight** | `animus init` supports registry-backed and local copy templates plus daemon defaults; richer template management is still planned |
+| Template-Driven Project Init | **Shipped** | `animus init` supports registry-backed and local copy templates plus daemon defaults. Bundled templates (`task-queue`, `conductor`, `direct-workflow`) and the `--template` / `--path` / `--non-interactive` flags are stable. Registry pinning, template authoring helpers, and richer multi-registry management are planned |
 
 ### Observability and Output
 
 | Feature | Status | Description |
 |---------|--------|-------------|
-| JSON Output Envelopes (`--json` flag) | **Shipped** | Machine-readable `ao.cli.v1` JSON for all commands |
+| JSON Output Envelopes (`--json` flag) | **Shipped** | Machine-readable `animus.cli.v1` JSON for all commands |
 | Run Output Inspection | **Shipped** | Read agent run logs, artifacts, and JSONL event streams |
 | Daemon Health and Status | **Shipped** | Real-time daemon process health and scheduling diagnostics |
 | Workflow Decisions | **Shipped** | View automated and manual decisions made during workflow execution |
@@ -86,8 +86,8 @@ This page clarifies which AO features are **shipped and stable**, **in-flight (p
 
 | Feature | Status | Description |
 |---------|--------|-------------|
-| Project-Local `.ao/` Config | **Shipped** | Store repo-scoped workflow YAML and daemon settings under `.ao/` |
-| Scoped Runtime State (`~/.ao/<repo-scope>/`) | **Shipped** | Per-repo runtime state isolation with automatic cleanup |
+| Project-Local `.animus/` Config | **Shipped** | Store repo-scoped workflow YAML and daemon settings under `.animus/` |
+| Scoped Runtime State (`~/.animus/<repo-scope>/`) | **Shipped** | Per-repo runtime state isolation with automatic cleanup |
 | JSON State Files | **Shipped** | All AO state is tool-managed JSON (tasks, workflows, requirements, runs) |
 | Git Worktree Isolation | **Shipped** | Every task gets its own git worktree for safe parallel execution |
 | Worktree Lifecycle | **Shipped** | Automatic creation, pull/push synchronization, and cleanup |
@@ -126,9 +126,9 @@ The following represent aspirational architectural goals and roadmap items:
 
 The following JSON schemas are considered stable and will be maintained for backward compatibility:
 
-- `ao.cli.v1` — CLI output envelope
-- `ao.now.v1` — Now/inbox surface schema
-- `ao.status.v1` — Status dashboard schema
+- `animus.cli.v1` — CLI output envelope
+- `animus.now.v1` — Now/inbox surface schema
+- `animus.status.v1` — Status dashboard schema
 - Task, Workflow, and Requirement state schemas
 
-When contracts change, version numbers will increment (e.g., `ao.now.v2`) and both old and new versions will be supported briefly to allow client migration.
+When contracts change, version numbers will increment (e.g., `animus.now.v2`) and both old and new versions will be supported briefly to allow client migration.

@@ -2,12 +2,12 @@
 
 AO separates authored repository config from mutable runtime state.
 
-## Project-Local `.ao/`
+## Project-Local `.animus/`
 
 The repository keeps only the configuration you are expected to author:
 
 ```text
-.ao/
+.animus/
 ├── config.json
 ├── workflows.yaml
 ├── workflows/
@@ -18,10 +18,10 @@ These files define workflow behavior, overrides, and local pack customizations.
 
 ## Repo-Scoped Runtime State
 
-Runtime state lives under `~/.ao/<repo-scope>/`, not in the repository:
+Runtime state lives under `~/.animus/<repo-scope>/`, not in the repository:
 
 ```text
-~/.ao/<repo-scope>/
+~/.animus/<repo-scope>/
 ├── core-state.json
 ├── resume-config.json
 ├── workflow.db
@@ -46,21 +46,21 @@ Keeping mutable state outside the repository gives AO a few important properties
 - linked worktrees resolve back to one shared repo scope
 - runtime files do not pollute source control
 - large and frequently updated state can evolve without rewriting repo-local config
-- legacy `.ao/`-local state can be migrated forward without changing the authored YAML surface
+- legacy `.animus/`-local state can be migrated forward without changing the authored YAML surface
 
 ## Pack and Workflow Resolution
 
 AO still resolves workflows from layered sources:
 
-1. project pack overrides in `.ao/plugins/`
-2. project YAML in `.ao/workflows.yaml` and `.ao/workflows/*.yaml`
-3. installed packs in `~/.ao/packs/`
+1. project pack overrides in `.animus/plugins/`
+2. project YAML in `.animus/workflows.yaml` and `.animus/workflows/*.yaml`
+3. installed packs in `~/.animus/packs/`
 4. bundled workflow and pack content
 
 State location and workflow resolution are related but different concerns:
 
 - workflow definitions come from YAML and pack content
-- execution state and operational records live under `~/.ao/<repo-scope>/`
+- execution state and operational records live under `~/.animus/<repo-scope>/`
 
 ## Mutation Policy
 
@@ -69,7 +69,7 @@ Do not hand-edit AO-managed runtime JSON or SQLite state unless you are explicit
 Approved mutation surfaces:
 
 - CLI commands such as `animus task status`
-- AO MCP tools such as `ao.task.update`
+- AO MCP tools such as `animus.task.update`
 - pack commands such as `animus pack pin`
 
 ## Repository Scope

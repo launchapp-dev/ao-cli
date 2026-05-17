@@ -15,7 +15,7 @@ fn scoped_ao_root(project_root: &Path) -> Option<PathBuf> {
 }
 
 pub fn runner_config_dir(project_root: &Path) -> PathBuf {
-    let config_dir = scoped_ao_root(project_root).unwrap_or_else(|| project_root.join(".ao")).join("runner");
+    let config_dir = scoped_ao_root(project_root).unwrap_or_else(|| project_root.join(".animus")).join("runner");
 
     normalize_runner_config_dir(config_dir)
 }
@@ -260,7 +260,7 @@ pub fn ensure_safe_run_id(run_id: &str) -> Result<()> {
 
 pub fn run_dir(project_root: &str, run_id: &RunId, base_override: Option<&str>) -> PathBuf {
     let base = base_override.map(PathBuf::from).unwrap_or_else(|| {
-        scoped_ao_root(Path::new(project_root)).unwrap_or_else(|| Path::new(project_root).join(".ao")).join("runs")
+        scoped_ao_root(Path::new(project_root)).unwrap_or_else(|| Path::new(project_root).join(".animus")).join("runs")
     });
     base.join(&run_id.0)
 }

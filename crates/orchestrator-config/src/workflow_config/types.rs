@@ -7,7 +7,7 @@ use serde_json::Value;
 use crate::agent_runtime_config::AgentProfile;
 use crate::PhaseExecutionDefinition;
 
-pub const WORKFLOW_CONFIG_SCHEMA_ID: &str = "ao.workflow-config.v2";
+pub const WORKFLOW_CONFIG_SCHEMA_ID: &str = "animus.workflow-config.v2";
 pub const WORKFLOW_CONFIG_VERSION: u32 = 2;
 pub const WORKFLOW_CONFIG_FILE_NAME: &str = "workflow-config.v2.json";
 

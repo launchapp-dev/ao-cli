@@ -13,13 +13,13 @@ without streaming semantics.
 ## Non-Negotiable Constraints
 - Keep changes scoped to `orchestrator-cli` (plus protocol references only).
 - Keep MCP tool behavior request/response only.
-- Preserve existing output tool behavior (`ao.output.run|monitor|jsonl`).
+- Preserve existing output tool behavior (`animus.output.run|monitor|jsonl`).
 - Keep run lookup deterministic and repository-safe.
-- Do not manually edit `.ao/*.json`.
+- Do not manually edit `.animus/*.json`.
 
 ## Proposed Change Surface
 
-### 1) Add `ao.output.tail` MCP Contract
+### 1) Add `animus.output.tail` MCP Contract
 - Target: `crates/orchestrator-cli/src/services/operations/ops_mcp.rs`
 - Add new MCP input type (example fields):
   - `run_id: Option<String>`
@@ -69,7 +69,7 @@ without streaming semantics.
   - source event kind,
   - stream type for output chunks when available.
 - Include response metadata:
-  - schema id (`ao.output.tail.v1`),
+  - schema id (`animus.output.tail.v1`),
   - resolution mode (`run_id` or `task_id`),
   - resolved run id,
   - events path,
@@ -92,7 +92,7 @@ without streaming semantics.
 ## Suggested Implementation Sequence
 1. Define tail record/filter types and parsing helpers in `ops_output.rs`.
 2. Implement deterministic task->workflow->run resolution helper.
-3. Add `ao.output.tail` MCP tool and response shaping in `ops_mcp.rs`.
+3. Add `animus.output.tail` MCP tool and response shaping in `ops_mcp.rs`.
 4. Add unit tests for helper and tool behavior.
 5. Run targeted tests and fix regressions.
 
@@ -114,6 +114,6 @@ without streaming semantics.
   - Mitigation: skip invalid entries deterministically; never crash the tool.
 
 ## Deliverables for Next Phase
-- Implemented MCP tool `ao.output.tail`.
+- Implemented MCP tool `animus.output.tail`.
 - Deterministic run-resolution and tail/filter helpers.
 - Focused tests proving correctness of resolution, filters, and bounded output.

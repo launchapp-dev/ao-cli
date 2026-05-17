@@ -17,7 +17,21 @@ fn parse_envelope_from_bytes(bytes: &[u8]) -> Result<Value> {
 pub struct CliHarness {
     binary_path: PathBuf,
     project_root: TempDir,
-    config_root: TempDir,
+    config_root: SharedConfigRoot,
+}
+
+enum SharedConfigRoot {
+    Owned(TempDir),
+    Borrowed(PathBuf),
+}
+
+impl SharedConfigRoot {
+    fn path(&self) -> &Path {
+        match self {
+            SharedConfigRoot::Owned(dir) => dir.path(),
+            SharedConfigRoot::Borrowed(path) => path.as_path(),
+        }
+    }
 }
 
 impl CliHarness {
@@ -25,7 +39,19 @@ impl CliHarness {
         let binary_path = assert_cmd::cargo::cargo_bin!("animus").to_path_buf();
         let project_root = tempfile::tempdir().context("failed to create project root tempdir")?;
         let config_root = tempfile::tempdir().context("failed to create config root tempdir")?;
-        Ok(Self { binary_path, project_root, config_root })
+        Ok(Self { binary_path, project_root, config_root: SharedConfigRoot::Owned(config_root) })
+    }
+
+    /// Build a new harness that reuses the previous harness's HOME/config tempdir so the
+    /// registry cache (and any other home-scoped state) persists across calls.
+    pub fn with_existing_home(other: &Self) -> Result<Self> {
+        let binary_path = assert_cmd::cargo::cargo_bin!("animus").to_path_buf();
+        let project_root = tempfile::tempdir().context("failed to create project root tempdir")?;
+        Ok(Self {
+            binary_path,
+            project_root,
+            config_root: SharedConfigRoot::Borrowed(other.config_root.path().to_path_buf()),
+        })
     }
 
     pub fn project_root(&self) -> &Path {
@@ -38,7 +64,7 @@ impl CliHarness {
 
     pub fn scoped_root(&self) -> PathBuf {
         let scope = protocol::repository_scope_for_path(self.project_root.path());
-        self.config_root.path().join(".ao").join(scope)
+        self.config_root.path().join(".animus").join(scope)
     }
 
     pub fn run_json_ok(&self, args: &[&str]) -> Result<Value> {
@@ -132,9 +158,9 @@ impl CliHarness {
             .args(args)
             .env("HOME", self.config_root.path())
             .env("XDG_CONFIG_HOME", self.config_root.path())
-            .env("AO_CONFIG_DIR", self.config_root.path())
+            .env("ANIMUS_CONFIG_DIR", self.config_root.path())
             .env("AGENT_ORCHESTRATOR_CONFIG_DIR", self.config_root.path())
-            .env("AO_SKIP_RUNNER_START", "1");
+            .env("ANIMUS_SKIP_RUNNER_START", "1");
         for (key, value) in envs {
             command.env(key, value);
         }

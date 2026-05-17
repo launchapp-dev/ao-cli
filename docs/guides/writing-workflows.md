@@ -1,9 +1,9 @@
 # Writing Custom Workflows
 
-AO workflows are defined in YAML and live in `.ao/workflows.yaml` and
-`.ao/workflows/*.yaml`. These files describe project-local workflows, overrides,
+AO workflows are defined in YAML and live in `.animus/workflows.yaml` and
+`.animus/workflows/*.yaml`. These files describe project-local workflows, overrides,
 and pack composition. They usually wrap canonical pack-qualified refs such as
-`ao.task/standard` instead of copying task or requirement semantics into the
+`animus.task/standard` instead of copying task or requirement semantics into the
 repository.
 
 For the target design of universal phase verdicts and YAML-defined phase-local
@@ -13,13 +13,13 @@ fields, see [Phase Contracts](../architecture/phase-contracts.md).
 
 Place workflow files in either:
 
-- `.ao/workflows.yaml`
-- `.ao/workflows/*.yaml`
+- `.animus/workflows.yaml`
+- `.animus/workflows/*.yaml`
 
 Example:
 
 ```
-.ao/
+.animus/
   workflows.yaml
   workflows/
     custom.yaml
@@ -242,7 +242,7 @@ workflows:
   - id: standard-workflow
     name: Standard Workflow
     phases:
-      - workflow_ref: ao.task/standard
+      - workflow_ref: animus.task/standard
 ```
 
 ```yaml

@@ -39,7 +39,7 @@ Reviewed artifacts:
 | `AC-06` | Error model examples include correlation/status/method/path metadata without dropping `code/message/exitCode` (`wireframes.html`, `diagnostics-wireframe.tsx`) |
 | `AC-07` | Diagnostics panel covers empty and populated states with expandable details (`wireframes.html`, `diagnostics-wireframe.tsx`) |
 | `AC-08` | Keyboard-friendly toggles, live-region announcements, mobile 320px board, and manual copy fallback state are represented (`wireframes.html`, `wireframes.css`, `README.md`) |
-| `AC-09` | Response payload examples keep `ao.cli.v1` envelope semantics unchanged (`wireframes.html`, `diagnostics-wireframe.tsx`) |
+| `AC-09` | Response payload examples keep `animus.cli.v1` envelope semantics unchanged (`wireframes.html`, `diagnostics-wireframe.tsx`) |
 | `AC-10` | Action surfaces preserve non-failure route context and retry affordances while diagnostics remain additive (`wireframes.html`) |
 
 ## Outcome

@@ -25,7 +25,7 @@ impl CliType {
             CliType::Codex => "codex",
             CliType::Gemini => "gemini",
             CliType::OpenCode => "opencode",
-            CliType::OaiRunner => "ao-oai-runner",
+            CliType::OaiRunner => "animus-oai-runner",
             CliType::Aider => "aider",
             CliType::Cursor => "cursor",
             CliType::Cline => "cline",

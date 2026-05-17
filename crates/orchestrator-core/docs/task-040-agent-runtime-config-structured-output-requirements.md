@@ -43,7 +43,7 @@ Out of scope:
 - Changing `is_structured_output_phase` semantics.
 - Removing `implementation` output contract/schema from built-in config.
 - Runtime daemon scheduler behavior changes.
-- Manual edits to `/.ao/*.json`.
+- Manual edits to `/.animus/*.json`.
 
 ## Constraints
 - Preserve current built-in runtime behavior for all workflow phases.

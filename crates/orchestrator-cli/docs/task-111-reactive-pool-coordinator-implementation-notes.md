@@ -20,7 +20,7 @@ This allows immediate backfill after every completion while preserving existing
 workflow/task transition semantics.
 
 ## Non-Negotiable Constraints
-- No direct edits to `/.ao/*.json`.
+- No direct edits to `/.animus/*.json`.
 - Deterministic behavior for identical queue/workflow snapshots.
 - Preserve existing workflow decision handling semantics.
 - Keep daemon event schema backward-compatible (additive only).

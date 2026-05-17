@@ -1021,7 +1021,7 @@ pub struct VisionDocument {
 }
 
 fn default_architecture_schema() -> String {
-    "ao.architecture.v1".to_string()
+    "animus.architecture.v1".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1572,8 +1572,8 @@ impl WorkflowSubject {
     }
 }
 
-pub const SUBJECT_KIND_TASK: &str = "ao.task";
-pub const SUBJECT_KIND_REQUIREMENT: &str = "ao.requirement";
+pub const SUBJECT_KIND_TASK: &str = "animus.task";
+pub const SUBJECT_KIND_REQUIREMENT: &str = "animus.requirement";
 pub const SUBJECT_KIND_CUSTOM: &str = "custom";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

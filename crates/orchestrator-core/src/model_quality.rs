@@ -51,7 +51,7 @@ fn ledger_key(model_id: &str, phase_id: &str) -> String {
 }
 
 pub fn model_quality_ledger_path(project_root: &Path) -> PathBuf {
-    let base = protocol::scoped_state_root(project_root).unwrap_or_else(|| project_root.join(".ao"));
+    let base = protocol::scoped_state_root(project_root).unwrap_or_else(|| project_root.join(".animus"));
     base.join("state").join(MODEL_QUALITY_LEDGER_FILE_NAME)
 }
 
@@ -114,7 +114,7 @@ pub fn record_model_phase_outcome(project_root: &Path, model_id: &str, phase_id:
     record.suppressed = record.should_suppress();
     record.last_recorded_at = chrono::Utc::now().to_rfc3339();
 
-    ledger.schema = "ao.model-quality.v1".to_string();
+    ledger.schema = "animus.model-quality.v1".to_string();
     ledger.updated_at = chrono::Utc::now().to_rfc3339();
 
     save_model_quality_ledger(project_root, &ledger);

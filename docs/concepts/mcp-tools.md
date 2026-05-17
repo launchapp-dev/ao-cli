@@ -16,13 +16,13 @@ animus mcp serve
 
 It exposes AO mutation and query tools such as:
 
-- `ao.task.*`
-- `ao.requirements.*`
-- `ao.workflow.*`
-- `ao.daemon.*`
+- `animus.task.*`
+- `animus.requirements.*`
+- `animus.workflow.*`
+- `animus.daemon.*`
 
 Many of those tools are now conceptually owned by bundled first-party packs
-such as `ao.task` and `ao.requirement`, even though they are exposed through
+such as `animus.task` and `animus.requirement`, even though they are exposed through
 the AO MCP server.
 
 ## Pack-Owned MCP Descriptors
@@ -33,7 +33,7 @@ available to workflows and phases.
 
 Examples:
 
-- `ao.requirement/github-sync`
+- `animus.requirement/github-sync`
 - `vendor.crm/runtime`
 
 Pack-owned MCP behavior stays outside the daemon. The daemon only supervises the

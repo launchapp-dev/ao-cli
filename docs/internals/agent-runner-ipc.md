@@ -4,7 +4,7 @@ The agent runner (`ao-agent-runner`) is a standalone daemon that manages LLM CLI
 
 ## Transport
 
-- **Unix domain socket** on Unix platforms, located at `~/.ao/agent-runner.sock`
+- **Unix domain socket** on Unix platforms, located at `~/.animus/agent-runner.sock`
 - **TCP** on Windows as a fallback
 
 The IPC server (`crates/agent-runner/src/ipc/server.rs`) listens for incoming connections and routes them through the request handler pipeline. Each connection is assigned a monotonically increasing connection ID for tracing.
@@ -67,7 +67,7 @@ Allowed variables:
 - System: `PATH`, `HOME`, `USER`, `SHELL`, `LANG`, `LC_ALL`, `TMPDIR`, `TERM`
 - API keys: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`
 - Claude config: `CLAUDE_CODE_SETTINGS_PATH`, `CLAUDE_API_KEY`, `CLAUDE_CODE_DIR`
-- Prefixes: `AO_*`, `XDG_*`
+- Prefixes: `ANIMUS_*`, `XDG_*`
 
 All other environment variables are stripped to prevent information leakage and avoid interference (notably `CLAUDECODE` which would block the claude CLI from starting).
 

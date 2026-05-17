@@ -162,7 +162,7 @@ All queue endpoints are under `/api/v1/queue/*` to match existing REST API versi
 
 ### Queue State Storage
 The web API reads queue state from the daemon-managed state file:
-- Path: `~/.ao/<repo-scope>/scheduler/dispatch-queue.json`
+- Path: `~/.animus/<repo-scope>/scheduler/dispatch-queue.json`
 - Read-only for list/stats operations
 - Write operations update the file and emit events
 

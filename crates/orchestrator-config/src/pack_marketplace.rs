@@ -46,11 +46,11 @@ pub struct MarketplacePackEntry {
 }
 
 fn marketplace_state_dir() -> PathBuf {
-    dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".ao").join("state")
+    dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".animus").join("state")
 }
 
 fn marketplace_cache_dir() -> PathBuf {
-    dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".ao").join(MARKETPLACE_CACHE_DIR)
+    dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".animus").join(MARKETPLACE_CACHE_DIR)
 }
 
 pub fn load_marketplace_state() -> Result<MarketplaceState> {

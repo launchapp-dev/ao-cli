@@ -543,7 +543,7 @@ fn is_git_repo(project_root: &str) -> bool {
 }
 
 fn default_task_branch_name(task_id: &str) -> String {
-    format!("ao/{}", protocol::sanitize_identifier(task_id, "task"))
+    format!("animus/{}", protocol::sanitize_identifier(task_id, "task"))
 }
 
 fn repo_ao_root(project_root: &str) -> Result<PathBuf> {
@@ -651,7 +651,7 @@ fn sync_managed_worktree_mcp_config(project_root: &str, worktree_path: &Path) ->
     let launch = managed_worktree_mcp_server_config(&canonical_root);
     let mcp_payload = serde_json::json!({
         "mcpServers": {
-            "ao": launch.as_json()
+            "animus": launch.as_json()
         }
     });
     let serialized =
@@ -726,12 +726,12 @@ fn preferred_repo_ao_binary(project_root: &Path) -> Option<PathBuf> {
 fn repo_ao_binary_name() -> &'static str {
     #[cfg(target_os = "windows")]
     {
-        "ao.exe"
+        "animus.exe"
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        "ao"
+        "animus"
     }
 }
 
@@ -1096,11 +1096,11 @@ mod tests {
         let mcp_config: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(Path::new(&cwd).join(".mcp.json")).unwrap()).unwrap();
         assert_eq!(
-            mcp_config.pointer("/mcpServers/ao/command").and_then(serde_json::Value::as_str),
+            mcp_config.pointer("/mcpServers/animus/command").and_then(serde_json::Value::as_str),
             Some(repo_binary_path.to_string_lossy().as_ref())
         );
         assert_eq!(
-            mcp_config.pointer("/mcpServers/ao/args").and_then(serde_json::Value::as_array).cloned(),
+            mcp_config.pointer("/mcpServers/animus/args").and_then(serde_json::Value::as_array).cloned(),
             Some(vec![
                 serde_json::Value::String("--project-root".to_string()),
                 serde_json::Value::String(canonical_project_root.to_string_lossy().to_string()),
@@ -1111,7 +1111,7 @@ mod tests {
 
         let updated = hub.get("TASK-1").await.unwrap();
         assert_eq!(updated.worktree_path.as_deref(), Some(cwd.as_str()));
-        assert_eq!(updated.branch_name.as_deref(), Some("ao/task-1"));
+        assert_eq!(updated.branch_name.as_deref(), Some("animus/task-1"));
     }
 
     #[test]
@@ -1140,6 +1140,6 @@ mod tests {
         let persisted: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(worktree_path.join(".mcp.json")).unwrap()).unwrap();
         assert_eq!(persisted.get("mcpServers").and_then(serde_json::Value::as_object).map(|map| map.len()), Some(1));
-        assert_eq!(persisted.pointer("/mcpServers/ao/command").and_then(serde_json::Value::as_str), Some("cargo"));
+        assert_eq!(persisted.pointer("/mcpServers/animus/command").and_then(serde_json::Value::as_str), Some("cargo"));
     }
 }

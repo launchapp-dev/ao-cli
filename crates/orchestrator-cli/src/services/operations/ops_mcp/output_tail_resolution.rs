@@ -138,8 +138,8 @@ fn runs_root_candidates(project_root: &str) -> Vec<PathBuf> {
     if let Some(scoped_parent) = run_dir(project_root, &RunId("output-tail-root-probe".to_string()), None).parent() {
         candidates.push(scoped_parent.to_path_buf());
     }
-    candidates.push(Path::new(project_root).join(".ao").join("runs"));
-    candidates.push(Path::new(project_root).join(".ao").join("state").join("runs"));
+    candidates.push(Path::new(project_root).join(".animus").join("runs"));
+    candidates.push(Path::new(project_root).join(".animus").join("state").join("runs"));
 
     let mut deduped = Vec::new();
     for candidate in candidates {

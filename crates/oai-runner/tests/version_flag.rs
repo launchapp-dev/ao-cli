@@ -1,13 +1,13 @@
 use std::process::Command;
 
 fn bin() -> &'static std::path::Path {
-    assert_cmd::cargo::cargo_bin!("ao-oai-runner")
+    assert_cmd::cargo::cargo_bin!("animus-oai-runner")
 }
 
 #[test]
 fn version_flag_exits_successfully() {
     let status = Command::new(bin()).arg("--version").status().unwrap();
-    assert!(status.success(), "ao-oai-runner --version should exit 0");
+    assert!(status.success(), "animus-oai-runner --version should exit 0");
 }
 
 #[test]
@@ -15,7 +15,7 @@ fn version_output_contains_package_version() {
     let output = Command::new(bin()).arg("--version").output().unwrap();
     let stdout = String::from_utf8(output.stdout).unwrap();
 
-    assert!(stdout.contains("ao-oai-runner"), "version output should contain binary name, got: {stdout}");
+    assert!(stdout.contains("animus-oai-runner"), "version output should contain binary name, got: {stdout}");
     assert!(
         stdout.contains(env!("CARGO_PKG_VERSION")),
         "version output should contain package version {}, got: {stdout}",
@@ -49,10 +49,10 @@ fn version_output_format_matches_expected_pattern() {
     let trimmed = stdout.trim();
 
     let pkg_version = env!("CARGO_PKG_VERSION");
-    let expected_prefix = format!("ao-oai-runner {pkg_version} (");
+    let expected_prefix = format!("animus-oai-runner {pkg_version} (");
     assert!(
         trimmed.starts_with(&expected_prefix),
-        "version output should match pattern 'ao-oai-runner X.Y.Z (HASH)', got: {trimmed}"
+        "version output should match pattern 'animus-oai-runner X.Y.Z (HASH)', got: {trimmed}"
     );
     assert!(trimmed.ends_with(')'), "version output should end with ')', got: {trimmed}");
 }

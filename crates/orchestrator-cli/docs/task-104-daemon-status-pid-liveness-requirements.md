@@ -17,14 +17,14 @@ daemon state alone.
 | --- | --- | --- | --- |
 | CLI daemon status | `crates/orchestrator-cli/src/services/runtime/runtime_daemon.rs` (`DaemonCommand::Status`) | returns `hub.daemon().status()` directly | status does not verify daemon process PID liveness |
 | Core daemon status source | `crates/orchestrator-core/src/services/daemon_impl.rs` (`FileServiceHub::status`) | marks `crashed` when runner readiness + runner PID checks fail | runner liveness is not equivalent to daemon process liveness |
-| Daemon runtime lock | `crates/orchestrator-cli/src/services/runtime/runtime_daemon/daemon_run.rs` (`.ao/daemon.lock`) | writes lock file with current PID in project-local `.ao` | not a repo-scoped daemon PID contract used by status/health |
+| Daemon runtime lock | `crates/orchestrator-cli/src/services/runtime/runtime_daemon/daemon_run.rs` (`.animus/daemon.lock`) | writes lock file with current PID in project-local `.ao` | not a repo-scoped daemon PID contract used by status/health |
 | Autonomous daemon PID registry | `runtime_daemon/daemon_registry.rs` (`projects.json` `daemon_pid`) | stores daemon pid in global registry entry | status path does not consume this PID; entry can be stale |
-| MCP daemon health tool | `crates/orchestrator-cli/src/services/operations/ops_mcp.rs` (`ao.daemon.health`) | shells `ao daemon health` and forwards result | result has no explicit `process_alive` field |
+| MCP daemon health tool | `crates/orchestrator-cli/src/services/operations/ops_mcp.rs` (`animus.daemon.health`) | shells `ao daemon health` and forwards result | result has no explicit `process_alive` field |
 
 ## Scope
 In scope for implementation after this requirements phase:
 - Add deterministic daemon PID file contract:
-  - path: `~/.ao/<repo-scope>/daemon/daemon.pid`
+  - path: `~/.animus/<repo-scope>/daemon/daemon.pid`
   - write PID when daemon runtime starts,
   - clear or replace stale PID file when lifecycle ends/restarts.
 - Update daemon status resolution to validate daemon PID liveness:
@@ -33,7 +33,7 @@ In scope for implementation after this requirements phase:
     dead-process outcome as `crashed`.
 - Add health payload liveness field:
   - `process_alive: bool` (additive),
-  - ensure `ao.daemon.health` MCP output includes this field.
+  - ensure `animus.daemon.health` MCP output includes this field.
 - Add deterministic regression tests for PID-file lifecycle and stale-state
   liveness correction.
 
@@ -41,7 +41,7 @@ Out of scope for this task:
 - Redesigning daemon state machine enums beyond using existing `crashed`.
 - Removing existing registry `daemon_pid` storage.
 - Reworking runner health checks unrelated to daemon-process PID liveness.
-- Manual edits to `.ao/*.json`.
+- Manual edits to `.animus/*.json`.
 
 ## Constraints
 - Keep project scoping deterministic via canonical project root and
@@ -58,7 +58,7 @@ Out of scope for this task:
 ## Functional Requirements
 
 ### FR-01: Repo-Scoped Daemon PID File Contract
-- Runtime writes daemon PID to `~/.ao/<repo-scope>/daemon/daemon.pid` on startup
+- Runtime writes daemon PID to `~/.animus/<repo-scope>/daemon/daemon.pid` on startup
   of the long-lived daemon execution path.
 - PID file contents are machine-parseable decimal PID text.
 - PID file parent directories are created as needed.
@@ -78,7 +78,7 @@ Out of scope for this task:
 - Existing `healthy`, `status`, `runner_connected`, and other fields remain.
 
 ### FR-04: MCP Health Parity
-- MCP tool `ao.daemon.health` returns `process_alive` in
+- MCP tool `animus.daemon.health` returns `process_alive` in
   `result.process_alive`.
 - No MCP-only status heuristic diverges from CLI daemon health/status semantics.
 
@@ -98,12 +98,12 @@ Out of scope for this task:
 
 ## Acceptance Criteria
 - `AC-01`: daemon runtime writes PID to
-  `~/.ao/<repo-scope>/daemon/daemon.pid` when starting.
+  `~/.animus/<repo-scope>/daemon/daemon.pid` when starting.
 - `AC-02`: `ao daemon status` returns `crashed` when daemon state is
   `running`/`paused` but PID is not alive.
 - `AC-03`: `ao daemon status` preserves normal status when PID is alive.
 - `AC-04`: `ao daemon health` includes additive `process_alive` boolean.
-- `AC-05`: MCP `ao.daemon.health` includes `result.process_alive`.
+- `AC-05`: MCP `animus.daemon.health` includes `result.process_alive`.
 - `AC-06`: regression tests cover dead/live PID status behavior and health/MCP
   liveness-field presence.
 
@@ -123,7 +123,7 @@ Out of scope for this task:
 | FR-01 | runtime daemon PID helper tests and daemon-run lifecycle tests |
 | FR-02, FR-05 | daemon status path tests with controlled PID liveness hooks |
 | FR-03 | daemon health command output contract tests |
-| FR-04 | `ops_mcp` tool tests for `ao.daemon.health` result shape |
+| FR-04 | `ops_mcp` tool tests for `animus.daemon.health` result shape |
 | FR-06 | targeted `cargo test -p orchestrator-cli` on touched runtime + MCP modules |
 
 ## Implementation Notes Input (Next Phase)

@@ -10,12 +10,12 @@ use super::yaml_parser::{parse_yaml_workflow_config_with_base, workflow_config_t
 use super::yaml_types::*;
 
 pub fn yaml_workflows_dir(project_root: &Path) -> PathBuf {
-    project_root.join(".ao").join(YAML_WORKFLOWS_DIR)
+    project_root.join(".animus").join(YAML_WORKFLOWS_DIR)
 }
 
 pub(crate) fn collect_project_yaml_workflow_sources(project_root: &Path) -> Result<Vec<(PathBuf, String)>> {
     let workflows_dir = yaml_workflows_dir(project_root);
-    let single_file = project_root.join(".ao").join("workflows.yaml");
+    let single_file = project_root.join(".animus").join("workflows.yaml");
 
     let mut yaml_sources: Vec<(PathBuf, String)> = Vec::new();
 
@@ -218,7 +218,7 @@ pub struct CompileYamlResult {
 
 pub fn validate_and_compile_yaml_workflows(project_root: &Path) -> Result<Option<CompileYamlResult>> {
     let workflows_dir = yaml_workflows_dir(project_root);
-    let single_file = project_root.join(".ao").join("workflows.yaml");
+    let single_file = project_root.join(".animus").join("workflows.yaml");
 
     let mut source_files: Vec<PathBuf> = Vec::new();
     if single_file.exists() {

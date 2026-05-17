@@ -30,7 +30,7 @@ impl AoMcpServer {
         let stderr_json = parse_json(&stderr);
 
         Ok(CliExecutionResult {
-            command: "ao".to_string(),
+            command: "animus".to_string(),
             args,
             requested_args,
             project_root,

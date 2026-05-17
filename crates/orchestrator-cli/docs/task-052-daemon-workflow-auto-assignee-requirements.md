@@ -43,10 +43,10 @@ Out of scope:
 - Bulk backfill/rewrite of existing task assignees.
 - Changing assignee behavior for every status transition (only the trigger above is required).
 - Redesign of workflow phase execution model selection/failover logic.
-- Manual edits to `/.ao/*.json`.
+- Manual edits to `/.animus/*.json`.
 
 ## Constraints
-- Preserve existing `ao.cli.v1` JSON envelope and exit-code semantics.
+- Preserve existing `animus.cli.v1` JSON envelope and exit-code semantics.
 - Keep changes additive and deterministic.
 - Do not block `task status` on identity inference failure.
 - Preserve typed assignee persistence and legacy-state normalization compatibility.
@@ -78,8 +78,8 @@ Trigger:
 - `ao task status --status in-progress` path only.
 
 Identity inference precedence:
-1. `AO_ASSIGNEE_USER_ID`
-2. `AO_USER_ID`
+1. `ANIMUS_ASSIGNEE_USER_ID`
+2. `ANIMUS_USER_ID`
 3. repo-local git config `user.email`
 4. repo-local git config `user.name`
 5. `USER` / `USERNAME`
@@ -124,7 +124,7 @@ Add tests covering daemon agent-assignment, model/role derivation, human inferen
 ## Testable Acceptance Checklist
 - `T-01`: daemon scheduler test where ready task starts workflow and assignee becomes `agent`.
 - `T-02`: daemon scheduler test asserts assigned `role` + `model` values for known runtime config.
-- `T-03`: task status command/runtime test where `in-progress` infers `AO_ASSIGNEE_USER_ID`.
+- `T-03`: task status command/runtime test where `in-progress` infers `ANIMUS_ASSIGNEE_USER_ID`.
 - `T-04`: task status test for inference fallback order (env over git, git over shell user vars).
 - `T-05`: task status test where no identity is found still returns success and preserves assignee.
 - `T-06`: regression test ensuring non-`in-progress` status updates do not auto-assign human assignee.

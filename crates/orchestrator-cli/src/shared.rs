@@ -62,30 +62,30 @@ mod tests {
     #[test]
     fn runner_config_dir_defaults_to_project_scope() {
         let _lock = test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
-        let _ao_config = EnvVarGuard::set("AO_CONFIG_DIR", None);
+        let _ao_config = EnvVarGuard::set("ANIMUS_CONFIG_DIR", None);
         let _legacy_config = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
-        let _scope = EnvVarGuard::set("AO_RUNNER_SCOPE", None);
+        let _scope = EnvVarGuard::set("ANIMUS_RUNNER_SCOPE", None);
         let project_root = Path::new("project-root");
 
         let resolved = runner_config_dir(project_root);
         assert!(resolved.ends_with("runner"));
         assert!(
-            resolved.components().any(|component| component.as_os_str() == ".ao"),
-            "project scoped runner dir should be under ~/.ao/<repo-scope>/runner"
+            resolved.components().any(|component| component.as_os_str() == ".animus"),
+            "project scoped runner dir should be under ~/.animus/<repo-scope>/runner"
         );
-        assert_ne!(resolved, project_root.join(".ao").join("runner"));
+        assert_ne!(resolved, project_root.join(".animus").join("runner"));
     }
 
     #[cfg(unix)]
     #[test]
     fn runner_config_dir_shortens_long_unix_socket_paths() {
         let _lock = test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
-        let _ao_config = EnvVarGuard::set("AO_CONFIG_DIR", None);
+        let _ao_config = EnvVarGuard::set("ANIMUS_CONFIG_DIR", None);
         let _legacy_config = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
-        let _scope = EnvVarGuard::set("AO_RUNNER_SCOPE", None);
+        let _scope = EnvVarGuard::set("ANIMUS_RUNNER_SCOPE", None);
 
         let long_root = std::path::PathBuf::from("/tmp").join("x".repeat(220));
-        let default_dir = long_root.join(".ao").join("runner");
+        let default_dir = long_root.join(".animus").join("runner");
         let resolved = runner_config_dir(&long_root);
 
         assert_ne!(resolved, default_dir);
@@ -108,13 +108,13 @@ mod tests {
         let scope = protocol::repository_scope_for_path(&project_root);
         let expected = dirs::home_dir()
             .expect("home directory should resolve")
-            .join(".ao")
+            .join(".animus")
             .join(scope)
             .join("runs")
             .join(&run_id.0);
 
         assert_eq!(resolved, expected);
-        assert_ne!(resolved, project_root.join(".ao").join("runs").join(&run_id.0));
+        assert_ne!(resolved, project_root.join(".animus").join("runs").join(&run_id.0));
     }
 
     #[test]
@@ -131,7 +131,7 @@ mod tests {
 
         let expected = dirs::home_dir()
             .expect("home directory should resolve")
-            .join(".ao")
+            .join(".animus")
             .join(scope)
             .join("runs")
             .join(&run_id.0);
@@ -145,8 +145,8 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir should be created");
         let _home = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
         let override_dir = temp.path().join("override-config");
-        let _scope = EnvVarGuard::set("AO_RUNNER_SCOPE", Some("global"));
-        let _config_override = EnvVarGuard::set("AO_CONFIG_DIR", Some(override_dir.to_string_lossy().as_ref()));
+        let _scope = EnvVarGuard::set("ANIMUS_RUNNER_SCOPE", Some("global"));
+        let _config_override = EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(override_dir.to_string_lossy().as_ref()));
 
         let project_root = temp.path().join("project-root");
         std::fs::create_dir_all(&project_root).expect("project dir should be created");
@@ -154,10 +154,10 @@ mod tests {
 
         let resolved = run_dir(project_root.to_string_lossy().as_ref(), &run_id, None);
         assert!(
-            resolved.starts_with(temp.path().join(".ao")),
-            "run directory should stay under ~/.ao repo-scoped runtime root"
+            resolved.starts_with(temp.path().join(".animus")),
+            "run directory should stay under ~/.animus repo-scoped runtime root"
         );
-        assert!(!resolved.starts_with(&override_dir), "run directory should not use AO_CONFIG_DIR overrides");
+        assert!(!resolved.starts_with(&override_dir), "run directory should not use ANIMUS_CONFIG_DIR overrides");
     }
 
     #[test]
@@ -262,7 +262,7 @@ mod tests {
 
         let repo_scope = protocol::repository_scope_for_path(&project_canonical);
 
-        let repo_ao_root = temp.path().join(".ao").join(repo_scope);
+        let repo_ao_root = temp.path().join(".animus").join(repo_scope);
         let worktree = repo_ao_root.join("worktrees").join("task-task-011");
         std::fs::create_dir_all(&worktree).expect("managed worktree should be created");
         std::fs::write(repo_ao_root.join(".project-root"), format!("{}\n", project_canonical.to_string_lossy()))

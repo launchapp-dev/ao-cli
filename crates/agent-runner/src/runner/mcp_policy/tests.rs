@@ -2,17 +2,17 @@ use super::*;
 use serde_json::json;
 
 #[test]
-fn mcp_tool_enforcement_defaults_to_ao_prefix_when_endpoint_is_set() {
+fn mcp_tool_enforcement_defaults_to_animus_prefix_when_endpoint_is_set() {
     let contract = json!({
         "cli": { "capabilities": { "supports_mcp": true } },
-        "mcp": { "endpoint": "http://127.0.0.1:3101/mcp/ao" }
+        "mcp": { "endpoint": "http://127.0.0.1:3101/mcp/animus" }
     });
     let enforcement = resolve_mcp_tool_enforcement(Some(&contract));
     assert!(enforcement.enabled);
-    assert_eq!(enforcement.endpoint.as_deref(), Some("http://127.0.0.1:3101/mcp/ao"));
-    assert_eq!(enforcement.agent_id, "ao");
-    assert!(enforcement.allowed_prefixes.iter().any(|prefix| prefix == "ao."));
-    assert!(enforcement.allowed_prefixes.iter().any(|prefix| prefix == "mcp__ao__"));
+    assert_eq!(enforcement.endpoint.as_deref(), Some("http://127.0.0.1:3101/mcp/animus"));
+    assert_eq!(enforcement.agent_id, "animus");
+    assert!(enforcement.allowed_prefixes.iter().any(|prefix| prefix == "animus."));
+    assert!(enforcement.allowed_prefixes.iter().any(|prefix| prefix == "mcp__animus__"));
 }
 
 #[test]
@@ -20,17 +20,17 @@ fn mcp_tool_enforcement_rejects_non_matching_tool_calls() {
     let contract = json!({
         "cli": { "capabilities": { "supports_mcp": true } },
         "mcp": {
-            "endpoint": "http://127.0.0.1:3101/mcp/ao",
+            "endpoint": "http://127.0.0.1:3101/mcp/animus",
             "enforce_only": true,
-            "allowed_tool_prefixes": ["ao."]
+            "allowed_tool_prefixes": ["animus."]
         }
     });
     let enforcement = resolve_mcp_tool_enforcement(Some(&contract));
-    assert!(is_tool_call_allowed("ao.task.list", &json!({}), &enforcement));
+    assert!(is_tool_call_allowed("animus.task.list", &json!({}), &enforcement));
     assert!(is_tool_call_allowed("phase_transition", &json!({}), &enforcement));
     assert!(!is_tool_call_allowed("Bash", &json!({}), &enforcement));
     assert!(!is_tool_call_allowed("stories-search", &json!({ "server": "shortcut" }), &enforcement));
-    assert!(is_tool_call_allowed("requirements-get", &json!({ "server": "ao" }), &enforcement));
+    assert!(is_tool_call_allowed("requirements-get", &json!({ "server": "animus" }), &enforcement));
     assert!(is_tool_call_allowed("list_mcp_resources", &json!({}), &enforcement));
     assert!(is_tool_call_allowed("list_mcp_resources", &json!({ "server": "codex" }), &enforcement));
 }
@@ -47,7 +47,7 @@ fn native_mcp_policy_rejects_unknown_cli_when_enforced() {
         enabled: true,
         endpoint: None,
         stdio: Some(McpStdioConfig {
-            command: "/path/to/ao/target/debug/ao".to_string(),
+            command: "/path/to/animus/target/debug/animus".to_string(),
             args: vec![
                 "--project-root".to_string(),
                 "/path/to/project".to_string(),
@@ -55,8 +55,8 @@ fn native_mcp_policy_rejects_unknown_cli_when_enforced() {
                 "serve".to_string(),
             ],
         }),
-        agent_id: "ao".to_string(),
-        allowed_prefixes: vec!["ao.".to_string()],
+        agent_id: "animus".to_string(),
+        allowed_prefixes: vec!["animus.".to_string()],
         tool_policy_allow: Vec::new(),
         tool_policy_deny: Vec::new(),
         additional_servers: Vec::new(),
@@ -83,8 +83,8 @@ fn native_mcp_policy_requires_transport_when_enforced() {
         enabled: true,
         endpoint: None,
         stdio: None,
-        agent_id: "ao".to_string(),
-        allowed_prefixes: vec!["ao.".to_string()],
+        agent_id: "animus".to_string(),
+        allowed_prefixes: vec!["animus.".to_string()],
         tool_policy_allow: Vec::new(),
         tool_policy_deny: Vec::new(),
         additional_servers: Vec::new(),
@@ -109,10 +109,10 @@ fn native_mcp_policy_adds_codex_mcp_server_override() {
     };
     let enforcement = McpToolEnforcement {
         enabled: true,
-        endpoint: Some("http://127.0.0.1:3101/mcp/ao".to_string()),
+        endpoint: Some("http://127.0.0.1:3101/mcp/animus".to_string()),
         stdio: None,
-        agent_id: "ao".to_string(),
-        allowed_prefixes: vec!["ao.".to_string()],
+        agent_id: "animus".to_string(),
+        allowed_prefixes: vec!["animus.".to_string()],
         tool_policy_allow: Vec::new(),
         tool_policy_deny: Vec::new(),
         additional_servers: Vec::new(),
@@ -125,7 +125,7 @@ fn native_mcp_policy_adds_codex_mcp_server_override() {
         .expect("codex policy should apply");
 
     let joined = invocation.args.join(" ");
-    assert!(joined.contains("mcp_servers.ao.url=\"http://127.0.0.1:3101/mcp/ao\""));
+    assert!(joined.contains("mcp_servers.animus.url=\"http://127.0.0.1:3101/mcp/animus\""));
 }
 
 #[test]
@@ -138,10 +138,10 @@ fn native_mcp_policy_configures_claude_permission_mode() {
     };
     let enforcement = McpToolEnforcement {
         enabled: true,
-        endpoint: Some("http://127.0.0.1:3101/mcp/ao".to_string()),
+        endpoint: Some("http://127.0.0.1:3101/mcp/animus".to_string()),
         stdio: None,
-        agent_id: "ao".to_string(),
-        allowed_prefixes: vec!["ao.".to_string()],
+        agent_id: "animus".to_string(),
+        allowed_prefixes: vec!["animus.".to_string()],
         tool_policy_allow: Vec::new(),
         tool_policy_deny: Vec::new(),
         additional_servers: Vec::new(),
@@ -173,7 +173,7 @@ fn native_mcp_policy_preserves_primary_server_when_additional_server_name_collid
         enabled: true,
         endpoint: None,
         stdio: Some(McpStdioConfig {
-            command: "/path/to/ao/target/debug/ao".to_string(),
+            command: "/path/to/animus/target/debug/animus".to_string(),
             args: vec![
                 "--project-root".to_string(),
                 "/path/to/project".to_string(),
@@ -181,13 +181,13 @@ fn native_mcp_policy_preserves_primary_server_when_additional_server_name_collid
                 "serve".to_string(),
             ],
         }),
-        agent_id: "ao".to_string(),
-        allowed_prefixes: vec!["ao.".to_string()],
+        agent_id: "animus".to_string(),
+        allowed_prefixes: vec!["animus.".to_string()],
         tool_policy_allow: Vec::new(),
         tool_policy_deny: Vec::new(),
         additional_servers: vec![AdditionalMcpServer {
-            name: "ao".to_string(),
-            command: "ao".to_string(),
+            name: "animus".to_string(),
+            command: "animus".to_string(),
             args: vec!["mcp".to_string(), "serve".to_string()],
             env: HashMap::new(),
             url: None,
@@ -208,11 +208,11 @@ fn native_mcp_policy_preserves_primary_server_when_additional_server_name_collid
     let parsed: serde_json::Value = serde_json::from_str(&mcp_config).expect("claude mcp config should parse");
 
     assert_eq!(
-        parsed.pointer("/mcpServers/ao/command").and_then(serde_json::Value::as_str),
-        Some("/path/to/ao/target/debug/ao")
+        parsed.pointer("/mcpServers/animus/command").and_then(serde_json::Value::as_str),
+        Some("/path/to/animus/target/debug/animus")
     );
     assert_eq!(
-        parsed.pointer("/mcpServers/ao/args").and_then(serde_json::Value::as_array).cloned(),
+        parsed.pointer("/mcpServers/animus/args").and_then(serde_json::Value::as_array).cloned(),
         Some(vec![
             serde_json::Value::String("--project-root".to_string()),
             serde_json::Value::String("/path/to/project".to_string()),
@@ -226,32 +226,32 @@ fn native_mcp_policy_preserves_primary_server_when_additional_server_name_collid
 fn parse_codex_mcp_server_names_extracts_safe_names() {
     let payload = r#"
             [
-              {"name":"ao"},
+              {"name":"animus"},
               {"name":"shortcut"},
               {"name":"bad.name"},
               {"name":"with space"}
             ]
         "#;
-    assert_eq!(parse_codex_mcp_server_names(payload), vec!["ao".to_string(), "shortcut".to_string()]);
+    assert_eq!(parse_codex_mcp_server_names(payload), vec!["animus".to_string(), "shortcut".to_string()]);
 }
 
 #[test]
 fn codex_native_lockdown_disables_non_target_servers() {
     let mut args = vec!["exec".to_string(), "--json".to_string(), "hello".to_string()];
-    let configured_servers = vec!["shortcut".to_string(), "ao".to_string()];
+    let configured_servers = vec!["shortcut".to_string(), "animus".to_string()];
 
     apply_codex_native_mcp_lockdown(
         &mut args,
-        McpServerTransport::Http("http://127.0.0.1:3101/mcp/ao"),
-        "ao",
+        McpServerTransport::Http("http://127.0.0.1:3101/mcp/animus"),
+        "animus",
         &configured_servers,
         &[],
     );
 
     let joined = args.join(" ");
     assert!(joined.contains("mcp_servers.shortcut.enabled=false"));
-    assert!(joined.contains("mcp_servers.ao.url=\"http://127.0.0.1:3101/mcp/ao\""));
-    assert!(!joined.contains("mcp_servers.ao.enabled=false"));
+    assert!(joined.contains("mcp_servers.animus.url=\"http://127.0.0.1:3101/mcp/animus\""));
+    assert!(!joined.contains("mcp_servers.animus.enabled=false"));
 }
 
 #[test]
@@ -261,7 +261,7 @@ fn codex_native_lockdown_sets_stdio_transport_when_configured() {
     apply_codex_native_mcp_lockdown(
         &mut args,
         McpServerTransport::Stdio {
-            command: "/path/to/ao/target/debug/ao",
+            command: "/path/to/animus/target/debug/animus",
             args: &[
                 "--project-root".to_string(),
                 "/path/to/project".to_string(),
@@ -269,15 +269,15 @@ fn codex_native_lockdown_sets_stdio_transport_when_configured() {
                 "serve".to_string(),
             ],
         },
-        "ao",
+        "animus",
         &[],
         &[],
     );
 
     let joined = args.join(" ");
-    assert!(joined.contains("mcp_servers.ao.command=\"/path/to/ao/target/debug/ao\""));
-    assert!(joined.contains("mcp_servers.ao.args=[\"--project-root\", \"/path/to/project\", \"mcp\", \"serve\"]"));
-    assert!(joined.contains("mcp_servers.ao.enabled=true"));
+    assert!(joined.contains("mcp_servers.animus.command=\"/path/to/animus/target/debug/animus\""));
+    assert!(joined.contains("mcp_servers.animus.args=[\"--project-root\", \"/path/to/project\", \"mcp\", \"serve\"]"));
+    assert!(joined.contains("mcp_servers.animus.enabled=true"));
 }
 
 #[test]
@@ -292,7 +292,7 @@ fn native_mcp_policy_sets_gemini_system_settings_path_for_stdio_transport() {
         enabled: true,
         endpoint: None,
         stdio: Some(McpStdioConfig {
-            command: "/path/to/ao/target/debug/ao".to_string(),
+            command: "/path/to/animus/target/debug/animus".to_string(),
             args: vec![
                 "--project-root".to_string(),
                 "/path/to/project".to_string(),
@@ -300,8 +300,8 @@ fn native_mcp_policy_sets_gemini_system_settings_path_for_stdio_transport() {
                 "serve".to_string(),
             ],
         }),
-        agent_id: "ao".to_string(),
-        allowed_prefixes: vec!["ao.".to_string()],
+        agent_id: "animus".to_string(),
+        allowed_prefixes: vec!["animus.".to_string()],
         tool_policy_allow: Vec::new(),
         tool_policy_deny: Vec::new(),
         additional_servers: Vec::new(),
@@ -315,10 +315,10 @@ fn native_mcp_policy_sets_gemini_system_settings_path_for_stdio_transport() {
 
     let settings_path =
         env.get("GEMINI_CLI_SYSTEM_SETTINGS_PATH").expect("gemini settings path should be set").to_string();
-    assert!(invocation.args.windows(2).any(|pair| pair[0] == "--allowed-mcp-server-names" && pair[1] == "ao"));
+    assert!(invocation.args.windows(2).any(|pair| pair[0] == "--allowed-mcp-server-names" && pair[1] == "animus"));
     let settings = std::fs::read_to_string(&settings_path).expect("read gemini settings");
     assert!(
-        settings.contains("\"AO_MCP_SCHEMA_DRAFT\":\"draft07\""),
+        settings.contains("\"ANIMUS_MCP_SCHEMA_DRAFT\":\"draft07\""),
         "expected draft07 env in gemini settings, got: {settings}"
     );
     assert!(settings.contains("\"type\":\"stdio\""), "expected stdio transport in gemini settings, got: {settings}");
@@ -334,10 +334,10 @@ fn native_mcp_policy_sets_gemini_http_settings_without_schema_override() {
     };
     let enforcement = McpToolEnforcement {
         enabled: true,
-        endpoint: Some("http://127.0.0.1:3101/mcp/ao".to_string()),
+        endpoint: Some("http://127.0.0.1:3101/mcp/animus".to_string()),
         stdio: None,
-        agent_id: "ao".to_string(),
-        allowed_prefixes: vec!["ao.".to_string()],
+        agent_id: "animus".to_string(),
+        allowed_prefixes: vec!["animus.".to_string()],
         tool_policy_allow: Vec::new(),
         tool_policy_deny: Vec::new(),
         additional_servers: Vec::new(),
@@ -354,11 +354,11 @@ fn native_mcp_policy_sets_gemini_http_settings_without_schema_override() {
     let settings = std::fs::read_to_string(&settings_path).expect("read gemini settings");
     assert!(settings.contains("\"type\":\"http\""), "expected http transport in gemini settings, got: {settings}");
     assert!(
-        settings.contains("\"url\":\"http://127.0.0.1:3101/mcp/ao\""),
+        settings.contains("\"url\":\"http://127.0.0.1:3101/mcp/animus\""),
         "expected ao endpoint in gemini settings, got: {settings}"
     );
     assert!(
-        !settings.contains("\"AO_MCP_SCHEMA_DRAFT\""),
+        !settings.contains("\"ANIMUS_MCP_SCHEMA_DRAFT\""),
         "did not expect schema override env for gemini http transport, got: {settings}"
     );
 }
@@ -375,7 +375,7 @@ fn native_mcp_policy_sets_opencode_local_mcp_command_array() {
         enabled: true,
         endpoint: None,
         stdio: Some(McpStdioConfig {
-            command: "/path/to/ao/target/debug/ao".to_string(),
+            command: "/path/to/animus/target/debug/animus".to_string(),
             args: vec![
                 "--project-root".to_string(),
                 "/path/to/project".to_string(),
@@ -383,8 +383,8 @@ fn native_mcp_policy_sets_opencode_local_mcp_command_array() {
                 "serve".to_string(),
             ],
         }),
-        agent_id: "ao".to_string(),
-        allowed_prefixes: vec!["ao.".to_string()],
+        agent_id: "animus".to_string(),
+        allowed_prefixes: vec!["animus.".to_string()],
         tool_policy_allow: Vec::new(),
         tool_policy_deny: Vec::new(),
         additional_servers: Vec::new(),
@@ -398,19 +398,19 @@ fn native_mcp_policy_sets_opencode_local_mcp_command_array() {
 
     let config_raw = env.get("OPENCODE_CONFIG_CONTENT").expect("opencode config should be provided");
     let parsed: serde_json::Value = serde_json::from_str(config_raw).expect("opencode config should be valid JSON");
-    assert_eq!(parsed.pointer("/mcp/ao/type").and_then(serde_json::Value::as_str), Some("local"));
+    assert_eq!(parsed.pointer("/mcp/animus/type").and_then(serde_json::Value::as_str), Some("local"));
     assert_eq!(
-        parsed.pointer("/mcp/ao/command/0").and_then(serde_json::Value::as_str),
-        Some("/path/to/ao/target/debug/ao")
+        parsed.pointer("/mcp/animus/command/0").and_then(serde_json::Value::as_str),
+        Some("/path/to/animus/target/debug/animus")
     );
-    assert_eq!(parsed.pointer("/mcp/ao/command/4").and_then(serde_json::Value::as_str), Some("serve"));
-    assert!(parsed.pointer("/mcp/ao/args").is_none());
+    assert_eq!(parsed.pointer("/mcp/animus/command/4").and_then(serde_json::Value::as_str), Some("serve"));
+    assert!(parsed.pointer("/mcp/animus/args").is_none());
 }
 
 #[test]
 fn native_mcp_policy_inserts_oai_runner_mcp_config_after_run_subcommand() {
     let mut invocation = LaunchInvocation {
-        command: "ao-oai-runner".to_string(),
+        command: "animus-oai-runner".to_string(),
         args: vec![
             "run".to_string(),
             "-m".to_string(),
@@ -426,7 +426,7 @@ fn native_mcp_policy_inserts_oai_runner_mcp_config_after_run_subcommand() {
         enabled: true,
         endpoint: None,
         stdio: Some(McpStdioConfig {
-            command: "/path/to/ao/target/debug/ao".to_string(),
+            command: "/path/to/animus/target/debug/animus".to_string(),
             args: vec![
                 "mcp".to_string(),
                 "serve".to_string(),
@@ -434,8 +434,8 @@ fn native_mcp_policy_inserts_oai_runner_mcp_config_after_run_subcommand() {
                 "/path/to/project".to_string(),
             ],
         }),
-        agent_id: "ao".to_string(),
-        allowed_prefixes: vec!["ao.".to_string()],
+        agent_id: "animus".to_string(),
+        allowed_prefixes: vec!["animus.".to_string()],
         tool_policy_allow: Vec::new(),
         tool_policy_deny: Vec::new(),
         additional_servers: Vec::new(),
@@ -456,10 +456,10 @@ fn native_mcp_policy_inserts_oai_runner_mcp_config_after_run_subcommand() {
 fn enforcement_with_tool_policy(allow: Vec<&str>, deny: Vec<&str>) -> McpToolEnforcement {
     McpToolEnforcement {
         enabled: true,
-        endpoint: Some("http://127.0.0.1:3101/mcp/ao".to_string()),
+        endpoint: Some("http://127.0.0.1:3101/mcp/animus".to_string()),
         stdio: None,
-        agent_id: "ao".to_string(),
-        allowed_prefixes: vec!["ao.".to_string(), "mcp__ao__".to_string()],
+        agent_id: "animus".to_string(),
+        allowed_prefixes: vec!["animus.".to_string(), "mcp__animus__".to_string()],
         tool_policy_allow: allow.into_iter().map(ToString::to_string).collect(),
         tool_policy_deny: deny.into_iter().map(ToString::to_string).collect(),
         additional_servers: Vec::new(),
@@ -469,47 +469,47 @@ fn enforcement_with_tool_policy(allow: Vec<&str>, deny: Vec<&str>) -> McpToolEnf
 #[test]
 fn tool_policy_empty_permits_all_prefixed_tools() {
     let enforcement = enforcement_with_tool_policy(vec![], vec![]);
-    assert!(is_tool_call_allowed("ao.task.list", &serde_json::json!({}), &enforcement));
-    assert!(is_tool_call_allowed("ao.daemon.start", &serde_json::json!({}), &enforcement));
+    assert!(is_tool_call_allowed("animus.task.list", &serde_json::json!({}), &enforcement));
+    assert!(is_tool_call_allowed("animus.daemon.start", &serde_json::json!({}), &enforcement));
 }
 
 #[test]
 fn tool_policy_allowlist_restricts_to_matching() {
-    let enforcement = enforcement_with_tool_policy(vec!["ao.task.*"], vec![]);
-    assert!(is_tool_call_allowed("ao.task.list", &serde_json::json!({}), &enforcement));
-    assert!(is_tool_call_allowed("ao.task.get", &serde_json::json!({}), &enforcement));
-    assert!(!is_tool_call_allowed("ao.daemon.start", &serde_json::json!({}), &enforcement));
+    let enforcement = enforcement_with_tool_policy(vec!["animus.task.*"], vec![]);
+    assert!(is_tool_call_allowed("animus.task.list", &serde_json::json!({}), &enforcement));
+    assert!(is_tool_call_allowed("animus.task.get", &serde_json::json!({}), &enforcement));
+    assert!(!is_tool_call_allowed("animus.daemon.start", &serde_json::json!({}), &enforcement));
 }
 
 #[test]
 fn tool_policy_denylist_blocks_matching() {
-    let enforcement = enforcement_with_tool_policy(vec![], vec!["ao.daemon.*"]);
-    assert!(is_tool_call_allowed("ao.task.list", &serde_json::json!({}), &enforcement));
-    assert!(!is_tool_call_allowed("ao.daemon.start", &serde_json::json!({}), &enforcement));
-    assert!(!is_tool_call_allowed("ao.daemon.stop", &serde_json::json!({}), &enforcement));
+    let enforcement = enforcement_with_tool_policy(vec![], vec!["animus.daemon.*"]);
+    assert!(is_tool_call_allowed("animus.task.list", &serde_json::json!({}), &enforcement));
+    assert!(!is_tool_call_allowed("animus.daemon.start", &serde_json::json!({}), &enforcement));
+    assert!(!is_tool_call_allowed("animus.daemon.stop", &serde_json::json!({}), &enforcement));
 }
 
 #[test]
 fn tool_policy_deny_overrides_allow() {
-    let enforcement = enforcement_with_tool_policy(vec!["ao.*"], vec!["ao.daemon.*"]);
-    assert!(is_tool_call_allowed("ao.task.list", &serde_json::json!({}), &enforcement));
-    assert!(!is_tool_call_allowed("ao.daemon.start", &serde_json::json!({}), &enforcement));
+    let enforcement = enforcement_with_tool_policy(vec!["animus.*"], vec!["animus.daemon.*"]);
+    assert!(is_tool_call_allowed("animus.task.list", &serde_json::json!({}), &enforcement));
+    assert!(!is_tool_call_allowed("animus.daemon.start", &serde_json::json!({}), &enforcement));
 }
 
 #[test]
 fn tool_policy_does_not_affect_phase_transition() {
-    let enforcement = enforcement_with_tool_policy(vec!["ao.task.*"], vec![]);
+    let enforcement = enforcement_with_tool_policy(vec!["animus.task.*"], vec![]);
     assert!(is_tool_call_allowed("phase_transition", &serde_json::json!({}), &enforcement));
 }
 
 #[test]
 fn tool_policy_glob_match_basics() {
-    assert!(tool_policy_glob_match("ao.*", "ao.task"));
-    assert!(tool_policy_glob_match("ao.task.*", "ao.task.list"));
+    assert!(tool_policy_glob_match("animus.*", "animus.task"));
+    assert!(tool_policy_glob_match("animus.task.*", "animus.task.list"));
     assert!(tool_policy_glob_match("*", "anything"));
-    assert!(!tool_policy_glob_match("ao.task.*", "ao.daemon.start"));
-    assert!(tool_policy_glob_match("ao.task.list", "ao.task.list"));
-    assert!(!tool_policy_glob_match("ao.task.list", "ao.task.get"));
+    assert!(!tool_policy_glob_match("animus.task.*", "animus.daemon.start"));
+    assert!(tool_policy_glob_match("animus.task.list", "animus.task.list"));
+    assert!(!tool_policy_glob_match("animus.task.list", "animus.task.get"));
 }
 
 #[test]
@@ -521,20 +521,20 @@ fn resolve_enforcement_parses_tool_policy_from_contract() {
             "launch": { "args": ["--print", "hello"] }
         },
         "mcp": {
-            "endpoint": "http://127.0.0.1:3101/mcp/ao",
-            "agent_id": "ao",
+            "endpoint": "http://127.0.0.1:3101/mcp/animus",
+            "agent_id": "animus",
             "tool_policy": {
-                "allow": ["ao.task.*", "ao.workflow.*"],
-                "deny": ["ao.task.delete"]
+                "allow": ["animus.task.*", "animus.workflow.*"],
+                "deny": ["animus.task.delete"]
             }
         }
     });
     let enforcement = resolve_mcp_tool_enforcement(Some(&contract));
-    assert_eq!(enforcement.tool_policy_allow, vec!["ao.task.*", "ao.workflow.*"]);
-    assert_eq!(enforcement.tool_policy_deny, vec!["ao.task.delete"]);
-    assert!(is_tool_call_allowed("ao.task.list", &serde_json::json!({}), &enforcement));
-    assert!(!is_tool_call_allowed("ao.task.delete", &serde_json::json!({}), &enforcement));
-    assert!(!is_tool_call_allowed("ao.daemon.start", &serde_json::json!({}), &enforcement));
+    assert_eq!(enforcement.tool_policy_allow, vec!["animus.task.*", "animus.workflow.*"]);
+    assert_eq!(enforcement.tool_policy_deny, vec!["animus.task.delete"]);
+    assert!(is_tool_call_allowed("animus.task.list", &serde_json::json!({}), &enforcement));
+    assert!(!is_tool_call_allowed("animus.task.delete", &serde_json::json!({}), &enforcement));
+    assert!(!is_tool_call_allowed("animus.daemon.start", &serde_json::json!({}), &enforcement));
 }
 
 #[test]
@@ -546,8 +546,8 @@ fn resolve_enforcement_parses_additional_servers() {
             "launch": { "args": ["--print", "hello"] }
         },
         "mcp": {
-            "endpoint": "http://127.0.0.1:3101/mcp/ao",
-            "agent_id": "ao",
+            "endpoint": "http://127.0.0.1:3101/mcp/animus",
+            "agent_id": "animus",
             "additional_servers": {
                 "my-db": {
                     "command": "/usr/local/bin/db-mcp",
@@ -577,15 +577,15 @@ fn claude_lockdown_includes_additional_servers() {
     }];
     apply_claude_native_mcp_lockdown(
         &mut args,
-        McpServerTransport::Stdio { command: "/usr/local/bin/ao", args: &["mcp".to_string(), "serve".to_string()] },
-        "ao",
+        McpServerTransport::Stdio { command: "/usr/local/bin/animus", args: &["mcp".to_string(), "serve".to_string()] },
+        "animus",
         &additional,
     );
     let joined = args.join(" ");
     assert!(joined.contains("mcpServers"));
     let mcp_config_idx = args.iter().position(|a| a == "--mcp-config").unwrap();
     let config_json: serde_json::Value = serde_json::from_str(&args[mcp_config_idx + 1]).unwrap();
-    assert!(config_json.pointer("/mcpServers/ao").is_some());
+    assert!(config_json.pointer("/mcpServers/animus").is_some());
     assert!(config_json.pointer("/mcpServers/my-db").is_some());
     assert_eq!(
         config_json.pointer("/mcpServers/my-db/command").and_then(serde_json::Value::as_str),

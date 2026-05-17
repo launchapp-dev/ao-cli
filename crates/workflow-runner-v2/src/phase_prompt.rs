@@ -134,7 +134,7 @@ pub(crate) fn render_phase_prompt_with_ctx_overrides(
     let phase_contract = ctx.phase_output_contract(phase_id).cloned();
     let require_commit_message = phase_requires_commit_message_with_ctx(ctx, phase_id);
     let product_change_rule = if caps.enforce_product_changes {
-        "- For this phase, changes must include product source/config/test files outside `.ao/` unless the task is explicitly documentation-only."
+        "- For this phase, changes must include product source/config/test files outside `.animus/` unless the task is explicitly documentation-only."
     } else {
         ""
     };
@@ -653,7 +653,7 @@ fn phase_decision_extra_field_rule(contract: &orchestrator_core::PhaseDecisionCo
 
 pub(crate) fn phase_safety_rules(caps: &protocol::PhaseCapabilities) -> &'static str {
     if caps.is_research {
-        return "- For research phases, treat greenfield repositories as valid: missing app source files is not a blocker by itself.\n- Do targeted discovery only: inspect first-party code (`src/`, `apps/`, `db/`, `tests/`) and active `.ao` task/requirement docs; avoid broad recursive listings.\n- Do not scan dependency or checkpoint trees unless explicitly required: skip `node_modules/`, `.git/`, and scoped runtime state under `~/.ao/<scope>/`.\n- If code context is limited, produce concrete assumptions, risks, and a build-ready plan in repository artifacts instead of stopping.";
+        return "- For research phases, treat greenfield repositories as valid: missing app source files is not a blocker by itself.\n- Do targeted discovery only: inspect first-party code (`src/`, `apps/`, `db/`, `tests/`) and active `.ao` task/requirement docs; avoid broad recursive listings.\n- Do not scan dependency or checkpoint trees unless explicitly required: skip `node_modules/`, `.git/`, and scoped runtime state under `~/.animus/<scope>/`.\n- If code context is limited, produce concrete assumptions, risks, and a build-ready plan in repository artifacts instead of stopping.";
     }
 
     ""

@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use uuid::Uuid;
 
-pub const NOTIFICATION_CONFIG_SCHEMA: &str = "ao.daemon-notification-config.v1";
+pub const NOTIFICATION_CONFIG_SCHEMA: &str = "animus.daemon-notification-config.v1";
 const NOTIFICATION_CONFIG_VERSION: u32 = 1;
 const NOTIFICATION_CONFIG_PM_KEY: &str = "notification_config";
 const DEFAULT_CONNECTOR_TIMEOUT_SECS: u64 = 10;
@@ -734,7 +734,7 @@ fn build_delivery_payload(
     subscription_id: &str,
 ) -> Value {
     json!({
-        "schema": "ao.daemon.notification-delivery.v1",
+        "schema": "animus.daemon.notification-delivery.v1",
         "delivery_id": delivery_id,
         "connector_id": connector_id,
         "subscription_id": subscription_id,
@@ -943,7 +943,7 @@ fn pm_config_path(project_root: &str) -> PathBuf {
             return scoped_path;
         }
     }
-    path.join(".ao").join("pm-config.json")
+    path.join(".animus").join("pm-config.json")
 }
 
 fn load_jsonl_entries<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<Vec<T>> {
@@ -1031,8 +1031,8 @@ fn repo_scope_root(project_root: &str) -> Result<PathBuf> {
 }
 
 fn ao_root_dir() -> Result<PathBuf> {
-    let home = dirs::home_dir().ok_or_else(|| anyhow!("failed to resolve home directory for ~/.ao"))?;
-    Ok(home.join(".ao"))
+    let home = dirs::home_dir().ok_or_else(|| anyhow!("failed to resolve home directory for ~/.animus"))?;
+    Ok(home.join(".animus"))
 }
 
 fn repo_scope(project_root: &str) -> String {

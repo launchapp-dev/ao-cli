@@ -15,7 +15,7 @@ diagnosis impossible.
 
 This task:
 1. Redirects the child's **stderr** to a scoped log file at
-   `~/.ao/<scope>/daemon/daemon.log`.
+   `~/.animus/<scope>/daemon/daemon.log`.
 2. Applies **basic log rotation**: if that file exceeds 10 MiB on startup,
    rename it to `daemon.log.old` before opening.
 3. Adds **structured startup and shutdown log lines** (with RFC 3339 timestamps)
@@ -32,14 +32,14 @@ This task:
 ## Scope
 
 In scope:
-- Open `~/.ao/<scope>/daemon/daemon.log` in append mode from the spawner and
+- Open `~/.animus/<scope>/daemon/daemon.log` in append mode from the spawner and
   pass it as the child's `Stdio::from(file)` for **stderr**.
 - Keep `Stdio::null()` for **stdout** (structured events already go to
   `daemon-events.jsonl`).
 - Keep `Stdio::null()` for **stdin**.
 - Rotate before opening: if the log file is ≥ 10 MiB, rename it to
   `daemon.log.old` (overwriting any prior `.old` file).
-- Create the `~/.ao/<scope>/daemon/` directory if it does not exist.
+- Create the `~/.animus/<scope>/daemon/` directory if it does not exist.
 - In `handle_daemon_run`, emit one **startup** log line to stderr immediately
   after acquiring the run guard, and one **shutdown** log line before returning
   (success or error).
@@ -67,7 +67,7 @@ Out of scope:
   operator console — do not abort daemon spawn.
 - The log path must use the same `repository_scope_for_path` logic as
   `scoped_ao_root` in `shared/runner.rs` — specifically
-  `dirs::home_dir()/.ao/<scope>/daemon/daemon.log`.
+  `dirs::home_dir()/.animus/<scope>/daemon/daemon.log`.
 - Changes must compile without warnings (`cargo build -p orchestrator-cli`).
 - Existing daemon behavior (event emission, registry PID tracking) must be
   unchanged.
@@ -76,8 +76,8 @@ Out of scope:
 
 ### Log file path
 ```
-~/.ao/<repo-slug>-<12hex>/daemon/daemon.log
-~/.ao/<repo-slug>-<12hex>/daemon/daemon.log.old  (rotation target)
+~/.animus/<repo-slug>-<12hex>/daemon/daemon.log
+~/.animus/<repo-slug>-<12hex>/daemon/daemon.log.old  (rotation target)
 ```
 where `<repo-slug>-<12hex>` is the output of
 `protocol::repository_scope_for_path(project_root)`.
@@ -95,7 +95,7 @@ where `<repo-slug>-<12hex>` is the output of
 ## Functional Requirements
 
 ### FR-01: Log File Redirect
-`spawn_autonomous_daemon_run` must open `~/.ao/<scope>/daemon/daemon.log` in
+`spawn_autonomous_daemon_run` must open `~/.animus/<scope>/daemon/daemon.log` in
 create-if-missing + append mode and pass it as `Stdio::from(file)` for the
 spawned child's stderr.
 
@@ -105,7 +105,7 @@ bytes), attempt to rename it to `daemon.log.old`. Rotation failure must be
 non-fatal.
 
 ### FR-03: Directory Creation
-Ensure `~/.ao/<scope>/daemon/` exists before opening the log file, using
+Ensure `~/.animus/<scope>/daemon/` exists before opening the log file, using
 `std::fs::create_dir_all`.
 
 ### FR-04: Soft-Fail on I/O Error
@@ -127,7 +127,7 @@ All timestamps in log lines must be RFC 3339 UTC (via `chrono::Utc::now().to_rfc
 ## Acceptance Criteria
 
 - `AC-01`: After `ao daemon start --autonomous`, the file
-  `~/.ao/<scope>/daemon/daemon.log` exists and contains at least a startup
+  `~/.animus/<scope>/daemon/daemon.log` exists and contains at least a startup
   log line.
 - `AC-02`: After daemon stops, a shutdown log line is present in the log file.
 - `AC-03`: Rust panics in the daemon subprocess appear in `daemon.log` (not
@@ -157,7 +157,7 @@ fn daemon_log_path(project_root: &str) -> PathBuf {
     let scope = protocol::repository_scope_for_path(&canonical);
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".ao")
+        .join(".animus")
         .join(scope)
         .join("daemon")
         .join("daemon.log")

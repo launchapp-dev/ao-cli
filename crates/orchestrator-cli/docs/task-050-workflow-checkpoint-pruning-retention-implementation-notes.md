@@ -14,7 +14,7 @@ checkpoint lookup semantics.
 - Keep all `.ao` state mutations service-driven (no direct manual JSON patching
   from command handlers).
 - Keep checkpoint ids monotonic; do not renumber historical checkpoints.
-- Preserve existing `ao.cli.v1` envelope behavior.
+- Preserve existing `animus.cli.v1` envelope behavior.
 - Preserve backward compatibility for older checkpoint payloads that do not
   include phase metadata.
 - Keep auto-prune on completion optional and non-fatal when enabled.

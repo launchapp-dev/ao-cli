@@ -2,7 +2,7 @@ use clap::{Args, Subcommand};
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum PluginCommand {
-    /// Discover plugins on PATH, in `.ao/plugins/`, in `$AO_PLUGIN_PATH`, and via plugins.yaml.
+    /// Discover plugins on PATH, in `.animus/plugins/`, in `$ANIMUS_PLUGIN_PATH`, and via plugins.yaml.
     List(PluginListArgs),
     /// Print a plugin's manifest plus initialize-time capabilities.
     Info(PluginInfoArgs),
@@ -10,9 +10,9 @@ pub(crate) enum PluginCommand {
     Call(PluginCallArgs),
     /// Health-check a plugin by spawning it, completing the handshake, and pinging.
     Ping(PluginPingArgs),
-    /// Install a plugin binary from a local path or URL into ~/.ao/plugins/.
+    /// Install a plugin binary from a local path or URL into ~/.animus/plugins/.
     Install(PluginInstallArgs),
-    /// Remove a previously installed plugin from ~/.ao/plugins/ and plugins.yaml.
+    /// Remove a previously installed plugin from ~/.animus/plugins/ and plugins.yaml.
     Uninstall(PluginUninstallArgs),
 }
 
@@ -27,7 +27,8 @@ pub(crate) struct PluginInstallArgs {
     /// Optional logical plugin name. Defaults to the binary file name.
     #[arg(long, value_name = "NAME")]
     pub(crate) name: Option<String>,
-    /// Expected SHA256 hex digest. When supplied, the install fails if the
+    /// Expected SHA256 hex digest. Required when installing from `--url`;
+    /// optional when installing from `--path`. The install fails if the
     /// downloaded/copied binary's checksum does not match.
     #[arg(long, value_name = "HEX")]
     pub(crate) sha256: Option<String>,
@@ -47,7 +48,7 @@ pub(crate) struct PluginUninstallArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct PluginListArgs {
-    #[arg(long, default_value_t = false, help = "Also scan $PATH for ao-provider-* and ao-plugin-* binaries.")]
+    #[arg(long, default_value_t = false, help = "Also scan $PATH for animus-provider-* and animus-plugin-* binaries.")]
     pub(crate) include_system_path: bool,
 }
 

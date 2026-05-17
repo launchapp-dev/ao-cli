@@ -7,7 +7,7 @@
 - Requirement: unlinked in current task metadata
 
 ## Objective
-Define a deterministic contract that fixes `ao.daemon.events` over MCP and
+Define a deterministic contract that fixes `animus.daemon.events` over MCP and
 exposes scheduler outcomes as queryable daemon events without breaking existing
 CLI streaming behavior.
 
@@ -24,7 +24,7 @@ CLI streaming behavior.
 
 ## Scope
 In scope for implementation after this requirements phase:
-- Make `ao.daemon.events` MCP behavior polling-safe and deterministic for
+- Make `animus.daemon.events` MCP behavior polling-safe and deterministic for
   request/response usage.
 - Return recent daemon events as structured JSON data (`events` array), not raw
   stream text parsing.
@@ -36,10 +36,10 @@ In scope for implementation after this requirements phase:
 - Keep documentation aligned with final MCP behavior.
 
 Out of scope for this task:
-- Replacing daemon event schema `ao.daemon.event.v1`.
+- Replacing daemon event schema `animus.daemon.event.v1`.
 - Removing or redesigning CLI follow/stream semantics for `ao daemon events`.
 - Reworking notification connector architecture.
-- Manual edits to `.ao/*.json`.
+- Manual edits to `.animus/*.json`.
 
 ## Constraints
 - Preserve compatibility for existing daemon event records (`schema`, `id`,
@@ -55,7 +55,7 @@ Out of scope for this task:
 ## Functional Requirements
 
 ### FR-01: Polling-Safe MCP Daemon Events Response
-- MCP `ao.daemon.events` must return structured JSON containing recent daemon
+- MCP `animus.daemon.events` must return structured JSON containing recent daemon
   events and metadata suitable for polling.
 - Response must not depend on follow/stream semantics.
 - For non-empty event logs, `result` must be non-null and include parsed events.
@@ -97,7 +97,7 @@ Out of scope for this task:
   fields required by FR-04.
 
 ## Acceptance Criteria
-- `AC-01`: MCP `ao.daemon.events` returns structured `events` data (not `null`)
+- `AC-01`: MCP `animus.daemon.events` returns structured `events` data (not `null`)
   when daemon events exist.
 - `AC-02`: Polling response is deterministic and bounded by requested limit.
 - `AC-03`: Polling response supports project-root scoping and excludes unrelated

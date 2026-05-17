@@ -6,14 +6,14 @@ use std::hash::{Hash, Hasher};
 const RUNNER_IPC_TIMEOUT: Duration = Duration::from_millis(900);
 
 pub(super) fn runner_config_dir(project_root: &Path) -> PathBuf {
-    let config_dir = project_runtime_root(project_root).unwrap_or_else(|| project_root.join(".ao")).join("runner");
+    let config_dir = project_runtime_root(project_root).unwrap_or_else(|| project_root.join(".animus")).join("runner");
 
     normalize_runner_config_dir(config_dir)
 }
 
 fn project_runtime_root(project_root: &Path) -> Option<PathBuf> {
     let home = dirs::home_dir()?;
-    Some(home.join(".ao").join(protocol::repository_scope_for_path(project_root)))
+    Some(home.join(".animus").join(protocol::repository_scope_for_path(project_root)))
 }
 
 fn normalize_runner_config_dir(config_dir: PathBuf) -> PathBuf {
@@ -409,14 +409,14 @@ pub(super) async fn ensure_agent_runner_running(project_root: &Path) -> Result<O
 
     let mut command = Command::new(&binary);
     command
-        .env("AO_CONFIG_DIR", &config_dir)
+        .env("ANIMUS_CONFIG_DIR", &config_dir)
         .env_remove("CLAUDECODE")
         .env_remove("CLAUDE_CODE_ENTRYPOINT")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .stdin(Stdio::null());
     if let Some(build_id) = expected_build_id.as_deref() {
-        command.env("AO_RUNNER_BUILD_ID", build_id);
+        command.env("ANIMUS_RUNNER_BUILD_ID", build_id);
     }
 
     #[cfg(unix)]
@@ -787,11 +787,11 @@ mod tests {
         let config_before = protocol::Config::load_from_dir(&runner_config_dir).expect("load config before startup");
         assert!(config_before.agent_runner_token.is_none(), "token should be absent before startup");
 
-        let original_skip_runner = std::env::var("AO_SKIP_RUNNER_START").ok();
+        let original_skip_runner = std::env::var("ANIMUS_SKIP_RUNNER_START").ok();
         let original_token_override = std::env::var("AGENT_RUNNER_TOKEN").ok();
         let original_cwd = std::env::current_dir().ok();
 
-        std::env::remove_var("AO_SKIP_RUNNER_START");
+        std::env::remove_var("ANIMUS_SKIP_RUNNER_START");
         std::env::remove_var("AGENT_RUNNER_TOKEN");
 
         let expected_build_id = runner_binary_build_id(&_binary);
@@ -802,9 +802,9 @@ mod tests {
         }
 
         if let Some(val) = original_skip_runner {
-            std::env::set_var("AO_SKIP_RUNNER_START", val);
+            std::env::set_var("ANIMUS_SKIP_RUNNER_START", val);
         } else {
-            std::env::remove_var("AO_SKIP_RUNNER_START");
+            std::env::remove_var("ANIMUS_SKIP_RUNNER_START");
         }
         if let Some(val) = original_token_override {
             std::env::set_var("AGENT_RUNNER_TOKEN", val);
@@ -824,11 +824,11 @@ mod tests {
         assert_eq!(status.active_agents, 0, "runner should have no active agents initially");
         assert_eq!(status.build_id, expected_build_id, "runner should report the launched build id");
 
-        let original_skip_runner2 = std::env::var("AO_SKIP_RUNNER_START").ok();
+        let original_skip_runner2 = std::env::var("ANIMUS_SKIP_RUNNER_START").ok();
         let original_token_override2 = std::env::var("AGENT_RUNNER_TOKEN").ok();
         let original_cwd2 = std::env::current_dir().ok();
 
-        std::env::remove_var("AO_SKIP_RUNNER_START");
+        std::env::remove_var("ANIMUS_SKIP_RUNNER_START");
         std::env::remove_var("AGENT_RUNNER_TOKEN");
 
         let second_startup_result = ensure_agent_runner_running(&project_root).await;
@@ -838,9 +838,9 @@ mod tests {
         }
 
         if let Some(val) = original_skip_runner2 {
-            std::env::set_var("AO_SKIP_RUNNER_START", val);
+            std::env::set_var("ANIMUS_SKIP_RUNNER_START", val);
         } else {
-            std::env::remove_var("AO_SKIP_RUNNER_START");
+            std::env::remove_var("ANIMUS_SKIP_RUNNER_START");
         }
         if let Some(val) = original_token_override2 {
             std::env::set_var("AGENT_RUNNER_TOKEN", val);

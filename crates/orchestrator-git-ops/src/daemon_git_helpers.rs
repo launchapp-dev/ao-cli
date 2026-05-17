@@ -48,7 +48,7 @@ pub fn default_task_worktree_name(task_id: &str) -> String {
 }
 
 pub fn default_task_branch_name(task_id: &str) -> String {
-    format!("ao/{}", protocol::sanitize_identifier(task_id, "task"))
+    format!("animus/{}", protocol::sanitize_identifier(task_id, "task"))
 }
 
 pub fn repo_ao_root(project_root: &str) -> Result<PathBuf> {

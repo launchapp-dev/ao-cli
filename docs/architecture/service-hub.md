@@ -26,7 +26,7 @@ Each accessor returns an `Arc<dyn Trait>` so callers can share service implement
 At startup it:
 
 1. resolves the project root
-2. bootstraps `.ao/` project config and the repo-scoped runtime root under `~/.ao/<repo-scope>/`
+2. bootstraps `.animus/` project config and the repo-scoped runtime root under `~/.animus/<repo-scope>/`
 3. loads `core-state.json`
 4. loads persisted workflows, tasks, and requirements from `workflow.db`
 5. returns a service hub backed by filesystem and SQLite state
@@ -34,7 +34,7 @@ At startup it:
 Important runtime files:
 
 ```text
-~/.ao/<repo-scope>/
+~/.animus/<repo-scope>/
 ├── core-state.json
 ├── resume-config.json
 ├── workflow.db

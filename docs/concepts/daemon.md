@@ -113,7 +113,7 @@ animus daemon resume                # Resume dispatch
 animus daemon stop                  # Graceful shutdown
 ```
 
-When started with `--autonomous`, the daemon forks a child process. Stderr is redirected to `<project_root>/.ao/daemon.log` (with log rotation at 10MB).
+When started with `--autonomous`, the daemon forks a child process. Stderr is redirected to `<project_root>/.animus/daemon.log` (with log rotation at 10MB).
 
 ### Failure Recovery
 

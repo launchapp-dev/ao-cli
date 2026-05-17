@@ -13,7 +13,7 @@ Options:
   --incremental  Remove only target/debug/incremental.
   --debug        Remove target/debug but keep target/release.
   --all          Run cargo clean for the current repo.
-  --worktrees    Also prune stale ~/.ao/*/worktrees/*/target directories.
+  --worktrees    Also prune stale ~/.animus/*/worktrees/*/target directories.
   --days N       Age threshold for --worktrees pruning. Defaults to 7.
   -h, --help     Show this help.
 EOF
@@ -98,7 +98,7 @@ print_report() {
     while IFS= read -r -d '' path; do
       found=1
       echo "$(size_of "$path")  $path"
-    done < <(find "${HOME}/.ao" -type d -path '*/worktrees/*/target' -mtime +"$days" -print0 2>/dev/null)
+    done < <(find "${HOME}/.animus" -type d -path '*/worktrees/*/target' -mtime +"$days" -print0 2>/dev/null)
     if [[ "$found" -eq 0 ]]; then
       echo "none"
     fi
@@ -123,7 +123,7 @@ prune_stale_worktrees() {
   while IFS= read -r -d '' path; do
     remove_path "$path"
     count=$((count + 1))
-  done < <(find "${HOME}/.ao" -type d -path '*/worktrees/*/target' -mtime +"$days" -print0 2>/dev/null)
+  done < <(find "${HOME}/.animus" -type d -path '*/worktrees/*/target' -mtime +"$days" -print0 2>/dev/null)
   echo "pruned stale worktree targets: $count"
 }
 

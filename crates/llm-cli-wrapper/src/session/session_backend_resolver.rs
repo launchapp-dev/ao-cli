@@ -35,7 +35,7 @@ impl SessionBackendResolver {
 
     /// Construct a resolver that prefers discovered AO STDIO provider plugins for any tool
     /// whose name matches a discovered plugin's `provider_tool` (default: plugin name minus
-    /// the `ao-provider-` prefix). In-tree backends remain as fallback for tools without
+    /// the `animus-provider-` prefix). In-tree backends remain as fallback for tools without
     /// a discovered plugin.
     pub fn with_plugin_discovery(project_root: &Path) -> Self {
         let mut resolver = Self::new();
@@ -60,7 +60,7 @@ impl SessionBackendResolver {
             || request.tool.eq_ignore_ascii_case("gemini")
             || request.tool.eq_ignore_ascii_case("opencode")
             || request.tool.eq_ignore_ascii_case("oai-runner")
-            || request.tool.eq_ignore_ascii_case("ao-oai-runner")
+            || request.tool.eq_ignore_ascii_case("animus-oai-runner")
         {
             return None;
         }
@@ -85,7 +85,7 @@ impl SessionBackendResolver {
         if request.tool.eq_ignore_ascii_case("opencode") {
             return self.opencode.clone();
         }
-        if request.tool.eq_ignore_ascii_case("oai-runner") || request.tool.eq_ignore_ascii_case("ao-oai-runner") {
+        if request.tool.eq_ignore_ascii_case("oai-runner") || request.tool.eq_ignore_ascii_case("animus-oai-runner") {
             return self.oai_runner.clone();
         }
 

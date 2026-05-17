@@ -38,7 +38,7 @@ agents:
 | `communication` | Optional channel/direct-message permissions. Enabled agents receive bounded recent channel messages in phase prompts. |
 | `mcp_servers` | List of MCP server names (defined at the workflow level) the agent can call. |
 
-Agent memory and messages are project-scoped runtime state under `~/.ao/<repo-scope>/state/agents/`.
+Agent memory and messages are project-scoped runtime state under `~/.animus/<repo-scope>/state/agents/`.
 Use `animus agent memory ...` and `animus agent message ...` or the equivalent MCP tools to update them.
 
 ---

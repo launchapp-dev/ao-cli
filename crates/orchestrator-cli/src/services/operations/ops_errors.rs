@@ -217,7 +217,7 @@ mod tests {
         data: Value,
     ) -> crate::services::runtime::DaemonEventRecord {
         crate::services::runtime::DaemonEventRecord {
-            schema: "ao.daemon.event.v1".to_string(),
+            schema: "animus.daemon.event.v1".to_string(),
             id: event_id.to_string(),
             seq: 1,
             timestamp: Utc::now().to_rfc3339(),
@@ -232,7 +232,7 @@ mod tests {
         let _lock = crate::shared::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
 
         let config_root = TempDir::new().expect("config temp dir");
-        let _config_guard = EnvVarGuard::set("AO_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
+        let _config_guard = EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
         let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
 
         let project_root = TempDir::new().expect("project temp dir");

@@ -11,7 +11,7 @@ behavioral scope.
 - Preserve runtime behavior for existing HTTP/MCP flows.
 - Preserve required Axum feature coverage (`macros`, `ws`).
 - Avoid unrelated dependency churn.
-- Do not manually edit `.ao/*.json`.
+- Do not manually edit `.animus/*.json`.
 
 ## Proposed Change Surface
 

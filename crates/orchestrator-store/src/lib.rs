@@ -9,7 +9,7 @@ pub fn project_state_dir(project_root: &str) -> PathBuf {
     if let Some(scoped) = protocol::scoped_state_root(Path::new(project_root)) {
         return scoped.join("state");
     }
-    Path::new(project_root).join(".ao").join("state")
+    Path::new(project_root).join(".animus").join("state")
 }
 
 pub fn read_json_or_default<T>(path: &Path) -> Result<T>

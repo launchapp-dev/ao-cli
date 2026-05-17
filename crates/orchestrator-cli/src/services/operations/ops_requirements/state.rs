@@ -60,7 +60,7 @@ pub(super) use orchestrator_core::{project_state_dir, read_json_or_default, writ
 
 fn core_state_path(project_root: &str) -> PathBuf {
     let root = Path::new(project_root);
-    let base = protocol::scoped_state_root(root).unwrap_or_else(|| root.join(".ao"));
+    let base = protocol::scoped_state_root(root).unwrap_or_else(|| root.join(".animus"));
     base.join("core-state.json")
 }
 
@@ -112,7 +112,7 @@ pub(super) fn save_requirements_map_to_core_state(
 
 fn write_requirements_docs(project_root: &str, requirements: &HashMap<String, RequirementItem>) -> Result<()> {
     let root = Path::new(project_root);
-    let base = protocol::scoped_state_root(root).unwrap_or_else(|| root.join(".ao"));
+    let base = protocol::scoped_state_root(root).unwrap_or_else(|| root.join(".animus"));
     let docs_dir = base.join("docs");
     fs::create_dir_all(&docs_dir)?;
     let mut items: Vec<_> = requirements.values().cloned().collect();
@@ -123,7 +123,7 @@ fn write_requirements_docs(project_root: &str, requirements: &HashMap<String, Re
 
 fn generated_requirements_dir(project_root: &str) -> PathBuf {
     let root = Path::new(project_root);
-    let base = protocol::scoped_state_root(root).unwrap_or_else(|| root.join(".ao"));
+    let base = protocol::scoped_state_root(root).unwrap_or_else(|| root.join(".animus"));
     base.join("requirements").join("generated")
 }
 

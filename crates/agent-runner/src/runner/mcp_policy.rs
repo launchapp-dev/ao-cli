@@ -59,7 +59,7 @@ pub(super) fn resolve_mcp_tool_enforcement(runtime_contract: Option<&serde_json:
             enabled: false,
             endpoint: None,
             stdio: None,
-            agent_id: "ao".to_string(),
+            agent_id: "animus".to_string(),
             allowed_prefixes: Vec::new(),
             tool_policy_allow: Vec::new(),
             tool_policy_deny: Vec::new(),
@@ -102,7 +102,7 @@ pub(super) fn resolve_mcp_tool_enforcement(runtime_contract: Option<&serde_json:
         .and_then(serde_json::Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("ao")
+        .unwrap_or("animus")
         .to_string();
     let explicit_enforce = contract.pointer("/mcp/enforce_only").and_then(serde_json::Value::as_bool);
     let enabled = explicit_enforce.unwrap_or((has_endpoint || has_stdio) && supports_mcp);
@@ -410,7 +410,7 @@ fn apply_gemini_native_mcp_lockdown(
             "command": command,
             "args": args,
             "env": {
-                "AO_MCP_SCHEMA_DRAFT": "draft07"
+                "ANIMUS_MCP_SCHEMA_DRAFT": "draft07"
             }
         }),
     };
@@ -606,9 +606,9 @@ pub(super) fn apply_native_mcp_policy(
             apply_opencode_native_mcp_lockdown(env, transport, agent_id, &additional);
             info!(run_id = %run_id.0.as_str(), cli = "opencode", "Applied OpenCode native MCP policy");
         }
-        "ao-oai-runner" => {
+        "animus-oai-runner" => {
             apply_oai_runner_native_mcp_lockdown(&mut invocation.args, transport);
-            info!(run_id = %run_id.0.as_str(), cli = "ao-oai-runner", "Applied AO OAI runner native MCP policy");
+            info!(run_id = %run_id.0.as_str(), cli = "animus-oai-runner", "Applied AO OAI runner native MCP policy");
         }
         _ => {
             bail!(

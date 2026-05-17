@@ -146,7 +146,7 @@ IPC protocol and session lifecycle.
 
 ```typescript
 interface DaemonEventRecord {
-  schema: string;       // e.g. "ao.daemon.v1.event"
+  schema: string;       // e.g. "animus.daemon.v1.event"
   id: string;           // UUID
   seq: number;          // Monotonic sequence number
   timestamp: string;    // RFC3339

@@ -55,7 +55,7 @@ Out of scope:
 - Workflow config schema version changes.
 - Agent runtime phase schema changes.
 - State-machine definition redesign.
-- Manual edits to `/.ao/*.json`.
+- Manual edits to `/.animus/*.json`.
 
 ## Constraints
 - Preserve deterministic behavior for in-memory service flows that do not have a

@@ -5,8 +5,8 @@ set -euo pipefail
 # Usage: curl -fsSL https://raw.githubusercontent.com/launchapp-dev/ao/main/install.sh | bash
 
 REPO="launchapp-dev/ao"
-INSTALL_DIR="${AO_INSTALL_DIR:-${HOME}/.local/bin}"
-BINARIES=(animus agent-runner llm-cli-wrapper ao-oai-runner ao-workflow-runner)
+INSTALL_DIR="${ANIMUS_INSTALL_DIR:-${HOME}/.local/bin}"
+BINARIES=(animus agent-runner llm-cli-wrapper animus-oai-runner ao-workflow-runner)
 
 info()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn()  { printf '\033[1;33mwarn:\033[0m %s\n' "$*"; }
@@ -23,8 +23,8 @@ detect_arch() {
 }
 
 detect_version() {
-  if [[ -n "${AO_VERSION:-}" ]]; then
-    echo "${AO_VERSION}"
+  if [[ -n "${ANIMUS_VERSION:-}" ]]; then
+    echo "${ANIMUS_VERSION}"
     return
   fi
 
@@ -33,7 +33,7 @@ detect_version() {
     | awk -F'"' '/"tag_name"/{print $4; exit}')" || true
 
   if [[ -z "${latest}" ]]; then
-    error "Could not determine latest release. Set AO_VERSION=vX.Y.Z to install a specific version."
+    error "Could not determine latest release. Set ANIMUS_VERSION=vX.Y.Z to install a specific version."
   fi
   echo "${latest}"
 }

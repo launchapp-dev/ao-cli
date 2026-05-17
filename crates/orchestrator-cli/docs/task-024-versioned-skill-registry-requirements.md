@@ -45,11 +45,11 @@ Out of scope for this task:
 - Executing skill payloads at runtime.
 - Interactive auth/login or external registry identity flows.
 - Web UI/TUI affordances for skill management.
-- Manual edits to `.ao/*.json` outside AO command flows.
+- Manual edits to `.animus/*.json` outside AO command flows.
 
 ## Constraints
 - Keep implementation Rust-only under `crates/`.
-- Preserve `ao.cli.v1` response envelope behavior when `--json` is enabled.
+- Preserve `animus.cli.v1` response envelope behavior when `--json` is enabled.
 - Preserve current exit-code mapping:
   - `2` invalid input
   - `3` not found
@@ -64,8 +64,8 @@ Out of scope for this task:
 
 ## State and Versioning Contract
 Project-scoped files introduced by this task:
-- `.ao/state/skills-registry.v1.json`
-- `.ao/state/skills-lock.v1.json`
+- `.animus/state/skills-registry.v1.json`
+- `.animus/state/skills-lock.v1.json`
 
 Minimum lock entry fields:
 - `name`
@@ -108,7 +108,7 @@ Additional resolver rules:
 - Duplicate publish (`name` + `version` at same source): `conflict` (`4`)
 - Registry backend unavailable: `unavailable` (`5`)
 
-All JSON errors must remain in `ao.cli.v1` envelope shape.
+All JSON errors must remain in `animus.cli.v1` envelope shape.
 
 ## Acceptance Criteria
 - `AC-01`: `ao skill` top-level command and all five lifecycle subcommands are
@@ -125,7 +125,7 @@ All JSON errors must remain in `ao.cli.v1` envelope shape.
 - `AC-07`: Resolver precedence follows the required order and is test-covered.
 - `AC-08`: Lockfile serialization is reproducible (stable ordering and
   byte-stable content across repeated no-op runs).
-- `AC-09`: JSON output for success/error remains compliant with `ao.cli.v1`
+- `AC-09`: JSON output for success/error remains compliant with `animus.cli.v1`
   envelope contract.
 - `AC-10`: Implementation remains repository-safe and avoids manual `.ao` state
   file edits.

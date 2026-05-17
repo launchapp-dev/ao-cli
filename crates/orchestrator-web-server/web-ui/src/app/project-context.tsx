@@ -27,7 +27,7 @@ export type ResolveProjectContextInput = {
   serverActiveProjectId: string | null;
 };
 
-const STORAGE_KEY = "ao.web.active_project";
+const STORAGE_KEY = "animus.web.active_project";
 
 const PROJECTS_QUERY = `
   query Projects {

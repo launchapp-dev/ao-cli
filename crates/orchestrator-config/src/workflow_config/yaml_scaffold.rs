@@ -60,7 +60,7 @@ pub fn ensure_workflow_yaml_scaffold(project_root: &Path) -> Result<Vec<PathBuf>
     let workflows_dir = yaml_workflows_dir(project_root);
     fs::create_dir_all(&workflows_dir).with_context(|| format!("failed to create {}", workflows_dir.display()))?;
 
-    let single_file = project_root.join(".ao").join("workflows.yaml");
+    let single_file = project_root.join(".animus").join("workflows.yaml");
     let has_existing_yaml = single_file.exists()
         || fs::read_dir(&workflows_dir)
             .with_context(|| format!("failed to read {}", workflows_dir.display()))?

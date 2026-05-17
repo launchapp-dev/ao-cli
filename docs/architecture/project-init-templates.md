@@ -18,7 +18,7 @@ existing pack system instead of bypassing it.
 
 Today `animus setup` does three useful but narrow things:
 
-1. bootstraps `.ao/` and scoped runtime state
+1. bootstraps `.animus/` and scoped runtime state
 2. writes a generic workflow YAML scaffold
 3. toggles daemon automation flags
 
@@ -58,7 +58,7 @@ The intended first-run flow:
    - inside an existing git repo
    - empty directory
    - dirty worktree
-   - existing `.ao/`
+   - existing `.animus/`
 3. Ask the operator what kind of Animus project they want:
    - `Conductor Pattern`
    - `Task Queue Pattern`
@@ -119,9 +119,9 @@ Packs remain responsible for:
 Templates should own:
 
 - which packs are installed and activated for a new project
-- which project-local workflow wrappers are written into `.ao/workflows/`
+- which project-local workflow wrappers are written into `.animus/workflows/`
 - which starter agents / model defaults are suggested
-- optional repository starter files outside `.ao/`
+- optional repository starter files outside `.animus/`
 - the onboarding questionnaire and explanatory copy
 
 The rule is:
@@ -157,7 +157,7 @@ A template registry should provide:
 - optional starter repositories or skeleton directories
 - references to packs that should be installed / activated
 
-The existing marketplace cache model under `~/.ao/` is a good fit for this.
+The existing marketplace cache model under `~/.animus/` is a good fit for this.
 
 ## Template Bundle Contract
 
@@ -172,7 +172,7 @@ README.md
 questions.yaml
 preview.md
 skeleton/
-  .ao/
+  .animus/
     workflows/
     workflows.yaml
   .github/
@@ -199,17 +199,17 @@ mode = "copy"
 root = "skeleton"
 
 [[packs]]
-id = "ao.task"
+id = "animus.task"
 version = "^0.1"
 activate = true
 
 [[packs]]
-id = "ao.requirement"
+id = "animus.requirement"
 version = "^0.1"
 activate = true
 
 [[packs]]
-id = "ao.review"
+id = "animus.review"
 version = "^0.1"
 activate = true
 
@@ -245,7 +245,7 @@ Copy files from a template skeleton directory into the target repo.
 
 Use this for:
 
-- `.ao/` starter config
+- `.animus/` starter config
 - minimal docs
 - GitHub workflow examples
 - repo-local helper scripts
@@ -381,7 +381,7 @@ The better design is:
 - Non-interactive automation must stay deterministic.
 - Packs remain the only reusable runtime behavior unit.
 - Project-local YAML stays editable after init.
-- Template registries must be Git-backed and cacheable under `~/.ao/`.
+- Template registries must be Git-backed and cacheable under `~/.animus/`.
 
 ## Recommended Next Step
 

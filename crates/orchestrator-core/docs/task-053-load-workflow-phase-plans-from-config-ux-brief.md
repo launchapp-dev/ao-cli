@@ -35,7 +35,7 @@ deterministic:
 
 | Screen ID | Surface | User goal | Required hierarchy |
 | --- | --- | --- | --- |
-| S1 | Pipeline config authoring (`.ao/state/workflow-config.v2.json`) | Define/adjust ordered phases per pipeline | pipeline id -> ordered phases -> save |
+| S1 | Pipeline config authoring (`.animus/state/workflow-config.v2.json`) | Define/adjust ordered phases per pipeline | pipeline id -> ordered phases -> save |
 | S2 | Workflow run (`ao workflow run --task-id ... --pipeline-id ...`) | Start a workflow with expected phase order | request -> resolved pipeline -> resulting phase order |
 | S3 | Requirements execution with workflow start (`execute/planning` flow) | Materialize tasks and auto-start workflows with matching pipeline phases | execute summary -> started workflows -> applied pipeline phases |
 | S4 | Workflow inspection (`ao workflow get`, checkpoints/decisions surfaces) | Verify active and upcoming phases reflect config | workflow status -> current phase -> full ordered phase list |
@@ -54,7 +54,7 @@ deterministic:
 ## Critical User Flows
 
 ### Flow A: Config-Driven Phase Change Takes Effect
-1. Maintainer adds or reorders phases in `.ao/state/workflow-config.v2.json`.
+1. Maintainer adds or reorders phases in `.animus/state/workflow-config.v2.json`.
 2. Operator runs `ao workflow run` for the affected pipeline.
 3. Workflow starts with phase list matching config order.
 4. Operator confirms phase order via workflow inspection surface.
@@ -100,7 +100,7 @@ Spacing rules:
 3. Keep command/output text ASCII-safe and copy-paste safe.
 4. Use explicit file paths and phase IDs in error messages (no ambiguous pronouns).
 5. Provide remediation text that can be executed directly (`fix config`, then rerun).
-6. Preserve `ao.cli.v1` JSON envelope shape for automation and screen-reader tooling.
+6. Preserve `animus.cli.v1` JSON envelope shape for automation and screen-reader tooling.
 7. Keep keyboard-only operation complete; no interactive prompt dependency for recovery.
 
 ## Risks and Mitigations

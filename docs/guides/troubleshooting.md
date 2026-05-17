@@ -70,7 +70,7 @@ env -u CLAUDECODE animus daemon start --autonomous
 animus workflow agent-runtime get    # Inspect current config
 ```
 
-Then either remove the YAML override from `.ao/workflows.yaml` / `.ao/workflows/*.yaml`, or replace the compiled runtime with explicit `null` values:
+Then either remove the YAML override from `.animus/workflows.yaml` / `.animus/workflows/*.yaml`, or replace the compiled runtime with explicit `null` values:
 
 ```bash
 animus workflow agent-runtime set --input-json '{"agents":{"default":{"model":null,"tool":null}}}'
@@ -145,7 +145,7 @@ animus daemon logs
 animus daemon clear-logs
 ```
 
-AO stores runtime state under `~/.ao/<repo-scope>/`, and log plumbing is managed by the runtime binaries rather than a project-local `.ao/daemon.log` contract.
+AO stores runtime state under `~/.animus/<repo-scope>/`, and log plumbing is managed by the runtime binaries rather than a project-local `.animus/daemon.log` contract.
 
 ## Workflow Stuck or Failed
 

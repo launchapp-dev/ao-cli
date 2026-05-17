@@ -120,7 +120,7 @@ Implementation phase must not change:
   - wait for readiness with deterministic timeout,
   - validate HTTP `200` + `text/html` for routes:
     - `/`, `/dashboard`, `/projects`, `/reviews/handoff`,
-  - validate `/api/v1/system/info` returns `ao.cli.v1` success envelope,
+  - validate `/api/v1/system/info` returns `animus.cli.v1` success envelope,
   - validate `api_only=true` rejects UI deep links with deterministic error
     envelope (`not_found`, exit code `3`),
   - terminate spawned server processes on pass/fail,
@@ -201,7 +201,7 @@ Implementation phase must not change:
 - `AC-03`: `web-ui-smoke-e2e` executes `npm run test:e2e:smoke` and uploads
   smoke diagnostics on failure.
 - `AC-04`: Smoke harness validates HTML route responses and
-  `/api/v1/system/info` envelope (`schema=ao.cli.v1`, `ok=true`).
+  `/api/v1/system/info` envelope (`schema=animus.cli.v1`, `ok=true`).
 - `AC-05`: Smoke harness validates `api_only=true` deep-link rejection with
   deterministic error envelope (`not_found`, `exit_code=3`).
 - `AC-06`: `release.yml` contains blocking `web-ui-gates` job with required

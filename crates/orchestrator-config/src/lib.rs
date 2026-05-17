@@ -34,7 +34,8 @@ pub use pack_config::{
     validate_pack_manifest_assets, ExternalRuntimeKind, LoadedPackManifest, PackCompatibility, PackDependency,
     PackKind, PackManifest, PackMcp, PackMcpOverlay, PackNativeModule, PackOwnership, PackOwnershipMode,
     PackPermissions, PackRuntime, PackRuntimeCheck, PackRuntimeCheckStatus, PackRuntimeReport, PackRuntimeRequirement,
-    PackSchedules, PackSecrets, PackSubjects, PackWorkflows, PACK_MANIFEST_FILE_NAME, PACK_MANIFEST_SCHEMA_ID,
+    PackSchedules, PackSecrets, PackSkills, PackSubjects, PackWorkflows, PACK_MANIFEST_FILE_NAME,
+    PACK_MANIFEST_SCHEMA_ID,
 };
 pub use pack_marketplace::{
     add_marketplace_registry, clone_marketplace_pack, get_github_token, load_marketplace_state, parse_github_url,
@@ -54,12 +55,14 @@ pub use pack_selection::{
 };
 pub use project_template::{
     default_project_template_registry_url, list_project_templates_from_default_registry,
-    list_project_templates_from_registry_root, load_project_template_from_default_registry,
+    list_project_templates_from_default_registry_with_options, list_project_templates_from_registry_root,
+    load_project_template_from_default_registry, load_project_template_from_default_registry_with_options,
     load_project_template_from_dir, load_project_template_from_file, load_project_template_from_registry_root,
-    parse_project_template_manifest, sync_default_project_template_registry, LoadedProjectTemplate,
-    ProjectTemplateDaemon, ProjectTemplateFile, ProjectTemplateManifest, ProjectTemplatePack, ProjectTemplateSource,
-    ProjectTemplateSourceKind, ProjectTemplateSourceMode, ProjectTemplateSummary, PROJECT_TEMPLATE_MANIFEST_FILE_NAME,
-    PROJECT_TEMPLATE_MANIFEST_SCHEMA_ID, PROJECT_TEMPLATE_REGISTRY_URL_ENV,
+    parse_project_template_manifest, sync_default_project_template_registry,
+    sync_default_project_template_registry_with_options, LoadedProjectTemplate, ProjectTemplateDaemon,
+    ProjectTemplateFile, ProjectTemplateManifest, ProjectTemplatePack, ProjectTemplateSource,
+    ProjectTemplateSourceKind, ProjectTemplateSourceMode, ProjectTemplateSummary, RegistrySyncOptions,
+    PROJECT_TEMPLATE_MANIFEST_FILE_NAME, PROJECT_TEMPLATE_MANIFEST_SCHEMA_ID, PROJECT_TEMPLATE_REGISTRY_URL_ENV,
 };
 pub use skill_definition::*;
 pub use workflow_config::*;

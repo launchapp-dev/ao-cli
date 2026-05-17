@@ -33,11 +33,11 @@ In scope for implementation after this requirements phase:
 - add deterministic tests proving message text does not control classification.
 
 Out of scope for this task:
-- changing the top-level `ao.cli.v1` JSON schema.
+- changing the top-level `animus.cli.v1` JSON schema.
 - changing command dispatch flow in `main.rs`.
 - changing `orchestrator-web-contracts` classifier behavior in this task slice.
 - broad cross-crate error-taxonomy unification outside `orchestrator-cli`.
-- direct manual edits to `.ao/*.json`.
+- direct manual edits to `.animus/*.json`.
 
 ## Constraints
 - Preserve current exit-code mapping contract:
@@ -100,7 +100,7 @@ Out of scope for this task:
 
 ### FR-06: Output Contract Compatibility
 - JSON error envelope remains:
-  - `schema: "ao.cli.v1"`
+  - `schema: "animus.cli.v1"`
   - `ok: false`
   - `error.code`
   - `error.message`
@@ -135,7 +135,7 @@ Out of scope for this task:
 - `AC-07`: untyped errors still classify deterministically as `internal`.
 - `AC-08`: targeted tests pass for typed classification behavior and output
   contract compatibility.
-- `AC-09`: no direct edits are made to `.ao/*.json`.
+- `AC-09`: no direct edits are made to `.animus/*.json`.
 
 ## Testable Acceptance Checklist
 - `T-01`: unit tests for `CliErrorKind` code/exit-code mapping.

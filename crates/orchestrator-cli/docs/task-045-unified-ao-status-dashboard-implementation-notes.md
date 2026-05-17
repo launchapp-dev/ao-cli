@@ -13,10 +13,10 @@ rollups, recent outcomes, and optional CI status.
 ## Non-Negotiable Constraints
 - Keep implementation read-only (no state mutation side effects).
 - Keep output deterministic and project-scoped.
-- Preserve `ao.cli.v1` envelope behavior for `--json`.
+- Preserve `animus.cli.v1` envelope behavior for `--json`.
 - Keep degraded sections non-fatal (especially CI and daemon-connectivity edge
   cases).
-- Do not manually edit `.ao/*.json`.
+- Do not manually edit `.animus/*.json`.
 
 ## Proposed Change Surface
 
@@ -40,7 +40,7 @@ rollups, recent outcomes, and optional CI status.
   - `RecentCompletionEntry`,
   - `RecentFailureEntry`,
   - `CiStatusSlice`.
-- Include payload schema marker (for example `ao.status.v1`) inside `data`.
+- Include payload schema marker (for example `animus.status.v1`) inside `data`.
 
 ### 4) Data Collection Helpers
 - `collect_daemon_slice`:
@@ -66,7 +66,7 @@ rollups, recent outcomes, and optional CI status.
 
 ### 5) Rendering Strategy
 - JSON mode:
-  - emit `StatusDashboard` through `print_value` (enveloped by `ao.cli.v1`).
+  - emit `StatusDashboard` through `print_value` (enveloped by `animus.cli.v1`).
 - Non-JSON mode:
   - render a concise sectioned dashboard with fixed ordering and labels.
   - keep field names aligned with JSON payload keys to simplify operator/MCP

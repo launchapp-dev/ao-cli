@@ -2,7 +2,7 @@
 
 ## Scope
 
-Backfill missing `category` and `type` metadata for requirement records `REQ-007` through `REQ-024` in `.ao/requirements/generated/`.
+Backfill missing `category` and `type` metadata for requirement records `REQ-007` through `REQ-024` in `.animus/requirements/generated/`.
 
 This task is metadata-only and does not change requirement IDs, titles, descriptions, acceptance criteria, priorities, status, links, or timestamps.
 

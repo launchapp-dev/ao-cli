@@ -36,7 +36,7 @@ In scope for implementation after this requirements phase:
 Out of scope for this task:
 - Endpoint, protocol, or runtime behavior redesign.
 - Refactors unrelated to dependency/version alignment.
-- Manual edits to `.ao/*.json`.
+- Manual edits to `.animus/*.json`.
 
 ## Constraints
 - Keep changes deterministic and limited to the dependency-alignment surface.

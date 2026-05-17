@@ -5,7 +5,7 @@
 AO now treats workflow dispatch as the primary execution surface.
 
 - workflow and requirements surfaces dispatch canonical workflow refs such as
-  `ao.task/standard` and `ao.requirement/execute`
+  `animus.task/standard` and `animus.requirement/execute`
 - task and requirement domain behavior resolves from bundled first-party packs
   and project-local overrides
 - legacy `builtin/*` refs remain as compatibility aliases, not as the preferred
@@ -23,11 +23,11 @@ Every AI-invoking command follows the same broad shape:
 The CLI is not the place where domain behavior lives. That behavior now belongs
 to:
 
-- bundled kernel workflows such as `ao.vision/*`
-- bundled first-party packs such as `ao.task` and `ao.requirement`
-- installed packs in `~/.ao/packs/`
-- project overrides in `.ao/plugins/`
-- project-local YAML in `.ao/workflows.yaml` and `.ao/workflows/*.yaml`
+- bundled kernel workflows such as `animus.vision/*`
+- bundled first-party packs such as `animus.task` and `animus.requirement`
+- installed packs in `~/.animus/packs/`
+- project overrides in `.animus/plugins/`
+- project-local YAML in `.animus/workflows.yaml` and `.animus/workflows/*.yaml`
 
 ## Why This Matters
 
@@ -42,10 +42,10 @@ This keeps the runtime aligned with the plugin-pack kernel design:
 
 | Command | Canonical Ref |
 |---|---|
-| `animus workflow run ao.vision/draft --title "..." --sync` | `ao.vision/draft` |
-| `animus workflow run ao.requirement/draft --title "..." --sync` | `ao.requirement/draft` |
-| `animus requirements execute --id REQ-001` | `ao.requirement/execute` |
-| `animus workflow run ao.task/standard` | `ao.task/standard` |
+| `animus workflow run animus.vision/draft --title "..." --sync` | `animus.vision/draft` |
+| `animus workflow run animus.requirement/draft --title "..." --sync` | `animus.requirement/draft` |
+| `animus requirements execute --id REQ-001` | `animus.requirement/execute` |
+| `animus workflow run animus.task/standard` | `animus.task/standard` |
 
 ## Related Docs
 

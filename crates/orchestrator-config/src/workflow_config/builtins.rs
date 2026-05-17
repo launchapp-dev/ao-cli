@@ -87,7 +87,7 @@ pub(crate) fn builtin_workflow_config_base() -> WorkflowConfig {
         ]),
         workflows: vec![
             WorkflowDefinition {
-                id: "ao.vision/draft".to_string(),
+                id: "animus.vision/draft".to_string(),
                 name: "AO Vision Draft".to_string(),
                 description: "Canonical pack-qualified vision drafting workflow ref.".to_string(),
                 phases: vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
@@ -97,7 +97,7 @@ pub(crate) fn builtin_workflow_config_base() -> WorkflowConfig {
                 variables: Vec::new(),
             },
             WorkflowDefinition {
-                id: "ao.vision/refine".to_string(),
+                id: "animus.vision/refine".to_string(),
                 name: "AO Vision Refine".to_string(),
                 description: "Canonical pack-qualified vision refinement workflow ref.".to_string(),
                 phases: vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
@@ -158,9 +158,9 @@ pub(crate) fn builtin_workflow_config_base() -> WorkflowConfig {
         agent_channels: BTreeMap::new(),
         tools_allowlist: Vec::new(),
         mcp_servers: BTreeMap::from([(
-            "ao".to_string(),
+            "animus".to_string(),
             McpServerDefinition {
-                command: "ao".to_string(),
+                command: "animus".to_string(),
                 args: vec!["mcp".to_string(), "serve".to_string()],
                 transport: Some("stdio".to_string()),
                 url: None,

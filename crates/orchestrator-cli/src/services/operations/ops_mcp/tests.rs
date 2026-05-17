@@ -10,7 +10,7 @@ use protocol::test_utils::EnvVarGuard;
 
 fn sample_event(seq: u64, event_type: &str, project_root: &str) -> DaemonEventRecord {
     DaemonEventRecord {
-        schema: "ao.daemon.event.v1".to_string(),
+        schema: "animus.daemon.event.v1".to_string(),
         id: format!("evt-{seq}"),
         seq,
         timestamp: "2026-01-01T00:00:00Z".to_string(),
@@ -147,7 +147,7 @@ fn build_task_list_args_includes_filters_and_sort() {
 
 fn sample_cli_failure_result() -> CliExecutionResult {
     CliExecutionResult {
-        command: "ao".to_string(),
+        command: "animus".to_string(),
         args: vec!["--json".to_string()],
         requested_args: vec!["daemon".to_string(), "start".to_string()],
         project_root: "/tmp/project".to_string(),
@@ -175,7 +175,7 @@ fn build_cli_error_payload_prefers_stderr_envelope_over_stdout_envelope() {
     }));
     result.stderr = "stderr body".to_string();
 
-    let payload = build_cli_error_payload("ao.daemon.start", &result);
+    let payload = build_cli_error_payload("animus.daemon.start", &result);
     assert_eq!(payload.pointer("/error/message").and_then(Value::as_str), Some("stderr-error"));
     assert_eq!(payload.get("exit_code").and_then(Value::as_i64), Some(5));
     assert_eq!(payload.get("stderr").and_then(Value::as_str), Some("stderr body"));
@@ -190,7 +190,7 @@ fn build_cli_error_payload_falls_back_to_stdout_envelope_when_stderr_json_missin
         "error": { "message": "stdout-error" }
     }));
 
-    let payload = build_cli_error_payload("ao.daemon.start", &result);
+    let payload = build_cli_error_payload("animus.daemon.start", &result);
     assert_eq!(payload.pointer("/error/message").and_then(Value::as_str), Some("stdout-error"));
 }
 
@@ -588,7 +588,7 @@ fn build_bulk_workflow_run_item_args_with_workflow_ref_and_input() {
 
 #[test]
 fn validate_bulk_status_input_rejects_empty() {
-    let err = validate_bulk_status_input("ao.task.bulk-status", &[]).unwrap_err();
+    let err = validate_bulk_status_input("animus.task.bulk-status", &[]).unwrap_err();
     assert!(err.contains("must not be empty"), "expected empty-array error, got: {err}");
 }
 
@@ -597,7 +597,7 @@ fn validate_bulk_status_input_rejects_over_max() {
     let updates: Vec<BulkTaskStatusItem> = (0..=MAX_BATCH_SIZE)
         .map(|i| BulkTaskStatusItem { id: format!("TASK-{i}"), status: "done".to_string() })
         .collect();
-    let err = validate_bulk_status_input("ao.task.bulk-status", &updates).unwrap_err();
+    let err = validate_bulk_status_input("animus.task.bulk-status", &updates).unwrap_err();
     assert!(err.contains("exceeds maximum"), "expected max-size error, got: {err}");
 }
 
@@ -607,20 +607,20 @@ fn validate_bulk_status_input_rejects_duplicate_ids() {
         BulkTaskStatusItem { id: "TASK-1".to_string(), status: "done".to_string() },
         BulkTaskStatusItem { id: "TASK-1".to_string(), status: "todo".to_string() },
     ];
-    let err = validate_bulk_status_input("ao.task.bulk-status", &updates).unwrap_err();
+    let err = validate_bulk_status_input("animus.task.bulk-status", &updates).unwrap_err();
     assert!(err.contains("duplicate id"), "expected duplicate-id error, got: {err}");
 }
 
 #[test]
 fn validate_bulk_status_input_rejects_empty_id() {
     let updates = vec![BulkTaskStatusItem { id: "  ".to_string(), status: "done".to_string() }];
-    let err = validate_bulk_status_input("ao.task.bulk-status", &updates).unwrap_err();
+    let err = validate_bulk_status_input("animus.task.bulk-status", &updates).unwrap_err();
     assert!(err.contains(".id must not be empty"), "expected empty-id error, got: {err}");
 }
 
 #[test]
 fn validate_bulk_update_input_rejects_empty() {
-    let err = validate_bulk_update_input("ao.task.bulk-update", &[]).unwrap_err();
+    let err = validate_bulk_update_input("animus.task.bulk-update", &[]).unwrap_err();
     assert!(err.contains("must not be empty"), "expected empty-array error, got: {err}");
 }
 
@@ -635,7 +635,7 @@ fn validate_bulk_update_input_rejects_item_with_no_fields() {
         assignee: None,
         input_json: None,
     }];
-    let err = validate_bulk_update_input("ao.task.bulk-update", &updates).unwrap_err();
+    let err = validate_bulk_update_input("animus.task.bulk-update", &updates).unwrap_err();
     assert!(err.contains("must include at least one update field"), "expected no-field error, got: {err}");
 }
 
@@ -661,7 +661,7 @@ fn validate_bulk_update_input_rejects_duplicate_ids() {
             input_json: None,
         },
     ];
-    let err = validate_bulk_update_input("ao.task.bulk-update", &updates).unwrap_err();
+    let err = validate_bulk_update_input("animus.task.bulk-update", &updates).unwrap_err();
     assert!(err.contains("duplicate id"), "expected duplicate-id error, got: {err}");
 }
 
@@ -687,19 +687,19 @@ fn validate_bulk_update_input_accepts_valid_items() {
             input_json: None,
         },
     ];
-    assert!(validate_bulk_update_input("ao.task.bulk-update", &updates).is_ok());
+    assert!(validate_bulk_update_input("animus.task.bulk-update", &updates).is_ok());
 }
 
 #[test]
 fn validate_workflow_run_multiple_rejects_empty() {
-    let err = validate_workflow_run_multiple_input("ao.workflow.run-multiple", &[]).unwrap_err();
+    let err = validate_workflow_run_multiple_input("animus.workflow.run-multiple", &[]).unwrap_err();
     assert!(err.contains("must not be empty"), "expected empty-array error, got: {err}");
 }
 
 #[test]
 fn validate_workflow_run_multiple_rejects_empty_task_id() {
     let runs = vec![BulkWorkflowRunItem { task_id: "".to_string(), workflow_ref: None, input_json: None }];
-    let err = validate_workflow_run_multiple_input("ao.workflow.run-multiple", &runs).unwrap_err();
+    let err = validate_workflow_run_multiple_input("animus.workflow.run-multiple", &runs).unwrap_err();
     assert!(err.contains("task_id must not be empty"), "expected empty-task-id error, got: {err}");
 }
 
@@ -709,7 +709,7 @@ fn validate_workflow_run_multiple_accepts_valid_runs() {
         BulkWorkflowRunItem { task_id: "TASK-1".to_string(), workflow_ref: None, input_json: None },
         BulkWorkflowRunItem { task_id: "TASK-2".to_string(), workflow_ref: Some("p1".to_string()), input_json: None },
     ];
-    assert!(validate_workflow_run_multiple_input("ao.workflow.run-multiple", &runs).is_ok());
+    assert!(validate_workflow_run_multiple_input("animus.workflow.run-multiple", &runs).is_ok());
 }
 
 #[test]
@@ -737,7 +737,7 @@ fn validate_bulk_update_input_rejects_over_max() {
             input_json: None,
         })
         .collect();
-    let err = validate_bulk_update_input("ao.task.bulk-update", &updates).unwrap_err();
+    let err = validate_bulk_update_input("animus.task.bulk-update", &updates).unwrap_err();
     assert!(err.contains("exceeds maximum"), "expected max-size error, got: {err}");
 }
 
@@ -746,7 +746,7 @@ fn validate_workflow_run_multiple_rejects_over_max() {
     let runs: Vec<BulkWorkflowRunItem> = (0..=MAX_BATCH_SIZE)
         .map(|i| BulkWorkflowRunItem { task_id: format!("TASK-{i}"), workflow_ref: None, input_json: None })
         .collect();
-    let err = validate_workflow_run_multiple_input("ao.workflow.run-multiple", &runs).unwrap_err();
+    let err = validate_workflow_run_multiple_input("animus.workflow.run-multiple", &runs).unwrap_err();
     assert!(err.contains("exceeds maximum"), "expected max-size error, got: {err}");
 }
 
@@ -771,7 +771,7 @@ fn build_guarded_list_result_normalizes_limit_and_max_tokens_hint() {
         { "id": "TASK-2", "status": "done" }
     ]);
     let result = build_guarded_list_result(
-        "ao.task.list",
+        "animus.task.list",
         data,
         ListGuardInput { limit: Some(0), offset: Some(0), max_tokens: Some(0) },
     )
@@ -792,7 +792,7 @@ fn build_guarded_list_result_handles_offset_beyond_total() {
         { "id": "TASK-2", "status": "done" }
     ]);
     let result = build_guarded_list_result(
-        "ao.task.list",
+        "animus.task.list",
         data,
         ListGuardInput { limit: Some(5), offset: Some(99), max_tokens: Some(3000) },
     )
@@ -818,14 +818,14 @@ fn build_guarded_list_result_applies_offset_then_limit() {
         { "id": "TASK-4", "status": "done" }
     ]);
     let result = build_guarded_list_result(
-        "ao.task.list",
+        "animus.task.list",
         data,
         ListGuardInput { limit: Some(2), offset: Some(1), max_tokens: Some(3000) },
     )
     .expect("guarded list should build");
 
     assert_eq!(result.get("schema").and_then(Value::as_str), Some(MCP_LIST_RESULT_SCHEMA));
-    assert_eq!(result.get("tool").and_then(Value::as_str), Some("ao.task.list"));
+    assert_eq!(result.get("tool").and_then(Value::as_str), Some("animus.task.list"));
     let items = result.get("items").and_then(Value::as_array).expect("items should be an array");
     assert_eq!(items.len(), 2);
     assert_eq!(items[0].get("id").and_then(Value::as_str), Some("TASK-2"));
@@ -856,7 +856,7 @@ fn build_guarded_list_result_falls_back_to_summary_fields_mode() {
     }]);
 
     let result = build_guarded_list_result(
-        "ao.workflow.list",
+        "animus.workflow.list",
         data,
         ListGuardInput { limit: Some(25), offset: Some(0), max_tokens: Some(256) },
     )
@@ -884,7 +884,7 @@ fn build_guarded_list_result_falls_back_to_summary_only_mode() {
         .collect();
 
     let result = build_guarded_list_result(
-        "ao.task.list",
+        "animus.task.list",
         Value::Array(items),
         ListGuardInput { limit: Some(25), offset: Some(0), max_tokens: Some(256) },
     )
@@ -912,7 +912,7 @@ fn build_guarded_list_result_summary_only_respects_max_tokens_hint() {
         .collect();
 
     let result = build_guarded_list_result(
-        "ao.task.list",
+        "animus.task.list",
         Value::Array(items),
         ListGuardInput { limit: Some(MAX_MCP_LIST_LIMIT), offset: Some(0), max_tokens: Some(MIN_MCP_LIST_MAX_TOKENS) },
     )
@@ -940,7 +940,7 @@ fn build_guarded_list_result_summary_only_respects_max_tokens_hint() {
 #[test]
 fn build_guarded_list_result_supports_workflow_decisions() {
     let result = build_guarded_list_result(
-        "ao.workflow.decisions",
+        "animus.workflow.decisions",
         json!([{
             "timestamp": "2026-02-27T12:00:00Z",
             "phase_id": "code-review",
@@ -954,7 +954,7 @@ fn build_guarded_list_result_supports_workflow_decisions() {
     )
     .expect("workflow decisions should support guarded list responses");
 
-    assert_eq!(result.get("tool").and_then(Value::as_str), Some("ao.workflow.decisions"));
+    assert_eq!(result.get("tool").and_then(Value::as_str), Some("animus.workflow.decisions"));
     assert_eq!(result.pointer("/pagination/returned").and_then(Value::as_u64), Some(1));
 }
 
@@ -996,7 +996,7 @@ fn build_workflow_list_args_includes_filters_and_sort() {
 #[test]
 fn build_guarded_list_result_rejects_non_array_payloads() {
     let err = build_guarded_list_result(
-        "ao.workflow.list",
+        "animus.workflow.list",
         json!({"id": "wf-1"}),
         ListGuardInput { limit: None, offset: None, max_tokens: None },
     )
@@ -1254,7 +1254,7 @@ fn resolve_daemon_events_project_root_uses_default_when_override_blank() {
 fn build_daemon_events_poll_result_returns_non_null_structured_events() {
     let _lock = crate::shared::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
     let config_root = TempDir::new().expect("config temp dir");
-    let _config_guard = EnvVarGuard::set("AO_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
+    let _config_guard = EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
     let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
 
     let project = TempDir::new().expect("project temp dir");
@@ -1271,7 +1271,7 @@ fn build_daemon_events_poll_result_returns_non_null_structured_events() {
     )
     .expect("poll result should be built");
 
-    assert_eq!(result.get("schema").and_then(Value::as_str), Some("ao.daemon.events.poll.v1"));
+    assert_eq!(result.get("schema").and_then(Value::as_str), Some("animus.daemon.events.poll.v1"));
     assert_eq!(result.get("count").and_then(Value::as_u64), Some(2));
     let events = result.get("events").and_then(Value::as_array).expect("events should be an array");
     assert_eq!(events.len(), 2);
@@ -1283,7 +1283,7 @@ fn build_daemon_events_poll_result_returns_non_null_structured_events() {
 fn build_daemon_events_poll_result_filters_by_project_root() {
     let _lock = crate::shared::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
     let config_root = TempDir::new().expect("config temp dir");
-    let _config_guard = EnvVarGuard::set("AO_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
+    let _config_guard = EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
     let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
 
     let project_a = TempDir::new().expect("project A");
@@ -1312,7 +1312,7 @@ fn build_daemon_events_poll_result_filters_by_project_root() {
 fn build_daemon_events_poll_result_blank_project_root_falls_back_to_default() {
     let _lock = crate::shared::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
     let config_root = TempDir::new().expect("config temp dir");
-    let _config_guard = EnvVarGuard::set("AO_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
+    let _config_guard = EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
     let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
 
     let project_a = TempDir::new().expect("project A");
@@ -1735,7 +1735,7 @@ fn build_cli_error_payload_preserves_json_like_error_text() {
         }
     }));
 
-    let payload = build_cli_error_payload("ao.task.get", &result);
+    let payload = build_cli_error_payload("animus.task.get", &result);
     assert_eq!(
         payload.pointer("/error/message").and_then(Value::as_str),
         Some("{\n  \"detail\": \"keep formatting\"\n}")

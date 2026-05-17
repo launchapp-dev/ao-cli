@@ -54,6 +54,8 @@ mod list_guard;
 mod list_profiles;
 #[path = "ops_mcp/list_types.rs"]
 mod list_types;
+#[path = "ops_mcp/memory_tools.rs"]
+mod memory_tools;
 #[path = "ops_mcp/output.rs"]
 mod output;
 #[path = "ops_mcp/output_inputs.rs"]
@@ -82,6 +84,8 @@ mod requirements_inputs;
 mod requirements_tools;
 #[path = "ops_mcp/runner_tools.rs"]
 mod runner_tools;
+#[path = "ops_mcp/skill_tools.rs"]
+mod skill_tools;
 #[path = "ops_mcp/task_command_args.rs"]
 mod task_command_args;
 #[path = "ops_mcp/task_inputs.rs"]
@@ -142,16 +146,16 @@ use workflow_inputs::*;
 
 const DEFAULT_DAEMON_EVENTS_LIMIT: usize = 100;
 const MAX_DAEMON_EVENTS_LIMIT: usize = 500;
-const OUTPUT_TAIL_SCHEMA: &str = "ao.output.tail.v1";
+const OUTPUT_TAIL_SCHEMA: &str = "animus.output.tail.v1";
 const DEFAULT_OUTPUT_TAIL_LIMIT: usize = 50;
 const MAX_OUTPUT_TAIL_LIMIT: usize = 500;
-const MCP_LIST_RESULT_SCHEMA: &str = "ao.mcp.list.result.v1";
+const MCP_LIST_RESULT_SCHEMA: &str = "animus.mcp.list.result.v1";
 const DEFAULT_MCP_LIST_LIMIT: usize = 25;
 const MAX_MCP_LIST_LIMIT: usize = 200;
 const DEFAULT_MCP_LIST_MAX_TOKENS: usize = 3000;
 const MIN_MCP_LIST_MAX_TOKENS: usize = 256;
 const MAX_MCP_LIST_MAX_TOKENS: usize = 12_000;
-const BATCH_RESULT_SCHEMA: &str = "ao.mcp.batch.result.v1";
+const BATCH_RESULT_SCHEMA: &str = "animus.mcp.batch.result.v1";
 const MAX_BATCH_SIZE: usize = 100;
 
 #[derive(Clone)]
@@ -170,7 +174,7 @@ impl std::fmt::Debug for AoMcpServer {
 impl AoMcpServer {
     fn scoped_state_root(&self) -> std::path::PathBuf {
         protocol::scoped_state_root(std::path::Path::new(&self.default_project_root))
-            .unwrap_or_else(|| std::path::PathBuf::from(&self.default_project_root).join(".ao"))
+            .unwrap_or_else(|| std::path::PathBuf::from(&self.default_project_root).join(".animus"))
     }
 }
 
@@ -221,37 +225,23 @@ fn normalize_non_empty(value: Option<String>) -> Option<String> {
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
-struct MemoryMcpServer {
-    default_project_root: String,
+pub(super) struct MemoryMcpServer {
+    pub(super) default_project_root: String,
     tool_router: ToolRouter<Self>,
 }
 
-impl MemoryMcpServer {
-    #[allow(dead_code)]
-    fn memory_root(&self) -> std::path::PathBuf {
-        protocol::scoped_state_root(std::path::Path::new(&self.default_project_root))
-            .unwrap_or_else(|| std::path::PathBuf::from(&self.default_project_root).join(".ao"))
-            .join("memory")
-    }
-}
-
-#[tool_handler(router = MemoryMcpServer::tools())]
+#[tool_handler(router = self.tool_router)]
 impl ServerHandler for MemoryMcpServer {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_instructions("Memory context management tools for workflow phases.")
+        ServerInfo::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
+            "Project-scoped agent memory tools. Use animus.memory.append to record durable notes, \
+                 animus.memory.get / animus.memory.list to read them back, and animus.memory.clear to prune.",
+        )
     }
 }
 
-impl MemoryMcpServer {
-    fn tools() -> ToolRouter<Self> {
-        ToolRouter::new()
-    }
-}
-
-fn new_memory_mcp_server(default_project_root: &str) -> MemoryMcpServer {
-    let tool_router = MemoryMcpServer::tools();
+pub(super) fn new_memory_mcp_server(default_project_root: &str) -> MemoryMcpServer {
+    let tool_router = MemoryMcpServer::memory_tool_router();
     MemoryMcpServer { default_project_root: default_project_root.to_string(), tool_router }
 }
 
@@ -266,7 +256,9 @@ fn new_ao_mcp_server(default_project_root: &str) -> AoMcpServer {
         + AoMcpServer::runner_tool_router()
         + AoMcpServer::workflow_runtime_tools()
         + AoMcpServer::workflow_definition_tools()
-        + AoMcpServer::plugin_tool_router();
+        + AoMcpServer::plugin_tool_router()
+        + AoMcpServer::skill_tool_router()
+        + AoMcpServer::memory_tool_router_for_ao();
 
     AoMcpServer {
         default_project_root: default_project_root.to_string(),

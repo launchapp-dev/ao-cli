@@ -7,16 +7,16 @@
 ///   - Agent runner must be running (`animus runner start`) or will auto-start
 ///   - CLI tools must be installed (claude, codex, gemini)
 ///   - API credentials must be configured for each tool
-///   - Set `AO_E2E_SESSION_CONTINUATION=1` to enable (skipped by default)
+///   - Set `ANIMUS_E2E_SESSION_CONTINUATION=1` to enable (skipped by default)
 ///
 /// Run with:
-///   AO_E2E_SESSION_CONTINUATION=1 cargo test -p orchestrator-cli --test session_continuation_e2e -- --nocapture
+///   ANIMUS_E2E_SESSION_CONTINUATION=1 cargo test -p orchestrator-cli --test session_continuation_e2e -- --nocapture
 ///
 /// Environment variables:
-///   AO_E2E_SESSION_CONTINUATION=1  — required to run (skipped otherwise)
-///   AO_E2E_TOOLS=claude,codex      — comma-separated list of tools to test (default: claude)
-///   AO_E2E_PROJECT_ROOT=<path>     — project root (default: current directory)
-///   AO_E2E_TIMEOUT=120             — agent timeout in seconds (default: 120)
+///   ANIMUS_E2E_SESSION_CONTINUATION=1  — required to run (skipped otherwise)
+///   ANIMUS_E2E_TOOLS=claude,codex      — comma-separated list of tools to test (default: claude)
+///   ANIMUS_E2E_PROJECT_ROOT=<path>     — project root (default: current directory)
+///   ANIMUS_E2E_TIMEOUT=120             — agent timeout in seconds (default: 120)
 use anyhow::{Context, Result};
 use cli_wrapper::{extract_text_from_line, NormalizedTextEvent};
 use serde_json::{json, Value};
@@ -25,7 +25,10 @@ use std::process::Command;
 use uuid::Uuid;
 
 fn is_enabled() -> bool {
-    std::env::var("AO_E2E_SESSION_CONTINUATION").ok().map(|v| matches!(v.trim(), "1" | "true" | "yes")).unwrap_or(false)
+    std::env::var("ANIMUS_E2E_SESSION_CONTINUATION")
+        .ok()
+        .map(|v| matches!(v.trim(), "1" | "true" | "yes"))
+        .unwrap_or(false)
 }
 
 fn ao_binary() -> PathBuf {
@@ -33,21 +36,21 @@ fn ao_binary() -> PathBuf {
 }
 
 fn project_root() -> String {
-    std::env::var("AO_E2E_PROJECT_ROOT")
+    std::env::var("ANIMUS_E2E_PROJECT_ROOT")
         .ok()
         .filter(|v| !v.trim().is_empty())
         .unwrap_or_else(|| std::env::current_dir().expect("current dir").to_string_lossy().to_string())
 }
 
 fn e2e_tools() -> Vec<String> {
-    std::env::var("AO_E2E_TOOLS")
+    std::env::var("ANIMUS_E2E_TOOLS")
         .ok()
         .map(|v| v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
         .unwrap_or_else(|| vec!["claude".to_string()])
 }
 
 fn timeout_secs() -> String {
-    std::env::var("AO_E2E_TIMEOUT").ok().filter(|v| !v.trim().is_empty()).unwrap_or_else(|| "120".to_string())
+    std::env::var("ANIMUS_E2E_TIMEOUT").ok().filter(|v| !v.trim().is_empty()).unwrap_or_else(|| "120".to_string())
 }
 
 fn default_model_for_tool(tool: &str) -> &'static str {
@@ -358,7 +361,7 @@ fn test_session_continuation_for_tool(tool: &str) -> Result<()> {
 #[test]
 fn e2e_session_continuation_agent_run() {
     if !is_enabled() {
-        eprintln!("skipping session continuation e2e (set AO_E2E_SESSION_CONTINUATION=1 to enable)");
+        eprintln!("skipping session continuation e2e (set ANIMUS_E2E_SESSION_CONTINUATION=1 to enable)");
         return;
     }
 

@@ -507,7 +507,7 @@ impl WebApiService {
         }
 
         let project_root = std::path::Path::new(&self.context.project_root);
-        let state_base = protocol::scoped_state_root(project_root).unwrap_or_else(|| project_root.join(".ao"));
+        let state_base = protocol::scoped_state_root(project_root).unwrap_or_else(|| project_root.join(".animus"));
         let output_dir = state_base.join("state").join("workflows").join(workflow_id).join("phase-outputs");
 
         let resolved_phase_id = match phase_id {

@@ -9,9 +9,9 @@
 ## Objective
 Add deterministic MCP batch tools that reduce round-trips for common task and
 workflow operations:
-- `ao.task.bulk-update`
-- `ao.task.bulk-status`
-- `ao.workflow.run-multiple`
+- `animus.task.bulk-update`
+- `animus.task.bulk-status`
+- `animus.workflow.run-multiple`
 
 Each tool must execute a bounded list of operations in a single MCP request and
 return structured per-item outcomes.
@@ -20,8 +20,8 @@ return structured per-item outcomes.
 
 | Surface | Current location | Current behavior | Gap |
 | --- | --- | --- | --- |
-| Single task mutation MCP tools | `crates/orchestrator-cli/src/services/operations/ops_mcp.rs` | `ao.task.update` and `ao.task.status` only accept one task per call | 10 task updates require 10 MCP round-trips |
-| Single workflow run MCP tool | `ops_mcp.rs` | `ao.workflow.run` only supports one `task_id` per call | cannot launch a deterministic task batch from one request |
+| Single task mutation MCP tools | `crates/orchestrator-cli/src/services/operations/ops_mcp.rs` | `animus.task.update` and `animus.task.status` only accept one task per call | 10 task updates require 10 MCP round-trips |
+| Single workflow run MCP tool | `ops_mcp.rs` | `animus.workflow.run` only supports one `task_id` per call | cannot launch a deterministic task batch from one request |
 | CLI task command surface | `crates/orchestrator-cli/src/cli_types/task_types.rs` | only singular `Update` and `Status` commands | no first-class batch command to proxy directly |
 | CLI workflow command surface | `crates/orchestrator-cli/src/cli_types/workflow_types.rs` | only singular `Run` command | no first-class run-many command |
 | MCP command execution wrapper | `ops_mcp.rs` (`execute_ao`, `run_tool`) | executes one AO command and returns one result payload | no shared batch execution model, no per-item aggregation |
@@ -29,9 +29,9 @@ return structured per-item outcomes.
 ## Scope
 In scope for implementation after this requirements phase:
 - Add MCP tools:
-  - `ao.task.bulk-update`
-  - `ao.task.bulk-status`
-  - `ao.workflow.run-multiple`
+  - `animus.task.bulk-update`
+  - `animus.task.bulk-status`
+  - `animus.workflow.run-multiple`
 - Add deterministic batch execution helper(s) in `ops_mcp.rs` that:
   - preserve input order,
   - execute one AO command per item in sequence,
@@ -47,7 +47,7 @@ Out of scope:
   in this task slice.
 - Cross-command rollback/true transactional all-or-nothing semantics.
 - Parallel mutation execution inside a single batch request.
-- Direct edits to `/.ao/*.json`.
+- Direct edits to `/.animus/*.json`.
 
 ## Constraints
 - Determinism:
@@ -66,7 +66,7 @@ Out of scope:
 
 ## Input Contracts
 
-### `ao.task.bulk-status`
+### `animus.task.bulk-status`
 - `updates: [{ id: string, status: string }]` (required, `1..=100`)
 - `on_error?: "stop" | "continue"` (default: `"stop"`)
 - `project_root?: string`
@@ -75,7 +75,7 @@ Validation:
 - `id` and `status` must be non-empty after trim.
 - duplicate `id` values in one request are rejected.
 
-### `ao.task.bulk-update`
+### `animus.task.bulk-update`
 - `updates: [{
     id: string,
     title?: string,
@@ -93,7 +93,7 @@ Validation:
 - each item must include at least one mutable field besides `id`.
 - duplicate `id` values in one request are rejected.
 
-### `ao.workflow.run-multiple`
+### `animus.workflow.run-multiple`
 - `runs: [{
     task_id: string,
     pipeline_id?: string,
@@ -108,7 +108,7 @@ Validation:
 ## Output Contract
 
 Successful response payload for all three tools:
-- `schema`: `ao.mcp.batch.result.v1`
+- `schema`: `animus.mcp.batch.result.v1`
 - `tool`
 - `on_error`
 - `summary`:
@@ -133,8 +133,8 @@ without mutating state.
 ## Functional Requirements
 
 ### FR-01: Tool Registration
-Register `ao.task.bulk-update`, `ao.task.bulk-status`, and
-`ao.workflow.run-multiple` as discoverable MCP tools.
+Register `animus.task.bulk-update`, `animus.task.bulk-status`, and
+`animus.workflow.run-multiple` as discoverable MCP tools.
 
 ### FR-02: Batch Input Validation
 Enforce non-empty arrays, item count bounds, per-item required fields, and
@@ -154,7 +154,7 @@ Implement batch tools by composing existing AO commands:
 - `workflow run`
 
 ### FR-06: Structured Batch Result
-Return `ao.mcp.batch.result.v1` payload with summary counters and ordered item
+Return `animus.mcp.batch.result.v1` payload with summary counters and ordered item
 results.
 
 ### FR-07: Error Fidelity
@@ -170,9 +170,9 @@ summary/result shaping, and regression safety.
 ## Acceptance Criteria
 - `AC-01`: All three new MCP tools are discoverable and callable.
 - `AC-02`: Empty or oversized batch inputs are rejected deterministically.
-- `AC-03`: `ao.task.bulk-status` maps each item to `task status` command args.
-- `AC-04`: `ao.task.bulk-update` maps each item to `task update` command args.
-- `AC-05`: `ao.workflow.run-multiple` maps each item to `workflow run` args.
+- `AC-03`: `animus.task.bulk-status` maps each item to `task status` command args.
+- `AC-04`: `animus.task.bulk-update` maps each item to `task update` command args.
+- `AC-05`: `animus.workflow.run-multiple` maps each item to `workflow run` args.
 - `AC-06`: `on_error=stop` halts execution on first failure and marks the rest
   as skipped.
 - `AC-07`: `on_error=continue` executes all items and reports all failures.

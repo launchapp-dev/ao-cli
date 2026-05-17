@@ -52,7 +52,7 @@ Out of scope for this task slice:
   `/workflows/{id}/decisions`, `/workflows/{id}/checkpoints`, project-scoped
   aggregate endpoints).
 - Streaming/push caching strategy changes for `/api/v1/events`.
-- Manual edits to `.ao/*.json`.
+- Manual edits to `.animus/*.json`.
 
 ## Constraints
 - Determinism:
@@ -62,7 +62,7 @@ Out of scope for this task slice:
   - `page_size` must always be clamped to configured bounds.
   - malformed cursors must fail with stable `invalid_input` error semantics.
 - Compatibility:
-  - keep AO CLI envelope shape (`ao.cli.v1`) unchanged.
+  - keep AO CLI envelope shape (`animus.cli.v1`) unchanged.
   - keep non-target endpoints behavior unchanged.
 - Transport correctness:
   - SSE endpoint must remain uncompressed/stream-safe.

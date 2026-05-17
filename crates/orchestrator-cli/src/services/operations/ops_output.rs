@@ -29,8 +29,8 @@ pub(crate) struct RunJsonlEntryCli {
 fn run_dir_candidates(project_root: &str, run_id: &str) -> Vec<PathBuf> {
     vec![
         run_dir(project_root, &RunId(run_id.to_string()), None),
-        Path::new(project_root).join(".ao").join("runs").join(run_id),
-        Path::new(project_root).join(".ao").join("state").join("runs").join(run_id),
+        Path::new(project_root).join(".animus").join("runs").join(run_id),
+        Path::new(project_root).join(".animus").join("state").join("runs").join(run_id),
     ]
 }
 
@@ -99,7 +99,7 @@ fn infer_cli_from_jsonl(entries: &[RunJsonlEntryCli]) -> Option<String> {
 }
 
 fn artifact_dir(project_root: &str, execution_id: &str) -> PathBuf {
-    Path::new(project_root).join(".ao").join("artifacts").join(execution_id)
+    Path::new(project_root).join(".animus").join("artifacts").join(execution_id)
 }
 
 fn list_artifact_infos(project_root: &str, execution_id: &str) -> Result<Vec<ArtifactInfoCli>> {
@@ -272,8 +272,8 @@ mod tests {
         let candidates = run_dir_candidates(project_root.to_string_lossy().as_ref(), run_id);
         assert_eq!(candidates.len(), 3);
         assert_eq!(candidates[0], run_dir(project_root.to_string_lossy().as_ref(), &RunId(run_id.to_string()), None));
-        assert_eq!(candidates[1], project_root.join(".ao").join("runs").join(run_id));
-        assert_eq!(candidates[2], project_root.join(".ao").join("state").join("runs").join(run_id));
+        assert_eq!(candidates[1], project_root.join(".animus").join("runs").join(run_id));
+        assert_eq!(candidates[2], project_root.join(".animus").join("state").join("runs").join(run_id));
 
         for candidate in &candidates {
             std::fs::create_dir_all(candidate).expect("candidate run dir should be created");
@@ -294,14 +294,14 @@ mod tests {
         let run_id = "trace-output-legacy";
         let candidates = run_dir_candidates(project_root.to_string_lossy().as_ref(), run_id);
 
-        std::fs::create_dir_all(&candidates[1]).expect("legacy .ao/runs dir should be created");
+        std::fs::create_dir_all(&candidates[1]).expect("legacy .animus/runs dir should be created");
         let selected_legacy = resolve_run_dir_for_lookup(project_root.to_string_lossy().as_ref(), run_id)
             .expect("run dir lookup should succeed")
             .expect("legacy run dir should be selected");
         assert_eq!(selected_legacy, candidates[1]);
 
-        std::fs::remove_dir_all(&candidates[1]).expect("legacy .ao/runs dir should be removed");
-        std::fs::create_dir_all(&candidates[2]).expect("legacy .ao/state/runs dir should exist");
+        std::fs::remove_dir_all(&candidates[1]).expect("legacy .animus/runs dir should be removed");
+        std::fs::create_dir_all(&candidates[2]).expect("legacy .animus/state/runs dir should exist");
         let selected_state = resolve_run_dir_for_lookup(project_root.to_string_lossy().as_ref(), run_id)
             .expect("run dir lookup should succeed")
             .expect("legacy state run dir should be selected");
@@ -317,8 +317,8 @@ mod tests {
         std::fs::create_dir_all(&project_root).expect("project dir should be created");
         let run_id = "trace-jsonl-canonical-precedence";
         let canonical_dir = run_dir(project_root.to_string_lossy().as_ref(), &RunId(run_id.to_string()), None);
-        let legacy_dir = project_root.join(".ao").join("runs").join(run_id);
-        let legacy_state_dir = project_root.join(".ao").join("state").join("runs").join(run_id);
+        let legacy_dir = project_root.join(".animus").join("runs").join(run_id);
+        let legacy_state_dir = project_root.join(".animus").join("state").join("runs").join(run_id);
         std::fs::create_dir_all(&canonical_dir).expect("canonical run dir should be created");
         std::fs::create_dir_all(&legacy_dir).expect("legacy run dir should be created");
         std::fs::create_dir_all(&legacy_state_dir).expect("legacy state run dir should be created");
@@ -349,9 +349,9 @@ mod tests {
         let _lock = crate::shared::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
         let temp = tempfile::tempdir().expect("tempdir should be created");
         let _home = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
-        let _scope = EnvVarGuard::set("AO_RUNNER_SCOPE", Some("global"));
+        let _scope = EnvVarGuard::set("ANIMUS_RUNNER_SCOPE", Some("global"));
         let override_dir = temp.path().join("override-config");
-        let _ao_config = EnvVarGuard::set("AO_CONFIG_DIR", Some(override_dir.to_string_lossy().as_ref()));
+        let _ao_config = EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(override_dir.to_string_lossy().as_ref()));
         let project_root = temp.path().join("project");
         std::fs::create_dir_all(&project_root).expect("project dir should be created");
         let run_id = "trace-jsonl-global-scope-lookup";
@@ -374,7 +374,7 @@ mod tests {
             .expect("jsonl entries should load from scoped path");
         assert_eq!(entries.len(), 1);
         assert!(entries[0].line.contains("\"canonical\""));
-        assert!(canonical_dir.starts_with(temp.path().join(".ao")));
+        assert!(canonical_dir.starts_with(temp.path().join(".animus")));
         assert!(!canonical_dir.starts_with(&override_dir));
     }
 
@@ -446,14 +446,14 @@ mod tests {
         let project_root = temp.path().join("project");
         std::fs::create_dir_all(&project_root).expect("project dir should be created");
         let run_id = "trace-jsonl-legacy";
-        let legacy_run_dir = project_root.join(".ao").join("runs").join(run_id);
+        let legacy_run_dir = project_root.join(".animus").join("runs").join(run_id);
         std::fs::create_dir_all(&legacy_run_dir).expect("legacy run dir should be created");
         std::fs::write(
             legacy_run_dir.join("events.jsonl"),
             "{\"timestamp\":\"2024-01-03T00:00:00Z\",\"kind\":\"legacy\"}\n",
         )
         .expect("legacy events should be written");
-        let legacy_state_run_dir = project_root.join(".ao").join("state").join("runs").join(run_id);
+        let legacy_state_run_dir = project_root.join(".animus").join("state").join("runs").join(run_id);
         std::fs::create_dir_all(&legacy_state_run_dir).expect("legacy state run dir should exist");
         std::fs::write(
             legacy_state_run_dir.join("events.jsonl"),

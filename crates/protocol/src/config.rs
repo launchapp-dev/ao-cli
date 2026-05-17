@@ -44,7 +44,7 @@ impl Config {
             return override_path;
         }
 
-        dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".ao")
+        dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".animus")
     }
 
     pub fn load_global() -> Result<Self> {
@@ -76,7 +76,7 @@ impl Config {
 
     fn config_path(project_root: &str) -> Result<PathBuf> {
         let project_path = PathBuf::from(project_root).canonicalize().context("Invalid project root")?;
-        Ok(project_path.join(".ao").join("config.json"))
+        Ok(project_path.join(".animus").join("config.json"))
     }
 
     fn load_or_initialize(config_path: &Path) -> Result<Self> {
@@ -130,7 +130,7 @@ fn normalize_token(source: &str, raw: String) -> Result<String> {
 }
 
 fn config_dir_override() -> Option<PathBuf> {
-    std::env::var("AO_CONFIG_DIR")
+    std::env::var("ANIMUS_CONFIG_DIR")
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
@@ -155,7 +155,7 @@ pub fn daemon_events_log_path() -> PathBuf {
 /// and MCP-prefixed variants.
 pub fn default_allowed_tool_prefixes(agent_id: &str) -> Vec<String> {
     let normalized = agent_id.trim().to_ascii_lowercase();
-    let mut prefixes = vec!["ao.".to_string(), "mcp__ao__".to_string(), "mcp.ao.".to_string()];
+    let mut prefixes = vec!["animus.".to_string(), "mcp__animus__".to_string(), "mcp.animus.".to_string()];
 
     if !normalized.is_empty() {
         prefixes.push(format!("{normalized}."));

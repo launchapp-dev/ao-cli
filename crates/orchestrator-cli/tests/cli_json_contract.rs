@@ -60,7 +60,7 @@ fn status_command_json_payload_includes_dashboard_schema_and_slices() -> Result<
 
     let status = harness.run_json_ok(&["status"])?;
     assert_success_envelope(&status);
-    assert_eq!(status.pointer("/data/schema").and_then(Value::as_str), Some("ao.status.v1"));
+    assert_eq!(status.pointer("/data/schema").and_then(Value::as_str), Some("animus.status.v1"));
     assert!(status.pointer("/data/daemon/status").is_some(), "status payload should include daemon.status");
     assert!(status.pointer("/data/active_agents/count").is_some(), "status payload should include active_agents.count");
     assert!(status.pointer("/data/task_summary/total").is_some(), "status payload should include task_summary.total");

@@ -21,7 +21,7 @@ blowing payloads.
 | --- | --- | --- | --- |
 | MCP tool execution wrapper | `crates/orchestrator-cli/src/services/operations/ops_mcp.rs` (`run_tool`) | executes AO CLI and returns parsed `data` as `result` | no generic pagination, no token/size guardrail contract |
 | List tool schemas | `ops_mcp.rs` input types (`ProjectRootInput`, `TaskListInput`, `IdInput`) | no `limit`, `offset`, or `max_tokens` for list tools | callers cannot bound response size |
-| List summarization helper | `ops_mcp.rs` (`summarize_list_if_needed`) | always trims fields only for `ao.task.list`, `ao.task.prioritized`, `ao.requirements.list` | not size-aware, no token budget, no workflow/project/checkpoint protection |
+| List summarization helper | `ops_mcp.rs` (`summarize_list_if_needed`) | always trims fields only for `animus.task.list`, `animus.task.prioritized`, `animus.requirements.list` | not size-aware, no token budget, no workflow/project/checkpoint protection |
 | Underlying CLI list handlers | `runtime_project_task/task.rs`, `runtime_project_task/project.rs`, `ops_requirements.rs`, `ops_workflow.rs` | list commands return full arrays from services | MCP proxies unbounded arrays from these commands |
 | Existing bounded MCP patterns | `ops_mcp.rs` (`daemon_events_poll_limit`, `output_tail_limit`) | deterministic default+clamp limit with structured metadata | list tools do not reuse this bounded pattern |
 
@@ -29,11 +29,11 @@ blowing payloads.
 In scope for implementation after this requirements phase:
 - Add pagination inputs (`limit`, `offset`) and token hint input (`max_tokens`)
   to all MCP list tools:
-  - `ao.project.list`
-  - `ao.task.list`
-  - `ao.requirements.list`
-  - `ao.workflow.list`
-  - `ao.workflow.checkpoints.list`
+  - `animus.project.list`
+  - `animus.task.list`
+  - `animus.requirements.list`
+  - `animus.workflow.list`
+  - `animus.workflow.checkpoints.list`
 - Add shared bounded pagination behavior with deterministic defaults and clamps.
 - Add automatic size-aware summarization fallback for oversized list payloads.
 - Return structured list metadata (pagination and size guard details) with each
@@ -44,7 +44,7 @@ In scope for implementation after this requirements phase:
 Out of scope:
 - Changing non-list MCP tool contracts.
 - Streaming MCP responses.
-- Manual edits to `.ao/*.json`.
+- Manual edits to `.animus/*.json`.
 - Rewriting underlying core service list APIs in this task slice.
 
 ## Constraints
@@ -75,7 +75,7 @@ Normalization:
 
 ### List Output Contract
 Each list tool response includes:
-- `schema`: `ao.mcp.list.result.v1`
+- `schema`: `animus.mcp.list.result.v1`
 - `tool`
 - `items`: paged items after size-guard processing
 - `pagination`:

@@ -32,7 +32,7 @@ impl DaemonEventLog {
         let path = Self::log_path();
         let events = Self::read_records(limit, project_root_filter)?;
         Ok(DaemonEventsPollResponse {
-            schema: "ao.daemon.events.poll.v1".to_string(),
+            schema: "animus.daemon.events.poll.v1".to_string(),
             events_path: path.to_string_lossy().to_string(),
             count: events.len(),
             events,
@@ -42,7 +42,7 @@ impl DaemonEventLog {
     pub fn next_event(seq: &mut u64, event_type: &str, project_root: Option<String>, data: Value) -> DaemonEventRecord {
         *seq = seq.saturating_add(1);
         DaemonEventRecord {
-            schema: "ao.daemon.event.v1".to_string(),
+            schema: "animus.daemon.event.v1".to_string(),
             id: Uuid::new_v4().to_string(),
             seq: *seq,
             timestamp: Utc::now().to_rfc3339(),

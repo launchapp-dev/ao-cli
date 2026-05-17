@@ -28,4 +28,9 @@ pub(crate) struct InitArgs {
     pub(crate) auto_pr: Option<bool>,
     #[arg(long, action = ArgAction::Set, help = "Override the template default for automatic commit before merge.")]
     pub(crate) auto_commit_before_merge: Option<bool>,
+    #[arg(
+        long = "update-registry",
+        help = "Fetch the latest commit from the template registry and re-pin the local cache before loading the template."
+    )]
+    pub(crate) update_registry: bool,
 }

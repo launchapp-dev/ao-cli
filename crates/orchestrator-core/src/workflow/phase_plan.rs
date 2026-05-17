@@ -4,11 +4,11 @@ use anyhow::{anyhow, Result};
 
 pub const STANDARD_WORKFLOW_REF: &str = "standard-workflow";
 pub const UI_UX_WORKFLOW_REF: &str = "ui-ux-standard";
-pub const REQUIREMENT_TASK_GENERATION_WORKFLOW_REF: &str = "ao.requirement/plan";
-pub const REQUIREMENT_TASK_GENERATION_RUN_WORKFLOW_REF: &str = "ao.requirement/execute";
+pub const REQUIREMENT_TASK_GENERATION_WORKFLOW_REF: &str = "animus.requirement/plan";
+pub const REQUIREMENT_TASK_GENERATION_RUN_WORKFLOW_REF: &str = "animus.requirement/execute";
 
-const PACK_STANDARD_WORKFLOW_REF: &str = "ao.task/standard";
-const PACK_UI_UX_WORKFLOW_REF: &str = "ao.task/ui-ux";
+const PACK_STANDARD_WORKFLOW_REF: &str = "animus.task/standard";
+const PACK_UI_UX_WORKFLOW_REF: &str = "animus.task/ui-ux";
 const LEGACY_STANDARD_WORKFLOW_REF: &str = "standard";
 const LEGACY_REQUIREMENT_TASK_GENERATION_WORKFLOW_REF: &str = "requirement-task-generation";
 const LEGACY_REQUIREMENT_TASK_GENERATION_RUN_WORKFLOW_REF: &str = "requirement-task-generation-run";
@@ -96,7 +96,7 @@ pub fn resolve_phase_plan_for_workflow_ref(
     };
 
     let workflow_config_path = crate::workflow_config_path(root);
-    let single_yaml = root.join(".ao").join("workflows.yaml");
+    let single_yaml = root.join(".animus").join("workflows.yaml");
     let yaml_dir = crate::yaml_workflows_dir(root);
     let has_yaml_workflows = single_yaml.exists()
         || std::fs::read_dir(&yaml_dir)
@@ -111,7 +111,7 @@ pub fn resolve_phase_plan_for_workflow_ref(
     if !has_yaml_workflows && !has_pack_workflows && !workflow_config_path.exists() && !has_legacy_workflow_config {
         let requested = requested_workflow_ref.as_deref().or(normalized_workflow_ref.as_deref()).unwrap_or("<default>");
         return Err(anyhow!(
-            "workflow '{requested}' is not available until the project defines workflows in .ao/workflows.yaml or .ao/workflows/*.yaml, or installs a pack"
+            "workflow '{requested}' is not available until the project defines workflows in .animus/workflows.yaml or .animus/workflows/*.yaml, or installs a pack"
         ));
     }
 
@@ -150,7 +150,7 @@ mod tests {
     use std::fs;
 
     fn pack_fixture_lock() -> &'static std::sync::Mutex<()> {
-        // Pack fixture tests share `~/.ao/packs` via the stable test HOME. Serialize access so
+        // Pack fixture tests share `~/.animus/packs` via the stable test HOME. Serialize access so
         // parallel tests don't race on remove_dir_all + write_pack_fixture.
         static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
         LOCK.get_or_init(|| std::sync::Mutex::new(()))
@@ -178,7 +178,7 @@ mod tests {
             root.join(crate::PACK_MANIFEST_FILE_NAME),
             format!(
                 r#"
-schema = "ao.pack.v1"
+schema = "animus.pack.v1"
 id = "{pack_id}"
 version = "{version}"
 kind = "domain-pack"
@@ -194,8 +194,8 @@ workflow_schema = "v2"
 subject_schema = "v2"
 
 [subjects]
-kinds = ["ao.task"]
-default_kind = "ao.task"
+kinds = ["animus.task"]
+default_kind = "animus.task"
 
 [workflows]
 root = "workflows"
@@ -370,7 +370,7 @@ workflows:
         let error =
             resolve_phase_plan_for_workflow_ref(Some(temp.path()), Some(REQUIREMENT_TASK_GENERATION_RUN_WORKFLOW_REF))
                 .expect_err("requirement pack workflow should not resolve until the pack is installed");
-        assert!(error.to_string().contains("workflow 'ao.requirement/execute' not found"));
+        assert!(error.to_string().contains("workflow 'animus.requirement/execute' not found"));
     }
 
     #[test]
@@ -379,8 +379,8 @@ workflows:
         let temp = tempfile::tempdir().expect("project tempdir");
 
         write_pack_fixture(
-            &crate::machine_installed_packs_dir().join("ao.custom").join("0.2.0"),
-            "ao.custom",
+            &crate::machine_installed_packs_dir().join("animus.custom").join("0.2.0"),
+            "animus.custom",
             "0.2.0",
             "review-pack",
         );
@@ -395,11 +395,11 @@ workflows:
         let _home_lock = ensure_stable_home();
         let temp = tempfile::tempdir().expect("tempdir");
 
-        let quick_fix_error = resolve_phase_plan_for_workflow_ref(Some(temp.path()), Some("ao.task/quick-fix"))
+        let quick_fix_error = resolve_phase_plan_for_workflow_ref(Some(temp.path()), Some("animus.task/quick-fix"))
             .expect_err("pack workflow should not resolve until the pack is installed");
         assert!(quick_fix_error.to_string().contains("is not available until the project defines workflows"));
 
-        let review_cycle_error = resolve_phase_plan_for_workflow_ref(Some(temp.path()), Some("ao.review/cycle"))
+        let review_cycle_error = resolve_phase_plan_for_workflow_ref(Some(temp.path()), Some("animus.review/cycle"))
             .expect_err("review pack workflow should not resolve until the pack is installed");
         assert!(review_cycle_error.to_string().contains("is not available until the project defines workflows"));
     }

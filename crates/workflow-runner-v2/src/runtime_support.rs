@@ -42,19 +42,19 @@ const DEFAULT_PHASE_RUN_ATTEMPTS: usize = 3;
 const DEFAULT_PHASE_MAX_CONTINUATIONS: usize = 3;
 
 pub fn phase_runner_attempts() -> usize {
-    parse_env_usize("AO_PHASE_RUN_ATTEMPTS").unwrap_or(DEFAULT_PHASE_RUN_ATTEMPTS).clamp(1, 10)
+    parse_env_usize("ANIMUS_PHASE_RUN_ATTEMPTS").unwrap_or(DEFAULT_PHASE_RUN_ATTEMPTS).clamp(1, 10)
 }
 
 pub fn phase_max_continuations() -> usize {
-    parse_env_usize("AO_PHASE_MAX_CONTINUATIONS").unwrap_or(DEFAULT_PHASE_MAX_CONTINUATIONS).clamp(0, 10)
+    parse_env_usize("ANIMUS_PHASE_MAX_CONTINUATIONS").unwrap_or(DEFAULT_PHASE_MAX_CONTINUATIONS).clamp(0, 10)
 }
 
 fn codex_web_search_enabled(web_search_override: Option<bool>) -> bool {
-    web_search_override.or_else(|| protocol::parse_env_bool_opt("AO_CODEX_WEB_SEARCH")).unwrap_or(true)
+    web_search_override.or_else(|| protocol::parse_env_bool_opt("ANIMUS_CODEX_WEB_SEARCH")).unwrap_or(true)
 }
 
 fn claude_bypass_permissions_enabled() -> bool {
-    protocol::parse_env_bool("AO_CLAUDE_BYPASS_PERMISSIONS")
+    protocol::parse_env_bool("ANIMUS_CLAUDE_BYPASS_PERMISSIONS")
 }
 
 fn codex_reasoning_effort(reasoning_override: Option<&str>) -> Option<String> {
@@ -97,7 +97,7 @@ fn ensure_codex_config_override(args: &mut Vec<Value>, key: &str, value_expr: &s
 }
 
 fn codex_network_access_enabled(network_access_override: Option<bool>) -> bool {
-    network_access_override.or_else(|| protocol::parse_env_bool_opt("AO_CODEX_NETWORK_ACCESS")).unwrap_or(true)
+    network_access_override.or_else(|| protocol::parse_env_bool_opt("ANIMUS_CODEX_NETWORK_ACCESS")).unwrap_or(true)
 }
 
 fn parse_env_string_list_json(key: &str, fallback_key: Option<&str>, split_by_semicolon: bool) -> Vec<String> {
@@ -134,10 +134,10 @@ fn parse_env_string_list_json(key: &str, fallback_key: Option<&str>, split_by_se
 
 fn cli_tool_extra_args_env_keys(tool_id: &str) -> Option<(&'static str, &'static str)> {
     match tool_id.trim().to_ascii_lowercase().as_str() {
-        "codex" => Some(("AO_CODEX_EXTRA_ARGS_JSON", "AO_CODEX_EXTRA_ARGS")),
-        "claude" => Some(("AO_CLAUDE_EXTRA_ARGS_JSON", "AO_CLAUDE_EXTRA_ARGS")),
-        "gemini" => Some(("AO_GEMINI_EXTRA_ARGS_JSON", "AO_GEMINI_EXTRA_ARGS")),
-        "opencode" | "open-code" => Some(("AO_OPENCODE_EXTRA_ARGS_JSON", "AO_OPENCODE_EXTRA_ARGS")),
+        "codex" => Some(("ANIMUS_CODEX_EXTRA_ARGS_JSON", "ANIMUS_CODEX_EXTRA_ARGS")),
+        "claude" => Some(("ANIMUS_CLAUDE_EXTRA_ARGS_JSON", "ANIMUS_CLAUDE_EXTRA_ARGS")),
+        "gemini" => Some(("ANIMUS_GEMINI_EXTRA_ARGS_JSON", "ANIMUS_GEMINI_EXTRA_ARGS")),
+        "opencode" | "open-code" => Some(("ANIMUS_OPENCODE_EXTRA_ARGS_JSON", "ANIMUS_OPENCODE_EXTRA_ARGS")),
         _ => None,
     }
 }
@@ -160,7 +160,8 @@ fn resolved_phase_extra_args(
         }
     }
 
-    let mut resolved = parse_env_string_list_json("AO_AI_CLI_EXTRA_ARGS_JSON", Some("AO_AI_CLI_EXTRA_ARGS"), false);
+    let mut resolved =
+        parse_env_string_list_json("ANIMUS_AI_CLI_EXTRA_ARGS_JSON", Some("ANIMUS_AI_CLI_EXTRA_ARGS"), false);
     if let Some((json_key, plain_key)) = cli_tool_extra_args_env_keys(tool_id) {
         resolved.extend(parse_env_string_list_json(json_key, Some(plain_key), false));
     }
@@ -191,10 +192,14 @@ fn resolved_codex_config_overrides(
         return overrides;
     }
 
-    parse_env_string_list_json("AO_CODEX_EXTRA_CONFIG_OVERRIDES_JSON", Some("AO_CODEX_EXTRA_CONFIG_OVERRIDES"), true)
-        .iter()
-        .filter_map(|entry| parse_codex_override_entry(entry))
-        .collect()
+    parse_env_string_list_json(
+        "ANIMUS_CODEX_EXTRA_CONFIG_OVERRIDES_JSON",
+        Some("ANIMUS_CODEX_EXTRA_CONFIG_OVERRIDES"),
+        true,
+    )
+    .iter()
+    .filter_map(|entry| parse_codex_override_entry(entry))
+    .collect()
 }
 
 fn inject_cli_extra_args(

@@ -30,7 +30,7 @@ fn truncate_for_log(text: &str, max_chars: usize) -> String {
 pub(super) fn use_native_session_backend(tool: &str, _runtime_contract: Option<&Value>) -> bool {
     matches!(
         tool.to_ascii_lowercase().as_str(),
-        "claude" | "codex" | "gemini" | "opencode" | "oai-runner" | "ao-oai-runner"
+        "claude" | "codex" | "gemini" | "opencode" | "oai-runner" | "animus-oai-runner"
     )
 }
 
@@ -420,14 +420,14 @@ mod tests {
 
     fn unique_test_dir(label: &str) -> PathBuf {
         let suffix = SystemTime::now().duration_since(UNIX_EPOCH).expect("clock should be valid").as_nanos();
-        std::env::temp_dir().join(format!("ao-agent-runner-{label}-{suffix}"))
+        std::env::temp_dir().join(format!("animus-agent-runner-{label}-{suffix}"))
     }
 
     #[cfg(unix)]
     fn write_capture_cli_shim(dir: &Path, binary_name: &str, fixture_path: &str) -> std::io::Result<PathBuf> {
         let script_path = dir.join(binary_name);
         let script = format!(
-            "#!/bin/sh\nset -eu\nprintf '%s\\n' \"$@\" > \"$AO_TEST_ARGS_CAPTURE\"\nenv | sort > \"$AO_TEST_ENV_CAPTURE\"\ncat \"{}\"\n",
+            "#!/bin/sh\nset -eu\nprintf '%s\\n' \"$@\" > \"$ANIMUS_TEST_ARGS_CAPTURE\"\nenv | sort > \"$ANIMUS_TEST_ENV_CAPTURE\"\ncat \"{}\"\n",
             fixture_path
         );
         fs::write(&script_path, script)?;
@@ -547,7 +547,7 @@ mod tests {
         write_capture_cli_shim(&temp_dir, "claude", fixture).expect("claude shim should exist");
 
         let run_id = RunId("run-claude-mcp".to_string());
-        let ao_binary = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/debug/ao");
+        let ao_binary = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/debug/animus");
         let workspace_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
         let runtime_contract = json!({
             "cli": {
@@ -573,11 +573,11 @@ mod tests {
                     "command": ao_binary,
                     "args": ["--project-root", workspace_root, "mcp", "serve"]
                 },
-                "agent_id": "ao",
+                "agent_id": "animus",
                 "enforce_only": true,
                 "additional_servers": {
-                    "ao": {
-                        "command": "ao",
+                    "animus": {
+                        "command": "animus",
                         "args": ["mcp", "serve"]
                     }
                 }
@@ -586,8 +586,8 @@ mod tests {
         let mut env = HashMap::new();
         let original_path = std::env::var("PATH").unwrap_or_default();
         env.insert("PATH".to_string(), format!("{}:{original_path}", temp_dir.display()));
-        env.insert("AO_TEST_ARGS_CAPTURE".to_string(), args_capture.to_string_lossy().to_string());
-        env.insert("AO_TEST_ENV_CAPTURE".to_string(), env_capture.to_string_lossy().to_string());
+        env.insert("ANIMUS_TEST_ARGS_CAPTURE".to_string(), args_capture.to_string_lossy().to_string());
+        env.insert("ANIMUS_TEST_ENV_CAPTURE".to_string(), env_capture.to_string_lossy().to_string());
         let (event_tx, mut event_rx) = mpsc::channel(64);
         let (_cancel_tx, cancel_rx) = oneshot::channel();
 
@@ -624,9 +624,9 @@ mod tests {
         let parsed: serde_json::Value =
             serde_json::from_str(args.get(mcp_idx + 1).expect("claude mcp config payload should exist"))
                 .expect("claude mcp config should parse");
-        assert_eq!(parsed.pointer("/mcpServers/ao/command").and_then(serde_json::Value::as_str), Some(ao_binary));
+        assert_eq!(parsed.pointer("/mcpServers/animus/command").and_then(serde_json::Value::as_str), Some(ao_binary));
         assert_eq!(
-            parsed.pointer("/mcpServers/ao/args").and_then(serde_json::Value::as_array).cloned(),
+            parsed.pointer("/mcpServers/animus/args").and_then(serde_json::Value::as_array).cloned(),
             Some(vec![
                 serde_json::Value::String("--project-root".to_string()),
                 serde_json::Value::String(workspace_root.to_string()),
@@ -769,7 +769,7 @@ mod tests {
         write_capture_cli_shim(&temp_dir, "gemini", fixture).expect("gemini shim should exist");
 
         let run_id = RunId("run-gemini-mcp".to_string());
-        let ao_binary = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/debug/ao");
+        let ao_binary = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/debug/animus");
         let workspace_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
         let runtime_contract = json!({
             "cli": {
@@ -789,15 +789,15 @@ mod tests {
                     "command": ao_binary,
                     "args": ["mcp", "serve", "--project-root", workspace_root]
                 },
-                "agent_id": "ao",
+                "agent_id": "animus",
                 "enforce_only": true
             }
         });
         let mut env = HashMap::new();
         let original_path = std::env::var("PATH").unwrap_or_default();
         env.insert("PATH".to_string(), format!("{}:{original_path}", temp_dir.display()));
-        env.insert("AO_TEST_ARGS_CAPTURE".to_string(), args_capture.to_string_lossy().to_string());
-        env.insert("AO_TEST_ENV_CAPTURE".to_string(), env_capture.to_string_lossy().to_string());
+        env.insert("ANIMUS_TEST_ARGS_CAPTURE".to_string(), args_capture.to_string_lossy().to_string());
+        env.insert("ANIMUS_TEST_ENV_CAPTURE".to_string(), env_capture.to_string_lossy().to_string());
         let (event_tx, mut event_rx) = mpsc::channel(64);
         let (_cancel_tx, cancel_rx) = oneshot::channel();
 
@@ -831,7 +831,7 @@ mod tests {
         assert_eq!(exit_code, 0);
         assert!(saw_output, "expected gemini fixture output");
         assert!(
-            args.windows(2).any(|pair| pair[0] == "--allowed-mcp-server-names" && pair[1] == "ao"),
+            args.windows(2).any(|pair| pair[0] == "--allowed-mcp-server-names" && pair[1] == "animus"),
             "expected gemini launch args to include MCP allowlist, got: {args:?}"
         );
         assert!(
@@ -852,17 +852,17 @@ mod tests {
         let args_capture = temp_dir.join("oai-runner.args");
         let env_capture = temp_dir.join("oai-runner.env");
         let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/../llm-cli-wrapper/tests/fixtures/oai_runner_real.jsonl");
-        write_capture_cli_shim(&temp_dir, "ao-oai-runner", fixture).expect("oai-runner shim should exist");
+        write_capture_cli_shim(&temp_dir, "animus-oai-runner", fixture).expect("oai-runner shim should exist");
 
         let run_id = RunId("run-oai-runner-mcp".to_string());
-        let ao_binary = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/debug/ao");
+        let ao_binary = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/debug/animus");
         let workspace_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
         let runtime_contract = json!({
             "cli": {
-                "name": "ao-oai-runner",
+                "name": "animus-oai-runner",
                 "capabilities": { "supports_mcp": true },
                 "launch": {
-                    "command": "ao-oai-runner",
+                    "command": "animus-oai-runner",
                     "args": ["run", "-m", "minimax/MiniMax-M2.5", "--format", "json", "hello"],
                     "prompt_via_stdin": false
                 }
@@ -872,20 +872,20 @@ mod tests {
                     "command": ao_binary,
                     "args": ["mcp", "serve", "--project-root", workspace_root]
                 },
-                "agent_id": "ao",
+                "agent_id": "animus",
                 "enforce_only": true
             }
         });
         let mut env = HashMap::new();
         let original_path = std::env::var("PATH").unwrap_or_default();
         env.insert("PATH".to_string(), format!("{}:{original_path}", temp_dir.display()));
-        env.insert("AO_TEST_ARGS_CAPTURE".to_string(), args_capture.to_string_lossy().to_string());
-        env.insert("AO_TEST_ENV_CAPTURE".to_string(), env_capture.to_string_lossy().to_string());
+        env.insert("ANIMUS_TEST_ARGS_CAPTURE".to_string(), args_capture.to_string_lossy().to_string());
+        env.insert("ANIMUS_TEST_ENV_CAPTURE".to_string(), env_capture.to_string_lossy().to_string());
         let (event_tx, mut event_rx) = mpsc::channel(64);
         let (_cancel_tx, cancel_rx) = oneshot::channel();
 
         let exit_code = spawn_session_process(
-            "ao-oai-runner",
+            "animus-oai-runner",
             "minimax/MiniMax-M2.5",
             "",
             Some(&runtime_contract),

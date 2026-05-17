@@ -46,7 +46,7 @@ Out of scope for this task:
 - Replacing or removing existing diagnostics telemetry pipeline from `TASK-019`.
 
 ## Constraints
-- Preserve existing `/api/v1` endpoint contracts and `ao.cli.v1` envelope
+- Preserve existing `/api/v1` endpoint contracts and `animus.cli.v1` envelope
   semantics.
 - Do not perform direct manual edits to `.ao` state files.
 - Keep safeguards deterministic and client-local (no external telemetry storage).
@@ -217,7 +217,7 @@ Rules:
   correlation ID.
 - `AC-06`: Guarded-action failures remain visible in diagnostics with sanitized
   payloads.
-- `AC-07`: Existing `/api/v1` endpoint usage and `ao.cli.v1` parsing behavior
+- `AC-07`: Existing `/api/v1` endpoint usage and `animus.cli.v1` parsing behavior
   remain unchanged.
 - `AC-08`: Confirmation and feedback flows pass keyboard-only interaction checks.
 - `AC-09`: At `320px` width, confirmation and feedback surfaces remain usable

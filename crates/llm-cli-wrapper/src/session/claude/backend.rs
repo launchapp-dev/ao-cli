@@ -119,22 +119,22 @@ mod tests {
 
     #[test]
     fn claude_parser_emits_tool_result_from_user_event_with_structured_content() {
-        let user_event = r#"{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_014","type":"tool_result","content":"{\"result\":{\"items\":[]}}"}]},"tool_use_result":{"content":"{\"result\":{\"items\":[]},\"tool\":\"ao.task.list\"}","structuredContent":{"result":{"items":[]},"tool":"ao.task.list"}}}"#;
+        let user_event = r#"{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_014","type":"tool_result","content":"{\"result\":{\"items\":[]}}"}]},"tool_use_result":{"content":"{\"result\":{\"items\":[]},\"tool\":\"animus.task.list\"}","structuredContent":{"result":{"items":[]},"tool":"animus.task.list"}}}"#;
 
         let events = parse_claude_stdout_line(user_event);
         assert_eq!(events.len(), 1);
         assert!(matches!(&events[0], SessionEvent::ToolResult { tool_name, success, .. }
-            if tool_name == "ao.task.list" && *success));
+            if tool_name == "animus.task.list" && *success));
     }
 
     #[test]
     fn claude_parser_emits_tool_result_with_tool_reference() {
-        let user_event = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_018q","content":[{"type":"tool_reference","tool_name":"mcp__ao__ao_task_list"}]}]}}"#;
+        let user_event = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_018q","content":[{"type":"tool_reference","tool_name":"mcp__animus__animus_task_list"}]}]}}"#;
 
         let events = parse_claude_stdout_line(user_event);
         assert_eq!(events.len(), 1);
         assert!(matches!(&events[0], SessionEvent::ToolResult { tool_name, success, .. }
-            if tool_name == "mcp__ao__ao_task_list" && *success));
+            if tool_name == "mcp__animus__animus_task_list" && *success));
     }
 
     #[test]

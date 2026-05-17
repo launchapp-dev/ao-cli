@@ -9,11 +9,11 @@
   - restart/refresh `agent-runner` so daemon executions use the latest runner binary and IPC contract
 
 ## AO State Evidence (2026-02-27)
-- `TASK-042` metadata is not present in this worktree's repo-local `.ao/tasks` snapshot.
-  - Observed highest local task file is `TASK-036` from `.ao/tasks/` listing.
+- `TASK-042` metadata is not present in this worktree's repo-local `.animus/tasks` snapshot.
+  - Observed highest local task file is `TASK-036` from `.animus/tasks/` listing.
 - Closest requirement linkage in current repo-local AO data is runner lifecycle reliability:
-  - `.ao/requirements/generated/REQ-003.json:12`
-  - `.ao/requirements/generated/REQ-003.json:34`
+  - `.animus/requirements/generated/REQ-003.json:12`
+  - `.animus/requirements/generated/REQ-003.json:34`
 
 ## Code Evidence
 
@@ -51,7 +51,7 @@
 ### 5. Runner status protocol already exposes `build_id`
 - `RunnerStatusResponse` includes `build_id`:
   - `crates/protocol/src/agent_runner.rs:125`
-- Runner returns build ID from `AO_RUNNER_BUILD_ID` env:
+- Runner returns build ID from `ANIMUS_RUNNER_BUILD_ID` env:
   - `crates/agent-runner/src/runner/mod.rs:162`
   - `crates/agent-runner/src/runner/mod.rs:256`
 
@@ -76,7 +76,7 @@ Why this is preferred:
 
 ## Proposed Implementation Plan (Build-Ready)
 1. Add a small persisted state record for binary refresh progress (per repo scope).
-- Store under existing daemon repo-scope root (same family used by git outbox), e.g. `~/.ao/<repo-scope>/sync/runtime-binary-refresh.json`.
+- Store under existing daemon repo-scope root (same family used by git outbox), e.g. `~/.animus/<repo-scope>/sync/runtime-binary-refresh.json`.
 - Fields:
   - `last_successful_main_head`
   - `last_attempt_main_head`

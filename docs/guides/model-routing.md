@@ -40,7 +40,7 @@ This takes highest precedence.
 
 ### Level 2: Resolved Agent Runtime
 
-AO resolves agent runtime from the authored workflow YAML under `.ao/workflows.yaml` and `.ao/workflows/*.yaml`, merged with bundled defaults. You can inspect the effective runtime with:
+AO resolves agent runtime from the authored workflow YAML under `.animus/workflows.yaml` and `.animus/workflows/*.yaml`, merged with bundled defaults. You can inspect the effective runtime with:
 
 ```bash
 animus workflow agent-runtime get

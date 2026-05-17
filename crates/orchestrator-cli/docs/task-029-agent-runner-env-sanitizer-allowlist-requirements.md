@@ -16,7 +16,7 @@ child AI CLI processes without dropping critical configuration.
 | --- | --- | --- | --- |
 | Env sanitizer allowlist | `crates/agent-runner/src/sandbox/env_sanitizer.rs` | static explicit list for base shell vars and selected provider vars | missing `GEMINI_API_KEY`, terminal/TTY vars, `SSH_AUTH_SOCK`, and prefix-based `AO_`/`XDG_` forwarding |
 | Gemini API key forwarding | `env_sanitizer.rs` | `GOOGLE_API_KEY` is already present | `GEMINI_API_KEY` is not forwarded, causing Gemini CLI auth failures in sanitized runs |
-| AO runtime config forwarding | `env_sanitizer.rs` + `runner/supervisor.rs` | isolated explicit insertions (`AO_MCP_ENDPOINT`) exist in supervisor | general `AO_*` configuration passthrough is absent from sanitizer contract |
+| AO runtime config forwarding | `env_sanitizer.rs` + `runner/supervisor.rs` | isolated explicit insertions (`ANIMUS_MCP_ENDPOINT`) exist in supervisor | general `AO_*` configuration passthrough is absent from sanitizer contract |
 | Regression coverage | `env_sanitizer.rs` tests | only checks that `PATH` exists in sanitized env | no targeted assertions for allowlist additions or denylist behavior |
 
 ## Scope

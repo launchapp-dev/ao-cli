@@ -28,7 +28,7 @@ pub struct PersistedPhaseOutput {
 
 fn scoped_state_base(project_root: &str) -> PathBuf {
     let path = Path::new(project_root);
-    protocol::scoped_state_root(path).unwrap_or_else(|| path.join(".ao"))
+    protocol::scoped_state_root(path).unwrap_or_else(|| path.join(".animus"))
 }
 
 pub fn phase_output_dir(project_root: &str, workflow_id: &str) -> PathBuf {

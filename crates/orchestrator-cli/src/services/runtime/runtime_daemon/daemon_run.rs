@@ -188,7 +188,7 @@ mod tests {
 
         let config_root = TempDir::new().expect("config temp dir");
         let home_root = TempDir::new().expect("home temp dir");
-        let _config_guard = EnvVarGuard::set("AO_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
+        let _config_guard = EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
         let _home_guard = EnvVarGuard::set("HOME", Some(home_root.path().to_string_lossy().as_ref()));
         let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
 
@@ -258,7 +258,7 @@ mod tests {
 
         let config_root = TempDir::new().expect("config temp dir");
         let home_root = TempDir::new().expect("home temp dir");
-        let _config_guard = EnvVarGuard::set("AO_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
+        let _config_guard = EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
         let _home_guard = EnvVarGuard::set("HOME", Some(home_root.path().to_string_lossy().as_ref()));
         let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
 
@@ -354,7 +354,7 @@ mod tests {
 
         let config_root = TempDir::new().expect("config temp dir");
         let home_root = TempDir::new().expect("home temp dir");
-        let _config_guard = EnvVarGuard::set("AO_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
+        let _config_guard = EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
         let _home_guard = EnvVarGuard::set("HOME", Some(home_root.path().to_string_lossy().as_ref()));
         let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
 
@@ -446,10 +446,10 @@ mod tests {
 
         let config_root = TempDir::new().expect("config temp dir");
         let home_root = TempDir::new().expect("home temp dir");
-        let _config_guard = EnvVarGuard::set("AO_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
+        let _config_guard = EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
         let _home_guard = EnvVarGuard::set("HOME", Some(home_root.path().to_string_lossy().as_ref()));
         let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
-        let _missing_url = EnvVarGuard::set("AO_NOTIFY_MISSING_URL", None);
+        let _missing_url = EnvVarGuard::set("ANIMUS_NOTIFY_MISSING_URL", None);
 
         let primary = TempDir::new().expect("primary project dir");
         let primary_root = primary.path().to_string_lossy().to_string();
@@ -459,14 +459,14 @@ mod tests {
             .expect("scoped daemon config directory should be created");
         let pm_config = serde_json::json!({
             "notification_config": {
-                "schema": "ao.daemon-notification-config.v1",
+                "schema": "animus.daemon-notification-config.v1",
                 "version": 1,
                 "connectors": [
                     {
                         "type": "webhook",
                         "id": "ops-webhook",
                         "enabled": true,
-                        "url_env": "AO_NOTIFY_MISSING_URL"
+                        "url_env": "ANIMUS_NOTIFY_MISSING_URL"
                     }
                 ],
                 "subscriptions": [
@@ -534,7 +534,7 @@ mod tests {
 
         let config_root = TempDir::new().expect("config temp dir");
         let home_root = TempDir::new().expect("home temp dir");
-        let _config_guard = EnvVarGuard::set("AO_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
+        let _config_guard = EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
         let _home_guard = EnvVarGuard::set("HOME", Some(home_root.path().to_string_lossy().as_ref()));
         let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
 

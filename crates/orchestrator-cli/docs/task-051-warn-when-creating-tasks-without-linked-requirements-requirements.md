@@ -22,7 +22,7 @@ Context from task brief:
 | CLI `task create` runtime mapping | `crates/orchestrator-cli/src/services/runtime/runtime_project_task/task.rs` (`TaskCommand::Create`) | builds `TaskCreateInput` with `linked_requirements: Vec::new()` unless provided via `--input-json` | missing warning path for unlinked non-`chore` tasks |
 | Input JSON precedence | `crates/orchestrator-cli/src/shared/parsing.rs` (`parse_input_json_or`) | when `--input-json` is provided, payload overrides individual flags | warning logic must evaluate resolved payload, not raw flags |
 | Task creation defaults | `crates/orchestrator-core/src/services/task_impl.rs` (`create`) | defaults missing `task_type` to `feature`; persists linked requirements as provided | default `feature` tasks can be created silently with zero linked requirements |
-| MCP `ao.task.create` surface | `crates/orchestrator-cli/src/services/operations/ops_mcp.rs` | task-create tool does not expose linked requirement input | automation via MCP cannot proactively include requirement linkage |
+| MCP `animus.task.create` surface | `crates/orchestrator-cli/src/services/operations/ops_mcp.rs` | task-create tool does not expose linked requirement input | automation via MCP cannot proactively include requirement linkage |
 
 ## Scope
 In scope for implementation after this requirements phase:
@@ -34,17 +34,17 @@ In scope for implementation after this requirements phase:
 - Keep task creation successful (warning-only, no hard failure).
 - Keep warning behavior deterministic for both `--json` and non-JSON modes.
 - Add focused tests for parsing, warning trigger matrix, and non-fatal behavior.
-- Add optional MCP parity by allowing `ao.task.create` tool input to pass linked requirement ids to CLI.
+- Add optional MCP parity by allowing `animus.task.create` tool input to pass linked requirement ids to CLI.
 
 Out of scope for this task:
 - Converting warning into validation failure.
 - Backfilling existing unlinked tasks.
 - Auto-linking requirements heuristically.
 - Enforcing that linked requirement ids exist at task-create time.
-- Manual edits to `/.ao/*.json`.
+- Manual edits to `/.animus/*.json`.
 
 ## Constraints
-- Preserve existing `ao.cli.v1` success/error envelope behavior.
+- Preserve existing `animus.cli.v1` success/error envelope behavior.
 - Preserve exit code semantics:
   - warning path must still exit with code `0`.
 - Preserve `--input-json` precedence semantics.
@@ -96,7 +96,7 @@ Do not emit warning when either condition is true:
 - Warning emission must not corrupt `stdout` JSON payload.
 
 ### FR-07: MCP Parity (If Implemented in This Slice)
-- MCP `ao.task.create` input may optionally include linked requirement ids and pass them through to CLI flags.
+- MCP `animus.task.create` input may optionally include linked requirement ids and pass them through to CLI flags.
 - MCP callers remain non-blocked when no link is provided (warning-only behavior still applies).
 
 ### FR-08: Regression Coverage

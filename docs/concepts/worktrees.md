@@ -11,7 +11,7 @@ When the [daemon](./daemon.md) dispatches a task workflow, it creates a dedicate
 Worktrees are stored under the repository-scoped state directory:
 
 ```
-~/.ao/<repo-scope>/worktrees/<task-id>/
+~/.animus/<repo-scope>/worktrees/<task-id>/
 ```
 
 Where `<repo-scope>` is the sanitized repository name plus a SHA-256 hash prefix (see [State Management](./state-management.md) for the scoping rules).
@@ -19,7 +19,7 @@ Where `<repo-scope>` is the sanitized repository name plus a SHA-256 hash prefix
 For example:
 
 ```
-~/.ao/my-saas-a1b2c3d4e5f6/worktrees/TASK-042/
+~/.animus/my-saas-a1b2c3d4e5f6/worktrees/TASK-042/
 ```
 
 ---
@@ -52,7 +52,7 @@ Because each task runs in its own worktree:
 ```mermaid
 flowchart LR
     dispatch["SubjectDispatch<br/>for TASK-042"]
-    create["Create worktree<br/>~/.ao/.../worktrees/TASK-042/<br/>Branch: ao/task-042"]
+    create["Create worktree<br/>~/.animus/.../worktrees/TASK-042/<br/>Branch: ao/task-042"]
     execute["Execute workflow phases<br/>Agent writes code, tests, commits"]
     result["Workflow completes"]
     post["Post-success actions"]

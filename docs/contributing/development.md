@@ -89,7 +89,7 @@ npm run docs:preview
 
 ## Project Conventions
 
-- All CLI `--json` output follows the `ao.cli.v1` envelope
+- All CLI `--json` output follows the `animus.cli.v1` envelope
 - Always use `--project-root "$(pwd)"` in scripts and automation
-- Treat `.ao/` project config and `~/.ao/<repo-scope>/` runtime state as AO-managed data
+- Treat `.animus/` project config and `~/.animus/<repo-scope>/` runtime state as AO-managed data
 - Prefer source files over prose when documenting command counts, crate counts, and runtime paths

@@ -10,7 +10,7 @@ Implemented connector types:
 
 ## Configuration Contract
 Notification config schema:
-- `schema`: `ao.daemon-notification-config.v1`
+- `schema`: `animus.daemon-notification-config.v1`
 - `version`: `1`
 - `connectors`: connector definitions (`id`, `type`, `enabled`, env-var refs)
 - `subscriptions`: event routing filters
@@ -20,16 +20,16 @@ Notification config schema:
 ### Safe Example (`notification-config.json`)
 ```json
 {
-  "schema": "ao.daemon-notification-config.v1",
+  "schema": "animus.daemon-notification-config.v1",
   "version": 1,
   "connectors": [
     {
       "type": "webhook",
       "id": "ops-webhook",
       "enabled": true,
-      "url_env": "AO_NOTIFY_WEBHOOK_URL",
+      "url_env": "ANIMUS_NOTIFY_WEBHOOK_URL",
       "headers_env": {
-        "Authorization": "AO_NOTIFY_WEBHOOK_BEARER"
+        "Authorization": "ANIMUS_NOTIFY_WEBHOOK_BEARER"
       },
       "timeout_secs": 10
     },
@@ -37,7 +37,7 @@ Notification config schema:
       "type": "slack_webhook",
       "id": "ops-slack",
       "enabled": true,
-      "webhook_url_env": "AO_NOTIFY_SLACK_WEBHOOK_URL",
+      "webhook_url_env": "ANIMUS_NOTIFY_SLACK_WEBHOOK_URL",
       "timeout_secs": 10,
       "username": "AO Daemon"
     }
@@ -77,7 +77,7 @@ ao daemon config --notification-config-file ./notification-config.json
 
 Apply via inline JSON:
 ```bash
-ao daemon config --notification-config-json '{"schema":"ao.daemon-notification-config.v1","version":1,"connectors":[],"subscriptions":[],"retry_policy":{"max_attempts":5,"base_delay_secs":2,"max_delay_secs":300},"max_deliveries_per_tick":8}'
+ao daemon config --notification-config-json '{"schema":"animus.daemon-notification-config.v1","version":1,"connectors":[],"subscriptions":[],"retry_policy":{"max_attempts":5,"base_delay_secs":2,"max_delay_secs":300},"max_deliveries_per_tick":8}'
 ```
 
 Clear notification config:
@@ -92,7 +92,7 @@ ao daemon config
 
 ## Credential Handling and Redaction
 - Store only env-var names in daemon config (`*_env` fields).
-- Never store raw webhook URLs/tokens in `.ao/pm-config.json`.
+- Never store raw webhook URLs/tokens in `.animus/pm-config.json`.
 - Missing credentials become redacted delivery errors and are dead-lettered.
 - Runtime lifecycle events include redacted error metadata only.
 
@@ -114,8 +114,8 @@ Each subscription can filter on:
   - `notification-delivery-dead-lettered`
 
 Persistent runtime files are under repo-scoped AO state:
-- `~/.ao/<repo-scope>/notifications/outbox.jsonl`
-- `~/.ao/<repo-scope>/notifications/dead-letter.jsonl`
+- `~/.animus/<repo-scope>/notifications/outbox.jsonl`
+- `~/.animus/<repo-scope>/notifications/dead-letter.jsonl`
 
 ## Troubleshooting
 - `missing credential env var ...`: set referenced env vars in daemon runtime environment.

@@ -7,10 +7,10 @@
 On first run it:
 
 1. resolves the project root
-2. creates `.ao/` if it does not exist
-3. provisions repo-scoped state under `~/.ao/<repo-scope>/`
+2. creates `.animus/` if it does not exist
+3. provisions repo-scoped state under `~/.animus/<repo-scope>/`
 4. writes project config and baseline workflow scaffolding
-5. copies template workflow wrappers into `.ao/workflows/`
+5. copies template workflow wrappers into `.animus/workflows/`
 6. creates the default state-machine config if it is missing
 
 `animus setup` still exists as a lower-level bootstrap wizard. Use it when you only want the baseline repo wiring without selecting a template.
@@ -20,7 +20,7 @@ On first run it:
 These files live in the repository and are the authored configuration surface. The exact workflow set depends on the selected template:
 
 ```text
-.ao/
+.animus/
 ├── config.json
 └── workflows/
     ├── custom.yaml
@@ -33,18 +33,18 @@ These files live in the repository and are the authored configuration surface. T
 Supported but not created by default:
 
 ```text
-.ao/workflows.yaml
-.ao/plugins/<pack-id>/
+.animus/workflows.yaml
+.animus/plugins/<pack-id>/
 ```
 
-Use the YAML files in `.ao/workflows/` or `.ao/workflows.yaml` to define repository-specific workflows and defaults. Registry templates ship curated workflow wrappers, and local templates can add their own starter files the same way.
+Use the YAML files in `.animus/workflows/` or `.animus/workflows.yaml` to define repository-specific workflows and defaults. Registry templates ship curated workflow wrappers, and local templates can add their own starter files the same way.
 
 ## Repo-Scoped Runtime State
 
 Animus keeps mutable runtime data outside the repository under:
 
 ```text
-~/.ao/<repo-scope>/
+~/.animus/<repo-scope>/
 ├── core-state.json
 ├── resume-config.json
 ├── workflow.db
@@ -91,9 +91,9 @@ Some of these files appear lazily, only after the corresponding subsystem runs.
 
 Animus resolves workflows from these layers:
 
-1. project overrides in `.ao/plugins/<pack-id>/`
-2. project YAML in `.ao/workflows.yaml` and `.ao/workflows/*.yaml`
-3. installed packs in `~/.ao/packs/<pack-id>/<version>/`
+1. project overrides in `.animus/plugins/<pack-id>/`
+2. project YAML in `.animus/workflows.yaml` and `.animus/workflows/*.yaml`
+3. installed packs in `~/.animus/packs/<pack-id>/<version>/`
 
 ## Mutation Policy
 

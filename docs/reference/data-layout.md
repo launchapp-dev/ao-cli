@@ -7,7 +7,7 @@ AO splits repository-authored configuration from repo-scoped runtime state.
 These files live in the repository:
 
 ```text
-.ao/
+.animus/
 ├── config.json
 ├── workflows.yaml              # optional single-file workflow source
 ├── workflows/
@@ -21,16 +21,16 @@ These files live in the repository:
 
 Key points:
 
-- `.ao/workflows.yaml` and `.ao/workflows/*.yaml` are the authored workflow sources
-- `.ao/plugins/<pack-id>/` is the project override root for pack content
-- `.ao/config.json` stores repository-local AO config
+- `.animus/workflows.yaml` and `.animus/workflows/*.yaml` are the authored workflow sources
+- `.animus/plugins/<pack-id>/` is the project override root for pack content
+- `.animus/config.json` stores repository-local AO config
 
 ## Repo-Scoped Runtime Layout
 
 Mutable runtime state lives outside the repo:
 
 ```text
-~/.ao/<repo-scope>/
+~/.animus/<repo-scope>/
 ├── core-state.json
 ├── resume-config.json
 ├── workflow.db
@@ -67,7 +67,7 @@ Key points:
 AO also uses machine-wide directories that are not tied to one repository:
 
 ```text
-~/.ao/
+~/.animus/
 ├── config.json
 ├── credentials.json
 ├── daemon-events.jsonl
@@ -96,12 +96,12 @@ Use AO commands or AO MCP tools instead.
 
 | Path | Purpose |
 |---|---|
-| `.ao/workflows.yaml` | Single-file project workflow source |
-| `.ao/workflows/*.yaml` | Multi-file project workflow sources |
-| `.ao/plugins/<pack-id>/` | Project-local pack override root |
-| `~/.ao/<repo-scope>/workflow.db` | Persisted workflows, tasks, requirements, checkpoints |
-| `~/.ao/<repo-scope>/config/state-machines.v1.json` | Repo-scoped state-machine config |
-| `~/.ao/<repo-scope>/state/pack-selection.v1.json` | Repo-scoped pack selection state |
-| `~/.ao/packs/<pack-id>/<version>/` | Machine-installed pack root |
+| `.animus/workflows.yaml` | Single-file project workflow source |
+| `.animus/workflows/*.yaml` | Multi-file project workflow sources |
+| `.animus/plugins/<pack-id>/` | Project-local pack override root |
+| `~/.animus/<repo-scope>/workflow.db` | Persisted workflows, tasks, requirements, checkpoints |
+| `~/.animus/<repo-scope>/config/state-machines.v1.json` | Repo-scoped state-machine config |
+| `~/.animus/<repo-scope>/state/pack-selection.v1.json` | Repo-scoped pack selection state |
+| `~/.animus/packs/<pack-id>/<version>/` | Machine-installed pack root |
 
 See also: [Configuration](configuration.md), [State Management](../concepts/state-management.md), [Project Setup](../getting-started/project-setup.md).

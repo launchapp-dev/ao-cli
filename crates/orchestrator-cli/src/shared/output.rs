@@ -201,6 +201,6 @@ mod tests {
         });
         let serialized = serialize_compact_json(&payload).expect("json should serialize");
         assert!(!serialized.contains('\n'));
-        assert_eq!(serialized, r#"{"data":{"message":"ok"},"ok":true,"schema":"ao.cli.v1"}"#);
+        assert_eq!(serialized, r#"{"data":{"message":"ok"},"ok":true,"schema":"animus.cli.v1"}"#);
     }
 }

@@ -9,7 +9,7 @@ repository-scoped runtime directories.
 - Keep changes scoped to Rust crates in this repository.
 - Preserve current runtime behavior and command contracts.
 - Keep tests isolated from host AO runtime state.
-- Do not mutate `.ao/*.json` manually.
+- Do not mutate `.animus/*.json` manually.
 
 ## Proposed Change Surface
 
@@ -45,7 +45,7 @@ repository-scoped runtime directories.
 - Use env guards + lock for process-global env keys when tests set:
   - `HOME`
   - `XDG_CONFIG_HOME`
-  - `AO_CONFIG_DIR`
+  - `ANIMUS_CONFIG_DIR`
 - Build fixture JSONL files directly with deterministic lines and timestamps.
 - Avoid long waits, process spawns, or network dependencies for this task.
 

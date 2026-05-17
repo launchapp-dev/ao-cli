@@ -52,7 +52,7 @@ Out of scope:
 - Redesigning workflow state-machine semantics.
 - Replacing existing `resume_interrupted` or task stale-reconcile flows.
 - Protocol schema changes for runner status payloads.
-- Manual edits to `/.ao/*.json`.
+- Manual edits to `/.animus/*.json`.
 
 ## Constraints
 - Recovery must be deterministic and idempotent at startup.

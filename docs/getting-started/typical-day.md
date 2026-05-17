@@ -94,8 +94,8 @@ The daemon does not own task semantics, requirement semantics, or AI logic. That
 
 Animus splits responsibilities to keep concerns clean:
 
-- **Project configuration** (`.ao/`) stays in your repository, versioned with your code
-- **Runtime state** (`~/.ao/<repo-scope>/`) lives outside, persisted across runs
+- **Project configuration** (`.animus/`) stays in your repository, versioned with your code
+- **Runtime state** (`~/.animus/<repo-scope>/`) lives outside, persisted across runs
 - **Workflow logic** (YAML phases and agent prompts) is authored and committed
 - **Daemon** is a generic scheduler—policies live in workflow definitions, not in the daemon
 

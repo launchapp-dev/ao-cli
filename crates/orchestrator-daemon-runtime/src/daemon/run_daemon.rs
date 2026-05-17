@@ -81,7 +81,7 @@ where
     let mut sigterm_stream = SigtermStream::new()?;
     loop {
         // Hot-reload runtime-reconfigurable settings from persisted project config
-        // so that `ao.daemon config-set` changes take effect without restart.
+        // so that `animus.daemon config-set` changes take effect without restart.
         let prev_interval = options.interval_secs;
         options.reload_from_project_config(Path::new(project_root));
         if options.interval_secs != prev_interval {
@@ -164,11 +164,7 @@ where
     Ok(())
 }
 
-fn discover_plugins_for_daemon<H: DaemonRunHooks>(
-    project_root: &str,
-    primary_root: &str,
-    hooks: &mut H,
-) -> Result<()> {
+fn discover_plugins_for_daemon<H: DaemonRunHooks>(project_root: &str, primary_root: &str, hooks: &mut H) -> Result<()> {
     use orchestrator_plugin_host::DiscoverySource;
     match orchestrator_plugin_host::discover_plugins(Path::new(project_root)) {
         Ok(plugins) => {

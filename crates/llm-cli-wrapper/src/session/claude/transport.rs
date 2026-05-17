@@ -148,7 +148,7 @@ pub(crate) fn claude_invocation_for_request(
 }
 
 /// Resolve Anthropic-compatible provider credentials from model prefix.
-/// Reads ~/.ao/credentials.json and returns (base_url, api_key) if the model's
+/// Reads ~/.animus/credentials.json and returns (base_url, api_key) if the model's
 /// provider has both fields set.
 fn resolve_anthropic_compatible_provider(model: &str) -> Option<(String, String)> {
     let normalized = model.to_ascii_lowercase();
@@ -161,7 +161,7 @@ fn resolve_anthropic_compatible_provider(model: &str) -> Option<(String, String)
     }
 
     let home = std::env::var("HOME").ok()?;
-    let creds_path = std::path::PathBuf::from(home).join(".ao").join("credentials.json");
+    let creds_path = std::path::PathBuf::from(home).join(".animus").join("credentials.json");
     let content = std::fs::read_to_string(&creds_path).ok()?;
     let creds: serde_json::Value = serde_json::from_str(&content).ok()?;
     let providers = creds.get("providers")?.as_object()?;

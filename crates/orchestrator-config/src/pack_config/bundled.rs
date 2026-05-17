@@ -19,87 +19,244 @@ struct BundledPackDescriptor {
     files: &'static [BundledPackFile],
 }
 
-const AO_REQUIREMENT_FILES: &[BundledPackFile] = &[
+const ANIMUS_REQUIREMENT_FILES: &[BundledPackFile] = &[
     BundledPackFile {
         relative_path: "pack.toml",
-        contents: include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/config/bundled-packs/ao.requirement/pack.toml")),
+        contents: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/config/bundled-packs/animus.requirement/pack.toml"
+        )),
     },
     BundledPackFile {
         relative_path: "runtime/agent-runtime.overlay.yaml",
         contents: include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/config/bundled-packs/ao.requirement/runtime/agent-runtime.overlay.yaml"
+            "/config/bundled-packs/animus.requirement/runtime/agent-runtime.overlay.yaml"
         )),
     },
     BundledPackFile {
         relative_path: "workflows/requirement-pack.yaml",
         contents: include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/config/bundled-packs/ao.requirement/workflows/requirement-pack.yaml"
+            "/config/bundled-packs/animus.requirement/workflows/requirement-pack.yaml"
         )),
     },
 ];
 
-const AO_REVIEW_FILES: &[BundledPackFile] = &[
+const ANIMUS_REVIEW_FILES: &[BundledPackFile] = &[
     BundledPackFile {
         relative_path: "pack.toml",
-        contents: include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/config/bundled-packs/ao.review/pack.toml")),
+        contents: include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/config/bundled-packs/animus.review/pack.toml")),
     },
     BundledPackFile {
         relative_path: "runtime/agent-runtime.overlay.yaml",
         contents: include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/config/bundled-packs/ao.review/runtime/agent-runtime.overlay.yaml"
+            "/config/bundled-packs/animus.review/runtime/agent-runtime.overlay.yaml"
         )),
     },
     BundledPackFile {
         relative_path: "workflows/review-pack.yaml",
         contents: include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/config/bundled-packs/ao.review/workflows/review-pack.yaml"
+            "/config/bundled-packs/animus.review/workflows/review-pack.yaml"
         )),
     },
 ];
 
-const AO_TASK_FILES: &[BundledPackFile] = &[
+const ANIMUS_TASK_FILES: &[BundledPackFile] = &[
     BundledPackFile {
         relative_path: "pack.toml",
-        contents: include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/config/bundled-packs/ao.task/pack.toml")),
+        contents: include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/config/bundled-packs/animus.task/pack.toml")),
     },
     BundledPackFile {
         relative_path: "runtime/agent-runtime.overlay.yaml",
         contents: include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/config/bundled-packs/ao.task/runtime/agent-runtime.overlay.yaml"
+            "/config/bundled-packs/animus.task/runtime/agent-runtime.overlay.yaml"
         )),
     },
     BundledPackFile {
         relative_path: "workflows/task-pack.yaml",
         contents: include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/config/bundled-packs/ao.task/workflows/task-pack.yaml"
+            "/config/bundled-packs/animus.task/workflows/task-pack.yaml"
+        )),
+    },
+];
+
+const ANIMUS_CORE_SKILLS_FILES: &[BundledPackFile] = &[
+    BundledPackFile {
+        relative_path: "pack.toml",
+        contents: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/config/bundled-packs/animus.core-skills/pack.toml"
+        )),
+    },
+    BundledPackFile {
+        relative_path: "skills/api-documentation.yaml",
+        contents: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/config/bundled-packs/animus.core-skills/skills/api-documentation.yaml"
+        )),
+    },
+    BundledPackFile {
+        relative_path: "skills/architecture-review.yaml",
+        contents: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/config/bundled-packs/animus.core-skills/skills/architecture-review.yaml"
+        )),
+    },
+    BundledPackFile {
+        relative_path: "skills/changelog-generation.yaml",
+        contents: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/config/bundled-packs/animus.core-skills/skills/changelog-generation.yaml"
+        )),
+    },
+    BundledPackFile {
+        relative_path: "skills/ci-cd-authoring.yaml",
+        contents: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/config/bundled-packs/animus.core-skills/skills/ci-cd-authoring.yaml"
+        )),
+    },
+    BundledPackFile {
+        relative_path: "skills/code-analysis.yaml",
+        contents: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/config/bundled-packs/animus.core-skills/skills/code-analysis.yaml"
+        )),
+    },
+    BundledPackFile {
+        relative_path: "skills/code-review.yaml",
+        contents: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/config/bundled-packs/animus.core-skills/skills/code-review.yaml"
+        )),
+    },
+    BundledPackFile {
+        relative_path: "skills/debugging.yaml",
+        contents: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/config/bundled-packs/animus.core-skills/skills/debugging.yaml"
+        )),
+    },
+    BundledPackFile {
+        relative_path: "skills/deep-search.yaml",
+        contents: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/config/bundled-packs/animus.core-skills/skills/deep-search.yaml"
+        )),
+    },
+    BundledPackFile {
+        relative_path: "skills/impact-analysis.yaml",
+        contents: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/config/bundled-packs/animus.core-skills/skills/impact-analysis.yaml"
+        )),
+    },
+    BundledPackFile {
+        relative_path: "skills/implementation.yaml",
+        contents: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/config/bundled-packs/animus.core-skills/skills/implementation.yaml"
+        )),
+    },
+    BundledPackFile {
+        relative_path: "skills/incident-response.yaml",
+        contents: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/config/bundled-packs/animus.core-skills/skills/incident-response.yaml"
+        )),
+    },
+    BundledPackFile {
+        relative_path: "skills/pr-summary.yaml",
+        contents: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/config/bundled-packs/animus.core-skills/skills/pr-summary.yaml"
+        )),
+    },
+    BundledPackFile {
+        relative_path: "skills/prioritization.yaml",
+        contents: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/config/bundled-packs/animus.core-skills/skills/prioritization.yaml"
+        )),
+    },
+    BundledPackFile {
+        relative_path: "skills/refactoring.yaml",
+        contents: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/config/bundled-packs/animus.core-skills/skills/refactoring.yaml"
+        )),
+    },
+    BundledPackFile {
+        relative_path: "skills/release-management.yaml",
+        contents: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/config/bundled-packs/animus.core-skills/skills/release-management.yaml"
+        )),
+    },
+    BundledPackFile {
+        relative_path: "skills/security-audit.yaml",
+        contents: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/config/bundled-packs/animus.core-skills/skills/security-audit.yaml"
+        )),
+    },
+    BundledPackFile {
+        relative_path: "skills/task-decomposition.yaml",
+        contents: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/config/bundled-packs/animus.core-skills/skills/task-decomposition.yaml"
+        )),
+    },
+    BundledPackFile {
+        relative_path: "skills/technical-writing.yaml",
+        contents: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/config/bundled-packs/animus.core-skills/skills/technical-writing.yaml"
+        )),
+    },
+    BundledPackFile {
+        relative_path: "skills/unit-testing.yaml",
+        contents: include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/config/bundled-packs/animus.core-skills/skills/unit-testing.yaml"
         )),
     },
 ];
 
 const BUNDLED_PACKS: &[BundledPackDescriptor] = &[
     BundledPackDescriptor {
-        pack_id: "ao.requirement",
+        pack_id: "animus.core-skills",
         manifest_toml: include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/config/bundled-packs/ao.requirement/pack.toml"
+            "/config/bundled-packs/animus.core-skills/pack.toml"
         )),
-        files: AO_REQUIREMENT_FILES,
+        files: ANIMUS_CORE_SKILLS_FILES,
     },
     BundledPackDescriptor {
-        pack_id: "ao.review",
-        manifest_toml: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/config/bundled-packs/ao.review/pack.toml")),
-        files: AO_REVIEW_FILES,
+        pack_id: "animus.requirement",
+        manifest_toml: include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/config/bundled-packs/animus.requirement/pack.toml"
+        )),
+        files: ANIMUS_REQUIREMENT_FILES,
     },
     BundledPackDescriptor {
-        pack_id: "ao.task",
-        manifest_toml: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/config/bundled-packs/ao.task/pack.toml")),
-        files: AO_TASK_FILES,
+        pack_id: "animus.review",
+        manifest_toml: include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/config/bundled-packs/animus.review/pack.toml"
+        )),
+        files: ANIMUS_REVIEW_FILES,
+    },
+    BundledPackDescriptor {
+        pack_id: "animus.task",
+        manifest_toml: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/config/bundled-packs/animus.task/pack.toml")),
+        files: ANIMUS_TASK_FILES,
     },
 ];
 

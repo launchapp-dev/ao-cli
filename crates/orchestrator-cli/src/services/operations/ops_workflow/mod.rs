@@ -268,7 +268,7 @@ fn emit_daemon_event(project_root: &str, event_type: &str, data: Value) -> Resul
     }
     let timestamp = Utc::now().to_rfc3339();
     let event = serde_json::json!({
-        "schema": "ao.daemon.event.v1",
+        "schema": "animus.daemon.event.v1",
         "id": Uuid::new_v4().to_string(),
         "seq": 0,
         "timestamp": timestamp,

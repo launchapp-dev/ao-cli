@@ -8,7 +8,7 @@ resolution and reproducible lockfile behavior.
 ## Non-Negotiable Constraints
 - Keep implementation in Rust under `crates/`.
 - Keep `.ao` mutations command-driven; do not manually edit `.ao` state files.
-- Preserve `ao.cli.v1` output envelope behavior and current exit-code mapping.
+- Preserve `animus.cli.v1` output envelope behavior and current exit-code mapping.
 - Keep command behavior deterministic and repository-safe.
 
 ## Proposed Change Surface
@@ -46,8 +46,8 @@ Module responsibilities:
     - `ResolvedSkillEntry`
 - `store.rs`
   - path helpers for:
-    - `.ao/state/skills-registry.v1.json`
-    - `.ao/state/skills-lock.v1.json`
+    - `.animus/state/skills-registry.v1.json`
+    - `.animus/state/skills-lock.v1.json`
   - load/save using `read_json_or_default` and `write_json_pretty`.
 - `resolver.rs`
   - precedence-aware version resolution logic with deterministic tie-breakers.

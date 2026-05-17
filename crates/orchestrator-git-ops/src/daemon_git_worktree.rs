@@ -76,7 +76,7 @@ pub(crate) fn infer_task_id_from_worktree(branch: Option<&str>, worktree_name: &
 
     if let Some(branch_name) = branch {
         let normalized = normalize_branch_for_match(branch_name);
-        if let Some(rest) = normalized.strip_prefix("ao/") {
+        if let Some(rest) = normalized.strip_prefix("animus/") {
             if let Some(task_id) = token_to_task_id(rest) {
                 return Some(task_id);
             }

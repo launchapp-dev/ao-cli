@@ -29,8 +29,8 @@ Common subject kinds today:
 
 | Kind | Example |
 |---|---|
-| `ao.task` | `TASK-042` |
-| `ao.requirement` | `REQ-007` |
+| `animus.task` | `TASK-042` |
+| `animus.requirement` | `REQ-007` |
 | `custom` | `planning-intake` |
 
 Compatibility adapters still preserve the existing task and requirement flows,
@@ -66,14 +66,14 @@ Examples of current workflow refs consumed by dispatch and `animus workflow run`
 
 | Use Case | Subject | Workflow Ref |
 |---|---|---|
-| Planning intake | `custom:planning-intake` | `ao.vision/draft` |
-| Requirement execution | `ao.requirement:REQ-007` | `ao.requirement/execute` |
-| Standard task delivery | `ao.task:TASK-042` | `ao.task/standard` |
+| Planning intake | `custom:planning-intake` | `animus.vision/draft` |
+| Requirement execution | `animus.requirement:REQ-007` | `animus.requirement/execute` |
+| Standard task delivery | `animus.task:TASK-042` | `animus.task/standard` |
 
 Legacy aliases such as `builtin/requirements-execute` still resolve, but they
 are compatibility shims rather than the preferred surface.
 
-The `ao.vision/draft` ref remains a valid dispatch target, but the current CLI
+The `animus.vision/draft` ref remains a valid dispatch target, but the current CLI
 does not expose a dedicated `ao vision ...` command. It is consumed through
 generic workflow dispatch or project-local YAML.
 

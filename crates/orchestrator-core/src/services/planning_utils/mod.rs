@@ -159,7 +159,7 @@ pub(super) fn collect_codebase_insight(project_root: &Path) -> CodebaseInsight {
 
             if path.is_dir() {
                 if file_name == ".git"
-                    || file_name == ".ao"
+                    || file_name == ".animus"
                     || file_name == "node_modules"
                     || file_name == "target"
                     || file_name == "dist"
@@ -181,7 +181,7 @@ pub(super) fn collect_codebase_insight(project_root: &Path) -> CodebaseInsight {
 }
 
 fn planning_docs_dir(project_root: &Path) -> PathBuf {
-    let base = protocol::scoped_state_root(project_root).unwrap_or_else(|| project_root.join(".ao"));
+    let base = protocol::scoped_state_root(project_root).unwrap_or_else(|| project_root.join(".animus"));
     base.join("docs")
 }
 

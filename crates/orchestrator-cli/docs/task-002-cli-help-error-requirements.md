@@ -59,7 +59,7 @@ Out of scope for this task:
 - Reworking command execution order, business rules, or side-effect timing.
 
 ## Constraints
-- Preserve `ao.cli.v1` envelope behavior for `--json` responses.
+- Preserve `animus.cli.v1` envelope behavior for `--json` responses.
 - Preserve exit-code mapping contract in `shared/output.rs`:
   - `2` invalid input
   - `3` not found
@@ -72,7 +72,7 @@ Out of scope for this task:
 - Keep changes scoped to `orchestrator-cli` docs/tests/handler UX behavior.
 - Keep message text deterministic and free of environment-specific content.
 - Preserve compatibility for existing automation that parses stable JSON fields.
-- Do not manually edit `/.ao/*.json` files.
+- Do not manually edit `/.animus/*.json` files.
 
 ## Functional Requirements
 
@@ -180,7 +180,7 @@ details can vary, but key tokens and ordering must remain stable.
   and stable token order.
 - `AC-06`: Dry-run payloads for scoped destructive operations expose the shared
   key set (`operation`, `target`, `action`, `dry_run`, etc.).
-- `AC-07`: JSON mode retains `ao.cli.v1` envelope shape for success and errors.
+- `AC-07`: JSON mode retains `animus.cli.v1` envelope shape for success and errors.
 - `AC-08`: Exit code mapping remains unchanged.
 - `AC-09`: Existing destructive safety behavior (confirmation gating and dry-run
   no-mutation guarantee) remains intact.

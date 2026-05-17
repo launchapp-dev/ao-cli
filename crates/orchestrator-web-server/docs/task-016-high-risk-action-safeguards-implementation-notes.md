@@ -6,7 +6,7 @@ the build phase, focused on high-risk daemon actions in the web UI.
 
 ## Non-Negotiable Constraints
 - Keep all API calls under `/api/v1`.
-- Preserve `ao.cli.v1` envelope parsing and existing endpoint contracts.
+- Preserve `animus.cli.v1` envelope parsing and existing endpoint contracts.
 - Do not manually edit `.ao` state files.
 - Keep safeguards client-local and deterministic (no external storage).
 - Preserve existing telemetry redaction behavior from `TASK-019`.

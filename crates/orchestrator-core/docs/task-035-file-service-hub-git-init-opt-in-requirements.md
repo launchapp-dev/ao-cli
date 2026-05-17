@@ -41,7 +41,7 @@ Out of scope:
 - Changing `.ao` schema or persistence formats.
 - Redesigning daemon/worktree git flows unrelated to bootstrap side effects.
 - Adding desktop-wrapper dependencies.
-- Manual edits to `/.ao/*.json`.
+- Manual edits to `/.animus/*.json`.
 
 ## Constraints
 - Preserve existing `.ao` bootstrap behavior:
@@ -99,7 +99,7 @@ Out of scope:
 ## Testable Acceptance Checklist
 - `T-01`: Unit/integration test that `FileServiceHub::new` on non-git temp dir
   leaves `.git` absent.
-- `T-02`: Unit/integration test that `.ao/core-state.json` and required AO
+- `T-02`: Unit/integration test that `.animus/core-state.json` and required AO
   config files are still bootstrapped.
 - `T-03`: Unit/integration test for explicit git bootstrap helper creating repo
   and `HEAD` commit when invoked.

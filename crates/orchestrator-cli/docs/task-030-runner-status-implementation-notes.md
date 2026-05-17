@@ -7,7 +7,7 @@ semantics.
 
 ## Non-Negotiable Constraints
 - Keep changes scoped to Rust crates in this repository.
-- Do not manually edit `.ao/*.json`.
+- Do not manually edit `.animus/*.json`.
 - Preserve existing behavior outside status-query and cleanup status propagation
   surfaces.
 - Keep protocol changes additive and parse-compatible for updated components.

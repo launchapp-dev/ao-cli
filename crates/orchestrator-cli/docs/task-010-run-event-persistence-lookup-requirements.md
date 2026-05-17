@@ -18,16 +18,16 @@ The core contract to preserve:
 
 | Coverage area | Current location | Current state | Gap |
 | --- | --- | --- | --- |
-| Runner-side run event persistence | `crates/agent-runner/src/runner/event_persistence.rs` | writes `events.jsonl` and `json-output.jsonl` to `~/.ao/<repo-scope>/runs/<run_id>` via `project_runs_root` | no explicit cross-crate traceability proof vs CLI lookup/read behavior |
+| Runner-side run event persistence | `crates/agent-runner/src/runner/event_persistence.rs` | writes `events.jsonl` and `json-output.jsonl` to `~/.animus/<repo-scope>/runs/<run_id>` via `project_runs_root` | no explicit cross-crate traceability proof vs CLI lookup/read behavior |
 | CLI run directory resolution | `crates/orchestrator-cli/src/shared/runner.rs` (`run_dir`) | resolves canonical scoped runtime run directory by default | no dedicated regression checks tying resolver output to persisted runner artifacts |
 | Agent status fallback lookup | `crates/orchestrator-cli/src/shared/parsing.rs` (`read_agent_status`) | reads `events.jsonl` from `run_dir(...)` when runner query fails | no explicit tests for scoped-runtime fallback behavior and event-path traceability |
-| Output lookup compatibility | `crates/orchestrator-cli/src/services/operations/ops_output.rs` | searches candidates in this order: scoped path, `<project>/.ao/runs`, `<project>/.ao/state/runs` | no regression tests for candidate precedence and fallback compatibility |
+| Output lookup compatibility | `crates/orchestrator-cli/src/services/operations/ops_output.rs` | searches candidates in this order: scoped path, `<project>/.animus/runs`, `<project>/.animus/state/runs` | no regression tests for candidate precedence and fallback compatibility |
 | Existing test coverage | `event_persistence.rs` and scattered CLI shared tests | partial unit coverage exists for persistence and env precedence | no end-to-end lookup traceability matrix for scoped runtime directories |
 
 ## Canonical Path Contract
 
 For a valid `project_root` and `run_id`, canonical run JSONL directory is:
-- `~/.ao/<repo-scope>/runs/<run_id>`
+- `~/.animus/<repo-scope>/runs/<run_id>`
 
 Where:
 - `<repo-scope>` is derived from canonical project path using sanitized repo
@@ -35,8 +35,8 @@ Where:
 
 Lookup precedence for output operations must be deterministic:
 1. canonical scoped path (`run_dir(project_root, run_id, None)`)
-2. legacy `<project_root>/.ao/runs/<run_id>`
-3. legacy `<project_root>/.ao/state/runs/<run_id>`
+2. legacy `<project_root>/.animus/runs/<run_id>`
+3. legacy `<project_root>/.animus/state/runs/<run_id>`
 
 ## Scope
 In scope for implementation after this requirements phase:
@@ -51,15 +51,15 @@ In scope for implementation after this requirements phase:
 
 Out of scope for this task:
 - changes to daemon event storage (`daemon-events.jsonl`)
-- changes to artifact blob storage under `.ao/artifacts`
+- changes to artifact blob storage under `.animus/artifacts`
 - protocol/schema changes for `AgentRunEvent`
-- manual edits to `.ao/*.json`
+- manual edits to `.animus/*.json`
 
 ## Constraints
 - Tests must be deterministic and isolated:
   - no dependence on host/global AO state
   - temp roots and explicit env isolation for `HOME`, `XDG_CONFIG_HOME`,
-    `AO_CONFIG_DIR` as needed
+    `ANIMUS_CONFIG_DIR` as needed
 - Runtime safety:
   - no destructive git operations
   - no writes outside test-owned directories
@@ -72,12 +72,12 @@ Out of scope for this task:
 
 | Case ID | Scenario | Entry point | Required assertions |
 | --- | --- | --- | --- |
-| `TR-01` | Runner persists events to canonical scoped path | `agent-runner::RunEventPersistence::persist` | `events.jsonl` created at `~/.ao/<repo-scope>/runs/<run_id>/events.jsonl` |
+| `TR-01` | Runner persists events to canonical scoped path | `agent-runner::RunEventPersistence::persist` | `events.jsonl` created at `~/.animus/<repo-scope>/runs/<run_id>/events.jsonl` |
 | `TR-02` | Runner persists JSON output lines alongside events | `agent-runner::RunEventPersistence::persist` | `json-output.jsonl` created in same canonical run dir and includes parsed JSON payload lines |
-| `TR-03` | CLI resolver matches canonical scoped path model | `orchestrator-cli::run_dir` | computed path points to `~/.ao/<repo-scope>/runs/<run_id>` when no override is passed |
+| `TR-03` | CLI resolver matches canonical scoped path model | `orchestrator-cli::run_dir` | computed path points to `~/.animus/<repo-scope>/runs/<run_id>` when no override is passed |
 | `TR-04` | Agent status fallback reads scoped run log | `read_agent_status` | status resolves from canonical `events.jsonl` and reports resolved `events_path` |
 | `TR-05` | Output run lookup reads canonical scoped run dir first | `OutputCommand::Run` | when both scoped and legacy dirs exist, scoped path is chosen deterministically |
-| `TR-06` | Output lookup preserves legacy compatibility | `OutputCommand::Run` / `OutputCommand::Jsonl` | legacy `<project>/.ao/runs` and `.ao/state/runs` are used when canonical path is absent |
+| `TR-06` | Output lookup preserves legacy compatibility | `OutputCommand::Run` / `OutputCommand::Jsonl` | legacy `<project>/.animus/runs` and `.animus/state/runs` are used when canonical path is absent |
 | `TR-07` | Output JSONL lookup remains deterministic | `get_run_jsonl_entries` | merged rows are stable-sorted by timestamp hint and include source-file origin |
 | `TR-08` | Unsafe run IDs are rejected in lookup APIs | `get_run_jsonl_entries` | traversal-like run IDs fail with deterministic validation error |
 

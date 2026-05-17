@@ -46,7 +46,7 @@ Out of scope for this task:
 
 ## Constraints
 - Preserve existing command names and non-destructive behavior.
-- Preserve `ao.cli.v1` envelope behavior when `--json` is enabled.
+- Preserve `animus.cli.v1` envelope behavior when `--json` is enabled.
 - Keep exit code mapping unchanged (`2/3/4/5/1`) and map confirmation failures
   to invalid input semantics.
 - `--dry-run` must be side-effect free:

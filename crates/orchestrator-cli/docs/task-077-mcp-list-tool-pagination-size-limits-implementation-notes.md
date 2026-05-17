@@ -13,7 +13,7 @@ prevents oversized MCP list responses while preserving list usability.
 - Keep the change scoped to MCP list tools and list-result shaping.
 - Do not break non-list MCP tools.
 - Keep ordering deterministic and metadata explicit.
-- Do not manually edit `.ao/*.json`.
+- Do not manually edit `.animus/*.json`.
 
 ## Chosen Strategy
 - Implement guardrails in `ops_mcp.rs` at the MCP boundary, after AO CLI list
@@ -73,11 +73,11 @@ Target: `ops_mcp.rs`
 Target: `ops_mcp.rs`
 
 - Define summary field profiles for:
-  - `ao.project.list`
-  - `ao.task.list`
-  - `ao.requirements.list`
-  - `ao.workflow.list`
-  - `ao.workflow.checkpoints.list`
+  - `animus.project.list`
+  - `animus.task.list`
+  - `animus.requirements.list`
+  - `animus.workflow.list`
+  - `animus.workflow.checkpoints.list`
 - Keep profiles deterministic and stable for tests.
 
 ### 6) Wire List Handlers Through New Guarded Path

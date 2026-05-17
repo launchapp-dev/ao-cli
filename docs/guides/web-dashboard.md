@@ -33,11 +33,11 @@ The web dashboard provides:
 
 ## REST API
 
-The web server exposes a REST API at `/api/v1/`. All responses follow the standard `ao.cli.v1` JSON envelope format:
+The web server exposes a REST API at `/api/v1/`. All responses follow the standard `animus.cli.v1` JSON envelope format:
 
 ```json
 {
-  "schema": "ao.cli.v1",
+  "schema": "animus.cli.v1",
   "ok": true,
   "data": { ... }
 }

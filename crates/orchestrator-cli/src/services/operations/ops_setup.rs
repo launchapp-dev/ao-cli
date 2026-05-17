@@ -2,6 +2,10 @@ use std::io::{self, IsTerminal, Write};
 use std::path::Path;
 
 use anyhow::Result;
+use orchestrator_config::{
+    ensure_bundled_pack_installed, has_bundled_pack, load_pack_inventory, load_pack_selection_state,
+    save_pack_selection_state, PackRegistrySource, PackSelectionEntry, PackSelectionSource,
+};
 use orchestrator_core::{
     daemon_project_config_path, load_daemon_project_config, update_daemon_project_config, write_daemon_project_config,
     DaemonProjectConfig, DaemonProjectConfigPatch, DoctorCheckStatus, DoctorReport, FileServiceHub,
@@ -10,6 +14,8 @@ use serde::Serialize;
 
 use super::ops_doctor::{apply_doctor_fixes, DoctorFixAction};
 use crate::{print_value, SetupArgs};
+
+const ANIMUS_CORE_SKILLS_PACK_ID: &str = "animus.core-skills";
 
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -87,6 +93,7 @@ pub(crate) async fn handle_setup(args: SetupArgs, project_root: &str, json: bool
     FileServiceHub::new(project_root_path)?;
     let daemon_config_updated =
         persist_desired_daemon_config(project_root_path, &desired, daemon_config_exists_before)?;
+    let core_skills_apply = ensure_core_skills_pack_active(project_root_path)?;
 
     let mut doctor_fix_actions: Vec<DoctorFixAction> = Vec::new();
     if args.doctor_fix {
@@ -116,6 +123,11 @@ pub(crate) async fn handle_setup(args: SetupArgs, project_root: &str, json: bool
             unchanged_domains.push("doctor_remediation");
         }
     }
+    if core_skills_apply.installed_pack || core_skills_apply.pack_selection_updated {
+        changed_domains.push("core_skills_pack");
+    } else {
+        unchanged_domains.push("core_skills_pack");
+    }
 
     print_value(
         serde_json::json!({
@@ -134,6 +146,8 @@ pub(crate) async fn handle_setup(args: SetupArgs, project_root: &str, json: bool
                 "changed_domains": changed_domains,
                 "unchanged_domains": unchanged_domains,
                 "daemon_config_updated": daemon_config_updated,
+                "core_skills_pack_installed": core_skills_apply.installed_pack,
+                "core_skills_pack_selection_updated": core_skills_apply.pack_selection_updated,
             },
             "doctor_before": doctor_before,
             "doctor_after": doctor_after,
@@ -144,6 +158,61 @@ pub(crate) async fn handle_setup(args: SetupArgs, project_root: &str, json: bool
         }),
         json,
     )
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+struct CoreSkillsPackApply {
+    installed_pack: bool,
+    pack_selection_updated: bool,
+}
+
+/// Auto-install and activate `animus.core-skills` so existing v0.3 projects
+/// pick up the bundled skill catalog as a registry-tracked install instead of
+/// relying on the in-binary `BUILTIN_SKILL_YAMLS` fallback.
+fn ensure_core_skills_pack_active(project_root: &Path) -> Result<CoreSkillsPackApply> {
+    if !has_bundled_pack(ANIMUS_CORE_SKILLS_PACK_ID) {
+        return Ok(CoreSkillsPackApply::default());
+    }
+
+    let mut apply = CoreSkillsPackApply::default();
+    let inventory_before = load_pack_inventory(project_root)?;
+    let installed_present = inventory_before.entries.iter().any(|entry| {
+        entry.pack_id.eq_ignore_ascii_case(ANIMUS_CORE_SKILLS_PACK_ID) && entry.source == PackRegistrySource::Installed
+    });
+    if !installed_present {
+        ensure_bundled_pack_installed(ANIMUS_CORE_SKILLS_PACK_ID)?;
+        apply.installed_pack = true;
+    }
+
+    let inventory = load_pack_inventory(project_root)?;
+    let Some(entry) =
+        inventory.entries.iter().find(|entry| entry.pack_id.eq_ignore_ascii_case(ANIMUS_CORE_SKILLS_PACK_ID))
+    else {
+        return Ok(apply);
+    };
+
+    let mut state = load_pack_selection_state(project_root)?;
+    let already_pinned =
+        state.selections.iter().any(|sel| sel.pack_id.eq_ignore_ascii_case(ANIMUS_CORE_SKILLS_PACK_ID));
+    if !already_pinned {
+        state.upsert(PackSelectionEntry {
+            pack_id: ANIMUS_CORE_SKILLS_PACK_ID.to_string(),
+            version: None,
+            source: Some(selection_source_for(entry.source)),
+            enabled: true,
+        })?;
+        save_pack_selection_state(project_root, &state)?;
+        apply.pack_selection_updated = true;
+    }
+    Ok(apply)
+}
+
+fn selection_source_for(source: PackRegistrySource) -> PackSelectionSource {
+    match source {
+        PackRegistrySource::Bundled => PackSelectionSource::Bundled,
+        PackRegistrySource::Installed => PackSelectionSource::Installed,
+        PackRegistrySource::ProjectOverride => PackSelectionSource::ProjectOverride,
+    }
 }
 
 fn persist_desired_daemon_config(

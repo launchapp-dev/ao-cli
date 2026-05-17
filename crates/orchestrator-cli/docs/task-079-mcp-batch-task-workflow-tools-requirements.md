@@ -10,9 +10,9 @@
 ## Objective
 Add deterministic MCP batch tools that reduce call round-trips for multi-item
 task/workflow operations:
-- `ao.task.bulk-update`
-- `ao.task.bulk-status`
-- `ao.workflow.run-multiple`
+- `animus.task.bulk-update`
+- `animus.task.bulk-status`
+- `animus.workflow.run-multiple`
 
 The new tools must preserve repository safety, keep behavior explicit, and
 provide per-item outcomes in one response.
@@ -21,7 +21,7 @@ provide per-item outcomes in one response.
 
 | Surface | Current location | Current behavior | Gap |
 | --- | --- | --- | --- |
-| MCP task/workflow mutation tools | `crates/orchestrator-cli/src/services/operations/ops_mcp.rs` (`ao.task.update`, `ao.task.status`, `ao.workflow.run`) | one mutation per MCP call | no batch mutation surface |
+| MCP task/workflow mutation tools | `crates/orchestrator-cli/src/services/operations/ops_mcp.rs` (`animus.task.update`, `animus.task.status`, `animus.workflow.run`) | one mutation per MCP call | no batch mutation surface |
 | MCP execution wrapper | `ops_mcp.rs` (`AoMcpServer::run_tool`, `execute_ao`) | executes one AO command and returns one `result`/`error` | no per-item aggregate result contract |
 | Task update arg mapping | `ops_mcp.rs` (`ao_task_update`) | maps one request into `task update` CLI args | no shared bulk validator/executor |
 | Task status arg mapping | `ops_mcp.rs` (`ao_task_status`) | maps one request into `task status` CLI args | no multi-task status transition contract |
@@ -31,9 +31,9 @@ provide per-item outcomes in one response.
 ## Scope
 In scope for implementation after this requirements phase:
 - Add MCP tools:
-  - `ao.task.bulk-update`
-  - `ao.task.bulk-status`
-  - `ao.workflow.run-multiple`
+  - `animus.task.bulk-update`
+  - `animus.task.bulk-status`
+  - `animus.workflow.run-multiple`
 - Add a shared batch execution/result contract for these tools.
 - Add deterministic input validation, bounded operation count, and ordered
   execution semantics.
@@ -44,9 +44,9 @@ In scope for implementation after this requirements phase:
 Out of scope:
 - Adding new top-level AO CLI commands (`ao task bulk-*`, `ao workflow run-multiple`).
 - Implementing cross-operation datastore transactions or rollback semantics.
-- Changing single-operation MCP tool contracts for `ao.task.update`,
-  `ao.task.status`, or `ao.workflow.run`.
-- Manual edits to `.ao/*.json`.
+- Changing single-operation MCP tool contracts for `animus.task.update`,
+  `animus.task.status`, or `animus.workflow.run`.
+- Manual edits to `.animus/*.json`.
 
 ## Constraints
 - Determinism:
@@ -76,21 +76,21 @@ All three tools accept:
 Validation failures return MCP structured error and perform no operations.
 
 ### Tool-Specific Input Contract
-- `ao.task.bulk-update` operation item:
+- `animus.task.bulk-update` operation item:
   - `id` (required)
-  - optional update fields mirroring `ao.task.update`:
+  - optional update fields mirroring `animus.task.update`:
     - `title`, `description`, `priority`, `status`, `assignee`, `input_json`
   - at least one update field must be supplied per item.
-- `ao.task.bulk-status` operation item:
+- `animus.task.bulk-status` operation item:
   - `id` (required)
   - `status` (required)
-- `ao.workflow.run-multiple` operation item:
+- `animus.workflow.run-multiple` operation item:
   - `task_id` (required)
   - optional `pipeline_id`, `input_json`
 
 ### Output Contract
 Each tool returns structured data with schema:
-- `schema`: `ao.mcp.batch.result.v1`
+- `schema`: `animus.mcp.batch.result.v1`
 - `tool`: invoked MCP tool name
 - `execution` object:
   - `continue_on_error`
@@ -112,9 +112,9 @@ Each tool returns structured data with schema:
 
 ### FR-01: New MCP Batch Tool Surfaces
 Expose and register:
-- `ao.task.bulk-update`
-- `ao.task.bulk-status`
-- `ao.workflow.run-multiple`
+- `animus.task.bulk-update`
+- `animus.task.bulk-status`
+- `animus.workflow.run-multiple`
 
 ### FR-02: Deterministic Input Validation
 Validate batch-level and operation-level shape before any mutation:
@@ -125,9 +125,9 @@ Validate batch-level and operation-level shape before any mutation:
 
 ### FR-03: Arg Parity With Existing Single Tools
 Per-operation CLI args must match existing single-tool mappings for:
-- `ao.task.update`
-- `ao.task.status`
-- `ao.workflow.run`
+- `animus.task.update`
+- `animus.task.status`
+- `animus.workflow.run`
 
 ### FR-04: Ordered Batch Execution
 Execute operations strictly by input index, sequentially and deterministically.
@@ -140,14 +140,14 @@ Execute operations strictly by input index, sequentially and deterministically.
 
 ### FR-06: Structured Aggregate Result
 Return per-item results and aggregate counters in one deterministic payload
-using `ao.mcp.batch.result.v1`.
+using `animus.mcp.batch.result.v1`.
 
 ### FR-07: Explicit Non-Transactional Semantics
 Document and expose in result metadata that batch execution is non-transactional
 across items (single MCP call, no rollback guarantee).
 
 ### FR-08: Regression Safety
-Existing MCP tools (`ao.task.update`, `ao.task.status`, `ao.workflow.run`) keep
+Existing MCP tools (`animus.task.update`, `animus.task.status`, `animus.workflow.run`) keep
 their current behavior and payload shape.
 
 ### FR-09: Focused Test Coverage
@@ -160,14 +160,14 @@ Add `ops_mcp` tests covering:
 - non-batch regression safety.
 
 ## Acceptance Criteria
-- `AC-01`: MCP server exposes `ao.task.bulk-update`, `ao.task.bulk-status`, and
-  `ao.workflow.run-multiple`.
+- `AC-01`: MCP server exposes `animus.task.bulk-update`, `animus.task.bulk-status`, and
+  `animus.workflow.run-multiple`.
 - `AC-02`: Invalid batch input is rejected before any operation executes.
 - `AC-03`: Batch execution order matches request order deterministically.
 - `AC-04`: Default mode stops on first failure and marks remaining items as
   skipped.
 - `AC-05`: Continue mode executes all operations and reports mixed outcomes.
-- `AC-06`: Batch response includes `ao.mcp.batch.result.v1` schema and complete
+- `AC-06`: Batch response includes `animus.mcp.batch.result.v1` schema and complete
   aggregate counters.
 - `AC-07`: Per-item result entries include index, status, request, and
   success/error payloads.
@@ -184,8 +184,8 @@ Add `ops_mcp` tests covering:
   captured per index.
 - `T-06`: ordered result test verifies output index and result order align with
   input order.
-- `T-07`: regression tests verify `ao.task.update`, `ao.task.status`, and
-  `ao.workflow.run` paths are unchanged.
+- `T-07`: regression tests verify `animus.task.update`, `animus.task.status`, and
+  `animus.workflow.run` paths are unchanged.
 
 ## Verification Matrix
 

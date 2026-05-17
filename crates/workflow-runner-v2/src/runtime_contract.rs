@@ -296,7 +296,7 @@ pub fn inject_default_stdio_mcp_with_config(
     let command = mcp_config.stdio_command.clone().filter(|v| !v.trim().is_empty()).or_else(|| {
         let exe = std::env::current_exe().ok()?;
         let exe_dir = exe.parent()?;
-        let ao_binary = exe_dir.join("ao");
+        let ao_binary = exe_dir.join("animus");
         if ao_binary.exists() {
             Some(ao_binary.to_string_lossy().to_string())
         } else {
@@ -316,7 +316,7 @@ pub fn inject_default_stdio_mcp_with_config(
         mcp.insert("stdio".to_string(), serde_json::json!({ "command": command, "args": args }));
         let has_agent_id = mcp.get("agent_id").and_then(Value::as_str).is_some_and(|v| !v.trim().is_empty());
         if !has_agent_id {
-            mcp.insert("agent_id".to_string(), serde_json::json!("ao"));
+            mcp.insert("agent_id".to_string(), serde_json::json!("animus"));
         }
     }
 }
@@ -563,6 +563,77 @@ pub fn inject_named_mcp_servers(
     Ok(())
 }
 
+/// Inject the project-scoped memory MCP server into the agent's runtime contract when the
+/// active agent profile has `capabilities.memory: true`. When the capability is `false` or
+/// absent the runtime contract is left untouched, so the spawned agent does not see the
+/// `animus.memory.*` tools.
+///
+/// This is the daemon-side wiring that makes the `capabilities.memory` flag observable. The
+/// memory MCP server itself is implemented as a stdio surface invoked via `ao mcp memory`.
+pub fn inject_memory_mcp_for_capable_agent(
+    runtime_contract: &mut Value,
+    project_root: &str,
+    ctx: &RuntimeConfigContext,
+    phase_id: &str,
+) {
+    let Some(agent_id) = ctx.phase_agent_id(phase_id) else {
+        return;
+    };
+    let profile = match ctx.agent_runtime_config.agent_profile(&agent_id) {
+        Some(profile) => profile,
+        None => return,
+    };
+    if !orchestrator_core::agent_runtime_config::agent_memory_capability_enabled(profile) {
+        return;
+    }
+
+    let supports_mcp =
+        runtime_contract.pointer("/cli/capabilities/supports_mcp").and_then(Value::as_bool).unwrap_or(false);
+    if !supports_mcp {
+        return;
+    }
+
+    let Some(command) = current_ao_command() else {
+        return;
+    };
+    let args = vec!["--project-root".to_string(), project_root.to_string(), "mcp".to_string(), "memory".to_string()];
+
+    let server_name = "animus.memory";
+    if let Some(agent_mcp_id) = primary_mcp_agent_id(runtime_contract) {
+        if server_name.eq_ignore_ascii_case(agent_mcp_id) {
+            warn!(
+                agent_id = agent_mcp_id,
+                "Skipping memory MCP injection because it collides with the primary agent id"
+            );
+            return;
+        }
+    }
+
+    let Some(mcp) = runtime_contract.get_mut("mcp").and_then(Value::as_object_mut) else {
+        return;
+    };
+    let entry = serde_json::json!({
+        "command": command,
+        "args": args,
+        "env": serde_json::Map::<String, Value>::new(),
+        "transport": "stdio",
+    });
+    let mut existing = mcp.get("additional_servers").and_then(Value::as_object).cloned().unwrap_or_default();
+    existing.insert(server_name.to_string(), entry);
+    mcp.insert("additional_servers".to_string(), Value::Object(existing));
+}
+
+fn current_ao_command() -> Option<String> {
+    let exe = std::env::current_exe().ok()?;
+    let exe_dir = exe.parent()?;
+    let ao_binary = exe_dir.join("animus");
+    if ao_binary.exists() {
+        Some(ao_binary.to_string_lossy().to_string())
+    } else {
+        Some(exe.to_string_lossy().to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -580,7 +651,7 @@ mod tests {
     fn inject_workflow_mcp_servers_includes_phase_bound_pack_servers() {
         let mut workflow_config = builtin_workflow_config();
         workflow_config.mcp_servers.insert(
-            "ao.requirements/ao".to_string(),
+            "animus.requirements/ao".to_string(),
             McpServerDefinition {
                 command: "node".to_string(),
                 args: vec!["server.js".to_string()],
@@ -593,7 +664,7 @@ mod tests {
         );
         workflow_config
             .phase_mcp_bindings
-            .insert("research".to_string(), PhaseMcpBinding { servers: vec!["ao.requirements/ao".to_string()] });
+            .insert("research".to_string(), PhaseMcpBinding { servers: vec!["animus.requirements/ao".to_string()] });
 
         let loaded_workflow_config = LoadedWorkflowConfig {
             metadata: WorkflowConfigMetadata {
@@ -619,7 +690,7 @@ mod tests {
             .pointer("/mcp/additional_servers")
             .and_then(Value::as_object)
             .expect("additional_servers should be injected");
-        assert!(additional_servers.contains_key("ao.requirements/ao"));
+        assert!(additional_servers.contains_key("animus.requirements/ao"));
     }
 
     #[test]
@@ -641,9 +712,9 @@ mod tests {
 
         let mut runtime_contract = serde_json::json!({
             "mcp": {
-                "agent_id": "ao",
+                "agent_id": "animus",
                 "stdio": {
-                    "command": "/path/to/ao/target/debug/ao",
+                    "command": "/path/to/animus/target/debug/animus",
                     "args": ["--project-root", "/path/to/project", "mcp", "serve"]
                 }
             }
@@ -652,7 +723,7 @@ mod tests {
 
         assert!(
             runtime_contract.pointer("/mcp/additional_servers").is_none(),
-            "built-in workflow MCP injection should not duplicate the primary ao server"
+            "built-in workflow MCP injection should not duplicate the primary animus server"
         );
     }
 
@@ -677,19 +748,117 @@ mod tests {
 
         let mut runtime_contract = serde_json::json!({
             "mcp": {
-                "agent_id": "ao",
+                "agent_id": "animus",
                 "stdio": {
-                    "command": "/path/to/ao/target/debug/ao",
+                    "command": "/path/to/animus/target/debug/animus",
                     "args": ["--project-root", &project_root, "mcp", "serve"]
                 }
             }
         });
-        inject_named_mcp_servers(&mut runtime_contract, &project_root, &ctx, "requirements", &["ao".to_string()])
+        inject_named_mcp_servers(&mut runtime_contract, &project_root, &ctx, "requirements", &["animus".to_string()])
             .expect("named MCP injection should succeed");
 
         assert!(
             runtime_contract.pointer("/mcp/additional_servers").is_none(),
-            "named MCP injection should not duplicate the primary ao server"
+            "named MCP injection should not duplicate the primary animus server"
+        );
+    }
+
+    fn workflow_config_with_phase_agent(phase_id: &str, agent_id: &str) -> LoadedWorkflowConfig {
+        use orchestrator_config::agent_runtime_config::{PhaseExecutionDefinition, PhaseExecutionMode};
+        let mut workflow_config = builtin_workflow_config();
+        let phase_definition = PhaseExecutionDefinition {
+            mode: PhaseExecutionMode::Agent,
+            agent_id: Some(agent_id.to_string()),
+            directive: None,
+            system_prompt: None,
+            runtime: None,
+            capabilities: None,
+            output_contract: None,
+            output_json_schema: None,
+            decision_contract: None,
+            retry: None,
+            skills: Vec::new(),
+            command: None,
+            manual: None,
+            default_tool: None,
+        };
+        workflow_config.phase_definitions.insert(phase_id.to_string(), phase_definition);
+        LoadedWorkflowConfig {
+            metadata: WorkflowConfigMetadata {
+                schema: workflow_config.schema.clone(),
+                version: workflow_config.version,
+                hash: workflow_config_hash(&workflow_config),
+                source: WorkflowConfigSource::Builtin,
+            },
+            config: workflow_config,
+            path: PathBuf::from("builtin"),
+        }
+    }
+
+    fn agent_runtime_config_with_memory(agent_id: &str, memory_enabled: bool) -> orchestrator_core::AgentRuntimeConfig {
+        let mut config = builtin_agent_runtime_config();
+        let mut profile = config.agents.get(agent_id).cloned().unwrap_or_default();
+        profile.capabilities.insert("memory".to_string(), memory_enabled);
+        config.agents.insert(agent_id.to_string(), profile);
+        config
+    }
+
+    #[test]
+    fn inject_memory_mcp_added_when_capability_enabled() {
+        let workflow_config = workflow_config_with_phase_agent("research", "default");
+        let agent_runtime_config = agent_runtime_config_with_memory("default", true);
+        let ctx = RuntimeConfigContext { agent_runtime_config, workflow_config };
+
+        let mut runtime_contract = serde_json::json!({
+            "cli": { "capabilities": { "supports_mcp": true } },
+            "mcp": { "agent_id": "animus" }
+        });
+        inject_memory_mcp_for_capable_agent(&mut runtime_contract, "/tmp/project", &ctx, "research");
+
+        let entry = runtime_contract
+            .pointer("/mcp/additional_servers/animus.memory")
+            .expect("animus.memory server entry should be injected for capability=true");
+        assert_eq!(entry.pointer("/transport").and_then(Value::as_str), Some("stdio"));
+        let args = entry.pointer("/args").and_then(Value::as_array).expect("args");
+        assert!(args.iter().any(|value| value.as_str() == Some("mcp")));
+        assert!(args.iter().any(|value| value.as_str() == Some("memory")));
+    }
+
+    #[test]
+    fn inject_memory_mcp_omitted_when_capability_disabled() {
+        let workflow_config = workflow_config_with_phase_agent("research", "default");
+        let agent_runtime_config = agent_runtime_config_with_memory("default", false);
+        let ctx = RuntimeConfigContext { agent_runtime_config, workflow_config };
+
+        let mut runtime_contract = serde_json::json!({
+            "cli": { "capabilities": { "supports_mcp": true } },
+            "mcp": { "agent_id": "animus" }
+        });
+        inject_memory_mcp_for_capable_agent(&mut runtime_contract, "/tmp/project", &ctx, "research");
+        assert!(
+            runtime_contract.pointer("/mcp/additional_servers").is_none(),
+            "memory MCP should not be injected for capability=false"
+        );
+    }
+
+    #[test]
+    fn inject_memory_mcp_omitted_when_capability_absent() {
+        let workflow_config = workflow_config_with_phase_agent("research", "default");
+        let mut agent_runtime_config = builtin_agent_runtime_config();
+        let mut profile = agent_runtime_config.agents.get("default").cloned().unwrap_or_default();
+        profile.capabilities.clear();
+        agent_runtime_config.agents.insert("default".to_string(), profile);
+        let ctx = RuntimeConfigContext { agent_runtime_config, workflow_config };
+
+        let mut runtime_contract = serde_json::json!({
+            "cli": { "capabilities": { "supports_mcp": true } },
+            "mcp": { "agent_id": "animus" }
+        });
+        inject_memory_mcp_for_capable_agent(&mut runtime_contract, "/tmp/project", &ctx, "research");
+        assert!(
+            runtime_contract.pointer("/mcp/additional_servers").is_none(),
+            "memory MCP should not be injected for capability=absent"
         );
     }
 

@@ -48,7 +48,7 @@ In scope for implementation after this requirements phase:
 - Update docs and tests to reflect final contract.
 
 Out of scope for this task:
-- Replacing the daemon event envelope schema (`ao.daemon.event.v1`).
+- Replacing the daemon event envelope schema (`animus.daemon.event.v1`).
 - Introducing external secret manager dependencies.
 - Adding desktop-wrapper or non-Rust dependencies.
 
@@ -57,7 +57,7 @@ Out of scope for this task:
 - Keep daemon scheduling resilient: notification failures must not halt project
   tick execution.
 - Preserve backward compatibility for existing daemon config keys and current
-  notification config schema/version (`ao.daemon-notification-config.v1`, v1).
+  notification config schema/version (`animus.daemon-notification-config.v1`, v1).
 - Keep retry and flush behavior bounded and deterministic.
 
 ## Functional Requirements

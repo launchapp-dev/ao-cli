@@ -161,7 +161,7 @@ impl Logger {
     pub fn for_project(project_root: &Path) -> Self {
         let scope_root = match protocol_scope_root(project_root) {
             Some(p) => p,
-            None => project_root.join(".ao"),
+            None => project_root.join(".animus"),
         };
         Self::open(&scope_root.join("logs"), "events.jsonl", Level::Info)
     }
@@ -169,7 +169,7 @@ impl Logger {
     pub fn for_run(project_root: &Path, run_id: &str) -> Self {
         let scope_root = match protocol_scope_root(project_root) {
             Some(p) => p,
-            None => project_root.join(".ao"),
+            None => project_root.join(".animus"),
         };
         Self::open(&scope_root.join("logs").join("runs"), &format!("{run_id}.jsonl"), Level::Debug)
     }
@@ -177,7 +177,7 @@ impl Logger {
     pub fn logs_dir(project_root: &Path) -> PathBuf {
         match protocol_scope_root(project_root) {
             Some(p) => p.join("logs"),
-            None => project_root.join(".ao").join("logs"),
+            None => project_root.join(".animus").join("logs"),
         }
     }
 
@@ -413,7 +413,7 @@ impl<'a> EntryBuilder<'a> {
 fn protocol_scope_root(project_root: &Path) -> Option<PathBuf> {
     let home = std::env::var("HOME").ok()?;
     let repo_scope = project_root.file_name()?.to_str()?;
-    let ao_dir = Path::new(&home).join(".ao");
+    let ao_dir = Path::new(&home).join(".animus");
     for entry in fs::read_dir(&ao_dir).ok()? {
         let entry = entry.ok()?;
         let name = entry.file_name();

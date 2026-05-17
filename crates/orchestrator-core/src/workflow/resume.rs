@@ -24,7 +24,7 @@ impl Default for ResumeConfig {
 
 impl ResumeConfig {
     pub fn load(project_root: &Path) -> Result<Self> {
-        let base = protocol::scoped_state_root(project_root).unwrap_or_else(|| project_root.join(".ao"));
+        let base = protocol::scoped_state_root(project_root).unwrap_or_else(|| project_root.join(".animus"));
         let config_path = base.join("resume-config.json");
         if !config_path.exists() {
             return Ok(Self::default());

@@ -65,10 +65,10 @@ Out of scope:
 - Inter-agent messaging features.
 - Custom project MCP server registration and merge logic.
 - Broad MCP tool-policy enforcement redesign beyond already-supported behavior.
-- Manual edits to `/.ao/*.json`.
+- Manual edits to `/.animus/*.json`.
 
 ## Constraints
-- Preserve schema/version (`ao.agent-runtime-config.v2`, version `2`) unless
+- Preserve schema/version (`animus.agent-runtime-config.v2`, version `2`) unless
   dependency work explicitly changes it.
 - Maintain deterministic behavior when loading runtime config from JSON or
   hardcoded fallback.

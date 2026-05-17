@@ -140,11 +140,11 @@ impl ResolvedPackRegistry {
 }
 
 pub fn project_pack_overrides_dir(project_root: &Path) -> PathBuf {
-    project_root.join(".ao").join(PROJECT_PACKS_DIR_NAME)
+    project_root.join(".animus").join(PROJECT_PACKS_DIR_NAME)
 }
 
 pub fn machine_installed_packs_dir() -> PathBuf {
-    dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".ao").join(MACHINE_PACKS_DIR_NAME)
+    dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".animus").join(MACHINE_PACKS_DIR_NAME)
 }
 
 struct PackRegistryInputs {
@@ -483,7 +483,10 @@ pub fn resolve_active_pack_for_workflow_ref<'a>(
     // here to avoid accepting a ref during config expansion but skipping pack activation checks.
     let direct_match = registry.entries.iter().find(|entry| {
         entry.loaded_manifest().is_some_and(|pack| {
-            pack.manifest.workflows.exports.iter().any(|export| export.eq_ignore_ascii_case(trimmed))
+            pack.manifest
+                .workflows
+                .as_ref()
+                .is_some_and(|workflows| workflows.exports.iter().any(|export| export.eq_ignore_ascii_case(trimmed)))
         })
     });
     if direct_match.is_some() {
@@ -713,19 +716,10 @@ fn empty_workflow_overlay_base() -> WorkflowConfig {
 
 fn collect_pack_workflow_yaml_sources(pack: &LoadedPackManifest) -> Result<Vec<(PathBuf, String)>> {
     let mut sources = Vec::new();
-    let workflows_root = pack.pack_root.join(&pack.manifest.workflows.root);
-    if workflows_root.is_dir() {
-        let mut entries = fs::read_dir(&workflows_root)
-            .with_context(|| format!("failed to read pack workflows directory {}", workflows_root.display()))?
-            .filter_map(|entry| entry.ok())
-            .filter(|entry| entry.path().extension().map(|ext| ext == "yaml" || ext == "yml").unwrap_or(false))
-            .collect::<Vec<_>>();
-        entries.sort_by_key(|entry| entry.path());
-
-        for entry in entries {
-            let path = entry.path();
-            let content = fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
-            sources.push((path, content));
+    if let Some(workflows) = pack.manifest.workflows.as_ref() {
+        let workflows_root = pack.pack_root.join(&workflows.root);
+        if workflows_root.is_dir() {
+            collect_pack_workflow_yaml_sources_from_dir(&workflows_root, &mut sources)?;
         }
     }
 
@@ -736,6 +730,26 @@ fn collect_pack_workflow_yaml_sources(pack: &LoadedPackManifest) -> Result<Vec<(
     }
 
     Ok(sources)
+}
+
+fn collect_pack_workflow_yaml_sources_from_dir(
+    workflows_root: &Path,
+    sources: &mut Vec<(PathBuf, String)>,
+) -> Result<()> {
+    let mut entries = fs::read_dir(workflows_root)
+        .with_context(|| format!("failed to read pack workflows directory {}", workflows_root.display()))?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.path().extension().map(|ext| ext == "yaml" || ext == "yml").unwrap_or(false))
+        .collect::<Vec<_>>();
+    entries.sort_by_key(|entry| entry.path());
+
+    for entry in entries {
+        let path = entry.path();
+        let content = fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+        sources.push((path, content));
+    }
+
+    Ok(())
 }
 
 fn resolve_pack_workflow_assets(pack: &LoadedPackManifest, workflow: &mut WorkflowConfig) -> Result<()> {
@@ -839,7 +853,7 @@ mod tests {
 
         let manifest = format!(
             r#"
-schema = "ao.pack.v1"
+schema = "animus.pack.v1"
 id = "{pack_id}"
 version = "{version}"
 kind = "domain-pack"
@@ -855,8 +869,8 @@ workflow_schema = "v2"
 subject_schema = "v2"
 
 [subjects]
-kinds = ["ao.task"]
-default_kind = "ao.task"
+kinds = ["animus.task"]
+default_kind = "animus.task"
 
 [workflows]
 root = "workflows"
@@ -903,7 +917,7 @@ workflows:
             root.join(crate::PACK_MANIFEST_FILE_NAME),
             format!(
                 r#"
-schema = "ao.pack.v1"
+schema = "animus.pack.v1"
 id = "{pack_id}"
 version = "{version}"
 kind = "domain-pack"
@@ -919,8 +933,8 @@ workflow_schema = "v2"
 subject_schema = "v2"
 
 [subjects]
-kinds = ["ao.task"]
-default_kind = "ao.task"
+kinds = ["animus.task"]
+default_kind = "animus.task"
 
 [workflows]
 root = "workflows"
@@ -971,29 +985,29 @@ workflows:
         let _home_guard = EnvVarGuard::set("HOME", home.path());
 
         write_pack_fixture(
-            &machine_installed_packs_dir().join("ao.review").join("0.1.0"),
-            "ao.review",
+            &machine_installed_packs_dir().join("animus.review").join("0.1.0"),
+            "animus.review",
             "0.1.0",
             "old installed",
             "review-old",
         );
         write_pack_fixture(
-            &machine_installed_packs_dir().join("ao.review").join("0.2.0"),
-            "ao.review",
+            &machine_installed_packs_dir().join("animus.review").join("0.2.0"),
+            "animus.review",
             "0.2.0",
             "new installed",
             "review-new",
         );
         write_pack_fixture(
-            &machine_installed_packs_dir().join("ao.task").join("1.0.0"),
-            "ao.task",
+            &machine_installed_packs_dir().join("animus.task").join("1.0.0"),
+            "animus.task",
             "1.0.0",
             "installed task",
             "task-installed",
         );
         write_pack_fixture(
             &project_pack_overrides_dir(project.path()).join("ao-task"),
-            "ao.task",
+            "animus.task",
             "9.0.0",
             "project override task",
             "task-override",
@@ -1002,11 +1016,11 @@ workflows:
         let registry = resolve_pack_registry(project.path()).expect("resolve registry");
         assert!(registry.entries.iter().all(|entry| entry.source != PackRegistrySource::Bundled));
 
-        let review = registry.resolve("ao.review").expect("ao.review should resolve");
+        let review = registry.resolve("animus.review").expect("animus.review should resolve");
         assert_eq!(review.source, PackRegistrySource::Installed);
         assert_eq!(review.version, "0.2.0");
 
-        let task = registry.resolve("ao.task").expect("ao.task should resolve");
+        let task = registry.resolve("animus.task").expect("animus.task should resolve");
         assert_eq!(task.source, PackRegistrySource::ProjectOverride);
         assert_eq!(task.version, "9.0.0");
     }
@@ -1019,22 +1033,22 @@ workflows:
         let _home_guard = EnvVarGuard::set("HOME", home.path());
 
         write_pack_fixture(
-            &machine_installed_packs_dir().join("ao.review").join("0.1.0"),
-            "ao.review",
+            &machine_installed_packs_dir().join("animus.review").join("0.1.0"),
+            "animus.review",
             "0.1.0",
             "old installed",
             "review-old",
         );
         write_pack_fixture(
-            &machine_installed_packs_dir().join("ao.review").join("0.2.0"),
-            "ao.review",
+            &machine_installed_packs_dir().join("animus.review").join("0.2.0"),
+            "animus.review",
             "0.2.0",
             "new installed",
             "review-new",
         );
         write_pack_fixture(
             &project_pack_overrides_dir(project.path()).join("ao-task"),
-            "ao.task",
+            "animus.task",
             "9.0.0",
             "project override task",
             "task-override",
@@ -1046,19 +1060,19 @@ workflows:
                 schema: crate::PACK_SELECTION_SCHEMA_ID.to_string(),
                 selections: vec![
                     crate::PackSelectionEntry {
-                        pack_id: "ao.review".to_string(),
+                        pack_id: "animus.review".to_string(),
                         version: Some("=0.1.0".to_string()),
                         source: Some(crate::PackSelectionSource::Installed),
                         enabled: true,
                     },
                     crate::PackSelectionEntry {
-                        pack_id: "ao.task".to_string(),
+                        pack_id: "animus.task".to_string(),
                         version: None,
                         source: Some(crate::PackSelectionSource::ProjectOverride),
                         enabled: false,
                     },
                     crate::PackSelectionEntry {
-                        pack_id: "ao.requirement".to_string(),
+                        pack_id: "animus.requirement".to_string(),
                         version: None,
                         source: Some(crate::PackSelectionSource::Bundled),
                         enabled: false,
@@ -1069,9 +1083,9 @@ workflows:
         .expect("selection state should save");
 
         let registry = resolve_pack_registry(project.path()).expect("resolve registry");
-        let review = registry.resolve("ao.review").expect("ao.review should resolve");
+        let review = registry.resolve("animus.review").expect("animus.review should resolve");
         assert_eq!(review.version, "0.1.0");
-        assert!(registry.resolve("ao.task").is_none(), "disabled pack should not resolve");
+        assert!(registry.resolve("animus.task").is_none(), "disabled pack should not resolve");
     }
 
     #[test]
@@ -1082,30 +1096,30 @@ workflows:
         let _home_guard = EnvVarGuard::set("HOME", home.path());
 
         write_pack_fixture(
-            &machine_installed_packs_dir().join("ao.review").join("0.2.0"),
-            "ao.review",
+            &machine_installed_packs_dir().join("animus.review").join("0.2.0"),
+            "animus.review",
             "0.2.0",
             "installed review",
             "review-installed",
         );
         write_pack_fixture(
-            &machine_installed_packs_dir().join("ao.task").join("1.0.0"),
-            "ao.task",
+            &machine_installed_packs_dir().join("animus.task").join("1.0.0"),
+            "animus.task",
             "1.0.0",
             "installed task",
             "task-installed",
         );
         write_pack_fixture(
             &project_pack_overrides_dir(project.path()).join("ao-task"),
-            "ao.task",
+            "animus.task",
             "9.0.0",
             "project override task",
             "task-override",
         );
 
-        fs::create_dir_all(project.path().join(".ao")).expect("create project .ao");
+        fs::create_dir_all(project.path().join(".animus")).expect("create project .ao");
         fs::write(
-            project.path().join(".ao").join("workflows.yaml"),
+            project.path().join(".animus").join("workflows.yaml"),
             r#"
 workflows:
   - id: standard
@@ -1147,16 +1161,16 @@ workflows:
         let _home_guard = EnvVarGuard::set("HOME", home.path());
 
         write_pack_fixture(
-            &machine_installed_packs_dir().join("ao.task").join("1.0.0"),
-            "ao.task",
+            &machine_installed_packs_dir().join("animus.task").join("1.0.0"),
+            "animus.task",
             "1.0.0",
             "installed task",
             "task-installed",
         );
 
-        fs::create_dir_all(project.path().join(".ao")).expect("create project .ao");
+        fs::create_dir_all(project.path().join(".animus")).expect("create project .ao");
         fs::write(
-            project.path().join(".ao").join("workflows.yaml"),
+            project.path().join(".animus").join("workflows.yaml"),
             r#"
 workflows:
   - id: standard
@@ -1183,7 +1197,7 @@ workflows:
     #[test]
     fn load_pack_workflow_overlay_resolves_pack_relative_command_assets() {
         let temp = tempfile::tempdir().expect("tempdir");
-        write_pack_with_command_assets(temp.path(), "ao.review", "0.2.0");
+        write_pack_with_command_assets(temp.path(), "animus.review", "0.2.0");
 
         let pack = load_pack_manifest(temp.path()).expect("load pack");
         let overlay = load_pack_workflow_overlay(&pack, &crate::workflow_config::builtin_workflow_config())
@@ -1209,17 +1223,17 @@ workflows:
         let _home_guard = EnvVarGuard::set("HOME", home.path());
 
         write_pack_fixture(
-            &machine_installed_packs_dir().join("ao.review").join("0.2.0"),
-            "ao.review",
+            &machine_installed_packs_dir().join("animus.review").join("0.2.0"),
+            "animus.review",
             "0.2.0",
             "installed review",
-            "ao.review/internal",
+            "animus.review/internal",
         );
 
         let registry = resolve_pack_registry(project.path()).expect("resolve registry");
-        let entry = resolve_active_pack_for_workflow_ref(&registry, "ao.review/internal")
+        let entry = resolve_active_pack_for_workflow_ref(&registry, "animus.review/internal")
             .expect("pack-qualified internal workflow should resolve to owning pack");
-        assert_eq!(entry.pack_id, "ao.review");
+        assert_eq!(entry.pack_id, "animus.review");
     }
 
     #[test]
@@ -1230,17 +1244,17 @@ workflows:
         let _home_guard = EnvVarGuard::set("HOME", home.path());
 
         write_pack_fixture(
-            &machine_installed_packs_dir().join("ao.review").join("0.2.0"),
-            "ao.review",
+            &machine_installed_packs_dir().join("animus.review").join("0.2.0"),
+            "animus.review",
             "0.2.0",
             "installed review",
             "review-installed",
         );
 
         let registry = resolve_pack_registry(project.path()).expect("resolve registry");
-        let entry = resolve_active_pack_for_workflow_ref(&registry, "AO.REVIEW/STANDARD")
+        let entry = resolve_active_pack_for_workflow_ref(&registry, "ANIMUS.REVIEW/STANDARD")
             .expect("workflow export matching should remain aligned with workflow config resolution");
-        assert_eq!(entry.pack_id, "ao.review");
+        assert_eq!(entry.pack_id, "animus.review");
     }
 
     #[test]
@@ -1251,10 +1265,10 @@ workflows:
         let _home_guard = EnvVarGuard::set("HOME", home.path());
 
         write_pack_manifest(
-            &machine_installed_packs_dir().join("ao.dependent").join("0.2.0"),
+            &machine_installed_packs_dir().join("animus.dependent").join("0.2.0"),
             r#"
-schema = "ao.pack.v1"
-id = "ao.dependent"
+schema = "animus.pack.v1"
+id = "animus.dependent"
 version = "0.2.0"
 kind = "domain-pack"
 title = "Dependent"
@@ -1269,23 +1283,23 @@ workflow_schema = "v2"
 subject_schema = "v2"
 
 [subjects]
-kinds = ["ao.task"]
-default_kind = "ao.task"
+kinds = ["animus.task"]
+default_kind = "animus.task"
 
 [workflows]
 root = "workflows"
-exports = ["ao.dependent/standard"]
+exports = ["animus.dependent/standard"]
 
 [runtime]
 
 [[dependencies]]
-id = "ao.missing"
+id = "animus.missing"
 version = ">=1.0.0"
 "#,
         );
         fs::write(
             machine_installed_packs_dir()
-                .join("ao.dependent")
+                .join("animus.dependent")
                 .join("0.2.0")
                 .join("runtime/workflow-runtime.overlay.yaml"),
             "workflows: []\n",
@@ -1294,7 +1308,7 @@ version = ">=1.0.0"
 
         let error =
             crate::load_workflow_config_with_metadata(project.path()).expect_err("missing dependency should fail");
-        assert!(error.to_string().contains("requires dependency 'ao.missing'"));
+        assert!(error.to_string().contains("requires dependency 'animus.missing'"));
     }
 
     #[test]
@@ -1305,10 +1319,10 @@ version = ">=1.0.0"
         let _home_guard = EnvVarGuard::set("HOME", home.path());
 
         write_pack_manifest(
-            &machine_installed_packs_dir().join("ao.research").join("0.2.0"),
+            &machine_installed_packs_dir().join("animus.research").join("0.2.0"),
             r#"
-schema = "ao.pack.v1"
-id = "ao.research"
+schema = "animus.pack.v1"
+id = "animus.research"
 version = "0.2.0"
 kind = "domain-pack"
 title = "Research"
@@ -1323,12 +1337,12 @@ workflow_schema = "v2"
 subject_schema = "v2"
 
 [subjects]
-kinds = ["ao.task"]
-default_kind = "ao.task"
+kinds = ["animus.task"]
+default_kind = "animus.task"
 
 [workflows]
 root = "workflows"
-exports = ["ao.research/standard"]
+exports = ["animus.research/standard"]
 
 [runtime]
 workflow_overlay = "runtime/workflow-runtime.overlay.yaml"
@@ -1339,7 +1353,7 @@ tools = ["cargo"]
         );
         fs::write(
             machine_installed_packs_dir()
-                .join("ao.research")
+                .join("animus.research")
                 .join("0.2.0")
                 .join("runtime/workflow-runtime.overlay.yaml"),
             "tools_allowlist:\n  - npm\nworkflows: []\n",
@@ -1359,12 +1373,12 @@ tools = ["cargo"]
         let _home_guard = EnvVarGuard::set("HOME", home.path());
         let _secret_guard = EnvVarGuard::unset("PACK_SECRET_TOKEN");
 
-        let pack_root = machine_installed_packs_dir().join("ao.secret").join("0.2.0");
+        let pack_root = machine_installed_packs_dir().join("animus.secret").join("0.2.0");
         write_pack_manifest(
             &pack_root,
             r#"
-schema = "ao.pack.v1"
-id = "ao.secret"
+schema = "animus.pack.v1"
+id = "animus.secret"
 version = "0.2.0"
 kind = "domain-pack"
 title = "Secret"
@@ -1379,12 +1393,12 @@ workflow_schema = "v2"
 subject_schema = "v2"
 
 [subjects]
-kinds = ["ao.task"]
-default_kind = "ao.task"
+kinds = ["animus.task"]
+default_kind = "animus.task"
 
 [workflows]
 root = "workflows"
-exports = ["ao.secret/standard"]
+exports = ["animus.secret/standard"]
 
 [runtime]
 
@@ -1392,7 +1406,7 @@ exports = ["ao.secret/standard"]
 servers = "mcp/servers.toml"
 
 [permissions]
-mcp_namespaces = ["ao.secret"]
+mcp_namespaces = ["animus.secret"]
 
 [secrets]
 required = ["PACK_SECRET_TOKEN"]
@@ -1411,7 +1425,7 @@ required_env = ["PACK_SECRET_TOKEN"]
         .expect("write mcp servers");
 
         let registry = resolve_pack_registry(project.path()).expect("registry resolution should not require secrets");
-        assert!(registry.resolve("ao.secret").is_some(), "secret pack should still be active");
+        assert!(registry.resolve("animus.secret").is_some(), "secret pack should still be active");
         crate::load_workflow_config_with_metadata(project.path())
             .expect("workflow config loading should not require secrets");
     }
@@ -1423,12 +1437,12 @@ required_env = ["PACK_SECRET_TOKEN"]
         let project = tempfile::tempdir().expect("project tempdir");
         let _home_guard = EnvVarGuard::set("HOME", home.path());
 
-        let pack_root = machine_installed_packs_dir().join("ao.runtime").join("0.2.0");
+        let pack_root = machine_installed_packs_dir().join("animus.runtime").join("0.2.0");
         write_pack_manifest(
             &pack_root,
             r#"
-schema = "ao.pack.v1"
-id = "ao.runtime"
+schema = "animus.pack.v1"
+id = "animus.runtime"
 version = "0.2.0"
 kind = "domain-pack"
 title = "Runtime"
@@ -1448,7 +1462,7 @@ default_kind = "custom"
 
 [workflows]
 root = "workflows"
-exports = ["ao.runtime/run"]
+exports = ["animus.runtime/run"]
 
 [runtime]
 workflow_overlay = "runtime/workflow-runtime.overlay.yaml"
@@ -1467,7 +1481,7 @@ phase_catalog:
     label: Runtime Check
     category: verification
 workflows:
-  - id: ao.runtime/run
+  - id: animus.runtime/run
     name: Runtime Run
     phases:
       - runtime-check
@@ -1476,7 +1490,7 @@ workflows:
         .expect("write workflow overlay");
 
         let registry = resolve_pack_registry(project.path()).expect("registry resolution should not probe runtimes");
-        assert!(registry.resolve("ao.runtime").is_some(), "runtime pack should still be active");
+        assert!(registry.resolve("animus.runtime").is_some(), "runtime pack should still be active");
         crate::load_workflow_config_with_metadata(project.path())
             .expect("workflow config loading should not probe runtimes");
     }

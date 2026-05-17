@@ -136,6 +136,10 @@ Allows users to preview task creation without persisting state.
 - **Configuration**: Update relevant docs in `docs/reference/`
 - **README**: Keep it current with major feature additions
 
+## Naming Conventions
+
+Animus has a stable naming split between the user-facing brand (`animus`) and the wire/protocol/storage namespace (`ao`). When adding MCP tools, environment variables, CLI commands, pack ids, plugin repos, or state files, follow the rules documented in [Naming Contract](docs/architecture/naming-contract.md).
+
 ## Code Standards
 
 ### Rust Style

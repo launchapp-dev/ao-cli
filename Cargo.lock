@@ -88,6 +88,127 @@ dependencies = [
 ]
 
 [[package]]
+name = "animus-plugin-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "animus-plugin-runtime"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "llm-cli-wrapper",
+ "orchestrator-plugin-protocol",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "animus-plugin-smoke"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "orchestrator-plugin-protocol",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "animus-provider-claude"
+version = "0.1.0"
+dependencies = [
+ "animus-plugin-runtime",
+ "anyhow",
+ "llm-cli-wrapper",
+ "tokio",
+]
+
+[[package]]
+name = "animus-provider-codex"
+version = "0.1.0"
+dependencies = [
+ "animus-plugin-runtime",
+ "anyhow",
+ "llm-cli-wrapper",
+ "tokio",
+]
+
+[[package]]
+name = "animus-provider-gemini"
+version = "0.1.0"
+dependencies = [
+ "animus-plugin-runtime",
+ "anyhow",
+ "llm-cli-wrapper",
+ "tokio",
+]
+
+[[package]]
+name = "animus-provider-mock"
+version = "0.1.0"
+dependencies = [
+ "animus-plugin-runtime",
+ "anyhow",
+ "async-trait",
+ "llm-cli-wrapper",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "animus-provider-oai"
+version = "0.1.0"
+dependencies = [
+ "animus-plugin-runtime",
+ "anyhow",
+ "llm-cli-wrapper",
+ "tokio",
+]
+
+[[package]]
+name = "animus-provider-opencode"
+version = "0.1.0"
+dependencies = [
+ "animus-plugin-runtime",
+ "anyhow",
+ "llm-cli-wrapper",
+ "tokio",
+]
+
+[[package]]
+name = "animus-provider-protocol"
+version = "0.1.0"
+dependencies = [
+ "animus-plugin-protocol",
+ "anyhow",
+ "async-trait",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "animus-subject-protocol"
+version = "0.1.0"
+dependencies = [
+ "animus-plugin-protocol",
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "futures-core",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "anstream"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -142,93 +263,6 @@ name = "anyhow"
 version = "1.0.102"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
-
-[[package]]
-name = "ao-plugin-smoke"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "orchestrator-plugin-protocol",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "ao-provider-claude"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "ao-provider-runtime",
- "llm-cli-wrapper",
- "tokio",
-]
-
-[[package]]
-name = "ao-provider-codex"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "ao-provider-runtime",
- "llm-cli-wrapper",
- "tokio",
-]
-
-[[package]]
-name = "ao-provider-gemini"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "ao-provider-runtime",
- "llm-cli-wrapper",
- "tokio",
-]
-
-[[package]]
-name = "ao-provider-mock"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "ao-provider-runtime",
- "async-trait",
- "llm-cli-wrapper",
- "serde_json",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "ao-provider-oai"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "ao-provider-runtime",
- "llm-cli-wrapper",
- "tokio",
-]
-
-[[package]]
-name = "ao-provider-opencode"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "ao-provider-runtime",
- "llm-cli-wrapper",
- "tokio",
-]
-
-[[package]]
-name = "ao-provider-runtime"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "llm-cli-wrapper",
- "orchestrator-plugin-protocol",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
-]
 
 [[package]]
 name = "ascii_utils"

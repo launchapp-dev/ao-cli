@@ -4,11 +4,11 @@ Flags available on every `ao` command.
 
 ## --json
 
-Enables machine-readable JSON output using the [`ao.cli.v1` envelope](../json-envelope.md).
+Enables machine-readable JSON output using the [`animus.cli.v1` envelope](../json-envelope.md).
 
 - Success responses are written to **stdout**.
 - Error responses are written to **stderr**.
-- The envelope schema is always `"ao.cli.v1"`.
+- The envelope schema is always `"animus.cli.v1"`.
 
 ```bash
 animus task list --json
@@ -16,7 +16,7 @@ animus task list --json
 
 ```json
 {
-  "schema": "ao.cli.v1",
+  "schema": "animus.cli.v1",
   "ok": true,
   "data": [ ... ]
 }

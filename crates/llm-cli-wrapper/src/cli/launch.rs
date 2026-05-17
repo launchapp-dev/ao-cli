@@ -74,7 +74,7 @@ pub fn parse_cli_type(name: &str) -> Option<CliType> {
         "codex" => Some(CliType::Codex),
         "gemini" => Some(CliType::Gemini),
         "opencode" | "open-code" => Some(CliType::OpenCode),
-        "oai-runner" | "ao-oai-runner" => Some(CliType::OaiRunner),
+        "oai-runner" | "animus-oai-runner" => Some(CliType::OaiRunner),
         "aider" => Some(CliType::Aider),
         "cursor" => Some(CliType::Cursor),
         "cline" => Some(CliType::Cline),
@@ -214,7 +214,7 @@ pub fn ensure_machine_json_output(invocation: &mut LaunchInvocation) {
             let insert_at = invocation.args.iter().position(|entry| entry == "run").map(|index| index + 1).unwrap_or(0);
             ensure_flag_value(&mut invocation.args, "--format", "json", insert_at);
         }
-        "ao-oai-runner" | "oai-runner" => {
+        "animus-oai-runner" | "oai-runner" => {
             let insert_at = invocation.args.iter().position(|entry| entry == "run").map(|index| index + 1).unwrap_or(0);
             ensure_flag_value(&mut invocation.args, "--format", "json", insert_at);
         }
@@ -341,7 +341,7 @@ mod tests {
                     "args": ["exec", "hello"],
                     "env": {
                         "SKILL_MODE": "review",
-                        "AO_FLAG": "1"
+                        "ANIMUS_FLAG": "1"
                     },
                     "prompt_via_stdin": false
                 }
@@ -352,6 +352,6 @@ mod tests {
             .expect("launch should parse")
             .expect("launch should be present");
         assert_eq!(launch.env.get("SKILL_MODE").map(String::as_str), Some("review"));
-        assert_eq!(launch.env.get("AO_FLAG").map(String::as_str), Some("1"));
+        assert_eq!(launch.env.get("ANIMUS_FLAG").map(String::as_str), Some("1"));
     }
 }

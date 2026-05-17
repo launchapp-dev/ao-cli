@@ -201,11 +201,11 @@ Replace `append_fire_and_forget()` with `append_or_warn()` that logs failures in
 
 | File | Format | Purpose |
 |------|--------|---------|
-| `.ao/workflows.yaml` | YAML | Workflow definitions, phases, tools |
-| `.ao/pm-config.json` | JSON | Daemon behavior flags (auto_merge, auto_pr) |
-| `.ao/state/agent-runtime-config.v2.json` | JSON | Agent profiles, model routing |
-| `.ao/daemon-state.json` | JSON | Runtime state (PID, paused, shutdown) |
-| `.ao/state/schedule-state.json` | JSON | Schedule run history |
+| `.animus/workflows.yaml` | YAML | Workflow definitions, phases, tools |
+| `.animus/pm-config.json` | JSON | Daemon behavior flags (auto_merge, auto_pr) |
+| `.animus/state/agent-runtime-config.v2.json` | JSON | Agent profiles, model routing |
+| `.animus/daemon-state.json` | JSON | Runtime state (PID, paused, shutdown) |
+| `.animus/state/schedule-state.json` | JSON | Schedule run history |
 
 ### 5.2 Migration Plan
 

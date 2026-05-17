@@ -1,0 +1,17 @@
+[package]
+name = "animus-provider-oai"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "animus-provider-oai"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+animus-plugin-runtime = { path = "../animus-plugin-runtime" }
+cli-wrapper = { path = "../llm-cli-wrapper", package = "llm-cli-wrapper" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "io-util", "sync"] }
+
+[lints]
+workspace = true

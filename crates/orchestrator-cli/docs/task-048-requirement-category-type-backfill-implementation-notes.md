@@ -2,7 +2,7 @@
 
 ## Change Summary
 
-Updated `.ao/requirements/generated/REQ-007.json` through `.ao/requirements/generated/REQ-024.json` to replace:
+Updated `.animus/requirements/generated/REQ-007.json` through `.animus/requirements/generated/REQ-024.json` to replace:
 
 - `"category": null`
 - `"type": null`

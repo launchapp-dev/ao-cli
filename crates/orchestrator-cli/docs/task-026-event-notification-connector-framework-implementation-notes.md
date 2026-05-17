@@ -22,7 +22,7 @@ Remaining implementation focus:
 - contract/documentation alignment and acceptance-proof tests.
 
 ## Non-Negotiable Constraints
-- Preserve `ao.daemon-notification-config.v1` schema compatibility.
+- Preserve `animus.daemon-notification-config.v1` schema compatibility.
 - Preserve existing connector behavior and retry classification semantics.
 - Never leak raw credential values in output/log/state.
 - Keep daemon scheduling non-blocking under notification failures.

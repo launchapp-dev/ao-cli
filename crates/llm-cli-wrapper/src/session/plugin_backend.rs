@@ -29,9 +29,8 @@ const PLUGIN_SHUTDOWN_TIMEOUT_SECS: u64 = 5;
 
 use super::{
     session_backend::SessionBackend, session_backend_info::SessionBackendInfo,
-    session_backend_kind::SessionBackendKind, session_capabilities::SessionCapabilities,
-    session_event::SessionEvent, session_request::SessionRequest, session_run::SessionRun,
-    session_stability::SessionStability,
+    session_backend_kind::SessionBackendKind, session_capabilities::SessionCapabilities, session_event::SessionEvent,
+    session_request::SessionRequest, session_run::SessionRun, session_stability::SessionStability,
 };
 use crate::error::{Error, Result};
 
@@ -47,11 +46,7 @@ pub struct PluginSessionBackend {
 }
 
 impl PluginSessionBackend {
-    pub fn new(
-        plugin_name: impl Into<String>,
-        binary_path: PathBuf,
-        provider_tool: impl Into<String>,
-    ) -> Self {
+    pub fn new(plugin_name: impl Into<String>, binary_path: PathBuf, provider_tool: impl Into<String>) -> Self {
         let plugin_name = plugin_name.into();
         let provider_tool = provider_tool.into();
         let display_name = format!("Plugin Provider ({plugin_name})");
@@ -59,7 +54,7 @@ impl PluginSessionBackend {
     }
 
     /// Bind a project root so structured log entries about every spawn / call /
-    /// stderr line land in `~/.ao/<repo-scope>/logs/events.jsonl` for that project.
+    /// stderr line land in `~/.animus/<repo-scope>/logs/events.jsonl` for that project.
     #[must_use]
     pub fn with_project_root(mut self, project_root: impl Into<PathBuf>) -> Self {
         self.project_root = Some(project_root.into());
@@ -108,14 +103,7 @@ impl PluginSessionBackend {
         } else if let Some(sid) = extras.get("session_id") {
             params["session_id"] = sid.clone();
         }
-        for key in [
-            "system_prompt",
-            "claude_profile",
-            "mcp_servers",
-            "tools",
-            "response_schema",
-            "runtime_contract",
-        ] {
+        for key in ["system_prompt", "claude_profile", "mcp_servers", "tools", "response_schema", "runtime_contract"] {
             if let Some(value) = extras.get(key) {
                 params[key] = value.clone();
             }
@@ -180,11 +168,7 @@ impl PluginSessionBackend {
         let session_id_for_started = Some(control_session_id.clone());
         let backend_for_started = backend_label.clone();
         let _ = tx
-            .send(SessionEvent::Started {
-                backend: backend_for_started,
-                session_id: session_id_for_started,
-                pid: None,
-            })
+            .send(SessionEvent::Started { backend: backend_for_started, session_id: session_id_for_started, pid: None })
             .await;
 
         let plugin_name_for_task = self.plugin_name.clone();
@@ -310,15 +294,12 @@ impl PluginSessionBackend {
                 .meta(json!({ "plugin": self.plugin_name, "session_id": session_id }))
                 .emit();
         }
-        let mut host = PluginHost::spawn_with_stderr(&self.binary_path, &[], self.stderr_sink_for()).await.map_err(|error| {
-            Error::ExecutionFailed(format!("plugin '{}' spawn failed: {error}", self.plugin_name))
-        })?;
+        let mut host = PluginHost::spawn_with_stderr(&self.binary_path, &[], self.stderr_sink_for())
+            .await
+            .map_err(|error| Error::ExecutionFailed(format!("plugin '{}' spawn failed: {error}", self.plugin_name)))?;
         if let Err(error) = host.handshake().await {
             graceful_shutdown(host).await;
-            return Err(Error::ExecutionFailed(format!(
-                "plugin '{}' handshake failed: {error}",
-                self.plugin_name
-            )));
+            return Err(Error::ExecutionFailed(format!("plugin '{}' handshake failed: {error}", self.plugin_name)));
         }
         let request_future = host.request("agent/cancel".to_string(), Some(json!({ "session_id": session_id })));
         let result = tokio::time::timeout(cancel_timeout, request_future).await;
@@ -426,7 +407,8 @@ async fn forward_plugin_notification(
             // Unrecognized notification: surface as metadata so consumers can still inspect.
             tracing::debug!(plugin = %plugin_name, method = %other, "unrecognized plugin notification");
             if let Some(params) = notification.params {
-                let _ = tx.send(SessionEvent::Metadata { metadata: json!({ "method": other, "params": params }) }).await;
+                let _ =
+                    tx.send(SessionEvent::Metadata { metadata: json!({ "method": other, "params": params }) }).await;
             }
         }
     }
@@ -453,7 +435,7 @@ impl DiscoveredProviderPlugin {
 
 /// Inspect manifests of every discovered plugin under `project_root` and return only
 /// the provider-kind plugins. Provider tool name defaults to the plugin name minus the
-/// `ao-provider-` prefix.
+/// `animus-provider-` prefix.
 pub fn discover_provider_plugins(project_root: &std::path::Path) -> Vec<DiscoveredProviderPlugin> {
     use orchestrator_plugin_host::discover_plugins;
     let project_root = project_root.to_path_buf();
@@ -464,7 +446,7 @@ pub fn discover_provider_plugins(project_root: &std::path::Path) -> Vec<Discover
         .map(|plugin| {
             let provider_tool = plugin
                 .name
-                .strip_prefix("ao-provider-")
+                .strip_prefix("animus-provider-")
                 .map(ToOwned::to_owned)
                 .unwrap_or_else(|| plugin.name.clone());
             DiscoveredProviderPlugin {

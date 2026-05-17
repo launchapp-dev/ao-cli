@@ -47,7 +47,7 @@ Out of scope for this task:
 - Protocol/schema changes for runner status payloads.
 - AO CLI envelope/exit-code behavior changes.
 - Wrapper/MCP endpoint orchestration changes.
-- Manual edits to `.ao/*.json`.
+- Manual edits to `.animus/*.json`.
 
 ## Constraints
 - Tests must be deterministic and isolated:

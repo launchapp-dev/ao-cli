@@ -2,12 +2,12 @@
 
 ## Purpose
 Translate TASK-033 requirements into a concrete implementation plan that
-eliminates cross-process read-modify-write races for `.ao/core-state.json`.
+eliminates cross-process read-modify-write races for `.animus/core-state.json`.
 
 ## Non-Negotiable Constraints
 - Keep changes scoped to `crates/orchestrator-core`.
-- Preserve `.ao/core-state.json` schema and existing service contracts.
-- Avoid direct/manual edits to `/.ao/*.json`.
+- Preserve `.animus/core-state.json` schema and existing service contracts.
+- Avoid direct/manual edits to `/.animus/*.json`.
 - Keep locking and tests deterministic and cross-platform.
 
 ## Proposed Change Surface

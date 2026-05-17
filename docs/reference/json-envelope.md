@@ -1,10 +1,10 @@
 # JSON Envelope Contract
 
-All `ao` commands that accept `--json` wrap their output in the `ao.cli.v1` envelope. This contract provides a stable, machine-readable interface for scripts, CI pipelines, and MCP tool integrations.
+All `ao` commands that accept `--json` wrap their output in the `animus.cli.v1` envelope. This contract provides a stable, machine-readable interface for scripts, CI pipelines, and MCP tool integrations.
 
 ## Schema Identifier
 
-The schema field is always the string literal `"ao.cli.v1"`. This value is defined as a constant (`CLI_SCHEMA_ID`) in the protocol crate and is shared across all producers.
+The schema field is always the string literal `"animus.cli.v1"`. This value is defined as a constant (`CLI_SCHEMA_ID`) in the protocol crate and is shared across all producers.
 
 ## Success Envelope
 
@@ -12,7 +12,7 @@ Written to **stdout**.
 
 ```json
 {
-  "schema": "ao.cli.v1",
+  "schema": "animus.cli.v1",
   "ok": true,
   "data": <T>
 }
@@ -20,7 +20,7 @@ Written to **stdout**.
 
 | Field | Type | Description |
 |---|---|---|
-| `schema` | `string` | Always `"ao.cli.v1"` |
+| `schema` | `string` | Always `"animus.cli.v1"` |
 | `ok` | `boolean` | Always `true` for success |
 | `data` | `T` | Command-specific payload (object, array, or simple value) |
 
@@ -32,7 +32,7 @@ Simple acknowledgment:
 
 ```json
 {
-  "schema": "ao.cli.v1",
+  "schema": "animus.cli.v1",
   "ok": true,
   "data": { "message": "task TASK-001 status updated to in-progress" }
 }
@@ -42,7 +42,7 @@ Query result:
 
 ```json
 {
-  "schema": "ao.cli.v1",
+  "schema": "animus.cli.v1",
   "ok": true,
   "data": {
     "id": "TASK-001",
@@ -59,7 +59,7 @@ Written to **stderr**.
 
 ```json
 {
-  "schema": "ao.cli.v1",
+  "schema": "animus.cli.v1",
   "ok": false,
   "error": {
     "code": "<error_code>",
@@ -71,7 +71,7 @@ Written to **stderr**.
 
 | Field | Type | Description |
 |---|---|---|
-| `schema` | `string` | Always `"ao.cli.v1"` |
+| `schema` | `string` | Always `"animus.cli.v1"` |
 | `ok` | `boolean` | Always `false` for errors |
 | `error.code` | `string` | Machine-readable error category (see [Exit Codes](cli/exit-codes.md)) |
 | `error.message` | `string` | Human-readable error description |
@@ -92,7 +92,7 @@ Written to **stderr**.
 
 ```json
 {
-  "schema": "ao.cli.v1",
+  "schema": "animus.cli.v1",
   "ok": false,
   "error": {
     "code": "internal",
@@ -109,9 +109,9 @@ The `details` field is omitted (not present) when no structured context is avail
 
 ## Versioning
 
-The `schema` field enables future evolution. Consumers should check `schema == "ao.cli.v1"` before parsing. If the schema changes (e.g., `"ao.cli.v2"`), the envelope structure may differ.
+The `schema` field enables future evolution. Consumers should check `schema == "animus.cli.v1"` before parsing. If the schema changes (e.g., `"animus.cli.v2"`), the envelope structure may differ.
 
-Within `ao.cli.v1`, the envelope shape is stable:
+Within `animus.cli.v1`, the envelope shape is stable:
 - `ok`, `schema` are always present.
 - Success always has `data`.
 - Error always has `error` with `code`, `message`, and `exit_code`.

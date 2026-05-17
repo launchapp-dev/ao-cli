@@ -44,7 +44,7 @@ Out of scope for this task:
 
 ## Constraints
 - Command must be read-only and deterministic.
-- Preserve global CLI envelope contract for `--json` (`ao.cli.v1`).
+- Preserve global CLI envelope contract for `--json` (`animus.cli.v1`).
 - Partial data unavailability (daemon down, missing `gh`, parse failures) must
   not fail the entire command; report section-level status instead.
 - Sorting and truncation must be stable:
@@ -125,9 +125,9 @@ Out of scope for this task:
 
 ### FR-04: JSON Output for MCP
 - With `--json`, command must emit deterministic structured data under the
-  existing `ao.cli.v1` success envelope.
+  existing `animus.cli.v1` success envelope.
 - Data payload must include a command schema marker (for example
-  `ao.status.v1`) and all required slices.
+  `animus.status.v1`) and all required slices.
 
 ### FR-05: Active Agent Attribution
 - Active-agent count and listed assignments must be present in every response.
@@ -164,7 +164,7 @@ Out of scope for this task:
 - `AC-07`: CI status is included and degrades gracefully when `gh` is missing
   or query fails.
 - `AC-08`: `--json` output is machine-consumable and deterministic under
-  `ao.cli.v1`.
+  `animus.cli.v1`.
 - `AC-09`: Existing command behavior outside `ao status` is unchanged.
 - `AC-10`: Targeted tests cover happy path and degraded paths.
 
@@ -186,7 +186,7 @@ Out of scope for this task:
 | --- | --- |
 | FR-01, FR-02 | `orchestrator-cli` command dispatch + status assembly tests |
 | FR-03 | non-JSON rendering tests (section ordering, core labels) |
-| FR-04 | JSON snapshot shape test under `ao.cli.v1` envelope |
+| FR-04 | JSON snapshot shape test under `animus.cli.v1` envelope |
 | FR-05 | active-agent attribution tests from running workflow fixtures |
 | FR-06 | deterministic sort/limit tests for completions and failures |
 | FR-07 | CI degraded-mode tests with mocked `gh` availability/error |

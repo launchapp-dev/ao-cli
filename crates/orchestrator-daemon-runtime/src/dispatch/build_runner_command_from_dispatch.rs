@@ -48,7 +48,7 @@ pub fn build_runner_command(
 }
 
 fn resolve_workflow_runner_binary() -> PathBuf {
-    if let Ok(path) = std::env::var("AO_WORKFLOW_RUNNER_BIN") {
+    if let Ok(path) = std::env::var("ANIMUS_WORKFLOW_RUNNER_BIN") {
         let trimmed = path.trim();
         if !trimmed.is_empty() {
             return PathBuf::from(trimmed);

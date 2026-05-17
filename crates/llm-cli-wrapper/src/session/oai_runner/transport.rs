@@ -90,7 +90,7 @@ pub(crate) fn oai_runner_invocation_for_request(
     args.push(request.prompt.clone());
 
     let mut invocation = LaunchInvocation {
-        command: "ao-oai-runner".to_string(),
+        command: "animus-oai-runner".to_string(),
         args,
         env: Default::default(),
         prompt_via_stdin: false,

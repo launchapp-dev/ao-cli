@@ -174,7 +174,7 @@ pub struct SkillManifest {
 }
 
 fn default_manifest_schema() -> String {
-    "ao.skills.v1".to_string()
+    "animus.skills.v1".to_string()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -406,7 +406,7 @@ model:
   preferred: claude-sonnet-4-6
   fallback: gemini-3.1-pro-preview
 mcp_servers:
-  - ao
+  - animus
 timeout_secs: 300
 capabilities:
   is_review: true
@@ -463,7 +463,7 @@ adapters:
     #[test]
     fn test_parse_manifest() {
         let yaml = r#"
-schema: ao.skills.v1
+schema: animus.skills.v1
 skills:
   review:
     name: review
@@ -475,7 +475,7 @@ skills:
     category: testing
 "#;
         let manifest = parse_skill_manifest(yaml).unwrap();
-        assert_eq!(manifest.schema, "ao.skills.v1");
+        assert_eq!(manifest.schema, "animus.skills.v1");
         assert_eq!(manifest.skills.len(), 2);
         assert!(manifest.skills.contains_key("review"));
         assert!(manifest.skills.contains_key("test"));
@@ -489,7 +489,7 @@ skills:
     name: s
 "#;
         let manifest = parse_skill_manifest(yaml).unwrap();
-        assert_eq!(manifest.schema, "ao.skills.v1");
+        assert_eq!(manifest.schema, "animus.skills.v1");
     }
 
     #[test]
@@ -553,7 +553,7 @@ skills:
         assert!(result.extra_args.contains(&"--verbose".to_string()));
         assert!(result.extra_args.contains(&"--sandbox=none".to_string()));
         assert_eq!(result.env.get("GEMINI_MODE"), Some(&"review".to_string()));
-        assert!(result.mcp_servers.contains(&"ao".to_string()));
+        assert!(result.mcp_servers.contains(&"animus".to_string()));
         assert!(result.mcp_servers.contains(&"extra-server".to_string()));
     }
 

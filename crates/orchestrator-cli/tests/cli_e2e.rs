@@ -1200,11 +1200,11 @@ fn e2e_git_worktree_prune_cleans_done_task_worktrees() -> Result<()> {
     harness.run_json_ok(&["task", "status", "--id", &task_id, "--status", "done"])?;
 
     let task_token = task_id.to_ascii_lowercase();
-    let branch_name = format!("ao/{task_token}");
+    let branch_name = format!("animus/{task_token}");
     let worktree_name = format!("task-{task_token}");
     let managed_root = harness
         .config_root()
-        .join(".ao")
+        .join(".animus")
         .join(protocol::repository_scope_for_path(harness.project_root()))
         .join("worktrees");
     let worktree_path = managed_root.join(&worktree_name);

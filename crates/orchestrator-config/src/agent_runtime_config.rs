@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-pub const AGENT_RUNTIME_CONFIG_SCHEMA_ID: &str = "ao.agent-runtime-config.v2";
+pub const AGENT_RUNTIME_CONFIG_SCHEMA_ID: &str = "animus.agent-runtime-config.v2";
 pub const AGENT_RUNTIME_CONFIG_VERSION: u32 = 2;
 pub const AGENT_RUNTIME_CONFIG_FILE_NAME: &str = "agent-runtime-config.v2.json";
 const BUILTIN_AGENT_RUNTIME_CONFIG_JSON: &str =
@@ -283,10 +283,38 @@ pub struct AgentMcpServerConfig {
     pub env: BTreeMap<String, String>,
 }
 
+/// Recognized agent capability flags.
+///
+/// `capabilities` on an [`AgentProfile`] is an open-ended `BTreeMap<String, bool>`, but the
+/// orchestrator gives special meaning to a few well-known keys. Workflow YAML authors should
+/// prefer these names when expressing intent:
+///
+/// - `memory` — when `true`, the daemon injects the project-scoped memory MCP server
+///   (`animus.memory.*` tools) into the agent's runtime contract so the spawned CLI can read and
+///   write its own memory document. When `false` or absent, the memory MCP server is omitted.
+/// - `planning`, `queue_management`, `scheduling` — surfaced on engineering-manager personas
+///   for prompt rendering and dispatch heuristics.
+/// - `requirements_authoring`, `acceptance_validation` — product-owner persona signals.
+/// - `implementation`, `testing`, `code_review` — software-engineer persona signals.
+///
+/// Unknown keys are preserved verbatim and exposed to prompt templates and downstream tools,
+/// but receive no special handling by the orchestrator.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct AgentCapabilities {
     #[serde(flatten)]
     pub flags: BTreeMap<String, bool>,
+}
+
+/// Capability key that gates exposure of the project-scoped memory MCP server to a spawned agent.
+pub const AGENT_CAPABILITY_MEMORY: &str = "memory";
+
+/// Returns true if the agent profile has the `memory` capability flag explicitly enabled.
+///
+/// Used by the workflow runner to decide whether to inject the memory MCP server into the
+/// spawned agent's runtime contract. See [`AgentCapabilities`] for the catalog of recognized
+/// capability keys.
+pub fn agent_memory_capability_enabled(profile: &AgentProfile) -> bool {
+    profile.capabilities.get(AGENT_CAPABILITY_MEMORY).copied().unwrap_or(false)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
@@ -866,7 +894,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
         required_fields: vec!["commit_message".to_string()],
         fields: BTreeMap::new(),
     };
-    let swe_mcp_servers = vec!["ao".to_string()];
+    let swe_mcp_servers = vec!["animus".to_string()];
     let swe_tool_policy = AgentToolPolicy {
         allow: vec![
             "task.*".to_string(),
@@ -986,7 +1014,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     persona: None,
                     memory: AgentMemoryConfig::default(),
                     communication: AgentCommunicationConfig::default(),
-                    mcp_servers: vec!["ao".to_string()],
+                    mcp_servers: vec!["animus".to_string()],
                     tool_policy: AgentToolPolicy {
                         allow: vec![
                             "task.*".to_string(),
@@ -1045,7 +1073,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     persona: None,
                     memory: AgentMemoryConfig::default(),
                     communication: AgentCommunicationConfig::default(),
-                    mcp_servers: vec!["ao".to_string()],
+                    mcp_servers: vec!["animus".to_string()],
                     tool_policy: AgentToolPolicy {
                         allow: vec![
                             "vision.*".to_string(),
@@ -1310,7 +1338,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
 }
 
 pub fn agent_runtime_config_path(project_root: &Path) -> PathBuf {
-    let base = protocol::scoped_state_root(project_root).unwrap_or_else(|| project_root.join(".ao"));
+    let base = protocol::scoped_state_root(project_root).unwrap_or_else(|| project_root.join(".animus"));
     base.join("config").join(AGENT_RUNTIME_CONFIG_FILE_NAME)
 }
 
@@ -1365,7 +1393,9 @@ pub fn load_agent_runtime_config_with_metadata(project_root: &Path) -> Result<Lo
         });
     }
 
-    Err(anyhow!("agent runtime config is missing. Define runtime in .ao/workflows.yaml or .ao/workflows/*.yaml"))
+    Err(anyhow!(
+        "agent runtime config is missing. Define runtime in .animus/workflows.yaml or .animus/workflows/*.yaml"
+    ))
 }
 
 pub fn load_agent_runtime_config_or_default(project_root: &Path) -> AgentRuntimeConfig {
@@ -1983,7 +2013,7 @@ mod tests {
             root.join(crate::PACK_MANIFEST_FILE_NAME),
             format!(
                 r#"
-schema = "ao.pack.v1"
+schema = "animus.pack.v1"
 id = "{pack_id}"
 version = "{version}"
 kind = "domain-pack"
@@ -1999,8 +2029,8 @@ workflow_schema = "v2"
 subject_schema = "v2"
 
 [subjects]
-kinds = ["ao.task"]
-default_kind = "ao.task"
+kinds = ["animus.task"]
+default_kind = "animus.task"
 
 [workflows]
 root = "workflows"
@@ -2180,8 +2210,8 @@ cli_tools:
         let _home_guard = EnvVarGuard::set("HOME", home.path());
 
         write_pack_agent_overlay_fixture(
-            &crate::machine_installed_packs_dir().join("ao.review").join("0.2.0"),
-            "ao.review",
+            &crate::machine_installed_packs_dir().join("animus.review").join("0.2.0"),
+            "animus.review",
             "0.2.0",
         );
 
@@ -2204,8 +2234,8 @@ cli_tools:
         let _home_guard = EnvVarGuard::set("HOME", home.path());
 
         write_pack_agent_overlay_fixture(
-            &crate::machine_installed_packs_dir().join("ao.review").join("0.2.0"),
-            "ao.review",
+            &crate::machine_installed_packs_dir().join("animus.review").join("0.2.0"),
+            "animus.review",
             "0.2.0",
         );
 
@@ -2337,9 +2367,9 @@ cli_tools:
         assert_eq!(swe.capabilities.get("code_review"), Some(&true));
         assert_eq!(swe.capabilities.get("planning"), Some(&false));
 
-        assert!(em.mcp_servers.iter().any(|server| server == "ao"));
-        assert!(po.mcp_servers.iter().any(|server| server == "ao"));
-        assert!(swe.mcp_servers.iter().any(|server| server == "ao"));
+        assert!(em.mcp_servers.iter().any(|server| server == "animus"));
+        assert!(po.mcp_servers.iter().any(|server| server == "animus"));
+        assert!(swe.mcp_servers.iter().any(|server| server == "animus"));
     }
 
     #[test]
@@ -2998,7 +3028,7 @@ cli_tools:
     #[test]
     fn legacy_config_without_new_fields_deserializes_with_none_defaults() {
         let json = r#"{
-            "schema": "ao.agent-runtime-config.v2",
+            "schema": "animus.agent-runtime-config.v2",
             "version": 2,
             "tools_allowlist": ["cargo"],
             "agents": {
@@ -3072,6 +3102,16 @@ cli_tools:
     }
 
     #[test]
+    fn agent_memory_capability_helper_matches_explicit_true_flag() {
+        let mut profile = AgentProfile::default();
+        assert!(!agent_memory_capability_enabled(&profile), "absent capability should be false");
+        profile.capabilities.insert("memory".to_string(), false);
+        assert!(!agent_memory_capability_enabled(&profile), "explicit false should be false");
+        profile.capabilities.insert("memory".to_string(), true);
+        assert!(agent_memory_capability_enabled(&profile), "explicit true should be true");
+    }
+
+    #[test]
     fn agent_capabilities_flattens_bool_map() {
         let caps = AgentCapabilities {
             flags: BTreeMap::from([("planning".to_string(), true), ("implementation".to_string(), false)]),
@@ -3106,7 +3146,7 @@ cli_tools:
         let mut config = builtin_agent_runtime_config();
         let profile = config.agents.get_mut("default").expect("default profile");
         profile.mcp_server_configs = Some(BTreeMap::from([(
-            "ao".to_string(),
+            "animus".to_string(),
             AgentMcpServerConfig {
                 source: AgentMcpServerSource::Builtin,
                 tool_policy: AgentToolPolicy { allow: vec!["task.*".to_string()], deny: vec![] },
@@ -3133,7 +3173,7 @@ cli_tools:
         assert!(restored_profile.mcp_server_configs.is_some());
         let mcp_configs = restored_profile.mcp_server_configs.as_ref().unwrap();
         assert_eq!(mcp_configs.len(), 1);
-        assert_eq!(mcp_configs["ao"].source, AgentMcpServerSource::Builtin);
+        assert_eq!(mcp_configs["animus"].source, AgentMcpServerSource::Builtin);
 
         assert!(restored_profile.structured_capabilities.is_some());
         let caps = restored_profile.structured_capabilities.as_ref().unwrap();
@@ -3196,10 +3236,10 @@ cli_tools:
 
     #[test]
     fn tool_policy_glob_wildcard_matches_across_dots() {
-        let policy = AgentToolPolicy { allow: vec!["ao.*".to_string()], deny: vec![] };
-        assert!(policy.is_tool_permitted("ao.task.list"));
-        assert!(policy.is_tool_permitted("ao.workflow.run"));
-        assert!(policy.is_tool_permitted("ao.x"));
+        let policy = AgentToolPolicy { allow: vec!["animus.*".to_string()], deny: vec![] };
+        assert!(policy.is_tool_permitted("animus.task.list"));
+        assert!(policy.is_tool_permitted("animus.workflow.run"));
+        assert!(policy.is_tool_permitted("animus.x"));
         assert!(!policy.is_tool_permitted("other.thing"));
     }
 

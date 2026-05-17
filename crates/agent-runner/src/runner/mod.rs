@@ -280,7 +280,7 @@ fn normalize_runner_build_id(raw: Option<String>) -> Option<String> {
 }
 
 fn runner_build_id() -> Option<String> {
-    normalize_runner_build_id(std::env::var("AO_RUNNER_BUILD_ID").ok())
+    normalize_runner_build_id(std::env::var("ANIMUS_RUNNER_BUILD_ID").ok())
 }
 
 #[cfg(test)]

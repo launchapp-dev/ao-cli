@@ -68,7 +68,7 @@ mod tests {
 
     fn sample_event(seq: u64, event_type: &str, project_root: Option<&str>) -> DaemonEventRecord {
         DaemonEventRecord {
-            schema: "ao.daemon.event.v1".to_string(),
+            schema: "animus.daemon.event.v1".to_string(),
             id: format!("event-{seq}"),
             seq,
             timestamp: "2026-01-01T00:00:00Z".to_string(),
@@ -90,7 +90,7 @@ mod tests {
     fn read_daemon_event_records_returns_ordered_tail_and_skips_invalid_lines() {
         let _lock = crate::shared::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
         let config_root = TempDir::new().expect("config temp dir");
-        let _config_guard = EnvVarGuard::set("AO_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
+        let _config_guard = EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
         let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
 
         let root_a = TempDir::new().expect("project A");
@@ -121,7 +121,7 @@ mod tests {
     fn read_daemon_event_records_filters_by_project_root() {
         let _lock = crate::shared::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
         let config_root = TempDir::new().expect("config temp dir");
-        let _config_guard = EnvVarGuard::set("AO_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
+        let _config_guard = EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
         let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
 
         let root_a = TempDir::new().expect("project A");
@@ -160,7 +160,7 @@ mod tests {
     fn poll_daemon_events_returns_metadata_and_count() {
         let _lock = crate::shared::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
         let config_root = TempDir::new().expect("config temp dir");
-        let _config_guard = EnvVarGuard::set("AO_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
+        let _config_guard = EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
         let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
 
         let root = TempDir::new().expect("project");
@@ -172,7 +172,7 @@ mod tests {
         );
 
         let response = poll_daemon_events(Some(10), Some(root_path.as_str())).expect("poll should succeed");
-        assert_eq!(response.schema, "ao.daemon.events.poll.v1");
+        assert_eq!(response.schema, "animus.daemon.events.poll.v1");
         assert_eq!(response.count, 1);
         assert_eq!(response.events.len(), 1);
         assert!(response.events_path.ends_with("daemon-events.jsonl"));
@@ -184,7 +184,7 @@ pub(super) async fn handle_daemon_events_impl(args: DaemonEventsArgs, json: bool
     if !path.exists() {
         print_value(
             serde_json::json!({
-                "schema": "ao.daemon.events.v1",
+                "schema": "animus.daemon.events.v1",
                 "events_path": path,
                 "events": [],
             }),

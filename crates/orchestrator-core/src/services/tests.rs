@@ -7,7 +7,7 @@ use crate::types::{
 };
 
 fn scoped_ao_root(project_root: &std::path::Path) -> std::path::PathBuf {
-    protocol::scoped_state_root(project_root).unwrap_or_else(|| project_root.join(".ao"))
+    protocol::scoped_state_root(project_root).unwrap_or_else(|| project_root.join(".animus"))
 }
 
 fn assert_core_state_json_is_valid(project_root: &std::path::Path) {
@@ -22,9 +22,9 @@ fn ensure_test_config_env() {
         crate::test_env::stable_test_home();
         let config_dir = std::env::temp_dir().join(format!("ao-orchestrator-core-test-config-{}", std::process::id()));
         std::fs::create_dir_all(&config_dir).expect("create test AO config dir");
-        std::env::set_var("AO_CONFIG_DIR", &config_dir);
+        std::env::set_var("ANIMUS_CONFIG_DIR", &config_dir);
         std::env::set_var("AGENT_ORCHESTRATOR_CONFIG_DIR", &config_dir);
-        std::env::set_var("AO_RUNNER_CONFIG_DIR", &config_dir);
+        std::env::set_var("ANIMUS_RUNNER_CONFIG_DIR", &config_dir);
     });
 }
 
@@ -93,7 +93,7 @@ fn file_hub_recompiles_repo_workflow_yaml_on_startup() {
     let temp = tempfile::tempdir().expect("tempdir");
     let _hub = file_hub(temp.path()).expect("create hub");
 
-    let workflows_dir = temp.path().join(".ao").join("workflows");
+    let workflows_dir = temp.path().join(".animus").join("workflows");
     std::fs::create_dir_all(&workflows_dir).expect("create workflows dir");
     std::fs::write(
         workflows_dir.join("custom.yaml"),
@@ -173,10 +173,10 @@ async fn file_hub_project_create_bootstraps_base_configs_for_project_path() {
     assert_eq!(created.path, project_path.display().to_string());
     let scoped = scoped_ao_root(&project_path);
     assert!(scoped.join("core-state.json").exists());
-    assert!(project_path.join(".ao").join("config.json").exists());
+    assert!(project_path.join(".animus").join("config.json").exists());
     assert!(scoped.join("resume-config.json").exists());
-    assert!(project_path.join(".ao").join("workflows").join("custom.yaml").exists());
-    assert!(project_path.join(".ao").join("workflows").join("standard-workflow.yaml").exists());
+    assert!(project_path.join(".animus").join("workflows").join("custom.yaml").exists());
+    assert!(project_path.join(".animus").join("workflows").join("standard-workflow.yaml").exists());
     assert!(scoped.join("config").join("state-machines.v1.json").exists());
     assert!(!project_path.join(".git").exists());
     assert!(
@@ -237,7 +237,7 @@ async fn file_hub_bootstraps_workflow_yaml_with_phase_catalog() {
     assert_eq!(created.path, project_path.display().to_string());
     let config = crate::load_workflow_config(&project_path).expect("workflow config should load");
 
-    assert_eq!(config.schema.as_str(), "ao.workflow-config.v2");
+    assert_eq!(config.schema.as_str(), "animus.workflow-config.v2");
     assert_eq!(config.version, 2);
     assert_eq!(config.default_workflow_ref.as_str(), "standard-workflow");
     assert_eq!(config.phase_catalog.get("implementation").map(|phase| phase.label.as_str()), Some("Implementation"));
@@ -263,7 +263,7 @@ async fn file_hub_bootstraps_architecture_docs_file() {
     let architecture_json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(architecture_path).expect("architecture doc should be readable"))
             .expect("architecture doc should be json");
-    assert_eq!(architecture_json.get("schema").and_then(serde_json::Value::as_str), Some("ao.architecture.v1"));
+    assert_eq!(architecture_json.get("schema").and_then(serde_json::Value::as_str), Some("animus.architecture.v1"));
 }
 
 #[tokio::test]
@@ -585,7 +585,7 @@ async fn file_hub_yaml_only_repo_executes_workflow_without_json_config() {
     let temp = tempfile::tempdir().expect("tempdir");
     let hub = file_hub(temp.path()).expect("create hub");
 
-    let workflows_dir = temp.path().join(".ao").join("workflows");
+    let workflows_dir = temp.path().join(".animus").join("workflows");
     std::fs::create_dir_all(&workflows_dir).expect("create workflows dir");
     std::fs::write(
         workflows_dir.join("custom.yaml"),
@@ -938,7 +938,7 @@ async fn file_hub_errors_when_requested_pipeline_is_missing_from_config() {
 
     let message = err.to_string();
     assert!(message.contains("missing-pipeline"));
-    assert!(message.contains(".ao/workflows"));
+    assert!(message.contains(".animus/workflows"));
 }
 
 #[tokio::test]

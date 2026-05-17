@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use super::project_state_dir;
 
 pub(crate) fn workflow_config_path(project_root: &str) -> PathBuf {
-    let single_file = Path::new(project_root).join(".ao").join("workflows.yaml");
+    let single_file = Path::new(project_root).join(".animus").join("workflows.yaml");
     if single_file.exists() {
         single_file
     } else {
@@ -16,7 +16,7 @@ pub(crate) fn workflow_config_path(project_root: &str) -> PathBuf {
 }
 
 pub(crate) fn agent_runtime_path(project_root: &str) -> PathBuf {
-    let single_file = Path::new(project_root).join(".ao").join("workflows.yaml");
+    let single_file = Path::new(project_root).join(".animus").join("workflows.yaml");
     if single_file.exists() {
         single_file
     } else {
@@ -260,7 +260,7 @@ pub(crate) fn compile_yaml_workflows_payload(project_root: &str) -> Result<Value
         }
         None => Ok(serde_json::json!({
             "compiled": false,
-            "message": "no YAML workflow files found in .ao/workflows/ or .ao/workflows.yaml",
+            "message": "no YAML workflow files found in .animus/workflows/ or .animus/workflows.yaml",
         })),
     }
 }

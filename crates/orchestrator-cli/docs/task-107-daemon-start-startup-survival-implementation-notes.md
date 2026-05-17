@@ -18,7 +18,7 @@ crash.
 - Registry state must not retain dead daemon pids.
 - Keep non-autonomous start behavior unchanged.
 - Keep MCP behavior contractually aligned with CLI output.
-- Do not manually edit `.ao/*.json`.
+- Do not manually edit `.animus/*.json`.
 
 ## Proposed Change Surface
 
@@ -62,12 +62,12 @@ Planned behavior:
 - On probe failure, explicitly clear registry pid for project if needed.
 - Keep existing already-running detection behavior unchanged.
 
-### 4) MCP `ao.daemon.start` Parity
+### 4) MCP `animus.daemon.start` Parity
 Primary file: `crates/orchestrator-cli/src/services/operations/ops_mcp.rs`
 
 Planned behavior:
 - No new tool schema required if CLI start command surfaces error correctly.
-- Add/extend tests to assert `ao.daemon.start` returns
+- Add/extend tests to assert `animus.daemon.start` returns
   `CallToolResult::structured_error` on startup probe failure.
 
 ### 5) Regression Tests
@@ -102,7 +102,7 @@ Target assertions:
   - Mitigation: fixed line cap and trimmed formatting.
 - Risk: MCP tests rely on broad command execution behavior.
   - Mitigation: assert only structured success/error semantics for
-    `ao.daemon.start`.
+    `animus.daemon.start`.
 - Risk: registry state drift when startup fails quickly.
   - Mitigation: explicit pid clear path plus regression assertion.
 

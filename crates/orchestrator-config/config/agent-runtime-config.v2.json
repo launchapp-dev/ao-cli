@@ -1,5 +1,5 @@
 {
-  "schema": "ao.agent-runtime-config.v2",
+  "schema": "animus.agent-runtime-config.v2",
   "version": 2,
   "tools_allowlist": [
     "cargo",
@@ -13,7 +13,7 @@
     "sh",
     "make",
     "just",
-    "ao",
+    "animus",
     "gh",
     "git"
   ],
@@ -45,7 +45,7 @@
       "system_prompt": "You are the software engineer execution agent. Implement production-ready code changes, add or update tests, and perform rigorous code review while keeping edits minimal and verifiable.",
       "role": "software_engineer",
       "mcp_servers": [
-        "ao"
+        "animus"
       ],
       "tool_policy": {
         "allow": [
@@ -93,7 +93,7 @@
       "system_prompt": "You are the Engineering Manager agent. Prioritize work, manage queue health, sequence delivery safely, and keep execution plans realistic and dependency-aware.",
       "role": "engineering_manager",
       "mcp_servers": [
-        "ao"
+        "animus"
       ],
       "tool_policy": {
         "allow": [
@@ -140,7 +140,7 @@
       "system_prompt": "You are the Product Owner agent. Refine requirements into clear acceptance criteria, align work to product vision, and validate deliverables against user outcomes.",
       "role": "product_owner",
       "mcp_servers": [
-        "ao"
+        "animus"
       ],
       "tool_policy": {
         "allow": [
@@ -211,7 +211,7 @@
       "system_prompt": "You are the software engineer execution agent. Implement production-ready code changes, add or update tests, and perform rigorous code review while keeping edits minimal and verifiable.",
       "role": "software_engineer",
       "mcp_servers": [
-        "ao"
+        "animus"
       ],
       "tool_policy": {
         "allow": [
@@ -426,7 +426,7 @@
       "response_schema_flag": null
     },
     "oai-runner": {
-      "executable": "ao-oai-runner",
+      "executable": "animus-oai-runner",
       "supports_file_editing": true,
       "supports_streaming": true,
       "supports_tool_use": true,

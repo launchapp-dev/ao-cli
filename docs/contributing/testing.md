@@ -77,7 +77,7 @@ let result = harness.run_json_ok(&["task", "list"])?;
 assert_success_envelope(&result);
 ```
 
-The harness validates the `ao.cli.v1` envelope contract:
+The harness validates the `animus.cli.v1` envelope contract:
 - `schema` field matches `CLI_SCHEMA_ID`
 - `ok` is `true` for success, `false` for errors
 - Success envelopes include `data`

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 pub fn scoped_state_root(project_root: &Path) -> Option<PathBuf> {
     let home = dirs::home_dir()?;
-    let ao_root = home.join(".ao");
+    let ao_root = home.join(".animus");
     let scope_dir = ao_root.join(repository_scope_for_path(project_root));
 
     if scope_dir.exists() {
@@ -184,11 +184,11 @@ mod tests {
         let repo = temp.path().join("repo");
         let bin = temp.path().join("bin");
         let marker = temp.path().join("git-called");
-        std::fs::create_dir_all(home.join(".ao")).expect("ao root");
+        std::fs::create_dir_all(home.join(".animus")).expect("ao root");
         std::fs::create_dir_all(&repo).expect("repo root");
         std::fs::create_dir_all(&bin).expect("bin dir");
 
-        let scope_dir = home.join(".ao").join(repository_scope_for_path(&repo));
+        let scope_dir = home.join(".animus").join(repository_scope_for_path(&repo));
         std::fs::create_dir_all(&scope_dir).expect("scope dir");
 
         #[cfg(unix)]

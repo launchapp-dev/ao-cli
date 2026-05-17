@@ -18,7 +18,7 @@ impl SyncConfig {
     }
 
     pub fn load_for_project(project_root: &str) -> Self {
-        let project_path = PathBuf::from(project_root).join(".ao").join("sync.json");
+        let project_path = PathBuf::from(project_root).join(".animus").join("sync.json");
         if let Some(project_config) = Self::try_load_from(&project_path) {
             return project_config.merge_with_global();
         }
@@ -36,7 +36,7 @@ impl SyncConfig {
     }
 
     pub fn save_for_project(&self, project_root: &str) -> anyhow::Result<()> {
-        let path = PathBuf::from(project_root).join(".ao").join("sync.json");
+        let path = PathBuf::from(project_root).join(".animus").join("sync.json");
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -59,9 +59,9 @@ impl SyncConfig {
 
     fn global_path() -> PathBuf {
         if let Ok(home) = std::env::var("HOME") {
-            return PathBuf::from(home).join(".ao").join("sync.json");
+            return PathBuf::from(home).join(".animus").join("sync.json");
         }
-        PathBuf::from(".ao").join("sync.json")
+        PathBuf::from(".animus").join("sync.json")
     }
 
     fn try_load_from(path: &PathBuf) -> Option<Self> {

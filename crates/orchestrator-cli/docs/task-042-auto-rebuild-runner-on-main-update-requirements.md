@@ -20,8 +20,8 @@ Define a deterministic daemon contract that:
 | Workflow completion merge path | `crates/orchestrator-cli/src/services/runtime/runtime_daemon/daemon_scheduler_project_tick.rs` + `daemon_scheduler_git_ops.rs` | merge/push/cleanup can run after workflow completion | no runtime binary refresh after successful merge |
 | Scheduler tick lifecycle | `daemon_scheduler_project_tick.rs` | daemon is started when not running/paused, then normal scheduling proceeds | no `main`-change detection that triggers rebuild/restart |
 | Runner compatibility gate | `crates/orchestrator-core/src/services/runner_helpers.rs` | runner compatibility checks protocol + build ID derived from runner binary metadata | does not detect "`main` moved but binaries were never rebuilt" |
-| Repo-scoped runtime state pathing | `daemon_scheduler_git_ops.rs` (`repo_ao_root`) | repo-scoped state under `~/.ao/<repo-scope>/...` already used for sync/outbox data | no persisted watermark for binary-refresh progress |
-| Daemon config/override surface | `cli_types.rs`, `runtime_daemon.rs`, `.ao/pm-config.json` | supports auto-merge/pr/prune toggles and env overrides | no toggle for auto-rebuild/restart on `main` updates |
+| Repo-scoped runtime state pathing | `daemon_scheduler_git_ops.rs` (`repo_ao_root`) | repo-scoped state under `~/.animus/<repo-scope>/...` already used for sync/outbox data | no persisted watermark for binary-refresh progress |
+| Daemon config/override surface | `cli_types.rs`, `runtime_daemon.rs`, `.animus/pm-config.json` | supports auto-merge/pr/prune toggles and env overrides | no toggle for auto-rebuild/restart on `main` updates |
 
 ## Scope
 In scope for implementation after this phase:
@@ -43,7 +43,7 @@ Out of scope:
 - Changing supported default branch away from `main`.
 - Rebuilding binaries for every tick when `main` is unchanged.
 - Rebuilding/restarting while active agents are executing work.
-- Manual edits to `/.ao/*.json` repository state files.
+- Manual edits to `/.animus/*.json` repository state files.
 - New desktop wrapper/runtime dependencies.
 
 ## Constraints
@@ -52,7 +52,7 @@ Out of scope:
   `refs/remotes/origin/main`, fallback `HEAD`) unless explicitly fetched by
   existing flows.
 - Refresh state writes must be atomic and confined to repo-scoped daemon
-  runtime state (under `~/.ao/<repo-scope>/sync/`).
+  runtime state (under `~/.animus/<repo-scope>/sync/`).
 - Runner refresh must reuse existing daemon/runner lifecycle APIs; no parallel
   unmanaged runner process spawning.
 - If daemon is paused, behavior must preserve pause semantics (no unintended
@@ -72,7 +72,7 @@ Out of scope:
 
 ### FR-02: Persist Refresh Watermark State
 - Add per-repo state file for refresh bookkeeping (for example
-  `~/.ao/<repo-scope>/sync/runtime-binary-refresh.json`).
+  `~/.animus/<repo-scope>/sync/runtime-binary-refresh.json`).
 - Persist at minimum:
   - `last_successful_main_head`,
   - `last_attempt_main_head`,
@@ -116,7 +116,7 @@ Out of scope:
   idempotent.
 
 ### FR-09: Config and Override Surfaces
-- Add persisted daemon config toggle for this automation in `.ao/pm-config.json`
+- Add persisted daemon config toggle for this automation in `.animus/pm-config.json`
   surfaced via `ao daemon config`.
 - Add daemon run/start override flag(s) and corresponding env override
   semantics, consistent with existing daemon automation toggles.

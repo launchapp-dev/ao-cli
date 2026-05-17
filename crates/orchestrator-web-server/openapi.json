@@ -2046,7 +2046,7 @@
         "properties": {
           "schema": {
             "type": "string",
-            "const": "ao.cli.v1"
+            "const": "animus.cli.v1"
           },
           "ok": {
             "type": "boolean",
@@ -2065,7 +2065,7 @@
         "properties": {
           "schema": {
             "type": "string",
-            "const": "ao.cli.v1"
+            "const": "animus.cli.v1"
           },
           "ok": {
             "type": "boolean",

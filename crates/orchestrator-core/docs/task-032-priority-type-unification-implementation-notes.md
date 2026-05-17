@@ -19,7 +19,7 @@ This removes the main naming ambiguity while avoiding dependency/layer churn.
   `must|should|could|wont`.
 - Do not change task priority semantics or accepted values.
 - Keep changes scoped to priority type definitions and direct call sites.
-- No direct/manual edits to `/.ao/*.json`.
+- No direct/manual edits to `/.animus/*.json`.
 
 ## Proposed Change Surface
 

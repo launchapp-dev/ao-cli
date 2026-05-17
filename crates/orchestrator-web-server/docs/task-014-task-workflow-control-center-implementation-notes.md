@@ -7,7 +7,7 @@ controls, timeline rendering, and gating UX.
 
 ## Non-Negotiable Constraints
 - Keep API calls under `/api/v1`.
-- Preserve `ao.cli.v1` envelope parsing and normalized error model.
+- Preserve `animus.cli.v1` envelope parsing and normalized error model.
 - Keep `.ao` mutations service-driven through existing API handlers only.
 - Keep implementation scoped to task/workflow control surfaces.
 - Keep high-impact actions fail-closed when gating data is incomplete.

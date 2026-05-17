@@ -16,7 +16,7 @@ This prevents evidence-based model selection and allows consistently-failing mod
 | ID | Requirement | Description |
 |----|-------------|-------------|
 | RQ-01 | Quality Score Recording | After each agent phase execution, record a quality score based on post-hoc verification: files modified, compilation status, test results |
-| RQ-02 | Model Success Rate Tracking | Track per-model success rates across all phases and runs, storing metrics in `.ao/state/model-performance.json` |
+| RQ-02 | Model Success Rate Tracking | Track per-model success rates across all phases and runs, storing metrics in `.animus/state/model-performance.json` |
 | RQ-03 | Compilation Check | After implementation phases, run `cargo check` or equivalent to verify code compiles |
 | RQ-04 | Test Verification | After testing phases (or when tests exist), run test suites to verify pass/fail status |
 | RQ-05 | File Modification Detection | Detect and record whether agent actually modified repository files during the phase |
@@ -38,8 +38,8 @@ This prevents evidence-based model selection and allows consistently-failing mod
 
 | Config Location | Purpose |
 |-----------------|---------|
-| `.ao/state/model-performance.json` | Per-model metrics: attempts, successes, failures, consecutive_failures |
-| `.ao/config.json` (new field) | Quality scoring thresholds and routing preferences |
+| `.animus/state/model-performance.json` | Per-model metrics: attempts, successes, failures, consecutive_failures |
+| `.animus/config.json` (new field) | Quality scoring thresholds and routing preferences |
 
 ### Acceptance Criteria
 
@@ -54,7 +54,7 @@ This prevents evidence-based model selection and allows consistently-failing mod
 
 ### Implementation Notes
 
-1. **State Storage**: Add `model-performance.json` in `.ao/state/` following existing JSON state patterns
+1. **State Storage**: Add `model-performance.json` in `.animus/state/` following existing JSON state patterns
 2. **Scoring Pipeline**: Extend `process_phase_execution_completion` in `daemon_scheduler_project_tick.rs` to run quality checks
 3. **Model Exclusion**: Modify `default_primary_model_for_phase` and fallback selection in `protocol/src/model_routing.rs` to accept performance context
 4. **CLI Integration**: Add `ao model stats` or extend `ao model status` to show performance data

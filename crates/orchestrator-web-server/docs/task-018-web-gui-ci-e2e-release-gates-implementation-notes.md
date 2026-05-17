@@ -101,7 +101,7 @@ Protected surfaces (must not change in TASK-018 implementation):
 - Waits for readiness using `/api/v1/system/info` with bounded timeout.
 - Validates UI routes (`/`, `/dashboard`, `/projects`, `/reviews/handoff`) for
   `200` + `text/html`.
-- Validates `/api/v1/system/info` envelope fields (`schema=ao.cli.v1`,
+- Validates `/api/v1/system/info` envelope fields (`schema=animus.cli.v1`,
   `ok=true`).
 - Validates `--api-only` deep-link rejection (`404`, `not_found`,
   `exit_code=3`).

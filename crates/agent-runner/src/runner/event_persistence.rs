@@ -45,7 +45,7 @@ fn build_run_dir(project_root: &str, run_id: &str) -> Option<PathBuf> {
 
 fn project_runs_root(project_root: &Path) -> Option<PathBuf> {
     let home = dirs::home_dir()?;
-    Some(home.join(".ao").join(protocol::repository_scope_for_path(project_root)).join("runs"))
+    Some(home.join(".animus").join(protocol::repository_scope_for_path(project_root)).join("runs"))
 }
 
 fn persist_json_output(run_dir: &Path, stream_type: OutputStreamType, text: &str) -> Result<()> {
@@ -177,8 +177,11 @@ mod tests {
         let project_root = test_root();
         let run_dir = build_run_dir(project_root.to_string_lossy().as_ref(), "run-test-123")
             .expect("run dir should resolve for safe run id");
-        let expected =
-            home.join(".ao").join(protocol::repository_scope_for_path(&project_root)).join("runs").join("run-test-123");
+        let expected = home
+            .join(".animus")
+            .join(protocol::repository_scope_for_path(&project_root))
+            .join("runs")
+            .join("run-test-123");
         assert_eq!(run_dir, expected);
     }
 
@@ -205,9 +208,9 @@ mod tests {
         let _lock = env_lock().lock().expect("env lock should be available");
         let home = test_root();
         let _home = EnvVarGuard::set("HOME", Some(home.to_string_lossy().as_ref()));
-        let _scope = EnvVarGuard::set("AO_RUNNER_SCOPE", Some("global"));
+        let _scope = EnvVarGuard::set("ANIMUS_RUNNER_SCOPE", Some("global"));
         let override_dir = home.join("override-config");
-        let _ao_config = EnvVarGuard::set("AO_CONFIG_DIR", Some(override_dir.to_string_lossy().as_ref()));
+        let _ao_config = EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(override_dir.to_string_lossy().as_ref()));
 
         let project_root = test_root();
         let run_id = RunId("run-global-scope-123".to_string());

@@ -123,7 +123,7 @@ pub(crate) fn print_agent_event(event: &AgentRunEvent, json: bool, tool: &str) -
         println!(
             "{}",
             serde_json::to_string(&serde_json::json!({
-                "schema": "ao.agent.event.v1",
+                "schema": "animus.agent.event.v1",
                 "ok": true,
                 "data": event
             }))?
@@ -243,10 +243,10 @@ mod tests {
     #[test]
     fn runner_config_dir_defaults_to_project_scope() {
         let _lock = crate::shared::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
-        let _config = EnvVarGuard::set("AO_CONFIG_DIR", None);
-        let _runner_config = EnvVarGuard::set("AO_RUNNER_CONFIG_DIR", None);
+        let _config = EnvVarGuard::set("ANIMUS_CONFIG_DIR", None);
+        let _runner_config = EnvVarGuard::set("ANIMUS_RUNNER_CONFIG_DIR", None);
         let _legacy_config = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
-        let _scope = EnvVarGuard::set("AO_RUNNER_SCOPE", None);
+        let _scope = EnvVarGuard::set("ANIMUS_RUNNER_SCOPE", None);
 
         let project_root = Path::new("/tmp/project-root");
         let resolved = runner_config_dir(project_root);
@@ -258,10 +258,10 @@ mod tests {
     fn runner_config_dir_shortens_long_unix_socket_paths() {
         let _lock = crate::shared::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
         let long_root = Path::new("/tmp").join("a".repeat(120));
-        let _config = EnvVarGuard::set("AO_CONFIG_DIR", None);
-        let _runner_config = EnvVarGuard::set("AO_RUNNER_CONFIG_DIR", None);
+        let _config = EnvVarGuard::set("ANIMUS_CONFIG_DIR", None);
+        let _runner_config = EnvVarGuard::set("ANIMUS_RUNNER_CONFIG_DIR", None);
         let _legacy_config = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
-        let _scope = EnvVarGuard::set("AO_RUNNER_SCOPE", None);
+        let _scope = EnvVarGuard::set("ANIMUS_RUNNER_SCOPE", None);
 
         let resolved = runner_config_dir(&long_root);
         let socket_path = resolved.join("agent-runner.sock");
@@ -275,8 +275,8 @@ mod tests {
     #[test]
     fn build_agent_context_accepts_managed_worktree_cwd() {
         let _lock = crate::shared::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
-        let _config = EnvVarGuard::set("AO_CONFIG_DIR", None);
-        let _runner_config = EnvVarGuard::set("AO_RUNNER_CONFIG_DIR", None);
+        let _config = EnvVarGuard::set("ANIMUS_CONFIG_DIR", None);
+        let _runner_config = EnvVarGuard::set("ANIMUS_RUNNER_CONFIG_DIR", None);
         let _legacy_config = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
 
         let tmp = TempDir::new().expect("temp dir");
@@ -314,7 +314,7 @@ mod tests {
     #[test]
     fn run_dir_stays_repo_scoped_when_runner_scope_is_global() {
         let _lock = crate::shared::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
-        let _scope = EnvVarGuard::set("AO_RUNNER_SCOPE", Some("global"));
+        let _scope = EnvVarGuard::set("ANIMUS_RUNNER_SCOPE", Some("global"));
         let project_root = "/tmp/project-root";
         let run_id = RunId("run-1234".to_string());
         let dir = run_dir(project_root, &run_id, None);
@@ -333,7 +333,7 @@ mod tests {
     #[test]
     fn claude_bypass_permissions_is_disabled_by_default() {
         let _lock = crate::shared::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
-        let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", None);
+        let _bypass = EnvVarGuard::set("ANIMUS_CLAUDE_BYPASS_PERMISSIONS", None);
         let contract =
             build_runtime_contract("claude", "claude-opus-4-1", "hello").expect("runtime contract should build");
         let args = contract
@@ -350,7 +350,7 @@ mod tests {
     #[test]
     fn claude_bypass_permissions_respects_disable_toggle() {
         let _lock = crate::shared::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
-        let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", Some("false"));
+        let _bypass = EnvVarGuard::set("ANIMUS_CLAUDE_BYPASS_PERMISSIONS", Some("false"));
         let contract =
             build_runtime_contract("claude", "claude-opus-4-1", "hello").expect("runtime contract should build");
         let args = contract
@@ -367,7 +367,7 @@ mod tests {
     #[test]
     fn claude_bypass_permissions_treats_empty_value_as_disabled() {
         let _lock = crate::shared::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
-        let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", Some(""));
+        let _bypass = EnvVarGuard::set("ANIMUS_CLAUDE_BYPASS_PERMISSIONS", Some(""));
         let contract =
             build_runtime_contract("claude", "claude-opus-4-1", "hello").expect("runtime contract should build");
         let args = contract
@@ -384,7 +384,7 @@ mod tests {
     #[test]
     fn inject_claude_permission_mode_override_is_disabled_by_default() {
         let _lock = crate::shared::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
-        let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", None);
+        let _bypass = EnvVarGuard::set("ANIMUS_CLAUDE_BYPASS_PERMISSIONS", None);
         let contract =
             build_runtime_contract("claude", "claude-opus-4-1", "hello").expect("runtime contract should build");
         let args = contract
@@ -401,7 +401,7 @@ mod tests {
     #[test]
     fn inject_claude_permission_mode_override_respects_enable_toggle() {
         let _lock = crate::shared::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
-        let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", Some("true"));
+        let _bypass = EnvVarGuard::set("ANIMUS_CLAUDE_BYPASS_PERMISSIONS", Some("true"));
         let mut contract =
             build_runtime_contract("claude", "claude-opus-4-1", "hello").expect("runtime contract should build");
         workflow_runner_v2::runtime_support::inject_claude_permission_mode(&mut contract, "claude");
@@ -419,7 +419,7 @@ mod tests {
     #[test]
     fn inject_claude_permission_mode_override_respects_disable_toggle() {
         let _lock = crate::shared::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
-        let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", Some("false"));
+        let _bypass = EnvVarGuard::set("ANIMUS_CLAUDE_BYPASS_PERMISSIONS", Some("false"));
         let mut contract =
             build_runtime_contract("claude", "claude-opus-4-1", "hello").expect("runtime contract should build");
         workflow_runner_v2::runtime_support::inject_claude_permission_mode(&mut contract, "claude");
@@ -437,7 +437,7 @@ mod tests {
     #[test]
     fn inject_claude_permission_mode_override_treats_empty_toggle_as_disabled() {
         let _lock = crate::shared::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
-        let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", Some(""));
+        let _bypass = EnvVarGuard::set("ANIMUS_CLAUDE_BYPASS_PERMISSIONS", Some(""));
         let mut contract =
             build_runtime_contract("claude", "claude-opus-4-1", "hello").expect("runtime contract should build");
         workflow_runner_v2::runtime_support::inject_claude_permission_mode(&mut contract, "claude");
@@ -455,7 +455,7 @@ mod tests {
     #[test]
     fn build_runtime_contract_with_resume_injects_claude_session_id() {
         let _lock = crate::shared::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
-        let _bypass = EnvVarGuard::set("AO_CLAUDE_BYPASS_PERMISSIONS", None);
+        let _bypass = EnvVarGuard::set("ANIMUS_CLAUDE_BYPASS_PERMISSIONS", None);
         let plan = orchestrator_core::runtime_contract::CliSessionResumePlan {
             mode: orchestrator_core::runtime_contract::CliSessionResumeMode::NativeId,
             session_key: "wf:test-wf:implementation".to_string(),
@@ -564,7 +564,7 @@ mod tests {
         write_config(scoped_dir.path(), Some("scoped-token"));
 
         let global_override = global_dir.path().to_string_lossy().to_string();
-        let _ao_config = EnvVarGuard::set("AO_CONFIG_DIR", Some(&global_override));
+        let _ao_config = EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(&global_override));
         let _legacy_config = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", Some(&global_override));
         let _token_override = EnvVarGuard::set("AGENT_RUNNER_TOKEN", None);
 

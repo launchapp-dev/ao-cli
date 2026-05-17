@@ -62,7 +62,7 @@ Out of scope:
 - Introducing a new `backlog_rank` field or replacing priority with ordered
   backlog position.
 - Freeform semantic/NLP classification of task importance.
-- Manual edits to `/.ao/*.json`.
+- Manual edits to `/.animus/*.json`.
 - Changing priority enum values or parse contracts.
 
 ## Constraints
@@ -71,7 +71,7 @@ Out of scope:
   than direct file writes.
 - Existing `task prioritized` ordering semantics must remain unchanged except
   for updated priority values.
-- JSON envelope contract (`ao.cli.v1`) must remain stable.
+- JSON envelope contract (`animus.cli.v1`) must remain stable.
 
 ## Functional Requirements
 

@@ -43,7 +43,7 @@ Out of scope:
 - adding new CLI commands, removing commands, or changing flag contracts.
 - adding new web API routes or changing route wiring.
 - functional rewrites of planning/task/workflow domain logic.
-- direct manual edits to `.ao/*.json`.
+- direct manual edits to `.animus/*.json`.
 
 ## Constraints
 - Keep changes Rust-only under `crates/`.
@@ -164,7 +164,7 @@ Out of scope:
 - `AC-06`: representative web API response/error behavior remains unchanged.
 - `AC-07`: event subscription/read semantics remain deterministic and unchanged.
 - `AC-08`: targeted validation (`cargo check`/tests for touched crates) passes.
-- `AC-09`: no direct edits are made to `.ao/*.json`.
+- `AC-09`: no direct edits are made to `.animus/*.json`.
 
 ## Testable Acceptance Checklist
 - `T-01`: `cargo check -p orchestrator-cli` passes after `cli_types` split.

@@ -20,7 +20,7 @@ Deliver a production-ready AO onboarding flow that provides:
 | Setup command surface | `crates/orchestrator-cli/src/cli_types.rs`, `crates/orchestrator-cli/src/main.rs`, `crates/orchestrator-cli/src/services/operations/ops_setup.rs` | `ao setup` supports guided/non-interactive, `--plan`, `--doctor-fix` | implemented |
 | Doctor command surface | `crates/orchestrator-cli/src/cli_types.rs`, `crates/orchestrator-cli/src/services/operations/ops_doctor.rs`, `crates/orchestrator-core/src/doctor.rs` | `ao doctor` diagnostics + `--fix` remediation action reporting | implemented |
 | Daemon config API boundary | `crates/orchestrator-core/src/daemon_config.rs`, `crates/orchestrator-cli/src/services/runtime/runtime_daemon.rs`, `crates/orchestrator-cli/src/services/runtime/runtime_daemon/daemon_scheduler_git_ops.rs` | typed load/update/write helpers used by setup/daemon/scheduler paths | implemented |
-| Atomic config persistence | `crates/orchestrator-core/src/daemon_config.rs` | temp-file write + atomic rename for `.ao/pm-config.json` | implemented |
+| Atomic config persistence | `crates/orchestrator-core/src/daemon_config.rs` | temp-file write + atomic rename for `.animus/pm-config.json` | implemented |
 | Acceptance-oriented tests | `crates/orchestrator-cli/tests/setup_doctor_e2e.rs`, module tests in `ops_setup.rs`, `ops_doctor.rs`, `doctor.rs`, `daemon_config.rs` | guardrails, plan/apply contract, idempotence, doctor payload/action checks | implemented |
 
 ## Scope Locked for This Task
@@ -40,11 +40,11 @@ In scope:
 Out of scope:
 - Web UI onboarding or desktop wrapper onboarding.
 - Auto-installing third-party CLIs/package managers.
-- Manual edits to `.ao/*.json` project state/config files.
+- Manual edits to `.animus/*.json` project state/config files.
 - Command-surface redesign beyond `setup` and `doctor`.
 
 ## Constraints
-- Preserve `ao.cli.v1` envelope behavior for `--json`.
+- Preserve `animus.cli.v1` envelope behavior for `--json`.
 - Preserve existing exit-code mapping (`2/3/4/5/1`); validation failures stay `invalid_input` (`2`).
 - Keep repository safety: project-root scoped writes only, no hidden side effects.
 - Keep remediation deterministic and explicit (`--fix` is opt-in).
@@ -83,7 +83,7 @@ Out of scope:
 
 ### FR-04: API-Only Config Writes
 - Setup/daemon config mutations must use `orchestrator-core` daemon config APIs.
-- CLI setup/doctor/daemon handlers must not directly write `.ao/pm-config.json`.
+- CLI setup/doctor/daemon handlers must not directly write `.animus/pm-config.json`.
 
 ### FR-05: Idempotence and Persistence Safety
 - Re-running setup apply with identical effective inputs must become no-op (`daemon_config_updated = false`).
@@ -103,7 +103,7 @@ Out of scope:
 - `AC-07`: `ao doctor --fix` reports non-empty remediation action results with stable action fields.
 - `AC-08`: setup/doctor/daemon config write paths use `orchestrator-core` config helpers rather than ad-hoc file writes.
 - `AC-09`: daemon config persistence remains atomic.
-- `AC-10`: JSON output remains envelope-compatible with existing `ao.cli.v1` conventions.
+- `AC-10`: JSON output remains envelope-compatible with existing `animus.cli.v1` conventions.
 
 ## Verification Matrix
 | Acceptance area | Verification method |

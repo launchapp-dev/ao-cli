@@ -12,10 +12,10 @@ Options:
 
 ```bash
 # Install a specific release
-AO_VERSION=v0.0.11 curl -fsSL https://raw.githubusercontent.com/launchapp-dev/ao/main/install.sh | bash
+ANIMUS_VERSION=v0.0.11 curl -fsSL https://raw.githubusercontent.com/launchapp-dev/ao/main/install.sh | bash
 
 # Install into a custom directory
-AO_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/launchapp-dev/ao/main/install.sh | bash
+ANIMUS_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/launchapp-dev/ao/main/install.sh | bash
 ```
 
 The upstream installer currently targets macOS. On Linux and Windows, use a release archive or build from source.
@@ -32,7 +32,7 @@ Download the archive for your platform, extract it, and place these binaries on 
 - `ao` (compatibility alias)
 - `agent-runner`
 - `llm-cli-wrapper`
-- `ao-oai-runner`
+- `animus-oai-runner`
 - `ao-workflow-runner`
 
 Supported release targets:
@@ -47,8 +47,8 @@ Supported release targets:
 ## Build From Source
 
 ```bash
-git clone https://github.com/launchapp-dev/ao.git
-cd ao
+git clone https://github.com/launchapp-dev/animus-cli.git
+cd animus-cli
 
 # Verify the runtime binaries
 cargo ao-bin-check

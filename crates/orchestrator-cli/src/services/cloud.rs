@@ -312,7 +312,7 @@ async fn handle_link(args: CloudLinkArgs, project_root: &str, json: bool) -> Res
 
 async fn build_config_bundle(hub: Arc<FileServiceHub>, project_root: &str) -> Result<ConfigBundle> {
     let mut bundle = ConfigBundle::new();
-    let ao_dir = PathBuf::from(project_root).join(".ao");
+    let ao_dir = PathBuf::from(project_root).join(".animus");
 
     // Collect workflow YAML files
     if let Ok(entries) = std::fs::read_dir(ao_dir.join("workflows")) {
@@ -321,7 +321,7 @@ async fn build_config_bundle(hub: Arc<FileServiceHub>, project_root: &str) -> Re
             if path.extension().map_or(false, |ext| ext == "yaml" || ext == "yml") {
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     if let Some(file_name) = path.file_name() {
-                        let key = format!(".ao/workflows/{}", file_name.to_string_lossy());
+                        let key = format!(".animus/workflows/{}", file_name.to_string_lossy());
                         bundle.add_file(key, content);
                     }
                 }
@@ -333,7 +333,7 @@ async fn build_config_bundle(hub: Arc<FileServiceHub>, project_root: &str) -> Re
     let workflows_file = ao_dir.join("workflows.yaml");
     if workflows_file.exists() {
         if let Ok(content) = std::fs::read_to_string(&workflows_file) {
-            bundle.add_file(".ao/workflows.yaml".to_string(), content);
+            bundle.add_file(".animus/workflows.yaml".to_string(), content);
         }
     }
 
@@ -341,7 +341,7 @@ async fn build_config_bundle(hub: Arc<FileServiceHub>, project_root: &str) -> Re
     let config_file = ao_dir.join("config.json");
     if config_file.exists() {
         if let Ok(content) = std::fs::read_to_string(&config_file) {
-            bundle.add_file(".ao/config.json".to_string(), content);
+            bundle.add_file(".animus/config.json".to_string(), content);
         }
     }
 
@@ -367,14 +367,14 @@ async fn handle_push(hub: Arc<FileServiceHub>, project_root: &str, json: bool) -
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("No project linked. Run: animus cloud link --project-id <id>"))?;
 
-    // Build .ao/ config bundle with tasks and requirements
+    // Build .animus/ config bundle with tasks and requirements
     let config_bundle = build_config_bundle(hub.clone(), project_root).await?;
     let config_files_count = config_bundle.file_count();
     let tasks_count = config_bundle.task_count();
     let requirements_count = config_bundle.requirement_count();
 
     if config_bundle.is_empty() {
-        anyhow::bail!("No .ao/ config found to push. Create .ao/workflows/ first.");
+        anyhow::bail!("No .animus/ config found to push. Create .animus/workflows/ first.");
     }
 
     // Get current git ref

@@ -83,7 +83,7 @@ fn write_pm_config(project_root: &str, value: Value) {
 
 fn sample_event(project_root: &str, event_type: &str) -> DaemonEventRecord {
     DaemonEventRecord {
-        schema: "ao.daemon.event.v1".to_string(),
+        schema: "animus.daemon.event.v1".to_string(),
         id: Uuid::new_v4().to_string(),
         seq: 1,
         timestamp: Utc::now().to_rfc3339(),
@@ -99,7 +99,7 @@ fn sample_event(project_root: &str, event_type: &str) -> DaemonEventRecord {
 fn sample_config(url_env: &str) -> Value {
     json!({
         "notification_config": {
-            "schema": "ao.daemon-notification-config.v1",
+            "schema": "animus.daemon-notification-config.v1",
             "version": 1,
             "connectors": [
                 {
@@ -108,7 +108,7 @@ fn sample_config(url_env: &str) -> Value {
                     "enabled": true,
                     "url_env": url_env,
                     "headers_env": {
-                        "Authorization": "AO_NOTIFY_BEARER_TOKEN"
+                        "Authorization": "ANIMUS_NOTIFY_BEARER_TOKEN"
                     },
                     "timeout_secs": 2
                 }
@@ -144,7 +144,7 @@ fn subscription_matching_supports_wildcards_and_filters() {
     };
 
     let event = DaemonEventRecord {
-        schema: "ao.daemon.event.v1".to_string(),
+        schema: "animus.daemon.event.v1".to_string(),
         id: "evt-1".to_string(),
         seq: 1,
         timestamp: Utc::now().to_rfc3339(),
@@ -182,7 +182,7 @@ fn delivery_events_do_not_reenqueue_same_connector() {
     };
 
     let event = DaemonEventRecord {
-        schema: "ao.daemon.event.v1".to_string(),
+        schema: "animus.daemon.event.v1".to_string(),
         id: "evt-1".to_string(),
         seq: 1,
         timestamp: Utc::now().to_rfc3339(),
@@ -226,10 +226,10 @@ async fn flush_budget_limits_processing_per_tick() {
     let server = TestHttpServer::start(vec![200, 200]);
 
     let _home_guard = EnvVarGuard::set("HOME", Some(temp_home.path().to_string_lossy().as_ref()));
-    let _url_guard = EnvVarGuard::set("AO_NOTIFY_WEBHOOK_URL", Some(server.url.as_str()));
-    let _token_guard = EnvVarGuard::set("AO_NOTIFY_BEARER_TOKEN", Some("super-secret-token"));
+    let _url_guard = EnvVarGuard::set("ANIMUS_NOTIFY_WEBHOOK_URL", Some(server.url.as_str()));
+    let _token_guard = EnvVarGuard::set("ANIMUS_NOTIFY_BEARER_TOKEN", Some("super-secret-token"));
 
-    let mut config = sample_config("AO_NOTIFY_WEBHOOK_URL");
+    let mut config = sample_config("ANIMUS_NOTIFY_WEBHOOK_URL");
     config["notification_config"]["max_deliveries_per_tick"] = json!(1);
     write_pm_config(project_root.as_str(), config);
 
@@ -261,10 +261,10 @@ async fn enqueue_retry_then_success_clears_outbox() {
     let server = TestHttpServer::start(vec![500, 200]);
 
     let _home_guard = EnvVarGuard::set("HOME", Some(temp_home.path().to_string_lossy().as_ref()));
-    let _url_guard = EnvVarGuard::set("AO_NOTIFY_WEBHOOK_URL", Some(server.url.as_str()));
-    let _token_guard = EnvVarGuard::set("AO_NOTIFY_BEARER_TOKEN", Some("super-secret-token"));
+    let _url_guard = EnvVarGuard::set("ANIMUS_NOTIFY_WEBHOOK_URL", Some(server.url.as_str()));
+    let _token_guard = EnvVarGuard::set("ANIMUS_NOTIFY_BEARER_TOKEN", Some("super-secret-token"));
 
-    write_pm_config(project_root.as_str(), sample_config("AO_NOTIFY_WEBHOOK_URL"));
+    write_pm_config(project_root.as_str(), sample_config("ANIMUS_NOTIFY_WEBHOOK_URL"));
 
     let mut runtime = DaemonNotificationRuntime::new(project_root.as_str()).expect("runtime should initialize");
     let event = sample_event(project_root.as_str(), "workflow-phase-started");
@@ -296,10 +296,10 @@ async fn permanent_failure_moves_delivery_to_dead_letter() {
     let server = TestHttpServer::start(vec![400]);
 
     let _home_guard = EnvVarGuard::set("HOME", Some(temp_home.path().to_string_lossy().as_ref()));
-    let _url_guard = EnvVarGuard::set("AO_NOTIFY_WEBHOOK_URL", Some(server.url.as_str()));
-    let _token_guard = EnvVarGuard::set("AO_NOTIFY_BEARER_TOKEN", Some("secret-token"));
+    let _url_guard = EnvVarGuard::set("ANIMUS_NOTIFY_WEBHOOK_URL", Some(server.url.as_str()));
+    let _token_guard = EnvVarGuard::set("ANIMUS_NOTIFY_BEARER_TOKEN", Some("secret-token"));
 
-    write_pm_config(project_root.as_str(), sample_config("AO_NOTIFY_WEBHOOK_URL"));
+    write_pm_config(project_root.as_str(), sample_config("ANIMUS_NOTIFY_WEBHOOK_URL"));
 
     let mut runtime = DaemonNotificationRuntime::new(project_root.as_str()).expect("runtime should initialize");
     let event = sample_event(project_root.as_str(), "workflow-phase-started");
@@ -326,10 +326,10 @@ async fn missing_credentials_are_redacted_and_dead_lettered() {
     let project_root = temp_project.path().to_string_lossy().to_string();
 
     let _home_guard = EnvVarGuard::set("HOME", Some(temp_home.path().to_string_lossy().as_ref()));
-    let _token_guard = EnvVarGuard::set("AO_NOTIFY_BEARER_TOKEN", Some("top-secret-value"));
-    let _unset_url_guard = EnvVarGuard::set("AO_NOTIFY_WEBHOOK_URL", None);
+    let _token_guard = EnvVarGuard::set("ANIMUS_NOTIFY_BEARER_TOKEN", Some("top-secret-value"));
+    let _unset_url_guard = EnvVarGuard::set("ANIMUS_NOTIFY_WEBHOOK_URL", None);
 
-    write_pm_config(project_root.as_str(), sample_config("AO_NOTIFY_WEBHOOK_URL"));
+    write_pm_config(project_root.as_str(), sample_config("ANIMUS_NOTIFY_WEBHOOK_URL"));
 
     let mut runtime = DaemonNotificationRuntime::new(project_root.as_str()).expect("runtime should initialize");
     runtime
@@ -339,7 +339,7 @@ async fn missing_credentials_are_redacted_and_dead_lettered() {
 
     let dead_letters = load_dead_letter_entries(project_root.as_str()).expect("dead-letter should load");
     assert_eq!(dead_letters.len(), 1);
-    assert!(dead_letters[0].last_error.contains("missing credential env var 'AO_NOTIFY_WEBHOOK_URL'"));
+    assert!(dead_letters[0].last_error.contains("missing credential env var 'ANIMUS_NOTIFY_WEBHOOK_URL'"));
     assert!(!dead_letters[0].last_error.contains("top-secret-value"));
 }
 
@@ -351,7 +351,7 @@ fn enqueue_global_event_uses_runtime_project_root_and_context() {
     let project_root = temp_project.path().to_string_lossy().to_string();
 
     let _home_guard = EnvVarGuard::set("HOME", Some(temp_home.path().to_string_lossy().as_ref()));
-    write_pm_config(project_root.as_str(), sample_config("AO_NOTIFY_WEBHOOK_URL"));
+    write_pm_config(project_root.as_str(), sample_config("ANIMUS_NOTIFY_WEBHOOK_URL"));
 
     let mut runtime = DaemonNotificationRuntime::new(project_root.as_str()).expect("runtime should initialize");
     let mut event = sample_event(project_root.as_str(), "workflow-phase-started");
@@ -379,7 +379,7 @@ async fn pre_exhausted_entries_are_dead_lettered_without_another_attempt() {
     let project_root = temp_project.path().to_string_lossy().to_string();
 
     let _home_guard = EnvVarGuard::set("HOME", Some(temp_home.path().to_string_lossy().as_ref()));
-    write_pm_config(project_root.as_str(), sample_config("AO_NOTIFY_WEBHOOK_URL"));
+    write_pm_config(project_root.as_str(), sample_config("ANIMUS_NOTIFY_WEBHOOK_URL"));
 
     let mut runtime = DaemonNotificationRuntime::new(project_root.as_str()).expect("runtime should initialize");
     runtime
@@ -410,15 +410,15 @@ async fn pre_exhausted_entries_are_dead_lettered_without_another_attempt() {
 fn redact_error_message_masks_configured_secret_values() {
     let _guard = test_env_lock().lock().expect("env lock should be available");
     let _url_guard =
-        EnvVarGuard::set("AO_NOTIFY_TEST_WEBHOOK_URL", Some("https://hooks.example.invalid/secret-hook-token"));
-    let _token_guard = EnvVarGuard::set("AO_NOTIFY_TEST_AUTH", Some("Bearer super-secret-auth-token"));
+        EnvVarGuard::set("ANIMUS_NOTIFY_TEST_WEBHOOK_URL", Some("https://hooks.example.invalid/secret-hook-token"));
+    let _token_guard = EnvVarGuard::set("ANIMUS_NOTIFY_TEST_AUTH", Some("Bearer super-secret-auth-token"));
 
     let mut headers_env = BTreeMap::new();
-    headers_env.insert("Authorization".to_string(), "AO_NOTIFY_TEST_AUTH".to_string());
+    headers_env.insert("Authorization".to_string(), "ANIMUS_NOTIFY_TEST_AUTH".to_string());
     let connector = NotificationConnectorConfig::Webhook(WebhookConnectorConfig {
         id: "ops-webhook".to_string(),
         enabled: true,
-        url_env: "AO_NOTIFY_TEST_WEBHOOK_URL".to_string(),
+        url_env: "ANIMUS_NOTIFY_TEST_WEBHOOK_URL".to_string(),
         headers_env,
         timeout_secs: Some(2),
     });

@@ -13,7 +13,7 @@ built-in EM/PO/SWE personas and binds standard pipeline phases to PO/SWE.
   bindings; do not expand into full MCP policy-engine work.
 
 ## Non-Negotiable Constraints
-- No manual edits to `/.ao/*.json`.
+- No manual edits to `/.animus/*.json`.
 - Preserve deterministic runtime behavior across JSON and hardcoded built-ins.
 - Keep schema/version compatibility unless dependency work requires otherwise.
 - Avoid unrelated workflow or scheduler refactors.

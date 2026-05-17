@@ -35,12 +35,12 @@ impl CliInterface for OaiRunnerCli {
         if output.is_success() {
             Ok(output.stdout.trim().to_string())
         } else {
-            Err(Error::ExecutionFailed("Failed to get ao-oai-runner version".to_string()))
+            Err(Error::ExecutionFailed("Failed to get animus-oai-runner version".to_string()))
         }
     }
 
     async fn execute(&self, command: &CliCommand) -> Result<CliOutput> {
-        debug!("Executing ao-oai-runner command: {}", command.prompt);
+        debug!("Executing animus-oai-runner command: {}", command.prompt);
 
         let mut args = vec!["run".to_string()];
 

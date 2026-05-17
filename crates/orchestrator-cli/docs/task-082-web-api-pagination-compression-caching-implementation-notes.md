@@ -13,7 +13,7 @@ API polling cost and payload size without destabilizing non-target endpoints.
 - Keep changes focused on targeted list/caching/compression surfaces.
 - Preserve AO envelope semantics and non-target endpoint behavior.
 - Keep cursor behavior deterministic and versioned.
-- Do not manually edit `.ao/*.json`.
+- Do not manually edit `.animus/*.json`.
 
 ## Chosen Strategy
 - Add pagination at the web API boundary for target list endpoints so service

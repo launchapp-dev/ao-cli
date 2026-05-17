@@ -25,7 +25,7 @@ use uuid::Uuid;
 
 use crate::models::{WebApiContext, WebApiError};
 
-pub(super) const EVENT_SCHEMA: &str = "ao.daemon.event.v1";
+pub(super) const EVENT_SCHEMA: &str = "animus.daemon.event.v1";
 pub(super) const DEFAULT_UPDATED_BY: &str = "ao-web";
 pub(super) const DEFAULT_REQUIREMENT_SOURCE: &str = "ao-web";
 

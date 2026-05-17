@@ -4,7 +4,7 @@ Shared request/response contracts and error-handling utilities for AO's web laye
 
 ## Overview
 
-`orchestrator-web-contracts` keeps the web-facing envelope and error-mapping logic in one small crate so the API service layer and the Axum transport layer both produce the same `ao.cli.v1` schema.
+`orchestrator-web-contracts` keeps the web-facing envelope and error-mapping logic in one small crate so the API service layer and the Axum transport layer both produce the same `animus.cli.v1` schema.
 
 ## Targets
 

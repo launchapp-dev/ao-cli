@@ -85,7 +85,7 @@ impl DoctorReport {
             None,
         ));
 
-        let ao_dir = project_root.join(".ao");
+        let ao_dir = project_root.join(".animus");
         let ao_dir_state = directory_state(&ao_dir);
         checks.push(build_check(
             "ao_directory_present",
@@ -455,7 +455,7 @@ mod tests {
     fn run_for_project_marks_invalid_daemon_config_as_fail() {
         crate::test_env::stable_test_home();
         let temp = tempfile::tempdir().expect("tempdir should be created");
-        let ao_dir = temp.path().join(".ao");
+        let ao_dir = temp.path().join(".animus");
         std::fs::create_dir_all(&ao_dir).expect("ao dir should be created");
         let daemon_cfg = daemon_project_config_path(temp.path());
         std::fs::create_dir_all(daemon_cfg.parent().unwrap()).expect("daemon config dir should be created");
@@ -495,7 +495,7 @@ mod tests {
     fn run_for_project_marks_non_directory_ao_path_as_fail() {
         crate::test_env::stable_test_home();
         let temp = tempfile::tempdir().expect("tempdir should be created");
-        let ao_path = temp.path().join(".ao");
+        let ao_path = temp.path().join(".animus");
         std::fs::write(&ao_path, "not a directory").expect("ao file should be written");
 
         let report = DoctorReport::run_for_project(temp.path());
@@ -508,7 +508,11 @@ mod tests {
         }
         for id in ["core_state_present", "resume_config_present"] {
             let check = report.checks.iter().find(|check| check.id == id).expect("check should exist");
-            assert_eq!(check.status, DoctorCheckStatus::Warn, "{id} should warn (scoped state, independent of .ao/)");
+            assert_eq!(
+                check.status,
+                DoctorCheckStatus::Warn,
+                "{id} should warn (scoped state, independent of .animus/)"
+            );
         }
         assert_eq!(report.result, DoctorCheckResult::Unhealthy);
     }
@@ -517,7 +521,7 @@ mod tests {
     fn run_for_project_marks_expected_core_files_as_ok_when_present() {
         crate::test_env::stable_test_home();
         let temp = tempfile::tempdir().expect("tempdir should be created");
-        let ao_dir = temp.path().join(".ao");
+        let ao_dir = temp.path().join(".animus");
         std::fs::create_dir_all(&ao_dir).expect("ao dir should be created");
         let scoped_root = protocol::scoped_state_root(temp.path()).expect("scoped_state_root should resolve in test");
         std::fs::create_dir_all(&scoped_root).expect("scoped root dir should be created");

@@ -16,7 +16,7 @@ aligned with the current repository state and keeps changes repository-safe.
 ## Non-Negotiable Constraints
 - Keep changes Rust-only under `crates/`.
 - Keep `.ao` mutations behind AO APIs (no ad-hoc manual JSON edits).
-- Preserve `ao.cli.v1` envelope + exit-code behavior.
+- Preserve `animus.cli.v1` envelope + exit-code behavior.
 - Keep command behavior outside setup/doctor/daemon-config alignment unchanged.
 
 ## Implementation Delta for Next Phase
@@ -36,7 +36,7 @@ aligned with the current repository state and keeps changes repository-safe.
 
 ### 3. Config write boundary enforcement
 - Maintain `orchestrator-core` as the only writer for daemon config paths.
-- Avoid introducing direct filesystem writes to `.ao/pm-config.json` in CLI
+- Avoid introducing direct filesystem writes to `.animus/pm-config.json` in CLI
   handlers.
 - Preserve atomic write semantics in all new config mutation branches.
 

@@ -9,7 +9,7 @@ Centralized configuration loading, validation, and compilation for AO runtime an
 - `agent-runtime-config.v2.json`
 - `workflow-config.v2.json`
 
-It also supports YAML workflow authoring under `.ao/workflows.yaml` and `.ao/workflows/`, compiling those sources into the current JSON workflow config format when needed.
+It also supports YAML workflow authoring under `.animus/workflows.yaml` and `.animus/workflows/`, compiling those sources into the current JSON workflow config format when needed.
 
 ## Targets
 
@@ -90,7 +90,7 @@ It also provides the load, ensure, hash, and write helpers for the v2 runtime co
 ## File conventions
 
 - JSON workflow config lives under the scoped AO state root in `state/workflow-config.v2.json`.
-- YAML workflow sources are loaded from `.ao/workflows.yaml` and `.ao/workflows/*.yaml`.
+- YAML workflow sources are loaded from `.animus/workflows.yaml` and `.animus/workflows/*.yaml`.
 - Agent runtime config lives under the scoped AO state root in `state/agent-runtime-config.v2.json`.
 
 ## Workspace dependencies

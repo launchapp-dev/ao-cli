@@ -14,7 +14,7 @@ Centralize phase-plan resolution around workflow config:
   requirement execution workflow starts.
 
 ## Non-Negotiable Constraints
-- No direct/manual edits to `/.ao/*.json`.
+- No direct/manual edits to `/.animus/*.json`.
 - No workflow-config schema/version changes in this task.
 - Do not broaden scope into state-machine redesign.
 - Keep in-memory behavior deterministic without requiring filesystem config.

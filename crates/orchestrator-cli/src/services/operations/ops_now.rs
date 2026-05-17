@@ -12,7 +12,7 @@ use serde::Serialize;
 
 use crate::print_value;
 
-const NOW_SCHEMA: &str = "ao.now.v1";
+const NOW_SCHEMA: &str = "animus.now.v1";
 const STALE_TASK_THRESHOLD_DAYS: i64 = 7;
 
 #[derive(Debug, Clone, Serialize)]

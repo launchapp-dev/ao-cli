@@ -48,7 +48,7 @@ pub use repository_scope::*;
 pub use sync_config::SyncConfig;
 pub const PROTOCOL_VERSION: &str = "1.0.0";
 
-pub const CLI_SCHEMA_ID: &str = "ao.cli.v1";
+pub const CLI_SCHEMA_ID: &str = "animus.cli.v1";
 pub const MAX_UNIX_SOCKET_PATH_LEN: usize = 100;
 pub const ACTOR_CLI: &str = "ao-cli";
 pub const ACTOR_DAEMON: &str = "ao-daemon";

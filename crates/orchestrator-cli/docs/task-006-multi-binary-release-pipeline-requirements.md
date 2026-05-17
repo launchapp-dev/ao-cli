@@ -25,7 +25,7 @@ instructions that operators can use in CI and scripted release flows.
 | Release workflow entry point | `.github/workflows/release.yml` | Release workflow exists and runs on `v*` tags and `version/**` branches | Contract not documented in task-scoped requirements artifact |
 | Runtime binary build set | `.github/workflows/release.yml`, `.cargo/config.toml` | Build command includes all four required packages in one run | No explicit acceptance contract for matrix + binary list drift detection |
 | Artifact packaging format | `.github/workflows/release.yml` | Stage directory + archive packaging is implemented per target | Deterministic naming/layout contract not written down for operators |
-| Release metadata manifest | `.github/workflows/release.yml` | Package steps emit `release-metadata.json` (`ao.release.v1`) inside each staged archive root | Requirements do not currently define required metadata fields |
+| Release metadata manifest | `.github/workflows/release.yml` | Package steps emit `release-metadata.json` (`animus.release.v1`) inside each staged archive root | Requirements do not currently define required metadata fields |
 | Version traceability | `.github/workflows/release.yml` | Version derives from tag name or `<sanitized-branch>-<sha7>` | No formal requirement language tied to release artifact names |
 | Checksum output | `.github/workflows/release.yml` | `SHA256SUMS.txt` generated from release archives | Verification procedure not documented in TASK-006 artifacts |
 | Dry-run release path | `.github/workflows/release.yml`, `.cargo/config.toml` | Preview builds happen on `version/**`; local release build alias exists | End-to-end dry-run expectations are not explicitly scoped |
@@ -39,7 +39,7 @@ instructions that operators can use in CI and scripted release flows.
   - `llm-cli-wrapper`
   - `llm-mcp-server`
 - Windows targets:
-  - `ao.exe`
+  - `animus.exe`
   - `agent-runner.exe`
   - `llm-cli-wrapper.exe`
   - `llm-mcp-server.exe`
@@ -67,7 +67,7 @@ instructions that operators can use in CI and scripted release flows.
 
 ### Required metadata manifest contract
 `release-metadata.json` must be present in each archive root directory with:
-- `schema = "ao.release.v1"`
+- `schema = "animus.release.v1"`
 - `version` matching archive version segment
 - `target` matching matrix target triple
 - `git_ref` and `git_sha` from workflow runtime context
@@ -83,7 +83,7 @@ In scope for implementation after this requirements phase:
   binaries in a single run per matrix target.
 - Keep artifact matrix, naming, and archive layout deterministic.
 - Keep per-archive `release-metadata.json` generation deterministic and aligned
-  to `ao.release.v1`.
+  to `animus.release.v1`.
 - Keep release outputs organized for scripted consumption (`dist/` artifact tree
   and checksums file).
 - Document checksum generation and verification procedure for operators.
@@ -102,7 +102,7 @@ Out of scope for this task:
 - Rust-only workspace constraints remain unchanged.
 - Build and package steps must remain non-interactive and CI-friendly.
 - Release publication must remain tag-gated (`refs/tags/v*`).
-- Archive metadata must follow the `ao.release.v1` shape.
+- Archive metadata must follow the `animus.release.v1` shape.
 - Checksum generation must be deterministic (stable sorted archive list).
 - Docs must describe exactly what the release workflow emits today.
 

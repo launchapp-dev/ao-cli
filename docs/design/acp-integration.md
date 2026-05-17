@@ -122,8 +122,8 @@ AO is a Rust-only agent orchestrator with:
 - **16-crate modular workspace** with clean separation of concerns
 - **CLI surface** exposing `project`, `queue`, `task`, `workflow`, and other command groups
 - **Web UI** (React 18) for visualization and management
-- **Runtime state** scoped under `~/.ao/<repo-scope>/`
-- **Workflow YAML** overlays in `.ao/workflows.yaml` and `.ao/workflows/*.yaml`
+- **Runtime state** scoped under `~/.animus/<repo-scope>/`
+- **Workflow YAML** overlays in `.animus/workflows.yaml` and `.animus/workflows/*.yaml`
 - **Agent runner** orchestrating multi-step tasks with LLM and tool execution
 - **MCP tool provider** exposing custom tools to agents
 - **Daemon mode** for background task execution and status tracking
@@ -149,7 +149,7 @@ AO is a Rust-only agent orchestrator with:
 | `fs/readTextFile`, `fs/writeTextFile` | Git-ops layer with version control integration |
 | `terminal/create`, `terminal/output` | Workflow runner v2 with subprocess management |
 | MCP tool server | AO's built-in MCP provider (`orchestrator-providers`) |
-| Session persistence | Scoped runtime state at `~/.ao/<repo-scope>/` |
+| Session persistence | Scoped runtime state at `~/.animus/<repo-scope>/` |
 
 #### File System Access & Git Safety
 
@@ -177,7 +177,7 @@ ACP doesn't natively define "project scope," but AO can map it:
 | Multiple projects | Editor manages separate sessions per project | Use `--project-root` to link session to scope |
 | Monorepo / workspace | Separate logical projects within filesystem | Scoped runtime per logical project |
 
-AO's natural scoping via `.ao/` and `~/.ao/<repo-scope>/` aligns well with ACP's session isolation model.
+AO's natural scoping via `.animus/` and `~/.animus/<repo-scope>/` aligns well with ACP's session isolation model.
 
 ### 2.4 Workflow Visualization & Planning
 
@@ -279,7 +279,7 @@ A new HTTP/WebSocket server exposing ACP:
 | `orchestrator-git-ops` | Map `fs/*` ACP operations to git-tracked file changes |
 | `workflow-runner-v2` | Delegate task execution to existing runner, stream output |
 | `orchestrator-providers` | Expose MCP servers declared in workflow config |
-| `orchestrator-store` | Persist session state at `~/.ao/<repo-scope>/sessions/` |
+| `orchestrator-store` | Persist session state at `~/.animus/<repo-scope>/sessions/` |
 
 ### 3.3 Feature Breakdown
 
@@ -316,7 +316,7 @@ A new HTTP/WebSocket server exposing ACP:
 
 ### 3.4 Configuration
 
-Add ACP server settings to `.ao/config.json` and `~/.ao/<repo-scope>/acp-config.json`:
+Add ACP server settings to `.animus/config.json` and `~/.animus/<repo-scope>/acp-config.json`:
 
 ```json
 {

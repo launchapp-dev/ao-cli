@@ -42,7 +42,7 @@ In scope for implementation after this requirements phase:
 Out of scope:
 - Task lifecycle redesign (`TaskStatus` enum semantics).
 - Daemon pause semantics (`DaemonStatus::Paused`) or runner behavior.
-- Direct/manual edits to `/.ao/*.json`.
+- Direct/manual edits to `/.animus/*.json`.
 
 ## Constraints
 - Keep behavior deterministic for both in-memory and file-backed hubs.

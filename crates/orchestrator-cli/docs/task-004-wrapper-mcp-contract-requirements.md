@@ -40,7 +40,7 @@ Out of scope:
 
 ## Constraints
 - Keep implementation Rust-only inside workspace crates.
-- Do not manually edit `.ao/*.json`; phase artifacts live in repo docs/code.
+- Do not manually edit `.animus/*.json`; phase artifacts live in repo docs/code.
 - Keep all network checks local to loopback (`127.0.0.1`).
 - Keep contract tests deterministic in fresh temp directories and isolated ports.
 - Keep behavior repository-safe; no destructive git commands in validation flows.

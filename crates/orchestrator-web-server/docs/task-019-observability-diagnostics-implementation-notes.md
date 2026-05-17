@@ -6,7 +6,7 @@ the build phase, while preserving existing API and routing behavior.
 
 ## Non-Negotiable Constraints
 - Keep all API calls under `/api/v1`.
-- Preserve `ao.cli.v1` envelope parsing behavior.
+- Preserve `animus.cli.v1` envelope parsing behavior.
 - Do not manually edit `.ao` state files.
 - Keep telemetry storage local and bounded (no external telemetry sink).
 - Never render or persist raw sensitive fields in diagnostics payloads.

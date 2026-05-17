@@ -17,7 +17,7 @@ slice that:
 - Keep existing `task stats` fields and daemon queue fields intact (additive).
 - Keep threshold parsing strict (`> 0`) with clear validation errors.
 - Keep changes Rust-only within workspace crates.
-- Do not manually edit `.ao/*.json`.
+- Do not manually edit `.animus/*.json`.
 
 ## Proposed Change Surface
 
@@ -60,7 +60,7 @@ slice that:
     - emit merged JSON payload:
       - existing `TaskStatistics` fields unchanged,
       - additive `stale_in_progress` object.
-- Keep `--json` envelope behavior unchanged (`ao.cli.v1`).
+- Keep `--json` envelope behavior unchanged (`animus.cli.v1`).
 
 ### 4) Daemon Tick Summary Integration
 - `crates/orchestrator-cli/src/services/runtime/runtime_daemon/daemon_scheduler.rs`

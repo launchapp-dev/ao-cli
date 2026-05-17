@@ -23,7 +23,7 @@ In scope for implementation that follows this requirements phase:
 - React shell with a persistent layout frame and primary navigation.
 - Route tree for dashboard, daemon, projects, tasks, workflows, and reviews.
 - Project context frame that shows and switches active project context.
-- Shared API client that unwraps `ao.cli.v1` envelopes consistently.
+- Shared API client that unwraps `animus.cli.v1` envelopes consistently.
 - Route-level loading, empty, and error states.
 - Basic SSE events view and connection lifecycle handling.
 - Baseline spacing and typography primitives that keep hierarchy readable on
@@ -53,11 +53,11 @@ Out of scope for this task:
 ## Server-Derived Behavior Contracts
 - `GET /`:
   - when `api_only=false`, serve `index.html` (disk override or embedded asset);
-  - when `api_only=true`, return `ao.cli.v1` success envelope with `api_base`.
+  - when `api_only=true`, return `animus.cli.v1` success envelope with `api_base`.
 - `GET /*path`:
   - when `api_only=false`, serve requested asset when present, else fall back to
     `index.html`;
-  - when `api_only=true`, return not-found `ao.cli.v1` envelope.
+  - when `api_only=true`, return not-found `animus.cli.v1` envelope.
 - Static path handling must remain sanitized against traversal (`..`, root/prefix
   components) and preserve current normalization semantics.
 - API responses for operational endpoints remain envelope-based (`ok` + `data` on
@@ -106,7 +106,7 @@ Out of scope for this task:
   messaging if no project is active.
 
 ## Data and Error Contract
-- All API fetches go through a shared client that enforces `ao.cli.v1` envelope.
+- All API fetches go through a shared client that enforces `animus.cli.v1` envelope.
 - `ok: false` responses are mapped to typed UI errors using `error.code`,
   `error.message`, and `error.exit_code`.
 - Route loaders/components must never assume raw payload shape before envelope

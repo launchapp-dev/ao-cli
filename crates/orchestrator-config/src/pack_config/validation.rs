@@ -6,7 +6,7 @@ use semver::{Version, VersionReq};
 
 use super::types::{
     PackDependency, PackManifest, PackMcp, PackNativeModule, PackRuntimeRequirement, PackSchedules, PackSecrets,
-    PackSubjects, PACK_MANIFEST_SCHEMA_ID,
+    PackSkills, PackSubjects, PACK_MANIFEST_SCHEMA_ID,
 };
 
 pub fn validate_pack_manifest(manifest: &PackManifest) -> Result<()> {
@@ -23,11 +23,21 @@ pub fn validate_pack_manifest(manifest: &PackManifest) -> Result<()> {
         errors.push("title must not be empty".to_string());
     }
 
-    validate_relative_path(&manifest.workflows.root, "workflows.root", &mut errors);
-    if manifest.workflows.exports.is_empty() {
-        errors.push("workflows.exports must include at least one workflow ref".to_string());
-    } else {
-        validate_exports(&manifest.id, &manifest.workflows.exports, &mut errors);
+    if manifest.workflows.is_none() && manifest.skills.is_none() {
+        errors.push("pack must declare at least one of [workflows] or [skills]".to_string());
+    }
+
+    if let Some(workflows) = manifest.workflows.as_ref() {
+        validate_relative_path(&workflows.root, "workflows.root", &mut errors);
+        if workflows.exports.is_empty() {
+            errors.push("workflows.exports must include at least one workflow ref".to_string());
+        } else {
+            validate_exports(&manifest.id, &workflows.exports, &mut errors);
+        }
+    }
+
+    if let Some(skills) = manifest.skills.as_ref() {
+        validate_skills(skills, &mut errors);
     }
 
     if let Some(subjects) = manifest.subjects.as_ref() {
@@ -69,7 +79,13 @@ pub fn validate_pack_manifest(manifest: &PackManifest) -> Result<()> {
 pub fn validate_pack_manifest_assets(pack_root: &Path, manifest: &PackManifest) -> Result<()> {
     let mut errors = Vec::new();
 
-    validate_existing_relative_path(pack_root, &manifest.workflows.root, "workflows.root", true, &mut errors);
+    if let Some(workflows) = manifest.workflows.as_ref() {
+        validate_existing_relative_path(pack_root, &workflows.root, "workflows.root", true, &mut errors);
+    }
+
+    if let Some(skills) = manifest.skills.as_ref() {
+        validate_existing_relative_path(pack_root, &skills.root, "skills.root", true, &mut errors);
+    }
 
     if let Some(agent_overlay) = manifest.runtime.agent_overlay.as_deref() {
         validate_existing_relative_path(pack_root, agent_overlay, "runtime.agent_overlay", false, &mut errors);
@@ -95,6 +111,36 @@ pub fn validate_pack_manifest_assets(pack_root: &Path, manifest: &PackManifest) 
         Ok(())
     } else {
         Err(anyhow!(errors.join("; ")))
+    }
+}
+
+fn validate_skills(skills: &PackSkills, errors: &mut Vec<String>) {
+    validate_relative_path(&skills.root, "skills.root", errors);
+
+    let mut seen_aliases = BTreeSet::new();
+    for (alias, target) in &skills.aliases {
+        let alias_trimmed = alias.trim();
+        let target_trimmed = target.trim();
+        if alias_trimmed.is_empty() {
+            errors.push("skills.aliases must not contain empty alias names".to_string());
+            continue;
+        }
+        if alias_trimmed.contains(char::is_whitespace) {
+            errors.push(format!("skills.aliases alias '{}' must not contain whitespace", alias));
+            continue;
+        }
+        if target_trimmed.is_empty() {
+            errors.push(format!("skills.aliases['{}'] target must not be empty", alias));
+            continue;
+        }
+        if target_trimmed.contains(char::is_whitespace) {
+            errors.push(format!("skills.aliases['{}'] target '{}' must not contain whitespace", alias, target));
+            continue;
+        }
+        let normalized = alias_trimmed.to_ascii_lowercase();
+        if !seen_aliases.insert(normalized) {
+            errors.push(format!("skills.aliases contains duplicate alias '{}'", alias));
+        }
     }
 }
 

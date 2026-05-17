@@ -51,7 +51,7 @@ Out of scope for TASK-014:
 
 ## Non-Negotiable Constraints
 - Keep endpoint usage under `/api/v1`.
-- Preserve `ao.cli.v1` envelope parsing and existing error normalization.
+- Preserve `animus.cli.v1` envelope parsing and existing error normalization.
 - Keep state changes service-driven through API handlers (no direct `.ao` edits).
 - Keep the UI keyboard operable with visible focus states.
 - Keep control-center flows usable at `320px` width without horizontal page

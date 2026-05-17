@@ -1844,7 +1844,7 @@ printf '{{"kind":"phase_result","runtime":"{runtime_kind}","script":"%s","subjec
 
         let manifest = format!(
             r#"
-schema = "ao.pack.v1"
+schema = "animus.pack.v1"
 id = "{pack_id}"
 version = "0.1.0"
 kind = "domain-pack"
@@ -1970,7 +1970,7 @@ servers = ["runtime"]
 
         let manifest = format!(
             r#"
-schema = "ao.pack.v1"
+schema = "animus.pack.v1"
 id = "{pack_id}"
 version = "0.1.0"
 kind = "domain-pack"
@@ -1997,7 +1997,7 @@ exports = ["{workflow_ref}"]
 workflow_overlay = "runtime/workflow-runtime.overlay.yaml"
 
 [[dependencies]]
-id = "ao.node-fixture"
+id = "animus.node-fixture"
 version = ">=0.1.0"
 optional = false
 
@@ -2043,17 +2043,17 @@ workflows:
         let _home_guard = EnvVarGuard::set("HOME", home.path());
         write_project_runtime_scripts(project.path());
 
-        let pack_root = machine_installed_packs_dir().join("ao.node-fixture").join("0.1.0");
+        let pack_root = machine_installed_packs_dir().join("animus.node-fixture").join("0.1.0");
         let path = env::var("PATH").unwrap_or_default();
         let _path_guard = EnvVarGuard::set_raw("PATH", &format!("{}:{}", pack_root.join("bin").display(), path));
         write_runtime_pack_fixture(
             &pack_root,
-            "ao.node-fixture",
+            "animus.node-fixture",
             "node",
             "v20.11.1",
             "node-fixture-runtime",
             "node-command",
-            "ao.node-fixture/run",
+            "animus.node-fixture/run",
             "scripts/node-fixture.js",
             "node-pack-output.txt",
             true,
@@ -2061,10 +2061,10 @@ workflows:
 
         let pack = load_pack_manifest(&pack_root).expect("node fixture pack should load");
         let overlay = load_pack_mcp_overlay(&pack).expect("node fixture MCP overlay should load");
-        assert!(overlay.servers.contains_key("ao.node-fixture/runtime"));
+        assert!(overlay.servers.contains_key("animus.node-fixture/runtime"));
         assert_eq!(
             overlay.phase_mcp_bindings.get("node-command").expect("node phase MCP binding should exist").servers,
-            vec!["ao.node-fixture/runtime".to_string()]
+            vec!["animus.node-fixture/runtime".to_string()]
         );
 
         let mut workflow = builtin_workflow_config();
@@ -2073,12 +2073,12 @@ workflows:
         assert_eq!(report.checks[0].status, PackRuntimeCheckStatus::Satisfied);
         assert_eq!(
             workflow.phase_mcp_bindings.get("node-command").expect("node phase MCP binding should merge").servers,
-            vec!["ao.node-fixture/runtime".to_string()]
+            vec!["animus.node-fixture/runtime".to_string()]
         );
 
         let loaded = load_workflow_config_with_metadata(project.path()).expect("effective workflow config should load");
         assert!(
-            loaded.config.workflows.iter().any(|workflow| workflow.id == "ao.node-fixture/run"),
+            loaded.config.workflows.iter().any(|workflow| workflow.id == "animus.node-fixture/run"),
             "node fixture workflow should be discoverable"
         );
 
@@ -2089,7 +2089,7 @@ workflows:
             requirement_id: None,
             title: Some("node-fixture-subject".to_string()),
             description: Some("node fixture workflow".to_string()),
-            workflow_ref: Some("ao.node-fixture/run".to_string()),
+            workflow_ref: Some("animus.node-fixture/run".to_string()),
             input: None,
             vars: HashMap::new(),
             model: None,
@@ -2105,7 +2105,7 @@ workflows:
         .expect("node fixture workflow should execute");
 
         assert!(result.success);
-        assert_eq!(result.workflow_ref, "ao.node-fixture/run");
+        assert_eq!(result.workflow_ref, "animus.node-fixture/run");
         assert_eq!(result.execution_cwd, project.path().display().to_string());
         assert_eq!(result.phase_results[0]["status"].as_str(), Some("completed"));
         let payload = phase_result_payload(&result.phase_results[0]);
@@ -2125,15 +2125,15 @@ workflows:
         let _home_guard = EnvVarGuard::set("HOME", home.path());
         write_project_runtime_scripts(project.path());
 
-        let pack_root = machine_installed_packs_dir().join("ao.node-fixture").join("0.1.0");
+        let pack_root = machine_installed_packs_dir().join("animus.node-fixture").join("0.1.0");
         write_runtime_pack_fixture(
             &pack_root,
-            "ao.node-fixture",
+            "animus.node-fixture",
             "node",
             "v20.11.1",
             "node-fixture-runtime",
             "node-command",
-            "ao.node-fixture/run",
+            "animus.node-fixture/run",
             "scripts/node-fixture.js",
             "node-pack-output.txt",
             false,
@@ -2141,7 +2141,7 @@ workflows:
 
         let loaded = load_workflow_config_with_metadata(project.path()).expect("workflow config should load");
         assert!(
-            loaded.config.workflows.iter().any(|workflow| workflow.id == "ao.node-fixture/run"),
+            loaded.config.workflows.iter().any(|workflow| workflow.id == "animus.node-fixture/run"),
             "fixture workflow should be discoverable before execution"
         );
 
@@ -2152,7 +2152,7 @@ workflows:
             requirement_id: None,
             title: Some("node-fixture-subject".to_string()),
             description: Some("node fixture workflow".to_string()),
-            workflow_ref: Some("ao.node-fixture/run".to_string()),
+            workflow_ref: Some("animus.node-fixture/run".to_string()),
             input: None,
             vars: HashMap::new(),
             model: None,
@@ -2170,7 +2170,7 @@ workflows:
             Err(error) => error,
         };
         assert!(
-            error.to_string().contains("cannot activate pack 'ao.node-fixture'"),
+            error.to_string().contains("cannot activate pack 'animus.node-fixture'"),
             "unexpected execution error: {error}"
         );
         assert!(
@@ -2187,34 +2187,34 @@ workflows:
         let _home_guard = EnvVarGuard::set("HOME", home.path());
         write_project_runtime_scripts(project.path());
 
-        let runtime_pack_root = machine_installed_packs_dir().join("ao.node-fixture").join("0.1.0");
+        let runtime_pack_root = machine_installed_packs_dir().join("animus.node-fixture").join("0.1.0");
         write_runtime_pack_fixture(
             &runtime_pack_root,
-            "ao.node-fixture",
+            "animus.node-fixture",
             "node",
             "v20.11.1",
             "node-fixture-runtime",
             "node-command",
-            "ao.node-fixture/cycle",
+            "animus.node-fixture/cycle",
             "scripts/node-fixture.js",
             "node-pack-output.txt",
             false,
         );
-        let delegating_pack_root = machine_installed_packs_dir().join("ao.composite").join("0.1.0");
+        let delegating_pack_root = machine_installed_packs_dir().join("animus.composite").join("0.1.0");
         write_delegating_pack_fixture(
             &delegating_pack_root,
-            "ao.composite",
-            "ao.composite/run",
-            "ao.node-fixture/cycle",
+            "animus.composite",
+            "animus.composite/run",
+            "animus.node-fixture/cycle",
         );
 
         let loaded = load_workflow_config_with_metadata(project.path()).expect("workflow config should load");
         assert!(
-            loaded.config.workflows.iter().any(|workflow| workflow.id == "ao.composite/run"),
+            loaded.config.workflows.iter().any(|workflow| workflow.id == "animus.composite/run"),
             "delegating workflow should be discoverable before execution"
         );
         assert!(
-            loaded.config.workflows.iter().any(|workflow| workflow.id == "ao.node-fixture/cycle"),
+            loaded.config.workflows.iter().any(|workflow| workflow.id == "animus.node-fixture/cycle"),
             "dependent workflow should be discoverable before execution"
         );
 
@@ -2225,7 +2225,7 @@ workflows:
             requirement_id: None,
             title: Some("composite-fixture-subject".to_string()),
             description: Some("delegating fixture workflow".to_string()),
-            workflow_ref: Some("ao.composite/run".to_string()),
+            workflow_ref: Some("animus.composite/run".to_string()),
             input: None,
             vars: HashMap::new(),
             model: None,
@@ -2243,11 +2243,11 @@ workflows:
             Err(error) => error,
         };
         assert!(
-            error.to_string().contains("cannot activate pack 'ao.node-fixture'"),
+            error.to_string().contains("cannot activate pack 'animus.node-fixture'"),
             "unexpected execution error: {error}"
         );
         assert!(
-            error.chain().any(|cause| cause.to_string().contains("required by workflow 'ao.node-fixture/cycle'")),
+            error.chain().any(|cause| cause.to_string().contains("required by workflow 'animus.node-fixture/cycle'")),
             "dependent workflow context should remain in the error chain: {error:#}"
         );
     }
@@ -2260,17 +2260,17 @@ workflows:
         let _home_guard = EnvVarGuard::set("HOME", home.path());
         write_project_runtime_scripts(project.path());
 
-        let pack_root = machine_installed_packs_dir().join("ao.python-fixture").join("0.1.0");
+        let pack_root = machine_installed_packs_dir().join("animus.python-fixture").join("0.1.0");
         let path = env::var("PATH").unwrap_or_default();
         let _path_guard = EnvVarGuard::set_raw("PATH", &format!("{}:{}", pack_root.join("bin").display(), path));
         write_runtime_pack_fixture(
             &pack_root,
-            "ao.python-fixture",
+            "animus.python-fixture",
             "python",
             "Python 3.11.8",
             "python-fixture-runtime",
             "python-command",
-            "ao.python-fixture/run",
+            "animus.python-fixture/run",
             "scripts/python-fixture.py",
             "python-pack-output.txt",
             false,
@@ -2278,7 +2278,7 @@ workflows:
 
         let loaded = load_workflow_config_with_metadata(project.path()).expect("effective workflow config should load");
         assert!(
-            loaded.config.workflows.iter().any(|workflow| workflow.id == "ao.python-fixture/run"),
+            loaded.config.workflows.iter().any(|workflow| workflow.id == "animus.python-fixture/run"),
             "python fixture workflow should be discoverable"
         );
 
@@ -2289,7 +2289,7 @@ workflows:
             requirement_id: None,
             title: Some("python-fixture-subject".to_string()),
             description: Some("python fixture workflow".to_string()),
-            workflow_ref: Some("ao.python-fixture/run".to_string()),
+            workflow_ref: Some("animus.python-fixture/run".to_string()),
             input: None,
             vars: HashMap::new(),
             model: None,
@@ -2305,7 +2305,7 @@ workflows:
         .expect("python fixture workflow should execute");
 
         assert!(result.success);
-        assert_eq!(result.workflow_ref, "ao.python-fixture/run");
+        assert_eq!(result.workflow_ref, "animus.python-fixture/run");
         assert_eq!(result.phase_results[0]["status"].as_str(), Some("completed"));
         let payload = phase_result_payload(&result.phase_results[0]);
         assert_eq!(payload.get("runtime").and_then(Value::as_str), Some("python"));
@@ -2356,11 +2356,11 @@ mod post_success_merge_tests {
         run_git_ok(temp.path(), &["add", "README.md"]);
         run_git_ok(temp.path(), &["commit", "-m", "initial"]);
 
-        let worktree_path = temp.path().join(".ao").join("worktrees").join("task-task-1");
+        let worktree_path = temp.path().join(".animus").join("worktrees").join("task-task-1");
         fs::create_dir_all(worktree_path.parent().expect("worktree parent")).expect("create worktree parent");
         run_git_ok(
             temp.path(),
-            &["worktree", "add", "-b", "ao/task-1", worktree_path.to_str().expect("worktree path"), "main"],
+            &["worktree", "add", "-b", "animus/task-1", worktree_path.to_str().expect("worktree path"), "main"],
         );
 
         (temp, worktree_path)
@@ -2380,7 +2380,7 @@ mod post_success_merge_tests {
         let result = perform_auto_merge_with_git(
             repo.path().to_str().expect("repo path"),
             source_worktree.to_str().expect("worktree path"),
-            "ao/task-1",
+            "animus/task-1",
             "main",
             &MergeStrategy::Merge,
         )
@@ -2388,7 +2388,7 @@ mod post_success_merge_tests {
 
         assert_eq!(result["status"].as_str(), Some("completed"));
         assert_eq!(git_stdout(repo.path(), &["branch", "--show-current"]), "main");
-        assert_eq!(git_stdout(&source_worktree, &["branch", "--show-current"]), "ao/task-1");
+        assert_eq!(git_stdout(&source_worktree, &["branch", "--show-current"]), "animus/task-1");
         assert_eq!(fs::read_to_string(repo.path().join("feature.txt")).expect("merged file"), "merged\n");
     }
 
@@ -2401,7 +2401,7 @@ mod post_success_merge_tests {
         let result = perform_auto_merge_with_git(
             repo.path().to_str().expect("repo path"),
             source_worktree.to_str().expect("worktree path"),
-            "ao/task-1",
+            "animus/task-1",
             "main",
             &MergeStrategy::Rebase,
         )
@@ -2410,7 +2410,7 @@ mod post_success_merge_tests {
         assert_eq!(result["status"].as_str(), Some("completed"));
         assert_eq!(
             git_stdout(repo.path(), &["rev-parse", "main"]),
-            git_stdout(repo.path(), &["rev-parse", "ao/task-1"])
+            git_stdout(repo.path(), &["rev-parse", "animus/task-1"])
         );
         assert_eq!(git_stdout(repo.path(), &["log", "--format=%s", "-2", "main"]), "source change\ntarget change");
     }
@@ -2424,7 +2424,7 @@ mod post_success_merge_tests {
         let result = perform_auto_merge_with_git(
             repo.path().to_str().expect("repo path"),
             source_worktree.to_str().expect("worktree path"),
-            "ao/task-1",
+            "animus/task-1",
             "main",
             &MergeStrategy::Squash,
         )
@@ -2434,7 +2434,7 @@ mod post_success_merge_tests {
         assert_ne!(before, git_stdout(repo.path(), &["rev-parse", "main"]));
         assert_eq!(
             git_stdout(repo.path(), &["log", "--format=%s", "-1", "main"]),
-            "Squash merge branch 'ao/task-1' into 'main'"
+            "Squash merge branch 'animus/task-1' into 'main'"
         );
         assert_eq!(git_stdout(repo.path(), &["status", "--porcelain", "--untracked-files=no"]), "");
         assert_eq!(fs::read_to_string(repo.path().join("feature.txt")).expect("squashed file"), "squashed\n");

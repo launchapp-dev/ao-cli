@@ -28,23 +28,23 @@ fn builtin_workflow_config_includes_planning_workflow_refs() {
     let workflow_ids = config.workflows.iter().map(|workflow| workflow.id.as_str()).collect::<Vec<_>>();
 
     assert_eq!(config.default_workflow_ref, "standard-workflow");
-    assert!(workflow_ids.contains(&"ao.vision/draft"));
-    assert!(workflow_ids.contains(&"ao.vision/refine"));
+    assert!(workflow_ids.contains(&"animus.vision/draft"));
+    assert!(workflow_ids.contains(&"animus.vision/refine"));
     assert!(workflow_ids.contains(&"standard-workflow"));
     assert!(workflow_ids.contains(&"ui-ux-standard"));
     assert!(workflow_ids.contains(&"builtin/vision-draft"));
     assert!(workflow_ids.contains(&"builtin/vision-refine"));
-    assert!(!workflow_ids.contains(&"ao.task/standard"));
-    assert!(!workflow_ids.contains(&"ao.task/ui-ux"));
-    assert!(!workflow_ids.contains(&"ao.task/quick-fix"));
-    assert!(!workflow_ids.contains(&"ao.task/gated"));
-    assert!(!workflow_ids.contains(&"ao.task/triage"));
-    assert!(!workflow_ids.contains(&"ao.task/refine"));
-    assert!(!workflow_ids.contains(&"ao.review/cycle"));
-    assert!(!workflow_ids.contains(&"ao.requirement/draft"));
-    assert!(!workflow_ids.contains(&"ao.requirement/refine"));
-    assert!(!workflow_ids.contains(&"ao.requirement/plan"));
-    assert!(!workflow_ids.contains(&"ao.requirement/execute"));
+    assert!(!workflow_ids.contains(&"animus.task/standard"));
+    assert!(!workflow_ids.contains(&"animus.task/ui-ux"));
+    assert!(!workflow_ids.contains(&"animus.task/quick-fix"));
+    assert!(!workflow_ids.contains(&"animus.task/gated"));
+    assert!(!workflow_ids.contains(&"animus.task/triage"));
+    assert!(!workflow_ids.contains(&"animus.task/refine"));
+    assert!(!workflow_ids.contains(&"animus.review/cycle"));
+    assert!(!workflow_ids.contains(&"animus.requirement/draft"));
+    assert!(!workflow_ids.contains(&"animus.requirement/refine"));
+    assert!(!workflow_ids.contains(&"animus.requirement/plan"));
+    assert!(!workflow_ids.contains(&"animus.requirement/execute"));
 }
 
 #[test]
@@ -544,7 +544,7 @@ workflows:
 #[test]
 fn yaml_compile_reads_from_directory() {
     let temp = tempfile::tempdir().expect("tempdir");
-    let workflows_dir = temp.path().join(".ao").join("workflows");
+    let workflows_dir = temp.path().join(".animus").join("workflows");
     fs::create_dir_all(&workflows_dir).expect("create workflows dir");
     fs::write(
         workflows_dir.join("workflows.yaml"),
@@ -570,7 +570,7 @@ workflows:
 #[test]
 fn yaml_compile_reads_single_file() {
     let temp = tempfile::tempdir().expect("tempdir");
-    let ao_dir = temp.path().join(".ao");
+    let ao_dir = temp.path().join(".animus");
     fs::create_dir_all(&ao_dir).expect("create .ao dir");
     fs::write(
         ao_dir.join("workflows.yaml"),
@@ -596,7 +596,7 @@ workflows:
 #[test]
 fn yaml_compile_resolves_project_scoped_skills() {
     let temp = tempfile::tempdir().expect("tempdir");
-    let skills_dir = temp.path().join(".ao").join("config").join("skill_definitions");
+    let skills_dir = temp.path().join(".animus").join("config").join("skill_definitions");
     fs::create_dir_all(&skills_dir).expect("create project skills dir");
     fs::write(
         skills_dir.join("project-skill.yaml"),
@@ -607,7 +607,7 @@ description: Project local validation fixture
     )
     .expect("write project skill");
 
-    let ao_dir = temp.path().join(".ao");
+    let ao_dir = temp.path().join(".animus");
     fs::create_dir_all(&ao_dir).expect("create .ao dir");
     fs::write(
         ao_dir.join("workflows.yaml"),
@@ -662,7 +662,7 @@ Use this when reviewing Rust changes.
     )
     .expect("write project markdown skill");
 
-    let ao_dir = temp.path().join(".ao");
+    let ao_dir = temp.path().join(".animus");
     fs::create_dir_all(&ao_dir).expect("create .ao dir");
     fs::write(
         ao_dir.join("workflows.yaml"),
@@ -706,7 +706,7 @@ fn validate_and_compile_yaml_validates_and_reloads() {
     let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let temp = tempfile::tempdir().expect("tempdir");
 
-    let workflows_dir = temp.path().join(".ao").join("workflows");
+    let workflows_dir = temp.path().join(".animus").join("workflows");
     fs::create_dir_all(&workflows_dir).expect("create workflows dir");
     fs::write(
         workflows_dir.join("workflows.yaml"),
@@ -739,13 +739,13 @@ fn validate_and_compile_yaml_includes_installed_pack_workflows() {
     let project = tempfile::tempdir().expect("project tempdir");
     let _home_guard = EnvVarGuard::set("HOME", home.path());
 
-    crate::ensure_bundled_pack_installed("ao.requirement").expect("install bundled requirement pack");
+    crate::ensure_bundled_pack_installed("animus.requirement").expect("install bundled requirement pack");
     crate::save_pack_selection_state(
         project.path(),
         &crate::PackSelectionState {
             schema: crate::PACK_SELECTION_SCHEMA_ID.to_string(),
             selections: vec![crate::PackSelectionEntry {
-                pack_id: "ao.requirement".to_string(),
+                pack_id: "animus.requirement".to_string(),
                 version: None,
                 source: Some(crate::PackSelectionSource::Installed),
                 enabled: true,
@@ -754,7 +754,7 @@ fn validate_and_compile_yaml_includes_installed_pack_workflows() {
     )
     .expect("save pack selection");
 
-    let workflows_dir = project.path().join(".ao").join("workflows");
+    let workflows_dir = project.path().join(".animus").join("workflows");
     fs::create_dir_all(&workflows_dir).expect("create workflows dir");
     fs::write(
         workflows_dir.join("custom.yaml"),
@@ -768,7 +768,7 @@ workflows:
   - id: conductor-workflow
     name: Conductor Planning Workflow
     phases:
-      - workflow_ref: ao.requirement/plan
+      - workflow_ref: animus.requirement/plan
 "#,
     )
     .expect("write conductor workflow");
@@ -779,7 +779,7 @@ workflows:
   - id: standard-workflow
     name: Standard Workflow
     phases:
-      - workflow_ref: ao.task/standard
+      - workflow_ref: animus.task/standard
 "#,
     )
     .expect("write standard workflow");
@@ -788,12 +788,12 @@ workflows:
     let compile_result = result.expect("should have result");
     let workflow_ids = compile_result.config.workflows.iter().map(|workflow| workflow.id.as_str()).collect::<Vec<_>>();
     assert!(workflow_ids.contains(&"conductor-workflow"));
-    assert!(workflow_ids.contains(&"ao.requirement/plan"));
-    assert!(workflow_ids.contains(&"ao.task/standard"));
+    assert!(workflow_ids.contains(&"animus.requirement/plan"));
+    assert!(workflow_ids.contains(&"animus.task/standard"));
 
     let reloaded = load_workflow_config(project.path()).expect("reload config");
-    assert!(reloaded.workflows.iter().any(|workflow| workflow.id == "ao.requirement/plan"));
-    assert!(reloaded.workflows.iter().any(|workflow| workflow.id == "ao.task/standard"));
+    assert!(reloaded.workflows.iter().any(|workflow| workflow.id == "animus.requirement/plan"));
+    assert!(reloaded.workflows.iter().any(|workflow| workflow.id == "animus.task/standard"));
 }
 
 #[test]
@@ -803,13 +803,13 @@ fn validate_and_compile_yaml_preserves_task_pack_tools_allowlist() {
     let project = tempfile::tempdir().expect("project tempdir");
     let _home_guard = EnvVarGuard::set("HOME", home.path());
 
-    crate::ensure_bundled_pack_installed("ao.task").expect("install bundled task pack");
+    crate::ensure_bundled_pack_installed("animus.task").expect("install bundled task pack");
     crate::save_pack_selection_state(
         project.path(),
         &crate::PackSelectionState {
             schema: crate::PACK_SELECTION_SCHEMA_ID.to_string(),
             selections: vec![crate::PackSelectionEntry {
-                pack_id: "ao.task".to_string(),
+                pack_id: "animus.task".to_string(),
                 version: None,
                 source: Some(crate::PackSelectionSource::Installed),
                 enabled: true,
@@ -818,7 +818,7 @@ fn validate_and_compile_yaml_preserves_task_pack_tools_allowlist() {
     )
     .expect("save pack selection");
 
-    let workflows_dir = project.path().join(".ao").join("workflows");
+    let workflows_dir = project.path().join(".animus").join("workflows");
     fs::create_dir_all(&workflows_dir).expect("create workflows dir");
     fs::write(
         workflows_dir.join("custom.yaml"),
@@ -832,14 +832,13 @@ workflows:
   - id: standard-workflow
     name: Standard Workflow
     phases:
-      - workflow_ref: ao.task/standard
+      - workflow_ref: animus.task/standard
 "#,
     )
     .expect("write standard workflow");
 
     let result = validate_and_compile_yaml_workflows(project.path()).expect("compile should succeed");
     let compile_result = result.expect("should have result");
-    assert!(compile_result.config.tools_allowlist.iter().any(|tool| tool == "ao"));
     assert!(compile_result.config.tools_allowlist.iter().any(|tool| tool == "cargo"));
     assert!(compile_result.config.tools_allowlist.iter().any(|tool| tool == "animus"));
     assert!(compile_result.config.phase_definitions.contains_key("subject-activate"));
@@ -1838,7 +1837,7 @@ fn write_global_claude_profile_config(config_dir: &std::path::Path, profile_name
 fn cross_validation_accepts_known_claude_tool_profile() {
     let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let temp = tempfile::tempdir().expect("tempdir");
-    let _config_dir = EnvVarGuard::set("AO_CONFIG_DIR", temp.path());
+    let _config_dir = EnvVarGuard::set("ANIMUS_CONFIG_DIR", temp.path());
     write_global_claude_profile_config(temp.path(), "overflow", "/Users/test/.claude-overflow");
 
     let yaml = r#"
@@ -1867,7 +1866,7 @@ workflows:
 fn cross_validation_rejects_non_claude_tool_profile_usage() {
     let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let temp = tempfile::tempdir().expect("tempdir");
-    let _config_dir = EnvVarGuard::set("AO_CONFIG_DIR", temp.path());
+    let _config_dir = EnvVarGuard::set("ANIMUS_CONFIG_DIR", temp.path());
     write_global_claude_profile_config(temp.path(), "overflow", "/Users/test/.claude-overflow");
 
     let yaml = r#"
@@ -2385,7 +2384,7 @@ fn pipeline_variables_not_serialized_when_empty() {
 
 #[test]
 fn repo_requirements_yaml_parses_requirement_workflows() {
-    let yaml = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.ao/workflows/requirements.yaml"));
+    let yaml = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.animus/workflows/requirements.yaml"));
 
     let config = parse_yaml_workflow_config(yaml).expect("requirements workflow yaml should parse");
     let workflow_ids = config.workflows.iter().map(|workflow| workflow.id.as_str()).collect::<Vec<_>>();

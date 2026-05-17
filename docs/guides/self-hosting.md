@@ -86,7 +86,7 @@ When the daemon encounters issues, tasks may end up in a blocked state. Always u
 animus task status --id TASK-XXX --status ready
 ```
 
-This clears all blocking metadata (`paused`, `blocked_at`, `blocked_reason`, `blocked_by`). Never edit task JSON files in `.ao/` directly.
+This clears all blocking metadata (`paused`, `blocked_at`, `blocked_reason`, `blocked_by`). Never edit task JSON files in `.animus/` directly.
 
 ## Environment Setup
 

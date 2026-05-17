@@ -8,13 +8,13 @@ Standalone OpenAI-compatible agent runner for AO, providing a multi-turn tool-us
 
 ## Targets
 
-- Binary: `ao-oai-runner`
+- Binary: `animus-oai-runner`
 
 ## Architecture
 
 ```mermaid
 graph TB
-    subgraph "ao-oai-runner"
+    subgraph "animus-oai-runner"
         MAIN["main.rs"]
         CONFIG["config.rs"]
 
@@ -88,7 +88,7 @@ Current built-in provider inference includes MiniMax, Z AI / GLM, DeepSeek, and 
 
 `src/runner/agent_loop.rs` handles:
 
-- session resume and persistence under `AO_CONFIG_DIR/sessions/` or `HOME/.ao/sessions/`
+- session resume and persistence under `ANIMUS_CONFIG_DIR/sessions/` or `HOME/.animus/sessions/`
 - streaming model responses
 - local tool-call execution
 - optional JSON-schema validation retries

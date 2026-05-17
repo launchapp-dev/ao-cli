@@ -70,7 +70,7 @@ fn try_grep(base: &Path, pattern: &str, include: Option<&str>) -> Result<std::pr
     let mut cmd = std::process::Command::new("grep");
     cmd.arg("-rn").arg("--color=never").arg("-E").arg(pattern);
 
-    for dir in &["target", ".git", "node_modules", ".ao", "__pycache__", ".next", "dist", "build"] {
+    for dir in &["target", ".git", "node_modules", ".animus", "__pycache__", ".next", "dist", "build"] {
         cmd.arg("--exclude-dir").arg(dir);
     }
 

@@ -10,16 +10,16 @@ Every tool accepts an optional `project_root` parameter to override the default 
 
 | Tool | Description | Key Parameters |
 |---|---|---|
-| `ao.agent.list` | List configured project agent profiles | `project_root` |
-| `ao.agent.get` | Get a configured agent profile | `id`, `project_root` |
-| `ao.agent.run` | Launch an AI agent to execute work | `tool`, `model`, `prompt`, `cwd`, `timeout_secs`, `context_json`, `runtime_contract_json`, `detach`, `run_id`, `runner_scope`, `project_root` |
-| `ao.agent.control` | Control a running agent (pause/resume/terminate) | `run_id`, `action` (`pause`, `resume`, `terminate`), `runner_scope` |
-| `ao.agent.status` | Get status of an agent run | `run_id`, `runner_scope` |
-| `ao.agent.memory.get` | Read project-scoped agent memory | `agent`, `project_root` |
-| `ao.agent.memory.append` | Append project-scoped agent memory | `agent`, `text`, `source`, `project_root` |
-| `ao.agent.memory.clear` | Clear project-scoped agent memory | `agent`, `project_root` |
-| `ao.agent.message.send` | Send a message on a configured agent channel | `channel`, `from`, `to`, `text`, `workflow_id`, `phase_id`, `project_root` |
-| `ao.agent.message.list` | List project-scoped agent messages | `channel`, `agent`, `limit`, `project_root` |
+| `animus.agent.list` | List configured project agent profiles | `project_root` |
+| `animus.agent.get` | Get a configured agent profile | `id`, `project_root` |
+| `animus.agent.run` | Launch an AI agent to execute work | `tool`, `model`, `prompt`, `cwd`, `timeout_secs`, `context_json`, `runtime_contract_json`, `detach`, `run_id`, `runner_scope`, `project_root` |
+| `animus.agent.control` | Control a running agent (pause/resume/terminate) | `run_id`, `action` (`pause`, `resume`, `terminate`), `runner_scope` |
+| `animus.agent.status` | Get status of an agent run | `run_id`, `runner_scope` |
+| `animus.agent.memory.get` | Read project-scoped agent memory | `agent`, `project_root` |
+| `animus.agent.memory.append` | Append project-scoped agent memory | `agent`, `text`, `source`, `project_root` |
+| `animus.agent.memory.clear` | Clear project-scoped agent memory | `agent`, `project_root` |
+| `animus.agent.message.send` | Send a message on a configured agent channel | `channel`, `from`, `to`, `text`, `workflow_id`, `phase_id`, `project_root` |
+| `animus.agent.message.list` | List project-scoped agent messages | `channel`, `agent`, `limit`, `project_root` |
 
 ---
 
@@ -27,17 +27,17 @@ Every tool accepts an optional `project_root` parameter to override the default 
 
 | Tool | Description | Key Parameters |
 |---|---|---|
-| `ao.daemon.start` | Start the AO daemon for task scheduling and agent management | `pool_size` (alias: `max_agents`), `interval_secs`, `auto_run_ready`, `auto_merge`, `auto_pr`, `auto_commit_before_merge`, `auto_prune_worktrees_after_merge`, `startup_cleanup`, `resume_interrupted`, `reconcile_stale`, `stale_threshold_hours`, `max_tasks_per_tick`, `phase_timeout_secs`, `idle_timeout_secs`, `skip_runner`, `autonomous`, `runner_scope`, `project_root` |
-| `ao.daemon.stop` | Stop the daemon gracefully | `project_root` |
-| `ao.daemon.status` | Check if daemon is running and view basic state | `project_root` |
-| `ao.daemon.health` | Get detailed health metrics (active agents, queue, capacity) | `project_root` |
-| `ao.daemon.pause` | Pause the scheduler without stopping the daemon | `project_root` |
-| `ao.daemon.resume` | Resume the scheduler after a pause | `project_root` |
-| `ao.daemon.events` | List recent daemon events for debugging and monitoring | `limit`, `project_root` |
-| `ao.daemon.agents` | List currently running agent tasks and their status | `project_root` |
-| `ao.daemon.logs` | Read daemon process log file | `limit`, `search`, `project_root` |
-| `ao.daemon.config` | Read current daemon automation settings | `project_root` |
-| `ao.daemon.config-set` | Update daemon automation settings and notification config | `auto_merge`, `auto_pr`, `auto_commit_before_merge`, `auto_prune_worktrees_after_merge`, `auto_run_ready`, `pool_size` (alias: `max_agents`), `interval_secs`, `max_tasks_per_tick`, `stale_threshold_hours`, `phase_timeout_secs`, `idle_timeout_secs`, `notification_config_json`, `notification_config_file`, `clear_notification_config`, `project_root` |
+| `animus.daemon.start` | Start the AO daemon for task scheduling and agent management | `pool_size` (alias: `max_agents`), `interval_secs`, `auto_run_ready`, `auto_merge`, `auto_pr`, `auto_commit_before_merge`, `auto_prune_worktrees_after_merge`, `startup_cleanup`, `resume_interrupted`, `reconcile_stale`, `stale_threshold_hours`, `max_tasks_per_tick`, `phase_timeout_secs`, `idle_timeout_secs`, `skip_runner`, `autonomous`, `runner_scope`, `project_root` |
+| `animus.daemon.stop` | Stop the daemon gracefully | `project_root` |
+| `animus.daemon.status` | Check if daemon is running and view basic state | `project_root` |
+| `animus.daemon.health` | Get detailed health metrics (active agents, queue, capacity) | `project_root` |
+| `animus.daemon.pause` | Pause the scheduler without stopping the daemon | `project_root` |
+| `animus.daemon.resume` | Resume the scheduler after a pause | `project_root` |
+| `animus.daemon.events` | List recent daemon events for debugging and monitoring | `limit`, `project_root` |
+| `animus.daemon.agents` | List currently running agent tasks and their status | `project_root` |
+| `animus.daemon.logs` | Read daemon process log file | `limit`, `search`, `project_root` |
+| `animus.daemon.config` | Read current daemon automation settings | `project_root` |
+| `animus.daemon.config-set` | Update daemon automation settings and notification config | `auto_merge`, `auto_pr`, `auto_commit_before_merge`, `auto_prune_worktrees_after_merge`, `auto_run_ready`, `pool_size` (alias: `max_agents`), `interval_secs`, `max_tasks_per_tick`, `stale_threshold_hours`, `phase_timeout_secs`, `idle_timeout_secs`, `notification_config_json`, `notification_config_file`, `clear_notification_config`, `project_root` |
 
 ---
 
@@ -47,31 +47,31 @@ Every tool accepts an optional `project_root` parameter to override the default 
 
 | Tool | Description | Key Parameters |
 |---|---|---|
-| `ao.task.list` | List tasks with filters | `status`, `priority`, `task_type`, `assignee_type`, `tag[]`, `risk`, `linked_requirement`, `linked_architecture_entity`, `search`, `limit`, `offset`, `max_tokens` |
-| `ao.task.get` | Fetch full task details by ID | `id` |
-| `ao.task.prioritized` | List tasks sorted by priority | `status`, `priority`, `assignee_type`, `search`, `limit`, `offset`, `max_tokens` |
-| `ao.task.next` | Get the single highest priority ready task | `project_root` |
-| `ao.task.stats` | Aggregate task metrics by status, priority, type | `project_root` |
-| `ao.task.history` | View workflow dispatch history for a task | `id` |
+| `animus.task.list` | List tasks with filters | `status`, `priority`, `task_type`, `assignee_type`, `tag[]`, `risk`, `linked_requirement`, `linked_architecture_entity`, `search`, `limit`, `offset`, `max_tokens` |
+| `animus.task.get` | Fetch full task details by ID | `id` |
+| `animus.task.prioritized` | List tasks sorted by priority | `status`, `priority`, `assignee_type`, `search`, `limit`, `offset`, `max_tokens` |
+| `animus.task.next` | Get the single highest priority ready task | `project_root` |
+| `animus.task.stats` | Aggregate task metrics by status, priority, type | `project_root` |
+| `animus.task.history` | View workflow dispatch history for a task | `id` |
 
 ### Mutation Tools (14)
 
 | Tool | Description | Key Parameters |
 |---|---|---|
-| `ao.task.create` | Create a new task | `title`, `description`, `priority`, `task_type`, `linked_requirement[]`, `linked_architecture_entity[]`, `project_root` |
-| `ao.task.update` | Update task fields | `id`, `title`, `description`, `priority`, `status`, `assignee`, `linked_architecture_entity[]`, `replace_linked_architecture_entities`, `input_json` |
-| `ao.task.delete` | Delete a task (destructive) | `id`, `confirm`, `dry_run` |
-| `ao.task.status` | Update task status | `id`, `status` |
-| `ao.task.assign` | Assign task to user or agent | `id`, `assignee`, `assignee_type`, `agent_role`, `model` |
-| `ao.task.pause` | Pause a running task | `id` |
-| `ao.task.resume` | Resume a paused task | `id` |
-| `ao.task.cancel` | Cancel a task | `id`, `confirm`, `dry_run` |
-| `ao.task.set-priority` | Set task priority | `id`, `priority` |
-| `ao.task.set-deadline` | Set or clear task deadline | `id`, `deadline` |
-| `ao.task.checklist-add` | Add a checklist item to a task | `id`, `description` |
-| `ao.task.checklist-update` | Toggle checklist item completion | `id`, `item_id`, `completed` |
-| `ao.task.bulk-status` | Batch-update status for multiple tasks | `updates[]` (each: `id`, `status`), `on_error` |
-| `ao.task.bulk-update` | Batch-update fields for multiple tasks | `updates[]` (each: `id` + fields), `on_error` |
+| `animus.task.create` | Create a new task | `title`, `description`, `priority`, `task_type`, `linked_requirement[]`, `linked_architecture_entity[]`, `project_root` |
+| `animus.task.update` | Update task fields | `id`, `title`, `description`, `priority`, `status`, `assignee`, `linked_architecture_entity[]`, `replace_linked_architecture_entities`, `input_json` |
+| `animus.task.delete` | Delete a task (destructive) | `id`, `confirm`, `dry_run` |
+| `animus.task.status` | Update task status | `id`, `status` |
+| `animus.task.assign` | Assign task to user or agent | `id`, `assignee`, `assignee_type`, `agent_role`, `model` |
+| `animus.task.pause` | Pause a running task | `id` |
+| `animus.task.resume` | Resume a paused task | `id` |
+| `animus.task.cancel` | Cancel a task | `id`, `confirm`, `dry_run` |
+| `animus.task.set-priority` | Set task priority | `id`, `priority` |
+| `animus.task.set-deadline` | Set or clear task deadline | `id`, `deadline` |
+| `animus.task.checklist-add` | Add a checklist item to a task | `id`, `description` |
+| `animus.task.checklist-update` | Toggle checklist item completion | `id`, `item_id`, `completed` |
+| `animus.task.bulk-status` | Batch-update status for multiple tasks | `updates[]` (each: `id`, `status`), `on_error` |
+| `animus.task.bulk-update` | Batch-update fields for multiple tasks | `updates[]` (each: `id` + fields), `on_error` |
 
 ---
 
@@ -81,32 +81,32 @@ Every tool accepts an optional `project_root` parameter to override the default 
 
 | Tool | Description | Key Parameters |
 |---|---|---|
-| `ao.workflow.run` | Start a workflow for a task (async, via daemon) | `task_id`, `requirement_id`, `title`, `description`, `workflow_ref`, `input_json` |
-| `ao.workflow.run-multiple` | Batch-run workflows for multiple tasks | `runs[]` (each: `task_id`, `workflow_ref`, `input_json`), `on_error` |
-| `ao.workflow.execute` | Execute a workflow synchronously (no daemon) | `task_id`, `workflow_ref`, `phase`, `model`, `tool`, `phase_timeout_secs`, `input_json` |
-| `ao.workflow.get` | Get full workflow state by ID | `id` |
-| `ao.workflow.list` | List workflow executions | `status`, `workflow_ref`, `task_id`, `phase_id`, `search`, `sort`, `limit`, `offset`, `max_tokens` |
-| `ao.workflow.pause` | Pause a running workflow | `id`, `confirm`, `dry_run` |
-| `ao.workflow.cancel` | Cancel a running workflow permanently | `id`, `confirm`, `dry_run` |
-| `ao.workflow.resume` | Resume a paused workflow | `id` |
-| `ao.workflow.phase.approve` | Approve a gated workflow phase | `workflow_id`, `phase_id`, `feedback` |
+| `animus.workflow.run` | Start a workflow for a task (async, via daemon) | `task_id`, `requirement_id`, `title`, `description`, `workflow_ref`, `input_json` |
+| `animus.workflow.run-multiple` | Batch-run workflows for multiple tasks | `runs[]` (each: `task_id`, `workflow_ref`, `input_json`), `on_error` |
+| `animus.workflow.execute` | Execute a workflow synchronously (no daemon) | `task_id`, `workflow_ref`, `phase`, `model`, `tool`, `phase_timeout_secs`, `input_json` |
+| `animus.workflow.get` | Get full workflow state by ID | `id` |
+| `animus.workflow.list` | List workflow executions | `status`, `workflow_ref`, `task_id`, `phase_id`, `search`, `sort`, `limit`, `offset`, `max_tokens` |
+| `animus.workflow.pause` | Pause a running workflow | `id`, `confirm`, `dry_run` |
+| `animus.workflow.cancel` | Cancel a running workflow permanently | `id`, `confirm`, `dry_run` |
+| `animus.workflow.resume` | Resume a paused workflow | `id` |
+| `animus.workflow.phase.approve` | Approve a gated workflow phase | `workflow_id`, `phase_id`, `feedback` |
 
 ### Decision & Checkpoint Tools (2)
 
 | Tool | Description | Key Parameters |
 |---|---|---|
-| `ao.workflow.decisions` | List decisions made during workflow execution | `id`, `limit`, `offset`, `max_tokens` |
-| `ao.workflow.checkpoints.list` | List saved workflow state checkpoints | `id`, `limit`, `offset`, `max_tokens` |
+| `animus.workflow.decisions` | List decisions made during workflow execution | `id`, `limit`, `offset`, `max_tokens` |
+| `animus.workflow.checkpoints.list` | List saved workflow state checkpoints | `id`, `limit`, `offset`, `max_tokens` |
 
 ### Definition Tools (5)
 
 | Tool | Description | Key Parameters |
 |---|---|---|
-| `ao.workflow.phases.list` | List available phase definitions | `project_root` |
-| `ao.workflow.phases.get` | Get a specific phase definition | `phase` |
-| `ao.workflow.definitions.list` | List workflow definitions | `project_root` |
-| `ao.workflow.config.get` | Read effective workflow configuration | `project_root` |
-| `ao.workflow.config.validate` | Validate workflow config for errors | `project_root` |
+| `animus.workflow.phases.list` | List available phase definitions | `project_root` |
+| `animus.workflow.phases.get` | Get a specific phase definition | `phase` |
+| `animus.workflow.definitions.list` | List workflow definitions | `project_root` |
+| `animus.workflow.config.get` | Read effective workflow configuration | `project_root` |
+| `animus.workflow.config.validate` | Validate workflow config for errors | `project_root` |
 
 ---
 
@@ -114,12 +114,12 @@ Every tool accepts an optional `project_root` parameter to override the default 
 
 | Tool | Description | Key Parameters |
 |---|---|---|
-| `ao.requirements.list` | List requirements with pagination | `limit`, `offset`, `max_tokens`, `status` |
-| `ao.requirements.get` | Get full requirement details by ID | `id` |
-| `ao.requirements.create` | Create a new requirement | `title`, `description`, `priority`, `acceptance_criterion[]` |
-| `ao.requirements.update` | Update requirement fields | `id`, `title`, `description`, `priority`, `status`, `acceptance_criterion[]` |
-| `ao.requirements.delete` | Delete a requirement | `id` |
-| `ao.requirements.refine` | Refine requirements with optional AI assistance | `id[]`, `focus`, `use_ai`, `tool`, `model`, `timeout_secs`, `start_runner`, `input_json` |
+| `animus.requirements.list` | List requirements with pagination | `limit`, `offset`, `max_tokens`, `status` |
+| `animus.requirements.get` | Get full requirement details by ID | `id` |
+| `animus.requirements.create` | Create a new requirement | `title`, `description`, `priority`, `acceptance_criterion[]` |
+| `animus.requirements.update` | Update requirement fields | `id`, `title`, `description`, `priority`, `status`, `acceptance_criterion[]` |
+| `animus.requirements.delete` | Delete a requirement | `id` |
+| `animus.requirements.refine` | Refine requirements with optional AI assistance | `id[]`, `focus`, `use_ai`, `tool`, `model`, `timeout_secs`, `start_runner`, `input_json` |
 
 ---
 
@@ -127,13 +127,13 @@ Every tool accepts an optional `project_root` parameter to override the default 
 
 | Tool | Description | Key Parameters |
 |---|---|---|
-| `ao.queue.list` | List queued subject dispatches | `project_root` |
-| `ao.queue.stats` | Get aggregate queue depth and status counts | `project_root` |
-| `ao.queue.enqueue` | Add a subject dispatch to the queue | `task_id`, `requirement_id`, `title`, `description`, `workflow_ref`, `input_json` |
-| `ao.queue.reorder` | Set preferred dispatch order | `subject_ids[]` |
-| `ao.queue.hold` | Hold a pending subject from dispatch | `subject_id` |
-| `ao.queue.release` | Release a held subject for dispatch | `subject_id` |
-| `ao.queue.drop` | Remove a queued subject dispatch permanently | `subject_id`, `project_root` |
+| `animus.queue.list` | List queued subject dispatches | `project_root` |
+| `animus.queue.stats` | Get aggregate queue depth and status counts | `project_root` |
+| `animus.queue.enqueue` | Add a subject dispatch to the queue | `task_id`, `requirement_id`, `title`, `description`, `workflow_ref`, `input_json` |
+| `animus.queue.reorder` | Set preferred dispatch order | `subject_ids[]` |
+| `animus.queue.hold` | Hold a pending subject from dispatch | `subject_id` |
+| `animus.queue.release` | Release a held subject for dispatch | `subject_id` |
+| `animus.queue.drop` | Remove a queued subject dispatch permanently | `subject_id`, `project_root` |
 
 ---
 
@@ -141,12 +141,12 @@ Every tool accepts an optional `project_root` parameter to override the default 
 
 | Tool | Description | Key Parameters |
 |---|---|---|
-| `ao.output.run` | Get stdout/stderr from an agent execution | `run_id` |
-| `ao.output.tail` | Get most recent output/error/thinking events | `run_id`, `task_id`, `event_types[]`, `limit` |
-| `ao.output.monitor` | Stream real-time output from a run, optionally scoped by task or phase | `run_id`, `task_id`, `phase_id` |
-| `ao.output.jsonl` | Get structured JSONL event log | `run_id`, `entries` |
-| `ao.output.artifacts` | Get files generated during execution | `execution_id` |
-| `ao.output.phase-outputs` | Get persisted workflow phase outputs | `workflow_id`, `phase_id`, `project_root` |
+| `animus.output.run` | Get stdout/stderr from an agent execution | `run_id` |
+| `animus.output.tail` | Get most recent output/error/thinking events | `run_id`, `task_id`, `event_types[]`, `limit` |
+| `animus.output.monitor` | Stream real-time output from a run, optionally scoped by task or phase | `run_id`, `task_id`, `phase_id` |
+| `animus.output.jsonl` | Get structured JSONL event log | `run_id`, `entries` |
+| `animus.output.artifacts` | Get files generated during execution | `execution_id` |
+| `animus.output.phase-outputs` | Get persisted workflow phase outputs | `workflow_id`, `phase_id`, `project_root` |
 
 ---
 
@@ -154,10 +154,10 @@ Every tool accepts an optional `project_root` parameter to override the default 
 
 | Tool | Description | Key Parameters |
 |---|---|---|
-| `ao.runner.health` | Check runner process health and capacity | `project_root` |
-| `ao.runner.orphans-detect` | Find orphaned runner processes | `project_root` |
-| `ao.runner.orphans-cleanup` | Clean up orphaned runner processes by run ID | `run_id`, `project_root` |
-| `ao.runner.restart-stats` | View runner uptime and restart history | `project_root` |
+| `animus.runner.health` | Check runner process health and capacity | `project_root` |
+| `animus.runner.orphans-detect` | Find orphaned runner processes | `project_root` |
+| `animus.runner.orphans-cleanup` | Clean up orphaned runner processes by run ID | `run_id`, `project_root` |
+| `animus.runner.restart-stats` | View runner uptime and restart history | `project_root` |
 
 ---
 
@@ -169,10 +169,10 @@ those are aggregated automatically.
 
 | Tool | Description | Key Parameters |
 |---|---|---|
-| `ao.plugin.list` | List discovered plugins (providers, subject backends, custom) with name, version, kind, source, and path. | `project_root` (optional) |
-| `ao.plugin.call` | Send a JSON-RPC request to a discovered plugin. The plugin is spawned (or reused) and handshaked before the call. | `name`, `method`, `params` (optional), `project_root` (optional) |
+| `animus.plugin.list` | List discovered plugins (providers, subject backends, custom) with name, version, kind, source, and path. | `project_root` (optional) |
+| `animus.plugin.call` | Send a JSON-RPC request to a discovered plugin. The plugin is spawned (or reused) and handshaked before the call. | `name`, `method`, `params` (optional), `project_root` (optional) |
 
-Discovery order: `~/.config/ao/plugins.yaml` → `.ao/plugins/` → `$AO_PLUGIN_PATH` → `$PATH` (`ao-provider-*` / `ao-plugin-*` prefixes).
+Discovery order: `~/.config/ao/plugins.yaml` → `.animus/plugins/` → `$ANIMUS_PLUGIN_PATH` → `$PATH` (`animus-provider-*` / `animus-plugin-*` prefixes).
 
 ---
 
@@ -186,18 +186,18 @@ All list tools support pagination via these common parameters:
 | `offset` | integer | 0 | -- | Items to skip |
 | `max_tokens` | integer | 3000 | 12000 | Token budget for response compaction (min: 256) |
 
-List responses are wrapped in a guard envelope (`ao.mcp.list.result.v1`) that includes pagination metadata.
+List responses are wrapped in a guard envelope (`animus.mcp.list.result.v1`) that includes pagination metadata.
 
 ## Batch Tool Behavior
 
-Batch tools (`ao.task.bulk-status`, `ao.task.bulk-update`, `ao.workflow.run-multiple`) accept an `on_error` parameter:
+Batch tools (`animus.task.bulk-status`, `animus.task.bulk-update`, `animus.workflow.run-multiple`) accept an `on_error` parameter:
 
 | Value | Behavior |
 |---|---|
 | `"continue"` | Process all items regardless of failures |
 | `"stop"` | Stop processing after the first failure; remaining items are marked `"skipped"` |
 
-Batch responses use the `ao.mcp.batch.result.v1` schema with a summary of succeeded/failed/skipped counts and per-item results.
+Batch responses use the `animus.mcp.batch.result.v1` schema with a summary of succeeded/failed/skipped counts and per-item results.
 
 Maximum batch size is 100 items per call.
 

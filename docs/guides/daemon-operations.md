@@ -12,7 +12,7 @@ Start the daemon as a detached background process:
 animus daemon start --autonomous
 ```
 
-This forks a child process and redirects stderr to `.ao/daemon.log`. The daemon will continuously poll for ready tasks and dispatch workflows.
+This forks a child process and redirects stderr to `.animus/daemon.log`. The daemon will continuously poll for ready tasks and dispatch workflows.
 
 ### Foreground Mode
 
@@ -100,7 +100,7 @@ Read daemon logs:
 animus daemon logs
 ```
 
-The daemon writes structured JSON log lines to `.ao/daemon.log`. Log rotation occurs at 10MB (rotated file: `.ao/daemon.log.1`).
+The daemon writes structured JSON log lines to `.animus/daemon.log`. Log rotation occurs at 10MB (rotated file: `.animus/daemon.log.1`).
 
 Clear logs when they grow too large:
 
@@ -131,7 +131,7 @@ animus daemon agents
 For real-time debugging, tail the log file:
 
 ```bash
-tail -f .ao/daemon.log
+tail -f .animus/daemon.log
 ```
 
 The log contains structured JSON lines with event types like `daemon_startup`, `daemon_shutdown`, workflow dispatches, and phase completions.

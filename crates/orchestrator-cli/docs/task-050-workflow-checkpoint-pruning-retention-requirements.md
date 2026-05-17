@@ -31,8 +31,8 @@ Target behavior from task brief:
 Workflows can emit large checkpoint histories (example from task brief: 1500+
 checkpoints for a 4-phase pipeline). Current storage is append-only, which
 inflates:
-- `.ao/workflow-state/<workflow>.json` via unbounded checkpoint metadata,
-- `.ao/workflow-state/checkpoints/<workflow>/checkpoint-*.json` file count.
+- `.animus/workflow-state/<workflow>.json` via unbounded checkpoint metadata,
+- `.animus/workflow-state/checkpoints/<workflow>/checkpoint-*.json` file count.
 
 This creates avoidable disk overhead and longer checkpoint enumeration costs.
 
@@ -49,10 +49,10 @@ In scope for implementation after this requirements phase:
 - Optional: add auto-prune on workflow completion behind explicit opt-in toggle.
 
 Out of scope:
-- Deleting workflow records (`.ao/workflow-state/<id>.json`) entirely.
+- Deleting workflow records (`.animus/workflow-state/<id>.json`) entirely.
 - Pruning decision history entries.
 - Changing workflow state-machine semantics.
-- Manual edits to `.ao/*.json`.
+- Manual edits to `.animus/*.json`.
 
 ## Constraints
 - Keep prune behavior deterministic and repository-safe.
@@ -62,7 +62,7 @@ Out of scope:
 - Keep checkpoint numbering stable:
   - no renumbering existing checkpoint ids/files,
   - `checkpoint_count` remains monotonic.
-- Changes must remain additive to existing JSON envelope (`ao.cli.v1`) behavior.
+- Changes must remain additive to existing JSON envelope (`animus.cli.v1`) behavior.
 - Preserve compatibility with legacy checkpoint data that lacks phase metadata.
 
 ## Retention Policy Contract
@@ -88,7 +88,7 @@ Per checkpoint, resolve phase id in deterministic order:
 ### Prune Mutation Contract
 When pruning applies:
 - remove selected checkpoint files from
-  `.ao/workflow-state/checkpoints/<workflow_id>/`,
+  `.animus/workflow-state/checkpoints/<workflow_id>/`,
 - remove corresponding entries from `workflow.checkpoint_metadata.checkpoints`,
 - preserve surviving entries and order deterministically,
 - keep `checkpoint_count` unchanged (monotonic id source),

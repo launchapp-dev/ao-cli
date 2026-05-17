@@ -53,10 +53,10 @@ fn git_local_config_value(project_root: &Path, key: &str) -> Option<String> {
 }
 
 fn infer_human_assignee_identity(project_root: &Path) -> Option<String> {
-    if let Some(user_id) = non_empty_env("AO_ASSIGNEE_USER_ID") {
+    if let Some(user_id) = non_empty_env("ANIMUS_ASSIGNEE_USER_ID") {
         return Some(user_id);
     }
-    if let Some(user_id) = non_empty_env("AO_USER_ID") {
+    if let Some(user_id) = non_empty_env("ANIMUS_USER_ID") {
         return Some(user_id);
     }
     if let Some(user_id) = git_local_config_value(project_root, "user.email") {
@@ -643,8 +643,8 @@ mod tests {
     #[test]
     fn infer_human_assignee_prefers_ao_assignee_user_id() {
         let _lock = crate::shared::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
-        let _ao_assignee = EnvVarGuard::set("AO_ASSIGNEE_USER_ID", Some("assignee-user"));
-        let _ao_user = EnvVarGuard::set("AO_USER_ID", Some("ao-user"));
+        let _ao_assignee = EnvVarGuard::set("ANIMUS_ASSIGNEE_USER_ID", Some("assignee-user"));
+        let _ao_user = EnvVarGuard::set("ANIMUS_USER_ID", Some("ao-user"));
         let _user = EnvVarGuard::set("USER", Some("shell-user"));
         let _username = EnvVarGuard::set("USERNAME", Some("shell-username"));
 
@@ -657,8 +657,8 @@ mod tests {
     #[test]
     fn infer_human_assignee_prefers_git_identity_before_shell_user() {
         let _lock = crate::shared::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
-        let _ao_assignee = EnvVarGuard::set("AO_ASSIGNEE_USER_ID", None);
-        let _ao_user = EnvVarGuard::set("AO_USER_ID", None);
+        let _ao_assignee = EnvVarGuard::set("ANIMUS_ASSIGNEE_USER_ID", None);
+        let _ao_user = EnvVarGuard::set("ANIMUS_USER_ID", None);
         let _user = EnvVarGuard::set("USER", Some("shell-user"));
         let _username = EnvVarGuard::set("USERNAME", Some("shell-username"));
 
@@ -673,8 +673,8 @@ mod tests {
     #[tokio::test]
     async fn set_task_status_in_progress_assigns_human_when_identity_is_available() {
         let _lock = crate::shared::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
-        let _ao_assignee = EnvVarGuard::set("AO_ASSIGNEE_USER_ID", Some("operator@example.com"));
-        let _ao_user = EnvVarGuard::set("AO_USER_ID", None);
+        let _ao_assignee = EnvVarGuard::set("ANIMUS_ASSIGNEE_USER_ID", Some("operator@example.com"));
+        let _ao_user = EnvVarGuard::set("ANIMUS_USER_ID", None);
 
         let hub = Arc::new(InMemoryServiceHub::new());
         let created = hub
@@ -709,8 +709,8 @@ mod tests {
     #[tokio::test]
     async fn set_task_status_in_progress_keeps_unassigned_when_identity_is_unavailable() {
         let _lock = crate::shared::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
-        let _ao_assignee = EnvVarGuard::set("AO_ASSIGNEE_USER_ID", None);
-        let _ao_user = EnvVarGuard::set("AO_USER_ID", None);
+        let _ao_assignee = EnvVarGuard::set("ANIMUS_ASSIGNEE_USER_ID", None);
+        let _ao_user = EnvVarGuard::set("ANIMUS_USER_ID", None);
         let _user = EnvVarGuard::set("USER", None);
         let _username = EnvVarGuard::set("USERNAME", None);
         let repo = TempDir::new().expect("temp dir should be created");
@@ -747,7 +747,7 @@ mod tests {
     #[tokio::test]
     async fn set_task_status_non_in_progress_does_not_assign_human() {
         let _lock = crate::shared::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
-        let _ao_assignee = EnvVarGuard::set("AO_ASSIGNEE_USER_ID", Some("operator@example.com"));
+        let _ao_assignee = EnvVarGuard::set("ANIMUS_ASSIGNEE_USER_ID", Some("operator@example.com"));
 
         let hub = Arc::new(InMemoryServiceHub::new());
         let created = hub

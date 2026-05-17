@@ -7,7 +7,7 @@
 
 ## Objective
 Define a deterministic, cross-process persistence contract for
-`.ao/core-state.json` so concurrent daemon and CLI mutations do not cause
+`.animus/core-state.json` so concurrent daemon and CLI mutations do not cause
 lost updates, duplicate IDs, or on-disk state corruption.
 
 ## Current Baseline Audit
@@ -31,7 +31,7 @@ Result: collisions, lost updates, and inconsistent structured artifacts.
 ## Scope
 In scope for implementation after this requirements phase:
 - Add process-shared file locking (for example via `fs2::FileExt` or equivalent)
-  to guard `.ao/core-state.json` mutations.
+  to guard `.animus/core-state.json` mutations.
 - Move file-backed mutations to a coordinated read-modify-write transaction:
   - acquire exclusive lock,
   - reload current on-disk `CoreState`,
@@ -43,9 +43,9 @@ In scope for implementation after this requirements phase:
   concurrent writers.
 
 Out of scope:
-- Schema changes to `.ao/core-state.json`.
+- Schema changes to `.animus/core-state.json`.
 - CLI envelope / exit code changes.
-- Manual editing of `/.ao/*.json`.
+- Manual editing of `/.animus/*.json`.
 - Changes to workflow/task semantics unrelated to persistence coordination.
 
 ## Constraints

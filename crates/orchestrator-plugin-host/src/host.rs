@@ -146,14 +146,23 @@ where
     }
 
     pub async fn handshake(&mut self) -> Result<InitializeResult> {
+        const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
+
         let params = InitializeParams {
             protocol_version: PROTOCOL_VERSION.to_string(),
-            host_info: HostInfo { name: "ao".to_string(), version: env!("CARGO_PKG_VERSION").to_string() },
+            host_info: HostInfo { name: "animus".to_string(), version: env!("CARGO_PKG_VERSION").to_string() },
             capabilities: HostCapabilities { streaming: true, progress: true, cancellation: true },
         };
 
         let id = self.take_id();
-        let response = self.send_and_receive(id, "initialize", Some(serde_json::to_value(params)?)).await?;
+        let response = tokio::time::timeout(
+            HANDSHAKE_TIMEOUT,
+            self.send_and_receive(id, "initialize", Some(serde_json::to_value(params)?)),
+        )
+        .await
+        .map_err(|_| {
+            anyhow!("plugin '{}' did not respond to initialize within {}s", self.name, HANDSHAKE_TIMEOUT.as_secs())
+        })??;
         if let Some(error) = response.error {
             return Err(anyhow!("plugin initialize failed ({}): {}", error.code, error.message));
         }

@@ -9,7 +9,7 @@ Convert `FileServiceHub` bootstrap into a split contract:
 - Keep changes scoped to `crates/orchestrator-core` unless a call-site fix in
   another crate is required by compilation/tests.
 - Preserve existing `.ao` bootstrap semantics and persistence contracts.
-- Avoid direct/manual edits to `/.ao/*.json`.
+- Avoid direct/manual edits to `/.animus/*.json`.
 - Keep behavior deterministic and cross-platform.
 
 ## Proposed Change Surface

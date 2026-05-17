@@ -19,8 +19,8 @@ pub mod workflow_helpers;
 pub mod workflow_merge_recovery;
 
 pub use agent_state::{
-    append_agent_memory, clear_agent_memory, list_agent_messages, load_agent_memory, send_agent_message,
-    AgentMemoryDocument, AgentMemoryEntry, AgentMessage,
+    append_agent_memory, clear_agent_memory, delete_agent_memory_entry, list_agent_messages, load_agent_memory,
+    send_agent_message, AgentMemoryDocument, AgentMemoryEntry, AgentMessage,
 };
 pub use ensure_execution_cwd::ensure_execution_cwd;
 pub use ipc::*;
@@ -65,7 +65,7 @@ pub(crate) mod test_env {
 
     /// Process-wide lock for tests that depend on `protocol::scoped_state_root`. Hold the guard
     /// for the entirety of the test body. Diagnosed cause: under parallel cargo-test execution,
-    /// scope-dir state in `~/.ao/.../` accumulates from many concurrent tempdirs and triggers
+    /// scope-dir state in `~/.animus/.../` accumulates from many concurrent tempdirs and triggers
     /// `find_existing_scope_by_origin` collisions / partial state visibility that flips
     /// scoped_state_root's resolved path between writes and reads. Serializing avoids the race.
     pub fn scoped_state_serializer() -> MutexGuard<'static, ()> {

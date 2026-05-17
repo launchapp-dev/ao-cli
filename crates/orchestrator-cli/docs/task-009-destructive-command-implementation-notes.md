@@ -8,7 +8,7 @@ Translate TASK-009 requirements into concrete implementation slices for
 - Keep all work in Rust crates under `crates/`.
 - Keep `.ao` state mutations inside existing AO command-driven persistence
   flows; do not introduce manual state edits.
-- Preserve `ao.cli.v1` output envelope and existing exit-code semantics.
+- Preserve `animus.cli.v1` output envelope and existing exit-code semantics.
 - Keep non-destructive command behavior unchanged.
 
 ## Proposed Change Surface

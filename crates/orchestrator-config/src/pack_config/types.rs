@@ -1,7 +1,9 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 pub const PACK_MANIFEST_FILE_NAME: &str = "pack.toml";
-pub const PACK_MANIFEST_SCHEMA_ID: &str = "ao.pack.v1";
+pub const PACK_MANIFEST_SCHEMA_ID: &str = "animus.pack.v1";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -73,6 +75,37 @@ pub struct PackWorkflows {
     pub root: String,
     #[serde(default)]
     pub exports: Vec<String>,
+}
+
+/// Skills-only contribution shipped by a pack.
+///
+/// Packs that ship YAML skill definitions (no workflows) declare a `[skills]`
+/// section pointing at a relative directory. The pack registry surfaces every
+/// `*.yaml` file in that directory as a `SkillSourceOrigin::Installed` entry,
+/// using the pack id/version for provenance and integrity tracking.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PackSkills {
+    /// Directory relative to the pack root that contains `*.yaml` skill manifests.
+    /// Defaults to `"skills"` so packs can omit the field entirely.
+    #[serde(default = "default_pack_skills_root")]
+    pub root: String,
+    /// Optional skill-name aliases. The map key is the new skill name; the
+    /// value is the YAML file stem (without extension) under `[skills].root`
+    /// to expose under that alias. Used to keep persona/task references valid
+    /// when several names should resolve to the same underlying skill manifest.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub aliases: BTreeMap<String, String>,
+}
+
+fn default_pack_skills_root() -> String {
+    "skills".to_string()
+}
+
+impl Default for PackSkills {
+    fn default() -> Self {
+        Self { root: default_pack_skills_root(), aliases: BTreeMap::new() }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -169,7 +202,13 @@ pub struct PackManifest {
     pub compatibility: PackCompatibility,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subjects: Option<PackSubjects>,
-    pub workflows: PackWorkflows,
+    /// Workflow contributions are optional so packs may ship skills-only
+    /// content. Either `workflows` or `skills` must be present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflows: Option<PackWorkflows>,
+    /// Skill catalog contributions. Either `workflows` or `skills` must be present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skills: Option<PackSkills>,
     #[serde(default)]
     pub runtime: PackRuntime,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -50,7 +50,7 @@ fn e2e_workflow_state_machine_json_contract_endpoints() -> Result<()> {
     let harness = CliHarness::new()?;
 
     let state_machine_get = harness.run_json_ok(&["workflow", "state-machine", "get"])?;
-    assert_eq!(state_machine_get.pointer("/data/schema").and_then(Value::as_str), Some("ao.state-machines.v1"));
+    assert_eq!(state_machine_get.pointer("/data/schema").and_then(Value::as_str), Some("animus.state-machines.v1"));
     let machine_path = state_machine_get
         .pointer("/data/path")
         .and_then(Value::as_str)

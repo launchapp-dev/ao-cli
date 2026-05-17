@@ -48,7 +48,7 @@ struct AgentMessageDocument {
 
 fn scoped_state_base(project_root: &str) -> PathBuf {
     let path = Path::new(project_root);
-    protocol::scoped_state_root(path).unwrap_or_else(|| path.join(".ao"))
+    protocol::scoped_state_root(path).unwrap_or_else(|| path.join(".animus"))
 }
 
 fn sanitize_state_key(value: &str) -> String {
@@ -134,6 +134,25 @@ pub fn clear_agent_memory(project_root: &str, agent_id: &str) -> Result<AgentMem
     };
     write_json_atomic(&agent_memory_path(project_root, agent_id), &document)?;
     Ok(document)
+}
+
+pub fn delete_agent_memory_entry(
+    project_root: &str,
+    agent_id: &str,
+    entry_id: &str,
+) -> Result<(AgentMemoryDocument, bool)> {
+    let trimmed = entry_id.trim();
+    anyhow::ensure!(!trimmed.is_empty(), "memory entry id must not be empty");
+
+    let mut document = load_agent_memory(project_root, agent_id)?;
+    let before = document.entries.len();
+    document.entries.retain(|entry| entry.id != trimmed);
+    let removed = document.entries.len() < before;
+    if removed {
+        document.updated_at = Some(chrono::Utc::now().to_rfc3339());
+        write_json_atomic(&agent_memory_path(project_root, agent_id), &document)?;
+    }
+    Ok((document, removed))
 }
 
 pub fn send_agent_message(
@@ -229,6 +248,29 @@ mod tests {
 
         let cleared = clear_agent_memory(&project_root, "architect").expect("clear memory");
         assert!(cleared.entries.is_empty());
+    }
+
+    #[test]
+    fn memory_delete_entry_by_id_removes_only_matching_entry() {
+        let _serial = crate::test_env::scoped_state_serializer();
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let project_root = tmp.path().to_string_lossy();
+
+        let after_first = append_agent_memory(&project_root, "architect", "First note", None).expect("append first");
+        let after_second = append_agent_memory(&project_root, "architect", "Second note", None).expect("append second");
+        assert_eq!(after_second.entries.len(), 2);
+
+        let target_id = after_first.entries[0].id.clone();
+        let (after_delete, removed) =
+            delete_agent_memory_entry(&project_root, "architect", &target_id).expect("delete entry");
+        assert!(removed);
+        assert_eq!(after_delete.entries.len(), 1);
+        assert_eq!(after_delete.entries[0].text, "Second note");
+
+        let (after_noop, removed_again) =
+            delete_agent_memory_entry(&project_root, "architect", &target_id).expect("delete missing entry");
+        assert!(!removed_again);
+        assert_eq!(after_noop.entries.len(), 1);
     }
 
     // TODO: intermittently flakes under `cargo test --workspace` — even with the

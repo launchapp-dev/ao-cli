@@ -1,7 +1,9 @@
-# AO CLI - Coding Agent Guide
+# Animus - Coding Agent Guide
 
 This file is the current working brief for AI coding agents operating in this repo.
 If a statement here conflicts with source, update the docs and follow source.
+
+For the v0.4.0 naming + plugin extraction, see [docs/architecture/naming-contract.md](docs/architecture/naming-contract.md), [docs/architecture/subject-backend-plugins.md](docs/architecture/subject-backend-plugins.md), and the migration guide at [docs/migration/v0.3-to-v0.4.md](docs/migration/v0.3-to-v0.4.md).
 
 ## Verify Before Repeating
 
@@ -21,14 +23,16 @@ architecture, command counts, routes, or state paths:
 
 ## Current Baseline
 
-AO is a Rust-only agent orchestrator with:
+Animus is a Rust-only agent orchestrator with:
 
-- a 16-crate workspace
+- a Cargo workspace of around 20 crates (in flux during the v0.4.0 plugin extraction)
+- the CLI binary named `animus`
 - a visible CLI surface that includes `project` and `queue`
 - hidden `review` and `qa` command trees
-- scoped runtime state under `~/.ao/<repo-scope>/`
-- project-local workflow YAML overlays under `.ao/workflows.yaml` or `.ao/workflows/*.yaml`
+- scoped runtime state under `~/.animus/<repo-scope>/`
+- project-local workflow YAML overlays under `.animus/workflows.yaml` or `.animus/workflows/*.yaml`
 - a React 18 web UI in `crates/orchestrator-web-server/web-ui`
+- a stdio plugin host (`orchestrator-plugin-host`) for subject and provider plugins
 
 Do not reintroduce stale claims such as:
 
@@ -77,21 +81,21 @@ Do not document environment-variable fallbacks unless you add them in code.
 
 State layout is split:
 
-- Project-local `.ao/` stores repo config and workflow YAML overlays.
-- Scoped runtime state lives in `~/.ao/<repo-scope>/`.
-- Global config lives in `protocol::Config::global_config_dir()` and can be overridden with `AO_CONFIG_DIR`.
+- Project-local `.animus/` stores repo config and workflow YAML overlays.
+- Scoped runtime state lives in `~/.animus/<repo-scope>/`.
+- Global config lives in `protocol::Config::global_config_dir()` and can be overridden with `ANIMUS_CONFIG_DIR`.
 
 Important current paths:
 
-- Project-local config: `.ao/config.json`
-- Project-local daemon settings: `.ao/pm-config.json`
-- Workflow YAML overlays: `.ao/workflows.yaml`, `.ao/workflows/*.yaml`
-- Scoped runtime root: `~/.ao/<repo-scope>/`
-- Compiled workflow config: `~/.ao/<repo-scope>/config/workflow-config.v2.json`
-- Agent runtime config: `~/.ao/<repo-scope>/config/agent-runtime-config.v2.json`
-- State machines: `~/.ao/<repo-scope>/config/state-machines.v1.json`
-- Runs: `~/.ao/<repo-scope>/runs/`
-- Artifacts: `~/.ao/<repo-scope>/artifacts/`
+- Project-local config: `.animus/config.json`
+- Project-local daemon settings: `.animus/pm-config.json`
+- Workflow YAML overlays: `.animus/workflows.yaml`, `.animus/workflows/*.yaml`
+- Scoped runtime root: `~/.animus/<repo-scope>/`
+- Compiled workflow config: `~/.animus/<repo-scope>/config/workflow-config.v2.json`
+- Agent runtime config: `~/.animus/<repo-scope>/config/agent-runtime-config.v2.json`
+- State machines: `~/.animus/<repo-scope>/config/state-machines.v1.json`
+- Runs: `~/.animus/<repo-scope>/runs/`
+- Artifacts: `~/.animus/<repo-scope>/artifacts/`
 
 Legacy readers still probe older repo-local run/artifact paths. Preserve compatibility when needed,
 but write new features against the scoped runtime root.
@@ -99,11 +103,12 @@ but write new features against the scoped runtime root.
 ## Working Rules
 
 - Keep the repo Rust-only. Do not add `tauri`, `wry`, `tao`, `gtk`, `webkit*`, `webview*`, or similar desktop-shell dependencies.
-- Treat AO JSON state as tool-managed. Use CLI commands instead of hand-editing `.ao/*.json` or scoped state JSON.
-- Supported hand-edit exception: workflow YAML overlays in `.ao/workflows.yaml` and `.ao/workflows/*.yaml`.
+- Treat Animus JSON state as tool-managed. Use CLI commands instead of hand-editing `.animus/*.json` or scoped state JSON.
+- Supported hand-edit exception: workflow YAML overlays in `.animus/workflows.yaml` and `.animus/workflows/*.yaml`.
 - In scripts, CI snippets, and automation, pass `--project-root "$(pwd)"`.
 - If you change CLI behavior, update `docs/reference/cli/index.md`.
 - If you change MCP tools, update `docs/reference/mcp-tools.md` and `docs/guides/agents.md`.
+- Everything is `animus`. New MCP tools are named `animus.<group>.<verb>`, env vars are `ANIMUS_*`, state paths are `.animus/` or `~/.animus/<repo-scope>/`, pack ids are `animus.*`. The CLI is invoked via `animus`. The legacy `ao.*` surfaces were dropped in v0.4.0 (no aliases). See [docs/architecture/naming-contract.md](docs/architecture/naming-contract.md).
 - Prefer narrow verification over full-workspace rebuilds while iterating.
 
 ## Implementation Landmarks
@@ -158,7 +163,7 @@ If you touch orchestration behavior, look for both implementations and update te
 
 Keep these patterns intact:
 
-- CLI output uses the `ao.cli.v1` envelope for `--json`
+- CLI output uses the `animus.cli.v1` envelope for `--json`
 - state mutations flow through service APIs, not ad hoc file writes
 - workflow YAML overlays compile into generated runtime config under scoped state
 - git/worktree behavior is repo-scope aware
@@ -168,9 +173,9 @@ Keep these patterns intact:
 Rust:
 
 ```bash
-cargo ao-fmt
-cargo ao-lint
-cargo ao-bin-check
+cargo animus-fmt
+cargo animus-lint
+cargo animus-bin-check
 cargo test -p orchestrator-cli
 cargo test --workspace
 ```
@@ -201,9 +206,9 @@ The embedded UI currently uses:
 
 If GraphQL contracts change, verify the Rust schema export path and regenerate client types.
 
-## AO-Managed Workflow
+## Animus-Managed Workflow
 
-AO is meant to self-host its planning and execution state.
+Animus is meant to self-host its planning and execution state.
 
 Common flow:
 
@@ -216,4 +221,4 @@ animus daemon health
 ```
 
 If a task is specifically about persistence or migrations, it can justify direct state-file work.
-Otherwise, treat AO state as a command surface, not a manual editing target.
+Otherwise, treat Animus state as a command surface, not a manual editing target.

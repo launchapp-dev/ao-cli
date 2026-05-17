@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::PackRegistrySource;
 
-pub const PACK_SELECTION_SCHEMA_ID: &str = "ao.pack-selection.v1";
+pub const PACK_SELECTION_SCHEMA_ID: &str = "animus.pack-selection.v1";
 pub const PACK_SELECTION_FILE_NAME: &str = "pack-selection.v1.json";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -122,7 +122,7 @@ fn default_enabled() -> bool {
 }
 
 pub fn pack_selection_path(project_root: &Path) -> PathBuf {
-    let base = protocol::scoped_state_root(project_root).unwrap_or_else(|| project_root.join(".ao"));
+    let base = protocol::scoped_state_root(project_root).unwrap_or_else(|| project_root.join(".animus"));
     base.join("state").join(PACK_SELECTION_FILE_NAME)
 }
 
@@ -159,7 +159,7 @@ mod tests {
         let mut state = PackSelectionState::default();
         state
             .upsert(PackSelectionEntry {
-                pack_id: "ao.review".to_string(),
+                pack_id: "animus.review".to_string(),
                 version: Some("^0.1".to_string()),
                 source: Some(PackSelectionSource::Installed),
                 enabled: true,
@@ -167,14 +167,14 @@ mod tests {
             .expect("initial upsert should succeed");
         state
             .upsert(PackSelectionEntry {
-                pack_id: "ao.review".to_string(),
+                pack_id: "animus.review".to_string(),
                 version: Some("^0.2".to_string()),
                 source: Some(PackSelectionSource::ProjectOverride),
                 enabled: false,
             })
             .expect("replacement upsert should succeed");
 
-        let selection = state.selection_for("ao.review").expect("selection should exist");
+        let selection = state.selection_for("animus.review").expect("selection should exist");
         assert_eq!(selection.version.as_deref(), Some("^0.2"));
         assert_eq!(selection.source, Some(PackSelectionSource::ProjectOverride));
         assert!(!selection.enabled);
@@ -185,7 +185,7 @@ mod tests {
         let state = PackSelectionState {
             schema: PACK_SELECTION_SCHEMA_ID.to_string(),
             selections: vec![PackSelectionEntry {
-                pack_id: "ao.review".to_string(),
+                pack_id: "animus.review".to_string(),
                 version: Some("not-a-version".to_string()),
                 source: None,
                 enabled: true,

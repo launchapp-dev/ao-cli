@@ -7,7 +7,7 @@ and `orchestrator-core` with repository-safe cleanup semantics.
 ## Non-Negotiable Constraints
 - Keep all changes in Rust workspace crates under `crates/`.
 - Keep `.ao` state updates service-driven (no direct JSON patching).
-- Preserve `ao.cli.v1` JSON envelope behavior and deterministic output ordering.
+- Preserve `animus.cli.v1` JSON envelope behavior and deterministic output ordering.
 - Preserve existing non-prune worktree/git behavior.
 - Keep daemon auto-prune best-effort (must not block successful task
   completion).

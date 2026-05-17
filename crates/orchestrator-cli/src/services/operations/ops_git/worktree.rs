@@ -55,7 +55,7 @@ fn task_id_from_sanitized_token(token: &str) -> Option<String> {
 fn infer_task_id(branch: Option<&str>, worktree_name: &str) -> Option<String> {
     if let Some(branch_name) = branch {
         let normalized = normalize_branch(branch_name);
-        if let Some(rest) = normalized.strip_prefix("ao/") {
+        if let Some(rest) = normalized.strip_prefix("animus/") {
             if let Some(task_id) = task_id_from_sanitized_token(rest) {
                 return Some(task_id);
             }
@@ -102,7 +102,7 @@ fn managed_worktrees_root(project_root: &str) -> Result<PathBuf> {
     let home =
         dirs::home_dir().ok_or_else(|| anyhow!("failed to resolve home directory for managed worktree pruning"))?;
     let project_path = Path::new(project_root).canonicalize().unwrap_or_else(|_| PathBuf::from(project_root));
-    Ok(home.join(".ao").join(protocol::repository_scope_for_path(&project_path)).join("worktrees"))
+    Ok(home.join(".animus").join(protocol::repository_scope_for_path(&project_path)).join("worktrees"))
 }
 
 fn path_is_within_root(path: &str, root: &Path) -> bool {
@@ -120,7 +120,7 @@ fn is_remote_branch_protected(branch_name: &str) -> bool {
 
 fn is_task_branch(branch_name: &str) -> bool {
     let normalized = normalize_branch(branch_name).to_ascii_lowercase();
-    normalized.starts_with("ao/task-") || normalized.starts_with("task-")
+    normalized.starts_with("animus/task-") || normalized.starts_with("task-")
 }
 
 async fn clear_task_worktree_path_if_matches(

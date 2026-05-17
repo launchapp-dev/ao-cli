@@ -2,8 +2,8 @@
 """
 Migrate AO workflow JSON files to SQLite.
 
-Reads:  ~/.ao/<scope>/workflow-state/*.json + checkpoints/
-Writes: ~/.ao/<scope>/workflow.db
+Reads:  ~/.animus/<scope>/workflow-state/*.json + checkpoints/
+Writes: ~/.animus/<scope>/workflow.db
 
 Run:    python3 scripts/migrate-workflows-to-sqlite.py
 Dry:    python3 scripts/migrate-workflows-to-sqlite.py --dry-run
@@ -18,7 +18,7 @@ import sys
 import time
 from pathlib import Path
 
-AO_ROOT = Path.home() / ".ao"
+ANIMUS_ROOT = Path.home() / ".animus"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS workflows (
@@ -220,12 +220,12 @@ def main():
     parser.add_argument("--delete-json", action="store_true", help="Delete JSON files after successful migration")
     args = parser.parse_args()
 
-    if not AO_ROOT.exists():
-        print(f"No AO root found at {AO_ROOT}")
+    if not ANIMUS_ROOT.exists():
+        print(f"No AO root found at {ANIMUS_ROOT}")
         sys.exit(1)
 
     scopes = []
-    for entry in sorted(AO_ROOT.iterdir()):
+    for entry in sorted(ANIMUS_ROOT.iterdir()):
         if not entry.is_dir():
             continue
         if args.scope and entry.name != args.scope:

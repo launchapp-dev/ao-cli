@@ -48,7 +48,7 @@ In scope for implementation after this phase:
 
 Out of scope:
 - Redesign of workflow phase semantics or decision schema.
-- Manual edits to `/.ao/*.json`.
+- Manual edits to `/.animus/*.json`.
 - New desktop-wrapper dependencies.
 - Non-deterministic/adaptive queue heuristics.
 

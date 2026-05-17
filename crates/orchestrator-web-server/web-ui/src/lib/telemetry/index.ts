@@ -1,5 +1,5 @@
 export {
-  AO_CORRELATION_HEADER,
+  ANIMUS_CORRELATION_HEADER,
   generateCorrelationId,
   normalizeCorrelationId,
   resolveCorrelationId,

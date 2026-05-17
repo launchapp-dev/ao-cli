@@ -306,7 +306,7 @@ mod tests {
         }
 
         let runner_override = runner_path.to_string_lossy();
-        let _runner_guard = EnvVarGuard::set("AO_WORKFLOW_RUNNER_BIN", Some(runner_override.as_ref()));
+        let _runner_guard = EnvVarGuard::set("ANIMUS_WORKFLOW_RUNNER_BIN", Some(runner_override.as_ref()));
 
         let mut manager = ProcessManager::new();
         let dispatch = SubjectDispatch::for_task("task-123", "standard");
@@ -355,7 +355,7 @@ mod tests {
         }
 
         let runner_override = runner_path.to_string_lossy();
-        let _runner_guard = EnvVarGuard::set("AO_WORKFLOW_RUNNER_BIN", Some(runner_override.as_ref()));
+        let _runner_guard = EnvVarGuard::set("ANIMUS_WORKFLOW_RUNNER_BIN", Some(runner_override.as_ref()));
 
         let mut manager = ProcessManager::new();
         let dispatch = SubjectDispatch::for_custom("schedule:nightly", "nightly run", "standard", None, "schedule");
@@ -400,7 +400,7 @@ mod tests {
         }
 
         let runner_override = runner_path.to_string_lossy();
-        let _runner_guard = EnvVarGuard::set("AO_WORKFLOW_RUNNER_BIN", Some(runner_override.as_ref()));
+        let _runner_guard = EnvVarGuard::set("ANIMUS_WORKFLOW_RUNNER_BIN", Some(runner_override.as_ref()));
 
         let dispatch = SubjectDispatch::for_subject_with_metadata(
             protocol::SubjectRef::new("pack.review", "REV-7"),

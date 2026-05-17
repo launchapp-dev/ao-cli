@@ -60,7 +60,7 @@ mod tests {
 
     #[test]
     fn agent_run_help_includes_actionable_field_descriptions() {
-        let error = Cli::try_parse_from(["ao", "agent", "run", "--help"])
+        let error = Cli::try_parse_from(["animus", "agent", "run", "--help"])
             .expect_err("help output should short-circuit parsing");
         assert_eq!(error.kind(), ErrorKind::DisplayHelp);
         let help = error.to_string();
@@ -71,7 +71,7 @@ mod tests {
 
     #[test]
     fn daemon_run_rejects_zero_interval_with_clear_validation_error() {
-        let error = Cli::try_parse_from(["ao", "daemon", "run", "--interval-secs", "0"])
+        let error = Cli::try_parse_from(["animus", "daemon", "run", "--interval-secs", "0"])
             .expect_err("zero interval should fail validation");
         assert_eq!(error.kind(), ErrorKind::ValueValidation);
         let message = error.to_string();
@@ -81,7 +81,7 @@ mod tests {
 
     #[test]
     fn daemon_run_rejects_zero_max_tasks_per_tick_with_clear_validation_error() {
-        let error = Cli::try_parse_from(["ao", "daemon", "run", "--max-tasks-per-tick", "0"])
+        let error = Cli::try_parse_from(["animus", "daemon", "run", "--max-tasks-per-tick", "0"])
             .expect_err("zero max-tasks-per-tick should fail validation");
         assert_eq!(error.kind(), ErrorKind::ValueValidation);
         let message = error.to_string();
@@ -91,7 +91,7 @@ mod tests {
 
     #[test]
     fn daemon_run_rejects_zero_stale_threshold_hours_with_clear_validation_error() {
-        let error = Cli::try_parse_from(["ao", "daemon", "run", "--stale-threshold-hours", "0"])
+        let error = Cli::try_parse_from(["animus", "daemon", "run", "--stale-threshold-hours", "0"])
             .expect_err("zero stale threshold should fail validation");
         assert_eq!(error.kind(), ErrorKind::ValueValidation);
         let message = error.to_string();
@@ -101,7 +101,7 @@ mod tests {
 
     #[test]
     fn daemon_events_rejects_zero_limit() {
-        let error = Cli::try_parse_from(["ao", "daemon", "events", "--limit", "0"])
+        let error = Cli::try_parse_from(["animus", "daemon", "events", "--limit", "0"])
             .expect_err("zero limit should fail validation");
         assert_eq!(error.kind(), ErrorKind::ValueValidation);
         let message = error.to_string();
@@ -111,18 +111,19 @@ mod tests {
 
     #[test]
     fn parses_top_level_status_command() {
-        let cli = Cli::try_parse_from(["ao", "status"]).expect("status command should parse");
+        let cli = Cli::try_parse_from(["animus", "status"]).expect("status command should parse");
         assert!(matches!(cli.command, Command::Status));
     }
 
     #[test]
     fn parses_pack_install_command() {
-        let cli = Cli::try_parse_from(["ao", "pack", "install", "--path", "./fixtures/ao.review", "--activate"])
-            .expect("pack install should parse");
+        let cli =
+            Cli::try_parse_from(["animus", "pack", "install", "--path", "./fixtures/animus.review", "--activate"])
+                .expect("pack install should parse");
 
         match cli.command {
             Command::Pack { command: PackCommand::Install(args) } => {
-                assert_eq!(args.path.as_deref(), Some("./fixtures/ao.review"));
+                assert_eq!(args.path.as_deref(), Some("./fixtures/animus.review"));
                 assert!(args.activate);
                 assert!(!args.force);
             }
@@ -132,7 +133,7 @@ mod tests {
 
     #[test]
     fn parses_queue_enqueue_command() {
-        let cli = Cli::try_parse_from(["ao", "queue", "enqueue", "--task-id", "TASK-123", "--workflow-ref", "ops"])
+        let cli = Cli::try_parse_from(["animus", "queue", "enqueue", "--task-id", "TASK-123", "--workflow-ref", "ops"])
             .expect("queue enqueue command should parse");
 
         match cli.command {
@@ -146,7 +147,7 @@ mod tests {
 
     #[test]
     fn parses_requirements_execute_with_single_id() {
-        let cli = Cli::try_parse_from(["ao", "requirements", "execute", "--id", "REQ-123"])
+        let cli = Cli::try_parse_from(["animus", "requirements", "execute", "--id", "REQ-123"])
             .expect("requirements execute should parse");
 
         match cli.command {
@@ -159,12 +160,12 @@ mod tests {
 
     #[test]
     fn parses_workflow_run_with_positional_pipeline() {
-        let cli = Cli::try_parse_from(["ao", "workflow", "run", "ao.task/standard", "--task-id", "TASK-123"])
+        let cli = Cli::try_parse_from(["animus", "workflow", "run", "animus.task/standard", "--task-id", "TASK-123"])
             .expect("workflow run should parse");
 
         match cli.command {
             Command::Workflow { command: WorkflowCommand::Run(args) } => {
-                assert_eq!(args.pipeline.as_deref(), Some("ao.task/standard"));
+                assert_eq!(args.pipeline.as_deref(), Some("animus.task/standard"));
                 assert_eq!(args.task_id.as_deref(), Some("TASK-123"));
             }
             _ => panic!("expected workflow run command"),
@@ -173,21 +174,21 @@ mod tests {
 
     #[test]
     fn rejects_removed_task_prioritized_command() {
-        let error = Cli::try_parse_from(["ao", "task", "prioritized"]).expect_err("removed command should fail");
+        let error = Cli::try_parse_from(["animus", "task", "prioritized"]).expect_err("removed command should fail");
         assert_eq!(error.kind(), ErrorKind::InvalidSubcommand);
     }
 
     #[test]
     fn rejects_removed_workflow_update_definition_command() {
         let error =
-            Cli::try_parse_from(["ao", "workflow", "update-definition"]).expect_err("removed command should fail");
+            Cli::try_parse_from(["animus", "workflow", "update-definition"]).expect_err("removed command should fail");
         assert_eq!(error.kind(), ErrorKind::InvalidSubcommand);
     }
 
     #[test]
     fn parses_cloud_deploy_create_command() {
         let cli = Cli::try_parse_from([
-            "ao",
+            "animus",
             "cloud",
             "deploy",
             "create",
@@ -212,7 +213,7 @@ mod tests {
 
     #[test]
     fn parses_cloud_deploy_start_command() {
-        let cli = Cli::try_parse_from(["ao", "cloud", "deploy", "start", "--app-name", "test-app"])
+        let cli = Cli::try_parse_from(["animus", "cloud", "deploy", "start", "--app-name", "test-app"])
             .expect("cloud deploy start should parse");
 
         match cli.command {
@@ -225,7 +226,7 @@ mod tests {
 
     #[test]
     fn parses_cloud_deploy_stop_command() {
-        let cli = Cli::try_parse_from(["ao", "cloud", "deploy", "stop", "--app-name", "test-app"])
+        let cli = Cli::try_parse_from(["animus", "cloud", "deploy", "stop", "--app-name", "test-app"])
             .expect("cloud deploy stop should parse");
 
         match cli.command {
@@ -238,7 +239,7 @@ mod tests {
 
     #[test]
     fn parses_cloud_deploy_status_command() {
-        let cli = Cli::try_parse_from(["ao", "cloud", "deploy", "status", "--app-name", "test-app"])
+        let cli = Cli::try_parse_from(["animus", "cloud", "deploy", "status", "--app-name", "test-app"])
             .expect("cloud deploy status should parse");
 
         match cli.command {

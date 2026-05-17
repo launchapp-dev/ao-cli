@@ -2,9 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use anyhow::{anyhow, Context, Result};
-use orchestrator_plugin_host::{
-    discover_plugins, DiscoveredPlugin, DiscoverySource, PluginDiscovery, PluginHost,
-};
+use orchestrator_plugin_host::{discover_plugins, DiscoveredPlugin, DiscoverySource, PluginDiscovery, PluginHost};
 use orchestrator_plugin_protocol::PluginManifest;
 use serde::Serialize;
 use serde_json::Value;
@@ -117,11 +115,8 @@ fn find_plugin(project_root: &str, name: &str, include_system_path: bool) -> Res
     if trimmed.is_empty() {
         return Err(invalid_input_error("--name must not be empty"));
     }
-    let mut matches = if include_system_path {
-        discover(project_root, true)?
-    } else {
-        discover_plugins(Path::new(project_root))?
-    };
+    let mut matches =
+        if include_system_path { discover(project_root, true)? } else { discover_plugins(Path::new(project_root))? };
     matches.retain(|plugin| plugin.name == trimmed);
     matches.pop().ok_or_else(|| not_found_error(format!("plugin not found: {trimmed}")))
 }
@@ -172,21 +167,25 @@ async fn handle_plugin_ping(args: PluginPingArgs, project_root: &str, json: bool
     let _ = host.shutdown().await;
 
     print_value(
-        PluginPingOutput { name: discovered.name, ok: true, plugin_info: serde_json::to_value(initialize.plugin_info)? },
+        PluginPingOutput {
+            name: discovered.name,
+            ok: true,
+            plugin_info: serde_json::to_value(initialize.plugin_info)?,
+        },
         json,
     )
 }
 
 fn install_root() -> Result<PathBuf> {
     let home = dirs::home_dir().ok_or_else(|| anyhow!("could not resolve $HOME"))?;
-    let dir = home.join(".ao").join("plugins");
+    let dir = home.join(".animus").join("plugins");
     std::fs::create_dir_all(&dir).with_context(|| format!("failed to create install dir {}", dir.display()))?;
     Ok(dir)
 }
 
 fn plugins_yaml_path() -> Result<PathBuf> {
     let home = dirs::home_dir().ok_or_else(|| anyhow!("could not resolve $HOME"))?;
-    let dir = home.join(".config").join("ao");
+    let dir = home.join(".config").join("animus");
     std::fs::create_dir_all(&dir).with_context(|| format!("failed to create config dir {}", dir.display()))?;
     Ok(dir.join("plugins.yaml"))
 }
@@ -233,27 +232,52 @@ fn ensure_executable(_path: &Path) -> Result<()> {
     Ok(())
 }
 
-async fn fetch_url_to_temp(url: &str) -> Result<PathBuf> {
+async fn fetch_url_to_temp(url: &str, expected_sha256: &str) -> Result<PathBuf> {
     if !url.starts_with("https://") {
         return Err(invalid_input_error("--url must use https://"));
     }
-    let response =
-        reqwest::get(url).await.with_context(|| format!("failed to download {url}"))?.error_for_status().with_context(
-            || format!("download from {url} returned non-success status"),
-        )?;
+    let response = reqwest::get(url)
+        .await
+        .with_context(|| format!("failed to download {url}"))?
+        .error_for_status()
+        .with_context(|| format!("download from {url} returned non-success status"))?;
     let bytes = response.bytes().await.with_context(|| format!("failed to read body from {url}"))?;
-    let temp_dir = std::env::temp_dir().join(format!("ao-plugin-install-{}", uuid::Uuid::new_v4()));
+
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    let computed_sha = format!("{:x}", hasher.finalize());
+    if !expected_sha256.eq_ignore_ascii_case(&computed_sha) {
+        return Err(invalid_input_error(format!(
+            "sha256 mismatch for {url}: expected {expected_sha256}, computed {computed_sha}"
+        )));
+    }
+
+    let temp_dir = std::env::temp_dir().join(format!("animus-plugin-install-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&temp_dir)?;
     let filename = url.rsplit('/').next().unwrap_or("plugin");
     let dest = temp_dir.join(filename);
-    std::fs::write(&dest, &bytes).with_context(|| format!("failed to write downloaded plugin to {}", dest.display()))?;
+    std::fs::write(&dest, &bytes)
+        .with_context(|| format!("failed to write downloaded plugin to {}", dest.display()))?;
     Ok(dest)
 }
 
 async fn handle_plugin_install(args: PluginInstallArgs, json: bool) -> Result<()> {
+    if args.url.is_some() && args.sha256.is_none() {
+        return Err(invalid_input_error(
+            "--sha256 is required when installing from a URL; compute via `shasum -a 256 <plugin>`",
+        ));
+    }
+
     let source_path = match (args.path.as_deref(), args.url.as_deref()) {
         (Some(p), None) => PathBuf::from(p),
-        (None, Some(u)) => fetch_url_to_temp(u).await?,
+        (None, Some(u)) => {
+            let expected = args.sha256.as_deref().ok_or_else(|| {
+                invalid_input_error(
+                    "--sha256 is required when installing from a URL; compute via `shasum -a 256 <plugin>`",
+                )
+            })?;
+            fetch_url_to_temp(u, expected).await?
+        }
         (Some(_), Some(_)) => return Err(invalid_input_error("--path and --url are mutually exclusive")),
         (None, None) => return Err(invalid_input_error("one of --path or --url must be provided")),
     };
@@ -268,9 +292,7 @@ async fn handle_plugin_install(args: PluginInstallArgs, json: bool) -> Result<()
     let computed_sha = sha256_of_file(&source_path)?;
     if let Some(expected) = args.sha256.as_deref() {
         if !expected.eq_ignore_ascii_case(&computed_sha) {
-            return Err(invalid_input_error(format!(
-                "sha256 mismatch: expected {expected}, computed {computed_sha}"
-            )));
+            return Err(invalid_input_error(format!("sha256 mismatch: expected {expected}, computed {computed_sha}")));
         }
     }
 
@@ -292,9 +314,8 @@ async fn handle_plugin_install(args: PluginInstallArgs, json: bool) -> Result<()
         )));
     }
 
-    std::fs::copy(&source_path, &installed_path).with_context(|| {
-        format!("failed to copy {} → {}", source_path.display(), installed_path.display())
-    })?;
+    std::fs::copy(&source_path, &installed_path)
+        .with_context(|| format!("failed to copy {} → {}", source_path.display(), installed_path.display()))?;
     ensure_executable(&installed_path)?;
 
     let manifest = if args.skip_manifest_check {
@@ -332,10 +353,7 @@ async fn handle_plugin_install(args: PluginInstallArgs, json: bool) -> Result<()
             serde_yaml::Value::String(installed_path.to_string_lossy().to_string()),
         );
         if let Some(m) = manifest.as_ref() {
-            map.insert(
-                serde_yaml::Value::String("name".to_string()),
-                serde_yaml::Value::String(m.name.clone()),
-            );
+            map.insert(serde_yaml::Value::String("name".to_string()), serde_yaml::Value::String(m.name.clone()));
         }
         map
     };
@@ -367,8 +385,7 @@ fn handle_plugin_uninstall(args: PluginUninstallArgs, json: bool) -> Result<()> 
     let yaml_path = plugins_yaml_path()?;
     let mut config = load_plugins_yaml(&yaml_path)?;
     let key = serde_yaml::Value::String(plugin_name.clone());
-    let removed_in_yaml =
-        config.plugins.remove(&key).is_some() || config.providers.remove(&key).is_some();
+    let removed_in_yaml = config.plugins.remove(&key).is_some() || config.providers.remove(&key).is_some();
     if removed_in_yaml {
         save_plugins_yaml(&yaml_path, &config)?;
     }
@@ -376,7 +393,8 @@ fn handle_plugin_uninstall(args: PluginUninstallArgs, json: bool) -> Result<()> 
     let install_dir = install_root()?;
     let installed_path = install_dir.join(&plugin_name);
     let removed = if installed_path.exists() {
-        std::fs::remove_file(&installed_path).with_context(|| format!("failed to remove {}", installed_path.display()))?;
+        std::fs::remove_file(&installed_path)
+            .with_context(|| format!("failed to remove {}", installed_path.display()))?;
         Some(installed_path.to_string_lossy().to_string())
     } else {
         None

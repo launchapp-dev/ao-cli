@@ -18,7 +18,7 @@ Pair this with regression tests that cover the two key transition paths:
 - Keep changes scoped to `crates/orchestrator-core`.
 - Preserve existing status side effects (`started_at`, `completed_at`,
   `cancelled`).
-- Avoid direct/manual edits to `/.ao/*.json`.
+- Avoid direct/manual edits to `/.animus/*.json`.
 - Keep behavior deterministic across in-memory and file-backed hubs.
 
 ## Proposed Change Surface

@@ -32,7 +32,7 @@ phase without changing server endpoint contracts.
 
 ## API Client Contract
 - Provide one client entrypoint for JSON API requests.
-- Parse and validate `ao.cli.v1` envelope before exposing payload to screens.
+- Parse and validate `animus.cli.v1` envelope before exposing payload to screens.
 - Return a normalized union shape:
   - success: `{ kind: "ok", data }`
   - error: `{ kind: "error", code, message, exitCode }`

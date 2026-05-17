@@ -12,8 +12,8 @@ use super::{
 
 fn valid_manifest_toml() -> &'static str {
     r#"
-schema = "ao.pack.v1"
-id = "ao.requirements"
+schema = "animus.pack.v1"
+id = "animus.requirements"
 version = "0.1.0"
 kind = "domain-pack"
 title = "AO Requirements"
@@ -28,15 +28,15 @@ workflow_schema = "v2"
 subject_schema = "v2"
 
 [subjects]
-kinds = ["ao.requirement"]
-default_kind = "ao.requirement"
+kinds = ["animus.requirement"]
+default_kind = "animus.requirement"
 
 [workflows]
 root = "workflows"
 exports = [
-  "ao.requirements/draft",
-  "ao.requirements/refine",
-  "ao.requirements/execute",
+  "animus.requirements/draft",
+  "animus.requirements/refine",
+  "animus.requirements/execute",
 ]
 
 [runtime]
@@ -61,13 +61,13 @@ tools = "mcp/tools.toml"
 file = "schedules/schedules.yaml"
 
 [[dependencies]]
-id = "ao.task"
+id = "animus.task"
 version = ">=0.1.0"
 reason = "Materialize tasks from approved requirements."
 
 [permissions]
 tools = ["git", "cargo"]
-mcp_namespaces = ["ao", "github"]
+mcp_namespaces = ["animus", "github"]
 
 [secrets]
 required = ["OPENAI_API_KEY"]
@@ -75,7 +75,7 @@ optional = ["GITHUB_TOKEN"]
 
 [native_module]
 feature = "plugin-ao-requirements"
-module_id = "ao.requirements"
+module_id = "animus.requirements"
 optional = true
 "#
 }
@@ -97,9 +97,9 @@ fn write_valid_pack_fixture(root: &std::path::Path) {
 #[test]
 fn parse_pack_manifest_accepts_valid_manifest() {
     let manifest = parse_pack_manifest(valid_manifest_toml()).expect("valid manifest should parse");
-    assert_eq!(manifest.id, "ao.requirements");
+    assert_eq!(manifest.id, "animus.requirements");
     assert_eq!(manifest.version, "0.1.0");
-    assert_eq!(manifest.workflows.exports.len(), 3);
+    assert_eq!(manifest.workflows.as_ref().expect("workflows section").exports.len(), 3);
     assert_eq!(manifest.runtime.requirements.len(), 2);
 }
 
@@ -108,7 +108,7 @@ fn validate_pack_manifest_rejects_invalid_semver_and_export_prefix() {
     let mut manifest: PackManifest = toml::from_str(valid_manifest_toml()).expect("deserialize manifest");
     manifest.id = "-bad-pack".to_string();
     manifest.version = "not-semver".to_string();
-    manifest.workflows.exports[0] = "builtin/requirements-execute".to_string();
+    manifest.workflows.as_mut().expect("workflows section").exports[0] = "builtin/requirements-execute".to_string();
 
     let error = validate_pack_manifest(&manifest).expect_err("invalid manifest should fail");
     let message = error.to_string();
@@ -160,7 +160,7 @@ fn load_pack_manifest_reads_and_validates_fixture() {
     write_valid_pack_fixture(temp.path());
 
     let loaded = load_pack_manifest(temp.path()).expect("pack manifest should load");
-    assert_eq!(loaded.manifest.id, "ao.requirements");
+    assert_eq!(loaded.manifest.id, "animus.requirements");
     assert_eq!(loaded.pack_root, temp.path());
     assert_eq!(loaded.manifest_path, temp.path().join(PACK_MANIFEST_FILE_NAME));
 }
@@ -172,10 +172,10 @@ fn load_pack_mcp_overlay_namespaces_servers_and_phase_bindings() {
 
     let loaded = load_pack_manifest(temp.path()).expect("load pack");
     let overlay = load_pack_mcp_overlay(&loaded).expect("load MCP overlay");
-    assert!(overlay.servers.contains_key("ao.requirements/ao"));
+    assert!(overlay.servers.contains_key("animus.requirements/ao"));
     assert_eq!(
         overlay.phase_mcp_bindings.get("research").expect("research binding").servers,
-        vec!["ao.requirements/ao".to_string()]
+        vec!["animus.requirements/ao".to_string()]
     );
 }
 
@@ -188,10 +188,10 @@ fn apply_pack_mcp_overlay_merges_namespaced_phase_servers() {
     let mut workflow = builtin_workflow_config();
     apply_pack_mcp_overlay(&mut workflow, &loaded).expect("apply overlay");
 
-    assert!(workflow.mcp_servers.contains_key("ao.requirements/ao"));
+    assert!(workflow.mcp_servers.contains_key("animus.requirements/ao"));
     assert_eq!(
         workflow.phase_mcp_bindings.get("research").expect("research binding should be present").servers,
-        vec!["ao.requirements/ao".to_string()]
+        vec!["animus.requirements/ao".to_string()]
     );
 }
 
@@ -290,7 +290,7 @@ fn activate_pack_mcp_overlay_validates_runtimes_before_merging() {
     let mut workflow = builtin_workflow_config();
     let report = activate_pack_mcp_overlay(&mut workflow, &loaded).expect("activate overlay");
     assert_eq!(report.checks[0].status, PackRuntimeCheckStatus::Satisfied);
-    assert!(workflow.mcp_servers.contains_key("ao.requirements/ao"));
+    assert!(workflow.mcp_servers.contains_key("animus.requirements/ao"));
 }
 
 #[cfg(unix)]

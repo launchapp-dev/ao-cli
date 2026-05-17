@@ -13,9 +13,9 @@ helper logic and enforces deterministic cross-crate behavior.
 
 ## Non-Negotiable Constraints
 - Keep changes scoped to helper consolidation and related tests.
-- Preserve CLI envelope (`ao.cli.v1`) and existing exit-code mapping values.
+- Preserve CLI envelope (`animus.cli.v1`) and existing exit-code mapping values.
 - Preserve repository scope hash strategy and output shape.
-- Do not manually edit `/.ao/*.json`.
+- Do not manually edit `/.animus/*.json`.
 - Keep dependency graph acyclic.
 
 ## Planned Change Surface

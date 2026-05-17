@@ -571,9 +571,9 @@ mod tests {
         let _lock = crate::shared::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
         let temp = tempfile::tempdir().expect("tempdir should be created");
         let _home = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
-        let _scope = EnvVarGuard::set("AO_RUNNER_SCOPE", Some("global"));
+        let _scope = EnvVarGuard::set("ANIMUS_RUNNER_SCOPE", Some("global"));
         let override_dir = temp.path().join("override-config");
-        let _ao_config = EnvVarGuard::set("AO_CONFIG_DIR", Some(override_dir.to_string_lossy().as_ref()));
+        let _ao_config = EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(override_dir.to_string_lossy().as_ref()));
         let project_root = temp.path().join("project");
         std::fs::create_dir_all(&project_root).expect("project dir should be created");
 

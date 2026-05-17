@@ -59,6 +59,13 @@ impl PluginDiscovery {
         self
     }
 
+    /// Opt in to scanning `$PATH` for `animus-plugin-*` / `animus-provider-*` binaries.
+    ///
+    /// Defaults to `false`. When enabled, [`PluginDiscovery::discover`] will
+    /// execute every matching binary on `$PATH` with `--manifest` to fetch its
+    /// manifest. This runs arbitrary executables found on the user's `$PATH`
+    /// during discovery, so only enable when the caller explicitly trusts that
+    /// surface.
     pub fn include_system_path(mut self, include_system_path: bool) -> Self {
         self.include_system_path = include_system_path;
         self
@@ -71,10 +78,10 @@ impl PluginDiscovery {
         self.discover_configured(&mut discovered, &mut seen)?;
 
         if let Some(project_root) = &self.project_root {
-            scan_dir(&project_root.join(".ao/plugins"), DiscoverySource::ProjectLocal, &mut discovered, &mut seen);
+            scan_dir(&project_root.join(".animus/plugins"), DiscoverySource::ProjectLocal, &mut discovered, &mut seen);
         }
 
-        if let Ok(plugin_path) = std::env::var("AO_PLUGIN_PATH") {
+        if let Ok(plugin_path) = std::env::var("ANIMUS_PLUGIN_PATH") {
             for raw_dir in plugin_path.split(':') {
                 if !raw_dir.trim().is_empty() {
                     scan_dir(Path::new(raw_dir), DiscoverySource::PluginPath, &mut discovered, &mut seen);
@@ -156,7 +163,7 @@ fn scan_dir(dir: &Path, source: DiscoverySource, discovered: &mut Vec<Discovered
 }
 
 fn is_scanned_plugin_name(name: &str) -> bool {
-    name.starts_with("ao-plugin-") || name.starts_with("ao-provider-")
+    name.starts_with("animus-plugin-") || name.starts_with("animus-provider-")
 }
 
 fn load_plugins_config(path: &Path) -> Result<PluginsConfig> {
@@ -195,6 +202,16 @@ mod tests {
     use std::fs;
 
     use super::*;
+
+    #[test]
+    fn default_discovery_does_not_scan_system_path() {
+        let discovery = PluginDiscovery::new();
+        assert!(!discovery.include_system_path, "PluginDiscovery::new() must not opt into $PATH scanning by default");
+        assert!(
+            !PluginDiscovery::default().include_system_path,
+            "PluginDiscovery::default() must not opt into $PATH scanning"
+        );
+    }
 
     #[test]
     fn configured_plugin_can_use_non_prefixed_binary() {

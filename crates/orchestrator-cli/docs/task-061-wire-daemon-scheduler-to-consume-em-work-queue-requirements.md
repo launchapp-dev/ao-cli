@@ -23,7 +23,7 @@ Snapshot date: `2026-02-27`.
 | Daemon concurrency signal | `crates/orchestrator-core/src/services/daemon_impl.rs` (`health`) | provides `active_agents` and optional `max_agents` | ready-task startup path does not consume this signal when deciding batch size |
 | Workflow terminal reconciliation | `daemon_scheduler_project_tick.rs` (`sync_task_status_for_workflow_result`) | syncs task status with workflow terminal states | no queue-entry lifecycle cleanup hook |
 | Daemon task-state telemetry | `crates/orchestrator-cli/src/services/runtime/runtime_daemon/daemon_run.rs` (`task-state-change` events) | emits status transitions with task/workflow/phase fields | no task selection-source field |
-| Repo-scoped daemon runtime state | `crates/orchestrator-cli/src/services/runtime/runtime_daemon/daemon_scheduler_git_ops.rs` (`repo_ao_root`) | supports deterministic repo-scoped state under `~/.ao/<repo-scope>/...` | no documented dispatch queue persistence/loader contract in scheduler runtime |
+| Repo-scoped daemon runtime state | `crates/orchestrator-cli/src/services/runtime/runtime_daemon/daemon_scheduler_git_ops.rs` (`repo_ao_root`) | supports deterministic repo-scoped state under `~/.animus/<repo-scope>/...` | no documented dispatch queue persistence/loader contract in scheduler runtime |
 
 ## Problem Statement
 The scheduler currently ignores EM-curated task ordering and only uses the
@@ -46,7 +46,7 @@ In scope for implementation after this phase:
 Out of scope:
 - Redesigning task priority policy or fallback picker ranking.
 - Broad workflow state-machine refactors.
-- Manual edits to `/.ao/*.json`.
+- Manual edits to `/.animus/*.json`.
 - New desktop-wrapper dependencies.
 
 ## Constraints

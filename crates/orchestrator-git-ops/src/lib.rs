@@ -140,7 +140,7 @@ mod tests {
             .expect("task should be created");
         hub.tasks().set_status(&task.id, status, false).await.expect("task status should be updated");
 
-        let branch_name = format!("ao/{}", task.id.to_ascii_lowercase());
+        let branch_name = format!("animus/{}", task.id.to_ascii_lowercase());
         let worktree_name = format!("task-{}", task.id.to_ascii_lowercase());
         let worktree_path =
             repo_worktrees_root(project_root).expect("repo worktree root should resolve").join(worktree_name);
@@ -284,7 +284,7 @@ mod tests {
             managed_root.file_name().and_then(|value| value.to_str()).unwrap_or("worktrees").to_string();
         let sibling_root = managed_root.with_file_name(format!("{managed_root_name}-shadow"));
 
-        let branch_name = format!("ao/{}", task.id.to_ascii_lowercase());
+        let branch_name = format!("animus/{}", task.id.to_ascii_lowercase());
         let worktree_name = format!("task-{}", task.id.to_ascii_lowercase());
         let worktree_path = sibling_root.join(worktree_name);
         if let Some(parent) = worktree_path.parent() {

@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("GIT_HASH"), ")");
 
 #[derive(Parser)]
-#[command(name = "ao-oai-runner", version = VERSION, about = "OpenAI-compatible agent runner for AO")]
+#[command(name = "animus-oai-runner", version = VERSION, about = "OpenAI-compatible agent runner for AO")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

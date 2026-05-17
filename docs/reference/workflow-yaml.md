@@ -1,6 +1,6 @@
 # Workflow YAML Schema Reference
 
-AO workflow YAML is authored in `.ao/workflows.yaml` and `.ao/workflows/*.yaml`.
+AO workflow YAML is authored in `.animus/workflows.yaml` and `.animus/workflows/*.yaml`.
 Those files are merged with installed pack overlays to produce the
 effective workflow configuration that `workflow-runner` executes. This document
 describes the authored YAML surface.
@@ -20,7 +20,7 @@ phases:          # Reusable phase execution definitions
 workflows:       # Named workflow pipelines
 ```
 
-All sections are optional. Multiple YAML files in `.ao/workflows/` are merged,
+All sections are optional. Multiple YAML files in `.animus/workflows/` are merged,
 and project YAML can override installed pack workflows.
 
 ---
@@ -100,7 +100,7 @@ agents:
     tool: <string>               # Optional. CLI tool to use (e.g., claude, codex, gemini).
     tool_profile: <string>       # Optional. Named global Claude profile; only valid with tool=claude.
     mcp_servers:                 # Optional. MCP server names this agent can access.
-      - "ao"
+      - "animus"
       - "hubspot"
     skills:                      # Optional. Skill identifiers.
       - "skill-name"
@@ -126,7 +126,7 @@ agents:
 | `tool` | string | no | CLI tool to invoke (claude, codex, gemini, etc.) |
 | `tool_profile` | string | no | Named global Claude profile to resolve into launch env; only valid for `claude` |
 | `mcp_servers` | string[] | no | Names of `mcp_servers` entries this agent can use |
-| `skills` | string[] | no | Skill identifiers to attach. Skills resolve from built-ins, `.ao/config/skill_definitions/*.yml`, and Markdown skills such as `.ao/skills/<name>/SKILL.md` or `.ao/skills/<name>.md` |
+| `skills` | string[] | no | Skill identifiers to attach. Skills resolve from built-ins, `.animus/config/skill_definitions/*.yml`, and Markdown skills such as `.animus/skills/<name>/SKILL.md` or `.animus/skills/<name>.md` |
 | `capabilities` | map\<string, bool\> | no | Capability flags |
 | `tool_policy` | object | no | Tool access control policy |
 
@@ -151,7 +151,7 @@ agent_channels:
 ```
 
 Messages are stored under the scoped runtime state directory and can be written
-through `animus agent message send` or the MCP tool `ao.agent.message.send`. Agents
+through `animus agent message send` or the MCP tool `animus.agent.message.send`. Agents
 only receive channel context when their profile has `communication.enabled:
 true` and lists that channel.
 
@@ -195,7 +195,7 @@ phases:
 | `agent` | string | no | Agent profile name to use for the phase |
 | `directive` | string | no | Phase-specific instruction appended to the prompt contract |
 | `system_prompt` | string | no | Phase-specific system prompt |
-| `skills` | string[] | no | Skill identifiers to resolve, validate, and apply at phase runtime. Markdown skills in `.ao/skills` are loaded as prompt-only skills |
+| `skills` | string[] | no | Skill identifiers to resolve, validate, and apply at phase runtime. Markdown skills in `.animus/skills` are loaded as prompt-only skills |
 | `runtime` | object | no | Tool/model/runtime overrides for the phase |
 | `capabilities` | object | no | Structured phase capability flags |
 | `output_contract` | object | no | Structured result contract for the phase |
@@ -436,7 +436,7 @@ When a phase completes, the agent (or automated system) produces a `PhaseDecisio
 ## Complete Annotated Example
 
 ```yaml
-# .ao/workflows/custom.yaml
+# .animus/workflows/custom.yaml
 
 # Agent profiles
 agents:

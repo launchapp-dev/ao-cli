@@ -11,7 +11,7 @@ behavior.
 - Preserve `crate::cli_types::{...}` consumer ergonomics via root re-exports.
 - Preserve `WebApiService` public method signatures used by web-server routes.
 - Keep changes Rust-only under `crates/`.
-- No direct edits to `.ao/*.json`.
+- No direct edits to `.animus/*.json`.
 
 ## Proposed Change Surface
 

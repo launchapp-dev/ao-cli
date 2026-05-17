@@ -17,13 +17,13 @@ pub struct ProviderCredential {
 
 impl Credentials {
     pub fn load_global() -> Self {
-        if let Ok(dir) = std::env::var("AO_CONFIG_DIR") {
+        if let Ok(dir) = std::env::var("ANIMUS_CONFIG_DIR") {
             if let Some(creds) = Self::try_load_from(&PathBuf::from(dir).join("credentials.json")) {
                 return creds;
             }
         }
         if let Ok(home) = std::env::var("HOME") {
-            if let Some(creds) = Self::try_load_from(&PathBuf::from(home).join(".ao").join("credentials.json")) {
+            if let Some(creds) = Self::try_load_from(&PathBuf::from(home).join(".animus").join("credentials.json")) {
                 return creds;
             }
         }

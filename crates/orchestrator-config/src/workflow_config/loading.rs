@@ -15,14 +15,14 @@ use crate::{
 };
 
 pub fn workflow_config_path(project_root: &Path) -> PathBuf {
-    let base = protocol::scoped_state_root(project_root).unwrap_or_else(|| project_root.join(".ao"));
+    let base = protocol::scoped_state_root(project_root).unwrap_or_else(|| project_root.join(".animus"));
     base.join("config").join(WORKFLOW_CONFIG_FILE_NAME)
 }
 
 pub fn legacy_workflow_config_paths(project_root: &Path) -> [PathBuf; 2] {
     [
-        project_root.join(".ao").join("state").join("workflow-config.json"),
-        project_root.join(".ao").join("workflow-config.json"),
+        project_root.join(".animus").join("state").join("workflow-config.json"),
+        project_root.join(".animus").join("workflow-config.json"),
     ]
 }
 
@@ -50,7 +50,7 @@ pub fn load_workflow_config_with_metadata(project_root: &Path) -> Result<LoadedW
     let path = workflow_config_path(project_root);
     if let Some(legacy_path) = legacy_workflow_config_paths(project_root).iter().find(|candidate| candidate.exists()) {
         return Err(anyhow!(
-            "workflow config v2 JSON is no longer supported at {} (found unsupported legacy file at {}). Remove the JSON config and define workflows in .ao/workflows.yaml or .ao/workflows/*.yaml",
+            "workflow config v2 JSON is no longer supported at {} (found unsupported legacy file at {}). Remove the JSON config and define workflows in .animus/workflows.yaml or .animus/workflows/*.yaml",
             path.display(),
             legacy_path.display()
         ));
@@ -58,7 +58,7 @@ pub fn load_workflow_config_with_metadata(project_root: &Path) -> Result<LoadedW
 
     if path.exists() {
         return Err(anyhow!(
-            "workflow config JSON is no longer supported at {}. Remove the JSON config and define workflows in .ao/workflows.yaml or .ao/workflows/*.yaml",
+            "workflow config JSON is no longer supported at {}. Remove the JSON config and define workflows in .animus/workflows.yaml or .animus/workflows/*.yaml",
             path.display()
         ));
     }
@@ -79,7 +79,7 @@ pub fn load_workflow_config_with_metadata(project_root: &Path) -> Result<LoadedW
 
         if let Some(yaml_config) = super::compile_yaml_sources_with_base(&config, &yaml_sources)? {
             config = merge_yaml_into_config(config, yaml_config);
-            let single_file = project_root.join(".ao").join("workflows.yaml");
+            let single_file = project_root.join(".animus").join("workflows.yaml");
             let workflows_dir = yaml_workflows_dir(project_root);
             path = if single_file.exists() { single_file } else { workflows_dir };
         }
@@ -90,7 +90,7 @@ pub fn load_workflow_config_with_metadata(project_root: &Path) -> Result<LoadedW
             };
             if let Some(overlay) = load_pack_workflow_overlay(pack, &config)? {
                 config = merge_yaml_into_config(config, overlay);
-                path = entry.pack_root.clone().unwrap_or_else(|| project_root.join(".ao").join("plugins"));
+                path = entry.pack_root.clone().unwrap_or_else(|| project_root.join(".animus").join("plugins"));
             }
         }
 
@@ -114,7 +114,7 @@ pub fn load_workflow_config_with_metadata(project_root: &Path) -> Result<LoadedW
         });
     }
 
-    Err(anyhow!("workflow config is missing. Define workflows in .ao/workflows.yaml or .ao/workflows/*.yaml"))
+    Err(anyhow!("workflow config is missing. Define workflows in .animus/workflows.yaml or .animus/workflows/*.yaml"))
 }
 
 pub fn load_workflow_config_or_default(project_root: &Path) -> LoadedWorkflowConfig {

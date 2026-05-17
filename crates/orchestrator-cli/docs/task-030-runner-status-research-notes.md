@@ -10,13 +10,13 @@
 
 ## AO State Evidence (2026-02-26)
 - Task definition explicitly calls out both defects and links `REQ-003`:
-  - `.ao/tasks/TASK-030.json:15`
-  - `.ao/tasks/TASK-030.json:20`
+  - `.animus/tasks/TASK-030.json:15`
+  - `.animus/tasks/TASK-030.json:20`
 - Requirement scope is runner reliability/diagnostics:
-  - `.ao/requirements/generated/REQ-003.json:12`
-  - `.ao/requirements/generated/REQ-003.json:34`
+  - `.animus/requirements/generated/REQ-003.json:12`
+  - `.animus/requirements/generated/REQ-003.json:34`
 - Noted traceability gap: `REQ-003` currently links `TASK-003` only, not `TASK-030`:
-  - `.ao/requirements/generated/REQ-003.json:19`
+  - `.animus/requirements/generated/REQ-003.json:19`
 
 ## Code Evidence
 

@@ -154,8 +154,8 @@ pub struct SubjectDispatch {
 
 Examples:
 
-- `ao.task`
-- `ao.requirement`
+- `animus.task`
+- `animus.requirement`
 - `jira.issue`
 - `linear.issue`
 - `incident.alert`
@@ -200,8 +200,8 @@ bin/
 ### Manifest Example
 
 ```toml
-schema = "ao.pack.v1"
-id = "ao.requirements"
+schema = "animus.pack.v1"
+id = "animus.requirements"
 version = "0.1.0"
 kind = "domain-pack"
 title = "AO Requirements"
@@ -216,15 +216,15 @@ workflow_schema = "v2"
 subject_schema = "v2"
 
 [subjects]
-kinds = ["ao.requirement"]
-default_kind = "ao.requirement"
+kinds = ["animus.requirement"]
+default_kind = "animus.requirement"
 
 [workflows]
 root = "workflows"
 exports = [
-  "ao.requirements/draft",
-  "ao.requirements/refine",
-  "ao.requirements/execute",
+  "animus.requirements/draft",
+  "animus.requirements/refine",
+  "animus.requirements/execute",
 ]
 
 [runtime]
@@ -248,7 +248,7 @@ file = "schedules/schedules.yaml"
 
 [native_module]
 feature = "plugin-ao-requirements"
-module_id = "ao.requirements"
+module_id = "animus.requirements"
 optional = true
 ```
 
@@ -274,9 +274,9 @@ project-local YAML.
 
 ### Resolution Order
 
-1. Project-local overrides in `.ao/plugins/<pack-id>/`
-2. Project-local ad hoc workflows in `.ao/workflows/`
-3. Installed pack workflows in `~/.ao/packs/<pack-id>/<version>/`
+1. Project-local overrides in `.animus/plugins/<pack-id>/`
+2. Project-local ad hoc workflows in `.animus/workflows/`
+3. Installed pack workflows in `~/.animus/packs/<pack-id>/<version>/`
 4. Bundled first-party packs embedded into the AO binary
 
 This preserves the current override model while allowing installable pack
@@ -286,9 +286,9 @@ distribution.
 
 Workflow refs should move toward pack-qualified names:
 
-- `ao.task/standard`
-- `ao.task/quick-fix`
-- `ao.requirements/execute`
+- `animus.task/standard`
+- `animus.task/quick-fix`
+- `animus.requirements/execute`
 - `jira.issue/sync`
 - `incident.alert/respond`
 
@@ -404,14 +404,14 @@ pub trait ExecutionProjector: Send + Sync {
 }
 ```
 
-The registry can ship built-in implementations for `ao.task` and
-`ao.requirement`, while future packs register additional implementations.
+The registry can ship built-in implementations for `animus.task` and
+`animus.requirement`, while future packs register additional implementations.
 
 ## Built-In Packs
 
 The current AO product domains should become bundled packs.
 
-### `ao.task`
+### `animus.task`
 
 Owns:
 
@@ -422,7 +422,7 @@ Owns:
 - task mutation tool namespace
 - scheduled work planner and reconciler workflows
 
-### `ao.requirement`
+### `animus.requirement`
 
 Owns:
 
@@ -432,7 +432,7 @@ Owns:
 - requirement mutation tools
 - task materialization workflows
 
-### `ao.review`
+### `animus.review`
 
 Owns:
 
@@ -456,7 +456,7 @@ Shipped with the AO binary and embedded at build time.
 Installed under:
 
 ```text
-~/.ao/packs/<pack-id>/<version>/
+~/.animus/packs/<pack-id>/<version>/
 ```
 
 These can be fetched from local paths, git repositories, or future registries.
@@ -467,7 +467,7 @@ Projects should pin the packs they use in project config:
 
 ```toml
 [[packs]]
-id = "ao.task"
+id = "animus.task"
 version = "builtin"
 
 [[packs]]
@@ -502,8 +502,8 @@ installed packs.
 
 ### Phase 4: Built-In Domain Packs
 
-- move task workflows into `ao.task`
-- move requirement workflows into `ao.requirement`
+- move task workflows into `animus.task`
+- move requirement workflows into `animus.requirement`
 - register built-in task and requirement projectors/adapters via pack ids
 
 ### Phase 5: Native Module Registries
@@ -542,7 +542,7 @@ The architecture is correct when:
   schedules as one unit
 - a pack can declare external runtime requirements such as Node.js or Python
   and execute them through command phases or MCP server processes
-- `ao.task` and `ao.requirement` behave as bundled packs rather than kernel
+- `animus.task` and `animus.requirement` behave as bundled packs rather than kernel
   special cases
 - new subject kinds can be added without editing daemon-core dispatch logic
 - MCP integrations are attached through packs and workflow policy, not daemon

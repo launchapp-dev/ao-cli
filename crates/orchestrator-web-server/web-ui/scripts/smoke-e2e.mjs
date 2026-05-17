@@ -273,7 +273,7 @@ async function waitForReady(server) {
 
     try {
       const { response, contentType, text, json } = await fetchAndParse(endpoint);
-      if (response.status === 200 && json?.schema === "ao.cli.v1" && json?.ok === true) {
+      if (response.status === 200 && json?.schema === "animus.cli.v1" && json?.ok === true) {
         record("PASS", `${server.name} readiness`, endpoint);
         return;
       }
@@ -321,7 +321,7 @@ async function assertSystemInfoEnvelope(baseUrl) {
   const { response, json } = await fetchAndParse(url);
 
   assertCondition(response.status === 200, "system/info status", `expected 200, got ${response.status}`);
-  assertCondition(json?.schema === "ao.cli.v1", "system/info schema", `expected ao.cli.v1, got ${json?.schema}`);
+  assertCondition(json?.schema === "animus.cli.v1", "system/info schema", `expected animus.cli.v1, got ${json?.schema}`);
   assertCondition(json?.ok === true, "system/info ok", `expected true, got ${json?.ok}`);
 }
 
@@ -335,9 +335,9 @@ async function assertApiOnlyDeepLinkRejection(baseUrl) {
     `expected 404, got ${response.status}`,
   );
   assertCondition(
-    json?.schema === "ao.cli.v1",
+    json?.schema === "animus.cli.v1",
     "api_only deep-link schema",
-    `expected ao.cli.v1, got ${json?.schema}`,
+    `expected animus.cli.v1, got ${json?.schema}`,
   );
   assertCondition(json?.ok === false, "api_only deep-link ok", `expected false, got ${json?.ok}`);
   assertCondition(

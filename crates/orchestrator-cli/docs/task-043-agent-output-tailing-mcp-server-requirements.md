@@ -6,7 +6,7 @@
 - Task: `TASK-043`
 
 ## Objective
-Add a deterministic MCP tool, `ao.output.tail`, that returns the most recent
+Add a deterministic MCP tool, `animus.output.tail`, that returns the most recent
 agent output/thinking/error events for a running or recently completed workflow
 phase using request/response semantics (no streaming dependency).
 
@@ -14,7 +14,7 @@ phase using request/response semantics (no streaming dependency).
 
 | Surface | Current location | Current behavior | Gap |
 | --- | --- | --- | --- |
-| MCP output tools | `crates/orchestrator-cli/src/services/operations/ops_mcp.rs` | exposes `ao.output.run`, `ao.output.monitor`, `ao.output.jsonl`, `ao.output.artifacts` | no tail-oriented MCP tool for incremental visibility |
+| MCP output tools | `crates/orchestrator-cli/src/services/operations/ops_mcp.rs` | exposes `animus.output.run`, `animus.output.monitor`, `animus.output.jsonl`, `animus.output.artifacts` | no tail-oriented MCP tool for incremental visibility |
 | MCP tool execution model | `ops_mcp.rs` (`AoMcpServer::run_tool`) | executes AO CLI and parses one JSON envelope from stdout | not suitable for stream-style observation flows |
 | Output monitor command | `crates/orchestrator-cli/src/services/operations/ops_output.rs` (`OutputCommand::Monitor`) | reads all JSONL entries for `run_id` and applies optional task/phase filtering | no bounded last-N tail contract and no event-type filtering |
 | Run JSONL lookup behavior | `ops_output.rs` (`resolve_run_dir_for_lookup`) | deterministic run-dir lookup (scoped canonical path, then legacy fallbacks) | currently not exposed as MCP tail contract |
@@ -23,7 +23,7 @@ phase using request/response semantics (no streaming dependency).
 
 ## Scope
 In scope for implementation after this requirements phase:
-- Add MCP tool `ao.output.tail`.
+- Add MCP tool `animus.output.tail`.
 - Tool input supports either `run_id` or `task_id` lookup.
 - Read `events.jsonl` from the resolved run directory.
 - Return the last `N` matching events with deterministic ordering.
@@ -31,10 +31,10 @@ In scope for implementation after this requirements phase:
 - Add focused tests for lookup, filtering, bounds, and malformed-line handling.
 
 Out of scope:
-- Replacing/removing existing `ao.output.monitor` behavior.
+- Replacing/removing existing `animus.output.monitor` behavior.
 - Introducing streaming MCP responses.
 - Changing persisted `AgentRunEvent` schema.
-- Manual edits to `.ao/*.json`.
+- Manual edits to `.animus/*.json`.
 
 ## Constraints
 - Deterministic resolution:
@@ -54,7 +54,7 @@ Out of scope:
 ## Functional Requirements
 
 ### FR-01: New MCP Tool Surface
-- Add tool `ao.output.tail` in `ops_mcp.rs`.
+- Add tool `animus.output.tail` in `ops_mcp.rs`.
 - Input schema includes:
   - `run_id` (optional),
   - `task_id` (optional),
@@ -113,9 +113,9 @@ Out of scope:
 
 ### FR-07: Regression Safety
 - Existing behavior for:
-  - `ao.output.run`,
-  - `ao.output.monitor`,
-  - `ao.output.jsonl`,
+  - `animus.output.run`,
+  - `animus.output.monitor`,
+  - `animus.output.jsonl`,
   remains unchanged.
 
 ### FR-08: Test Coverage
@@ -128,7 +128,7 @@ Out of scope:
   - structured payload fields.
 
 ## Acceptance Criteria
-- `AC-01`: `ao.output.tail` exists and is discoverable as an MCP tool.
+- `AC-01`: `animus.output.tail` exists and is discoverable as an MCP tool.
 - `AC-02`: Tool accepts `run_id` xor `task_id` and rejects ambiguous input.
 - `AC-03`: Tool reads `events.jsonl` for resolved run and returns bounded last-N
   events.
@@ -142,7 +142,7 @@ Out of scope:
 - `AC-09`: Focused tests cover resolution/filter/bounds/error contracts.
 
 ## Testable Acceptance Checklist
-- `T-01`: `ops_mcp` test for `ao.output.tail` input validation (`run_id` xor
+- `T-01`: `ops_mcp` test for `animus.output.tail` input validation (`run_id` xor
   `task_id`).
 - `T-02`: run-id path test validates scoped/legacy lookup compatibility.
 - `T-03`: task-id resolution test picks deterministic latest workflow phase run.
@@ -175,7 +175,7 @@ Likely test targets:
 - `crates/orchestrator-cli/src/services/operations/ops_output.rs` (`#[cfg(test)]`)
 
 ## Deterministic Deliverables for Implementation Phase
-- New MCP tool `ao.output.tail` with bounded request/response tail contract.
+- New MCP tool `animus.output.tail` with bounded request/response tail contract.
 - Deterministic `task_id`/`run_id` run resolution behavior.
 - Event-type filter support (`output`, `error`, `thinking`).
 - Focused regression tests proving ordering, bounds, and parse robustness.

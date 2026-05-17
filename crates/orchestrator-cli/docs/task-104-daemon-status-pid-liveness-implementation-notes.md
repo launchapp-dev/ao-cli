@@ -15,8 +15,8 @@ Translate TASK-104 into a minimal, deterministic implementation slice that:
 - Keep changes scoped to daemon runtime + MCP health/status surfaces.
 - Keep status output backward-compatible as `DaemonStatus`.
 - Keep daemon health changes additive (`process_alive` only; no field removal).
-- Use deterministic repo-scoped runtime paths under `~/.ao/<repo-scope>/...`.
-- Do not manually edit `.ao/*.json`.
+- Use deterministic repo-scoped runtime paths under `~/.animus/<repo-scope>/...`.
+- Do not manually edit `.animus/*.json`.
 
 ## Proposed Change Surface
 
@@ -25,7 +25,7 @@ Translate TASK-104 into a minimal, deterministic implementation slice that:
   - `crates/orchestrator-cli/src/services/runtime/runtime_daemon/daemon_run.rs`
 - Add helpers for:
   - resolving daemon PID path:
-    - `~/.ao/<repo-scope>/daemon/daemon.pid`,
+    - `~/.animus/<repo-scope>/daemon/daemon.pid`,
   - reading/parsing PID file,
   - writing current PID atomically,
   - clearing stale pid file on shutdown.
@@ -39,7 +39,7 @@ Translate TASK-104 into a minimal, deterministic implementation slice that:
   - write pid file for current process.
 - On guard drop:
   - clear pid file if it still matches current PID.
-- Keep existing lock-file behavior (`.ao/daemon.lock`) intact.
+- Keep existing lock-file behavior (`.animus/daemon.lock`) intact.
 
 ### 3) Add Daemon Process Snapshot for Status/Health
 - Primary target:
@@ -67,13 +67,13 @@ Translate TASK-104 into a minimal, deterministic implementation slice that:
   - `runtime_daemon.rs` (`DaemonCommand::Health` branch)
 - Build output object that preserves existing health fields and adds:
   - `process_alive: bool`.
-- Ensure JSON envelope remains `ao.cli.v1` via existing `print_value` path.
+- Ensure JSON envelope remains `animus.cli.v1` via existing `print_value` path.
 
 ### 6) MCP Health Parity
 - Target:
   - `crates/orchestrator-cli/src/services/operations/ops_mcp.rs`
 - Because MCP wraps CLI `daemon health`, no schema fork is required.
-- Add/adjust MCP tests that assert `ao.daemon.health` includes
+- Add/adjust MCP tests that assert `animus.daemon.health` includes
   `result.process_alive`.
 
 ## Suggested Implementation Sequence

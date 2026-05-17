@@ -59,7 +59,7 @@ graph TD
 ## Constants
 
 - `PROTOCOL_VERSION = "1.0.0"`
-- `CLI_SCHEMA_ID = "ao.cli.v1"`
+- `CLI_SCHEMA_ID = "animus.cli.v1"`
 - `MAX_UNIX_SOCKET_PATH_LEN = 100`
 
 ## Workspace role

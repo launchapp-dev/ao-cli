@@ -94,9 +94,9 @@ fn setup_plan_apply_and_idempotent_rerun_are_stable() -> Result<()> {
         .and_then(Value::as_array)
         .is_some_and(|domains| domains.iter().any(|value| value.as_str() == Some("project_bootstrap"))));
 
-    let config_json_path = harness.project_root().join(".ao").join("config.json");
+    let config_json_path = harness.project_root().join(".animus").join("config.json");
     assert!(config_json_path.exists(), "setup apply should bootstrap project config");
-    let workflows_dir = harness.project_root().join(".ao").join("workflows");
+    let workflows_dir = harness.project_root().join(".animus").join("workflows");
     assert!(workflows_dir.join("custom.yaml").exists(), "setup apply should scaffold custom workflow YAML");
     assert!(
         workflows_dir.join("standard-workflow.yaml").exists(),
@@ -193,7 +193,7 @@ fn doctor_reports_stable_checks_and_fix_actions() -> Result<()> {
 #[test]
 fn doctor_fix_skips_manual_ao_directory_repair() -> Result<()> {
     let harness = CliHarness::new()?;
-    std::fs::write(harness.project_root().join(".ao"), "not a directory")?;
+    std::fs::write(harness.project_root().join(".animus"), "not a directory")?;
 
     let doctor = harness.run_json_ok(&["doctor"])?;
     let checks =
@@ -232,7 +232,7 @@ fn doctor_fix_skips_manual_ao_directory_repair() -> Result<()> {
             (Some("start_runner"), Some("skipped"))
         )
     }));
-    assert!(harness.project_root().join(".ao").is_file());
+    assert!(harness.project_root().join(".animus").is_file());
 
     Ok(())
 }

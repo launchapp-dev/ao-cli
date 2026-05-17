@@ -13,7 +13,7 @@ and error/exit-code mappings remain stable across representative command paths.
 
 | Coverage area | Current location | Current state | Gap |
 | --- | --- | --- | --- |
-| Success envelope smoke checks | `crates/orchestrator-cli/tests/cli_smoke.rs` | asserts `schema=ao.cli.v1` and `ok=true` for a few commands | does not validate contract breadth or exit behavior |
+| Success envelope smoke checks | `crates/orchestrator-cli/tests/cli_smoke.rs` | asserts `schema=animus.cli.v1` and `ok=true` for a few commands | does not validate contract breadth or exit behavior |
 | Error envelope smoke checks | `crates/orchestrator-cli/tests/support/test_harness.rs`, `crates/orchestrator-cli/tests/cli_e2e.rs` | validates `schema` and `ok=false`; one `not_found` assertion | no matrix for error-code mappings |
 | Error classification logic | `crates/orchestrator-cli/src/shared/output.rs`, `crates/orchestrator-cli/src/shared.rs` tests | unit-level mapping checks for selected messages | no command-level proof that CLI status and envelope `error.exit_code` stay aligned |
 
@@ -32,7 +32,7 @@ In scope for the implementation phase following this requirements pass:
 - Keep tests deterministic by using isolated temp project/config roots.
 
 Out of scope for this task:
-- Changing envelope schema (`ao.cli.v1`) or remapping exit-code semantics.
+- Changing envelope schema (`animus.cli.v1`) or remapping exit-code semantics.
 - Changing clap parse/help formatting behavior for pre-dispatch argument errors.
 - Expanding to non-JSON output contracts.
 
@@ -42,7 +42,7 @@ Out of scope for this task:
 - Avoid external network/service dependencies; use commands that fail
   deterministically in local temp roots.
 - Keep tests repository-safe:
-  - no edits to `.ao/*.json` by hand
+  - no edits to `.animus/*.json` by hand
   - no destructive git operations
   - isolated filesystem state per test
 - Keep runtime bounded:
@@ -53,14 +53,14 @@ For `--json` calls that reach command dispatch:
 
 Success contract:
 - top-level keys: `schema`, `ok`, `data`
-- `schema` is exactly `ao.cli.v1`
+- `schema` is exactly `animus.cli.v1`
 - `ok` is exactly `true`
 - `data` exists (object/array/scalar accepted by command)
 - payload emitted on `stdout`
 
 Error contract:
 - top-level keys: `schema`, `ok`, `error`
-- `schema` is exactly `ao.cli.v1`
+- `schema` is exactly `animus.cli.v1`
 - `ok` is exactly `false`
 - `error` object contains `code`, `message`, `exit_code`
 - process exit status equals `error.exit_code`
@@ -84,7 +84,7 @@ Error contract:
   `unavailable`, and `internal` mappings with expected `error.code`.
 - `AC-03`: For each mapped failure, process exit status equals envelope
   `error.exit_code`.
-- `AC-04`: Error envelopes for all mapped failures preserve `schema=ao.cli.v1`
+- `AC-04`: Error envelopes for all mapped failures preserve `schema=animus.cli.v1`
   and `ok=false`.
 - `AC-05`: Tests are deterministic in isolated temp roots and do not depend on
   pre-existing daemon/runner state.
@@ -96,7 +96,7 @@ Error contract:
 | --- | --- |
 | `AC-01`, `AC-04` | JSON envelope assertions in dedicated CLI contract tests |
 | `AC-02`, `AC-03` | Per-case command invocations asserting both envelope fields and process exit code |
-| `AC-05` | Harness-level temp dirs + explicit env isolation (`AO_CONFIG_DIR`/runner timeout) |
+| `AC-05` | Harness-level temp dirs + explicit env isolation (`ANIMUS_CONFIG_DIR`/runner timeout) |
 | `AC-06` | Run `cargo test -p orchestrator-cli --test cli_smoke --test cli_e2e --test <new_contract_test>` |
 
 ## Deterministic Deliverables for Implementation Phase

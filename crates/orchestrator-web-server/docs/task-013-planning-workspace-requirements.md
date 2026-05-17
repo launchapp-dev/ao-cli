@@ -44,9 +44,9 @@ Out of scope for TASK-013:
 
 ## Non-Negotiable Constraints
 - Keep all endpoint behavior under `/api/v1`.
-- Preserve `ao.cli.v1` envelope semantics for all JSON responses.
+- Preserve `animus.cli.v1` envelope semantics for all JSON responses.
 - Keep `api_only=true` behavior unchanged (`/` and `/*path` stay API-only).
-- Do not directly edit `.ao/*.json`; all state changes must go through AO
+- Do not directly edit `.animus/*.json`; all state changes must go through AO
   service APIs surfaced by server handlers.
 - Keep planning UI keyboard-operable with visible focus states.
 - Keep planning views usable at `320px` width without horizontal page scroll.

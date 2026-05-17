@@ -37,7 +37,7 @@ Out of scope for this task:
 - changing `AgentRunEvent` schema
 - changing run-event persistence format/path layout
 - changing daemon scheduler behavior or unrelated CLI command output
-- manual edits to `.ao/*.json`
+- manual edits to `.animus/*.json`
 
 ## Constraints
 - Preserve `stop_agent` termination semantics:

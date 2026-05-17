@@ -24,7 +24,10 @@ fn registry_project_template_loads_manifest_and_files() {
         .expect("task-queue template should load");
     assert_eq!(template.manifest.pattern, "task-queue");
     assert_eq!(template.source_kind, ProjectTemplateSourceKind::Registry);
-    assert!(template.files.iter().any(|file| file.relative_path == Path::new(".ao/workflows/standard-workflow.yaml")));
+    assert!(template
+        .files
+        .iter()
+        .any(|file| file.relative_path == Path::new(".animus/workflows/standard-workflow.yaml")));
 }
 
 #[test]
@@ -47,7 +50,7 @@ root = "skeleton"
         ),
     )
     .expect("template manifest should be written");
-    let workflows_dir = temp.path().join("skeleton").join(".ao").join("workflows");
+    let workflows_dir = temp.path().join("skeleton").join(".animus").join("workflows");
     fs::create_dir_all(&workflows_dir).expect("skeleton directories should exist");
     fs::write(workflows_dir.join("custom.yaml"), b"default_workflow_ref: standard-workflow\n")
         .expect("template file should be written");
@@ -55,7 +58,7 @@ root = "skeleton"
     let template = load_project_template_from_dir(temp.path()).expect("local template should load");
     assert_eq!(template.manifest.id, "local-template");
     assert_eq!(template.files.len(), 1);
-    assert_eq!(template.files[0].relative_path, Path::new(".ao/workflows/custom.yaml"));
+    assert_eq!(template.files[0].relative_path, Path::new(".animus/workflows/custom.yaml"));
 }
 
 #[test]
@@ -86,7 +89,7 @@ fn temp_registry_root() -> tempfile::TempDir {
             temp.path(),
             id,
             pattern,
-            [(".ao/workflows/standard-workflow.yaml", "workflows:\n  - id: standard-workflow\n")].as_slice(),
+            [(".animus/workflows/standard-workflow.yaml", "workflows:\n  - id: standard-workflow\n")].as_slice(),
         );
     }
     temp

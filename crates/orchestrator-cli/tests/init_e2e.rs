@@ -45,7 +45,7 @@ fn init_plan_reports_selected_template_and_required_changes() -> Result<()> {
         files.iter().any(|file| {
             matches!(
                 (file.get("path").and_then(Value::as_str), file.get("action").and_then(Value::as_str)),
-                (Some(".ao/workflows/standard-workflow.yaml"), Some("create"))
+                (Some(".animus/workflows/standard-workflow.yaml"), Some("create"))
             )
         })
     }));
@@ -80,12 +80,12 @@ fn init_apply_writes_template_files_and_daemon_defaults() -> Result<()> {
         .is_some_and(|domains| domains.iter().any(|value| value.as_str() == Some("template_files"))));
     assert!(payload.pointer("/data/apply/written_files").and_then(Value::as_array).is_some_and(|files| files
         .iter()
-        .any(|value| value.as_str() == Some(".ao/workflows/conductor-workflow.yaml"))));
+        .any(|value| value.as_str() == Some(".animus/workflows/conductor-workflow.yaml"))));
 
-    let conductor_path = harness.project_root().join(".ao/workflows/conductor-workflow.yaml");
+    let conductor_path = harness.project_root().join(".animus/workflows/conductor-workflow.yaml");
     assert!(conductor_path.exists(), "conductor template should write its workflow wrapper");
     let conductor_contents = fs::read_to_string(&conductor_path)?;
-    assert!(conductor_contents.contains("ao.requirement/plan"));
+    assert!(conductor_contents.contains("animus.requirement/plan"));
 
     let pm_config_path = harness.scoped_root().join("daemon").join("pm-config.json");
     let pm_config: Value = serde_json::from_str(&fs::read_to_string(pm_config_path)?)?;
@@ -103,13 +103,13 @@ fn init_apply_writes_template_files_and_daemon_defaults() -> Result<()> {
         harness.run_json_ok_with_env(&["pack", "list"], &[(TEMPLATE_REGISTRY_URL_ENV, registry_url.as_str())])?;
     assert!(packs.pointer("/data").and_then(Value::as_array).is_some_and(|entries| entries
         .iter()
-        .any(|entry| entry.get("pack_id").and_then(Value::as_str) == Some("ao.requirement"))));
+        .any(|entry| entry.get("pack_id").and_then(Value::as_str) == Some("animus.requirement"))));
     assert!(packs.pointer("/data").and_then(Value::as_array).is_some_and(|entries| entries
         .iter()
-        .any(|entry| entry.get("pack_id").and_then(Value::as_str) == Some("ao.task"))));
+        .any(|entry| entry.get("pack_id").and_then(Value::as_str) == Some("animus.task"))));
     assert!(packs.pointer("/data").and_then(Value::as_array).is_some_and(|entries| entries
         .iter()
-        .any(|entry| entry.get("pack_id").and_then(Value::as_str) == Some("ao.review"))));
+        .any(|entry| entry.get("pack_id").and_then(Value::as_str) == Some("animus.review"))));
 
     Ok(())
 }
@@ -119,7 +119,7 @@ fn init_rejects_conflicting_project_files_without_force() -> Result<()> {
     let harness = CliHarness::new()?;
     let registry = create_template_registry_repo()?;
     let registry_url = registry.path().to_string_lossy().into_owned();
-    let custom_workflow_path = harness.project_root().join(".ao/workflows/custom.yaml");
+    let custom_workflow_path = harness.project_root().join(".animus/workflows/custom.yaml");
     fs::create_dir_all(custom_workflow_path.parent().expect("workflow path should have a parent"))?;
     fs::write(&custom_workflow_path, "user-owned workflow")?;
 
@@ -133,7 +133,7 @@ fn init_rejects_conflicting_project_files_without_force() -> Result<()> {
         .pointer("/error/message")
         .and_then(Value::as_str)
         .unwrap_or_default()
-        .contains(".ao/workflows/custom.yaml"));
+        .contains(".animus/workflows/custom.yaml"));
     assert_eq!(fs::read_to_string(custom_workflow_path)?, "user-owned workflow");
 
     Ok(())
@@ -147,18 +147,18 @@ fn create_template_registry_repo() -> Result<tempfile::TempDir> {
         "Task Queue Pattern",
         "task-queue",
         (true, true, true),
-        &["ao.task"],
+        &["animus.task"],
         &[
             (
-                ".ao/workflows/custom.yaml",
+                ".animus/workflows/custom.yaml",
                 "default_workflow_ref: standard-workflow\n\ntools_allowlist:\n  - cargo\n  - animus\n",
             ),
             (
-                ".ao/workflows/standard-workflow.yaml",
-                "workflows:\n  - id: standard-workflow\n    name: Task Queue Delivery Workflow\n    phases:\n      - workflow_ref: ao.task/standard\n",
+                ".animus/workflows/standard-workflow.yaml",
+                "workflows:\n  - id: standard-workflow\n    name: Task Queue Delivery Workflow\n    phases:\n      - workflow_ref: animus.task/standard\n",
             ),
-            (".ao/workflows/hotfix-workflow.yaml", "default_workflow_ref: standard-workflow\n"),
-            (".ao/workflows/research-workflow.yaml", "default_workflow_ref: standard-workflow\n"),
+            (".animus/workflows/hotfix-workflow.yaml", "default_workflow_ref: standard-workflow\n"),
+            (".animus/workflows/research-workflow.yaml", "default_workflow_ref: standard-workflow\n"),
         ],
     )?;
     write_registry_template(
@@ -167,22 +167,22 @@ fn create_template_registry_repo() -> Result<tempfile::TempDir> {
         "Conductor Pattern",
         "conductor",
         (false, true, false),
-        &["ao.requirement", "ao.task"],
+        &["animus.requirement", "animus.task"],
         &[
             (
-                ".ao/workflows/custom.yaml",
+                ".animus/workflows/custom.yaml",
                 "default_workflow_ref: conductor-workflow\n\ntools_allowlist:\n  - cargo\n  - animus\n",
             ),
             (
-                ".ao/workflows/conductor-workflow.yaml",
-                "workflows:\n  - id: conductor-workflow\n    name: Conductor Planning Workflow\n    phases:\n      - workflow_ref: ao.requirement/plan\n",
+                ".animus/workflows/conductor-workflow.yaml",
+                "workflows:\n  - id: conductor-workflow\n    name: Conductor Planning Workflow\n    phases:\n      - workflow_ref: animus.requirement/plan\n",
             ),
             (
-                ".ao/workflows/standard-workflow.yaml",
-                "workflows:\n  - id: standard-workflow\n    name: Task Queue Delivery Workflow\n    phases:\n      - workflow_ref: ao.task/standard\n",
+                ".animus/workflows/standard-workflow.yaml",
+                "workflows:\n  - id: standard-workflow\n    name: Task Queue Delivery Workflow\n    phases:\n      - workflow_ref: animus.task/standard\n",
             ),
-            (".ao/workflows/hotfix-workflow.yaml", "default_workflow_ref: standard-workflow\n"),
-            (".ao/workflows/research-workflow.yaml", "default_workflow_ref: standard-workflow\n"),
+            (".animus/workflows/hotfix-workflow.yaml", "default_workflow_ref: standard-workflow\n"),
+            (".animus/workflows/research-workflow.yaml", "default_workflow_ref: standard-workflow\n"),
         ],
     )?;
     write_registry_template(
@@ -191,18 +191,18 @@ fn create_template_registry_repo() -> Result<tempfile::TempDir> {
         "Direct Workflow Pattern",
         "direct-workflow",
         (false, false, false),
-        &["ao.task"],
+        &["animus.task"],
         &[
             (
-                ".ao/workflows/custom.yaml",
+                ".animus/workflows/custom.yaml",
                 "default_workflow_ref: standard-workflow\n\ntools_allowlist:\n  - cargo\n  - animus\n",
             ),
             (
-                ".ao/workflows/standard-workflow.yaml",
-                "workflows:\n  - id: standard-workflow\n    name: Direct Workflow Delivery\n    phases:\n      - workflow_ref: ao.task/gated\n",
+                ".animus/workflows/standard-workflow.yaml",
+                "workflows:\n  - id: standard-workflow\n    name: Direct Workflow Delivery\n    phases:\n      - workflow_ref: animus.task/gated\n",
             ),
-            (".ao/workflows/hotfix-workflow.yaml", "default_workflow_ref: standard-workflow\n"),
-            (".ao/workflows/research-workflow.yaml", "default_workflow_ref: standard-workflow\n"),
+            (".animus/workflows/hotfix-workflow.yaml", "default_workflow_ref: standard-workflow\n"),
+            (".animus/workflows/research-workflow.yaml", "default_workflow_ref: standard-workflow\n"),
         ],
     )?;
     git(["init", "-b", "main"], registry.path())?;
@@ -275,10 +275,169 @@ fn git<const N: usize>(args: [&str; N], cwd: &Path) -> Result<()> {
 }
 
 #[test]
+fn init_first_clone_writes_pinned_commit_file() -> Result<()> {
+    let harness = CliHarness::new()?;
+    let registry = create_template_registry_repo()?;
+    let registry_url = registry.path().to_string_lossy().into_owned();
+
+    harness.run_json_ok_with_env(
+        &["init", "--template", "task-queue", "--non-interactive", "--plan"],
+        &[(TEMPLATE_REGISTRY_URL_ENV, registry_url.as_str())],
+    )?;
+
+    let commit_path = registry_cache_commit_path(&harness);
+    assert!(commit_path.exists(), "expected pinned commit file at {}", commit_path.display());
+    let pinned = fs::read_to_string(&commit_path)?.trim().to_string();
+    let upstream_head = git_rev_parse_head(registry.path())?;
+    assert_eq!(pinned, upstream_head, "pinned commit should match upstream HEAD after first clone");
+    assert_eq!(pinned.len(), 40, "expected a 40-char sha but got {pinned:?}");
+
+    Ok(())
+}
+
+#[test]
+fn init_subsequent_call_uses_pinned_commit_not_latest_upstream() -> Result<()> {
+    let harness = CliHarness::new()?;
+    let registry = create_template_registry_repo()?;
+    let registry_url = registry.path().to_string_lossy().into_owned();
+
+    let first = harness.run_json_ok_with_env(
+        &["init", "--template", "conductor", "--non-interactive"],
+        &[(TEMPLATE_REGISTRY_URL_ENV, registry_url.as_str())],
+    )?;
+    assert_eq!(first.pointer("/data/template/id").and_then(Value::as_str), Some("conductor"));
+    let conductor_path = harness.project_root().join(".animus/workflows/conductor-workflow.yaml");
+    let conductor_contents_before = fs::read_to_string(&conductor_path)?;
+    assert!(conductor_contents_before.contains("Conductor Planning Workflow"));
+
+    bump_upstream_template(
+        registry.path(),
+        "conductor",
+        ".animus/workflows/conductor-workflow.yaml",
+        "workflows:\n  - id: conductor-workflow\n    name: Tampered Conductor Workflow\n    phases:\n      - workflow_ref: animus.requirement/plan\n",
+    )?;
+
+    let harness2 = CliHarness::with_existing_home(&harness)?;
+    let payload = harness2.run_json_ok_with_env(
+        &["init", "--template", "conductor", "--non-interactive"],
+        &[(TEMPLATE_REGISTRY_URL_ENV, registry_url.as_str())],
+    )?;
+    assert_eq!(payload.pointer("/data/template/id").and_then(Value::as_str), Some("conductor"));
+
+    let conductor_after =
+        fs::read_to_string(harness2.project_root().join(".animus/workflows/conductor-workflow.yaml"))?;
+    assert!(
+        conductor_after.contains("Conductor Planning Workflow"),
+        "pinned registry should still produce original template content, got: {conductor_after}"
+    );
+    assert!(!conductor_after.contains("Tampered"), "tampered upstream content must not leak through pinned cache");
+
+    let pinned_sha = fs::read_to_string(registry_cache_commit_path(&harness))?.trim().to_string();
+    let upstream_head = git_rev_parse_head(registry.path())?;
+    assert_ne!(pinned_sha, upstream_head, "upstream HEAD should have advanced past the pinned commit");
+
+    Ok(())
+}
+
+#[test]
+fn init_with_update_registry_fetches_latest_and_repins() -> Result<()> {
+    let harness = CliHarness::new()?;
+    let registry = create_template_registry_repo()?;
+    let registry_url = registry.path().to_string_lossy().into_owned();
+
+    harness.run_json_ok_with_env(
+        &["init", "--template", "conductor", "--non-interactive"],
+        &[(TEMPLATE_REGISTRY_URL_ENV, registry_url.as_str())],
+    )?;
+    let pinned_before = fs::read_to_string(registry_cache_commit_path(&harness))?.trim().to_string();
+
+    bump_upstream_template(
+        registry.path(),
+        "conductor",
+        ".animus/workflows/conductor-workflow.yaml",
+        "workflows:\n  - id: conductor-workflow\n    name: Updated Conductor Workflow\n    phases:\n      - workflow_ref: animus.requirement/plan\n",
+    )?;
+    let upstream_head_after_bump = git_rev_parse_head(registry.path())?;
+    assert_ne!(upstream_head_after_bump, pinned_before, "upstream HEAD should differ after bump");
+
+    let harness2 = CliHarness::with_existing_home(&harness)?;
+    let payload = harness2.run_json_ok_with_env(
+        &["init", "--template", "conductor", "--non-interactive", "--update-registry"],
+        &[(TEMPLATE_REGISTRY_URL_ENV, registry_url.as_str())],
+    )?;
+    assert_eq!(payload.pointer("/data/template/id").and_then(Value::as_str), Some("conductor"));
+
+    let conductor_after =
+        fs::read_to_string(harness2.project_root().join(".animus/workflows/conductor-workflow.yaml"))?;
+    assert!(
+        conductor_after.contains("Updated Conductor Workflow"),
+        "after --update-registry the new upstream content should be applied, got: {conductor_after}"
+    );
+
+    let pinned_after = fs::read_to_string(registry_cache_commit_path(&harness))?.trim().to_string();
+    assert_eq!(pinned_after, upstream_head_after_bump, "--update-registry must re-pin to the new upstream HEAD");
+    assert_ne!(pinned_after, pinned_before, "pinned sha must change after --update-registry");
+
+    Ok(())
+}
+
+#[test]
+fn init_reports_error_when_pinned_commit_diverges() -> Result<()> {
+    let harness = CliHarness::new()?;
+    let registry = create_template_registry_repo()?;
+    let registry_url = registry.path().to_string_lossy().into_owned();
+
+    harness.run_json_ok_with_env(
+        &["init", "--template", "conductor", "--non-interactive"],
+        &[(TEMPLATE_REGISTRY_URL_ENV, registry_url.as_str())],
+    )?;
+
+    let commit_path = registry_cache_commit_path(&harness);
+    fs::write(&commit_path, "0000000000000000000000000000000000000000\n")?;
+
+    let harness2 = CliHarness::with_existing_home(&harness)?;
+    let (payload, _status) = harness2.run_json_err_with_exit_and_env(
+        &["init", "--template", "conductor", "--non-interactive", "--plan"],
+        &[(TEMPLATE_REGISTRY_URL_ENV, registry_url.as_str())],
+    )?;
+    let message = payload.pointer("/error/message").and_then(Value::as_str).unwrap_or_default().to_string();
+    assert!(
+        message.contains("diverged from the pinned commit"),
+        "divergence error message should call out the pinned commit mismatch, got: {message}"
+    );
+    assert!(
+        message.contains("0000000000000000000000000000000000000000"),
+        "divergence error should include the bogus pinned sha, got: {message}"
+    );
+    assert!(message.contains("--update-registry"), "divergence error should advise --update-registry, got: {message}");
+
+    Ok(())
+}
+
+fn registry_cache_commit_path(harness: &CliHarness) -> std::path::PathBuf {
+    harness.config_root().join(".animus").join("template-registries").join("launchapp").join(".commit")
+}
+
+fn git_rev_parse_head(repo: &Path) -> Result<String> {
+    let output = Command::new("git").args(["rev-parse", "HEAD"]).current_dir(repo).output()?;
+    anyhow::ensure!(output.status.success(), "git rev-parse HEAD failed in {}", repo.display());
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn bump_upstream_template(registry_root: &Path, template_id: &str, relative_path: &str, contents: &str) -> Result<()> {
+    let target = registry_root.join("templates").join(template_id).join("skeleton").join(relative_path);
+    fs::create_dir_all(target.parent().expect("template path should have a parent"))?;
+    fs::write(&target, contents)?;
+    git(["add", "."], registry_root)?;
+    git(["commit", "-m", "bump"], registry_root)?;
+    Ok(())
+}
+
+#[test]
 fn init_supports_local_template_directories() -> Result<()> {
     let harness = CliHarness::new()?;
     let template_root = tempfile::tempdir()?;
-    let source_root = template_root.path().join("skeleton/.ao/workflows");
+    let source_root = template_root.path().join("skeleton/.animus/workflows");
     fs::create_dir_all(&source_root)?;
     fs::write(
         template_root.path().join("template.toml"),
@@ -302,7 +461,7 @@ auto_commit_before_merge = true
     )?;
     fs::write(
         source_root.join("local-template.yaml"),
-        "workflows:\n  - id: local-template\n    name: Local Template\n    phases:\n      - workflow_ref: ao.task/standard\n",
+        "workflows:\n  - id: local-template\n    name: Local Template\n    phases:\n      - workflow_ref: animus.task/standard\n",
     )?;
 
     let template_path = template_root.path().to_string_lossy().into_owned();
@@ -310,7 +469,7 @@ auto_commit_before_merge = true
     assert_eq!(payload.pointer("/data/template/id").and_then(Value::as_str), Some("local-copy"));
     assert_eq!(payload.pointer("/data/template/source_kind").and_then(Value::as_str), Some("local"));
 
-    let local_workflow_path = harness.project_root().join(".ao/workflows/local-template.yaml");
+    let local_workflow_path = harness.project_root().join(".animus/workflows/local-template.yaml");
     assert!(local_workflow_path.exists(), "local template file should be copied into the project");
     assert!(fs::read_to_string(&local_workflow_path)?.contains("local-template"));
 

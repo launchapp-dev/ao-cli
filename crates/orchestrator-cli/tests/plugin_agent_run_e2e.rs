@@ -1,4 +1,4 @@
-//! Real `agent/run` integration test against the deterministic `ao-provider-mock`.
+//! Real `agent/run` integration test against the deterministic `animus-provider-mock`.
 //!
 //! Wires the SessionBackendResolver through plugin discovery (mirroring how
 //! agent-runner does it in production) and asserts that:
@@ -23,9 +23,9 @@ fn workspace_target_debug() -> PathBuf {
 }
 
 fn ensure_mock_provider() {
-    let bin = workspace_target_debug().join("ao-provider-mock");
+    let bin = workspace_target_debug().join("animus-provider-mock");
     if !bin.exists() {
-        panic!("ao-provider-mock binary not built; run `cargo build -p ao-provider-mock` first");
+        panic!("animus-provider-mock binary not built; run `cargo build -p animus-provider-mock` first");
     }
 }
 
@@ -47,7 +47,7 @@ fn build_request() -> SessionRequest {
 #[tokio::test]
 async fn resolver_routes_mock_tool_through_plugin() {
     ensure_mock_provider();
-    std::env::set_var("AO_PLUGIN_PATH", workspace_target_debug());
+    std::env::set_var("ANIMUS_PLUGIN_PATH", workspace_target_debug());
     let resolver = SessionBackendResolver::with_plugin_discovery(Path::new(env!("CARGO_MANIFEST_DIR")));
 
     let request = build_request();
@@ -55,7 +55,7 @@ async fn resolver_routes_mock_tool_through_plugin() {
     let info = backend.info();
     assert_eq!(info.provider_tool, "mock", "provider_tool should match mock plugin");
     assert!(
-        info.display_name.contains("ao-provider-mock"),
+        info.display_name.contains("animus-provider-mock"),
         "display_name should reflect plugin: {}",
         info.display_name
     );
@@ -64,7 +64,7 @@ async fn resolver_routes_mock_tool_through_plugin() {
 #[tokio::test]
 async fn agent_run_streams_notifications_in_order_through_plugin() {
     ensure_mock_provider();
-    std::env::set_var("AO_PLUGIN_PATH", workspace_target_debug());
+    std::env::set_var("ANIMUS_PLUGIN_PATH", workspace_target_debug());
     let resolver = SessionBackendResolver::with_plugin_discovery(Path::new(env!("CARGO_MANIFEST_DIR")));
 
     let request = build_request();
@@ -74,10 +74,7 @@ async fn agent_run_streams_notifications_in_order_through_plugin() {
         .expect("start_session should succeed");
 
     let mut events: Vec<SessionEvent> = Vec::new();
-    while let Some(event) = timeout(Duration::from_secs(10), run.events.recv())
-        .await
-        .expect("recv should not hang")
-    {
+    while let Some(event) = timeout(Duration::from_secs(10), run.events.recv()).await.expect("recv should not hang") {
         events.push(event.clone());
         if matches!(event, SessionEvent::Finished { .. }) {
             break;
@@ -90,7 +87,7 @@ async fn agent_run_streams_notifications_in_order_through_plugin() {
     match events.first() {
         Some(SessionEvent::Started { backend, .. }) => {
             assert!(
-                backend.starts_with("plugin:ao-provider-mock"),
+                backend.starts_with("plugin:animus-provider-mock"),
                 "first event backend label should reflect plugin: {backend}"
             );
         }
@@ -115,7 +112,9 @@ async fn agent_run_streams_notifications_in_order_through_plugin() {
         "ToolCall event should be forwarded as agent/toolCall notification"
     );
     assert!(
-        events.iter().any(|e| matches!(e, SessionEvent::ToolResult { tool_name, success, .. } if tool_name == "mock.echo" && *success)),
+        events.iter().any(
+            |e| matches!(e, SessionEvent::ToolResult { tool_name, success, .. } if tool_name == "mock.echo" && *success)
+        ),
         "ToolResult event should be forwarded as agent/toolResult notification"
     );
 
@@ -128,13 +127,8 @@ async fn agent_run_streams_notifications_in_order_through_plugin() {
     // Final text should contain the prompt-echo at minimum. Provider runtime
     // concatenates streamed TextDelta into the final aggregated `output`, so
     // the FinalText event is the cumulative collected output.
-    let final_text = events.iter().find_map(|e| {
-        if let SessionEvent::FinalText { text } = e {
-            Some(text.clone())
-        } else {
-            None
-        }
-    });
+    let final_text =
+        events.iter().find_map(|e| if let SessionEvent::FinalText { text } = e { Some(text.clone()) } else { None });
     let final_text = final_text.expect("FinalText event must be present");
     assert!(
         final_text.contains("MOCK_RESULT: hello-from-test"),

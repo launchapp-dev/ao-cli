@@ -7,7 +7,7 @@
 
 ## Objective
 Add a deterministic, repository-safe prune flow that cleans stale daemon-managed
-task worktrees under `~/.ao/<scope>/worktrees/` when their task is terminal
+task worktrees under `~/.animus/<scope>/worktrees/` when their task is terminal
 (`done` or `cancelled`), with preview support and optional remote branch
 deletion.
 
@@ -39,7 +39,7 @@ Out of scope:
 - Redesigning worktree naming conventions.
 - Pruning non-task worktrees by heuristic-only matching.
 - Auto-deleting local branches outside current merge/cleanup behavior.
-- Manual edits to `.ao/*.json`.
+- Manual edits to `.animus/*.json`.
 
 ## Constraints
 - Keep cleanup scoped to daemon-managed task worktrees under the repository
@@ -50,7 +50,7 @@ Out of scope:
   - no git mutations,
   - no directory removals,
   - no task state writes.
-- Preserve existing JSON envelope behavior (`ao.cli.v1`) and stable
+- Preserve existing JSON envelope behavior (`animus.cli.v1`) and stable
   deterministic ordering for preview/result lists.
 - Keep `.ao` mutations API-driven through existing services (`hub.tasks()`),
   not manual file writes.

@@ -54,7 +54,7 @@ pub struct TriggerRunState {
 }
 
 fn trigger_state_path(project_root: &Path) -> PathBuf {
-    let scoped_root = protocol::scoped_state_root(project_root).unwrap_or_else(|| project_root.join(".ao"));
+    let scoped_root = protocol::scoped_state_root(project_root).unwrap_or_else(|| project_root.join(".animus"));
     scoped_root.join("state").join(TRIGGER_STATE_FILE_NAME)
 }
 

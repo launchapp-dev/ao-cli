@@ -35,13 +35,13 @@ wt-clean = "clean --manifest-path"
 wt-build = "build --manifest-path"
 wt-test = "test --manifest-path"
 
-# Runtime binary set used by ao in local dev and release packaging
-ao-bin-build = "build -p orchestrator-cli -p agent-runner -p llm-cli-wrapper -p oai-runner -p workflow-runner-v2"
-ao-bin-build-release = "build --release -p orchestrator-cli -p agent-runner -p llm-cli-wrapper -p oai-runner -p workflow-runner-v2"
-ao-bin-check = "check -p orchestrator-cli -p agent-runner -p llm-cli-wrapper -p oai-runner -p workflow-runner-v2"
+# Runtime binary set used by animus in local dev and release packaging
+animus-bin-build = "build -p orchestrator-cli -p agent-runner -p llm-cli-wrapper -p oai-runner -p workflow-runner-v2"
+animus-bin-build-release = "build --release -p orchestrator-cli -p agent-runner -p llm-cli-wrapper -p oai-runner -p workflow-runner-v2"
+animus-bin-check = "check -p orchestrator-cli -p agent-runner -p llm-cli-wrapper -p oai-runner -p workflow-runner-v2"
 
 # Linting
-ao-lint = "clippy --workspace --all-targets"
-ao-lint-strict = "clippy --workspace --all-targets -- -D warnings"
-ao-fmt = "fmt --all"
-ao-fmt-check = "fmt --all -- --check"
+animus-lint = "clippy --workspace --all-targets"
+animus-lint-strict = "clippy --workspace --all-targets -- -D warnings"
+animus-fmt = "fmt --all"
+animus-fmt-check = "fmt --all -- --check"

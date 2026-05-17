@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased] - 0.4.0 (in flight)
+## [0.4.0] - 2026-05-14
 
 This is a major release and the v0.3.x → v0.4.0 break is intentionally large. Three commitments land together:
 

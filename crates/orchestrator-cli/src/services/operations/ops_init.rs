@@ -142,8 +142,8 @@ pub(crate) async fn handle_init(args: InitArgs, project_root: &str, json: bool) 
     let bootstrap_needed_before = remediation_needed(&doctor_before, "bootstrap_project_state");
     let daemon_config_exists_before = daemon_project_config_path(project_root_path).exists();
 
-    FileServiceHub::new(project_root_path)?;
     let written_files = write_template_files(project_root_path, &loaded_template)?;
+    FileServiceHub::new(project_root_path)?;
     let pack_apply = apply_template_packs(project_root_path, &loaded_template)?;
     let daemon_config_updated =
         persist_desired_daemon_config(project_root_path, &desired_config, daemon_config_exists_before)?;

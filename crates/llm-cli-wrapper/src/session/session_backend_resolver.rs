@@ -44,7 +44,17 @@ impl SessionBackendResolver {
     }
 
     /// Re-scan plugin discovery sources and replace the cached provider map.
+    ///
+    /// When `ANIMUS_PROVIDER_DISABLE_PLUGIN` is set to a truthy value (`1`, `true`,
+    /// `yes`, case-insensitive) the cached provider map is cleared and discovery is
+    /// skipped entirely. This is the documented escape hatch for forcing all
+    /// dispatch through the in-tree backends — useful when an installed plugin is
+    /// misbehaving and the daemon needs to keep running.
     pub fn refresh_plugin_providers(&mut self, project_root: &Path) {
+        if plugin_discovery_disabled() {
+            self.plugin_providers.clear();
+            return;
+        }
         self.plugin_providers = discover_provider_plugins(project_root)
             .into_iter()
             .map(|plugin| (plugin.provider_tool.to_ascii_lowercase(), plugin.into_backend()))
@@ -106,6 +116,18 @@ impl SessionBackendResolver {
 impl Default for SessionBackendResolver {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Returns `true` when the operator has opted out of installed-plugin dispatch
+/// via `ANIMUS_PROVIDER_DISABLE_PLUGIN`.
+///
+/// Honors `1`, `true`, `yes`, `on` (case-insensitive) as the disable signal.
+/// Anything else — including unset — leaves plugin discovery enabled.
+fn plugin_discovery_disabled() -> bool {
+    match std::env::var("ANIMUS_PROVIDER_DISABLE_PLUGIN") {
+        Ok(raw) => matches!(raw.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"),
+        Err(_) => false,
     }
 }
 
@@ -272,5 +294,54 @@ mod tests {
         let _ = run.events.recv().await.expect("started event");
         let text = run.events.recv().await.expect("text event");
         assert_eq!(text, SessionEvent::TextDelta { text: "resolver".to_string() });
+    }
+
+    #[test]
+    fn resolver_falls_back_to_in_tree_when_no_plugin_for_claude() {
+        // No discovery surface configured — claude tool should land on the in-tree backend.
+        let resolver = SessionBackendResolver::new();
+        let request = SessionRequest {
+            tool: "claude".to_string(),
+            model: "claude-sonnet-4-6".to_string(),
+            prompt: "hello".to_string(),
+            cwd: PathBuf::from("."),
+            project_root: None,
+            mcp_endpoint: None,
+            permission_mode: None,
+            timeout_secs: None,
+            env_vars: Vec::new(),
+            extras: json!({}),
+        };
+
+        let backend = resolver.resolve(&request);
+        let info = backend.info();
+        assert_eq!(info.provider_tool, "claude");
+        assert!(
+            !info.display_name.to_ascii_lowercase().contains("plugin"),
+            "expected in-tree backend, got display_name={}",
+            info.display_name
+        );
+    }
+
+    #[test]
+    fn refresh_plugin_providers_skips_discovery_when_disabled() {
+        let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        // Sanity: with the env unset, the discovery hook can populate (or leave
+        // empty if no plugins are installed). We're not asserting on the populated
+        // state — only that the disable knob is honored when set.
+        std::env::set_var("ANIMUS_PROVIDER_DISABLE_PLUGIN", "1");
+        let mut resolver = SessionBackendResolver::new();
+        // Seed a fake provider so we can confirm refresh clears it under disable.
+        resolver.plugin_providers.insert(
+            "phantom".to_string(),
+            std::sync::Arc::new(super::super::plugin_backend::PluginSessionBackend::new(
+                "phantom-plugin",
+                PathBuf::from("/does/not/exist"),
+                "phantom",
+            )),
+        );
+        resolver.refresh_plugin_providers(&project_root);
+        assert!(resolver.plugin_providers.is_empty(), "disable knob must clear plugin providers");
+        std::env::remove_var("ANIMUS_PROVIDER_DISABLE_PLUGIN");
     }
 }

@@ -10,11 +10,19 @@
 //!   Metadata → Finished — all visible *before* the request future resolves.
 
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use cli_wrapper::session::{SessionBackendResolver, SessionEvent, SessionRequest};
 use serde_json::json;
 use tokio::time::timeout;
+
+/// Serializes tests in this integration binary because they share process-wide
+/// env vars (`ANIMUS_PLUGIN_PATH`, `ANIMUS_PLUGIN_DIR`,
+/// `ANIMUS_PROVIDER_DISABLE_PLUGIN`). Without this, cargo's default parallel
+/// runner interleaves writes and reads on those keys and produces flaky test
+/// results.
+static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 fn workspace_target_debug() -> PathBuf {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -46,8 +54,10 @@ fn build_request() -> SessionRequest {
 
 #[tokio::test]
 async fn resolver_routes_mock_tool_through_plugin() {
+    let _guard = ENV_LOCK.lock().expect("env lock");
     ensure_mock_provider();
     std::env::set_var("ANIMUS_PLUGIN_PATH", workspace_target_debug());
+    std::env::remove_var("ANIMUS_PROVIDER_DISABLE_PLUGIN");
     let resolver = SessionBackendResolver::with_plugin_discovery(Path::new(env!("CARGO_MANIFEST_DIR")));
 
     let request = build_request();
@@ -63,8 +73,10 @@ async fn resolver_routes_mock_tool_through_plugin() {
 
 #[tokio::test]
 async fn agent_run_streams_notifications_in_order_through_plugin() {
+    let _guard = ENV_LOCK.lock().expect("env lock");
     ensure_mock_provider();
     std::env::set_var("ANIMUS_PLUGIN_PATH", workspace_target_debug());
+    std::env::remove_var("ANIMUS_PROVIDER_DISABLE_PLUGIN");
     let resolver = SessionBackendResolver::with_plugin_discovery(Path::new(env!("CARGO_MANIFEST_DIR")));
 
     let request = build_request();
@@ -134,4 +146,83 @@ async fn agent_run_streams_notifications_in_order_through_plugin() {
         final_text.contains("MOCK_RESULT: hello-from-test"),
         "FinalText should include prompt echo, got: {final_text}"
     );
+}
+
+/// When no plugin is discoverable for the requested tool, the resolver MUST
+/// route through the in-tree backend instead of failing. This is the
+/// "plugin missing" branch that protects users who haven't installed any
+/// plugins yet.
+#[tokio::test]
+async fn agent_run_falls_back_to_in_tree_when_plugin_missing() {
+    let _guard = ENV_LOCK.lock().expect("env lock");
+    // Point discovery at an empty temp dir so no plugins are visible.
+    let empty = tempfile::tempdir().expect("tempdir");
+    std::env::set_var("ANIMUS_PLUGIN_PATH", empty.path());
+    // Make sure no other plugin source can be probed unexpectedly.
+    std::env::set_var("ANIMUS_PLUGIN_DIR", empty.path());
+    std::env::remove_var("ANIMUS_PROVIDER_DISABLE_PLUGIN");
+
+    let resolver = SessionBackendResolver::with_plugin_discovery(empty.path());
+    let request = SessionRequest {
+        tool: "claude".to_string(),
+        model: "claude-sonnet-4-6".to_string(),
+        prompt: "fallback-probe".to_string(),
+        cwd: std::env::current_dir().expect("cwd"),
+        project_root: None,
+        mcp_endpoint: None,
+        permission_mode: None,
+        timeout_secs: Some(5),
+        env_vars: Vec::new(),
+        extras: json!({}),
+    };
+
+    let backend = resolver.resolve(&request);
+    let info = backend.info();
+    assert_eq!(info.provider_tool, "claude", "claude tool should resolve to claude backend");
+    assert!(
+        !info.display_name.to_ascii_lowercase().contains("plugin"),
+        "expected in-tree claude backend, got display_name={}",
+        info.display_name
+    );
+
+    std::env::remove_var("ANIMUS_PLUGIN_PATH");
+    std::env::remove_var("ANIMUS_PLUGIN_DIR");
+}
+
+/// The `ANIMUS_PROVIDER_DISABLE_PLUGIN` opt-out forces all dispatch through the
+/// in-tree backends even when a matching plugin is discoverable on disk.
+#[tokio::test]
+async fn resolver_disable_knob_routes_around_installed_plugin() {
+    let _guard = ENV_LOCK.lock().expect("env lock");
+    ensure_mock_provider();
+    std::env::set_var("ANIMUS_PLUGIN_PATH", workspace_target_debug());
+    std::env::set_var("ANIMUS_PROVIDER_DISABLE_PLUGIN", "1");
+
+    let resolver = SessionBackendResolver::with_plugin_discovery(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let request = SessionRequest {
+        tool: "mock".to_string(),
+        model: "mock-fast-1".to_string(),
+        prompt: "disable-probe".to_string(),
+        cwd: std::env::current_dir().expect("cwd"),
+        project_root: None,
+        mcp_endpoint: None,
+        permission_mode: None,
+        timeout_secs: Some(5),
+        env_vars: Vec::new(),
+        extras: json!({}),
+    };
+
+    let backend = resolver.resolve(&request);
+    let info = backend.info();
+    // With the disable knob set, the mock plugin should NOT win — the resolver
+    // falls all the way through to the subprocess backend (since "mock" is not
+    // one of the known in-tree tool names).
+    assert!(
+        !info.display_name.to_ascii_lowercase().contains("plugin"),
+        "disable knob must bypass plugin dispatch, got display_name={}",
+        info.display_name
+    );
+
+    std::env::remove_var("ANIMUS_PROVIDER_DISABLE_PLUGIN");
+    std::env::remove_var("ANIMUS_PLUGIN_PATH");
 }

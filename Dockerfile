@@ -40,13 +40,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN npm install -g @anthropic-ai/claude-code @openai/codex \
     && npm cache clean --force
 
-# Install OpenCode (Go binary)
+# Install OpenCode (tarball asset; pattern changed upstream to opencode-linux-<arch>.tar.gz)
 RUN ARCH=$(dpkg --print-architecture) \
-    && curl -fsSL "https://github.com/opencode-ai/opencode/releases/latest/download/opencode_linux_${ARCH}" -o /usr/local/bin/opencode \
-    && chmod +x /usr/local/bin/opencode
+    && curl -fsSL "https://github.com/opencode-ai/opencode/releases/latest/download/opencode-linux-${ARCH}.tar.gz" -o /tmp/opencode.tar.gz \
+    && tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin/ opencode \
+    && chmod +x /usr/local/bin/opencode \
+    && rm /tmp/opencode.tar.gz
 
-# Create .ao directory for state
-RUN mkdir -p /root/.ao
+# Create Animus state directory
+RUN mkdir -p /root/.animus
 
 # Copy binaries from builder
 COPY --from=builder /src/target/release/animus /usr/local/bin/animus

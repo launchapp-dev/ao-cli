@@ -1,11 +1,11 @@
 services:
-  ao:
+  animus:
     build: .
-    image: ghcr.io/launchapp-dev/ao:latest
-    entrypoint: ["ao"]
+    image: ghcr.io/launchapp-dev/animus:latest
+    entrypoint: ["animus"]
     command: ["daemon", "start", "--autonomous"]
     volumes:
-      - ao-data:/root/.ao
+      - animus-data:/root/.animus
       - ./:/workspace
     environment:
       # Agent API keys — set these in .env or pass at runtime
@@ -16,4 +16,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  ao-data:
+  animus-data:

@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.1] - 2026-05-17
+
+Same-day patch for issues caught during v0.4.0 release verification.
+
+### Fixes
+- **Plugin discovery config path renamed**: `default_config_path()` in `crates/orchestrator-plugin-host/src/discovery.rs:174` previously read `~/.config/ao/plugins.yaml` — a stale path the v0.4.0 hard rename missed. v0.4.1 reads from `~/.config/animus/plugins.yaml`. Users with a config at the old path need to `mv ~/.config/ao ~/.config/animus` on upgrade.
+- **Docker image build broken upstream**: the v0.4.0 Release Binaries workflow's Docker step failed because OpenCode upstream changed its release-asset format from `opencode_linux_${ARCH}` (single binary) to `opencode-linux-${ARCH}.tar.gz` (tarball). Animus's `Dockerfile` now pulls the tarball and extracts the `opencode` binary out of it.
+- **Docker stack finished rename**: `Dockerfile` and `docker-compose.yaml` both had leftover `ao` references the rename missed — `mkdir -p /root/.ao` → `mkdir -p /root/.animus`, compose service name `ao` → `animus`, image `ghcr.io/launchapp-dev/ao:latest` → `ghcr.io/launchapp-dev/animus:latest`, volume `ao-data:/root/.ao` → `animus-data:/root/.animus`, entrypoint `ao` → `animus`.
+
+### Docs
+- **Reference docs cover the v0.4.0 MCP surface**: `docs/reference/mcp-tools.md` now documents the `animus.skill.{list,get,search}` and `animus.memory.{get,list,append,clear}` families, including the `capabilities.memory: true` gating model. `docs/reference/cli/index.md` gets a "Selected Command Flags" section covering `animus init --update-registry`, the SHA256-required-with-URL plugin install rule, and the `--include-system-path` opt-in. `docs/reference/configuration.md` env var table expanded from 4 to ~30 entries. `docs/reference/data-layout.md` covers the new `~/.animus/packs/`, agent-host skill probe paths, and the resolution-paths table grew from 7 to 14 entries.
+- **Narrative-docs `AO` / `ao` prose sweep**: 49 docs across `docs/{design,concepts,guides,architecture,contributing,reference,internals}/` plus the VitePress site config had bare project-name mentions of `AO` / `ao` that survived sub-agent A's code-focused rename. All now read `Animus`. Also folded into this pass: stale crate counts (`17-crate workspace` → `Rust-only Cargo workspace (around 20 crates)`), stale literal command examples (`ao status`, `ao now`, `ao git`, etc.), branch prefix `ao/<task-id>` → `animus/<task-id>` in `docs/concepts/worktrees.md` to match `crates/orchestrator-git-ops/src/daemon_git_worktree.rs`, and stale `PROJECT_ROOT` env var fallback in `docs/reference/cli/global-flags.md` per CLAUDE.md guidance.
+
+### Known follow-ups (deferred to v0.4.x)
+- `[[bin]] name = "ao-workflow-runner"` in `crates/workflow-runner-v2/Cargo.toml` is still the legacy bin name. Rename pending.
+- Release archive filenames still use the `ao-v0.4.X-` prefix (e.g. `ao-v0.4.0-aarch64-apple-darwin.tar.gz`). The release script's archive-naming convention needs to be updated to `animus-v0.4.X-`.
+
 ## [0.4.0] - 2026-05-14
 
 This is a major release and the v0.3.x → v0.4.0 break is intentionally large. Three commitments land together:

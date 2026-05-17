@@ -44,6 +44,20 @@ docs/.vitepress/dist/
 
 # AO Cloud credentials (contains tokens)
 .ao/sync.json
+.animus/sync.json
+
+# Animus runtime state (daemon-written, not source)
+.animus/state/
+.animus/monitor-log.txt
+.animus/daemon.log
+.animus/daemon.log.*
+.animus/tasks.db
+.animus/tasks.db-journal
+.animus/tasks.db-wal
+.animus/tasks.db-shm
+
+# Codex session continuity (local-only)
+.context/
 
 # Managed worktree MCP fallback config
 /.mcp.json
@@ -63,3 +77,4 @@ TEST_RESULTS*.md
 
 # Test-time scoped state (created when integration tests resolve project_root inside this crate)
 /crates/orchestrator-cli/.ao/
+/crates/orchestrator-cli/.animus/

@@ -141,11 +141,7 @@ pub(crate) struct PluginNewArgs {
     pub(crate) template_version: String,
 
     /// Template git URL. Defaults to launchapp-dev/animus-plugin-template.
-    #[arg(
-        long,
-        value_name = "URL",
-        default_value = "https://github.com/launchapp-dev/animus-plugin-template"
-    )]
+    #[arg(long, value_name = "URL", default_value = "https://github.com/launchapp-dev/animus-plugin-template")]
     pub(crate) template_repo: String,
 
     /// Use a local checkout of the template repo instead of running `git clone`.

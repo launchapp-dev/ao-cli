@@ -173,8 +173,8 @@ fn load_plugins_config(path: &Path) -> Result<PluginsConfig> {
 
 fn default_config_path() -> PathBuf {
     std::env::var_os("HOME")
-        .map(|home| PathBuf::from(home).join(".config/ao/plugins.yaml"))
-        .unwrap_or_else(|| PathBuf::from(".config/ao/plugins.yaml"))
+        .map(|home| PathBuf::from(home).join(".config/animus/plugins.yaml"))
+        .unwrap_or_else(|| PathBuf::from(".config/animus/plugins.yaml"))
 }
 
 fn expand_home(value: &str) -> String {

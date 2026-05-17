@@ -325,8 +325,7 @@ binaries from being picked up. Pass `--include-system-path` to opt in to scannin
 | `animus plugin uninstall` | `--name <NAME>` |
 
 Default discovery order (no `--include-system-path`):
-`~/.config/ao/plugins.yaml` (legacy path retained by `orchestrator-plugin-host`) →
-`.animus/plugins/` → `$ANIMUS_PLUGIN_PATH`.
+`~/.config/animus/plugins.yaml` → `.animus/plugins/` → `$ANIMUS_PLUGIN_PATH`.
 With `--include-system-path`, `$PATH` is appended.
 
 ## Summary

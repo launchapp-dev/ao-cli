@@ -22,6 +22,18 @@ pub struct DiscoveredPlugin {
     pub source: DiscoverySource,
 }
 
+/// A plugin that was located on disk but could not be loaded — typically because
+/// its `--manifest` probe failed. Surfaced alongside successful discoveries so
+/// callers can tell users *why* an installed plugin disappeared instead of
+/// silently dropping it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscoveryWarning {
+    pub name: String,
+    pub path: PathBuf,
+    pub source: DiscoverySource,
+    pub reason: String,
+}
+
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct PluginConfigEntry {
     pub binary: String,
@@ -72,19 +84,40 @@ impl PluginDiscovery {
     }
 
     pub fn discover(&self) -> Result<Vec<DiscoveredPlugin>> {
+        Ok(self.discover_with_warnings()?.0)
+    }
+
+    /// Like [`PluginDiscovery::discover`], but also returns a list of
+    /// [`DiscoveryWarning`]s for plugins that were located but could not be
+    /// loaded (e.g. their `--manifest` probe failed). Warnings are also emitted
+    /// at `warn` level via `tracing`.
+    pub fn discover_with_warnings(&self) -> Result<(Vec<DiscoveredPlugin>, Vec<DiscoveryWarning>)> {
         let mut discovered = Vec::new();
+        let mut warnings = Vec::new();
         let mut seen = HashSet::new();
 
-        self.discover_configured(&mut discovered, &mut seen)?;
+        self.discover_configured(&mut discovered, &mut warnings, &mut seen)?;
 
         if let Some(project_root) = &self.project_root {
-            scan_dir(&project_root.join(".animus/plugins"), DiscoverySource::ProjectLocal, &mut discovered, &mut seen);
+            scan_dir(
+                &project_root.join(".animus/plugins"),
+                DiscoverySource::ProjectLocal,
+                &mut discovered,
+                &mut warnings,
+                &mut seen,
+            );
         }
 
         if let Ok(plugin_path) = std::env::var("ANIMUS_PLUGIN_PATH") {
             for raw_dir in plugin_path.split(':') {
                 if !raw_dir.trim().is_empty() {
-                    scan_dir(Path::new(raw_dir), DiscoverySource::PluginPath, &mut discovered, &mut seen);
+                    scan_dir(
+                        Path::new(raw_dir),
+                        DiscoverySource::PluginPath,
+                        &mut discovered,
+                        &mut warnings,
+                        &mut seen,
+                    );
                 }
             }
         }
@@ -92,15 +125,20 @@ impl PluginDiscovery {
         if self.include_system_path {
             if let Some(path_var) = std::env::var_os("PATH") {
                 for dir in std::env::split_paths(&path_var) {
-                    scan_dir(&dir, DiscoverySource::SystemPath, &mut discovered, &mut seen);
+                    scan_dir(&dir, DiscoverySource::SystemPath, &mut discovered, &mut warnings, &mut seen);
                 }
             }
         }
 
-        Ok(discovered)
+        Ok((discovered, warnings))
     }
 
-    fn discover_configured(&self, discovered: &mut Vec<DiscoveredPlugin>, seen: &mut HashSet<String>) -> Result<()> {
+    fn discover_configured(
+        &self,
+        discovered: &mut Vec<DiscoveredPlugin>,
+        warnings: &mut Vec<DiscoveryWarning>,
+        seen: &mut HashSet<String>,
+    ) -> Result<()> {
         let config_path = self.config_path.clone().unwrap_or_else(default_config_path);
         if !config_path.exists() {
             return Ok(());
@@ -110,15 +148,50 @@ impl PluginDiscovery {
             .with_context(|| format!("failed to read plugin config at {}", config_path.display()))?;
         for (logical_name, entry) in config.plugins.iter().chain(config.providers.iter()) {
             let Some(path) = find_binary(&expand_home(&entry.binary)) else {
+                let reason = format!("configured binary not found: {}", entry.binary);
+                tracing::warn!(
+                    plugin = %logical_name,
+                    binary = %entry.binary,
+                    source = "explicit_config",
+                    "plugin manifest probe skipped: {reason}"
+                );
+                warnings.push(DiscoveryWarning {
+                    name: entry.name.clone().unwrap_or_else(|| logical_name.clone()),
+                    path: PathBuf::from(&entry.binary),
+                    source: DiscoverySource::ExplicitConfig,
+                    reason,
+                });
                 continue;
             };
             let name = entry.name.clone().unwrap_or_else(|| logical_name.clone());
             if seen.contains(&name) {
                 continue;
             }
-            if let Ok(manifest) = fetch_manifest(&path) {
-                seen.insert(name.clone());
-                discovered.push(DiscoveredPlugin { name, path, manifest, source: DiscoverySource::ExplicitConfig });
+            match fetch_manifest(&path) {
+                Ok(manifest) => {
+                    seen.insert(name.clone());
+                    discovered.push(DiscoveredPlugin {
+                        name,
+                        path,
+                        manifest,
+                        source: DiscoverySource::ExplicitConfig,
+                    });
+                }
+                Err(error) => {
+                    let reason = format!("{error:#}");
+                    tracing::warn!(
+                        plugin = %name,
+                        path = %path.display(),
+                        source = "explicit_config",
+                        "plugin manifest probe failed: {reason}"
+                    );
+                    warnings.push(DiscoveryWarning {
+                        name,
+                        path,
+                        source: DiscoverySource::ExplicitConfig,
+                        reason,
+                    });
+                }
             }
         }
 
@@ -134,12 +207,33 @@ pub fn fetch_manifest(path: &Path) -> Result<PluginManifest> {
     let output =
         Command::new(path).arg("--manifest").output().with_context(|| format!("failed to run {}", path.display()))?;
     if !output.status.success() {
-        anyhow::bail!("plugin manifest command failed for {}", path.display());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let trimmed = stderr.trim();
+        if trimmed.is_empty() {
+            anyhow::bail!(
+                "plugin manifest command failed for {} (exit={:?})",
+                path.display(),
+                output.status.code()
+            );
+        }
+        anyhow::bail!(
+            "plugin manifest command failed for {} (exit={:?}): {}",
+            path.display(),
+            output.status.code(),
+            trimmed
+        );
     }
-    Ok(serde_json::from_slice(&output.stdout)?)
+    serde_json::from_slice(&output.stdout)
+        .with_context(|| format!("plugin {} returned malformed --manifest JSON", path.display()))
 }
 
-fn scan_dir(dir: &Path, source: DiscoverySource, discovered: &mut Vec<DiscoveredPlugin>, seen: &mut HashSet<String>) {
+fn scan_dir(
+    dir: &Path,
+    source: DiscoverySource,
+    discovered: &mut Vec<DiscoveredPlugin>,
+    warnings: &mut Vec<DiscoveryWarning>,
+    seen: &mut HashSet<String>,
+) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -155,9 +249,26 @@ fn scan_dir(dir: &Path, source: DiscoverySource, discovered: &mut Vec<Discovered
         if !is_scanned_plugin_name(file_name) || seen.contains(file_name) {
             continue;
         }
-        if let Ok(manifest) = fetch_manifest(&path) {
-            seen.insert(file_name.to_string());
-            discovered.push(DiscoveredPlugin { name: file_name.to_string(), path, manifest, source });
+        match fetch_manifest(&path) {
+            Ok(manifest) => {
+                seen.insert(file_name.to_string());
+                discovered.push(DiscoveredPlugin { name: file_name.to_string(), path, manifest, source });
+            }
+            Err(error) => {
+                let reason = format!("{error:#}");
+                tracing::warn!(
+                    plugin = %file_name,
+                    path = %path.display(),
+                    source = ?source,
+                    "plugin manifest probe failed: {reason}"
+                );
+                warnings.push(DiscoveryWarning {
+                    name: file_name.to_string(),
+                    path: path.clone(),
+                    source,
+                    reason,
+                });
+            }
         }
     }
 }
@@ -242,5 +353,102 @@ mod tests {
 
         assert_eq!(discovered.len(), 1);
         assert_eq!(discovered[0].name, "compatible");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_manifest_probe_surfaces_warning_instead_of_silent_drop() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let plugin = temp.path().join("animus-provider-explode");
+        // Plugin script that fails when --manifest is invoked. Simulates the
+        // oai/linear regression where a missing env var aborted the manifest
+        // probe and the plugin silently disappeared from `animus plugin list`.
+        fs::write(
+            &plugin,
+            "#!/bin/sh\necho 'OPENAI_API_KEY not set' >&2\nexit 1\n",
+        )
+        .expect("write plugin");
+        let mut permissions = fs::metadata(&plugin).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&plugin, permissions).expect("chmod");
+
+        let config_path = temp.path().join("plugins.yaml");
+        fs::write(
+            &config_path,
+            format!("providers:\n  explode:\n    binary: {}\n", plugin.to_string_lossy()),
+        )
+        .expect("write config");
+
+        let (discovered, warnings) = PluginDiscovery::new()
+            .with_config_path(config_path)
+            .discover_with_warnings()
+            .expect("discover");
+
+        assert!(discovered.is_empty(), "plugin with failed manifest must not appear in discovered list");
+        assert_eq!(warnings.len(), 1, "expected exactly one discovery warning, got {warnings:?}");
+        let warning = &warnings[0];
+        assert_eq!(warning.name, "explode");
+        assert_eq!(warning.path, plugin);
+        assert_eq!(warning.source, DiscoverySource::ExplicitConfig);
+        assert!(
+            warning.reason.contains("manifest"),
+            "warning reason should mention the manifest failure, got: {}",
+            warning.reason
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn missing_configured_binary_surfaces_warning() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let config_path = temp.path().join("plugins.yaml");
+        fs::write(
+            &config_path,
+            "plugins:\n  ghost:\n    binary: /tmp/definitely-not-a-real-plugin-binary-xyz123\n",
+        )
+        .expect("write config");
+
+        let (discovered, warnings) = PluginDiscovery::new()
+            .with_config_path(config_path)
+            .discover_with_warnings()
+            .expect("discover");
+
+        assert!(discovered.is_empty());
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].name, "ghost");
+        assert_eq!(warnings[0].source, DiscoverySource::ExplicitConfig);
+        assert!(warnings[0].reason.contains("not found"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scan_dir_failed_manifest_surfaces_warning() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let plugins_dir = temp.path().join(".animus/plugins");
+        fs::create_dir_all(&plugins_dir).expect("mkdir");
+        let plugin = plugins_dir.join("animus-plugin-broken");
+        fs::write(&plugin, "#!/bin/sh\nexit 2\n").expect("write plugin");
+        let mut permissions = fs::metadata(&plugin).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&plugin, permissions).expect("chmod");
+
+        // Point discovery at an empty config so only the project-local scan runs.
+        let empty_config = temp.path().join("plugins.yaml");
+        fs::write(&empty_config, "plugins: {}\n").expect("write empty config");
+
+        let (discovered, warnings) = PluginDiscovery::new()
+            .with_project_root(temp.path())
+            .with_config_path(empty_config)
+            .discover_with_warnings()
+            .expect("discover");
+
+        assert!(discovered.is_empty());
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].name, "animus-plugin-broken");
+        assert_eq!(warnings[0].source, DiscoverySource::ProjectLocal);
     }
 }

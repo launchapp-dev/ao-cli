@@ -2,7 +2,9 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use anyhow::{anyhow, Context, Result};
-use orchestrator_plugin_host::{discover_plugins, DiscoveredPlugin, DiscoverySource, PluginDiscovery, PluginHost};
+use orchestrator_plugin_host::{
+    discover_plugins, DiscoveredPlugin, DiscoverySource, DiscoveryWarning, PluginDiscovery, PluginHost,
+};
 use orchestrator_plugin_protocol::PluginManifest;
 use serde::Serialize;
 use serde_json::Value;
@@ -23,6 +25,21 @@ struct DiscoveredPluginRow {
     capabilities: Vec<String>,
     source: &'static str,
     path: String,
+}
+
+#[derive(Debug, Serialize)]
+struct PluginWarningRow {
+    name: String,
+    source: &'static str,
+    path: String,
+    reason: String,
+}
+
+#[derive(Debug, Serialize)]
+struct PluginListOutput {
+    plugins: Vec<DiscoveredPluginRow>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    warnings: Vec<PluginWarningRow>,
 }
 
 #[derive(Debug, Serialize)]
@@ -83,6 +100,17 @@ fn discover(project_root: &str, include_system_path: bool) -> Result<Vec<Discove
         .context("plugin discovery failed")
 }
 
+fn discover_with_warnings(
+    project_root: &str,
+    include_system_path: bool,
+) -> Result<(Vec<DiscoveredPlugin>, Vec<DiscoveryWarning>)> {
+    PluginDiscovery::new()
+        .with_project_root(Path::new(project_root))
+        .include_system_path(include_system_path)
+        .discover_with_warnings()
+        .context("plugin discovery failed")
+}
+
 fn source_label(source: DiscoverySource) -> &'static str {
     match source {
         DiscoverySource::ExplicitConfig => "explicit_config",
@@ -93,7 +121,7 @@ fn source_label(source: DiscoverySource) -> &'static str {
 }
 
 fn handle_plugin_list(args: PluginListArgs, project_root: &str, json: bool) -> Result<()> {
-    let discovered = discover(project_root, args.include_system_path)?;
+    let (discovered, warnings) = discover_with_warnings(project_root, args.include_system_path)?;
     let rows: Vec<DiscoveredPluginRow> = discovered
         .into_iter()
         .map(|plugin| DiscoveredPluginRow {
@@ -107,7 +135,26 @@ fn handle_plugin_list(args: PluginListArgs, project_root: &str, json: bool) -> R
             path: plugin.path.display().to_string(),
         })
         .collect();
-    print_value(rows, json)
+    let warning_rows: Vec<PluginWarningRow> = warnings
+        .into_iter()
+        .map(|warning| PluginWarningRow {
+            name: warning.name,
+            source: source_label(warning.source),
+            path: warning.path.display().to_string(),
+            reason: warning.reason,
+        })
+        .collect();
+
+    if !json {
+        for warning in &warning_rows {
+            eprintln!(
+                "warning: plugin '{}' was discovered ({}) but could not be loaded: {} ({})",
+                warning.name, warning.source, warning.reason, warning.path
+            );
+        }
+    }
+
+    print_value(PluginListOutput { plugins: rows, warnings: warning_rows }, json)
 }
 
 fn find_plugin(project_root: &str, name: &str, include_system_path: bool) -> Result<DiscoveredPlugin> {

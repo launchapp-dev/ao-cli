@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use orchestrator_plugin_host::{discover_plugins, PluginRegistry};
+use orchestrator_plugin_host::{PluginDiscovery, PluginRegistry};
 use rmcp::model::CallToolResult;
 use rmcp::ErrorData as McpError;
 use schemars::JsonSchema;
@@ -53,8 +53,16 @@ impl AoMcpServer {
     )]
     async fn ao_plugin_list(&self, params: Parameters<PluginListInput>) -> Result<CallToolResult, McpError> {
         let project_root = self.project_root_or_default(params.0.project_root);
-        let plugins = discover_plugins(Path::new(&project_root))
+        let (plugins, warnings) = PluginDiscovery::new()
+            .with_project_root(Path::new(&project_root))
+            .discover_with_warnings()
             .map_err(|err| McpError::internal_error(format!("plugin discovery failed: {err}"), None))?;
+        let source_label = |source: orchestrator_plugin_host::DiscoverySource| match source {
+            orchestrator_plugin_host::DiscoverySource::ExplicitConfig => "explicit_config",
+            orchestrator_plugin_host::DiscoverySource::ProjectLocal => "project_local",
+            orchestrator_plugin_host::DiscoverySource::PluginPath => "plugin_path",
+            orchestrator_plugin_host::DiscoverySource::SystemPath => "system_path",
+        };
         let rows: Vec<Value> = plugins
             .into_iter()
             .map(|p| {
@@ -63,19 +71,26 @@ impl AoMcpServer {
                     "version": p.manifest.version,
                     "plugin_kind": p.manifest.plugin_kind,
                     "description": p.manifest.description,
-                    "source": match p.source {
-                        orchestrator_plugin_host::DiscoverySource::ExplicitConfig => "explicit_config",
-                        orchestrator_plugin_host::DiscoverySource::ProjectLocal => "project_local",
-                        orchestrator_plugin_host::DiscoverySource::PluginPath => "plugin_path",
-                        orchestrator_plugin_host::DiscoverySource::SystemPath => "system_path",
-                    },
+                    "source": source_label(p.source),
                     "path": p.path.display().to_string(),
+                })
+            })
+            .collect();
+        let warning_rows: Vec<Value> = warnings
+            .into_iter()
+            .map(|w| {
+                json!({
+                    "name": w.name,
+                    "source": source_label(w.source),
+                    "path": w.path.display().to_string(),
+                    "reason": w.reason,
                 })
             })
             .collect();
         Ok(CallToolResult::structured(json!({
             "tool": "animus.plugin.list",
             "result": rows,
+            "warnings": warning_rows,
         })))
     }
 

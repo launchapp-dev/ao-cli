@@ -63,9 +63,9 @@ fn plugin_list_discovers_smoke_and_provider_plugins() -> Result<()> {
 
     let response = run_plugin_command(&["plugin", "list"])?;
     let plugins = response
-        .pointer("/data")
+        .pointer("/data/plugins")
         .and_then(Value::as_array)
-        .ok_or_else(|| anyhow!("data should be an array: {response}"))?;
+        .ok_or_else(|| anyhow!("data.plugins should be an array: {response}"))?;
     let names: Vec<&str> = plugins.iter().filter_map(|p| p.get("name").and_then(Value::as_str)).collect();
 
     for required in ["animus-plugin-smoke", "animus-provider-claude", "animus-provider-codex"] {

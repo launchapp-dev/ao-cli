@@ -180,12 +180,7 @@ impl PluginDiscovery {
             match fetch_manifest(&path) {
                 Ok(manifest) => {
                     seen.insert(name.clone());
-                    discovered.push(DiscoveredPlugin {
-                        name,
-                        path,
-                        manifest,
-                        source: DiscoverySource::ExplicitConfig,
-                    });
+                    discovered.push(DiscoveredPlugin { name, path, manifest, source: DiscoverySource::ExplicitConfig });
                 }
                 Err(error) => {
                     let reason = format!("{error:#}");
@@ -195,12 +190,7 @@ impl PluginDiscovery {
                         source = "explicit_config",
                         "plugin manifest probe failed: {reason}"
                     );
-                    warnings.push(DiscoveryWarning {
-                        name,
-                        path,
-                        source: DiscoverySource::ExplicitConfig,
-                        reason,
-                    });
+                    warnings.push(DiscoveryWarning { name, path, source: DiscoverySource::ExplicitConfig, reason });
                 }
             }
         }
@@ -220,11 +210,7 @@ pub fn fetch_manifest(path: &Path) -> Result<PluginManifest> {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let trimmed = stderr.trim();
         if trimmed.is_empty() {
-            anyhow::bail!(
-                "plugin manifest command failed for {} (exit={:?})",
-                path.display(),
-                output.status.code()
-            );
+            anyhow::bail!("plugin manifest command failed for {} (exit={:?})", path.display(), output.status.code());
         }
         anyhow::bail!(
             "plugin manifest command failed for {} (exit={:?}): {}",
@@ -272,12 +258,7 @@ fn scan_dir(
                     source = ?source,
                     "plugin manifest probe failed: {reason}"
                 );
-                warnings.push(DiscoveryWarning {
-                    name: file_name.to_string(),
-                    path: path.clone(),
-                    source,
-                    reason,
-                });
+                warnings.push(DiscoveryWarning { name: file_name.to_string(), path: path.clone(), source, reason });
             }
         }
     }
@@ -355,9 +336,16 @@ fn default_config_path() -> PathBuf {
     if canonical.exists() {
         return canonical;
     }
-    let legacy = legacy_plugins_registry_path();
-    if legacy.exists() {
-        return legacy;
+    // When the caller has explicitly redirected `$ANIMUS_CONFIG_DIR`
+    // (typically tests), respect that isolation and skip the legacy
+    // `~/.config/animus/plugins.yaml` fallback — otherwise stale entries
+    // from a developer's real home would leak into isolated runs.
+    let config_dir_overridden = std::env::var("ANIMUS_CONFIG_DIR").map(|v| !v.trim().is_empty()).unwrap_or(false);
+    if !config_dir_overridden {
+        let legacy = legacy_plugins_registry_path();
+        if legacy.exists() {
+            return legacy;
+        }
     }
     canonical
 }
@@ -443,26 +431,17 @@ mod tests {
         // Plugin script that fails when --manifest is invoked. Simulates the
         // oai/linear regression where a missing env var aborted the manifest
         // probe and the plugin silently disappeared from `animus plugin list`.
-        fs::write(
-            &plugin,
-            "#!/bin/sh\necho 'OPENAI_API_KEY not set' >&2\nexit 1\n",
-        )
-        .expect("write plugin");
+        fs::write(&plugin, "#!/bin/sh\necho 'OPENAI_API_KEY not set' >&2\nexit 1\n").expect("write plugin");
         let mut permissions = fs::metadata(&plugin).expect("metadata").permissions();
         permissions.set_mode(0o755);
         fs::set_permissions(&plugin, permissions).expect("chmod");
 
         let config_path = temp.path().join("plugins.yaml");
-        fs::write(
-            &config_path,
-            format!("providers:\n  explode:\n    binary: {}\n", plugin.to_string_lossy()),
-        )
-        .expect("write config");
+        fs::write(&config_path, format!("providers:\n  explode:\n    binary: {}\n", plugin.to_string_lossy()))
+            .expect("write config");
 
-        let (discovered, warnings) = PluginDiscovery::new()
-            .with_config_path(config_path)
-            .discover_with_warnings()
-            .expect("discover");
+        let (discovered, warnings) =
+            PluginDiscovery::new().with_config_path(config_path).discover_with_warnings().expect("discover");
 
         assert!(discovered.is_empty(), "plugin with failed manifest must not appear in discovered list");
         assert_eq!(warnings.len(), 1, "expected exactly one discovery warning, got {warnings:?}");
@@ -484,16 +463,11 @@ mod tests {
         let _clear_plugin_dir = EnvVarGuard::set("ANIMUS_PLUGIN_DIR", "");
         let temp = tempfile::tempdir().expect("tempdir");
         let config_path = temp.path().join("plugins.yaml");
-        fs::write(
-            &config_path,
-            "plugins:\n  ghost:\n    binary: /tmp/definitely-not-a-real-plugin-binary-xyz123\n",
-        )
-        .expect("write config");
+        fs::write(&config_path, "plugins:\n  ghost:\n    binary: /tmp/definitely-not-a-real-plugin-binary-xyz123\n")
+            .expect("write config");
 
-        let (discovered, warnings) = PluginDiscovery::new()
-            .with_config_path(config_path)
-            .discover_with_warnings()
-            .expect("discover");
+        let (discovered, warnings) =
+            PluginDiscovery::new().with_config_path(config_path).discover_with_warnings().expect("discover");
 
         assert!(discovered.is_empty());
         assert_eq!(warnings.len(), 1);

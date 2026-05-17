@@ -218,10 +218,10 @@ those are aggregated automatically.
 
 | Tool | Description | Key Parameters |
 |---|---|---|
-| `animus.plugin.list` | List discovered plugins (providers, subject backends, custom) with name, version, kind, source, and path. | `project_root` (optional) |
+| `animus.plugin.list` | List discovered plugins (providers, subject backends, custom) with name, version, kind, source, and path. The response gains a parallel top-level `warnings` array for plugins that failed their `--manifest` probe (binary missing, exit non-zero, malformed JSON). | `project_root` (optional) |
 | `animus.plugin.call` | Send a JSON-RPC request to a discovered plugin. The plugin is spawned (or reused) and handshaked before the call. | `name`, `method`, `params` (optional), `project_root` (optional) |
 
-Discovery order: `~/.config/animus/plugins.yaml` → `.animus/plugins/` → `$ANIMUS_PLUGIN_PATH` → `$PATH` (`animus-provider-*` / `animus-plugin-*` prefixes; `$PATH` opt-in via `--include-system-path`).
+Discovery order: `~/.animus/plugins.yaml` (or the legacy `~/.config/animus/plugins.yaml` on first read) → `.animus/plugins/` → `$ANIMUS_PLUGIN_DIR` (defaults to `~/.animus/plugins/`) → `$ANIMUS_PLUGIN_PATH` → `$PATH` (`animus-provider-*` / `animus-plugin-*` prefixes; `$PATH` opt-in via `--include-system-path`).
 
 ---
 

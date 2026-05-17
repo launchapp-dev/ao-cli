@@ -25,7 +25,7 @@ architecture, command counts, routes, or state paths:
 
 Animus is a Rust-only agent orchestrator with:
 
-- a Cargo workspace of around 20 crates (in flux during the v0.4.0 plugin extraction)
+- a Cargo workspace of around 22 first-class crates (`crates/` currently lists ~30 directory entries; the extra entries are nested test fixtures and helper crates such as `animus-plugin-smoke` and `animus-provider-mock`)
 - the CLI binary named `animus`
 - a visible CLI surface that includes `project` and `queue`
 - hidden `review` and `qa` command trees
@@ -33,10 +33,12 @@ Animus is a Rust-only agent orchestrator with:
 - project-local workflow YAML overlays under `.animus/workflows.yaml` or `.animus/workflows/*.yaml`
 - a React 18 web UI in `crates/orchestrator-web-server/web-ui`
 - a stdio plugin host (`orchestrator-plugin-host`) for subject and provider plugins
+- the v0.4.0 plugin extraction **complete**: 8 standalone repositories live at <https://github.com/launchapp-dev> (`animus-protocol`, `animus-plugin-template`, `animus-subject-linear`, plus `animus-provider-{claude,codex,gemini,opencode,oai}`), each tagged `v0.1.0` with green CI. Only `animus-provider-mock` and `animus-plugin-smoke` remain in-tree, as test fixtures.
 
 Do not reintroduce stale claims such as:
 
 - 9-crate or 10-crate workspace summaries
+- "plugin extraction in flux" or "in progress" framing — v0.4.0 plugin extraction is shipped
 - `PROJECT_ROOT` or "last-project-root registry" resolution rules
 - removed crates like `llm-mcp-server`
 - outdated CLI groups such as a top-level `planning` facade

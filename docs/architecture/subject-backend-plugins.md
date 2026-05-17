@@ -1,5 +1,15 @@
 # Subject Backend Plugins
 
+> **Status (2026-05-17):** The v0.1.0 contract is **shipped**. The protocol
+> crates (`animus-subject-protocol`, `animus-plugin-protocol`,
+> `animus-plugin-runtime`) live at
+> [`launchapp-dev/animus-protocol`](https://github.com/launchapp-dev/animus-protocol)
+> (5-crate workspace, `v0.1.0`, green CI). The first reference subject backend
+> is [`launchapp-dev/animus-subject-linear`](https://github.com/launchapp-dev/animus-subject-linear)
+> (`v0.1.0`, green CI). New backends scaffold from
+> [`launchapp-dev/animus-plugin-template`](https://github.com/launchapp-dev/animus-plugin-template)
+> via `animus plugin new --kind subject --name <name>`.
+
 ## Purpose
 
 Animus dispatches `SubjectDispatch` envelopes off a queue and into
@@ -336,51 +346,63 @@ short TTL (default 30s) to avoid hammering external APIs on every tick.
 Cache is invalidated when a `subject/changed` notification arrives via
 `subject/watch`, or on `subject/update` calls originating from a workflow.
 
-## Open questions for red-team
+## Open questions, resolved (v0.1.0)
 
-These are intentionally not decided in the doc. Pick one or more for
-discussion:
+The questions previously left open here were closed during the v0.1.0
+protocol-shape pass. The shipped decisions:
 
-1. **Subject IDs as strings vs structured records.** Strings are simpler
-   (`linear:ENG-123`) but lose type safety. A `{ backend, native_id }`
-   record is more verbose but disambiguates backends with overlapping
-   id formats. Current proposal: strings, with the `backend:` prefix
-   reserved.
+1. **Subject IDs are opaque strings with a reserved `<backend>:` prefix.**
+   `linear:ENG-123`, `native:TASK-001`, etc. The `SubjectId` newtype in
+   `animus-subject-protocol` wraps a `String` and never opens it up to
+   structured matching. Backends with overlapping id formats stay
+   disambiguated by their prefix.
 
-2. **Dependency semantics.** The `parent` and `children` fields are
-   captured but not yet wired into dispatch. Should the daemon block
-   dispatch of a child until its parent is `done`? Or treat parent/child
-   as metadata only?
+2. **`parent` and `children` are metadata only in v0.1.0.** The trait
+   captures them on `Subject`, but the daemon does not block child dispatch
+   on parent status. Workflows that need parent-gated dispatch must encode
+   that in YAML for now. Dispatch-time dependency enforcement is on the
+   v0.5.x roadmap.
 
-3. **Native task IDs.** Today they're `TASK-001`. Under the migration
-   they become `native:TASK-001` in subject form. Do MCP tools
-   (`animus.task.get --id TASK-001`) accept both forms transparently?
-   Current proposal: yes, MCP layer accepts bare `TASK-001` and prefixes
-   internally.
+3. **`animus.task.*` MCP tools accept bare `TASK-001` and prefix
+   internally to `native:TASK-001`.** The MCP layer normalizes the id
+   before handing it to the native `SubjectBackend` impl, so existing
+   v0.3.x agent prompts that pass `TASK-001` continue to work unchanged.
 
-4. **Plugin config secrets.** `api_token_env` is the proposed
-   indirection. Should the daemon support inline secrets (`api_token:
-   "secret"` directly in YAML)? Probably no — it forces secrets into
-   repo state.
+4. **Plugin config secrets are env-var indirection only.** No support for
+   inline `api_token: "..."` in workflow YAML; secrets stay out of the
+   repo. The daemon passes only the specific env var(s) named in
+   `config.<key>_env` through to the spawned plugin process. Reference
+   impl: `animus-subject-linear` reads `LINEAR_API_TOKEN` via this
+   indirection.
 
-5. **`subject/create`.** Should workflows be able to create subjects in
-   external systems (e.g. a workflow that converts a Slack message into
-   a Linear ticket)? The trait could support it via an optional
-   `create()` method, but it's not required for the v0.4.0 cut.
+5. **`subject/create` is not in v0.1.0.** Workflows operate on
+   pre-existing subjects (Linear tickets that already exist, native tasks
+   created via `animus task create`). Backend-mediated creation is on the
+   v0.5.x roadmap; the trait will gain an optional `create()` then.
 
-6. **Backend versioning.** The plugin manifest declares a protocol
-   version. What's the deprecation policy when `animus-subject-protocol`
-   bumps? Compatibility window of how many minor versions?
+6. **Backend versioning policy: SemVer minor compatibility.** Plugins
+   declare a `protocol_version` in their manifest. The daemon accepts any
+   plugin whose declared version is in the same `0.1.x` minor range as
+   the host's `animus-subject-protocol` dep. Pre-1.0, minor bumps may
+   break the wire; the daemon refuses to spawn an incompatible plugin
+   with a clear error. Post-1.0, the policy will become "same major
+   version".
 
-7. **Cross-backend joins.** A workflow that operates on a Linear issue
-   and updates a GitHub PR linked from it. The current model handles
-   one subject_type per workflow. Multi-subject workflows are deferred.
+7. **Cross-backend joins remain out of scope.** A workflow declares a
+   single `subject_type:` and operates over one backend per dispatch. A
+   workflow that needs to update a GitHub PR linked from a Linear ticket
+   does it via tool calls inside a phase, not by joining backends at the
+   dispatch layer.
 
-8. **Plugin distribution.** Each backend is its own GitHub repo
-   (`animus-subject-{name}`) with its own release cycle. Discovery
-   happens via the existing plugin install mechanism. Should there be
-   an Animus-curated marketplace, or is "any repo with a manifest"
-   the model?
+8. **Plugin distribution: "any public GitHub repo with a manifest" is the
+   v0.1.0 model.** Each backend is its own repo named
+   `animus-subject-<name>` (or `animus-provider-<name>` / `animus-trigger-<name>`)
+   under any GitHub org. `animus plugin install <owner/repo>[@tag]`
+   resolves the latest (or pinned) release and installs the architecture-matched
+   binary asset. An Animus-curated marketplace is not in v0.1.0; the
+   convention-over-discovery model intentionally leaves the social/curation
+   layer to GitHub's own search + the `launchapp-dev/awesome-ai-coding-tools`
+   list.
 
 ## Acceptance shape for v0.4.0
 

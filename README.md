@@ -77,6 +77,8 @@ Animus turns a single YAML file into an autonomous software delivery pipeline.
 
 You define agents, wire them into phases, compose phases into workflows, schedule everything with cron — and Animus's daemon handles the rest: dispatching tasks to AI agents in isolated git worktrees, managing quality gates, and merging the results.
 
+As of v0.4.0, Animus is plugin-first. The core daemon is the orchestration runtime; providers (Claude, Codex, Gemini, OpenCode, any OpenAI-compatible HTTP endpoint) and subject backends (native task queue, Linear, anything you scaffold from the template) ship as independent `animus-*` repositories under [launchapp-dev](https://github.com/launchapp-dev). `animus plugin install <owner/repo>` pulls them in.
+
 ```
                 ┌──────────────────────────────────────────────────┐
                 │            Animus Daemon (Rust)                  │
@@ -110,6 +112,12 @@ animus workflow run --task-id TASK-001
 # Option 2: go fully autonomous
 animus daemon start --autonomous                 # daemon executes ready tasks continuously
 animus daemon health                             # verify it's up
+
+# Install a provider plugin from a public GitHub release:
+animus plugin install launchapp-dev/animus-provider-claude
+
+# Scaffold a brand-new subject backend (Jira, Notion, anything with an API):
+animus plugin new --kind subject --name jira
 ```
 
 Bundled `init` templates: **`task-queue`**, **`conductor`**, **`direct-workflow`**.
@@ -403,7 +411,23 @@ Animus is a Rust workspace. The core crates:
 - `orchestrator-notifications` — event streaming and notifications
 - `orchestrator-logging` — shared logging utilities
 - `orchestrator-plugin-host` / `orchestrator-plugin-protocol` — stdio plugin foundation
+- `animus-provider-mock` / `animus-plugin-smoke` — in-tree contract test fixtures for the plugin protocol
 - `orchestrator-web-contracts` / `orchestrator-web-api` / `orchestrator-web-server` — embedded React 18 dashboard
+
+### Plugin ecosystem
+
+Provider and subject backends live in their own GitHub repositories under [launchapp-dev](https://github.com/launchapp-dev) and are installed via `animus plugin install <owner/repo>`. Each is tagged `v0.1.0` with green CI:
+
+| Repository | Purpose |
+|---|---|
+| [`animus-protocol`](https://github.com/launchapp-dev/animus-protocol) | Plugin protocol Rust crates published to crates.io (`animus-plugin-protocol`, `animus-subject-protocol`, `animus-provider-protocol`, `animus-plugin-runtime`, `animus-session-backend`) |
+| [`animus-plugin-template`](https://github.com/launchapp-dev/animus-plugin-template) | Subject + provider scaffolds, consumed by `animus plugin new` |
+| [`animus-subject-linear`](https://github.com/launchapp-dev/animus-subject-linear) | Linear GraphQL subject backend (reference impl) |
+| [`animus-provider-claude`](https://github.com/launchapp-dev/animus-provider-claude) | Claude Code CLI provider |
+| [`animus-provider-codex`](https://github.com/launchapp-dev/animus-provider-codex) | Codex CLI provider |
+| [`animus-provider-gemini`](https://github.com/launchapp-dev/animus-provider-gemini) | Gemini CLI provider |
+| [`animus-provider-opencode`](https://github.com/launchapp-dev/animus-provider-opencode) | OpenCode CLI provider |
+| [`animus-provider-oai`](https://github.com/launchapp-dev/animus-provider-oai) | OpenAI-compatible HTTP provider |
 
 ```mermaid
 graph LR

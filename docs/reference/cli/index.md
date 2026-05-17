@@ -224,12 +224,13 @@ animus
 │       └── sync             Sync (re-clone) a registry to get latest pack catalog
 │
 ├── plugin                   Discover, inspect, install, and call Animus STDIO plugins
-│   ├── list                 Discover plugins via plugins.yaml, .animus/plugins/, and $ANIMUS_PLUGIN_PATH
+│   ├── list                 Discover plugins via plugins.yaml, .animus/plugins/, $ANIMUS_PLUGIN_DIR, and $ANIMUS_PLUGIN_PATH
 │   ├── info                 Print a plugin's manifest plus initialize-time capabilities
 │   ├── call                 Send a JSON-RPC request to a plugin and print its response
 │   ├── ping                 Health-check a plugin by spawning, handshaking, and pinging
-│   ├── install              Install a plugin binary (--path or --url) into ~/.animus/plugins/
-│   └── uninstall            Remove a previously installed plugin from ~/.animus/plugins/
+│   ├── install              Install a plugin from a public GitHub repo (owner/repo[@tag]), a local --path, or an https --url --sha256
+│   ├── uninstall            Remove a previously installed plugin from ~/.animus/plugins/
+│   └── new                  Scaffold a new plugin project from launchapp-dev/animus-plugin-template
 │
 ├── runner                   Inspect runner health and orphaned runs
 │   ├── health               Show runner process health
@@ -301,14 +302,33 @@ The template registry URL can be overridden globally via `ANIMUS_TEMPLATE_REGIST
 
 Install a plugin binary into `~/.animus/plugins/` after verifying its integrity.
 
-| Flag | Description |
+Three install sources, mutually exclusive:
+
+```bash
+# 1. Public GitHub repo (latest release, or pinned with @tag / --tag)
+animus plugin install launchapp-dev/animus-provider-claude
+animus plugin install launchapp-dev/animus-provider-claude@v0.1.0
+animus plugin install launchapp-dev/animus-provider-claude --tag v0.1.0
+
+# 2. Local binary
+animus plugin install --path ./target/release/animus-provider-claude
+
+# 3. HTTPS URL with mandatory checksum
+animus plugin install --url https://example.com/plugin --sha256 a1b2c3d4...
+```
+
+| Argument / Flag | Description |
 |---|---|
+| `<OWNER/REPO[@TAG]>` | Public GitHub repo slug (positional). Resolves the latest release (or supplied tag), downloads the matching architecture asset, verifies the published checksum, installs the binary, and registers it in `~/.animus/plugins.yaml`. Mutually exclusive with `--path` and `--url` |
 | `--path <PATH>` | Local path to the plugin binary. SHA256 verification is optional for local installs |
 | `--url <URL>` | HTTPS URL to download the plugin binary from. `--sha256` is **required** when installing from a URL (v0.4.0 supply-chain hardening) |
+| `--tag <TAG>` | Release tag to install when using the `owner/repo` positional. Defaults to the latest release. Conflicts with the `@tag` syntax on the positional |
+| `--latest` | Explicit opt-in to resolving the latest release when no tag is given (this is the default; the flag exists for self-documenting commands). Conflicts with `--tag` and `owner/repo@tag` syntax |
 | `--name <NAME>` | Optional logical plugin name. Defaults to the binary file name |
-| `--sha256 <HEX>` | Expected SHA256 hex digest. Required with `--url`; optional with `--path`. The install fails if the downloaded/copied binary's checksum does not match |
+| `--sha256 <HEX>` | Expected SHA256 hex digest. Required with `--url`; optional with `--path` or a public-repo install. The install fails if the downloaded/copied binary's checksum does not match |
 | `--force` | Overwrite an existing installed plugin with the same name |
 | `--skip-manifest-check` | Skip running `--manifest` against the installed binary to verify it (use sparingly) |
+| `--plugin-dir <PATH>` | Override the plugin install directory. Takes precedence over `$ANIMUS_PLUGIN_DIR`. Defaults to `~/.animus/plugins/` |
 
 ### `animus plugin list` / `info` / `call` / `ping`
 
@@ -322,11 +342,43 @@ binaries from being picked up. Pass `--include-system-path` to opt in to scannin
 | `animus plugin info` | `--name <NAME>`, `--include-system-path` |
 | `animus plugin call` | `--name <NAME>`, `--method <METHOD>`, `--params <JSON>`, `--include-system-path` |
 | `animus plugin ping` | `--name <NAME>`, `--include-system-path` |
-| `animus plugin uninstall` | `--name <NAME>` |
+| `animus plugin uninstall` | `--name <NAME>`, `--plugin-dir <PATH>` |
 
 Default discovery order (no `--include-system-path`):
-`~/.config/animus/plugins.yaml` → `.animus/plugins/` → `$ANIMUS_PLUGIN_PATH`.
-With `--include-system-path`, `$PATH` is appended.
+`~/.animus/plugins.yaml` (or the legacy `~/.config/animus/plugins.yaml` on first
+read) → `.animus/plugins/` → `$ANIMUS_PLUGIN_DIR` (or `~/.animus/plugins/`) →
+`$ANIMUS_PLUGIN_PATH`. With `--include-system-path`, `$PATH` is appended.
+
+`animus plugin list --json` returns a top-level `warnings` array when a configured
+plugin failed its `--manifest` probe (binary missing, exited non-zero, returned
+non-JSON, etc.). Human output emits each warning to stderr. The
+`animus.plugin.list` MCP tool carries the same `warnings` field.
+
+### `animus plugin new`
+
+Scaffold a new plugin project from the
+[`launchapp-dev/animus-plugin-template`](https://github.com/launchapp-dev/animus-plugin-template)
+repository. Clones the template at the requested ref, copies the
+`<kind>/` subdirectory into the output directory, substitutes
+`{{var}}` markers, and strips the `.tmpl` suffix from rendered files.
+
+| Flag | Description |
+|---|---|
+| `--kind <KIND>` | Plugin kind: `subject`, `provider`, or `trigger` |
+| `--name <NAME>` | Plugin short name in kebab-case (e.g. `jira`, `linear`, `openai-compat`) |
+| `--org <ORG>` | GitHub org used in the generated project's repository field. Default `launchapp-dev` |
+| `--description <TEXT>` | Short description. Defaults to `An Animus <kind> backend plugin` |
+| `--out-dir <PATH>` | Output directory. Defaults to `./animus-<kind>-<name>` |
+| `--template-version <REF>` | Git branch or tag to clone. Default `main` |
+| `--template-repo <URL>` | Template git URL. Defaults to `launchapp-dev/animus-plugin-template` |
+| `--template-path <PATH>` | Use a local checkout of the template repo (skips `git clone`) |
+| `--force` | Overwrite an existing output directory |
+
+Substitution variables (hardcoded today; see `template-manifest.toml`
+in the template repo for the source of truth): `name`, `NAME_UPPER`,
+`NAME_PASCAL`, `name_snake`, `kind`, `full_name`, `description`,
+`org`, `year`, `author` (from `git config user.name`),
+`author_email` (from `git config user.email`).
 
 ## Summary
 

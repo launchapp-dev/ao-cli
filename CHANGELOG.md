@@ -2,6 +2,62 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.2] - 2026-05-17
+
+Same-day follow-up to v0.4.1. Ships the full v0.4.0 plugin ecosystem: every
+provider plugin promised by the v0.4.0 release is now live in its own
+`launchapp-dev/animus-*` repository with green CI, alongside the protocol
+crates, a public plugin scaffold template, and the first subject backend
+(Linear). The in-tree CLI gains the matching `animus plugin install
+<owner/repo>` and `animus plugin new` surfaces for one-command install +
+bootstrap, and several rough edges in `animus init` and plugin discovery
+caught during release verification are fixed.
+
+### Plugin ecosystem (now shipped, was "in-flight" in v0.4.0 notes)
+
+Eight standalone repositories under [launchapp-dev](https://github.com/launchapp-dev),
+each tagged `v0.1.0` with green CI:
+
+- [`animus-protocol`](https://github.com/launchapp-dev/animus-protocol) — 5-crate workspace publishing `animus-plugin-protocol`, `animus-subject-protocol`, `animus-provider-protocol`, `animus-plugin-runtime`, and `animus-session-backend`. CI workflow added.
+- [`animus-plugin-template`](https://github.com/launchapp-dev/animus-plugin-template) — subject + provider scaffolds consumed by `animus plugin new`. CI workflow runs `cargo check` against both kinds on every push.
+- [`animus-subject-linear`](https://github.com/launchapp-dev/animus-subject-linear) — Linear GraphQL `SubjectBackend` reference implementation. Credentials load leniently so `--manifest` probes work credential-free.
+- [`animus-provider-claude`](https://github.com/launchapp-dev/animus-provider-claude) — Claude Code CLI wrapper provider.
+- [`animus-provider-codex`](https://github.com/launchapp-dev/animus-provider-codex) — Codex CLI wrapper provider.
+- [`animus-provider-gemini`](https://github.com/launchapp-dev/animus-provider-gemini) — Gemini CLI wrapper provider.
+- [`animus-provider-opencode`](https://github.com/launchapp-dev/animus-provider-opencode) — OpenCode CLI wrapper provider.
+- [`animus-provider-oai`](https://github.com/launchapp-dev/animus-provider-oai) — OpenAI-compatible HTTP provider. Lenient credential loading so `--manifest` works without a configured API key.
+
+### Features
+
+- **`animus plugin install <owner/repo>[@tag]`**: Install a plugin directly from a public GitHub release. The CLI resolves the latest release (or the supplied tag), downloads the matching architecture asset, verifies the published checksum, drops the binary into `~/.animus/plugins/`, and registers it in `~/.animus/plugins.yaml`. Mutually exclusive with `--path` / `--url`. New `--tag <TAG>` and `--latest` flags make scripted installs explicit. Local-file (`--path`) and direct-URL (`--url --sha256`) installs from v0.4.0 still work unchanged.
+- **`animus plugin new --kind <subject|provider|trigger> --name <name>`**: Scaffold a brand-new plugin project from `launchapp-dev/animus-plugin-template`. Clones the template (or reads `--template-path <PATH>` for offline use), substitutes the per-kind/per-name variables, and writes a buildable Rust project to `./animus-<kind>-<name>/` (override with `--out-dir`). The output project is `cargo build`-clean from the first commit.
+- **Plugin install dir is configurable**: New `--plugin-dir <PATH>` flag on `animus plugin install` / `uninstall`, plus the new `$ANIMUS_PLUGIN_DIR` env var, override the default `~/.animus/plugins/` location. Discovery scans the same directory automatically.
+- **Plugin registry consolidated under `~/.animus/`**: The plugin registry file moves from `~/.config/animus/plugins.yaml` to `~/.animus/plugins.yaml`. The legacy path is still read transparently on first run; the next `animus plugin install` rewrites it to the new location. Two new helpers (`plugins_registry_path()` and `legacy_plugins_registry_path()`) are re-exported from `orchestrator-plugin-host` for tooling that needs to point at either.
+
+### Fixes
+
+- **`animus init` no longer emits legacy wrapper YAMLs alongside template files** (commit [`f7c85a11`](https://github.com/launchapp-dev/animus-cli/commit/f7c85a11), bug #22): `animus init --template task-queue` was writing both the registry's inline-content workflow files *and* three hardcoded wrapper YAMLs (`standard-workflow.yaml`, `hotfix-workflow.yaml`, `research-workflow.yaml`) because `FileServiceHub::new` ran the hardcoded scaffold inside `bootstrap_project_base_configs` *before* `write_template_files` had a chance to drop registry files. Reorder: write template files first, bootstrap second. The scaffold's `has_existing_yaml` short-circuit now sees the registry files and skips the wrappers. Also fixes an undercount of three in `apply.written_files` because the scaffold was writing outside the tracked path. Verified: a fresh `animus init --non-interactive --template task-queue` now produces 5 YAML files (was 8).
+- **Plugin discovery surfaces failed-manifest probes instead of silent-dropping them** (commit [`8394a73`](https://github.com/launchapp-dev/animus-cli/commit/8394a73)): `discover_configured` and `scan_dir` were swallowing manifest-fetch errors, so installed plugins that failed `--manifest` invocation (the symptom: `animus-provider-oai` before the lenient-credential fix) silently disappeared from `animus plugin list` with no diagnostic. New `DiscoveryWarning` struct + `PluginDiscovery::discover_with_warnings()` API returns failed-probe plugins alongside successes, with the binary's stderr + exit code included. `tracing::warn!` fires at every drop site. `animus plugin list --json` gains a top-level `warnings` array; human output prints each warning to stderr. The `animus.plugin.list` MCP tool result gains a parallel `warnings` field. Regression tests cover failed `--manifest` probes for explicit-config plugins, missing configured binaries, and failed `scan_dir` manifest probes.
+- **`animus-provider-oai --manifest` works credential-free** (shipped in `animus-provider-oai` v0.1.0): Manifest probes no longer require `OPENAI_API_KEY` to be set. The lenient-config loader returns a manifest with an `error` capability hint when credentials are missing, instead of exiting with code 1.
+- **`animus-subject-linear --manifest` works credential-free** (shipped in `animus-subject-linear` v0.1.0): Same fix as the oai provider — credential validation deferred from `--manifest` to the first `subject/list` call.
+
+### CI
+
+- **`animus-protocol` repo now has CI**: `cargo check` + `cargo test` across the 5-crate workspace on every push.
+- **`animus-plugin-template` repo now has CI**: Validates both the subject scaffold and the provider scaffold compile cleanly via `cargo check`.
+
+### Docs
+
+- **`README.md` + `CLAUDE.md` drop "extraction in progress" framing**: Both update to describe the shipped 22-crate workspace plus the 8 standalone plugin repositories under [launchapp-dev](https://github.com/launchapp-dev). The CLAUDE.md "Current Baseline" section now reflects v0.4.0 plugin extraction as complete rather than in flux.
+- **`docs/migration/v0.3-to-v0.4.md` marked complete**: Migration guide now documents the actual shipped install surfaces (public-repo `owner/repo@tag`, local `--path`, URL `--url --sha256`, and scaffold via `animus plugin new`) rather than describing them as planned.
+- **`docs/reference/cli/index.md`**: Adds the `animus plugin install <owner/repo>` and `animus plugin new` flag surfaces, the new `--plugin-dir` override, and the updated default registry path. Discovery-order line updated to point at `~/.animus/plugins.yaml`.
+- **`docs/architecture/subject-backend-plugins.md`**: Resolves the v0.4.0 "open questions" section against the v0.1.0 protocol shape that actually shipped. Adds links to the live `animus-protocol` and `animus-subject-linear` repositories.
+
+### Known follow-ups (deferred to v0.4.x)
+
+- `[[bin]] name = "ao-workflow-runner"` in `crates/workflow-runner-v2/Cargo.toml` is still the legacy bin name (from v0.4.1 known-follow-ups list; not yet renamed).
+- Release archive filenames still use the `ao-v0.4.X-` prefix; the release script's archive-naming convention still needs to be updated to `animus-v0.4.X-`.
+
 ## [0.4.1] - 2026-05-17
 
 Same-day patch for issues caught during v0.4.0 release verification.

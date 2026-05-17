@@ -1,9 +1,12 @@
+mod new;
+
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use anyhow::{anyhow, Context, Result};
 use orchestrator_plugin_host::{
-    discover_plugins, DiscoveredPlugin, DiscoverySource, DiscoveryWarning, PluginDiscovery, PluginHost,
+    discover_plugins, legacy_plugins_registry_path, plugin_install_dir, plugins_registry_path, DiscoveredPlugin,
+    DiscoverySource, DiscoveryWarning, PluginDiscovery, PluginHost,
 };
 use orchestrator_plugin_protocol::PluginManifest;
 use serde::Serialize;
@@ -16,69 +19,135 @@ use crate::{
 };
 
 #[derive(Debug, Serialize)]
-struct DiscoveredPluginRow {
-    name: String,
-    version: String,
-    plugin_kind: String,
-    description: String,
-    protocol_version: String,
-    capabilities: Vec<String>,
-    source: &'static str,
-    path: String,
+pub(crate) struct DiscoveredPluginRow {
+    pub(crate) name: String,
+    pub(crate) version: String,
+    pub(crate) plugin_kind: String,
+    pub(crate) description: String,
+    pub(crate) protocol_version: String,
+    pub(crate) capabilities: Vec<String>,
+    pub(crate) source: &'static str,
+    pub(crate) path: String,
 }
 
 #[derive(Debug, Serialize)]
-struct PluginWarningRow {
-    name: String,
-    source: &'static str,
-    path: String,
-    reason: String,
+pub(crate) struct PluginWarningRow {
+    pub(crate) name: String,
+    pub(crate) source: &'static str,
+    pub(crate) path: String,
+    pub(crate) reason: String,
 }
 
 #[derive(Debug, Serialize)]
-struct PluginListOutput {
-    plugins: Vec<DiscoveredPluginRow>,
+pub(crate) struct PluginListOutput {
+    pub(crate) plugins: Vec<DiscoveredPluginRow>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    warnings: Vec<PluginWarningRow>,
+    pub(crate) warnings: Vec<PluginWarningRow>,
 }
 
 #[derive(Debug, Serialize)]
-struct PluginInfoOutput {
-    name: String,
-    source: &'static str,
-    path: String,
-    manifest: PluginManifest,
-    initialize: Value,
+pub(crate) struct PluginInfoOutput {
+    pub(crate) name: String,
+    pub(crate) source: &'static str,
+    pub(crate) path: String,
+    pub(crate) manifest: PluginManifest,
+    pub(crate) initialize: Value,
 }
 
 #[derive(Debug, Serialize)]
-struct PluginCallOutput {
-    name: String,
-    method: String,
-    result: Value,
+pub(crate) struct PluginCallOutput {
+    pub(crate) name: String,
+    pub(crate) method: String,
+    pub(crate) result: Value,
 }
 
 #[derive(Debug, Serialize)]
-struct PluginPingOutput {
-    name: String,
-    ok: bool,
-    plugin_info: Value,
+pub(crate) struct PluginPingOutput {
+    pub(crate) name: String,
+    pub(crate) ok: bool,
+    pub(crate) plugin_info: Value,
 }
 
 #[derive(Debug, Serialize)]
-struct PluginInstallOutput {
-    name: String,
-    installed_path: String,
-    sha256: String,
-    manifest: Option<PluginManifest>,
-    plugins_yaml: String,
+pub(crate) struct PluginInstallOutput {
+    pub(crate) name: String,
+    pub(crate) installed_path: String,
+    pub(crate) sha256: String,
+    pub(crate) manifest: Option<PluginManifest>,
+    pub(crate) plugins_yaml: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) source_kind: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) origin: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) release_tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) asset_name: Option<String>,
+    pub(crate) sha256_verified: bool,
 }
 
 #[derive(Debug, Serialize)]
-struct PluginUninstallOutput {
-    name: String,
-    removed_path: Option<String>,
-    plugins_yaml: String,
+pub(crate) struct PluginUninstallOutput {
+    pub(crate) name: String,
+    pub(crate) removed_path: Option<String>,
+    pub(crate) plugins_yaml: String,
+}
+
+// ===== Typed request structs (shared between CLI and MCP) =====
+
+/// Typed request for `plugin list`. Both CLI and MCP build one of these and
+/// call [`run_plugin_list`]. The CLI handler additionally streams warnings to
+/// stderr when in text mode; MCP returns warnings inside the structured payload.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct PluginListRequest {
+    pub(crate) project_root: String,
+    pub(crate) include_system_path: bool,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct PluginInfoRequest {
+    pub(crate) project_root: String,
+    pub(crate) name: String,
+    pub(crate) include_system_path: bool,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct PluginPingRequest {
+    pub(crate) project_root: String,
+    pub(crate) name: String,
+    pub(crate) include_system_path: bool,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct PluginCallRequest {
+    pub(crate) project_root: String,
+    pub(crate) name: String,
+    pub(crate) method: String,
+    pub(crate) params: Option<Value>,
+    pub(crate) include_system_path: bool,
+}
+
+/// Typed request for `plugin install`. Mirrors the CLI arg surface so MCP can
+/// invoke the same install pipeline. Exactly one of `source` / `path` / `url`
+/// must be supplied. When `url` is set, `sha256` is required. The `source`
+/// (owner/repo[@tag]) input is forwarded to the CLI install pipeline; if the
+/// underlying handler does not yet implement public-repo installs, a clear
+/// error is returned.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct PluginInstallRequest {
+    pub(crate) source: Option<String>,
+    pub(crate) path: Option<String>,
+    pub(crate) url: Option<String>,
+    pub(crate) tag: Option<String>,
+    pub(crate) name: Option<String>,
+    pub(crate) sha256: Option<String>,
+    pub(crate) force: bool,
+    pub(crate) skip_manifest_check: bool,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct PluginUninstallRequest {
+    pub(crate) name: String,
 }
 
 pub(crate) async fn handle_plugin(command: PluginCommand, project_root: &str, json: bool) -> Result<()> {
@@ -89,6 +158,7 @@ pub(crate) async fn handle_plugin(command: PluginCommand, project_root: &str, js
         PluginCommand::Ping(args) => handle_plugin_ping(args, project_root, json).await,
         PluginCommand::Install(args) => handle_plugin_install(args, json).await,
         PluginCommand::Uninstall(args) => handle_plugin_uninstall(args, json),
+        PluginCommand::New(args) => new::handle_plugin_new(args, json),
     }
 }
 
@@ -223,18 +293,45 @@ async fn handle_plugin_ping(args: PluginPingArgs, project_root: &str, json: bool
     )
 }
 
-fn install_root() -> Result<PathBuf> {
-    let home = dirs::home_dir().ok_or_else(|| anyhow!("could not resolve $HOME"))?;
-    let dir = home.join(".animus").join("plugins");
+/// Resolves the plugin install directory.
+///
+/// Resolution order:
+/// 1. `--plugin-dir <path>` CLI arg (when provided)
+/// 2. `$ANIMUS_PLUGIN_DIR` env var (via [`plugin_install_dir`])
+/// 3. Default `~/.animus/plugins/`
+fn install_root(cli_override: Option<&str>) -> Result<PathBuf> {
+    let dir = match cli_override.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => PathBuf::from(value),
+        None => plugin_install_dir(),
+    };
     std::fs::create_dir_all(&dir).with_context(|| format!("failed to create install dir {}", dir.display()))?;
     Ok(dir)
 }
 
+/// Resolves the plugin registry yaml path, performing a one-shot migration from
+/// the legacy `~/.config/animus/plugins.yaml` location when needed.
 fn plugins_yaml_path() -> Result<PathBuf> {
-    let home = dirs::home_dir().ok_or_else(|| anyhow!("could not resolve $HOME"))?;
-    let dir = home.join(".config").join("animus");
-    std::fs::create_dir_all(&dir).with_context(|| format!("failed to create config dir {}", dir.display()))?;
-    Ok(dir.join("plugins.yaml"))
+    let canonical = plugins_registry_path();
+    if let Some(parent) = canonical.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create config dir {}", parent.display()))?;
+    }
+
+    if !canonical.exists() {
+        let legacy = legacy_plugins_registry_path();
+        if legacy.exists() {
+            std::fs::copy(&legacy, &canonical).with_context(|| {
+                format!("failed to migrate plugin registry from {} to {}", legacy.display(), canonical.display())
+            })?;
+            tracing::info!(
+                from = %legacy.display(),
+                to = %canonical.display(),
+                "migrated plugin registry to canonical location",
+            );
+        }
+    }
+
+    Ok(canonical)
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Default)]
@@ -352,7 +449,7 @@ async fn handle_plugin_install(args: PluginInstallArgs, json: bool) -> Result<()
             .to_string(),
     };
 
-    let install_dir = install_root()?;
+    let install_dir = install_root(args.plugin_dir.as_deref())?;
     let installed_path = install_dir.join(&plugin_name);
     if installed_path.exists() && !args.force {
         return Err(invalid_input_error(format!(
@@ -411,6 +508,7 @@ async fn handle_plugin_install(args: PluginInstallArgs, json: bool) -> Result<()
     table.insert(serde_yaml::Value::String(plugin_name.clone()), serde_yaml::Value::Mapping(entry));
     save_plugins_yaml(&yaml_path, &config)?;
 
+    let sha256_verified = args.sha256.is_some();
     print_value(
         PluginInstallOutput {
             name: plugin_name,
@@ -418,6 +516,11 @@ async fn handle_plugin_install(args: PluginInstallArgs, json: bool) -> Result<()
             sha256: computed_sha,
             manifest,
             plugins_yaml: yaml_path.to_string_lossy().to_string(),
+            source_kind: None,
+            origin: None,
+            release_tag: None,
+            asset_name: None,
+            sha256_verified,
         },
         json,
     )
@@ -437,7 +540,7 @@ fn handle_plugin_uninstall(args: PluginUninstallArgs, json: bool) -> Result<()> 
         save_plugins_yaml(&yaml_path, &config)?;
     }
 
-    let install_dir = install_root()?;
+    let install_dir = install_root(args.plugin_dir.as_deref())?;
     let installed_path = install_dir.join(&plugin_name);
     let removed = if installed_path.exists() {
         std::fs::remove_file(&installed_path)

@@ -7,7 +7,8 @@ mod subject_router;
 mod transport;
 
 pub use discovery::{
-    discover_plugins, DiscoveredPlugin, DiscoverySource, DiscoveryWarning, PluginConfigEntry, PluginDiscovery,
+    discover_plugins, legacy_plugins_registry_path, plugin_install_dir, plugins_registry_path, DiscoveredPlugin,
+    DiscoverySource, DiscoveryWarning, PluginConfigEntry, PluginDiscovery,
 };
 pub use host::{PluginHost, PluginNotificationRx, PluginStderrSink};
 pub use registry::PluginRegistry;

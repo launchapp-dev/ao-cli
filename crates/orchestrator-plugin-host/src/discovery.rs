@@ -108,6 +108,16 @@ impl PluginDiscovery {
             );
         }
 
+        // Scan the global plugin install dir when `$ANIMUS_PLUGIN_DIR` is set.
+        // This makes env-var-driven installs (and existing binaries dropped
+        // into that dir manually) discoverable even when the registry yaml is
+        // absent. Without the env var we rely on the registry entry written
+        // by `animus plugin install`, which avoids surprising tests that
+        // expect zero plugins on the developer's real `~/.animus/plugins/`.
+        if let Some(install_dir) = plugin_install_dir_from_env() {
+            scan_dir(&install_dir, DiscoverySource::PluginPath, &mut discovered, &mut warnings, &mut seen);
+        }
+
         if let Ok(plugin_path) = std::env::var("ANIMUS_PLUGIN_PATH") {
             for raw_dir in plugin_path.split(':') {
                 if !raw_dir.trim().is_empty() {
@@ -282,10 +292,74 @@ fn load_plugins_config(path: &Path) -> Result<PluginsConfig> {
     Ok(serde_yaml::from_str(&content)?)
 }
 
-fn default_config_path() -> PathBuf {
+/// Canonical home for Animus state. Mirrors `protocol::Config::global_config_dir()`
+/// but duplicated here to avoid a crate-level dep on `protocol`. Honors
+/// `ANIMUS_CONFIG_DIR` for tests and overrides.
+fn animus_home() -> PathBuf {
+    if let Ok(value) = std::env::var("ANIMUS_CONFIG_DIR") {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".animus")).unwrap_or_else(|| PathBuf::from(".animus"))
+}
+
+/// Returns the canonical plugin install directory.
+///
+/// Resolution order:
+/// 1. `$ANIMUS_PLUGIN_DIR` (when set and non-empty)
+/// 2. `<animus_home>/plugins`
+pub fn plugin_install_dir() -> PathBuf {
+    if let Ok(value) = std::env::var("ANIMUS_PLUGIN_DIR") {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+    animus_home().join("plugins")
+}
+
+/// Returns the install dir only when `$ANIMUS_PLUGIN_DIR` is explicitly set
+/// (and non-empty). Used by discovery to scan env-var-driven install dirs
+/// without surprising users who never opted into the env var.
+fn plugin_install_dir_from_env() -> Option<PathBuf> {
+    let value = std::env::var("ANIMUS_PLUGIN_DIR").ok()?;
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(PathBuf::from(trimmed))
+}
+
+/// Returns the canonical plugin registry yaml path.
+///
+/// The new location is `<animus_home>/plugins.yaml`. The legacy location
+/// (`~/.config/animus/plugins.yaml`) is consulted automatically by
+/// [`default_config_path`] when the new file does not yet exist, and is
+/// migrated to the new path on the next write performed by the installer.
+pub fn plugins_registry_path() -> PathBuf {
+    animus_home().join("plugins.yaml")
+}
+
+/// Legacy registry location used before consolidation under `~/.animus/`.
+/// Kept for one-shot migration on first read.
+pub fn legacy_plugins_registry_path() -> PathBuf {
     std::env::var_os("HOME")
         .map(|home| PathBuf::from(home).join(".config/animus/plugins.yaml"))
         .unwrap_or_else(|| PathBuf::from(".config/animus/plugins.yaml"))
+}
+
+fn default_config_path() -> PathBuf {
+    let canonical = plugins_registry_path();
+    if canonical.exists() {
+        return canonical;
+    }
+    let legacy = legacy_plugins_registry_path();
+    if legacy.exists() {
+        return legacy;
+    }
+    canonical
 }
 
 fn expand_home(value: &str) -> String {
@@ -326,6 +400,8 @@ mod tests {
 
     #[test]
     fn configured_plugin_can_use_non_prefixed_binary() {
+        let _guard = ENV_GUARD.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _clear_plugin_dir = EnvVarGuard::set("ANIMUS_PLUGIN_DIR", "");
         let temp = tempfile::tempdir().expect("tempdir");
         let plugin = temp.path().join("compatible-plugin");
         let manifest = serde_json::json!({
@@ -360,6 +436,8 @@ mod tests {
     fn failed_manifest_probe_surfaces_warning_instead_of_silent_drop() {
         use std::os::unix::fs::PermissionsExt;
 
+        let _guard = ENV_GUARD.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _clear_plugin_dir = EnvVarGuard::set("ANIMUS_PLUGIN_DIR", "");
         let temp = tempfile::tempdir().expect("tempdir");
         let plugin = temp.path().join("animus-provider-explode");
         // Plugin script that fails when --manifest is invoked. Simulates the
@@ -402,6 +480,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn missing_configured_binary_surfaces_warning() {
+        let _guard = ENV_GUARD.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _clear_plugin_dir = EnvVarGuard::set("ANIMUS_PLUGIN_DIR", "");
         let temp = tempfile::tempdir().expect("tempdir");
         let config_path = temp.path().join("plugins.yaml");
         fs::write(
@@ -427,6 +507,8 @@ mod tests {
     fn scan_dir_failed_manifest_surfaces_warning() {
         use std::os::unix::fs::PermissionsExt;
 
+        let _guard = ENV_GUARD.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _clear_plugin_dir = EnvVarGuard::set("ANIMUS_PLUGIN_DIR", "");
         let temp = tempfile::tempdir().expect("tempdir");
         let plugins_dir = temp.path().join(".animus/plugins");
         fs::create_dir_all(&plugins_dir).expect("mkdir");
@@ -450,5 +532,115 @@ mod tests {
         assert_eq!(warnings.len(), 1);
         assert_eq!(warnings[0].name, "animus-plugin-broken");
         assert_eq!(warnings[0].source, DiscoverySource::ProjectLocal);
+    }
+
+    // ---- env-var-driven path resolution ---------------------------------
+    //
+    // The helpers below read `$ANIMUS_PLUGIN_DIR` / `$ANIMUS_CONFIG_DIR` /
+    // `$HOME`. Cargo runs tests on multiple threads in the same process, so we
+    // serialize the env-touching tests behind a mutex to avoid races with
+    // other tests in this module that may also read these vars.
+    static ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<std::ffi::OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+            let previous = std::env::var_os(key);
+            std::env::set_var(key, value);
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match self.previous.take() {
+                Some(prev) => std::env::set_var(self.key, prev),
+                None => std::env::remove_var(self.key),
+            }
+        }
+    }
+
+    #[test]
+    fn plugin_install_dir_honors_animus_plugin_dir_env_var() {
+        let _guard = ENV_GUARD.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let temp = tempfile::tempdir().expect("tempdir");
+        let custom = temp.path().join("custom-plugins");
+        let _env = EnvVarGuard::set("ANIMUS_PLUGIN_DIR", &custom);
+
+        let resolved = plugin_install_dir();
+
+        assert_eq!(resolved, custom, "$ANIMUS_PLUGIN_DIR must drive plugin_install_dir()");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn discovery_uses_animus_plugin_dir_env_var() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _guard = ENV_GUARD.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let temp = tempfile::tempdir().expect("tempdir");
+        let install_dir = temp.path().join("env-install-dir");
+        fs::create_dir_all(&install_dir).expect("mkdir install dir");
+
+        let manifest = serde_json::json!({
+            "name": "animus-provider-envoy",
+            "version": "0.1.0",
+            "plugin_kind": "provider",
+            "description": "test plugin",
+            "protocol_version": "1.0.0",
+            "capabilities": []
+        });
+        let plugin_path = install_dir.join("animus-provider-envoy");
+        fs::write(&plugin_path, format!("#!/bin/sh\nprintf '{}\\n'\n", manifest)).expect("write plugin");
+        let mut permissions = fs::metadata(&plugin_path).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&plugin_path, permissions).expect("chmod");
+
+        let empty_config = temp.path().join("empty-plugins.yaml");
+        fs::write(&empty_config, "plugins: {}\n").expect("write empty config");
+
+        let _plugin_dir = EnvVarGuard::set("ANIMUS_PLUGIN_DIR", &install_dir);
+
+        let (discovered, warnings) =
+            PluginDiscovery::new().with_config_path(&empty_config).discover_with_warnings().expect("discover");
+
+        assert!(warnings.is_empty(), "expected zero warnings, got {warnings:?}");
+        assert_eq!(discovered.len(), 1, "$ANIMUS_PLUGIN_DIR install dir must be scanned, got {discovered:?}");
+        assert_eq!(discovered[0].name, "animus-provider-envoy");
+        assert_eq!(discovered[0].path, plugin_path);
+        assert_eq!(discovered[0].source, DiscoverySource::PluginPath);
+    }
+
+    #[test]
+    fn plugin_registry_path_falls_back_to_legacy_when_canonical_missing() {
+        let _guard = ENV_GUARD.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let temp = tempfile::tempdir().expect("tempdir");
+        let fake_home = temp.path().join("fake-home");
+        fs::create_dir_all(&fake_home).expect("mkdir fake home");
+        let legacy_dir = fake_home.join(".config/animus");
+        fs::create_dir_all(&legacy_dir).expect("mkdir legacy");
+        let legacy_file = legacy_dir.join("plugins.yaml");
+        fs::write(&legacy_file, "plugins: {}\n").expect("write legacy");
+
+        let _home = EnvVarGuard::set("HOME", &fake_home);
+        let animus_home_dir = fake_home.join(".animus");
+        let _config = EnvVarGuard::set("ANIMUS_CONFIG_DIR", &animus_home_dir);
+
+        // Ensure ANIMUS_PLUGIN_DIR doesn't bleed through from other tests.
+        let _plugin_dir_clear = EnvVarGuard::set("ANIMUS_PLUGIN_DIR", "");
+
+        let canonical = plugins_registry_path();
+        assert_eq!(canonical, animus_home_dir.join("plugins.yaml"));
+        assert!(!canonical.exists(), "canonical registry path should not exist yet in this test");
+
+        let resolved = default_config_path();
+        assert_eq!(
+            resolved, legacy_file,
+            "default_config_path() must fall back to the legacy location when canonical is absent"
+        );
     }
 }

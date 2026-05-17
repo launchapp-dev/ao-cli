@@ -1,6 +1,6 @@
 # Feature Status
 
-This page clarifies which AO features are **shipped and stable**, **in-flight (partially implemented or experimental)**, or **target architecture** (future aspirations).
+This page clarifies which Animus features are **shipped and stable**, **in-flight (partially implemented or experimental)**, or **target architecture** (future aspirations).
 
 ## Feature Status Legend
 
@@ -49,15 +49,15 @@ This page clarifies which AO features are **shipped and stable**, **in-flight (p
 
 | Feature | Status | Description |
 |---------|--------|-------------|
-| Status Dashboard (`ao status`) | **Shipped** | Unified project status view with task and workflow summaries |
-| Now/Inbox Surface (`ao now`) | **Shipped** | Unified work inbox showing next task, active workflows, blocked items, and stale items |
-| Task Commands | **Shipped** | Full `ao task` family (list, create, update, delete, status, prioritize, etc.) |
+| Status Dashboard (`animus status`) | **Shipped** | Unified project status view with task and workflow summaries |
+| Now/Inbox Surface (`animus now`) | **Shipped** | Unified work inbox showing next task, active workflows, blocked items, and stale items |
+| Task Commands | **Shipped** | Full `animus task` family (list, create, update, delete, status, prioritize, etc.) |
 | Workflow Commands | **Shipped** | Workflow execution, status, checkpoints, and phase management |
 | Daemon Commands | **Shipped** | Daemon lifecycle, health, queue, and event inspection |
-| Git Integration (`ao git`) | **Shipped** | Worktree creation, branch management, push/pull, confirmation requests |
-| MCP Integration (`animus mcp serve`) | **Shipped** | Expose AO state and operations as MCP tools for use by AI agents |
-| Skill Management (`ao skill`) | **Shipped** | Search, install, update, and publish versioned skills |
-| Model Management (`ao model`) | **Shipped** | Check model availability, validate model selection, view model roster |
+| Git Integration (`animus git`) | **Shipped** | Worktree creation, branch management, push/pull, confirmation requests |
+| MCP Integration (`animus mcp serve`) | **Shipped** | Expose Animus state and operations as MCP tools for use by AI agents |
+| Skill Management (`animus skill`) | **Shipped** | Search, install, update, and publish versioned skills |
+| Model Management (`animus model`) | **Shipped** | Check model availability, validate model selection, view model roster |
 | History and Error Inspection | **Shipped** | Inspect execution history and recorded operational errors |
 | Template-Driven Project Init | **Shipped** | `animus init` supports registry-backed and local copy templates plus daemon defaults. Bundled templates (`task-queue`, `conductor`, `direct-workflow`) and the `--template` / `--path` / `--non-interactive` flags are stable. Registry pinning, template authoring helpers, and richer multi-registry management are planned |
 
@@ -79,7 +79,7 @@ This page clarifies which AO features are **shipped and stable**, **in-flight (p
 | Web UI — Task Dashboard | **Shipped** | View, filter, search, and manage tasks from the web UI |
 | Web UI — Workflow Monitoring | **Shipped** | Monitor active and completed workflows with phase details |
 | Web UI — Dark Mode | **Shipped** | Built-in dark mode theme support |
-| TUI Dashboard (`ao tui`) | **In-Flight** | Terminal UI for AO; under active development |
+| TUI Dashboard (`animus tui`) | **In-Flight** | Terminal UI for Animus; under active development |
 | Mobile-Friendly Responsiveness | **In-Flight** | Web UI responsive behavior is experimental; primary experience is desktop |
 
 ## Data Persistence and Configuration
@@ -88,7 +88,7 @@ This page clarifies which AO features are **shipped and stable**, **in-flight (p
 |---------|--------|-------------|
 | Project-Local `.animus/` Config | **Shipped** | Store repo-scoped workflow YAML and daemon settings under `.animus/` |
 | Scoped Runtime State (`~/.animus/<repo-scope>/`) | **Shipped** | Per-repo runtime state isolation with automatic cleanup |
-| JSON State Files | **Shipped** | All AO state is tool-managed JSON (tasks, workflows, requirements, runs) |
+| JSON State Files | **Shipped** | All Animus state is tool-managed JSON (tasks, workflows, requirements, runs) |
 | Git Worktree Isolation | **Shipped** | Every task gets its own git worktree for safe parallel execution |
 | Worktree Lifecycle | **Shipped** | Automatic creation, pull/push synchronization, and cleanup |
 
@@ -96,7 +96,7 @@ This page clarifies which AO features are **shipped and stable**, **in-flight (p
 
 | Feature | Status | Description |
 |---------|--------|-------------|
-| MCP Tool Exposure | **Shipped** | All AO operations available as typed MCP tools for agent use |
+| MCP Tool Exposure | **Shipped** | All Animus operations available as typed MCP tools for agent use |
 | Agent Runtime Configuration | **Shipped** | Configure model, temperature, tool selection per workflow |
 | Built-in Workflows | **Shipped** | Standard phases (requirements, implementation, testing, QA, deployment) |
 | Workflow Prompt Rendering | **Shipped** | Render workflow phase prompts with context and section injection |
@@ -112,7 +112,7 @@ The following represent aspirational architectural goals and roadmap items:
 | Advanced Multi-Agent Orchestration | **Planned** | Coordinate work across multiple specialized agents with dynamic role assignment |
 | Agent Persistence and Continuity | **Planned** | Agents maintaining long-lived state across multiple workflows |
 | Production Deployment Integrations | **Planned** | Deep integration with Kubernetes, cloud providers, and production infrastructure |
-| Real-Time Collaboration | **Planned** | Multi-user simultaneous access to AO projects |
+| Real-Time Collaboration | **Planned** | Multi-user simultaneous access to Animus projects |
 | Advanced Performance Optimization | **Planned** | Further optimization of queue scheduling, workflow parallelization, and resource utilization |
 
 ## Known Limitations

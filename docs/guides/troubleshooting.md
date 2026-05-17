@@ -1,13 +1,13 @@
 # Troubleshooting Guide
 
-Common issues and their fixes when working with AO.
+Common issues and their fixes when working with Animus.
 
 ## Environment Diagnostics
 
 Run the built-in doctor command first:
 
 ```bash
-ao doctor
+animus doctor
 ```
 
 This checks for required tools, API keys, configuration files, and common misconfigurations. Use `--fix` to attempt automatic repairs:
@@ -90,7 +90,7 @@ Or read the config cascade documentation in the [Model Routing Guide](model-rout
 animus task status --id TASK-XXX --status ready
 ```
 
-This clears `paused`, `blocked_at`, `blocked_reason`, and `blocked_by`. Never hand-edit AO-managed runtime JSON or SQLite state.
+This clears `paused`, `blocked_at`, `blocked_reason`, and `blocked_by`. Never hand-edit Animus-managed runtime JSON or SQLite state.
 
 ## Runner Connection Issues
 
@@ -138,14 +138,14 @@ cargo build -p orchestrator-cli
 
 ## Daemon Log Location
 
-Use AO to inspect or clear daemon logs:
+Use Animus to inspect or clear daemon logs:
 
 ```bash
 animus daemon logs
 animus daemon clear-logs
 ```
 
-AO stores runtime state under `~/.animus/<repo-scope>/`, and log plumbing is managed by the runtime binaries rather than a project-local `.animus/daemon.log` contract.
+Animus stores runtime state under `~/.animus/<repo-scope>/`, and log plumbing is managed by the runtime binaries rather than a project-local `.animus/daemon.log` contract.
 
 ## Workflow Stuck or Failed
 

@@ -3,7 +3,7 @@ import { withMermaid } from 'vitepress-plugin-mermaid'
 
 export default withMermaid(
   defineConfig({
-    title: 'AO',
+    title: 'Animus',
     description: 'Agent Orchestrator — orchestrate AI agent workflows from the command line',
     base: '/ao-cli/',
 
@@ -18,7 +18,7 @@ export default withMermaid(
 
     themeConfig: {
       logo: '/logo.svg',
-      siteTitle: 'AO',
+      siteTitle: 'Animus',
 
       nav: [
         { text: 'Getting Started', link: '/getting-started/' },
@@ -52,7 +52,7 @@ export default withMermaid(
           collapsed: false,
           items: [
             { text: 'Overview', link: '/concepts/' },
-            { text: 'How AO Works', link: '/concepts/how-ao-works' },
+            { text: 'How Animus Works', link: '/concepts/how-ao-works' },
             { text: 'Workflows', link: '/concepts/workflows' },
             { text: 'Subject Dispatch', link: '/concepts/subject-dispatch' },
             { text: 'The Daemon', link: '/concepts/daemon' },

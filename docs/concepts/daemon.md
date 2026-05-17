@@ -2,7 +2,7 @@
 
 ## Dumb Scheduler, Not a Feature Host
 
-The AO daemon is a scheduler. It consumes [SubjectDispatch](./subject-dispatch.md) envelopes, manages subprocess capacity, spawns `workflow-runner` processes, and emits execution facts. It does not contain AI logic, task policy, or business rules.
+The Animus daemon is a scheduler. It consumes [SubjectDispatch](./subject-dispatch.md) envelopes, manages subprocess capacity, spawns `workflow-runner` processes, and emits execution facts. It does not contain AI logic, task policy, or business rules.
 
 This deliberate simplicity keeps the daemon generic. Advanced behavior lives in [YAML workflows](./workflows.md) executed by `workflow-runner`.
 

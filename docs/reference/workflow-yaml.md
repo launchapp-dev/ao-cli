@@ -1,6 +1,6 @@
 # Workflow YAML Schema Reference
 
-AO workflow YAML is authored in `.animus/workflows.yaml` and `.animus/workflows/*.yaml`.
+Animus workflow YAML is authored in `.animus/workflows.yaml` and `.animus/workflows/*.yaml`.
 Those files are merged with installed pack overlays to produce the
 effective workflow configuration that `workflow-runner` executes. This document
 describes the authored YAML surface.
@@ -47,7 +47,7 @@ mcp_servers:
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `command` | string | yes | Executable command (e.g., `npx`, `ao`, `python`) |
+| `command` | string | yes | Executable command (e.g., `npx`, `animus`, `python`) |
 | `args` | string[] | no | Arguments passed to the command |
 | `transport` | string | no | MCP transport protocol (default: stdio) |
 | `env` | map\<string, string\> | no | Environment variables for the server process |
@@ -132,7 +132,7 @@ agents:
 
 Agent profiles defined in YAML are merged into the agent runtime config during compilation. Phase definitions reference agents by profile name.
 
-Claude profile references resolve against the user's global AO config, not the
+Claude profile references resolve against the user's global Animus config, not the
 repository. This keeps account-specific paths such as `CLAUDE_CONFIG_DIR` out
 of project files.
 
@@ -206,10 +206,10 @@ phases:
 | `manual` | object | no | Manual gate definition when `mode: manual` |
 | `default_tool` | string | no | Default tool hint for the phase |
 
-Phase `skills` are validated during config load. At runtime they can inject prompt fragments, model/tool policy overrides, MCP attachments, timeout overrides, launch args/env, and capability overrides. Installed registry skills work the same as local skills when a definition snapshot is present in AO state.
+Phase `skills` are validated during config load. At runtime they can inject prompt fragments, model/tool policy overrides, MCP attachments, timeout overrides, launch args/env, and capability overrides. Installed registry skills work the same as local skills when a definition snapshot is present in Animus state.
 
 When `runtime.tool_profile` is set, the effective tool must resolve to
-`claude`. AO looks up the named profile in the user's global config and injects
+`claude`. Animus looks up the named profile in the user's global config and injects
 its environment into the Claude launch contract.
 
 ---
@@ -460,8 +460,8 @@ agents:
 
 # MCP server integrations
 mcp_servers:
-  ao:
-    command: ao
+  animus:
+    command: animus
     args: ["mcp", "serve"]
 
 # Workflow: standard development pipeline

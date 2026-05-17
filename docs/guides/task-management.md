@@ -1,6 +1,6 @@
 # Task Management Guide
 
-Tasks are the primary unit of work in AO. Each task tracks a discrete piece of work from creation through completion, with support for priorities, dependencies, checklists, and agent assignment.
+Tasks are the primary unit of work in Animus. Each task tracks a discrete piece of work from creation through completion, with support for priorities, dependencies, checklists, and agent assignment.
 
 ## Creating Tasks
 

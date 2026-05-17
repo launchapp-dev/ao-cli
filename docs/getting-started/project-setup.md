@@ -76,7 +76,7 @@ Some of these files appear lazily, only after the corresponding subsystem runs.
 : Stores workflow state plus the persisted task and requirement records.
 
 `core-state.json`
-: Stores the shared in-memory snapshot AO loads at startup.
+: Stores the shared in-memory snapshot Animus loads at startup.
 
 `config/state-machines.v1.json`
 : Stores the effective workflow and requirement lifecycle state machines.

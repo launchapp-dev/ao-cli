@@ -25,7 +25,7 @@ agents:
     communication:
       enabled: true
       channels: [engineering]
-    mcp_servers: [ao, github]
+    mcp_servers: [animus, github]
 ```
 
 | Field | Purpose |
@@ -49,13 +49,13 @@ The standard task workflow defines these agent roles:
 
 | Agent | Role | Typical MCP Tools |
 |-------|------|-------------------|
-| `triager` | Validates tasks, detects duplicates, checks preconditions | ao |
-| `researcher` | Gathers evidence, explores codebase, searches documentation | ao, web-search |
-| `senior-engineer` | Writes production code, runs tests, commits | ao, github |
-| `code-reviewer` | Reviews diffs for bugs, edge cases, style issues | ao, github |
-| `security-reviewer` | Validates against security best practices, checks for secrets | ao |
-| `integration-tester` | Runs test suites, checks coverage thresholds | ao |
-| `po-reviewer` | Verifies acceptance criteria are met, updates checklists | ao |
+| `triager` | Validates tasks, detects duplicates, checks preconditions | animus |
+| `researcher` | Gathers evidence, explores codebase, searches documentation | animus, web-search |
+| `senior-engineer` | Writes production code, runs tests, commits | animus, github |
+| `code-reviewer` | Reviews diffs for bugs, edge cases, style issues | animus, github |
+| `security-reviewer` | Validates against security best practices, checks for secrets | animus |
+| `integration-tester` | Runs test suites, checks coverage thresholds | animus |
+| `po-reviewer` | Verifies acceptance criteria are met, updates checklists | animus |
 
 These are defined in workflow YAML, not hardcoded. You can modify them or define entirely new agent roles.
 

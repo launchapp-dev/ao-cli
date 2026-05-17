@@ -1,6 +1,6 @@
 # Status Values & Enums
 
-All accepted enum values across the AO system. These values are case-insensitive on input and kebab-case on output unless otherwise noted.
+All accepted enum values across the Animus system. These values are case-insensitive on input and kebab-case on output unless otherwise noted.
 
 ---
 

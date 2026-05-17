@@ -1,6 +1,6 @@
 # CI/CD Guide
 
-AO uses GitHub Actions for continuous integration and release automation. This guide covers the CI workflows, build commands, and release process.
+Animus uses GitHub Actions for continuous integration and release automation. This guide covers the CI workflows, build commands, and release process.
 
 ## CI Workflows
 
@@ -14,7 +14,7 @@ Runs on every push and pull request. Checks and tests each crate in the workspac
 
 ### Rust-Only Dependency Policy (`rust-only-dependency-policy.yml`)
 
-Enforces the project rule that AO is Rust-only -- no desktop shell frameworks (Tauri, Wry, Tao, GTK, WebKit). This workflow rejects PRs that introduce prohibited dependencies.
+Enforces the project rule that Animus is Rust-only -- no desktop shell frameworks (Tauri, Wry, Tao, GTK, WebKit). This workflow rejects PRs that introduce prohibited dependencies.
 
 ### Web UI CI (`web-ui-ci.yml`)
 
@@ -26,19 +26,19 @@ Validates that release artifacts can be produced correctly and that the release 
 
 ## Build Commands
 
-AO provides cargo aliases for building the workspace binaries:
+Animus provides cargo aliases for building the workspace binaries:
 
 ```bash
-cargo ao-bin-check           # Check all runtime binaries compile
-cargo ao-bin-build           # Debug build of all runtime binaries
-cargo ao-bin-build-release   # Release (optimized) build
+cargo animus-bin-check           # Check all runtime binaries compile
+cargo animus-bin-build           # Debug build of all runtime binaries
+cargo animus-bin-build-release   # Release (optimized) build
 ```
 
 The workspace produces three binaries:
 
 | Binary | Crate | Purpose |
 |--------|-------|---------|
-| `ao` | `orchestrator-cli` | Main CLI |
+| `animus` | `orchestrator-cli` | Main CLI |
 | `agent-runner` | `agent-runner` | Daemon agent runner |
 | `llm-cli-wrapper` | `llm-cli-wrapper` | LLM CLI abstraction |
 
@@ -101,7 +101,7 @@ The release workflow builds all targets, packages the archives, and creates a Gi
 Build a release locally:
 
 ```bash
-cargo ao-bin-build-release
+cargo animus-bin-build-release
 ```
 
 Binaries are placed in `target/release/` (or `target/<triple>/release/` for cross-compilation).

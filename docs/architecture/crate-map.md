@@ -1,6 +1,6 @@
 # Crate Map
 
-The AO workspace contains 17 crates organized by responsibility.
+The Animus workspace is a Cargo workspace of around 20 crates organized by responsibility.
 
 ## Foundation
 
@@ -29,7 +29,7 @@ The AO workspace contains 17 crates organized by responsibility.
 
 | Crate | Description | Key Responsibility |
 |-------|-------------|-------------------|
-| [orchestrator-cli](../../crates/orchestrator-cli/README.md) | Main `ao` binary | Clap command surface, JSON output, MCP server, operational commands |
+| [orchestrator-cli](../../crates/orchestrator-cli/README.md) | Main `animus` binary | Clap command surface, JSON output, MCP server, operational commands |
 
 ## Web
 

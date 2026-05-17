@@ -1,6 +1,6 @@
 # Internals Overview
 
-This section documents the internal mechanisms of AO for contributors who want to understand how the system works beneath the CLI surface.
+This section documents the internal mechanisms of Animus for contributors who want to understand how the system works beneath the CLI surface.
 
 ## What's Covered
 
@@ -16,12 +16,12 @@ This section documents the internal mechanisms of AO for contributors who want t
 
 **Subject dispatch**: Every workflow execution targets a "subject" (typically a task). The dispatch queue orders subjects by priority and tracks their lifecycle from enqueued through assigned to terminal.
 
-**Three-process model**: The daemon spawns `ao-workflow-runner` processes, which in turn communicate with the `ao-agent-runner` daemon over IPC. The agent runner manages the actual LLM CLI tool processes (claude, codex, gemini, opencode).
+**Three-process model**: The daemon spawns `workflow-runner` processes, which in turn communicate with the `agent-runner` daemon over IPC. The agent runner manages the actual LLM CLI tool processes (claude, codex, gemini, opencode).
 
 ```
 animus daemon (tick loop)
-  └── ao-workflow-runner (phase execution)
-        └── ao-agent-runner (LLM CLI management)
+  └── workflow-runner (phase execution)
+        └── agent-runner (LLM CLI management)
               └── claude / codex / gemini / opencode
 ```
 

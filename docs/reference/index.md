@@ -1,6 +1,6 @@
 # Reference Documentation
 
-Formal specifications and exhaustive listings for the AO CLI.
+Formal specifications and exhaustive listings for the Animus CLI.
 
 ## Pages
 

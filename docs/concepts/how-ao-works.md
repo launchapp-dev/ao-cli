@@ -1,13 +1,13 @@
-# How AO Works: Core Architecture
+# How Animus Works: Core Architecture
 
 ## Core Principle
 
-AO is a workflow kernel. Surfaces emit dispatches, the daemon schedules and
+Animus is a workflow kernel. Surfaces emit dispatches, the daemon schedules and
 supervises subprocesses, and workflows plus packs own behavior.
 
 ```mermaid
 flowchart LR
-    subgraph CLI["AO Surfaces"]
+    subgraph CLI["Animus Surfaces"]
         direction TB
         cli["CLI / Web / MCP"]
         dispatch["Emit SubjectDispatch"]
@@ -121,7 +121,7 @@ This is what keeps task and requirement behavior out of the daemon.
 
 ## Workflow Resolution Today
 
-AO resolves workflows from a layered source model:
+Animus resolves workflows from a layered source model:
 
 1. `.animus/plugins/<pack-id>/`
 2. `.animus/workflows.yaml` and `.animus/workflows/*.yaml`
@@ -132,20 +132,20 @@ Canonical workflow refs are pack-qualified, such as `animus.task/standard` and
 `animus.requirement/execute`. Legacy `builtin/*` aliases remain as migration
 shims, but they are no longer the preferred operator-facing surface.
 
-There is no dedicated `ao vision ...` command in the current CLI. Planning
+There is no dedicated `animus vision ...` command in the current CLI. Planning
 workflows still exist as canonical refs, but they are consumed through
 `animus workflow run <workflow_ref>` or project-local workflow YAML.
 
 ## MCP and External Runtimes
 
-AO keeps Node and Python process-based:
+Animus keeps Node and Python process-based:
 
 - packs declare runtime requirements such as `node`, `python`, `uv`, `npm`, or
   `pnpm`
 - command phases execute external binaries as subprocesses
 - MCP descriptors are declared in pack assets and namespaced by pack id
 
-No external runtime is embedded into AO core.
+No external runtime is embedded into Animus core.
 
 ## Key Patterns
 
@@ -156,7 +156,7 @@ No external runtime is embedded into AO core.
 | Pack-qualified workflow refs | Behavior resolves from packs and YAML, not daemon branches |
 | Subject adapters | Subject-kind-specific context resolution and cwd policy |
 | Execution projectors | Subject-kind-specific projection of workflow facts |
-| Tool-driven mutation | AO state changes happen through MCP/CLI mutation surfaces |
+| Tool-driven mutation | Animus state changes happen through MCP/CLI mutation surfaces |
 
 See also: [Workflows](./workflows.md), [MCP Integration](./mcp-tools.md), and
 [State Management](./state-management.md).

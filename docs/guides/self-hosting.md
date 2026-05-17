@@ -1,12 +1,12 @@
 # Self-Hosting Workflow
 
-AO is built using AO. The project's own requirements and tasks are tracked through the same `ao` commands that users run on their projects. This guide documents that workflow.
+Animus is built using Animus. The project's own requirements and tasks are tracked through the same `animus` commands that users run on their projects. This guide documents that workflow.
 
-## The "AO Builds AO" Loop
+## The "Animus Builds Animus" Loop
 
 The development cycle follows this pattern:
 
-1. Requirements are drafted and refined using `ao requirements`
+1. Requirements are drafted and refined using `animus requirements`
 2. Tasks are created from requirements using `animus requirements execute --id REQ-001`
 3. The daemon picks up tasks and dispatches workflows
 4. Agents implement, test, and review changes

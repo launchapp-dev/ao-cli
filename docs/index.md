@@ -2,12 +2,12 @@
 layout: home
 
 hero:
-  name: AO
+  name: Animus
   text: Agent Orchestrator CLI
   tagline: Orchestrate AI agent workflows from your terminal. Define YAML workflows, dispatch to any LLM, and ship code autonomously.
   image:
     src: /logo.svg
-    alt: AO
+    alt: Animus
   actions:
     - theme: brand
       text: Get Started
@@ -44,7 +44,7 @@ features:
     linkText: Learn about isolation
   - icon: "\U0001F680"
     title: Built in Rust
-    details: 17-crate Rust-only workspace with atomic state persistence, async Tokio runtime, and zero desktop dependencies. Fast and reliable.
+    details: Rust-only Cargo workspace with atomic state persistence, async Tokio runtime, and zero desktop dependencies. Fast and reliable.
     link: /architecture/crate-map
     linkText: See the architecture
 ---

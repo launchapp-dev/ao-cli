@@ -1,6 +1,6 @@
 # State Machines
 
-AO uses formal state machines to govern workflow and task lifecycle transitions. State machine definitions can be loaded from a JSON configuration file or use compiled-in defaults.
+Animus uses formal state machines to govern workflow and task lifecycle transitions. State machine definitions can be loaded from a JSON configuration file or use compiled-in defaults.
 
 ## Workflow State Machine
 

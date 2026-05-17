@@ -2,7 +2,7 @@
 
 ## Summary
 
-`llm-cli-wrapper` currently gives AO a thin compatibility layer for:
+`llm-cli-wrapper` currently gives Animus a thin compatibility layer for:
 
 - runtime-contract launch parsing
 - machine-output flag injection
@@ -10,7 +10,7 @@
 - text normalization from provider-specific JSON output
 
 That is enough for the current subprocess model, but it leaves most of the
-session lifecycle inside `agent-runner`. AO still owns:
+session lifecycle inside `agent-runner`. Animus still owns:
 
 - process creation and shutdown
 - provider-specific resume/session behavior
@@ -24,11 +24,11 @@ policy enforcement, persistence, and orchestration.
 
 ## Goal
 
-Define one AO-facing backend contract that can drive:
+Define one Animus-facing backend contract that can drive:
 
-- an AO-owned Claude backend
-- an AO-owned Codex backend
-- an AO-owned Gemini backend
+- an Animus-owned Claude backend
+- an Animus-owned Codex backend
+- an Animus-owned Gemini backend
 - subprocess fallback for unsupported or incomplete cases
 
 The studied community libraries are references for protocol shape and lifecycle
@@ -38,7 +38,7 @@ design:
 - `codex-sdk-rs`
 - `gemini-cli-sdk`
 
-This is not a lowest-common-denominator API. The wrapper owns canonical AO
+This is not a lowest-common-denominator API. The wrapper owns canonical Animus
 session events, but each backend may expose additional provider-specific
 capabilities through metadata and explicit opt-in fields.
 
@@ -53,7 +53,7 @@ The wrapper contract must cover:
 - session termination
 - permission mode selection
 - MCP/tool-use support reporting
-- event streaming back to AO in a canonical format
+- event streaming back to Animus in a canonical format
 
 The canonical event surface should support:
 
@@ -69,7 +69,7 @@ The canonical event surface should support:
 
 ## Canonical Event Model
 
-AO should normalize all CLI-backed agent sessions into one stream:
+Animus should normalize all CLI-backed agent sessions into one stream:
 
 | Event | Required payload |
 |---|---|
@@ -115,35 +115,35 @@ The session request should carry:
 ## Capability Matrix
 
 This matrix reflects current evaluation of the candidate reference libraries and
-the corresponding AO-owned backend direction. It is an implementation decision
-aid, not a promise that all features work in AO today.
+the corresponding Animus-owned backend direction. It is an implementation decision
+aid, not a promise that all features work in Animus today.
 
-| AO backend target | Reference input | Session model | Resume | MCP / tools | Permissions | Notes | Ship level |
+| Animus backend target | Reference input | Session model | Resume | MCP / tools | Permissions | Notes | Ship level |
 |---|---|---|---|---|---|---|
 | Claude native backend | `claude-agent-sdk` | Rich client/session surface | Yes | Yes | Yes | Strongest shape and documentation of the three | Stable target |
 | Codex native backend | `codex-sdk-rs` | Promising structured session/event surface | Likely yes | Partial / evolving | Unknown | Good protocol fit, weak maturity signals | Experimental target |
 | Gemini native backend | `gemini-cli-sdk` | ACP-based session client | Yes | Yes | Yes | Strong API shape, but depends on experimental Gemini CLI ACP mode | Experimental target |
-| subprocess fallback | Current AO path | Yes, via AO runtime contract logic | Yes, via current parsing and policy layers | Partial and tool-specific | Safety net for unsupported or broken native backends | Stable fallback |
+| subprocess fallback | Current Animus path | Yes, via Animus runtime contract logic | Yes, via current parsing and policy layers | Partial and tool-specific | Safety net for unsupported or broken native backends | Stable fallback |
 
 ## Stable vs Experimental Recommendation
 
 ### Stable now
 
-- AO-owned Claude backend, informed by `claude-agent-sdk`
+- Animus-owned Claude backend, informed by `claude-agent-sdk`
 - existing subprocess backend
 
-### Experimental until proven in AO
+### Experimental until proven in Animus
 
-- AO-owned Codex backend, informed by `codex-sdk-rs`
-- AO-owned Gemini backend, informed by `gemini-cli-sdk`
+- Animus-owned Codex backend, informed by `codex-sdk-rs`
+- Animus-owned Gemini backend, informed by `gemini-cli-sdk`
 
 The experimental designation is driven by maturity and upstream stability, not
 by architectural fit. Both native backends should be integrated behind feature
-gates or runtime backend selection so AO can fall back to subprocess mode.
+gates or runtime backend selection so Animus can fall back to subprocess mode.
 
 ## Fallback Rules
 
-AO must keep subprocess mode when any of the following are true:
+Animus must keep subprocess mode when any of the following are true:
 
 - the native backend is disabled by config
 - the requested feature is unsupported by the selected backend
@@ -151,7 +151,7 @@ AO must keep subprocess mode when any of the following are true:
 - MCP-only policy cannot be enforced with equivalent semantics
 - the native backend drifts from a newer upstream CLI release
 
-Fallback must be deterministic. AO should report:
+Fallback must be deterministic. Animus should report:
 
 - requested backend
 - selected backend
@@ -164,7 +164,7 @@ Responsibilities should be divided like this:
 ### llm-cli-wrapper
 
 - backend selection
-- AO-owned native backend integration
+- Animus-owned native backend integration
 - provider session lifecycle
 - canonical event emission
 - capability reporting
@@ -179,7 +179,7 @@ Responsibilities should be divided like this:
 - run persistence
 - IPC transport
 
-This keeps AO from duplicating provider-specific logic in both crates.
+This keeps Animus from duplicating provider-specific logic in both crates.
 
 ## Migration Plan
 
@@ -193,7 +193,7 @@ This keeps AO from duplicating provider-specific logic in both crates.
 
 ## Validation Targets
 
-Before AO can treat the new facade as complete, it must verify:
+Before Animus can treat the new facade as complete, it must verify:
 
 - agent execution across Claude, Codex, and Gemini
 - at least one session continuation/resume path

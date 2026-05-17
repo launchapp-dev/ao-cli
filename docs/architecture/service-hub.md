@@ -1,6 +1,6 @@
 # ServiceHub Pattern
 
-The `ServiceHub` trait is AO's dependency injection boundary. It gives the CLI, daemon, tests, and web layers one uniform way to access domain services.
+The `ServiceHub` trait is Animus's dependency injection boundary. It gives the CLI, daemon, tests, and web layers one uniform way to access domain services.
 
 ## The Trait
 

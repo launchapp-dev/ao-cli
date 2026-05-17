@@ -1,6 +1,6 @@
 # Global Flags
 
-Flags available on every `ao` command.
+Flags available on every `animus` command.
 
 ## --json
 
@@ -26,16 +26,15 @@ Without `--json`, commands produce human-readable text. With `--json`, every com
 
 ## --project-root \<PATH\>
 
-Override the project root directory. When omitted, AO resolves the project root
-from the current git common root when available, and otherwise falls back to the
-current working directory. The CLI also honors `PROJECT_ROOT` as an environment
-override, but `--project-root` wins when both are present.
+Override the project root directory. When omitted, Animus resolves the project
+root from the current git common root when available, and otherwise falls back
+to the current working directory.
 
 ```bash
 animus task list --project-root /path/to/my-project
 ```
 
-This flag is required when running AO commands from outside a project
+This flag is required when running Animus commands from outside a project
 directory, or when automating across multiple projects.
 
 ## Common Cross-Command Flags

@@ -1,6 +1,6 @@
-# Working with AO via MCP Tools — Agent Guide
+# Working with Animus via MCP Tools — Agent Guide
 
-This guide explains how AI agents (and MCP clients) interact with the AO orchestrator through its MCP tool surface. Every tool maps 1:1 to an `ao` CLI command and accepts JSON input.
+This guide explains how AI agents (and MCP clients) interact with the Animus orchestrator through its MCP tool surface. Every tool maps 1:1 to an `animus` CLI command and accepts JSON input.
 
 For the full tool table with parameters, see [MCP Tools Reference](../reference/mcp-tools.md).
 
@@ -8,7 +8,7 @@ For the full tool table with parameters, see [MCP Tools Reference](../reference/
 
 ## Overview
 
-AO exposes 73 MCP tools organized into 8 groups:
+Animus exposes 73 MCP tools organized into 8 groups:
 
 | Group | Tools | Purpose |
 |-------|-------|---------|

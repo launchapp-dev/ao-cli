@@ -1,6 +1,6 @@
 # Exit Codes
 
-AO uses a fixed set of exit codes to classify errors. These codes are stable across versions and safe to match in scripts and CI pipelines.
+Animus uses a fixed set of exit codes to classify errors. These codes are stable across versions and safe to match in scripts and CI pipelines.
 
 ## Exit Code Table
 

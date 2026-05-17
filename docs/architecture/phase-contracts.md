@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document defines the target design for phase output contracts in AO.
+This document defines the target design for phase output contracts in Animus.
 
 The goal is to keep YAML as the only authored workflow surface while giving the
 runtime enough structure to validate phase output, assemble prompts, and pass
@@ -28,7 +28,7 @@ Users should not manage standalone JSON schema files.
 
 ## Why This Model
 
-AO currently needs three things at once:
+Animus currently needs three things at once:
 
 1. One stable lifecycle contract the workflow engine can rely on.
 2. Enough flexibility for projects to define phase-specific output surfaces.
@@ -135,11 +135,11 @@ The effective contract is then used for both:
 - prompt assembly
 - final output validation
 
-This gives AO one source of truth for what a phase is supposed to emit.
+This gives Animus one source of truth for what a phase is supposed to emit.
 
 ## Validation Model
 
-AO should validate every final phase output against the effective contract.
+Animus should validate every final phase output against the effective contract.
 
 The first version does not need full arbitrary JSON Schema authoring in YAML.
 It only needs practical workflow-author features:
@@ -150,7 +150,7 @@ It only needs practical workflow-author features:
 - array item shapes
 - human-readable validation errors
 
-If richer validation is needed later, AO can grow it internally without changing
+If richer validation is needed later, Animus can grow it internally without changing
 the authored YAML surface.
 
 ## Prompt Assembly
@@ -174,7 +174,7 @@ phase behavior and field semantics.
 
 ## Structured Artifacts
 
-The universal envelope is the control plane for every phase. AO should also
+The universal envelope is the control plane for every phase. Animus should also
 persist structured artifacts such as:
 
 - `phase_diagnostics`
@@ -189,7 +189,7 @@ That enables:
 - diagnosis and fix loops
 - workflow-local context retrieval
 - better workflow monitor views
-- better AO MCP tools
+- better Animus MCP tools
 
 ## Triage Example
 

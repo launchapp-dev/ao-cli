@@ -1,6 +1,6 @@
 # Writing Custom Workflows
 
-AO workflows are defined in YAML and live in `.animus/workflows.yaml` and
+Animus workflows are defined in YAML and live in `.animus/workflows.yaml` and
 `.animus/workflows/*.yaml`. These files describe project-local workflows, overrides,
 and pack composition. They usually wrap canonical pack-qualified refs such as
 `animus.task/standard` instead of copying task or requirement semantics into the
@@ -26,7 +26,7 @@ Example:
     premium.yaml
 ```
 
-AO loads the single-file form and the directory form together. You can keep
+Animus loads the single-file form and the directory form together. You can keep
 everything in one file or split workflows across multiple files.
 
 ## YAML Structure Overview
@@ -69,7 +69,7 @@ agents:
 The `tool` field specifies which CLI tool runs the agent: `claude`, `codex`, `gemini`, `opencode`, or `oai-runner`.
 
 For Claude-only account routing, set `tool_profile` on a Claude agent or in a
-phase `runtime:` block. The profile name resolves against the user's global AO
+phase `runtime:` block. The profile name resolves against the user's global Animus
 config and typically injects `CLAUDE_CONFIG_DIR`. Initial login for each
 profile still happens interactively in Claude Code.
 
@@ -79,8 +79,8 @@ Declare MCP servers that agents can use as external tools:
 
 ```yaml
 mcp_servers:
-  ao:
-    command: ao
+  animus:
+    command: animus
     args: ["mcp", "serve"]
 
   hubspot:
@@ -103,7 +103,7 @@ agents:
     model: claude-sonnet-4-6
     tool: claude
     mcp_servers:
-      - ao
+      - animus
       - hubspot
 ```
 
@@ -249,7 +249,7 @@ workflows:
 workflows:
   - id: requirement-task-generation
     name: "Requirement Task Generation"
-    description: "Create or refine requirement-linked AO tasks"
+    description: "Create or refine requirement-linked Animus tasks"
     phases:
       - requirement-task-generation
 ```
@@ -317,7 +317,7 @@ agents:
     system_prompt: |
       You are a senior code reviewer. Focus on correctness, performance,
       and adherence to the project's coding conventions. Flag any security
-      concerns. Use AO MCP tools to update task checklists with findings.
+      concerns. Use Animus MCP tools to update task checklists with findings.
     model: claude-sonnet-4-6
     tool: claude
 

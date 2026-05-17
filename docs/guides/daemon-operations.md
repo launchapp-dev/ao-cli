@@ -1,6 +1,6 @@
 # Daemon Operations Guide
 
-The AO daemon is the autonomous scheduler that picks up tasks, dispatches workflows, and manages agent execution. It runs in the background and continuously processes work according to your workflow configuration.
+The Animus daemon is the autonomous scheduler that picks up tasks, dispatches workflows, and manages agent execution. It runs in the background and continuously processes work according to your workflow configuration.
 
 ## Starting the Daemon
 

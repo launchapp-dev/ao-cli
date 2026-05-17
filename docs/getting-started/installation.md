@@ -29,7 +29,6 @@ Prebuilt releases are published at:
 Download the archive for your platform, extract it, and place these binaries on your `PATH`:
 
 - `animus`
-- `ao` (compatibility alias)
 - `agent-runner`
 - `llm-cli-wrapper`
 - `animus-oai-runner`
@@ -51,13 +50,13 @@ git clone https://github.com/launchapp-dev/animus-cli.git
 cd animus-cli
 
 # Verify the runtime binaries
-cargo ao-bin-check
+cargo animus-bin-check
 
 # Debug build
-cargo ao-bin-build
+cargo animus-bin-build
 
 # Release build
-cargo ao-bin-build-release
+cargo animus-bin-build-release
 ```
 
 To run the CLI directly during development:

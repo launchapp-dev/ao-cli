@@ -1,14 +1,14 @@
-# ACP (Agent Client Protocol) Integration for AO
+# ACP (Agent Client Protocol) Integration for Animus
 
 **Date:** April 2026  
 **Status:** Design - Research & Planning Phase  
-**Scope:** AO as ACP-compliant agent server for IDE integration (VS Code, JetBrains, Cursor)
+**Scope:** Animus as ACP-compliant agent server for IDE integration (VS Code, JetBrains, Cursor)
 
 ---
 
 ## Executive Summary
 
-This document evaluates the Agent Client Protocol (ACP) specification and proposes how the AO CLI could expose an ACP-compatible server interface, enabling IDEs to connect to AO as a standardized agent provider without vendor lock-in. The integration positions AO as a universal agent orchestrator that can serve any IDE that implements ACP, expanding its accessibility and value proposition.
+This document evaluates the Agent Client Protocol (ACP) specification and proposes how the Animus CLI could expose an ACP-compatible server interface, enabling IDEs to connect to Animus as a standardized agent provider without vendor lock-in. The integration positions Animus as a universal agent orchestrator that can serve any IDE that implements ACP, expanding its accessibility and value proposition.
 
 ---
 
@@ -113,13 +113,13 @@ ACP includes first-class support for planning workflows:
 
 ---
 
-## 2. How AO Maps to ACP Concepts
+## 2. How Animus Maps to ACP Concepts
 
-### 2.1 Current AO Architecture
+### 2.1 Current Animus Architecture
 
-AO is a Rust-only agent orchestrator with:
+Animus is a Rust-only agent orchestrator with:
 
-- **16-crate modular workspace** with clean separation of concerns
+- **Rust-only Cargo workspace** (around 20 crates) with clean separation of concerns
 - **CLI surface** exposing `project`, `queue`, `task`, `workflow`, and other command groups
 - **Web UI** (React 18) for visualization and management
 - **Runtime state** scoped under `~/.animus/<repo-scope>/`
@@ -130,9 +130,9 @@ AO is a Rust-only agent orchestrator with:
 
 ### 2.2 ACP Server Mapping
 
-#### Session → AO Workflow/Task Context
+#### Session → Animus Workflow/Task Context
 
-| ACP Concept | AO Equivalent | Mapping |
+| ACP Concept | Animus Equivalent | Mapping |
 |---|---|---|
 | `session/new` | `animus workflow new` | Creates a new workflow task with isolation |
 | `session/load` | `animus workflow status --id` or task recovery | Resumes workflow state from scoped runtime |
@@ -141,19 +141,19 @@ AO is a Rust-only agent orchestrator with:
 | `session/cancel` | `animus task cancel --id` | Cancels running workflow |
 | `session/setMode` | Workflow config mode selection | Switch between agent execution strategies |
 
-#### Agent Capabilities → AO Services
+#### Agent Capabilities → Animus Services
 
-| ACP Capability | AO Service |
+| ACP Capability | Animus Service |
 |---|---|
 | `executeCommand` / agent-initiated code execution | Orchestrator agent runner with sandbox isolation |
 | `fs/readTextFile`, `fs/writeTextFile` | Git-ops layer with version control integration |
 | `terminal/create`, `terminal/output` | Workflow runner v2 with subprocess management |
-| MCP tool server | AO's built-in MCP provider (`orchestrator-providers`) |
+| MCP tool server | Animus's built-in MCP provider (`orchestrator-providers`) |
 | Session persistence | Scoped runtime state at `~/.animus/<repo-scope>/` |
 
 #### File System Access & Git Safety
 
-AO can map ACP file operations to its **git-ops layer** (`orchestrator-git-ops`):
+Animus can map ACP file operations to its **git-ops layer** (`orchestrator-git-ops`):
 - `fs/readTextFile` → Read from working tree or staged state
 - `fs/writeTextFile` → Write to working tree (with user approval via `requestPermission`)
 - `fs/createFile` / `fs/deleteFile` → Git-tracked creation/deletion
@@ -161,7 +161,7 @@ AO can map ACP file operations to its **git-ops layer** (`orchestrator-git-ops`)
 
 #### Terminal Integration
 
-AO's `workflow-runner-v2` manages subprocess execution:
+Animus's `workflow-runner-v2` manages subprocess execution:
 - `terminal/create` → Spawn workflow task subprocess
 - `terminal/output` → Stream task output to editor
 - `terminal/kill` → Terminate task execution
@@ -169,19 +169,19 @@ AO's `workflow-runner-v2` manages subprocess execution:
 
 ### 2.3 Project Scope Management
 
-ACP doesn't natively define "project scope," but AO can map it:
+ACP doesn't natively define "project scope," but Animus can map it:
 
-| Scenario | ACP Handling | AO Enhancement |
+| Scenario | ACP Handling | Animus Enhancement |
 |---|---|---|
 | Single project | Editor passes project path in session metadata | Extract repo scope from `.git` |
 | Multiple projects | Editor manages separate sessions per project | Use `--project-root` to link session to scope |
 | Monorepo / workspace | Separate logical projects within filesystem | Scoped runtime per logical project |
 
-AO's natural scoping via `.animus/` and `~/.animus/<repo-scope>/` aligns well with ACP's session isolation model.
+Animus's natural scoping via `.animus/` and `~/.animus/<repo-scope>/` aligns well with ACP's session isolation model.
 
 ### 2.4 Workflow Visualization & Planning
 
-ACP's planning capabilities can expose AO's workflow structure:
+ACP's planning capabilities can expose Animus's workflow structure:
 
 ```json
 {
@@ -213,7 +213,7 @@ ACP's planning capabilities can expose AO's workflow structure:
 }
 ```
 
-AO can expose workflow execution plans through this structure, giving editors first-class visibility into multi-step agent execution.
+Animus can expose workflow execution plans through this structure, giving editors first-class visibility into multi-step agent execution.
 
 ---
 
@@ -229,7 +229,7 @@ AO can expose workflow execution plans through this structure, giving editors fi
                         ↓ JSON-RPC (HTTP/WebSocket)
                         ↓
 ┌─────────────────────────────────────────────────────┐
-│     AO ACP Server (New Crate: `ao-acp-server`)       │
+│     Animus ACP Server (New Crate: `animus-acp-server`)   │
 │                                                      │
 │  • Session Management (new sessions, load, list)     │
 │  • Authentication & Capability Negotiation           │
@@ -238,7 +238,7 @@ AO can expose workflow execution plans through this structure, giving editors fi
 └─────────────────────────────────────────────────────┘
                         ↓
 ┌─────────────────────────────────────────────────────┐
-│   AO Core Services (Existing Architecture)           │
+│   Animus Core Services (Existing Architecture)       │
 │                                                      │
 │  • Orchestrator-core (workflow execution)            │
 │  • Orchestrator-config (session/mode config)         │
@@ -251,7 +251,7 @@ AO can expose workflow execution plans through this structure, giving editors fi
 
 ### 3.2 New Components & Crates
 
-#### `ao-acp-server` Crate
+#### `animus-acp-server` Crate
 A new HTTP/WebSocket server exposing ACP:
 
 **Responsibilities:**
@@ -284,7 +284,7 @@ A new HTTP/WebSocket server exposing ACP:
 ### 3.3 Feature Breakdown
 
 #### Phase 1: Foundations (Weeks 1-2)
-- [ ] Create `ao-acp-server` crate with HTTP transport
+- [ ] Create `animus-acp-server` crate with HTTP transport
 - [ ] Implement `initialize` and `authenticate` handlers
 - [ ] Define session data model and persistence
 - [ ] Add `session/new`, `session/list` methods
@@ -347,7 +347,7 @@ Add ACP server settings to `.animus/config.json` and `~/.animus/<repo-scope>/acp
 - MCP tool integration
 
 **Manual Testing:**
-- Connect VS Code with ACP client library to local AO server
+- Connect VS Code with ACP client library to local Animus server
 - Execute workflow from editor, observe real-time output
 - Test file editing, terminal access with permission prompts
 - Verify rollback and error recovery
@@ -357,7 +357,7 @@ Add ACP server settings to `.animus/config.json` and `~/.animus/<repo-scope>/acp
 **Leverage existing integrations:**
 - **TypeScript/JavaScript SDK** (npm package `@agentclientprotocol/sdk`)
 - **Python SDK** for local agent wrappers
-- **Rust SDK** (if available) for closer integration with AO core
+- **Rust SDK** (if available) for closer integration with Animus core
 
 **IDE Extension Architecture:**
 - VS Code: Use TypeScript SDK to build extension in `crates/vscode-acp-extension`
@@ -375,20 +375,20 @@ Add ACP server settings to `.animus/config.json` and `~/.animus/<repo-scope>/acp
 - Developers face friction: choose an editor or agent, but not both seamlessly
 - ACP standardizes this — agents and editors become interchangeable
 
-**AO's Opportunity:**
-AO can become the **universal agent orchestrator** that works with **any IDE via ACP**, while maintaining its strength as a **powerful, open-source, Rust-based workflow engine**.
+**Animus's Opportunity:**
+Animus can become the **universal agent orchestrator** that works with **any IDE via ACP**, while maintaining its strength as a **powerful, open-source, Rust-based workflow engine**.
 
 ### 4.2 Competitive Advantages
 
 #### 1. **Editor Agnostic Deployment**
-- AO as ACP server works with VS Code, JetBrains, Cursor, and any future ACP-compatible IDE
+- Animus as ACP server works with VS Code, JetBrains, Cursor, and any future ACP-compatible IDE
 - Developers are not locked into one editor choice
 - **Advantage:** Capture broader audience; reduce switching costs
 
 #### 2. **Enterprise & Privacy Focus**
-- **Local-first:** AO runs on developer machines; no cloud dependency
+- **Local-first:** Animus runs on developer machines; no cloud dependency
 - **Version control integration:** All agent edits tracked in Git — audit trail, rollback, collaboration
-- **Self-hosted:** Teams can deploy AO server internally; full control over data and execution
+- **Self-hosted:** Teams can deploy Animus server internally; full control over data and execution
 - **Advantage:** Win enterprise customers with strict data/privacy requirements
 
 #### 3. **Workflow Orchestration Depth**
@@ -412,7 +412,7 @@ AO can become the **universal agent orchestrator** that works with **any IDE via
 
 #### 4.3 Differentiation vs. Other Agents
 
-| Aspect | Cursor / Copilot | OpenHands / Aider | AO (via ACP) |
+| Aspect | Cursor / Copilot | OpenHands / Aider | Animus (via ACP) |
 |---|---|---|---|
 | **IDE Support** | Single editor (tight coupling) | Multiple IDEs (but custom integrations) | Any ACP-compatible IDE |
 | **Workflow** | Single-shot conversations | Multi-step tasks (but session-scoped) | Multi-repo workflows, persistent state, queuing |
@@ -430,11 +430,11 @@ AO can become the **universal agent orchestrator** that works with **any IDE via
 
 ### 4.5 Go-to-Market Angles
 
-1. **"Bring your agent to any IDE"** — AO as the universal orchestrator
+1. **"Bring your agent to any IDE"** — Animus as the universal orchestrator
 2. **"Enterprise-grade agent orchestration"** — Self-hosted, auditable, cost-transparent
 3. **"Open-source agent workflow platform"** — Community-extensible, no vendor lock-in
 4. **"Agent for teams that control their own data"** — Privacy-first, Git-integrated
-5. **"Reduce agent switching costs"** — Use multiple agents; AO coordinates them
+5. **"Reduce agent switching costs"** — Use multiple agents; Animus coordinates them
 
 ---
 
@@ -454,13 +454,13 @@ AO can become the **universal agent orchestrator** that works with **any IDE via
 
 | Risk | Severity | Mitigation |
 |---|---|---|
-| **ACP adoption slower than expected** | Medium | Build ACP support as optional feature; maintain CLI + Web UI as primary surfaces |
+| **ACP adoption slower than expected** | Medium | Build ACP support as optional feature; maintain CLI plus Web UI as primary surfaces |
 | **Tight editor integrations remain dominant** | Medium | Emphasize OSS, cost, and privacy advantages; build early examples and case studies |
 | **Enterprise procurement friction** | Medium | Provide hosted SaaS option; offer support contracts; maintain audit/compliance docs |
 
 ### 5.3 Residual Concerns
 
-- **ACP specification may continue to evolve** — Plan for periodic updates to AO ACP server
+- **ACP specification may continue to evolve** — Plan for periodic updates to Animus ACP server
 - **IDE ecosystem is fragmented** — Each IDE (VS Code extensions, JetBrains plugins) has unique build/deploy processes
 - **First IDE integration will set tone** — Prioritize quality and documentation for initial integrations
 - **Session state debugging will be complex** — Invest in logging, tracing, and diagnostics
@@ -472,16 +472,16 @@ AO can become the **universal agent orchestrator** that works with **any IDE via
 - **Phase 1 completion:** Working ACP server that VS Code can connect to
 - **Phase 2 completion:** End-to-end task execution (initialize → prompt → response → file edit) working from IDE
 - **Phase 3 completion:** Permission-gated file and terminal operations tested
-- **Adoption:** 100+ developers using AO via IDE extensions within 6 months of launch
+- **Adoption:** 100+ developers using Animus via IDE extensions within 6 months of launch
 - **Enterprise wins:** 3+ enterprise customers citing "IDE + agent flexibility" as deciding factor
 
 ---
 
 ## 7. Next Steps
 
-1. **Validate:** Confirm ACP spec gaps (remote auth, session migration) don't block AO integration
-2. **Prototype:** Spike `ao-acp-server` crate with basic `initialize` and `session/new` handlers
-3. **IDE Integration:** Build VS Code extension POC connecting to local AO server
+1. **Validate:** Confirm ACP spec gaps (remote auth, session migration) don't block Animus integration
+2. **Prototype:** Spike `animus-acp-server` crate with basic `initialize` and `session/new` handlers
+3. **IDE Integration:** Build VS Code extension POC connecting to local Animus server
 4. **Gather Feedback:** Get early users testing and provide input on UX, performance, missing features
 5. **Schedule Implementation:** Plan phased rollout with clear milestones and testing gates
 
@@ -499,4 +499,4 @@ AO can become the **universal agent orchestrator** that works with **any IDE via
 
 **Document Version:** 1.0  
 **Last Updated:** April 2, 2026  
-**Author:** AO Development Team
+**Author:** Animus Development Team

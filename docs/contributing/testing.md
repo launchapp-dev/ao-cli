@@ -65,7 +65,7 @@ Integration tests live in `crates/orchestrator-cli/tests/` and exercise the CLI 
 The `CliHarness` (defined in `crates/orchestrator-cli/tests/support/test_harness.rs`) provides a convenient wrapper for testing CLI commands:
 
 - Creates a temporary project directory for isolation
-- Runs `ao` commands as subprocesses
+- Runs `animus` commands as subprocesses
 - Parses JSON output and validates envelope contracts
 - Provides `run_json_ok()` for commands expected to succeed and `run_json_err()` for expected failures
 

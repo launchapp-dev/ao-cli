@@ -1,6 +1,6 @@
 # Requirements Workflow Guide
 
-AO treats requirements as first-class project records. You create them, refine
+Animus treats requirements as first-class project records. You create them, refine
 them, and then execute them into tasks and workflows when they are ready for
 implementation.
 
@@ -15,7 +15,7 @@ animus requirements create \
   --priority high
 ```
 
-This writes a tracked requirement into AO-managed state. Requirements can also
+This writes a tracked requirement into Animus-managed state. Requirements can also
 carry a category, type, source, and acceptance criteria.
 
 ## Inspect and Refine
@@ -59,7 +59,7 @@ Use the requirement graph to understand links between requirements:
 animus requirements graph get
 ```
 
-Use the recommendations surface when you want AO to scan for improvements or
+Use the recommendations surface when you want Animus to scan for improvements or
 gaps:
 
 ```bash
@@ -85,7 +85,7 @@ The normal loop is simple:
 2. Review or update it until the scope is clear.
 3. Execute it into tasks.
 4. Run the daemon or targeted workflows to do the work.
-5. Use `ao task` and `ao workflow` commands to track progress.
+5. Use `animus task` and `animus workflow` commands to track progress.
 
 See also: [Task Management](task-management.md), [Daemon Operations](daemon-operations.md), and
 [Writing Workflows](writing-workflows.md).

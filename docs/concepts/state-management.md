@@ -1,6 +1,6 @@
 # State Management
 
-AO separates authored repository config from mutable runtime state.
+Animus separates authored repository config from mutable runtime state.
 
 ## Project-Local `.animus/`
 
@@ -41,7 +41,7 @@ Important runtime stores:
 
 ## Why the Split Exists
 
-Keeping mutable state outside the repository gives AO a few important properties:
+Keeping mutable state outside the repository gives Animus a few important properties:
 
 - linked worktrees resolve back to one shared repo scope
 - runtime files do not pollute source control
@@ -50,7 +50,7 @@ Keeping mutable state outside the repository gives AO a few important properties
 
 ## Pack and Workflow Resolution
 
-AO still resolves workflows from layered sources:
+Animus still resolves workflows from layered sources:
 
 1. project pack overrides in `.animus/plugins/`
 2. project YAML in `.animus/workflows.yaml` and `.animus/workflows/*.yaml`
@@ -64,12 +64,12 @@ State location and workflow resolution are related but different concerns:
 
 ## Mutation Policy
 
-Do not hand-edit AO-managed runtime JSON or SQLite state unless you are explicitly working on AO persistence or migrations.
+Do not hand-edit Animus-managed runtime JSON or SQLite state unless you are explicitly working on Animus persistence or migrations.
 
 Approved mutation surfaces:
 
 - CLI commands such as `animus task status`
-- AO MCP tools such as `animus.task.update`
+- Animus MCP tools such as `animus.task.update`
 - pack commands such as `animus pack pin`
 
 ## Repository Scope
@@ -80,4 +80,4 @@ The repo scope uses the canonical project path to derive a stable identifier:
 <sanitized-repo-name>-<12-hex-sha256-prefix>
 ```
 
-This is what lets AO keep one runtime home for a repository even when you invoke it from linked worktrees.
+This is what lets Animus keep one runtime home for a repository even when you invoke it from linked worktrees.

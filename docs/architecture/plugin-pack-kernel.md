@@ -2,7 +2,7 @@
 
 ## Purpose
 
-AO should evolve from a product with built-in task and requirement semantics
+Animus should evolve from a product with built-in task and requirement semantics
 into a workflow kernel that can host bundled and third-party domain packs.
 
 The daemon stays dumb. The workflow runner stays the execution host. Product
@@ -14,7 +14,7 @@ This document defines that target shape.
 
 ## Core Decision
 
-AO should adopt a package-style plugin system over the existing dumb-daemon
+Animus should adopt a package-style plugin system over the existing dumb-daemon
 kernel.
 
 - The kernel owns dispatch, capacity, subprocesses, workflow execution, and
@@ -23,7 +23,7 @@ kernel.
   surfaces, schedules, and subject-specific behavior.
 - Built-in `task` and `requirements` become first-party bundled plugin packs,
   not special cases in daemon-core.
-- AO should prefer process- and package-oriented plugins over runtime-loaded
+- Animus should prefer process- and package-oriented plugins over runtime-loaded
   Rust dynamic libraries.
 
 ## Non-Decision
@@ -32,14 +32,14 @@ This is not a proposal for:
 
 - runtime-loaded Rust `.so` / `.dylib` / `.dll` plugins in the daemon
 - embedding third-party Rust code into the daemon process at runtime
-- embedding Python or Node.js interpreters into the AO kernel
-- letting workflows mutate AO state through hidden daemon-only side effects
+- embedding Python or Node.js interpreters into the Animus kernel
+- letting workflows mutate Animus state through hidden daemon-only side effects
 
 Those choices would weaken isolation and make the daemon harder to keep dumb.
 
 ## Plugin Tiers
 
-Not every extension needs native code. AO should support three extension tiers.
+Not every extension needs native code. Animus should support three extension tiers.
 
 ### Tier 1: Declarative Pack
 
@@ -52,18 +52,18 @@ Ships only data and configuration:
 - schedules
 - subject schemas and display metadata
 
-This should cover most AO extensions.
+This should cover most Animus extensions.
 
 These packs may still rely on external runtimes such as Node.js or Python by
 declaring command-phase programs or MCP server commands that execute outside the
-AO process.
+Animus process.
 
 ### Tier 2: Connector Pack
 
 A declarative pack plus MCP-backed integration behavior:
 
 - external MCP server processes
-- AO MCP tool namespaces
+- Animus MCP tool namespaces
 - connector-specific workflow bundles
 - import/export or sync workflows
 
@@ -80,7 +80,7 @@ Examples:
 
 ### Tier 3: Native Module
 
-A compiled module linked into AO behind Cargo features for behavior that cannot
+A compiled module linked into Animus behind Cargo features for behavior that cannot
 be expressed through workflows, projectors, MCP tools, or schemas alone.
 
 Examples:
@@ -94,7 +94,7 @@ Native modules should be rare and treated as bundled or feature-gated modules,
 not arbitrary runtime-loaded code.
 
 If a plugin can be expressed as workflows plus an external Python or Node.js
-process, AO should prefer that over a native Rust module.
+process, Animus should prefer that over a native Rust module.
 
 ## Kernel Boundary
 
@@ -204,7 +204,7 @@ schema = "animus.pack.v1"
 id = "animus.requirements"
 version = "0.1.0"
 kind = "domain-pack"
-title = "AO Requirements"
+title = "Animus Requirements"
 description = "Planning and materialization flows for requirement subjects."
 
 [ownership]
@@ -247,7 +247,7 @@ tools = "mcp/tools.toml"
 file = "schedules/schedules.yaml"
 
 [native_module]
-feature = "plugin-ao-requirements"
+feature = "plugin-animus-requirements"
 module_id = "animus.requirements"
 optional = true
 ```
@@ -255,7 +255,7 @@ optional = true
 ### Runtime Requirements
 
 Plugin packs should be able to declare required external runtimes without
-making AO itself depend on those runtimes.
+making Animus itself depend on those runtimes.
 
 Examples:
 
@@ -264,7 +264,7 @@ Examples:
 - `uv`
 - `npm` or `pnpm`
 
-AO should validate these requirements at install or activation time and surface
+Animus should validate these requirements at install or activation time and surface
 clear diagnostics when a pack cannot run because the local runtime is missing.
 
 ## Workflow Pack Loading
@@ -277,7 +277,7 @@ project-local YAML.
 1. Project-local overrides in `.animus/plugins/<pack-id>/`
 2. Project-local ad hoc workflows in `.animus/workflows/`
 3. Installed pack workflows in `~/.animus/packs/<pack-id>/<version>/`
-4. Bundled first-party packs embedded into the AO binary
+4. Bundled first-party packs embedded into the Animus binary
 
 This preserves the current override model while allowing installable pack
 distribution.
@@ -367,11 +367,11 @@ phases:
 ```
 
 This allows plugin packs to add Node.js or Python capabilities without changing
-AO core language or daemon responsibilities.
+Animus core language or daemon responsibilities.
 
 ## Native Module Surface
 
-Some domains need behavior beyond workflows and MCP tools. For those cases AO
+Some domains need behavior beyond workflows and MCP tools. For those cases Animus
 should expose stable native module interfaces, but load them through normal Rust
 compilation and feature selection rather than runtime library loading.
 
@@ -409,7 +409,7 @@ The registry can ship built-in implementations for `animus.task` and
 
 ## Built-In Packs
 
-The current AO product domains should become bundled packs.
+The current Animus product domains should become bundled packs.
 
 ### `animus.task`
 
@@ -440,7 +440,7 @@ Owns:
 - approval records and review projectors
 - associated MCP surfaces
 
-This lets AO keep first-party defaults without baking those domains into the
+This lets Animus keep first-party defaults without baking those domains into the
 kernel.
 
 ## State and Installation Model
@@ -449,7 +449,7 @@ Plugin packs should be installable at two levels.
 
 ### Bundled Packs
 
-Shipped with the AO binary and embedded at build time.
+Shipped with the Animus binary and embedded at build time.
 
 ### Machine-Installed Packs
 
@@ -498,7 +498,7 @@ installed packs.
 
 - replace `Task | Requirement | Custom` with generic subject refs
 - migrate `SubjectDispatch`, workflow bootstrap, and execution facts
-- preserve compatibility shims for current AO CLI surfaces
+- preserve compatibility shims for current Animus CLI surfaces
 
 ### Phase 4: Built-In Domain Packs
 
@@ -537,7 +537,7 @@ daemon or CLI core.
 
 The architecture is correct when:
 
-- AO can install and resolve pack-qualified workflows without daemon changes
+- Animus can install and resolve pack-qualified workflows without daemon changes
 - a pack can ship workflows, runtime overlays, MCP server descriptors, and
   schedules as one unit
 - a pack can declare external runtime requirements such as Node.js or Python

@@ -1,6 +1,6 @@
 # Persistence
 
-AO persists state with a mix of atomic JSON files and a repo-scoped SQLite database.
+Animus persists state with a mix of atomic JSON files and a repo-scoped SQLite database.
 
 ## Atomic JSON Writes
 
@@ -38,7 +38,7 @@ The scope name is derived from the canonical project path and includes a sanitiz
 
 ### `core-state.json`
 
-The shared runtime snapshot AO loads into memory at startup.
+The shared runtime snapshot Animus loads into memory at startup.
 
 ### `workflow.db`
 
@@ -66,11 +66,11 @@ JSON stores for operational records such as:
 
 ## File Locking
 
-`FileServiceHub` uses file locking around `core-state.json` mutations to avoid lost updates when multiple AO processes operate on the same repository scope.
+`FileServiceHub` uses file locking around `core-state.json` mutations to avoid lost updates when multiple Animus processes operate on the same repository scope.
 
 ## Migration Behavior
 
-AO still contains migration helpers for older layouts:
+Animus still contains migration helpers for older layouts:
 
 - repo-local `.animus/` state can be migrated to `~/.animus/<repo-scope>/`
 - legacy workflow JSON files can be migrated into `workflow.db`

@@ -1,6 +1,6 @@
 # Web Dashboard Guide
 
-AO includes an embedded web dashboard for visual project management. It provides a browser-based interface for monitoring workflows, managing tasks, and viewing requirements.
+Animus includes an embedded web dashboard for visual project management. It provides a browser-based interface for monitoring workflows, managing tasks, and viewing requirements.
 
 ## Starting the Web Server
 

@@ -29,10 +29,10 @@ For example:
 Each worktree gets a dedicated branch:
 
 ```
-ao/<sanitized-task-id>
+animus/<sanitized-task-id>
 ```
 
-For example, task `TASK-042` gets branch `ao/task-042`. The task ID is sanitized to lowercase with special characters replaced by hyphens, using the same `sanitize_identifier` function used for repository scoping.
+For example, task `TASK-042` gets branch `animus/task-042`. The task ID is sanitized to lowercase with special characters replaced by hyphens, using the same `sanitize_identifier` function used for repository scoping.
 
 ---
 
@@ -52,7 +52,7 @@ Because each task runs in its own worktree:
 ```mermaid
 flowchart LR
     dispatch["SubjectDispatch<br/>for TASK-042"]
-    create["Create worktree<br/>~/.animus/.../worktrees/TASK-042/<br/>Branch: ao/task-042"]
+    create["Create worktree<br/>~/.animus/.../worktrees/TASK-042/<br/>Branch: animus/task-042"]
     execute["Execute workflow phases<br/>Agent writes code, tests, commits"]
     result["Workflow completes"]
     post["Post-success actions"]
@@ -63,7 +63,7 @@ flowchart LR
 
 ### 1. Create
 
-When the daemon spawns `workflow-runner` for a task subject, it creates a git worktree from the current main branch. The worktree is checked out to a new branch named `ao/<task-id>`.
+When the daemon spawns `workflow-runner` for a task subject, it creates a git worktree from the current main branch. The worktree is checked out to a new branch named `animus/<task-id>`.
 
 ### 2. Execute
 

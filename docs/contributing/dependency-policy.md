@@ -1,10 +1,10 @@
 # Dependency Policy
 
-AO enforces a strict Rust-only dependency policy. No desktop shell frameworks or native webview dependencies are permitted in the workspace.
+Animus enforces a strict Rust-only dependency policy. No desktop shell frameworks or native webview dependencies are permitted in the workspace.
 
 ## Rust-Only Rule
 
-AO is a CLI-first tool. All functionality must be implemented in pure Rust without relying on platform-specific GUI frameworks.
+Animus is a CLI-first tool. All functionality must be implemented in pure Rust without relying on platform-specific GUI frameworks.
 
 ## Prohibited Packages
 

@@ -1,6 +1,6 @@
 # Model Routing Guide
 
-AO automatically selects which AI model and CLI tool to use for each workflow phase. This guide explains the routing logic and how to override it.
+Animus automatically selects which AI model and CLI tool to use for each workflow phase. This guide explains the routing logic and how to override it.
 
 ## Default Model Assignments
 
@@ -40,7 +40,7 @@ This takes highest precedence.
 
 ### Level 2: Resolved Agent Runtime
 
-AO resolves agent runtime from the authored workflow YAML under `.animus/workflows.yaml` and `.animus/workflows/*.yaml`, merged with bundled defaults. You can inspect the effective runtime with:
+Animus resolves agent runtime from the authored workflow YAML under `.animus/workflows.yaml` and `.animus/workflows/*.yaml`, merged with bundled defaults. You can inspect the effective runtime with:
 
 ```bash
 animus workflow agent-runtime get
@@ -114,14 +114,14 @@ Not all tools support repository writes. The write-capable tools are:
 - `opencode`
 - `oai-runner`
 
-The `gemini` tool is not write-capable. AO redirects non-write-capable tools to
+The `gemini` tool is not write-capable. Animus redirects non-write-capable tools to
 a write-capable fallback for implementation-style phases. Use Gemini on
 read-only or research phases by configuring those phases to use Gemini
 explicitly in workflow YAML or pack content.
 
 ## Fallback Models
 
-When the primary model fails, AO tries fallback models in order. Fallbacks vary by phase type and complexity. For example, a medium-complexity implementation phase falls back through:
+When the primary model fails, Animus tries fallback models in order. Fallbacks vary by phase type and complexity. For example, a medium-complexity implementation phase falls back through:
 
 1. zai-coding-plan/glm-5
 2. minimax/MiniMax-M2.5

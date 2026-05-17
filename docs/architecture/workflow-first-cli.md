@@ -2,7 +2,7 @@
 
 ## Status
 
-AO now treats workflow dispatch as the primary execution surface.
+Animus now treats workflow dispatch as the primary execution surface.
 
 - workflow and requirements surfaces dispatch canonical workflow refs such as
   `animus.task/standard` and `animus.requirement/execute`
@@ -50,5 +50,5 @@ This keeps the runtime aligned with the plugin-pack kernel design:
 ## Related Docs
 
 - [Plugin Pack Kernel](plugin-pack-kernel.md)
-- [How AO Works](../concepts/how-ao-works.md)
+- [How Animus Works](../concepts/how-ao-works.md)
 - [Workflows](../concepts/workflows.md)

@@ -1,6 +1,6 @@
 # Guides
 
-Practical walkthroughs for day-to-day AO operations.
+Practical walkthroughs for day-to-day Animus operations.
 
 ## Planning and Requirements
 
@@ -10,17 +10,17 @@ Practical walkthroughs for day-to-day AO operations.
 
 - **[Task Management](task-management.md)** -- Creating, prioritizing, assigning, and tracking tasks through their full lifecycle.
 - **[Writing Custom Workflows](writing-workflows.md)** -- YAML workflow authoring: agents, phases, pipelines, MCP servers, and post-success hooks.
-- **[Self-Hosting Workflow](self-hosting.md)** -- How AO tracks its own development through `ao` commands.
+- **[Self-Hosting Workflow](self-hosting.md)** -- How Animus tracks its own development through `animus` commands.
 
 ## Operations
 
 - **[Daemon Operations](daemon-operations.md)** -- Starting, stopping, pausing, configuring, and monitoring the autonomous daemon.
-- **[Model Routing](model-routing.md)** -- How AO selects models and tools per phase, and how to override defaults.
+- **[Model Routing](model-routing.md)** -- How Animus selects models and tools per phase, and how to override defaults.
 - **[Web Dashboard](web-dashboard.md)** -- Launching the web UI, navigating boards, and using the REST API.
 
 ## MCP & Agent Integration
 
-- **[Working with AO via MCP Tools](agents.md)** -- Complete guide to all ~68 MCP tools: JSON examples, common workflows, sequencing tips, pagination, and batch operations.
+- **[Working with Animus via MCP Tools](agents.md)** -- Complete guide to all ~68 MCP tools: JSON examples, common workflows, sequencing tips, pagination, and batch operations.
 
 ## Infrastructure
 

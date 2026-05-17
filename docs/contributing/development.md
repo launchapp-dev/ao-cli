@@ -9,9 +9,9 @@
 ## Build Commands
 
 ```bash
-cargo ao-bin-check
-cargo ao-bin-build
-cargo ao-bin-build-release
+cargo animus-bin-check
+cargo animus-bin-build
+cargo animus-bin-build-release
 ```
 
 Run the CLI directly:
@@ -30,7 +30,7 @@ cargo build -p agent-runner
 
 ## Workspace Structure
 
-The workspace currently contains 17 crates:
+The workspace is a Cargo workspace of around 20 crates. The core orchestrator crates are:
 
 ```text
 crates/
@@ -91,5 +91,5 @@ npm run docs:preview
 
 - All CLI `--json` output follows the `animus.cli.v1` envelope
 - Always use `--project-root "$(pwd)"` in scripts and automation
-- Treat `.animus/` project config and `~/.animus/<repo-scope>/` runtime state as AO-managed data
+- Treat `.animus/` project config and `~/.animus/<repo-scope>/` runtime state as Animus-managed data
 - Prefer source files over prose when documenting command counts, crate counts, and runtime paths

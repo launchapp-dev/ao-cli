@@ -2,7 +2,7 @@
 
 ## Everything Is a Workflow
 
-In AO, every autonomous operation resolves through a `workflow_ref`. The CLI,
+In Animus, every autonomous operation resolves through a `workflow_ref`. The CLI,
 web API, daemon queue, and MCP surfaces all emit a
 [SubjectDispatch](./subject-dispatch.md) that points at a workflow definition,
 and `workflow-runner` executes the resulting phase plan.
@@ -13,11 +13,11 @@ overrides.
 
 ## Workflow Sources
 
-AO currently resolves workflows from these sources:
+Animus currently resolves workflows from these sources:
 
 | Source | Typical Refs | What It Owns |
 |---|---|---|
-| Bundled kernel workflows | `animus.vision/draft`, `animus.vision/refine` | Core planning workflow refs that still ship with AO directly and are invoked through dispatch, not a dedicated top-level command |
+| Bundled kernel workflows | `animus.vision/draft`, `animus.vision/refine` | Core planning workflow refs that still ship with Animus directly and are invoked through dispatch, not a dedicated top-level command |
 | Bundled first-party packs | `animus.task/standard`, `animus.requirement/draft`, `animus.requirement/execute` | Task, requirement, review, and QA behavior shipped as pack overlays |
 | Installed machine packs | `vendor.pack/ref` | Shared packs installed under `~/.animus/packs/<pack-id>/<version>/` |
 | Project pack overrides | `vendor.pack/ref` | Per-project overrides under `.animus/plugins/<pack-id>/` |
@@ -28,7 +28,7 @@ AO currently resolves workflows from these sources:
 1. Project pack overrides in `.animus/plugins/<pack-id>/`
 2. Project-local YAML in `.animus/workflows.yaml` and `.animus/workflows/*.yaml`
 3. Installed packs in `~/.animus/packs/<pack-id>/<version>/`
-4. Bundled sources embedded in AO
+4. Bundled sources embedded in Animus
 
 This means a project can override a bundled or installed workflow without
 teaching the daemon any new behavior.
@@ -44,9 +44,9 @@ dispatch them through the workflow engine:
 | `animus requirements execute --id REQ-001` | `animus.requirement/execute` | Requirement execution resolves to the canonical pack ref |
 | `animus workflow run standard-workflow` | `animus.task/standard` | Repository-specific workflows can wrap canonical pack refs |
 
-AO still ships planning refs such as `animus.vision/draft` and `animus.vision/refine`,
+Animus still ships planning refs such as `animus.vision/draft` and `animus.vision/refine`,
 but they are consumed as workflow refs rather than surfaced as a dedicated
-`ao vision ...` command.
+`animus vision ...` command.
 
 The first-party pack boundary is currently most visible in task, requirement,
 review, and QA behavior. For example, task routing and task execution phases now
@@ -55,7 +55,7 @@ the kernel baseline.
 
 ## Bundled First-Party Packs
 
-AO ships with bundled manifests under
+Animus ships with bundled manifests under
 `crates/orchestrator-config/config/bundled-packs/`. Today those bundled packs
 include:
 

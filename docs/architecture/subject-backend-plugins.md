@@ -34,17 +34,17 @@ workflows.
                   │            │                    │               │
                   └────────────┼────────────────────┼───────────────┘
                                │                    ▼
-                  ┌────────────┴────────────┐ ┌──────────────────────┐
-                  │   Subject Backends      │ │     Projectors       │
-                  │   (plugin processes)    │ │                      │
-                  │                         │ │ - task projector     │
-                  │ - ao-subject-native     │ │ - subject projector  │
-                  │ - ao-subject-linear     │ │   (writes status     │
-                  │ - ao-subject-jira       │ │    back to plugin)   │
-                  │ - ao-subject-github     │ │ - notification       │
-                  │ - ao-subject-notion     │ └──────────────────────┘
-                  │ - ...                   │
-                  └─────────────────────────┘
+                  ┌────────────────────────────┐ ┌──────────────────────┐
+                  │   Subject Backends         │ │     Projectors       │
+                  │   (plugin processes)       │ │                      │
+                  │                            │ │ - task projector     │
+                  │ - animus-subject-native    │ │ - subject projector  │
+                  │ - animus-subject-linear    │ │   (writes status     │
+                  │ - animus-subject-jira      │ │    back to plugin)   │
+                  │ - animus-subject-github    │ │ - notification       │
+                  │ - animus-subject-notion    │ └──────────────────────┘
+                  │ - ...                      │
+                  └────────────────────────────┘
 ```
 
 Subject backends sit at two integration points:
@@ -162,7 +162,7 @@ daemon can adapt behavior without runtime guessing.
 ## The Subject schema
 
 Normalized cross-backend representation. Defined in a new
-`ao-subject-protocol` crate so plugin authors and the daemon agree on the
+`animus-subject-protocol` crate so plugin authors and the daemon agree on the
 wire shape.
 
 ```rust
@@ -216,7 +216,7 @@ five via configuration, not code.
 
 ## The Rust trait
 
-What plugin authors implement. Lives in `ao-subject-protocol`.
+What plugin authors implement. Lives in `animus-subject-protocol`.
 
 ```rust
 #[async_trait]
@@ -243,7 +243,7 @@ Subjects are configured per project, referenced per workflow.
 ```yaml
 subjects:
   linear-eng:
-    plugin: ao-subject-linear
+    plugin: animus-subject-linear
     config:
       api_token_env: LINEAR_API_TOKEN
       team: ENG
@@ -255,7 +255,7 @@ subjects:
       cancelled:   ["Cancelled"]
 
   github-issues:
-    plugin: ao-subject-github
+    plugin: animus-subject-github
     config:
       repo: launchapp-dev/animus
       auth_env: GITHUB_TOKEN
@@ -283,7 +283,7 @@ backend, preserving every existing workflow's behavior.
 
 ## Native task migration
 
-`animus task` is reimplemented as `ao-subject-native`, an in-process backend
+`animus task` is reimplemented as `animus-subject-native`, an in-process backend
 that satisfies the `SubjectBackend` trait. It does not run as a separate
 process; the daemon links it directly. The trait impl reads and writes
 `~/.animus/<repo-scope>/state/tasks.v1.json` exactly as today.
@@ -306,7 +306,7 @@ workflow YAML:
 ```yaml
 subjects:
   linear-eng:
-    plugin: ao-subject-linear
+    plugin: animus-subject-linear
     config:
       api_token_env: LINEAR_API_TOKEN
 ```
@@ -369,7 +369,7 @@ discussion:
    `create()` method, but it's not required for the v0.4.0 cut.
 
 6. **Backend versioning.** The plugin manifest declares a protocol
-   version. What's the deprecation policy when `ao-subject-protocol`
+   version. What's the deprecation policy when `animus-subject-protocol`
    bumps? Compatibility window of how many minor versions?
 
 7. **Cross-backend joins.** A workflow that operates on a Linear issue
@@ -384,19 +384,19 @@ discussion:
 
 ## Acceptance shape for v0.4.0
 
-- `ao-subject-protocol` crate published with `SubjectBackend` trait +
+- `animus-subject-protocol` crate published with `SubjectBackend` trait +
   Subject schema + JSON-RPC method definitions.
 - `animus-plugin-runtime` generalized to host subject backends alongside
   the existing provider backends.
 - Native `animus task` migrated to satisfy the trait, no behavior
   change for existing users.
-- `ao-subject-linear` shipped as the first standalone reference plugin
+- `animus-subject-linear` shipped as the first standalone reference plugin
   in its own repo (`launchapp-dev/animus-subject-linear`).
 - `animus plugin new --kind subject --name <name>` scaffolds a new
   subject backend from a template.
 - Workflow YAML supports `subject_type:` and `subjects:` blocks.
 - Contract test in this repo exercises the full lifecycle against
-  `ao-subject-mock` (analogous to `animus-provider-mock`).
+  `animus-subject-mock` (analogous to `animus-provider-mock`).
 
 Subsequent 0.4.x patches add Jira, GitHub Issues, Notion, and Asana
 backends, each its own repo.

@@ -1,6 +1,6 @@
 # Contributing Overview
 
-Welcome to the AO CLI contributor documentation. This section covers everything you need to get started developing, testing, and contributing to the project.
+Welcome to the Animus CLI contributor documentation. This section covers everything you need to get started developing, testing, and contributing to the project.
 
 ## Guides
 

@@ -1,6 +1,6 @@
 # Agent Runner IPC
 
-The agent runner (`ao-agent-runner`) is a standalone daemon that manages LLM CLI tool processes. It communicates with workflow runners over an IPC protocol.
+The agent runner (`agent-runner`) is a standalone daemon that manages LLM CLI tool processes. It communicates with workflow runners over an IPC protocol.
 
 ## Transport
 

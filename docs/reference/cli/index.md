@@ -223,8 +223,8 @@ animus
 │       ├── list             List all registered marketplace registries
 │       └── sync             Sync (re-clone) a registry to get latest pack catalog
 │
-├── plugin                   Discover, inspect, install, and call AO STDIO plugins
-│   ├── list                 Discover plugins via plugins.yaml, .animus/plugins/, and ANIMUS_PLUGIN_PATH
+├── plugin                   Discover, inspect, install, and call Animus STDIO plugins
+│   ├── list                 Discover plugins via plugins.yaml, .animus/plugins/, and $ANIMUS_PLUGIN_PATH
 │   ├── info                 Print a plugin's manifest plus initialize-time capabilities
 │   ├── call                 Send a JSON-RPC request to a plugin and print its response
 │   ├── ping                 Health-check a plugin by spawning, handshaking, and pinging
@@ -250,12 +250,12 @@ animus
 │   ├── monitor              Inspect run output with optional task/phase filtering
 │   └── cli                  Infer CLI provider details from run output
 │
-├── mcp                      Run the AO MCP service endpoint
+├── mcp                      Run the Animus MCP service endpoint
 │   └── serve                Start the MCP server in the current process
 │
-├── web                      Serve and open the AO web UI
-│   ├── serve                 Start the AO web server
-│   └── open                  Open the AO web UI URL in a browser
+├── web                      Serve and open the Animus web UI
+│   ├── serve                 Start the Animus web server
+│   └── open                  Open the Animus web UI URL in a browser
 │
 ├── init                     Initialize an Animus project from a template
 │   (no subcommands)         Supports registry-backed or local copy templates, plan mode, and daemon defaults
@@ -272,6 +272,62 @@ animus
 │
 └── doctor                   Run environment and configuration diagnostics
 ```
+
+## Selected Command Flags
+
+The full flag set lives in `crates/orchestrator-cli/src/cli_types/`. This section
+documents flags that were added or hardened in v0.4.0 and that callers most often
+need to script against.
+
+### `animus init`
+
+Initialize an Animus project from a template registry or a local template directory.
+
+| Flag | Description |
+|---|---|
+| `--template <TEMPLATE_ID>` | Project template id to fetch from the default template registry. Conflicts with `--path` |
+| `--path <PATH>` | Local template directory containing `template.toml`. Conflicts with `--template` |
+| `--non-interactive` | Run without prompts. Requires `--template` or `--path` |
+| `--plan` | Preview init changes without writing project files |
+| `--force` | Overwrite existing project files targeted by the template |
+| `--update-registry` | Fetch the latest commit from the template registry and re-pin the local cache before loading the template (v0.4.0 supply-chain hardening — by default the registry uses the pinned cache) |
+| `--auto-merge <bool>` | Override the template default for automatic merge |
+| `--auto-pr <bool>` | Override the template default for automatic pull request creation |
+| `--auto-commit-before-merge <bool>` | Override the template default for automatic commit before merge |
+
+The template registry URL can be overridden globally via `ANIMUS_TEMPLATE_REGISTRY_URL`.
+
+### `animus plugin install`
+
+Install a plugin binary into `~/.animus/plugins/` after verifying its integrity.
+
+| Flag | Description |
+|---|---|
+| `--path <PATH>` | Local path to the plugin binary. SHA256 verification is optional for local installs |
+| `--url <URL>` | HTTPS URL to download the plugin binary from. `--sha256` is **required** when installing from a URL (v0.4.0 supply-chain hardening) |
+| `--name <NAME>` | Optional logical plugin name. Defaults to the binary file name |
+| `--sha256 <HEX>` | Expected SHA256 hex digest. Required with `--url`; optional with `--path`. The install fails if the downloaded/copied binary's checksum does not match |
+| `--force` | Overwrite an existing installed plugin with the same name |
+| `--skip-manifest-check` | Skip running `--manifest` against the installed binary to verify it (use sparingly) |
+
+### `animus plugin list` / `info` / `call` / `ping`
+
+The discovery scan deliberately omits `$PATH` by default in v0.4.0 to prevent stray
+binaries from being picked up. Pass `--include-system-path` to opt in to scanning
+`$PATH` for `animus-provider-*` and `animus-plugin-*` binaries.
+
+| Command | Flags |
+|---|---|
+| `animus plugin list` | `--include-system-path` |
+| `animus plugin info` | `--name <NAME>`, `--include-system-path` |
+| `animus plugin call` | `--name <NAME>`, `--method <METHOD>`, `--params <JSON>`, `--include-system-path` |
+| `animus plugin ping` | `--name <NAME>`, `--include-system-path` |
+| `animus plugin uninstall` | `--name <NAME>` |
+
+Default discovery order (no `--include-system-path`):
+`~/.config/ao/plugins.yaml` (legacy path retained by `orchestrator-plugin-host`) →
+`.animus/plugins/` → `$ANIMUS_PLUGIN_PATH`.
+With `--include-system-path`, `$PATH` is appended.
 
 ## Summary
 

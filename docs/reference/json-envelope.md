@@ -1,6 +1,6 @@
 # JSON Envelope Contract
 
-All `ao` commands that accept `--json` wrap their output in the `animus.cli.v1` envelope. This contract provides a stable, machine-readable interface for scripts, CI pipelines, and MCP tool integrations.
+All `animus` commands that accept `--json` wrap their output in the `animus.cli.v1` envelope. This contract provides a stable, machine-readable interface for scripts, CI pipelines, and MCP tool integrations.
 
 ## Schema Identifier
 
@@ -124,7 +124,7 @@ The JSON envelope is serialized in compact form (no pretty-printing, no newlines
 
 ```bash
 # Capture success data
-data=$(ao task get --id TASK-001 --json 2>/dev/null)
+data=$(animus task get --id TASK-001 --json 2>/dev/null)
 echo "$data" | jq '.data.status'
 
 # Capture error

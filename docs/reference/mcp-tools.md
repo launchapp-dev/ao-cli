@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-All MCP tools exposed by `animus mcp serve`. These tools allow AI agents to interact with the AO orchestrator over the Model Context Protocol. Each tool wraps an `ao` CLI command, accepting JSON input and returning structured results.
+All MCP tools exposed by `animus mcp serve`. These tools allow AI agents to interact with the Animus orchestrator over the Model Context Protocol. Each tool wraps an `animus` CLI command, accepting JSON input and returning structured results.
 
 Every tool accepts an optional `project_root` parameter to override the default project root.
 
@@ -27,7 +27,7 @@ Every tool accepts an optional `project_root` parameter to override the default 
 
 | Tool | Description | Key Parameters |
 |---|---|---|
-| `animus.daemon.start` | Start the AO daemon for task scheduling and agent management | `pool_size` (alias: `max_agents`), `interval_secs`, `auto_run_ready`, `auto_merge`, `auto_pr`, `auto_commit_before_merge`, `auto_prune_worktrees_after_merge`, `startup_cleanup`, `resume_interrupted`, `reconcile_stale`, `stale_threshold_hours`, `max_tasks_per_tick`, `phase_timeout_secs`, `idle_timeout_secs`, `skip_runner`, `autonomous`, `runner_scope`, `project_root` |
+| `animus.daemon.start` | Start the Animus daemon for task scheduling and agent management | `pool_size` (alias: `max_agents`), `interval_secs`, `auto_run_ready`, `auto_merge`, `auto_pr`, `auto_commit_before_merge`, `auto_prune_worktrees_after_merge`, `startup_cleanup`, `resume_interrupted`, `reconcile_stale`, `stale_threshold_hours`, `max_tasks_per_tick`, `phase_timeout_secs`, `idle_timeout_secs`, `skip_runner`, `autonomous`, `runner_scope`, `project_root` |
 | `animus.daemon.stop` | Stop the daemon gracefully | `project_root` |
 | `animus.daemon.status` | Check if daemon is running and view basic state | `project_root` |
 | `animus.daemon.health` | Get detailed health metrics (active agents, queue, capacity) | `project_root` |
@@ -161,9 +161,58 @@ Every tool accepts an optional `project_root` parameter to override the default 
 
 ---
 
+## Skills (3 tools)
+
+Discover and inspect skill definitions across every source the project can see: bundled built-ins,
+the `animus.core-skills` pack and other installed packs, registry-tracked installs, user-scoped
+(`~/.animus/skills/`), project-scoped (`.animus/skills/`), and agent-host probes
+(`~/.claude/skills/`, `~/.codex/skills/`, etc.).
+
+Each result carries a `source` tag (`"builtin"`, `"installed"`, `"user"`, `"project"`,
+`"agent_host"`) plus a `source_detail` object with provenance. For `installed` sources,
+`source_detail` includes `registry`, `source`, `version`, `integrity`, and `artifact`. For
+`agent_host` sources, `source_detail` includes `host` (e.g. `"claude-code"`), `scope`
+(`"project"` | `"global"`), `structural_fields_stripped: true`, and `trust_tier: "prompt_text_only"`
+— a reminder that structural fields (`tool_policy`, `mcp_servers`, `env`, `extra_args`,
+`capabilities`, `adapters`, `codex_config_overrides`) are stripped at parse time for agent-host
+skills, so only prompt text and prompt directives are trusted.
+
+| Tool | Description | Key Parameters |
+|---|---|---|
+| `animus.skill.list` | Enumerate skills across all sources with optional `source` filter | `project_root`, `source` (`builtin` \| `installed` \| `user` \| `project` \| `agent_host` \| host id like `claude-code`) |
+| `animus.skill.get` | Resolve a skill by name and return its full `SkillDefinition` plus provenance. Resolution priority: project > user > installed/pack > builtin > agent-host. Agent-host responses include a `notice` field explaining the structural-field strip | `project_root`, `name` |
+| `animus.skill.search` | Case-insensitive substring match over skill `name`, `description`, and `tags`. Returns the same row shape as `animus.skill.list` plus a `truncated` flag when matches exceed `limit` | `project_root`, `query`, `source`, `limit` (default 50) |
+
+---
+
+## Memory (4 tools)
+
+Project-scoped agent memory store. Each entry is `{ id, text, created_at, source }` and lives
+keyed by `agent_id` under the repo-scoped runtime root.
+
+| Tool | Description | Key Parameters |
+|---|---|---|
+| `animus.memory.get` | Fetch the full memory document for an agent profile, optionally narrowing to a single entry by id | `agent_id`, `entry_id`, `project_root` |
+| `animus.memory.list` | List memory entries for an agent with optional case-sensitive `prefix` filter on entry text | `agent_id`, `prefix`, `limit`, `project_root` |
+| `animus.memory.append` | Add a new memory entry. The entry receives a fresh uuid and timestamp. Returns the appended entry | `agent_id`, `text`, `source`, `project_root` |
+| `animus.memory.clear` | Delete a single entry by `entry_id`, or wipe all entries for the agent when `delete_all: true`. One of `entry_id` or `delete_all=true` is required | `agent_id`, `entry_id`, `delete_all`, `project_root` |
+
+### Memory tool exposure model
+
+The `animus.memory.*` tools are exposed in two places, with different gating:
+
+- **Top-level `animus mcp serve`**: all four tools are always present. External MCP clients
+  (Claude Desktop, Cursor, etc.) can read/write memory for any agent id.
+- **Spawned workflow agents**: the memory MCP server is injected into a phase's runtime
+  contract only when the active agent profile has `capabilities.memory: true`. Profiles with
+  the capability absent or set to `false` do not see the memory tools in their tool list.
+  See `crates/workflow-runner-v2/src/runtime_contract.rs::inject_memory_mcp_for_capable_agent`.
+
+---
+
 ## Plugins (2 tools)
 
-Discovered AO STDIO plugins are reachable from MCP clients via these meta-tools.
+Discovered Animus STDIO plugins are reachable from MCP clients via these meta-tools.
 Plugins themselves can declare additional `mcp_tools` in their `initialize` response;
 those are aggregated automatically.
 

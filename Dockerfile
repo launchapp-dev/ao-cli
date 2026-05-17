@@ -40,8 +40,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN npm install -g @anthropic-ai/claude-code @openai/codex \
     && npm cache clean --force
 
-# Install OpenCode (tarball asset; pattern changed upstream to opencode-linux-<arch>.tar.gz)
-RUN ARCH=$(dpkg --print-architecture) \
+# Install OpenCode (tarball asset; pattern changed upstream to
+# opencode-linux-<arch>.tar.gz where <arch> is x86_64 or arm64 —
+# NOT the dpkg names amd64/arm64. Translate amd64 → x86_64; arm64 stays.)
+RUN ARCH=$(dpkg --print-architecture | sed 's/^amd64$/x86_64/') \
     && curl -fsSL "https://github.com/opencode-ai/opencode/releases/latest/download/opencode-linux-${ARCH}.tar.gz" -o /tmp/opencode.tar.gz \
     && tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin/ opencode \
     && chmod +x /usr/local/bin/opencode \

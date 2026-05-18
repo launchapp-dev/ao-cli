@@ -6,7 +6,7 @@ use anyhow::{anyhow, Result};
 use serde_json::Value;
 use tokio::process::{ChildStdin, ChildStdout};
 
-use crate::host::PluginStderrSink;
+use crate::host::{PluginSpawnOptions, PluginStderrSink};
 use crate::{DiscoveredPlugin, PluginDiscovery, PluginHost};
 
 pub struct PluginRegistry {
@@ -46,8 +46,15 @@ impl PluginRegistry {
 
     pub async fn get_plugin(&mut self, name: &str) -> Result<&mut PluginHost<ChildStdout, ChildStdin>> {
         if !self.running.contains_key(name) {
-            let path = self.discovered.get(name).ok_or_else(|| anyhow!("unknown plugin '{name}'"))?.path.clone();
-            let mut host = PluginHost::spawn_with_stderr(&path, &[], self.stderr_sink.clone()).await?;
+            let plugin = self.discovered.get(name).ok_or_else(|| anyhow!("unknown plugin '{name}'"))?;
+            let path = plugin.path.clone();
+            let options = PluginSpawnOptions::for_manifest(
+                name.to_string(),
+                &plugin.manifest.env_required,
+                std::iter::empty::<String>(),
+                self.stderr_sink.clone(),
+            );
+            let mut host = PluginHost::spawn_with_options(&path, &[], options).await?;
             let result = host.handshake().await?;
             self.register_mcp_tools(name, result.capabilities.mcp_tools)?;
             self.running.insert(name.to_string(), host);

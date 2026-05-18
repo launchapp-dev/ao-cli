@@ -10,6 +10,22 @@ use super::{
 };
 use crate::error::Result;
 
+/// Provider tool names that map to in-tree (built-in) backends. A
+/// third-party plugin whose `provider_tool` matches one of these silently
+/// hijacks the entire dispatch path for that tool, which is a supply-chain
+/// risk; the install pipeline refuses such installs unless the operator
+/// passes `--allow-shadow-builtin`. See
+/// [`SessionBackendResolver::resolve`] for the runtime warning emitted when
+/// a non-reserved plugin nevertheless overrides a built-in.
+pub const RESERVED_PROVIDER_TOOLS: &[&str] = &["claude", "codex", "gemini", "opencode", "oai-runner"];
+
+/// Returns `true` when the supplied provider tool name collides with an
+/// in-tree built-in backend (case-insensitive).
+pub fn is_reserved_provider_tool(tool: &str) -> bool {
+    let lower = tool.trim().to_ascii_lowercase();
+    RESERVED_PROVIDER_TOOLS.iter().any(|reserved| reserved.eq_ignore_ascii_case(&lower))
+}
+
 pub struct SessionBackendResolver {
     claude: Arc<ClaudeSessionBackend>,
     codex: Arc<CodexSessionBackend>,
@@ -81,6 +97,17 @@ impl SessionBackendResolver {
     pub fn resolve(&self, request: &SessionRequest) -> Arc<dyn SessionBackend> {
         let tool_lower = request.tool.to_ascii_lowercase();
         if let Some(plugin) = self.plugin_providers.get(&tool_lower) {
+            if is_reserved_provider_tool(&tool_lower) {
+                tracing::warn!(
+                    plugin = %plugin.plugin_name,
+                    tool = %tool_lower,
+                    plugin_path = %plugin.binary_path.display(),
+                    "plugin '{}' shadowing built-in {} backend at {}",
+                    plugin.plugin_name,
+                    tool_lower,
+                    plugin.binary_path.display(),
+                );
+            }
             return plugin.clone();
         }
         if request.tool.eq_ignore_ascii_case("claude") {
@@ -319,6 +346,54 @@ mod tests {
         assert!(
             !info.display_name.to_ascii_lowercase().contains("plugin"),
             "expected in-tree backend, got display_name={}",
+            info.display_name
+        );
+    }
+
+    #[test]
+    fn reserved_provider_tools_includes_all_in_tree_backends() {
+        for tool in ["claude", "codex", "gemini", "opencode", "oai-runner"] {
+            assert!(super::is_reserved_provider_tool(tool), "{tool} should be considered reserved (built-in)");
+            assert!(super::is_reserved_provider_tool(&tool.to_ascii_uppercase()));
+        }
+        assert!(!super::is_reserved_provider_tool("linear"));
+        assert!(!super::is_reserved_provider_tool("custom-backend"));
+    }
+
+    #[test]
+    fn resolver_emits_warning_when_plugin_shadows_builtin() {
+        // The actual warn! is emitted through tracing; we verify the code path runs
+        // (resolve picks the plugin) and the plugin path differs from the in-tree
+        // backend's display name.
+        let mut resolver = SessionBackendResolver::new();
+        resolver.plugin_providers.insert(
+            "claude".to_string(),
+            std::sync::Arc::new(super::super::plugin_backend::PluginSessionBackend::new(
+                "animus-provider-claude-shadow",
+                PathBuf::from("/tmp/animus-provider-claude-shadow"),
+                "claude",
+            )),
+        );
+        let request = SessionRequest {
+            tool: "claude".to_string(),
+            model: "claude-sonnet".to_string(),
+            prompt: "hi".to_string(),
+            cwd: PathBuf::from("."),
+            project_root: None,
+            mcp_endpoint: None,
+            permission_mode: None,
+            timeout_secs: None,
+            env_vars: Vec::new(),
+            extras: json!({}),
+        };
+        let backend = resolver.resolve(&request);
+        let info = backend.info();
+        // The plugin we registered claimed provider_tool="claude" and its display
+        // name comes from the plugin path, not the in-tree label.
+        assert_eq!(info.provider_tool, "claude");
+        assert!(
+            info.display_name.to_ascii_lowercase().contains("plugin"),
+            "expected plugin backend to win over built-in; got display={}",
             info.display_name
         );
     }

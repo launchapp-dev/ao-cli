@@ -32,6 +32,7 @@ fn manifest() -> PluginManifest {
             "smoke/get".to_string(),
             "health/check".to_string(),
         ],
+        env_required: Vec::new(),
     }
 }
 

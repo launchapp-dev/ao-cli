@@ -279,6 +279,12 @@ impl AoMcpServer {
             require_signature: require_signature.unwrap_or(false),
             skip_signature: skip_signature.unwrap_or(false),
             trusted_signers: trusted_signers.map(std::path::PathBuf::from),
+            allow_shadow_builtin: false,
+            allow_org: Vec::new(),
+            // MCP runs non-interactively; let unknown-org installs proceed
+            // silently rather than blocking on a TTY prompt. The TOFU record
+            // still lands in trusted-orgs.yaml after a successful install.
+            yes: true,
         })
         .await
         .map_err(anyhow_to_mcp)?;

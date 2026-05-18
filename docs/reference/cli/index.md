@@ -332,6 +332,9 @@ animus plugin install --url https://example.com/plugin --sha256 a1b2c3d4...
 | `--require-signature` | Refuse to install when no cosign signature bundle is published, or when verification fails. Mutually exclusive with `--skip-signature`. Requires `cosign` on `$PATH` |
 | `--skip-signature` | Bypass cosign signature verification entirely. Use this for plugins that haven't adopted signing yet, air-gapped installs, or local-build workflows |
 | `--trusted-signers <PATH>` | Path to a trusted-signers YAML allowlist. Defaults to `~/.animus/trusted-signers.yaml`. When the file is absent, the CLI verifies signatures against the cert's stated repo identity but does not enforce a publisher allowlist |
+| `--allow-shadow-builtin` | Permit installing a provider plugin whose `provider_tool` collides with an in-tree backend (`claude` / `codex` / `gemini` / `opencode` / `oai-runner`). Without this flag the install pipeline refuses such plugins because they silently hijack all dispatch for the matching tool |
+| `--allow-org <OWNER>` | Mark an additional GitHub owner as trusted (repeatable). Skips the trust-on-first-use prompt for that owner and writes the entry to `~/.animus/trusted-orgs.yaml` after the install succeeds |
+| `--yes` | Auto-confirm the trust-on-first-use prompt for unknown orgs |
 
 #### Signature verification (v0.4.x+)
 

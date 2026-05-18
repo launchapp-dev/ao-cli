@@ -154,6 +154,22 @@ pub(crate) struct PluginInstallArgs {
     /// `~/.animus/trusted-signers.yaml`.
     #[arg(long, value_name = "PATH")]
     pub(crate) trusted_signers: Option<PathBuf>,
+    /// Allow installing a provider plugin whose `provider_tool` collides with
+    /// an in-tree backend (claude/codex/gemini/opencode/oai-runner). Without
+    /// this flag the install pipeline refuses such plugins because they
+    /// silently hijack all dispatch for the matching tool.
+    #[arg(long, default_value_t = false)]
+    pub(crate) allow_shadow_builtin: bool,
+    /// Mark the supplied `OWNER` as trusted for future installs (TOFU). Equivalent
+    /// to a one-shot append to `~/.animus/trusted-orgs.yaml`. Repeat for multiple
+    /// owners.
+    #[arg(long = "allow-org", value_name = "OWNER")]
+    pub(crate) allow_org: Vec<String>,
+    /// Auto-confirm the trust-on-first-use (TOFU) prompt when installing from
+    /// an untrusted org. Equivalent to typing `yes` at the prompt and adding the
+    /// org to `~/.animus/trusted-orgs.yaml`.
+    #[arg(long, default_value_t = false)]
+    pub(crate) yes: bool,
 }
 
 #[derive(Debug, Args)]

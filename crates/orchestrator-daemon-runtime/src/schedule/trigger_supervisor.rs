@@ -204,7 +204,13 @@ impl TriggerPluginRunner for ProcessTriggerRunner {
         shutdown_rx: &mut mpsc::Receiver<()>,
         notify_started: &mut (dyn FnMut() + Send),
     ) -> SessionOutcome {
-        let mut host = match PluginHost::spawn_with_stderr(&plugin.path, &[], None).await {
+        let options = orchestrator_plugin_host::PluginSpawnOptions::for_manifest(
+            plugin.name.clone(),
+            &plugin.manifest.env_required,
+            std::iter::empty::<String>(),
+            None,
+        );
+        let mut host = match PluginHost::spawn_with_options(&plugin.path, &[], options).await {
             Ok(host) => host,
             Err(error) => return SessionOutcome::SpawnError(format!("spawn failed: {error:#}")),
         };
@@ -654,6 +660,7 @@ mod tests {
                 description: "fake trigger plugin for unit tests".to_string(),
                 protocol_version: animus_plugin_protocol::PROTOCOL_VERSION.to_string(),
                 capabilities: Vec::new(),
+                env_required: Vec::new(),
             },
             source: orchestrator_plugin_host::DiscoverySource::ExplicitConfig,
         }

@@ -361,6 +361,51 @@ pub struct PluginManifest {
     /// Methods implemented by the plugin.
     #[serde(default)]
     pub capabilities: Vec<String>,
+    /// Environment variables the plugin needs the host to forward at spawn
+    /// time.
+    ///
+    /// The plugin host clears the daemon's process environment before spawning
+    /// a plugin (`env_clear()`) and only forwards a minimal universal shell
+    /// allowlist (`PATH`, `HOME`, `TMPDIR`, `LANG`, `LC_ALL`, `RUST_LOG`,
+    /// `RUST_BACKTRACE`, `TZ`) plus the variables declared here. Plugins that
+    /// need an `OPENAI_API_KEY`, `LINEAR_API_TOKEN`, etc. must list them in
+    /// this field; otherwise they will be missing at runtime even though the
+    /// daemon's environment had them set.
+    ///
+    /// Defaults to empty for back-compat: plugins built against earlier
+    /// versions of the protocol crate simply opt into zero secrets.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub env_required: Vec<EnvRequirement>,
+}
+
+/// One environment variable a plugin asks the host to forward at spawn time.
+///
+/// The host treats `name` as the source of truth: only matching variables are
+/// passed through the `env_clear()` boundary. `description` and `sensitive`
+/// are informational hints surfaced in `animus plugin info` and the install
+/// flow so operators can decide whether a plugin's secret requirements are
+/// reasonable before granting it access.
+///
+/// When `required` is set, the host emits a warning at spawn time if the
+/// variable isn't present in the daemon's own environment. The host never
+/// refuses to spawn over a missing required var — that decision belongs to
+/// the plugin itself, which sees the missing variable during its own startup.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EnvRequirement {
+    /// Environment variable name (e.g. `"OPENAI_API_KEY"`).
+    pub name: String,
+    /// Optional human-readable explanation of what the variable is used for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Hint that this variable carries a secret. Informational only — does not
+    /// change spawn behavior. Used to drive warnings in install output and
+    /// `animus plugin info` listings.
+    #[serde(default)]
+    pub sensitive: bool,
+    /// When `true`, the host emits a warning at spawn time if the variable is
+    /// not set in the daemon's environment.
+    #[serde(default)]
+    pub required: bool,
 }
 
 /// Health status emitted by `health/check`.
@@ -507,6 +552,46 @@ mod tests {
         });
         let manifest: PluginManifest = serde_json::from_value(value).expect("manifest should parse");
         assert_eq!(manifest.plugin_kind, "ticket_backend");
+        assert!(manifest.env_required.is_empty(), "env_required must default to empty for back-compat");
+    }
+
+    #[test]
+    fn manifest_env_required_round_trips() {
+        let value = serde_json::json!({
+            "name": "animus-provider-claude",
+            "version": "0.1.0",
+            "plugin_kind": "provider",
+            "description": "Claude provider",
+            "protocol_version": "1.0.0",
+            "capabilities": ["agent/run"],
+            "env_required": [
+                { "name": "ANTHROPIC_API_KEY", "description": "Anthropic API token", "sensitive": true, "required": true },
+                { "name": "ANTHROPIC_BASE_URL" }
+            ]
+        });
+        let manifest: PluginManifest = serde_json::from_value(value).expect("manifest should parse");
+        assert_eq!(manifest.env_required.len(), 2);
+        assert_eq!(manifest.env_required[0].name, "ANTHROPIC_API_KEY");
+        assert!(manifest.env_required[0].sensitive);
+        assert!(manifest.env_required[0].required);
+        assert_eq!(manifest.env_required[1].name, "ANTHROPIC_BASE_URL");
+        assert!(!manifest.env_required[1].sensitive);
+        assert!(!manifest.env_required[1].required);
+    }
+
+    #[test]
+    fn manifest_serializes_without_env_required_when_empty() {
+        let manifest = PluginManifest {
+            name: "x".to_string(),
+            version: "0.1.0".to_string(),
+            plugin_kind: "custom".to_string(),
+            description: "x".to_string(),
+            protocol_version: "1.0.0".to_string(),
+            capabilities: vec![],
+            env_required: vec![],
+        };
+        let value = serde_json::to_value(&manifest).unwrap();
+        assert!(value.get("env_required").is_none(), "empty env_required must not be serialized for back-compat");
     }
 
     #[test]

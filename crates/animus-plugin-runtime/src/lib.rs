@@ -63,6 +63,7 @@ impl ProviderInfo {
                 "agent/resume".to_string(),
                 "health/check".to_string(),
             ],
+            env_required: Vec::new(),
         }
     }
 

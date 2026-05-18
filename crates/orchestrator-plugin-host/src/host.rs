@@ -1,10 +1,11 @@
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
 use animus_plugin_protocol::{
-    error_codes, HealthCheckResult, HostCapabilities, HostInfo, InitializeParams, InitializeResult, RpcError,
-    RpcNotification, RpcRequest, RpcResponse, PROTOCOL_VERSION,
+    error_codes, EnvRequirement, HealthCheckResult, HostCapabilities, HostInfo, InitializeParams, InitializeResult,
+    RpcError, RpcNotification, RpcRequest, RpcResponse, PROTOCOL_VERSION,
 };
 use anyhow::{anyhow, Result};
 use semver::Version;
@@ -14,6 +15,18 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite};
 use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
+
+/// Universal shell environment variables that every plugin gets regardless of
+/// its declared `env_required` manifest. These are the locale + shell + Rust
+/// telemetry vars that practically every CLI tool expects; withholding them
+/// breaks even well-behaved plugins for no security gain (none of them carry
+/// secrets).
+///
+/// Anything **not** in this list and **not** explicitly declared by the
+/// plugin's manifest is scrubbed from the spawn environment via
+/// [`std::process::Command::env_clear`].
+pub const PLUGIN_BASE_ENV_ALLOWLIST: &[&str] =
+    &["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "RUST_LOG", "RUST_BACKTRACE", "TZ"];
 
 use crate::StdioTransport;
 
@@ -59,6 +72,64 @@ pub fn check_protocol_compat(plugin_version: &str) -> Result<(), HostError> {
 /// Sink for plugin stderr lines. Receives `(plugin_name, line)` on each stderr line.
 pub type PluginStderrSink = Arc<dyn Fn(&str, &str) + Send + Sync>;
 
+/// Caller-supplied options that drive how the plugin host spawns a plugin
+/// process.
+///
+/// Use [`PluginSpawnOptions::for_manifest`] to derive an environment allowlist
+/// from a plugin's [`PluginManifest::env_required`](animus_plugin_protocol::PluginManifest::env_required)
+/// list. See [`PLUGIN_BASE_ENV_ALLOWLIST`] for the universally-forwarded vars.
+#[derive(Default, Clone)]
+pub struct PluginSpawnOptions {
+    /// Routes every stderr line through this sink in addition to the standard
+    /// `tracing::warn!` log. Useful for surfacing plugin diagnostics into a
+    /// project's structured events log.
+    pub stderr_sink: Option<PluginStderrSink>,
+    /// Names of environment variables the plugin is allowed to see. The host
+    /// always forwards [`PLUGIN_BASE_ENV_ALLOWLIST`] on top of this list.
+    /// Anything else is scrubbed.
+    pub env_allowlist: Vec<String>,
+    /// Plugin-name label used in any spawn-time warnings (e.g. missing
+    /// required env). When empty, the host falls back to the binary file name.
+    pub plugin_label: Option<String>,
+    /// Required-but-missing env variable names. The host emits a `warn!` for
+    /// each at spawn time so operators can see why the plugin will likely
+    /// fail.
+    pub missing_required_env: Vec<String>,
+}
+
+impl PluginSpawnOptions {
+    /// Build options for a plugin whose manifest declares the supplied env
+    /// requirements. Returns the assembled options and a list of declared-as
+    /// `required = true` vars that are not currently set in the host process.
+    ///
+    /// The returned options force the spawn to scrub the daemon's environment
+    /// to [`PLUGIN_BASE_ENV_ALLOWLIST`] plus the manifest's declared variables
+    /// plus any explicit `extra` names supplied by the caller (e.g. one-off
+    /// runtime overrides).
+    pub fn for_manifest(
+        plugin_label: impl Into<String>,
+        env_required: &[EnvRequirement],
+        extra_env_vars: impl IntoIterator<Item = String>,
+        stderr_sink: Option<PluginStderrSink>,
+    ) -> Self {
+        let plugin_label = plugin_label.into();
+        let mut allow: BTreeSet<String> = env_required.iter().map(|requirement| requirement.name.clone()).collect();
+        allow.extend(extra_env_vars);
+        let missing_required: Vec<String> = env_required
+            .iter()
+            .filter(|requirement| requirement.required)
+            .filter(|requirement| std::env::var_os(&requirement.name).is_none())
+            .map(|requirement| requirement.name.clone())
+            .collect();
+        Self {
+            stderr_sink,
+            env_allowlist: allow.into_iter().collect(),
+            plugin_label: if plugin_label.is_empty() { None } else { Some(plugin_label) },
+            missing_required_env: missing_required,
+        }
+    }
+}
+
 /// Channel that receives plugin-emitted JSON-RPC notifications (no `id`).
 pub type PluginNotificationRx = mpsc::Receiver<RpcNotification>;
 type PluginNotificationTx = mpsc::Sender<RpcNotification>;
@@ -72,19 +143,41 @@ pub struct PluginHost<R = ChildStdout, W = ChildStdin> {
 }
 
 impl PluginHost<ChildStdout, ChildStdin> {
+    /// Spawn a plugin without forwarding any environment beyond
+    /// [`PLUGIN_BASE_ENV_ALLOWLIST`]. Most production callers should use
+    /// [`PluginHost::spawn_with_options`] instead so the plugin sees the
+    /// env it declared in its manifest.
     pub async fn spawn(binary_path: &Path, args: &[&str]) -> Result<Self> {
-        Self::spawn_with_stderr(binary_path, args, None).await
+        Self::spawn_with_options(binary_path, args, PluginSpawnOptions::default()).await
     }
 
     /// Spawn a plugin and route every stderr line through the supplied sink in addition
     /// to the standard `tracing::warn!` log. Use this from the host runtime so plugin
     /// diagnostics land in the project's structured `events.jsonl`.
+    ///
+    /// Note: this convenience does not forward any plugin-specific env vars.
+    /// Prefer [`PluginHost::spawn_with_options`] (with options built via
+    /// [`PluginSpawnOptions::for_manifest`]) for production spawns so the
+    /// plugin's manifest-declared environment is honored.
     pub async fn spawn_with_stderr(
         binary_path: &Path,
         args: &[&str],
         stderr_sink: Option<PluginStderrSink>,
     ) -> Result<Self> {
-        let name = binary_path.file_name().and_then(|value| value.to_str()).unwrap_or("plugin").to_string();
+        let options = PluginSpawnOptions { stderr_sink, ..PluginSpawnOptions::default() };
+        Self::spawn_with_options(binary_path, args, options).await
+    }
+
+    /// Spawn a plugin under the supplied [`PluginSpawnOptions`].
+    ///
+    /// The host always calls `env_clear()` on the child process and forwards
+    /// only the union of [`PLUGIN_BASE_ENV_ALLOWLIST`] and
+    /// `options.env_allowlist`. This is the v0.4.x trust boundary: plugins
+    /// only see secrets they explicitly declared in their manifest.
+    pub async fn spawn_with_options(binary_path: &Path, args: &[&str], options: PluginSpawnOptions) -> Result<Self> {
+        let binary_name = binary_path.file_name().and_then(|value| value.to_str()).unwrap_or("plugin").to_string();
+        let name = options.plugin_label.clone().unwrap_or_else(|| binary_name.clone());
+
         let mut command = tokio::process::Command::new(binary_path);
         command
             .args(args)
@@ -92,12 +185,35 @@ impl PluginHost<ChildStdout, ChildStdin> {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
 
+        // Build the allowlist: universal base + caller-declared. Deduplicate
+        // case-sensitively (env var names are case-sensitive on POSIX).
+        let mut allow: BTreeSet<&str> = PLUGIN_BASE_ENV_ALLOWLIST.iter().copied().collect();
+        for var in &options.env_allowlist {
+            allow.insert(var.as_str());
+        }
+
+        command.env_clear();
+        for var in &allow {
+            if let Some(value) = std::env::var_os(var) {
+                command.env(var, value);
+            }
+        }
+
+        for missing in &options.missing_required_env {
+            warn!(
+                plugin = %name,
+                env_var = %missing,
+                "plugin declared env_required={{name={missing}, required=true}} but the host environment does not have it set; the plugin will likely fail to start"
+            );
+        }
+
         let mut child = command.spawn()?;
         let stdin = child.stdin.take().ok_or_else(|| anyhow!("failed to take plugin stdin"))?;
         let stdout = child.stdout.take().ok_or_else(|| anyhow!("failed to take plugin stdout"))?;
         let stderr = child.stderr.take().ok_or_else(|| anyhow!("failed to take plugin stderr"))?;
 
         let stderr_plugin_name = name.clone();
+        let stderr_sink = options.stderr_sink.clone();
         tokio::spawn(async move {
             let mut lines = tokio::io::BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
@@ -384,5 +500,140 @@ mod tests {
             message.contains("incompatible plugin protocol") && message.contains("major version mismatch"),
             "unexpected error: {message}"
         );
+    }
+
+    // ===== Env scrubbing tests =====
+    //
+    // These exercise the v0.4.x trust-boundary promise: a spawned plugin must
+    // not inherit any env var that's not in PLUGIN_BASE_ENV_ALLOWLIST and not
+    // declared in its manifest. We build a tiny shell-script "plugin" that
+    // serializes its env to a file, spawn it via spawn_with_options, and
+    // inspect the file.
+
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+    #[cfg(unix)]
+    use std::sync::Mutex;
+    #[cfg(unix)]
+    static ENV_SCRUB_GUARD: Mutex<()> = Mutex::new(());
+
+    #[cfg(unix)]
+    fn write_env_dump_plugin(dir: &std::path::Path) -> std::path::PathBuf {
+        let plugin = dir.join("env-dump-plugin");
+        // Dump every env var as KEY=VALUE\n into ./env.out next to argv[1].
+        std::fs::write(&plugin, "#!/bin/sh\nout=\"$1\"\nenv > \"$out\"\n").expect("write env-dump plugin");
+        let mut perms = std::fs::metadata(&plugin).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&plugin, perms).unwrap();
+        plugin
+    }
+
+    #[cfg(unix)]
+    fn read_env_dump(path: &std::path::Path) -> std::collections::HashMap<String, String> {
+        let body = std::fs::read_to_string(path).expect("env dump should be written");
+        let mut env = std::collections::HashMap::new();
+        for line in body.lines() {
+            if let Some((k, v)) = line.split_once('=') {
+                env.insert(k.to_string(), v.to_string());
+            }
+        }
+        env
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)] // intentional: guards std::env mutation across spawn await
+    async fn env_scrubbing_strips_unrelated_vars() {
+        let _guard = ENV_SCRUB_GUARD.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        let plugin = write_env_dump_plugin(dir.path());
+        let env_out = dir.path().join("env.out");
+
+        std::env::set_var("ANIMUS_TEST_SECRET", "should-not-leak");
+        let result =
+            PluginHost::spawn_with_options(&plugin, &[env_out.to_str().unwrap()], PluginSpawnOptions::default()).await;
+        // The plugin runs and exits immediately; just wait for the child to flush.
+        let mut host = result.expect("spawn should succeed");
+        if let Some(mut child) = host.child.take() {
+            let _ = child.wait().await;
+        }
+        std::env::remove_var("ANIMUS_TEST_SECRET");
+
+        let env = read_env_dump(&env_out);
+        assert!(!env.contains_key("ANIMUS_TEST_SECRET"), "env_clear() must strip ANIMUS_TEST_SECRET; saw env={env:?}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)] // intentional: guards std::env mutation across spawn await
+    async fn env_scrubbing_keeps_declared_vars() {
+        let _guard = ENV_SCRUB_GUARD.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        let plugin = write_env_dump_plugin(dir.path());
+        let env_out = dir.path().join("env.out");
+
+        std::env::set_var("ANIMUS_TEST_OPENAI_KEY", "sk-test-value");
+        let manifest_env = vec![EnvRequirement {
+            name: "ANIMUS_TEST_OPENAI_KEY".to_string(),
+            description: None,
+            sensitive: true,
+            required: true,
+        }];
+        let opts =
+            PluginSpawnOptions::for_manifest("env-dump-plugin", &manifest_env, std::iter::empty::<String>(), None);
+
+        let mut host =
+            PluginHost::spawn_with_options(&plugin, &[env_out.to_str().unwrap()], opts).await.expect("spawn");
+        if let Some(mut child) = host.child.take() {
+            let _ = child.wait().await;
+        }
+        std::env::remove_var("ANIMUS_TEST_OPENAI_KEY");
+
+        let env = read_env_dump(&env_out);
+        assert_eq!(
+            env.get("ANIMUS_TEST_OPENAI_KEY").map(String::as_str),
+            Some("sk-test-value"),
+            "declared env var must be forwarded; saw env={env:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)] // intentional: guards std::env mutation across spawn await
+    async fn env_scrubbing_always_includes_path_and_home() {
+        let _guard = ENV_SCRUB_GUARD.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        let plugin = write_env_dump_plugin(dir.path());
+        let env_out = dir.path().join("env.out");
+
+        // PATH and HOME are always set on a unix dev/CI machine.
+        let mut host =
+            PluginHost::spawn_with_options(&plugin, &[env_out.to_str().unwrap()], PluginSpawnOptions::default())
+                .await
+                .expect("spawn");
+        if let Some(mut child) = host.child.take() {
+            let _ = child.wait().await;
+        }
+
+        let env = read_env_dump(&env_out);
+        assert!(env.contains_key("PATH"), "PATH must be in the base allowlist; saw env={env:?}");
+        assert!(env.contains_key("HOME"), "HOME must be in the base allowlist; saw env={env:?}");
+    }
+
+    #[test]
+    fn for_manifest_reports_missing_required_vars() {
+        let unique = format!("ANIMUS_TEST_REQUIRED_MISSING_{}", std::process::id());
+        // Ensure unset
+        std::env::remove_var(&unique);
+        let manifest_env = vec![
+            EnvRequirement { name: unique.clone(), description: None, sensitive: false, required: true },
+            EnvRequirement { name: format!("{unique}_OPTIONAL"), description: None, sensitive: false, required: false },
+        ];
+        let opts = PluginSpawnOptions::for_manifest("plugin-name", &manifest_env, std::iter::empty::<String>(), None);
+        assert!(opts.missing_required_env.contains(&unique));
+        assert!(!opts.missing_required_env.iter().any(|v| v.ends_with("_OPTIONAL")));
+        // Both names should be in the allowlist regardless of "required".
+        assert!(opts.env_allowlist.contains(&unique));
+        assert!(opts.env_allowlist.contains(&format!("{unique}_OPTIONAL")));
     }
 }

@@ -135,6 +135,72 @@ Patterns are matched as globs against `<owner>/<repo>`. When `--require-signatur
 - Strict-mode failures (`Invalid` and `UntrustedSigner` outcomes) abort install before the binary is copied into `~/.animus/plugins/`. `Unsigned` only aborts when `--require-signature` is set.
 - The `cosign` binary requirement is intentionally soft: missing-cosign degrades to `signature_status: unsigned` rather than blocking installs.
 
+## Stopgap supply-chain defenses (v0.4.x)
+
+Until cosign verification is required-by-default in v0.6, three additional
+checks guard the install boundary. They are loud-by-default and override-able
+for legitimate edge cases.
+
+### Manifest name vs repo basename
+
+`animus plugin install evil-org/animus-provider-claude` fetches the release
+asset, probes `--manifest`, and refuses installs where `manifest.name` does
+not equal the repo's basename (`animus-provider-claude` in the example). The
+mismatch is the most common shape of supply-chain typosquats — an attacker
+who can publish a release under a near-name needs to either also rename the
+binary (which breaks every downstream tool that resolves by manifest.name) or
+get caught by this check. `--force` overrides the check and emits a
+`tracing::warn!` for the audit log.
+
+### Reserved provider tools
+
+A provider plugin whose `provider_tool` resolves to one of `claude`, `codex`,
+`gemini`, `opencode`, or `oai-runner` would silently hijack the in-tree
+dispatch path for that tool — every `animus task run --tool claude` would
+route through the third-party plugin instead of the bundled backend. Install
+refuses these plugins by default; pass `--allow-shadow-builtin` to opt in
+intentionally. At runtime, the session resolver also emits a `warn!` so the
+shadow is visible in daemon logs even if the install bypass was used.
+
+The reserved list lives in
+`crates/llm-cli-wrapper/src/session/session_backend_resolver.rs` as
+`RESERVED_PROVIDER_TOOLS`.
+
+### Trusted orgs (TOFU)
+
+A separate allowlist at `~/.animus/trusted-orgs.yaml` (override with
+`$ANIMUS_TRUSTED_ORGS`) records which GitHub owners the operator has trusted
+for plugin installs. Built-in trust: `launchapp-dev` (the canonical Animus
+plugins).
+
+```yaml
+trusted_orgs:
+  - launchapp-dev
+  - my-internal-org
+```
+
+Installing from an owner that's not in this list prints a non-suppressible
+warning and prompts the operator at the TTY:
+
+```
+warning: you are installing a plugin from `evil-org`, which is not a trusted
+organization. Verify this is the intended publisher before continuing. Type
+'yes' to trust this org for future installs, anything else to abort.
+```
+
+Override flags:
+
+- `--allow-org <OWNER>` (repeatable): pre-trust additional owners for this
+  install. Persists into `trusted-orgs.yaml` after the install succeeds.
+- `--yes`: auto-confirm the TOFU prompt non-interactively.
+- `--force`: also bypasses the prompt (subsumes `--yes` for this check).
+
+On every successful install from a release source, the installing owner is
+written to `trusted-orgs.yaml` so a follow-up install of another plugin from
+the same publisher skips the prompt. This is *trust on first use*, not a
+trust anchor: it does not change anything about cosign verification, and it
+will be subsumed by required-signature mode in v0.6.
+
 ## Open questions
 
 - Should `trusted-signers.yaml` ship pre-populated with `launchapp-dev/animus-*` so that fresh installs get a safe default? Pro: stronger out-of-the-box guarantees. Con: makes Launchapp the de facto trust root, which contradicts the decentralization goal.

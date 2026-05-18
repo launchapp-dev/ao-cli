@@ -12,11 +12,14 @@ pub(crate) use signing::{
     GITHUB_OIDC_ISSUER,
 };
 
+use std::collections::BTreeSet;
+use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use animus_plugin_protocol::PluginManifest;
 use anyhow::{anyhow, Context, Result};
+use cli_wrapper::is_reserved_provider_tool;
 use orchestrator_plugin_host::{
     discover_plugins, legacy_plugins_registry_path, plugin_install_dir, plugins_registry_path, DiscoveredPlugin,
     DiscoverySource, DiscoveryWarning, PluginDiscovery, PluginHost,
@@ -173,6 +176,15 @@ pub(crate) struct PluginInstallRequest {
     /// Optional path to the trusted-signers YAML (overrides default
     /// `~/.animus/trusted-signers.yaml`).
     pub(crate) trusted_signers: Option<PathBuf>,
+    /// Permit installs whose provider_tool collides with an in-tree backend.
+    /// Required for plugins that legitimately replace claude / codex / gemini
+    /// / opencode / oai-runner dispatch.
+    pub(crate) allow_shadow_builtin: bool,
+    /// Owners to pre-trust before this install (TOFU). Appended to
+    /// `~/.animus/trusted-orgs.yaml` after a successful install.
+    pub(crate) allow_org: Vec<String>,
+    /// Auto-confirm the TOFU prompt for unknown orgs.
+    pub(crate) yes: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -377,6 +389,36 @@ pub(crate) async fn run_plugin_install(req: PluginInstallRequest) -> Result<Plug
         }
     }
 
+    // Manifest probe runs against the source binary BEFORE copying into the
+    // install dir so we can refuse name-spoofed installs, reserved-name
+    // shadows, and untrusted-org installs without leaving stale files behind.
+    let source_manifest = if req.skip_manifest_check {
+        None
+    } else {
+        // Only chmod the source for sources we downloaded ourselves (the
+        // tarball-extracted release binary, or a `--url` blob in our temp
+        // dir). For `--path` we leave the user's original file alone — the
+        // post-copy `ensure_executable(&installed_path)` covers the install
+        // location.
+        if matches!(provenance.source_kind, Some("release") | Some("url")) {
+            ensure_executable(&source_path)?;
+        }
+        Some(probe_manifest(&source_path)?)
+    };
+
+    if let Some(manifest_for_check) = source_manifest.as_ref() {
+        enforce_provider_tool_policy(manifest_for_check, req.allow_shadow_builtin)?;
+        if let (Some(owner), Some(repo)) = (provenance.owner.as_deref(), provenance.repo.as_deref()) {
+            enforce_manifest_name_matches_repo(manifest_for_check, owner, repo, req.force)?;
+        }
+    }
+
+    if provenance.source_kind == Some("release") {
+        if let Some(owner) = provenance.owner.as_deref() {
+            enforce_org_trust(owner, &req)?;
+        }
+    }
+
     let signature_detail = resolve_signature_status(&req, &provenance)?;
     match &signature_detail {
         SignatureStatus::Invalid { message, .. } => {
@@ -425,31 +467,8 @@ pub(crate) async fn run_plugin_install(req: PluginInstallRequest) -> Result<Plug
         .with_context(|| format!("failed to copy {} → {}", source_path.display(), installed_path.display()))?;
     ensure_executable(&installed_path)?;
 
-    let manifest = if req.skip_manifest_check {
-        None
-    } else {
-        let output = std::process::Command::new(&installed_path)
-            .arg("--manifest")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .with_context(|| format!("failed to run {} --manifest", installed_path.display()))?;
-        if !output.status.success() {
-            let _ = std::fs::remove_file(&installed_path);
-            return Err(anyhow!(
-                "installed binary failed --manifest probe (exit={:?}): {}",
-                output.status.code(),
-                String::from_utf8_lossy(&output.stderr)
-            ));
-        }
-        match serde_json::from_slice::<PluginManifest>(&output.stdout) {
-            Ok(manifest) => Some(manifest),
-            Err(error) => {
-                let _ = std::fs::remove_file(&installed_path);
-                return Err(anyhow!("installed binary returned malformed --manifest JSON: {error}"));
-            }
-        }
-    };
+    // Manifest was probed against the source binary above; nothing to do here.
+    let manifest = source_manifest;
 
     let yaml_path = plugins_yaml_path()?;
     let mut config = load_plugins_yaml(&yaml_path)?;
@@ -504,6 +523,20 @@ pub(crate) async fn run_plugin_install(req: PluginInstallRequest) -> Result<Plug
     };
     table.insert(serde_yaml::Value::String(plugin_name.clone()), serde_yaml::Value::Mapping(entry));
     save_plugins_yaml(&yaml_path, &config)?;
+
+    // TOFU: persist trust for the org we just installed from. Pre-trusted orgs
+    // and orgs the user explicitly listed via `--allow-org` get written to
+    // `~/.animus/trusted-orgs.yaml` so a follow-up install skips the prompt.
+    if let Some(owner) = provenance.owner.as_deref() {
+        if let Err(error) = add_trusted_org(owner) {
+            tracing::warn!(owner, %error, "failed to persist trusted org after install");
+        }
+    }
+    for explicit in &req.allow_org {
+        if let Err(error) = add_trusted_org(explicit) {
+            tracing::warn!(org = %explicit, %error, "failed to persist --allow-org");
+        }
+    }
 
     let sha256_verified = match provenance.sha256_verified {
         Some(verified) => verified,
@@ -598,9 +631,7 @@ fn print_plugin_list_table(output: &PluginListOutput) -> Result<()> {
         .iter()
         .map(|p| {
             let installed_entry = installed.get(&p.name);
-            let source = installed_entry
-                .map(marketplace::format_installed_source)
-                .unwrap_or_else(|| "--".to_string());
+            let source = installed_entry.map(marketplace::format_installed_source).unwrap_or_else(|| "--".to_string());
             let installed_at = installed_entry
                 .and_then(|e| e.installed_at.as_deref())
                 .map(|s| s.split('T').next().unwrap_or(s).to_string())
@@ -1289,6 +1320,195 @@ struct InstallProvenance {
     repo: Option<String>,
 }
 
+/// Probe a plugin binary's `--manifest` output without touching the install
+/// directory. Used to validate identity (name vs repo) and policy
+/// (reserved-provider-tool) before the install commits.
+fn probe_manifest(binary_path: &Path) -> Result<PluginManifest> {
+    let output = std::process::Command::new(binary_path)
+        .arg("--manifest")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .with_context(|| format!("failed to run {} --manifest", binary_path.display()))?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "binary failed --manifest probe (exit={:?}): {}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    serde_json::from_slice::<PluginManifest>(&output.stdout)
+        .with_context(|| format!("plugin {} returned malformed --manifest JSON", binary_path.display()))
+}
+
+/// Refuse provider plugins whose manifest name (or `animus-provider-*` suffix)
+/// claims one of the in-tree `RESERVED_PROVIDER_TOOLS`. A misconfigured or
+/// malicious plugin can otherwise replace the entire `claude` / `codex` /
+/// `gemini` / `opencode` / `oai-runner` dispatch path without warning.
+fn enforce_provider_tool_policy(manifest: &PluginManifest, allow_shadow_builtin: bool) -> Result<()> {
+    if manifest.plugin_kind != animus_plugin_protocol::PLUGIN_KIND_PROVIDER {
+        return Ok(());
+    }
+    let derived_tool = manifest.name.strip_prefix("animus-provider-").unwrap_or(manifest.name.as_str());
+    if !is_reserved_provider_tool(derived_tool) {
+        return Ok(());
+    }
+    if allow_shadow_builtin {
+        tracing::warn!(
+            plugin = %manifest.name,
+            tool = %derived_tool,
+            "installing plugin that shadows the in-tree '{}' backend (--allow-shadow-builtin)",
+            derived_tool,
+        );
+        return Ok(());
+    }
+    Err(invalid_input_error(format!(
+        "plugin '{}' resolves to provider_tool '{}', which is a reserved in-tree backend \
+         (claude / codex / gemini / opencode / oai-runner). Installing it would silently \
+         override the built-in dispatch for that tool. Pass --allow-shadow-builtin to proceed.",
+        manifest.name, derived_tool
+    )))
+}
+
+/// Refuse installs whose published manifest name disagrees with the GitHub
+/// repo basename it was downloaded from. This is the most common shape of a
+/// supply-chain typosquat (`evil-org/animus-provider-claude` shipping a binary
+/// whose manifest is `animus-provider-claude` from `launchapp-dev`).
+fn enforce_manifest_name_matches_repo(manifest: &PluginManifest, _owner: &str, repo: &str, force: bool) -> Result<()> {
+    if manifest.name == repo {
+        return Ok(());
+    }
+    let message = format!(
+        "manifest name '{}' does not match repo basename '{}' — this may be a typosquat or supply-chain attack. \
+         Pass --force to install anyway.",
+        manifest.name, repo
+    );
+    if force {
+        tracing::warn!(
+            manifest_name = %manifest.name,
+            repo = %repo,
+            "installing plugin with manifest/repo basename mismatch (--force)"
+        );
+        return Ok(());
+    }
+    Err(invalid_input_error(message))
+}
+
+/// Path to the trusted-orgs allowlist used by `animus plugin install`.
+///
+/// Honors `$ANIMUS_TRUSTED_ORGS` first, then falls back to
+/// `<animus_home>/trusted-orgs.yaml`.
+fn trusted_orgs_path() -> PathBuf {
+    if let Ok(value) = std::env::var("ANIMUS_TRUSTED_ORGS") {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    let base = match std::env::var("ANIMUS_CONFIG_DIR") {
+        Ok(value) if !value.trim().is_empty() => PathBuf::from(value),
+        _ => home.join(".animus"),
+    };
+    base.join("trusted-orgs.yaml")
+}
+
+/// Built-in trusted orgs. Pre-populated with `launchapp-dev` so a fresh
+/// install gets a safe default for the canonical animus plugins.
+const BUILTIN_TRUSTED_ORGS: &[&str] = &["launchapp-dev"];
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+struct TrustedOrgsConfig {
+    #[serde(default)]
+    trusted_orgs: Vec<String>,
+}
+
+fn load_trusted_orgs() -> Result<TrustedOrgsConfig> {
+    let path = trusted_orgs_path();
+    if !path.exists() {
+        return Ok(TrustedOrgsConfig::default());
+    }
+    let contents = std::fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let parsed: TrustedOrgsConfig = serde_yaml::from_str(&contents)
+        .with_context(|| format!("failed to parse {} as TrustedOrgsConfig", path.display()))?;
+    Ok(parsed)
+}
+
+fn save_trusted_orgs(config: &TrustedOrgsConfig) -> Result<()> {
+    let path = trusted_orgs_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create trusted-orgs dir {}", parent.display()))?;
+    }
+    let serialized = serde_yaml::to_string(config).context("failed to serialize trusted-orgs.yaml")?;
+    std::fs::write(&path, serialized).with_context(|| format!("failed to write {}", path.display()))
+}
+
+/// Append `owner` to the trusted-orgs allowlist on disk. Idempotent.
+fn add_trusted_org(owner: &str) -> Result<()> {
+    let trimmed = owner.trim();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+    let mut config = load_trusted_orgs()?;
+    let already_known: BTreeSet<String> = config.trusted_orgs.iter().map(|o| o.to_ascii_lowercase()).collect();
+    if already_known.contains(&trimmed.to_ascii_lowercase()) {
+        return Ok(());
+    }
+    if BUILTIN_TRUSTED_ORGS.iter().any(|o| o.eq_ignore_ascii_case(trimmed)) {
+        return Ok(());
+    }
+    config.trusted_orgs.push(trimmed.to_string());
+    save_trusted_orgs(&config)
+}
+
+fn org_is_trusted(owner: &str) -> Result<bool> {
+    if BUILTIN_TRUSTED_ORGS.iter().any(|o| o.eq_ignore_ascii_case(owner)) {
+        return Ok(true);
+    }
+    let config = load_trusted_orgs()?;
+    Ok(config.trusted_orgs.iter().any(|o| o.eq_ignore_ascii_case(owner)))
+}
+
+/// Implements the trust-on-first-use prompt for installs from public-repo
+/// sources. Pre-trusted orgs (`launchapp-dev` plus anything in
+/// `~/.animus/trusted-orgs.yaml`) skip the prompt entirely. Operators can
+/// pre-trust additional orgs via `--allow-org`, or auto-confirm via `--yes`.
+fn enforce_org_trust(owner: &str, req: &PluginInstallRequest) -> Result<()> {
+    if req.allow_org.iter().any(|o| o.eq_ignore_ascii_case(owner)) {
+        return Ok(());
+    }
+    if org_is_trusted(owner)? {
+        return Ok(());
+    }
+    if req.yes || req.force {
+        tracing::warn!(owner, "installing plugin from untrusted org (--yes / --force); recording trust on first use");
+        return Ok(());
+    }
+    if !std::io::stdin().is_terminal() {
+        return Err(invalid_input_error(format!(
+            "installing plugin from untrusted org '{owner}'. Pass --allow-org {owner} (or --yes) to confirm \
+             non-interactively. trusted-orgs.yaml lives at {}.",
+            trusted_orgs_path().display()
+        )));
+    }
+    eprintln!(
+        "warning: you are installing a plugin from `{owner}`, which is not a trusted organization.\n\
+         Verify this is the intended publisher before continuing. Type 'yes' to trust this org \
+         for future installs, anything else to abort."
+    );
+    eprint!("> ");
+    let _ = std::io::stderr().flush();
+    let mut answer = String::new();
+    std::io::stdin().read_line(&mut answer).with_context(|| "failed to read TOFU response from stdin")?;
+    let normalized = answer.trim().to_ascii_lowercase();
+    if normalized == "yes" || normalized == "y" {
+        Ok(())
+    } else {
+        Err(invalid_input_error(format!("user declined to trust org '{owner}'; aborting install")))
+    }
+}
+
 async fn handle_plugin_install(args: PluginInstallArgs, json: bool) -> Result<()> {
     if args.latest && args.tag.is_some() {
         return Err(invalid_input_error("--latest and --tag are mutually exclusive"));
@@ -1311,6 +1531,9 @@ async fn handle_plugin_install(args: PluginInstallArgs, json: bool) -> Result<()
         require_signature: args.require_signature,
         skip_signature: args.skip_signature,
         trusted_signers: args.trusted_signers,
+        allow_shadow_builtin: args.allow_shadow_builtin,
+        allow_org: args.allow_org,
+        yes: args.yes,
     })
     .await?;
     print_value(output, json)
@@ -1566,6 +1789,143 @@ mod tests {
         assert_eq!(verified.label(), "verified");
         let blocked = matches!(&verified, SignatureStatus::Unsigned { .. }) && true;
         assert!(!blocked, "Verified must never refuse install");
+    }
+
+    fn provider_manifest(name: &str) -> PluginManifest {
+        PluginManifest {
+            name: name.to_string(),
+            version: "0.1.0".to_string(),
+            plugin_kind: animus_plugin_protocol::PLUGIN_KIND_PROVIDER.to_string(),
+            description: "test".to_string(),
+            protocol_version: "1.0.0".to_string(),
+            capabilities: vec!["agent/run".to_string()],
+            env_required: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn install_refuses_reserved_provider_tool_without_flag() {
+        let manifest = provider_manifest("animus-provider-claude");
+        let err = enforce_provider_tool_policy(&manifest, false).expect_err("must refuse claude provider plugin");
+        assert!(format!("{err}").contains("reserved in-tree backend"));
+    }
+
+    #[test]
+    fn install_allows_reserved_with_explicit_flag() {
+        let manifest = provider_manifest("animus-provider-codex");
+        let ok = enforce_provider_tool_policy(&manifest, true);
+        assert!(ok.is_ok(), "--allow-shadow-builtin must let install through");
+    }
+
+    #[test]
+    fn install_allows_non_reserved_provider_plugin() {
+        let manifest = provider_manifest("animus-provider-mock");
+        let ok = enforce_provider_tool_policy(&manifest, false);
+        assert!(ok.is_ok(), "non-reserved provider tools must install without the override");
+    }
+
+    #[test]
+    fn install_skips_provider_check_for_non_provider_plugins() {
+        let mut manifest = provider_manifest("animus-provider-claude");
+        manifest.plugin_kind = animus_plugin_protocol::PLUGIN_KIND_SUBJECT_BACKEND.to_string();
+        let ok = enforce_provider_tool_policy(&manifest, false);
+        assert!(ok.is_ok(), "subject backends are never gated by reserved provider tools");
+    }
+
+    #[test]
+    fn install_rejects_manifest_name_repo_mismatch() {
+        let manifest = provider_manifest("animus-provider-claude");
+        let err = enforce_manifest_name_matches_repo(&manifest, "evil-org", "animus-provider-oai", false)
+            .expect_err("name vs repo basename mismatch must fail");
+        let msg = format!("{err}");
+        assert!(msg.contains("typosquat") || msg.contains("does not match"), "unexpected message: {msg}");
+    }
+
+    #[test]
+    fn install_allows_manifest_name_repo_mismatch_with_force() {
+        let manifest = provider_manifest("animus-provider-claude");
+        let ok = enforce_manifest_name_matches_repo(&manifest, "evil-org", "animus-provider-oai", true);
+        assert!(ok.is_ok(), "--force should bypass the manifest-name check");
+    }
+
+    #[test]
+    fn install_accepts_matching_manifest_name() {
+        let manifest = provider_manifest("animus-provider-mock");
+        let ok = enforce_manifest_name_matches_repo(&manifest, "launchapp-dev", "animus-provider-mock", false);
+        assert!(ok.is_ok(), "exact match must pass");
+    }
+
+    #[test]
+    fn launchapp_dev_is_builtin_trusted() {
+        // Don't read disk in this test — only the built-in list.
+        assert!(BUILTIN_TRUSTED_ORGS.contains(&"launchapp-dev"));
+    }
+
+    #[test]
+    fn install_warns_on_untrusted_org_first_time() {
+        // Direct unit test of the trusted-org policy.
+        let temp = tempfile::tempdir().unwrap();
+        let trusted_orgs_yaml = temp.path().join("trusted-orgs.yaml");
+        std::env::set_var("ANIMUS_TRUSTED_ORGS", &trusted_orgs_yaml);
+        // Untrusted, non-interactive, no --yes -> must error.
+        let req = PluginInstallRequest::default();
+        let err = enforce_org_trust("evil-org", &req).expect_err("untrusted org without --yes must fail");
+        assert!(format!("{err}").contains("untrusted org"), "unexpected: {err}");
+        std::env::remove_var("ANIMUS_TRUSTED_ORGS");
+    }
+
+    #[test]
+    fn install_succeeds_after_org_added_to_trusted() {
+        let temp = tempfile::tempdir().unwrap();
+        let trusted_orgs_yaml = temp.path().join("trusted-orgs.yaml");
+        std::env::set_var("ANIMUS_TRUSTED_ORGS", &trusted_orgs_yaml);
+        // Pre-populate with someone-elses-org.
+        std::fs::write(&trusted_orgs_yaml, "trusted_orgs:\n  - someone-elses-org\n").unwrap();
+        let req = PluginInstallRequest::default();
+        let ok = enforce_org_trust("someone-elses-org", &req);
+        assert!(ok.is_ok(), "previously-trusted org must skip the TOFU prompt");
+        std::env::remove_var("ANIMUS_TRUSTED_ORGS");
+    }
+
+    #[test]
+    fn install_succeeds_when_org_passed_via_allow_org() {
+        let temp = tempfile::tempdir().unwrap();
+        let trusted_orgs_yaml = temp.path().join("trusted-orgs.yaml");
+        std::env::set_var("ANIMUS_TRUSTED_ORGS", &trusted_orgs_yaml);
+        let req = PluginInstallRequest { allow_org: vec!["new-friend-org".to_string()], ..Default::default() };
+        let ok = enforce_org_trust("new-friend-org", &req);
+        assert!(ok.is_ok(), "--allow-org should pre-trust the org for this install");
+        std::env::remove_var("ANIMUS_TRUSTED_ORGS");
+    }
+
+    #[test]
+    fn launchapp_dev_skips_tofu_prompt() {
+        let temp = tempfile::tempdir().unwrap();
+        let trusted_orgs_yaml = temp.path().join("trusted-orgs.yaml");
+        std::env::set_var("ANIMUS_TRUSTED_ORGS", &trusted_orgs_yaml);
+        let req = PluginInstallRequest::default();
+        let ok = enforce_org_trust("launchapp-dev", &req);
+        assert!(ok.is_ok(), "launchapp-dev is pre-trusted and must never trip TOFU");
+        std::env::remove_var("ANIMUS_TRUSTED_ORGS");
+    }
+
+    #[test]
+    fn add_trusted_org_persists_and_is_idempotent() {
+        let temp = tempfile::tempdir().unwrap();
+        let trusted_orgs_yaml = temp.path().join("trusted-orgs.yaml");
+        std::env::set_var("ANIMUS_TRUSTED_ORGS", &trusted_orgs_yaml);
+        add_trusted_org("first-org").expect("add 1st");
+        add_trusted_org("first-org").expect("idempotent 2nd");
+        add_trusted_org("second-org").expect("add 2nd");
+        let cfg = load_trusted_orgs().expect("load");
+        assert_eq!(cfg.trusted_orgs.len(), 2);
+        assert!(cfg.trusted_orgs.contains(&"first-org".to_string()));
+        assert!(cfg.trusted_orgs.contains(&"second-org".to_string()));
+        // Pre-trusted built-ins never get written.
+        add_trusted_org("launchapp-dev").expect("builtin add is no-op");
+        let cfg2 = load_trusted_orgs().expect("reload");
+        assert_eq!(cfg2.trusted_orgs.len(), 2, "launchapp-dev must not be appended to trusted-orgs.yaml");
+        std::env::remove_var("ANIMUS_TRUSTED_ORGS");
     }
 
     #[test]

@@ -34,7 +34,7 @@ pub use plugin_backend::{discover_provider_plugins, DiscoveredProviderPlugin, Pl
 pub use session_backend::SessionBackend;
 pub use session_backend_info::SessionBackendInfo;
 pub use session_backend_kind::SessionBackendKind;
-pub use session_backend_resolver::SessionBackendResolver;
+pub use session_backend_resolver::{is_reserved_provider_tool, SessionBackendResolver, RESERVED_PROVIDER_TOOLS};
 pub use session_capabilities::SessionCapabilities;
 pub use session_event::SessionEvent;
 pub use session_request::SessionRequest;

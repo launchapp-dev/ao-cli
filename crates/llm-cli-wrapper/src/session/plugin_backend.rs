@@ -9,10 +9,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use animus_plugin_protocol::RpcNotification;
+use animus_plugin_protocol::{EnvRequirement, RpcNotification};
 use async_trait::async_trait;
 use orchestrator_logging::Logger;
-use orchestrator_plugin_host::{PluginHost, PluginStderrSink};
+use orchestrator_plugin_host::{PluginHost, PluginSpawnOptions, PluginStderrSink};
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -43,6 +43,7 @@ pub struct PluginSessionBackend {
     pub(crate) provider_tool: String,
     pub(crate) display_name: String,
     pub(crate) project_root: Option<PathBuf>,
+    pub(crate) env_required: Vec<EnvRequirement>,
 }
 
 impl PluginSessionBackend {
@@ -50,7 +51,7 @@ impl PluginSessionBackend {
         let plugin_name = plugin_name.into();
         let provider_tool = provider_tool.into();
         let display_name = format!("Plugin Provider ({plugin_name})");
-        Self { plugin_name, binary_path, provider_tool, display_name, project_root: None }
+        Self { plugin_name, binary_path, provider_tool, display_name, project_root: None, env_required: Vec::new() }
     }
 
     /// Bind a project root so structured log entries about every spawn / call /
@@ -59,6 +60,20 @@ impl PluginSessionBackend {
     pub fn with_project_root(mut self, project_root: impl Into<PathBuf>) -> Self {
         self.project_root = Some(project_root.into());
         self
+    }
+
+    /// Set the plugin's manifest-declared env requirements. The host scrubs
+    /// the daemon environment at spawn time and forwards only these vars (on
+    /// top of the universal base allowlist).
+    #[must_use]
+    pub fn with_env_required(mut self, env_required: Vec<EnvRequirement>) -> Self {
+        self.env_required = env_required;
+        self
+    }
+
+    fn spawn_options(&self, request_env_vars: &[(String, String)]) -> PluginSpawnOptions {
+        let extras = request_env_vars.iter().map(|(name, _)| name.clone());
+        PluginSpawnOptions::for_manifest(self.plugin_name.clone(), &self.env_required, extras, self.stderr_sink_for())
     }
 
     fn project_logger(&self) -> Option<Logger> {
@@ -137,7 +152,8 @@ impl PluginSessionBackend {
                 .emit();
         }
 
-        let mut host = match PluginHost::spawn_with_stderr(&self.binary_path, &[], self.stderr_sink_for()).await {
+        let spawn_options = self.spawn_options(&request.env_vars);
+        let mut host = match PluginHost::spawn_with_options(&self.binary_path, &[], spawn_options).await {
             Ok(host) => host,
             Err(error) => {
                 let message = format!("plugin '{}' spawn failed: {error}", self.plugin_name);
@@ -294,7 +310,8 @@ impl PluginSessionBackend {
                 .meta(json!({ "plugin": self.plugin_name, "session_id": session_id }))
                 .emit();
         }
-        let mut host = PluginHost::spawn_with_stderr(&self.binary_path, &[], self.stderr_sink_for())
+        let spawn_options = self.spawn_options(&[]);
+        let mut host = PluginHost::spawn_with_options(&self.binary_path, &[], spawn_options)
             .await
             .map_err(|error| Error::ExecutionFailed(format!("plugin '{}' spawn failed: {error}", self.plugin_name)))?;
         if let Err(error) = host.handshake().await {
@@ -421,11 +438,13 @@ pub struct DiscoveredProviderPlugin {
     pub provider_tool: String,
     pub binary_path: PathBuf,
     pub project_root: Option<PathBuf>,
+    pub env_required: Vec<EnvRequirement>,
 }
 
 impl DiscoveredProviderPlugin {
     pub fn into_backend(self) -> Arc<PluginSessionBackend> {
-        let mut backend = PluginSessionBackend::new(self.plugin_name, self.binary_path, self.provider_tool);
+        let mut backend = PluginSessionBackend::new(self.plugin_name, self.binary_path, self.provider_tool)
+            .with_env_required(self.env_required);
         if let Some(root) = self.project_root {
             backend = backend.with_project_root(root);
         }
@@ -449,11 +468,13 @@ pub fn discover_provider_plugins(project_root: &std::path::Path) -> Vec<Discover
                 .strip_prefix("animus-provider-")
                 .map(ToOwned::to_owned)
                 .unwrap_or_else(|| plugin.name.clone());
+            let env_required = plugin.manifest.env_required.clone();
             DiscoveredProviderPlugin {
                 plugin_name: plugin.name,
                 provider_tool,
                 binary_path: plugin.path,
                 project_root: Some(project_root.clone()),
+                env_required,
             }
         })
         .collect()

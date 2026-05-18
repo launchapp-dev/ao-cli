@@ -277,6 +277,23 @@ gemini, opencode) when spawning their underlying CLIs.
 |---|---|
 | `CLAUDECODE` | Set by the Claude Code harness when an embedded session is active. Animus detects it and unsets it before spawning a nested `claude` CLI to avoid the "cannot launch inside another Claude Code session" guard |
 
+## Plugin kill-switches
+
+These environment variables are operator escape hatches for shutting down a
+plugin subsystem when something installed has gone bad and you need the
+daemon to keep running while you investigate. Both require a daemon restart
+to take effect, and both also require a restart to re-enable plugin
+dispatch after you clear the variable.
+
+| Variable | Description |
+|---|---|
+| `ANIMUS_DAEMON_DISABLE_TRIGGERS` | Truthy (`1`, `true`, `yes`, `on`) — skips the trigger plugin supervisor on daemon start AND interrupts any in-progress backoff sleeps so a flapping plugin stops respawning immediately. Useful when a trigger plugin is panicking, flooding events, or wedging the daemon's startup. Daemon restart needed to re-enable. |
+| `ANIMUS_PROVIDER_DISABLE_PLUGIN` | Truthy (`1`, `true`, `yes`, `on`) — forces the `SessionBackendResolver` to skip installed provider plugins and dispatch through the in-tree (claude/codex/gemini/opencode/oai-runner) backends only. Useful when a freshly-installed provider plugin is misbehaving and you need to fall back to the bundled implementation while keeping running workflows alive. Daemon restart needed to re-enable. |
+
+Error surfaces emit a hint pointing at the right kill-switch when a plugin
+fails its handshake or exhausts its restart budget, so operators don't have
+to read the source to find these during an incident.
+
 ## Notes
 
 - Project YAML is the authored workflow surface.

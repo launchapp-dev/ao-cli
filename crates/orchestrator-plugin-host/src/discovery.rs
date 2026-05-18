@@ -52,6 +52,12 @@ pub struct PluginConfigEntry {
     pub binary: String,
     #[serde(default)]
     pub name: Option<String>,
+    /// Persisted audit trail: `true` when the plugin was installed with the
+    /// `--skip-manifest-check` flag. Discovery emits a `warn!` on every probe
+    /// for plugins flagged this way so operators don't lose track of a plugin
+    /// whose manifest health is intentionally untrusted.
+    #[serde(default)]
+    pub skip_manifest_check_at_install: bool,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
@@ -189,6 +195,13 @@ impl PluginDiscovery {
             let name = entry.name.clone().unwrap_or_else(|| logical_name.clone());
             if seen.contains(&name) {
                 continue;
+            }
+            if entry.skip_manifest_check_at_install {
+                tracing::warn!(
+                    plugin = %name,
+                    path = %path.display(),
+                    "plugin {name} installed with --skip-manifest-check; manifest probe failures will be tolerated."
+                );
             }
             match fetch_manifest(&path) {
                 Ok(manifest) => {
@@ -471,6 +484,31 @@ pub fn legacy_plugins_registry_path() -> PathBuf {
     std::env::var_os("HOME")
         .map(|home| PathBuf::from(home).join(".config/animus/plugins.yaml"))
         .unwrap_or_else(|| PathBuf::from(".config/animus/plugins.yaml"))
+}
+
+/// Read the registered `skip_manifest_check_at_install` flag for the named
+/// plugin (or its provider counterpart) from the canonical registry.
+///
+/// Returns `false` when the registry is missing, the plugin is not listed, or
+/// the flag is unset. Errors during registry read are swallowed and treated as
+/// "flag absent" — the audit field is informational and must never block
+/// discovery or `plugin info`.
+pub fn registered_skip_manifest_check_at_install(plugin_name: &str) -> bool {
+    let config_path = default_config_path();
+    if !config_path.exists() {
+        return false;
+    }
+    let Ok(config) = load_plugins_config(&config_path) else {
+        return false;
+    };
+    let trimmed = plugin_name.trim();
+    for (logical_name, entry) in config.plugins.iter().chain(config.providers.iter()) {
+        let registered_name = entry.name.as_deref().unwrap_or(logical_name);
+        if registered_name == trimmed || logical_name == trimmed {
+            return entry.skip_manifest_check_at_install;
+        }
+    }
+    false
 }
 
 fn default_config_path() -> PathBuf {

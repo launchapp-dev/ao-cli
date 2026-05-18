@@ -39,7 +39,9 @@ use async_trait::async_trait;
 use chrono::Utc;
 use orchestrator_core::workflow_config::TriggerType;
 use orchestrator_core::WebhookEvent;
-use orchestrator_plugin_host::{discover_plugins, DiscoveredPlugin, PluginHost};
+use orchestrator_logging::Logger;
+use orchestrator_plugin_host::{discover_plugins, DiscoveredPlugin, PluginHost, PluginSpawnOptions, PluginStderrSink};
+use serde_json::json;
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
@@ -191,6 +193,33 @@ pub trait TriggerPluginRunner: Send + Sync {
     ) -> SessionOutcome;
 }
 
+/// Build a stderr sink that routes every line emitted by a supervised trigger
+/// plugin into the project's structured `events.jsonl` log.
+///
+/// Mirrors the shape used by the provider plugin path (see
+/// `crates/llm-cli-wrapper/src/session/plugin_backend.rs::stderr_sink_for`):
+/// lines land at `warn` level under category `trigger.stderr` with `plugin`
+/// and `emitter` metadata so an operator diagnosing a flaky Slack auth or an
+/// expired webhook secret can grep the same surface they already use for
+/// provider issues.
+///
+/// Pure helper, exported at module scope so tests can build the sink directly
+/// and read back what was written without spinning up a real plugin.
+pub(crate) fn trigger_plugin_stderr_sink(project_root: &Path, plugin_name: &str) -> Option<PluginStderrSink> {
+    let project_root = project_root.to_path_buf();
+    let plugin_name = plugin_name.to_string();
+    Some(Arc::new(move |emitting_plugin: &str, line: &str| {
+        let logger = Logger::for_project(&project_root);
+        logger
+            .warn("trigger.stderr", line)
+            .meta(json!({
+                "plugin": plugin_name,
+                "emitter": emitting_plugin,
+            }))
+            .emit();
+    }))
+}
+
 /// Production runner backed by a real [`PluginHost`].
 struct ProcessTriggerRunner;
 
@@ -204,11 +233,12 @@ impl TriggerPluginRunner for ProcessTriggerRunner {
         shutdown_rx: &mut mpsc::Receiver<()>,
         notify_started: &mut (dyn FnMut() + Send),
     ) -> SessionOutcome {
-        let options = orchestrator_plugin_host::PluginSpawnOptions::for_manifest(
+        let stderr_sink = trigger_plugin_stderr_sink(project_root, &plugin.name);
+        let options = PluginSpawnOptions::for_manifest(
             plugin.name.clone(),
             &plugin.manifest.env_required,
             std::iter::empty::<String>(),
-            None,
+            stderr_sink,
         );
         let mut host = match PluginHost::spawn_with_options(&plugin.path, &[], options).await {
             Ok(host) => host,
@@ -361,8 +391,19 @@ async fn supervise_plugin_loop(
                 attempts = attempts.saturating_add(1);
 
                 if attempts >= MAX_RESTART_ATTEMPTS {
-                    warn!(plugin = %plugin_name, attempts, reason = %reason, "trigger plugin exhausted restart budget");
-                    sink(TriggerSupervisorEvent::Crashed { plugin_name: plugin_name.clone(), attempts, error: reason });
+                    warn!(
+                        plugin = %plugin_name,
+                        attempts,
+                        reason = %reason,
+                        "trigger plugin exhausted restart budget; to suppress further restart attempts at daemon startup, set ANIMUS_DAEMON_DISABLE_TRIGGERS=1"
+                    );
+                    sink(TriggerSupervisorEvent::Crashed {
+                        plugin_name: plugin_name.clone(),
+                        attempts,
+                        error: format!(
+                            "{reason}; to suppress further restart attempts at daemon startup, set ANIMUS_DAEMON_DISABLE_TRIGGERS=1"
+                        ),
+                    });
                     return;
                 }
 
@@ -381,8 +422,19 @@ async fn supervise_plugin_loop(
                 // like StdioClosed for budget purposes, but log distinctly.
                 attempts = attempts.saturating_add(1);
                 if attempts >= MAX_RESTART_ATTEMPTS {
-                    warn!(plugin = %plugin_name, attempts, reason = %reason, "trigger plugin failed to start repeatedly");
-                    sink(TriggerSupervisorEvent::Crashed { plugin_name: plugin_name.clone(), attempts, error: reason });
+                    warn!(
+                        plugin = %plugin_name,
+                        attempts,
+                        reason = %reason,
+                        "trigger plugin failed to start repeatedly; to suppress further restart attempts at daemon startup, set ANIMUS_DAEMON_DISABLE_TRIGGERS=1"
+                    );
+                    sink(TriggerSupervisorEvent::Crashed {
+                        plugin_name: plugin_name.clone(),
+                        attempts,
+                        error: format!(
+                            "{reason}; to suppress further restart attempts at daemon startup, set ANIMUS_DAEMON_DISABLE_TRIGGERS=1"
+                        ),
+                    });
                     return;
                 }
                 let delay = backoff_for_attempt(attempts);
@@ -1250,5 +1302,49 @@ mod tests {
             "Crashed event should carry the last attempt's error; got: {}",
             crashed.2
         );
+        // Gap #12 audit: the final Crashed payload must point operators at the
+        // kill-switch env var so they don't have to read the source during an
+        // incident to find the escape hatch.
+        assert!(
+            crashed.2.contains("ANIMUS_DAEMON_DISABLE_TRIGGERS=1"),
+            "Crashed event should include the kill-switch env-var hint; got: {}",
+            crashed.2
+        );
+    }
+
+    // ---- Gap #14: trigger plugin stderr routing -------------------------
+
+    /// Drives the trigger stderr sink directly and verifies a line shows up in
+    /// the project's `events.jsonl` tagged `trigger.stderr` with the plugin
+    /// name carried as metadata. Skipping the real plugin subprocess keeps the
+    /// test deterministic — we only care that the sink wiring routes through
+    /// the project Logger.
+    #[test]
+    fn trigger_plugin_stderr_routed_to_events_jsonl() {
+        use orchestrator_logging::Level;
+
+        let temp = tempdir().expect("tempdir");
+        let project_root = temp.path();
+        let plugin_name = "animus-plugin-flaky-slack";
+
+        let sink = trigger_plugin_stderr_sink(project_root, plugin_name).expect("sink should be built");
+        sink(plugin_name, "AuthenticationError: token expired");
+        sink(plugin_name, "ConnectionReset: peer hung up");
+
+        let logger = Logger::for_project(project_root);
+        let entries = logger.read_entries(16, Some("trigger.stderr"), Some(Level::Warn));
+
+        assert_eq!(entries.len(), 2, "expected exactly the two stderr lines we emitted to the sink");
+        let first = &entries[0];
+        assert_eq!(first.cat, "trigger.stderr");
+        assert_eq!(first.level, Level::Warn);
+        assert!(
+            first.msg.contains("AuthenticationError"),
+            "first message should carry the stderr line text; got: {}",
+            first.msg
+        );
+        let meta = first.meta.as_ref().expect("trigger.stderr entries should carry plugin metadata");
+        assert_eq!(meta.get("plugin").and_then(|v| v.as_str()), Some(plugin_name));
+        assert_eq!(meta.get("emitter").and_then(|v| v.as_str()), Some(plugin_name));
     }
 }

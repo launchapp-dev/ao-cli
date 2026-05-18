@@ -7,8 +7,9 @@ mod subject_router;
 mod transport;
 
 pub use discovery::{
-    discover_plugins, legacy_plugins_registry_path, plugin_install_dir, plugins_registry_path, DiscoveredPlugin,
-    DiscoverySource, DiscoveryWarning, PluginConfigEntry, PluginDiscovery,
+    discover_plugins, legacy_plugins_registry_path, plugin_install_dir, plugins_registry_path,
+    registered_skip_manifest_check_at_install, DiscoveredPlugin, DiscoverySource, DiscoveryWarning, PluginConfigEntry,
+    PluginDiscovery,
 };
 pub use host::{
     check_protocol_compat, HostError, PluginHost, PluginNotificationRx, PluginSpawnOptions, PluginStderrSink,

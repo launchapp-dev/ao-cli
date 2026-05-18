@@ -21,8 +21,9 @@ use animus_plugin_protocol::PluginManifest;
 use anyhow::{anyhow, Context, Result};
 use cli_wrapper::is_reserved_provider_tool;
 use orchestrator_plugin_host::{
-    discover_plugins, legacy_plugins_registry_path, plugin_install_dir, plugins_registry_path, DiscoveredPlugin,
-    DiscoverySource, DiscoveryWarning, PluginDiscovery, PluginHost,
+    discover_plugins, legacy_plugins_registry_path, plugin_install_dir, plugins_registry_path,
+    registered_skip_manifest_check_at_install, DiscoveredPlugin, DiscoverySource, DiscoveryWarning, PluginDiscovery,
+    PluginHost,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -67,6 +68,10 @@ pub(crate) struct PluginInfoOutput {
     pub(crate) path: String,
     pub(crate) manifest: PluginManifest,
     pub(crate) initialize: Value,
+    /// Audit-trail field: `true` when the plugin was installed with
+    /// `--skip-manifest-check`. Surfaced so operators can see why discovery
+    /// silently tolerates manifest probe failures for this plugin.
+    pub(crate) skip_manifest_check_at_install: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -245,12 +250,14 @@ pub(crate) async fn run_plugin_info(req: PluginInfoRequest) -> Result<PluginInfo
     let mut host = PluginHost::spawn(&discovered.path, &[]).await.context("failed to spawn plugin")?;
     let initialize = host.handshake().await.context("plugin initialize failed")?;
     let _ = host.shutdown().await;
+    let skip_flag = registered_skip_manifest_check_at_install(&discovered.name);
     Ok(PluginInfoOutput {
         name: discovered.name,
         source: source_label(discovered.source),
         path: discovered.path.display().to_string(),
         manifest: discovered.manifest,
         initialize: serde_json::to_value(initialize)?,
+        skip_manifest_check_at_install: skip_flag,
     })
 }
 
@@ -511,6 +518,17 @@ pub(crate) async fn run_plugin_install(req: PluginInstallRequest) -> Result<Plug
             serde_yaml::Value::String("installed_at".to_string()),
             serde_yaml::Value::String(chrono::Utc::now().to_rfc3339()),
         );
+        // Persist an audit trail when the operator bypassed the manifest
+        // probe at install time. Discovery emits a warn! on every subsequent
+        // probe for plugins flagged this way so the silent tolerance of
+        // probe failures stays visible. We only write the field when set to
+        // keep the registry quiet for the common case.
+        if req.skip_manifest_check {
+            map.insert(
+                serde_yaml::Value::String("skip_manifest_check_at_install".to_string()),
+                serde_yaml::Value::Bool(true),
+            );
+        }
         map.insert(
             serde_yaml::Value::String("signature_status".to_string()),
             serde_yaml::Value::String(signature_detail.label().to_string()),
@@ -713,6 +731,12 @@ async fn handle_plugin_info(args: PluginInfoArgs, project_root: &str, json: bool
         include_system_path: args.include_system_path,
     })
     .await?;
+    // Surface the audit flag in human-readable mode so operators see at a
+    // glance that the manifest probe was skipped at install time. JSON mode
+    // carries the same signal via `skip_manifest_check_at_install`.
+    if !json && output.skip_manifest_check_at_install {
+        println!("SKIP_MANIFEST_CHECK: true");
+    }
     print_value(output, json)
 }
 
@@ -2224,5 +2248,145 @@ trusted_signers:
         let cfg = signing::load_trusted_signers(&p).unwrap().expect("config should load");
         assert!(cfg.matches_repo("launchapp-dev/animus-provider-claude"));
         assert!(!cfg.matches_repo("evil-org/animus-provider-claude"));
+    }
+
+    // ---- Gap #11: --skip-manifest-check audit trail ----------------------
+    //
+    // These tests drive the full `run_plugin_install` pipeline with a local
+    // `--path` source, then read back the canonical plugins.yaml registry to
+    // verify the `skip_manifest_check_at_install` field is persisted when the
+    // flag is set, and absent otherwise.
+
+    /// Mutex to serialize install-pipeline tests that mutate process-global
+    /// env vars (ANIMUS_CONFIG_DIR, ANIMUS_PLUGIN_DIR, ANIMUS_TRUSTED_ORGS).
+    /// Cargo runs tests on multiple threads; sharing these env vars across
+    /// concurrent tests would otherwise race.
+    static INSTALL_ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[cfg(unix)]
+    fn write_fake_plugin_binary(path: &std::path::Path, manifest_name: &str, plugin_kind: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        let manifest = serde_json::json!({
+            "name": manifest_name,
+            "version": "0.1.0",
+            "plugin_kind": plugin_kind,
+            "description": "fake plugin for install-pipeline tests",
+            "protocol_version": "1.0.0",
+            "capabilities": [],
+        });
+        // The probe runs the binary with `--manifest`. A POSIX shell script that
+        // prints the manifest JSON when `--manifest` is the first arg is enough
+        // to satisfy the probe.
+        let script = format!(
+            "#!/bin/sh\nif [ \"$1\" = \"--manifest\" ]; then\n  printf '%s\\n' '{manifest}'\nfi\n",
+            manifest = manifest
+        );
+        std::fs::write(path, script).expect("write fake plugin binary");
+        let mut perms = std::fs::metadata(path).expect("metadata").permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(path, perms).expect("chmod");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread")]
+    #[allow(clippy::await_holding_lock)] // intentional: guards process-global env mutation across the install await
+    async fn install_with_skip_manifest_check_persists_flag() {
+        let _guard = INSTALL_ENV_GUARD.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config_dir = tmp.path().join("config");
+        let install_dir = tmp.path().join("install");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::create_dir_all(&install_dir).unwrap();
+        // `--path` install does not exercise the TOFU org-trust pipeline
+        // (that only runs for `--source` release installs), so we deliberately
+        // leave ANIMUS_TRUSTED_ORGS alone to avoid racing the existing
+        // `install_succeeds_after_org_added_to_trusted` test which serialises
+        // its own use of that variable.
+        std::env::set_var("ANIMUS_CONFIG_DIR", &config_dir);
+        std::env::set_var("ANIMUS_PLUGIN_DIR", &install_dir);
+
+        let source = tmp.path().join("animus-provider-skipped");
+        write_fake_plugin_binary(&source, "animus-provider-skipped", "subject_backend");
+
+        let req = PluginInstallRequest {
+            path: Some(source.to_string_lossy().to_string()),
+            skip_manifest_check: true,
+            skip_signature: true,
+            yes: true,
+            ..Default::default()
+        };
+
+        let result = run_plugin_install(req).await;
+
+        std::env::remove_var("ANIMUS_CONFIG_DIR");
+        std::env::remove_var("ANIMUS_PLUGIN_DIR");
+
+        let output = result.expect("install must succeed with --skip-manifest-check");
+        let yaml_path = std::path::PathBuf::from(&output.plugins_yaml);
+        let yaml = std::fs::read_to_string(&yaml_path).expect("read plugins.yaml");
+        let parsed: serde_yaml::Value = serde_yaml::from_str(&yaml).expect("parse plugins.yaml");
+        // No manifest was probed, so the plugin lands in the generic `plugins`
+        // table (not `providers`) under its file-name-derived key.
+        let entry =
+            parsed.get("plugins").and_then(|p| p.get(&output.name)).expect("registry entry for installed plugin");
+        let flag = entry
+            .get("skip_manifest_check_at_install")
+            .and_then(|v| v.as_bool())
+            .expect("skip_manifest_check_at_install field must be persisted when flag is set");
+        assert!(flag, "skip_manifest_check_at_install must be `true` when the install flag is set");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread")]
+    #[allow(clippy::await_holding_lock)] // intentional: guards process-global env mutation across the install await
+    async fn install_without_skip_manifest_check_omits_flag() {
+        let _guard = INSTALL_ENV_GUARD.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config_dir = tmp.path().join("config");
+        let install_dir = tmp.path().join("install");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::create_dir_all(&install_dir).unwrap();
+        // `--path` install does not exercise the TOFU org-trust pipeline
+        // (that only runs for `--source` release installs), so we deliberately
+        // leave ANIMUS_TRUSTED_ORGS alone to avoid racing the existing
+        // `install_succeeds_after_org_added_to_trusted` test which serialises
+        // its own use of that variable.
+        std::env::set_var("ANIMUS_CONFIG_DIR", &config_dir);
+        std::env::set_var("ANIMUS_PLUGIN_DIR", &install_dir);
+
+        // Note: when the manifest probe runs, the install pipeline insists the
+        // manifest name match the install file basename for the `--path`
+        // shape. Using the same basename here keeps the test focused on the
+        // audit-flag persistence behavior rather than the unrelated name check.
+        let source = tmp.path().join("animus-plugin-honest");
+        write_fake_plugin_binary(&source, "honest", "subject_backend");
+
+        let req = PluginInstallRequest {
+            path: Some(source.to_string_lossy().to_string()),
+            skip_manifest_check: false,
+            skip_signature: true,
+            yes: true,
+            ..Default::default()
+        };
+
+        let result = run_plugin_install(req).await;
+
+        std::env::remove_var("ANIMUS_CONFIG_DIR");
+        std::env::remove_var("ANIMUS_PLUGIN_DIR");
+
+        let output = result.expect("install must succeed without --skip-manifest-check");
+        let yaml_path = std::path::PathBuf::from(&output.plugins_yaml);
+        let yaml = std::fs::read_to_string(&yaml_path).expect("read plugins.yaml");
+        let parsed: serde_yaml::Value = serde_yaml::from_str(&yaml).expect("parse plugins.yaml");
+        // The manifest was probed and accepted, so the entry lands under
+        // `plugins` (the manifest's plugin_kind is `subject_backend`, not
+        // `provider`).
+        let entry =
+            parsed.get("plugins").and_then(|p| p.get(&output.name)).expect("registry entry for installed plugin");
+        let flag = entry.get("skip_manifest_check_at_install").and_then(|v| v.as_bool());
+        assert!(
+            flag.is_none() || flag == Some(false),
+            "skip_manifest_check_at_install must be absent (or `false`) when the flag is not set; got {flag:?}"
+        );
     }
 }

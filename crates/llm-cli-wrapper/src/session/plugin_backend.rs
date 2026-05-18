@@ -169,7 +169,10 @@ impl PluginSessionBackend {
 
         if let Err(error) = host.handshake().await {
             graceful_shutdown(host).await;
-            let message = format!("plugin '{}' handshake failed: {error}", self.plugin_name);
+            let message = format!(
+                "plugin '{}' handshake failed: {error}; to bypass this plugin and use the in-tree backend, set ANIMUS_PROVIDER_DISABLE_PLUGIN=1 and restart the daemon",
+                self.plugin_name
+            );
             if let Some(logger) = self.project_logger() {
                 logger.error("plugin.dispatch.handshake", &message).err(error.to_string()).emit();
             }
@@ -316,7 +319,10 @@ impl PluginSessionBackend {
             .map_err(|error| Error::ExecutionFailed(format!("plugin '{}' spawn failed: {error}", self.plugin_name)))?;
         if let Err(error) = host.handshake().await {
             graceful_shutdown(host).await;
-            return Err(Error::ExecutionFailed(format!("plugin '{}' handshake failed: {error}", self.plugin_name)));
+            return Err(Error::ExecutionFailed(format!(
+                "plugin '{}' handshake failed: {error}; to bypass this plugin and use the in-tree backend, set ANIMUS_PROVIDER_DISABLE_PLUGIN=1 and restart the daemon",
+                self.plugin_name
+            )));
         }
         let request_future = host.request("agent/cancel".to_string(), Some(json!({ "session_id": session_id })));
         let result = tokio::time::timeout(cancel_timeout, request_future).await;

@@ -247,7 +247,7 @@ pub(crate) fn run_plugin_list(req: PluginListRequest) -> Result<PluginListOutput
 /// initialize-time capabilities.
 pub(crate) async fn run_plugin_info(req: PluginInfoRequest) -> Result<PluginInfoOutput> {
     let discovered = find_plugin(&req.project_root, &req.name, req.include_system_path)?;
-    let mut host = PluginHost::spawn(&discovered.path, &[]).await.context("failed to spawn plugin")?;
+    let host = PluginHost::spawn(&discovered.path, &[]).await.context("failed to spawn plugin")?;
     let initialize = host.handshake().await.context("plugin initialize failed")?;
     let _ = host.shutdown().await;
     let skip_flag = registered_skip_manifest_check_at_install(&discovered.name);
@@ -265,7 +265,7 @@ pub(crate) async fn run_plugin_info(req: PluginInfoRequest) -> Result<PluginInfo
 /// dispatching `$/ping`.
 pub(crate) async fn run_plugin_ping(req: PluginPingRequest) -> Result<PluginPingOutput> {
     let discovered = find_plugin(&req.project_root, &req.name, req.include_system_path)?;
-    let mut host = PluginHost::spawn(&discovered.path, &[]).await.context("failed to spawn plugin")?;
+    let host = PluginHost::spawn(&discovered.path, &[]).await.context("failed to spawn plugin")?;
     let initialize = host.handshake().await.context("plugin initialize failed")?;
     host.ping().await.context("plugin ping failed")?;
     let _ = host.shutdown().await;
@@ -279,7 +279,7 @@ pub(crate) async fn run_plugin_call(req: PluginCallRequest) -> Result<PluginCall
         return Err(invalid_input_error("method must not be empty"));
     }
     let discovered = find_plugin(&req.project_root, &req.name, req.include_system_path)?;
-    let mut host = PluginHost::spawn(&discovered.path, &[]).await.context("failed to spawn plugin")?;
+    let host = PluginHost::spawn(&discovered.path, &[]).await.context("failed to spawn plugin")?;
     let _ = host.handshake().await.context("plugin initialize failed")?;
     let result = host
         .request(method.clone(), req.params)
@@ -2104,6 +2104,7 @@ mod tests {
             protocol_version: "1.0.0".to_string(),
             capabilities: vec!["agent/run".to_string()],
             env_required: Vec::new(),
+            notification_buffer_size: None,
         }
     }
 

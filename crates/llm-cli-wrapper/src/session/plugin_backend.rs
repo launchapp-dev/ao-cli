@@ -153,7 +153,7 @@ impl PluginSessionBackend {
         }
 
         let spawn_options = self.spawn_options(&request.env_vars);
-        let mut host = match PluginHost::spawn_with_options(&self.binary_path, &[], spawn_options).await {
+        let host = match PluginHost::spawn_with_options(&self.binary_path, &[], spawn_options).await {
             Ok(host) => host,
             Err(error) => {
                 let message = format!("plugin '{}' spawn failed: {error}", self.plugin_name);
@@ -165,7 +165,7 @@ impl PluginSessionBackend {
         };
 
         // Subscribe before handshake so even handshake-time notifications are visible.
-        let mut notifications = host.subscribe_notifications(64);
+        let mut notifications = host.subscribe_notifications();
 
         if let Err(error) = host.handshake().await {
             graceful_shutdown(host).await;
@@ -206,8 +206,23 @@ impl PluginSessionBackend {
                 loop {
                     tokio::select! {
                         biased;
-                        Some(notification) = notifications.recv() => {
-                            forward_plugin_notification(&plugin_name_for_task, notification, &stream_tx).await;
+                        notification = notifications.recv() => {
+                            match notification {
+                                Ok(notification) => {
+                                    forward_plugin_notification(&plugin_name_for_task, notification, &stream_tx).await;
+                                }
+                                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                                    tracing::warn!(
+                                        plugin = %plugin_name_for_task,
+                                        skipped,
+                                        "plugin notification subscriber lagged; some events were dropped"
+                                    );
+                                }
+                                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                                    // Reader task exited (plugin closed). Keep awaiting the
+                                    // request future; it'll resolve with ConnectionLost soon.
+                                }
+                            }
                         }
                         result = &mut request_future => {
                             break Some(result);
@@ -220,8 +235,20 @@ impl PluginSessionBackend {
             };
 
             // Drain any straggling notifications before producing the final frames.
-            while let Ok(notification) = notifications.try_recv() {
-                forward_plugin_notification(&plugin_name_for_task, notification, &stream_tx).await;
+            loop {
+                match notifications.try_recv() {
+                    Ok(notification) => {
+                        forward_plugin_notification(&plugin_name_for_task, notification, &stream_tx).await;
+                    }
+                    Err(tokio::sync::broadcast::error::TryRecvError::Lagged(skipped)) => {
+                        tracing::warn!(
+                            plugin = %plugin_name_for_task,
+                            skipped,
+                            "plugin notification subscriber lagged during drain; some events were dropped"
+                        );
+                    }
+                    Err(_) => break,
+                }
             }
 
             let logger = project_root_for_task.as_ref().map(|root| Logger::for_project(root));
@@ -314,7 +341,7 @@ impl PluginSessionBackend {
                 .emit();
         }
         let spawn_options = self.spawn_options(&[]);
-        let mut host = PluginHost::spawn_with_options(&self.binary_path, &[], spawn_options)
+        let host = PluginHost::spawn_with_options(&self.binary_path, &[], spawn_options)
             .await
             .map_err(|error| Error::ExecutionFailed(format!("plugin '{}' spawn failed: {error}", self.plugin_name)))?;
         if let Err(error) = host.handshake().await {

@@ -335,6 +335,7 @@ fn protocol_public_surface_does_not_drift_against_standalone() {
         // Manifest.env_required + PluginCapabilities.projections — additions
         // covered by the next standalone release.
         "PluginManifest.env_required",
+        "PluginManifest.notification_buffer_size",
         "PluginCapabilities.projections",
     ];
 

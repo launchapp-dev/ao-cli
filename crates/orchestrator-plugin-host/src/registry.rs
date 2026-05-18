@@ -4,14 +4,13 @@ use std::path::PathBuf;
 use animus_plugin_protocol::McpTool;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
-use tokio::process::{ChildStdin, ChildStdout};
 
 use crate::host::{PluginSpawnOptions, PluginStderrSink};
 use crate::{DiscoveredPlugin, PluginDiscovery, PluginHost};
 
 pub struct PluginRegistry {
     discovered: HashMap<String, DiscoveredPlugin>,
-    running: HashMap<String, PluginHost<ChildStdout, ChildStdin>>,
+    running: HashMap<String, PluginHost>,
     mcp_tools: HashMap<String, (String, McpTool)>,
     stderr_sink: Option<PluginStderrSink>,
 }
@@ -44,7 +43,7 @@ impl PluginRegistry {
         self.running.contains_key(name)
     }
 
-    pub async fn get_plugin(&mut self, name: &str) -> Result<&mut PluginHost<ChildStdout, ChildStdin>> {
+    pub async fn get_plugin(&mut self, name: &str) -> Result<&PluginHost> {
         if !self.running.contains_key(name) {
             let plugin = self.discovered.get(name).ok_or_else(|| anyhow!("unknown plugin '{name}'"))?;
             let path = plugin.path.clone();
@@ -54,13 +53,13 @@ impl PluginRegistry {
                 std::iter::empty::<String>(),
                 self.stderr_sink.clone(),
             );
-            let mut host = PluginHost::spawn_with_options(&path, &[], options).await?;
+            let host = PluginHost::spawn_with_options(&path, &[], options).await?;
             let result = host.handshake().await?;
             self.register_mcp_tools(name, result.capabilities.mcp_tools)?;
             self.running.insert(name.to_string(), host);
         }
 
-        self.running.get_mut(name).ok_or_else(|| anyhow!("plugin '{name}' was not available after startup"))
+        self.running.get(name).ok_or_else(|| anyhow!("plugin '{name}' was not available after startup"))
     }
 
     pub async fn initialize_all(&mut self) -> Result<()> {

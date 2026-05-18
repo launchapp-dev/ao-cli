@@ -1,5 +1,6 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,9 +12,10 @@ use anyhow::{anyhow, Result};
 use semver::Version;
 use serde_json::Value;
 use thiserror::Error;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite};
-use tokio::process::{Child, ChildStdin, ChildStdout};
-use tokio::sync::mpsc;
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::process::Child;
+use tokio::sync::{broadcast, oneshot, Mutex};
+use tokio::task::JoinHandle;
 use tracing::{debug, warn};
 
 /// Universal shell environment variables that every plugin gets regardless of
@@ -28,7 +30,24 @@ use tracing::{debug, warn};
 pub const PLUGIN_BASE_ENV_ALLOWLIST: &[&str] =
     &["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "RUST_LOG", "RUST_BACKTRACE", "TZ"];
 
-use crate::StdioTransport;
+/// Compiled default for the per-host notification broadcast channel capacity.
+///
+/// Used when neither [`PluginManifest::notification_buffer_size`] nor the
+/// `ANIMUS_PLUGIN_BROADCAST_CAPACITY` env override is set. Mirrors the
+/// session-backend convention of ~256 in-flight notification slots per
+/// subscriber.
+///
+/// [`PluginManifest::notification_buffer_size`]: animus_plugin_protocol::PluginManifest::notification_buffer_size
+pub const DEFAULT_NOTIFICATION_BROADCAST_CAPACITY: usize = 256;
+
+/// Environment variable operators set to override the per-plugin broadcast
+/// channel capacity. Lower precedence than the plugin manifest hint, higher
+/// precedence than [`DEFAULT_NOTIFICATION_BROADCAST_CAPACITY`].
+pub const NOTIFICATION_BROADCAST_CAPACITY_ENV: &str = "ANIMUS_PLUGIN_BROADCAST_CAPACITY";
+
+/// Deadline the [`PluginHost::shutdown`] flow waits for the child to exit
+/// after sending the `shutdown` RPC.
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 
 /// Structured plugin-host errors that benefit from being matched on by
 /// callers. Most internal failures still flow through `anyhow::Error`; this
@@ -43,6 +62,20 @@ pub enum HostError {
     /// which plugin is wedged.
     #[error("incompatible plugin protocol: {0}")]
     IncompatibleProtocol(String),
+    /// The plugin transport closed (or never opened) while an awaiter was
+    /// waiting for a response.
+    ///
+    /// Surfaced when the child process exits, its stdout closes, or the
+    /// reader task observes a fatal I/O error. The host is no longer usable
+    /// after this error; the supervisor should respawn.
+    #[error("plugin connection lost")]
+    ConnectionLost,
+    /// A [`PluginHost::request_with_timeout`] call exceeded its deadline.
+    ///
+    /// The pending awaiter is removed from the router map so any late
+    /// response from the plugin is silently discarded.
+    #[error("plugin request timed out after {0:?}")]
+    Timeout(Duration),
 }
 
 /// Validate that a plugin's advertised `protocol_version` is wire-compatible
@@ -95,6 +128,15 @@ pub struct PluginSpawnOptions {
     /// each at spawn time so operators can see why the plugin will likely
     /// fail.
     pub missing_required_env: Vec<String>,
+    /// Optional override for the broadcast channel capacity used for plugin
+    /// notifications. When `Some`, it wins over both the manifest hint and
+    /// the env override. Used by tests; production callers typically leave
+    /// this `None` and rely on
+    /// [`PluginManifest::notification_buffer_size`] +
+    /// [`NOTIFICATION_BROADCAST_CAPACITY_ENV`].
+    ///
+    /// [`PluginManifest::notification_buffer_size`]: animus_plugin_protocol::PluginManifest::notification_buffer_size
+    pub notification_capacity: Option<usize>,
 }
 
 impl PluginSpawnOptions {
@@ -126,23 +168,98 @@ impl PluginSpawnOptions {
             env_allowlist: allow.into_iter().collect(),
             plugin_label: if plugin_label.is_empty() { None } else { Some(plugin_label) },
             missing_required_env: missing_required,
+            notification_capacity: None,
         }
     }
 }
 
-/// Channel that receives plugin-emitted JSON-RPC notifications (no `id`).
-pub type PluginNotificationRx = mpsc::Receiver<RpcNotification>;
-type PluginNotificationTx = mpsc::Sender<RpcNotification>;
+/// Receiver for plugin-emitted JSON-RPC notifications (frames without `id`).
+///
+/// Returned by [`PluginHost::subscribe_notifications`]. Each subscriber gets
+/// an independent receiver fed by the host's single-reader router task; a
+/// slow subscriber observes [`broadcast::error::RecvError::Lagged`] rather
+/// than backpressuring the request path.
+pub type PluginNotificationRx = broadcast::Receiver<RpcNotification>;
 
-pub struct PluginHost<R = ChildStdout, W = ChildStdin> {
-    pub name: String,
-    child: Option<Child>,
-    transport: StdioTransport<R, W>,
-    next_id: u64,
-    notification_tx: Option<PluginNotificationTx>,
+/// Choose the notification broadcast capacity for a plugin host using the
+/// documented priority: explicit option override → plugin manifest hint →
+/// env override → compiled default. Always returns a non-zero capacity (a
+/// `broadcast::channel` with capacity 0 panics).
+pub(crate) fn resolve_broadcast_capacity(spawn_override: Option<usize>, manifest_hint: Option<usize>) -> usize {
+    if let Some(cap) = spawn_override {
+        if cap > 0 {
+            return cap;
+        }
+    }
+    if let Some(cap) = manifest_hint {
+        if cap > 0 {
+            return cap;
+        }
+    }
+    if let Ok(raw) = std::env::var(NOTIFICATION_BROADCAST_CAPACITY_ENV) {
+        if let Ok(cap) = raw.trim().parse::<usize>() {
+            if cap > 0 {
+                return cap;
+            }
+        }
+    }
+    DEFAULT_NOTIFICATION_BROADCAST_CAPACITY
 }
 
-impl PluginHost<ChildStdout, ChildStdin> {
+/// Shared inner state for a [`PluginHost`]. One per spawned plugin process.
+///
+/// The host follows the single-reader-router pattern: one tokio task owns
+/// the transport's read half and demultiplexes inbound frames. Frames with
+/// an `id` field route to the pending-map awaiter via a oneshot channel;
+/// frames without an `id` fan out via [`broadcast`] to every subscriber.
+/// Writes go through `transport_write` so concurrent `request()` calls
+/// serialize cleanly on the line-delimited wire.
+pub struct PluginHostInner {
+    /// Human-readable plugin name, used in log messages and shutdown.
+    pub name: String,
+    /// Locked write half of the stdio transport. Concurrent senders
+    /// interleave one frame at a time.
+    transport_write: Mutex<Box<dyn AsyncWrite + Send + Unpin>>,
+    /// Pending request awaiters keyed by JSON-RPC id. Populated by
+    /// `request()` / `request_with_timeout()`, drained by the reader task
+    /// (or by the host itself on shutdown).
+    pending: Mutex<HashMap<u64, oneshot::Sender<RpcResponse>>>,
+    /// Sender owned by the reader task; subscribers come and go via
+    /// [`PluginHost::subscribe_notifications`].
+    notifications_tx: broadcast::Sender<RpcNotification>,
+    /// Monotonic JSON-RPC id allocator. We allocate from `1` so a freshly
+    /// constructed host doesn't collide with the spec's "null id" sentinel.
+    next_id: AtomicU64,
+    /// The plugin child process. Owned so [`PluginHost::shutdown`] can kill
+    /// it if `shutdown` RPC times out. `None` for hosts constructed from
+    /// in-memory pipes (tests).
+    child: Mutex<Option<Child>>,
+    /// Reader task handle. `Some` until [`PluginHost::shutdown`] reaps it.
+    /// Held under a sync mutex so [`PluginHost::launch`] can stash it
+    /// immediately (no awaits) before returning the host to callers.
+    reader_handle: std::sync::Mutex<Option<JoinHandle<()>>>,
+    /// Flips to `false` when the reader task exits (EOF, fatal error, or
+    /// shutdown). New requests issued after this point short-circuit with
+    /// [`HostError::ConnectionLost`] instead of inserting an awaiter that
+    /// would never be answered.
+    alive: AtomicBool,
+}
+
+/// Single-process JSON-RPC plugin host.
+///
+/// Cloning a [`PluginHost`] hands out another shared reference to the same
+/// underlying transport — all methods take `&self` and may be called
+/// concurrently. The router task is single-reader; writes are serialized
+/// through an internal mutex so frames stay intact on the wire.
+///
+/// Construct one via [`PluginHost::spawn_with_options`] for a real child
+/// process or [`PluginHost::from_streams`] for in-memory tests.
+#[derive(Clone)]
+pub struct PluginHost {
+    inner: Arc<PluginHostInner>,
+}
+
+impl PluginHost {
     /// Spawn a plugin without forwarding any environment beyond
     /// [`PLUGIN_BASE_ENV_ALLOWLIST`]. Most production callers should use
     /// [`PluginHost::spawn_with_options`] instead so the plugin sees the
@@ -224,85 +341,160 @@ impl PluginHost<ChildStdout, ChildStdin> {
             }
         });
 
-        Ok(Self {
-            name,
-            child: Some(child),
-            transport: StdioTransport::new(stdout, stdin),
-            next_id: 1,
-            notification_tx: None,
-        })
-    }
-}
-
-impl<R, W> PluginHost<R, W>
-where
-    R: AsyncRead + Unpin,
-    W: AsyncWrite + Unpin,
-{
-    pub fn from_streams(name: impl Into<String>, reader: R, writer: W) -> Self {
-        Self {
-            name: name.into(),
-            child: None,
-            transport: StdioTransport::new(reader, writer),
-            next_id: 1,
-            notification_tx: None,
-        }
+        let capacity = resolve_broadcast_capacity(options.notification_capacity, None);
+        Ok(Self::launch(name, Box::new(stdout), Box::new(stdin), Some(child), capacity))
     }
 
-    /// Subscribe to JSON-RPC notifications (frames with no `id`) emitted by the
-    /// plugin. The returned receiver is fed by `send_and_receive` whenever it
-    /// observes a notification on the way to a request response.
+    /// Build a host from caller-supplied in-memory streams. Used by tests
+    /// that script a plugin in-process without spawning a real binary.
     ///
-    /// If you don't subscribe, notifications are silently dropped — same as
-    /// before this method existed.
-    pub fn subscribe_notifications(&mut self, capacity: usize) -> PluginNotificationRx {
-        let (tx, rx) = mpsc::channel(capacity);
-        self.notification_tx = Some(tx);
-        rx
+    /// The reader and writer are boxed and erased; the resulting
+    /// [`PluginHost`] is identical in behavior to a spawned-process host.
+    pub fn from_streams<R, W>(name: impl Into<String>, reader: R, writer: W) -> Self
+    where
+        R: AsyncRead + Send + Unpin + 'static,
+        W: AsyncWrite + Send + Unpin + 'static,
+    {
+        Self::launch(name.into(), Box::new(reader), Box::new(writer), None, DEFAULT_NOTIFICATION_BROADCAST_CAPACITY)
     }
 
+    /// Build a host from in-memory streams with an explicit broadcast
+    /// capacity override. Convenience for tests that need to exercise the
+    /// `Lagged` path.
+    pub fn from_streams_with_capacity<R, W>(name: impl Into<String>, reader: R, writer: W, capacity: usize) -> Self
+    where
+        R: AsyncRead + Send + Unpin + 'static,
+        W: AsyncWrite + Send + Unpin + 'static,
+    {
+        let capacity = capacity.max(1);
+        Self::launch(name.into(), Box::new(reader), Box::new(writer), None, capacity)
+    }
+
+    /// Internal hot-path constructor: wires up the pending-map, broadcast
+    /// channel, and reader task in one place so both `spawn_with_options`
+    /// and `from_streams` produce the same shape of host.
+    fn launch(
+        name: String,
+        reader: Box<dyn AsyncRead + Send + Unpin>,
+        writer: Box<dyn AsyncWrite + Send + Unpin>,
+        child: Option<Child>,
+        notification_capacity: usize,
+    ) -> Self {
+        let (notifications_tx, _) = broadcast::channel::<RpcNotification>(notification_capacity);
+        let inner = Arc::new(PluginHostInner {
+            name,
+            transport_write: Mutex::new(writer),
+            pending: Mutex::new(HashMap::new()),
+            notifications_tx: notifications_tx.clone(),
+            next_id: AtomicU64::new(1),
+            child: Mutex::new(child),
+            reader_handle: std::sync::Mutex::new(None),
+            alive: AtomicBool::new(true),
+        });
+
+        let reader_inner = inner.clone();
+        let handle = tokio::spawn(reader_loop(reader, reader_inner, notifications_tx));
+        // Stash the handle synchronously so shutdown() can find it without
+        // racing the spawn that owns the reader loop.
+        *inner.reader_handle.lock().expect("reader_handle mutex poisoned at launch") = Some(handle);
+
+        Self { inner }
+    }
+
+    /// Plugin name (label) — same as the `name` field passed to spawn.
+    pub fn name(&self) -> &str {
+        &self.inner.name
+    }
+
+    /// Subscribe to JSON-RPC notifications (frames with no `id`) emitted by
+    /// the plugin. Each call returns an independent receiver fed by the
+    /// shared broadcast channel; subscribers are responsible for keeping up
+    /// (and observing `Lagged` if they don't).
+    pub fn subscribe_notifications(&self) -> PluginNotificationRx {
+        self.inner.notifications_tx.subscribe()
+    }
+
+    /// The next request id this host will allocate. Useful for tests; not
+    /// part of the steady-state API.
     pub fn next_request_id(&self) -> u64 {
-        self.next_id
+        self.inner.next_id.load(Ordering::Relaxed)
     }
 
-    async fn send_and_receive(&mut self, id: u64, method: &str, params: Option<Value>) -> Result<RpcResponse> {
-        self.transport.write_message(&RpcRequest::new(id, method, params)).await?;
-        let expected_id = serde_json::json!(id);
+    /// Send a JSON-RPC request and await its response.
+    ///
+    /// Multiple concurrent calls share the transport but each gets its own
+    /// pending-map entry; they multiplex independently.
+    pub async fn request(&self, method: impl Into<String>, params: Option<Value>) -> Result<Value, RpcError> {
+        let method = method.into();
+        match self.request_raw(&method, params).await {
+            Ok(response) => match response.error {
+                Some(error) => Err(error),
+                None => Ok(response.result.unwrap_or(Value::Null)),
+            },
+            Err(error) => Err(RpcError { code: error_codes::INTERNAL_ERROR, message: error.to_string(), data: None }),
+        }
+    }
 
-        loop {
-            let frame = self
-                .transport
-                .read_message::<Value>()
-                .await?
-                .ok_or_else(|| anyhow!("plugin closed while waiting for response to '{method}'"))?;
+    /// Same as [`PluginHost::request`] but bails with [`HostError::Timeout`]
+    /// if the plugin doesn't respond within `timeout`. The pending awaiter
+    /// is removed from the router map so any late response is silently
+    /// discarded.
+    pub async fn request_with_timeout(
+        &self,
+        method: impl Into<String>,
+        params: Option<Value>,
+        timeout: Duration,
+    ) -> Result<Value, RpcError> {
+        let method = method.into();
+        if !self.inner.alive.load(Ordering::Acquire) {
+            return Err(RpcError {
+                code: error_codes::INTERNAL_ERROR,
+                message: HostError::ConnectionLost.to_string(),
+                data: None,
+            });
+        }
+        let id = self.inner.next_id.fetch_add(1, Ordering::Relaxed);
+        let (tx, rx) = oneshot::channel();
+        self.inner.pending.lock().await.insert(id, tx);
 
-            // Notifications carry no `id` field; forward (or drop) and keep waiting.
-            if frame.get("id").is_none() {
-                if let Some(tx) = self.notification_tx.clone() {
-                    if let Ok(notification) = serde_json::from_value::<RpcNotification>(frame) {
-                        let _ = tx.try_send(notification);
-                    }
-                } else {
-                    debug!(plugin = %self.name, "dropped plugin notification (no subscriber)");
-                }
-                continue;
+        if let Err(error) = self.write_frame(&RpcRequest::new(id, &method, params)).await {
+            self.inner.pending.lock().await.remove(&id);
+            return Err(RpcError { code: error_codes::INTERNAL_ERROR, message: error.to_string(), data: None });
+        }
+
+        match tokio::time::timeout(timeout, rx).await {
+            Ok(Ok(response)) => match response.error {
+                Some(error) => Err(error),
+                None => Ok(response.result.unwrap_or(Value::Null)),
+            },
+            Ok(Err(_)) => {
+                // Reader task dropped the sender — the plugin closed.
+                self.inner.pending.lock().await.remove(&id);
+                Err(RpcError {
+                    code: error_codes::INTERNAL_ERROR,
+                    message: HostError::ConnectionLost.to_string(),
+                    data: None,
+                })
             }
-
-            let response: RpcResponse = serde_json::from_value(frame)
-                .map_err(|error| anyhow!("plugin '{}' sent malformed response: {error}", self.name))?;
-            if response.id.as_ref() == Some(&expected_id) {
-                return Ok(response);
+            Err(_) => {
+                // Caller-supplied deadline elapsed. Drop the awaiter and
+                // surface Timeout. Late responses will be logged + dropped
+                // by the reader task.
+                self.inner.pending.lock().await.remove(&id);
+                Err(RpcError {
+                    code: error_codes::TIMEOUT,
+                    message: HostError::Timeout(timeout).to_string(),
+                    data: None,
+                })
             }
         }
     }
 
-    fn take_id(&mut self) -> u64 {
-        let id = self.next_id;
-        self.next_id = self.next_id.saturating_add(1);
-        id
-    }
-
-    pub async fn handshake(&mut self) -> Result<InitializeResult> {
+    /// Run the standard host→plugin `initialize`/`initialized` handshake.
+    ///
+    /// Returns the plugin's [`InitializeResult`] on success and rejects on
+    /// protocol-version drift via [`check_protocol_compat`].
+    pub async fn handshake(&self) -> Result<InitializeResult> {
         const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
 
         let params = InitializeParams {
@@ -311,15 +503,11 @@ where
             capabilities: HostCapabilities { streaming: true, progress: true, cancellation: true },
         };
 
-        let id = self.take_id();
-        let response = tokio::time::timeout(
-            HANDSHAKE_TIMEOUT,
-            self.send_and_receive(id, "initialize", Some(serde_json::to_value(params)?)),
-        )
-        .await
-        .map_err(|_| {
-            anyhow!("plugin '{}' did not respond to initialize within {}s", self.name, HANDSHAKE_TIMEOUT.as_secs())
-        })??;
+        let response = self
+            .request_raw_with_timeout("initialize", Some(serde_json::to_value(params)?), HANDSHAKE_TIMEOUT)
+            .await
+            .map_err(|error| anyhow!("plugin '{}' initialize failed: {error}", self.inner.name))?;
+
         if let Some(error) = response.error {
             return Err(anyhow!("plugin initialize failed ({}): {}", error.code, error.message));
         }
@@ -328,60 +516,258 @@ where
             serde_json::from_value(response.result.ok_or_else(|| anyhow!("plugin initialize returned no result"))?)?;
 
         if let Err(host_error) = check_protocol_compat(&result.protocol_version) {
-            return Err(anyhow!("plugin '{}' rejected at handshake: {host_error}", self.name));
+            return Err(anyhow!("plugin '{}' rejected at handshake: {host_error}", self.inner.name));
         }
 
         self.notify("initialized", None).await?;
-        debug!(plugin = %self.name, plugin_name = %result.plugin_info.name, "stdio plugin initialized");
+        debug!(plugin = %self.inner.name, plugin_name = %result.plugin_info.name, "stdio plugin initialized");
         Ok(result)
     }
 
-    pub async fn request(&mut self, method: impl Into<String>, params: Option<Value>) -> Result<Value, RpcError> {
-        let method = method.into();
-        let id = self.take_id();
-        let response = self.send_and_receive(id, &method, params).await.map_err(|error| RpcError {
-            code: error_codes::INTERNAL_ERROR,
-            message: error.to_string(),
-            data: None,
-        })?;
-
-        if let Some(error) = response.error {
-            return Err(error);
-        }
-
-        Ok(response.result.unwrap_or(Value::Null))
+    /// Fire-and-forget JSON-RPC notification (no id, no response expected).
+    pub async fn notify(&self, method: impl Into<String>, params: Option<Value>) -> Result<()> {
+        self.write_frame(&RpcNotification::new(method, params)).await
     }
 
-    pub async fn notify(&mut self, method: impl Into<String>, params: Option<Value>) -> Result<()> {
-        self.transport.write_message(&RpcNotification::new(method, params)).await
-    }
-
-    pub async fn ping(&mut self) -> Result<()> {
-        let id = self.take_id();
-        let response = tokio::time::timeout(Duration::from_secs(2), self.send_and_receive(id, "$/ping", None))
+    /// Liveness probe — sends `$/ping` and waits 2 seconds for a response.
+    pub async fn ping(&self) -> Result<()> {
+        let response = self
+            .request_raw_with_timeout("$/ping", None, Duration::from_secs(2))
             .await
-            .map_err(|_| anyhow!("plugin ping timed out"))??;
+            .map_err(|error| anyhow!("plugin ping failed: {error}"))?;
         if let Some(error) = response.error {
             return Err(anyhow!("plugin ping failed ({}): {}", error.code, error.message));
         }
         Ok(())
     }
 
-    pub async fn health_check(&mut self) -> Result<HealthCheckResult> {
-        let result = tokio::time::timeout(Duration::from_secs(2), self.request("health/check", None))
+    /// Structured health probe — sends `health/check` and decodes the
+    /// response as a [`HealthCheckResult`].
+    pub async fn health_check(&self) -> Result<HealthCheckResult> {
+        let result = self
+            .request_with_timeout("health/check", None, Duration::from_secs(2))
             .await
-            .map_err(|_| anyhow!("plugin health/check timed out"))?
             .map_err(|error| anyhow!("plugin health/check failed ({}): {}", error.code, error.message))?;
         Ok(serde_json::from_value(result)?)
     }
 
-    pub async fn shutdown(mut self) -> Result<()> {
-        let _ = self.request("shutdown", None).await;
-        let _ = self.notify("exit", None).await;
-        if let Some(mut child) = self.child.take() {
-            let _ = tokio::time::timeout(Duration::from_secs(2), child.wait()).await;
+    /// Graceful shutdown: sends `shutdown` RPC + `exit` notification, waits
+    /// up to [`SHUTDOWN_GRACE`] for the child to exit, then kills it.
+    ///
+    /// After this returns, every clone of the host observes
+    /// [`HostError::ConnectionLost`] (surfaced as `RpcError`) on any
+    /// subsequent `request()`.
+    pub async fn shutdown(self) -> Result<()> {
+        let inner = self.inner;
+        // Best-effort shutdown RPC under a tight deadline. We don't trust
+        // the plugin to actually respond, so we move on regardless.
+        let _ = tokio::time::timeout(SHUTDOWN_GRACE, request_raw_inner(inner.as_ref(), "shutdown", None)).await;
+        let _ = write_frame_inner(inner.as_ref(), &RpcNotification::new("exit", None)).await;
+
+        // Mark the host as no longer accepting new work. Future request()
+        // calls on cloned hosts short-circuit to ConnectionLost via the
+        // alive flag.
+        inner.alive.store(false, Ordering::Release);
+
+        // Killing the child closes stdout, which causes the reader task to
+        // see EOF and drain the pending map. We wait briefly for that
+        // graceful drain before forcing the issue.
+        let mut child_guard = inner.child.lock().await;
+        if let Some(mut child) = child_guard.take() {
+            if tokio::time::timeout(SHUTDOWN_GRACE, child.wait()).await.is_err() {
+                let _ = child.start_kill();
+                let _ = child.wait().await;
+            }
         }
+        drop(child_guard);
+
+        // Reader task: should exit on its own after the child stdout closes.
+        // For in-memory pipes (tests) the reader keeps running until the
+        // fake plugin closes its writer half. Wait briefly so we don't
+        // leak the join handle.
+        let handle = inner.reader_handle.lock().expect("reader_handle mutex poisoned").take();
+        if let Some(handle) = handle {
+            let _ = tokio::time::timeout(SHUTDOWN_GRACE, handle).await;
+        }
+
+        // Final safety net: drain every awaiter still parked on the
+        // pending map. If the child died before this and the reader task
+        // already drained, this is a no-op.
+        drain_pending(inner.as_ref()).await;
+
         Ok(())
+    }
+
+    async fn request_raw(&self, method: &str, params: Option<Value>) -> Result<RpcResponse, HostError> {
+        request_raw_inner(self.inner.as_ref(), method, params).await
+    }
+
+    async fn request_raw_with_timeout(
+        &self,
+        method: &str,
+        params: Option<Value>,
+        timeout: Duration,
+    ) -> Result<RpcResponse, HostError> {
+        let id = self.inner.next_id.fetch_add(1, Ordering::Relaxed);
+        let (tx, rx) = oneshot::channel();
+        self.inner.pending.lock().await.insert(id, tx);
+
+        if let Err(_error) = self.write_frame(&RpcRequest::new(id, method, params)).await {
+            self.inner.pending.lock().await.remove(&id);
+            return Err(HostError::ConnectionLost);
+        }
+
+        match tokio::time::timeout(timeout, rx).await {
+            Ok(Ok(response)) => Ok(response),
+            Ok(Err(_)) => {
+                self.inner.pending.lock().await.remove(&id);
+                Err(HostError::ConnectionLost)
+            }
+            Err(_) => {
+                self.inner.pending.lock().await.remove(&id);
+                Err(HostError::Timeout(timeout))
+            }
+        }
+    }
+
+    async fn write_frame<T: serde::Serialize>(&self, frame: &T) -> Result<()> {
+        write_frame_inner(self.inner.as_ref(), frame).await
+    }
+}
+
+/// Module-level helper so [`PluginHost::shutdown`] (which consumes `self`)
+/// and the [`PluginHost`] inherent methods can share the same request path
+/// without fighting the borrow checker.
+async fn request_raw_inner(
+    inner: &PluginHostInner,
+    method: &str,
+    params: Option<Value>,
+) -> Result<RpcResponse, HostError> {
+    if !inner.alive.load(Ordering::Acquire) {
+        return Err(HostError::ConnectionLost);
+    }
+    let id = inner.next_id.fetch_add(1, Ordering::Relaxed);
+    let (tx, rx) = oneshot::channel();
+    inner.pending.lock().await.insert(id, tx);
+
+    if let Err(_error) = write_frame_inner(inner, &RpcRequest::new(id, method, params)).await {
+        inner.pending.lock().await.remove(&id);
+        return Err(HostError::ConnectionLost);
+    }
+
+    match rx.await {
+        Ok(response) => Ok(response),
+        Err(_) => {
+            inner.pending.lock().await.remove(&id);
+            Err(HostError::ConnectionLost)
+        }
+    }
+}
+
+async fn write_frame_inner<T: serde::Serialize>(inner: &PluginHostInner, frame: &T) -> Result<()> {
+    let mut line = serde_json::to_string(frame)?;
+    line.push('\n');
+    let mut writer = inner.transport_write.lock().await;
+    writer.write_all(line.as_bytes()).await?;
+    writer.flush().await?;
+    Ok(())
+}
+
+/// Fail every awaiter currently parked on the pending map. Used when the
+/// reader observes EOF / a fatal error, and again as a safety net inside
+/// [`PluginHost::shutdown`].
+async fn drain_pending(inner: &PluginHostInner) {
+    let mut guard = inner.pending.lock().await;
+    for (_id, sender) in guard.drain() {
+        // Drop the sender; the awaiter sees `RecvError` and translates it
+        // into `HostError::ConnectionLost`.
+        drop(sender);
+    }
+}
+
+/// Single-reader router: own the transport's read half, demultiplex
+/// inbound frames to pending awaiters and notification subscribers.
+async fn reader_loop(
+    reader: Box<dyn AsyncRead + Send + Unpin>,
+    inner: Arc<PluginHostInner>,
+    notifications_tx: broadcast::Sender<RpcNotification>,
+) {
+    let mut buf_reader = BufReader::new(reader);
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match buf_reader.read_line(&mut line).await {
+            Ok(0) => {
+                debug!(plugin = %inner.name, "plugin stdout reached EOF; draining pending awaiters");
+                break;
+            }
+            Ok(_) => {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                let frame: Value = match serde_json::from_str(trimmed) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        tracing::error!(plugin = %inner.name, %error, "malformed JSON frame from plugin; skipping");
+                        continue;
+                    }
+                };
+                handle_frame(&inner, &notifications_tx, frame).await;
+            }
+            Err(error) => {
+                tracing::error!(plugin = %inner.name, %error, "plugin stdout read error; tearing down router");
+                break;
+            }
+        }
+    }
+    // Mark the host as dead BEFORE draining so any concurrent request()
+    // that races us into the pending map sees the alive=false flag and
+    // returns ConnectionLost rather than parking on a sender we just
+    // dropped.
+    inner.alive.store(false, Ordering::Release);
+    drain_pending(inner.as_ref()).await;
+    // Dropping notifications_tx here drops one of two clones (the inner
+    // still holds the other). The channel only closes when the inner is
+    // also torn down; subscribers observe Closed on subsequent recv()
+    // once the last Arc<PluginHostInner> goes away.
+    drop(notifications_tx);
+}
+
+async fn handle_frame(inner: &PluginHostInner, notifications_tx: &broadcast::Sender<RpcNotification>, frame: Value) {
+    if frame.get("id").is_some() {
+        let response: RpcResponse = match serde_json::from_value(frame) {
+            Ok(value) => value,
+            Err(error) => {
+                tracing::error!(plugin = %inner.name, %error, "plugin response with id but invalid shape; skipping");
+                return;
+            }
+        };
+        let Some(id_u64) = response.id.as_ref().and_then(Value::as_u64) else {
+            debug!(plugin = %inner.name, "plugin response with non-u64 id; dropping (no awaiter could match)");
+            return;
+        };
+        let sender = inner.pending.lock().await.remove(&id_u64);
+        match sender {
+            Some(sender) => {
+                if sender.send(response).is_err() {
+                    debug!(plugin = %inner.name, id = id_u64, "awaiter gave up before response arrived");
+                }
+            }
+            None => {
+                debug!(plugin = %inner.name, id = id_u64, "received response for unknown id (awaiter timed out or never existed)");
+            }
+        }
+    } else {
+        let notification: RpcNotification = match serde_json::from_value(frame) {
+            Ok(value) => value,
+            Err(error) => {
+                tracing::error!(plugin = %inner.name, %error, "plugin notification with invalid shape; skipping");
+                return;
+            }
+        };
+        // Broadcast send errors mean "no subscribers" — not fatal.
+        let _ = notifications_tx.send(notification);
     }
 }
 
@@ -428,7 +814,7 @@ mod tests {
             let _ = reader.read_line(&mut line).await;
         });
 
-        let mut host = PluginHost::from_streams("test", host_reader, host_writer);
+        let host = PluginHost::from_streams("test", host_reader, host_writer);
         host.handshake().await
     }
 
@@ -455,7 +841,7 @@ mod tests {
             assert_eq!(notification["method"], "initialized");
         });
 
-        let mut host = PluginHost::from_streams("test", host_reader, host_writer);
+        let host = PluginHost::from_streams("test", host_reader, host_writer);
         let result = host.handshake().await.expect("handshake should succeed");
 
         assert_eq!(result.plugin_info.name, "test");
@@ -480,7 +866,9 @@ mod tests {
     fn check_protocol_compat_rejects_major_mismatch() {
         // Host 1.0.0 + plugin 2.0.0 => error.
         let err = check_protocol_compat("2.0.0").expect_err("major mismatch must fail");
-        let HostError::IncompatibleProtocol(message) = err;
+        let HostError::IncompatibleProtocol(message) = err else {
+            panic!("expected IncompatibleProtocol");
+        };
         assert!(message.contains("major version mismatch"), "unexpected message: {message}");
     }
 
@@ -488,7 +876,9 @@ mod tests {
     fn check_protocol_compat_rejects_non_semver() {
         // Host 1.0.0 + plugin "garbage" => error.
         let err = check_protocol_compat("garbage").expect_err("non-semver must fail");
-        let HostError::IncompatibleProtocol(message) = err;
+        let HostError::IncompatibleProtocol(message) = err else {
+            panic!("expected IncompatibleProtocol");
+        };
         assert!(message.contains("non-semver"), "unexpected message: {message}");
     }
 
@@ -502,6 +892,21 @@ mod tests {
         );
     }
 
+    #[test]
+    fn resolve_capacity_priority_order() {
+        // Manifest hint beats default.
+        assert_eq!(resolve_broadcast_capacity(None, Some(512)), 512);
+        // Spawn override beats manifest hint.
+        assert_eq!(resolve_broadcast_capacity(Some(1024), Some(512)), 1024);
+        // Zero hint falls through to env / default.
+        std::env::remove_var(NOTIFICATION_BROADCAST_CAPACITY_ENV);
+        assert_eq!(resolve_broadcast_capacity(Some(0), Some(0)), DEFAULT_NOTIFICATION_BROADCAST_CAPACITY);
+        // Env override beats default when neither hint nor explicit override is set.
+        std::env::set_var(NOTIFICATION_BROADCAST_CAPACITY_ENV, "777");
+        assert_eq!(resolve_broadcast_capacity(None, None), 777);
+        std::env::remove_var(NOTIFICATION_BROADCAST_CAPACITY_ENV);
+    }
+
     // ===== Env scrubbing tests =====
     //
     // These exercise the v0.4.x trust-boundary promise: a spawned plugin must
@@ -513,9 +918,9 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     #[cfg(unix)]
-    use std::sync::Mutex;
+    use std::sync::Mutex as StdMutex;
     #[cfg(unix)]
-    static ENV_SCRUB_GUARD: Mutex<()> = Mutex::new(());
+    static ENV_SCRUB_GUARD: StdMutex<()> = StdMutex::new(());
 
     #[cfg(unix)]
     fn write_env_dump_plugin(dir: &std::path::Path) -> std::path::PathBuf {
@@ -552,11 +957,10 @@ mod tests {
         std::env::set_var("ANIMUS_TEST_SECRET", "should-not-leak");
         let result =
             PluginHost::spawn_with_options(&plugin, &[env_out.to_str().unwrap()], PluginSpawnOptions::default()).await;
-        // The plugin runs and exits immediately; just wait for the child to flush.
-        let mut host = result.expect("spawn should succeed");
-        if let Some(mut child) = host.child.take() {
-            let _ = child.wait().await;
-        }
+        let host = result.expect("spawn should succeed");
+        // Wait long enough for the script to flush + exit. Shutdown is the
+        // cleanest way to reap the child; we don't care about the response.
+        let _ = host.shutdown().await;
         std::env::remove_var("ANIMUS_TEST_SECRET");
 
         let env = read_env_dump(&env_out);
@@ -582,11 +986,8 @@ mod tests {
         let opts =
             PluginSpawnOptions::for_manifest("env-dump-plugin", &manifest_env, std::iter::empty::<String>(), None);
 
-        let mut host =
-            PluginHost::spawn_with_options(&plugin, &[env_out.to_str().unwrap()], opts).await.expect("spawn");
-        if let Some(mut child) = host.child.take() {
-            let _ = child.wait().await;
-        }
+        let host = PluginHost::spawn_with_options(&plugin, &[env_out.to_str().unwrap()], opts).await.expect("spawn");
+        let _ = host.shutdown().await;
         std::env::remove_var("ANIMUS_TEST_OPENAI_KEY");
 
         let env = read_env_dump(&env_out);
@@ -607,13 +1008,10 @@ mod tests {
         let env_out = dir.path().join("env.out");
 
         // PATH and HOME are always set on a unix dev/CI machine.
-        let mut host =
-            PluginHost::spawn_with_options(&plugin, &[env_out.to_str().unwrap()], PluginSpawnOptions::default())
-                .await
-                .expect("spawn");
-        if let Some(mut child) = host.child.take() {
-            let _ = child.wait().await;
-        }
+        let host = PluginHost::spawn_with_options(&plugin, &[env_out.to_str().unwrap()], PluginSpawnOptions::default())
+            .await
+            .expect("spawn");
+        let _ = host.shutdown().await;
 
         let env = read_env_dump(&env_out);
         assert!(env.contains_key("PATH"), "PATH must be in the base allowlist; saw env={env:?}");

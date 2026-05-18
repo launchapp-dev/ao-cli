@@ -12,7 +12,8 @@ pub use discovery::{
     PluginDiscovery,
 };
 pub use host::{
-    check_protocol_compat, HostError, PluginHost, PluginNotificationRx, PluginSpawnOptions, PluginStderrSink,
+    check_protocol_compat, HostError, PluginHost, PluginHostInner, PluginNotificationRx, PluginSpawnOptions,
+    PluginStderrSink, DEFAULT_NOTIFICATION_BROADCAST_CAPACITY, NOTIFICATION_BROADCAST_CAPACITY_ENV,
     PLUGIN_BASE_ENV_ALLOWLIST,
 };
 pub use registry::PluginRegistry;

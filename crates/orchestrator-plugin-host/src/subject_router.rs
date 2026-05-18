@@ -3,27 +3,21 @@ use std::collections::HashMap;
 use animus_plugin_protocol::RpcError;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::process::{ChildStdin, ChildStdout};
 
 use crate::PluginHost;
 
-pub struct SubjectRouter<R = ChildStdout, W = ChildStdin> {
+pub struct SubjectRouter {
     kind_to_plugin: HashMap<String, String>,
-    hosts: HashMap<String, PluginHost<R, W>>,
+    hosts: HashMap<String, PluginHost>,
 }
 
-impl<R, W> SubjectRouter<R, W>
-where
-    R: AsyncRead + Unpin,
-    W: AsyncWrite + Unpin,
-{
-    pub async fn from_initialized_hosts(mut hosts: HashMap<String, PluginHost<R, W>>) -> Result<Self> {
+impl SubjectRouter {
+    pub async fn from_initialized_hosts(hosts: HashMap<String, PluginHost>) -> Result<Self> {
         let mut kind_to_plugin = HashMap::new();
         let names = hosts.keys().cloned().collect::<Vec<_>>();
 
         for name in names {
-            let host = hosts.get_mut(&name).ok_or_else(|| anyhow!("plugin host disappeared during routing setup"))?;
+            let host = hosts.get(&name).ok_or_else(|| anyhow!("plugin host disappeared during routing setup"))?;
             let result = host.handshake().await?;
             for kind in result.capabilities.subject_kinds {
                 if let Some(existing) = kind_to_plugin.get(&kind) {
@@ -44,7 +38,7 @@ where
         method.split('/').next().is_some_and(|kind| self.kind_to_plugin.contains_key(kind))
     }
 
-    pub async fn route_call(&mut self, method: &str, params: Option<Value>) -> Result<Value, RpcError> {
+    pub async fn route_call(&self, method: &str, params: Option<Value>) -> Result<Value, RpcError> {
         let kind = method.split('/').next().unwrap_or_default();
         let Some(plugin_name) = self.kind_to_plugin.get(kind) else {
             return Err(RpcError {
@@ -53,7 +47,7 @@ where
                 data: None,
             });
         };
-        let Some(host) = self.hosts.get_mut(plugin_name) else {
+        let Some(host) = self.hosts.get(plugin_name) else {
             return Err(RpcError {
                 code: animus_plugin_protocol::error_codes::INTERNAL_ERROR,
                 message: format!("subject backend '{plugin_name}' is not available"),
@@ -64,7 +58,7 @@ where
         host.request(method, params).await
     }
 
-    pub async fn resolve_subject(&mut self, subject_kind: &str, subject_id: &str) -> Result<Value, RpcError> {
+    pub async fn resolve_subject(&self, subject_kind: &str, subject_id: &str) -> Result<Value, RpcError> {
         self.route_call(&format!("{subject_kind}/get"), Some(serde_json::json!({ "id": subject_id }))).await
     }
 }
@@ -72,11 +66,11 @@ where
 #[cfg(test)]
 mod tests {
     use animus_plugin_protocol::{InitializeResult, PluginCapabilities, PluginInfo, RpcRequest, RpcResponse};
-    use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
+    use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader};
 
     use super::*;
 
-    async fn subject_host(name: &str, subject_kinds: Vec<&str>) -> PluginHost<DuplexStream, DuplexStream> {
+    async fn subject_host(name: &str, subject_kinds: Vec<&str>) -> PluginHost {
         let (host_reader, mut plugin_writer) = duplex(8192);
         let (plugin_reader, host_writer) = duplex(8192);
         let name_for_task = name.to_string();
@@ -124,7 +118,7 @@ mod tests {
     async fn routes_by_subject_kind_prefix() {
         let mut hosts = HashMap::new();
         hosts.insert("tasks".to_string(), subject_host("tasks", vec!["task"]).await);
-        let mut router = SubjectRouter::from_initialized_hosts(hosts).await.expect("router");
+        let router = SubjectRouter::from_initialized_hosts(hosts).await.expect("router");
 
         let result = router.route_call("task/get", Some(serde_json::json!({ "id": "TASK-1" }))).await.expect("route");
 

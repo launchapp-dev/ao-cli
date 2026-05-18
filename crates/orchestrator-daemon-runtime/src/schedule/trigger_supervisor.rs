@@ -51,9 +51,6 @@ use tracing::{debug, warn};
 /// and the supervisor stops respawning it.
 pub const MAX_RESTART_ATTEMPTS: u32 = 5;
 
-/// Channel capacity for inbound plugin notifications.
-const PLUGIN_NOTIFICATION_CAPACITY: usize = 64;
-
 /// Base of the exponential backoff schedule between restart attempts. The
 /// resulting series is 1s, 2s, 4s, 8s, 16s, then clamped at
 /// [`MAX_BACKOFF`] thereafter.
@@ -240,14 +237,14 @@ impl TriggerPluginRunner for ProcessTriggerRunner {
             std::iter::empty::<String>(),
             stderr_sink,
         );
-        let mut host = match PluginHost::spawn_with_options(&plugin.path, &[], options).await {
+        let host = match PluginHost::spawn_with_options(&plugin.path, &[], options).await {
             Ok(host) => host,
             Err(error) => return SessionOutcome::SpawnError(format!("spawn failed: {error:#}")),
         };
         if let Err(error) = host.handshake().await {
             return SessionOutcome::SpawnError(format!("handshake failed: {error:#}"));
         }
-        let mut notifications = host.subscribe_notifications(PLUGIN_NOTIFICATION_CAPACITY);
+        let mut notifications = host.subscribe_notifications();
         let watch = TriggerWatchParams::default();
         let watch_params = match serde_json::to_value(watch) {
             Ok(value) => value,
@@ -275,10 +272,21 @@ impl TriggerPluginRunner for ProcessTriggerRunner {
                     break SessionOutcome::ShutdownRequested;
                 }
                 maybe_notification = notifications.recv() => {
-                    let Some(notification) = maybe_notification else {
-                        break SessionOutcome::StdioClosed {
-                            reason: "plugin stdio closed".to_string(),
-                        };
+                    let notification = match maybe_notification {
+                        Ok(notification) => notification,
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                            warn!(
+                                plugin = %plugin_name,
+                                skipped,
+                                "trigger subscriber lagged behind plugin broadcast; events dropped"
+                            );
+                            continue;
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            break SessionOutcome::StdioClosed {
+                                reason: "plugin stdio closed".to_string(),
+                            };
+                        }
                     };
                     if notification.method != TRIGGER_METHOD_EVENT {
                         continue;
@@ -916,6 +924,7 @@ mod tests {
                 protocol_version: animus_plugin_protocol::PROTOCOL_VERSION.to_string(),
                 capabilities: Vec::new(),
                 env_required: Vec::new(),
+                notification_buffer_size: None,
             },
             source: orchestrator_plugin_host::DiscoverySource::ExplicitConfig,
         }

@@ -376,6 +376,25 @@ pub struct PluginManifest {
     /// versions of the protocol crate simply opt into zero secrets.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub env_required: Vec<EnvRequirement>,
+    /// Author-supplied hint for the size of the host's notification broadcast
+    /// channel for this plugin process.
+    ///
+    /// Plugin authors who know they emit bursts of notifications (e.g. a
+    /// chatty streaming `agent/run` that fans out hundreds of `agent/output`
+    /// frames before a slow subscriber catches up) can request a larger
+    /// channel here. The host picks the channel capacity in priority order:
+    ///
+    /// 1. This manifest field (when set and non-zero).
+    /// 2. `ANIMUS_PLUGIN_BROADCAST_CAPACITY` env override (when set and
+    ///    parseable as a non-zero `usize`).
+    /// 3. The host's compiled default (currently 256).
+    ///
+    /// Capacity is fixed for a given plugin process lifetime — the underlying
+    /// `tokio::sync::broadcast` channel cannot be resized at runtime. To
+    /// change the capacity, restart the plugin process so the host can pick
+    /// up the new hint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notification_buffer_size: Option<usize>,
 }
 
 /// One environment variable a plugin asks the host to forward at spawn time.
@@ -589,9 +608,29 @@ mod tests {
             protocol_version: "1.0.0".to_string(),
             capabilities: vec![],
             env_required: vec![],
+            notification_buffer_size: None,
         };
         let value = serde_json::to_value(&manifest).unwrap();
         assert!(value.get("env_required").is_none(), "empty env_required must not be serialized for back-compat");
+        assert!(
+            value.get("notification_buffer_size").is_none(),
+            "unset notification_buffer_size must not be serialized for back-compat"
+        );
+    }
+
+    #[test]
+    fn manifest_notification_buffer_size_round_trips() {
+        let value = serde_json::json!({
+            "name": "animus-provider-chatty",
+            "version": "0.1.0",
+            "plugin_kind": "provider",
+            "description": "Chatty provider",
+            "protocol_version": "1.0.0",
+            "capabilities": ["agent/run"],
+            "notification_buffer_size": 1024
+        });
+        let manifest: PluginManifest = serde_json::from_value(value).expect("manifest should parse");
+        assert_eq!(manifest.notification_buffer_size, Some(1024));
     }
 
     #[test]

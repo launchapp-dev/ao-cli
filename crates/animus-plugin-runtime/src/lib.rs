@@ -64,6 +64,7 @@ impl ProviderInfo {
                 "health/check".to_string(),
             ],
             env_required: Vec::new(),
+            notification_buffer_size: None,
         }
     }
 

@@ -111,6 +111,7 @@ but write new features against the scoped runtime root.
 - If you change CLI behavior, update `docs/reference/cli/index.md`.
 - If you change MCP tools, update `docs/reference/mcp-tools.md` and `docs/guides/agents.md`.
 - Everything is `animus`. New MCP tools are named `animus.<group>.<verb>`, env vars are `ANIMUS_*`, state paths are `.animus/` or `~/.animus/<repo-scope>/`, pack ids are `animus.*`. The CLI is invoked via `animus`. The legacy `ao.*` surfaces were dropped in v0.4.0 (no aliases). See [docs/architecture/naming-contract.md](docs/architecture/naming-contract.md).
+- Workflow YAML supports `${VAR}` env-var interpolation for non-secret config (URLs, team IDs, feature flags). API keys and other credentials do NOT belong in workflow YAML — each plugin reads its own secrets from the daemon's process environment (e.g. `LINEAR_API_TOKEN`, `OPENAI_API_KEY`).
 - Prefer narrow verification over full-workspace rebuilds while iterating.
 
 ## Implementation Landmarks

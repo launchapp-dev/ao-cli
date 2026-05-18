@@ -368,12 +368,16 @@ protocol-shape pass. The shipped decisions:
    before handing it to the native `SubjectBackend` impl, so existing
    v0.3.x agent prompts that pass `TASK-001` continue to work unchanged.
 
-4. **Plugin config secrets are env-var indirection only.** No support for
-   inline `api_token: "..."` in workflow YAML; secrets stay out of the
-   repo. The daemon passes only the specific env var(s) named in
-   `config.<key>_env` through to the spawned plugin process. Reference
-   impl: `animus-subject-linear` reads `LINEAR_API_TOKEN` via this
-   indirection.
+4. **Plugin secrets do not appear in workflow YAML.** Each plugin reads
+   its own credentials directly from the daemon's process environment
+   at startup. Workflow YAML configures **which** plugin to use and
+   **non-sensitive** parameters only. `${VAR}` interpolation is for
+   non-secret config (URLs, team IDs, feature flags) — not credentials.
+   Reference impl: `animus-subject-linear` reads `LINEAR_API_TOKEN`
+   from its own process env; the daemon inherits the env from the
+   shell that started it. See
+   [`docs/reference/configuration.md`](../reference/configuration.md)
+   for the full secrets vs. non-secret distinction.
 
 5. **`subject/create` is not in v0.1.0.** Workflows operate on
    pre-existing subjects (Linear tickets that already exist, native tasks

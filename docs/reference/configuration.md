@@ -90,6 +90,64 @@ Behavior resolves in this order:
 4. project YAML in `.animus/workflows.yaml` and `.animus/workflows/*.yaml`
 5. installed packs in `~/.animus/packs/`
 
+## Secrets vs. Non-Secret Config
+
+> **Secrets never go in workflow YAML.** API tokens, passwords, and OAuth keys are
+> read directly from the daemon's process environment by the plugin that needs them
+> (e.g. `LINEAR_API_TOKEN` is read by `animus-subject-linear`; `OPENAI_API_KEY` by
+> `animus-provider-oai`). The workflow YAML configures **which** plugin to use and
+> **non-sensitive** parameters — not the credentials themselves.
+>
+> Use `${VAR}` interpolation for non-secret configuration that varies by environment:
+> API base URLs, team IDs, feature flags, channel allowlists.
+
+### Where credentials live
+
+| Plugin | Env var it reads | Set on |
+|---|---|---|
+| `animus-subject-linear` | `LINEAR_API_TOKEN` | The daemon's process environment |
+| `animus-provider-oai` | `OPENAI_API_KEY` (and provider-specific overrides) | The daemon's process environment |
+| `animus-provider-claude` | inherits the Claude CLI's existing auth | The daemon's process environment |
+| `animus-provider-codex` | inherits the Codex CLI's existing auth | The daemon's process environment |
+| future plugins | declared in the plugin's `plugin.toml` `[[env]]` section or its README | The daemon's process environment |
+
+Start the daemon with the necessary env vars exported in its parent shell, for example:
+
+```bash
+LINEAR_API_TOKEN=lin_api_... OPENAI_API_KEY=sk-... animus daemon start --autonomous
+```
+
+### Workflow YAML interpolation (non-secret config)
+
+Workflow YAML supports `${VAR}` interpolation **for non-secret config only** so the same
+YAML can target dev, staging, and prod without edits.
+
+```yaml
+# CORRECT — non-secret config in YAML, secrets from plugin env
+subjects:
+  - id: my-linear
+    backend: linear
+    config:
+      team_id: ${LINEAR_TEAM_ID:-default-team-uuid}
+      api_url: ${LINEAR_API_URL:-https://api.linear.app/graphql}
+
+# LINEAR_API_TOKEN is set in the daemon's environment, NOT here.
+# animus-subject-linear reads it directly from its process env at startup.
+# Run the daemon with: LINEAR_API_TOKEN=lin_api_... animus daemon start
+```
+
+```yaml
+# WRONG — DO NOT DO THIS
+subjects:
+  - id: my-linear
+    backend: linear
+    config:
+      api_token: ${LINEAR_API_TOKEN}   # secrets should not be in YAML at all
+```
+
+The default fallback syntax `${VAR:-default}` is supported; if `VAR` is unset, the literal
+default is used.
+
 ## Environment Variables
 
 The complete v0.4.0 env var surface was renamed from `AO_*` to `ANIMUS_*`. There are no

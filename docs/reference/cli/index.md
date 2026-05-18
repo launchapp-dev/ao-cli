@@ -329,6 +329,28 @@ animus plugin install --url https://example.com/plugin --sha256 a1b2c3d4...
 | `--force` | Overwrite an existing installed plugin with the same name |
 | `--skip-manifest-check` | Skip running `--manifest` against the installed binary to verify it (use sparingly) |
 | `--plugin-dir <PATH>` | Override the plugin install directory. Takes precedence over `$ANIMUS_PLUGIN_DIR`. Defaults to `~/.animus/plugins/` |
+| `--require-signature` | Refuse to install when no cosign signature bundle is published, or when verification fails. Mutually exclusive with `--skip-signature`. Requires `cosign` on `$PATH` |
+| `--skip-signature` | Bypass cosign signature verification entirely. Use this for plugins that haven't adopted signing yet, air-gapped installs, or local-build workflows |
+| `--trusted-signers <PATH>` | Path to a trusted-signers YAML allowlist. Defaults to `~/.animus/trusted-signers.yaml`. When the file is absent, the CLI verifies signatures against the cert's stated repo identity but does not enforce a publisher allowlist |
+
+#### Signature verification (v0.4.x+)
+
+When installing from a public repo, the CLI looks for `<asset>.tar.gz.bundle` next to the binary asset and verifies it via `cosign verify-blob` (sigstore keyless). The outcome (one of `verified`, `unsigned`, `invalid`, `untrusted_signer`, `skipped`) is persisted in `~/.animus/plugins.yaml` and surfaced in the `SIG` column of `animus plugin list`. See [docs/architecture/plugin-signing.md](../../architecture/plugin-signing.md).
+
+- **Default mode** (no flags): verify if a bundle is present, install with `signature_status=verified`; if no bundle, warn and install with `signature_status=unsigned`. A FAILING signature refuses install.
+- **`--require-signature`**: refuse install when no bundle is published or verification fails.
+- **`--skip-signature`**: bypass verification entirely; install records `signature_status=skipped`.
+- **Missing `cosign` binary**: install proceeds and records `signature_status=unsigned`. Install [cosign](https://github.com/sigstore/cosign) to enable verification.
+
+The trusted-signers file format:
+
+```yaml
+trusted_signers:
+  - identity: "launchapp-dev/animus-*"
+    issuer: "https://token.actions.githubusercontent.com"
+```
+
+`identity` is a glob (`*` / `?`) matched against `<owner>/<repo>`. When the file is absent, the default is "any signer is acceptable, but the cosign cert must claim an identity rooted at the repo we downloaded from."
 
 ### `animus plugin list` / `info` / `call` / `ping`
 

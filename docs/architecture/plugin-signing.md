@@ -2,7 +2,9 @@
 
 ## Status
 
-Design — not implemented. Targeted for v0.2 / animus-cli v0.5.
+Implemented in animus-cli v0.4.x and plugin release.yml v0.1.2+. Verification
+shells out to the `cosign` binary; the design assumed Rust-native
+`sigstore-rs` (still planned for v0.5+ — the user-facing CLI surface won't change).
 
 ## Why
 
@@ -121,10 +123,17 @@ Patterns are matched as globs against `<owner>/<repo>`. When `--require-signatur
 
 ## Migration path
 
-- **v0.4.x (current).** Signing is OPTIONAL. The CLI tolerates unsigned plugins. Existing v0.1.x plugins remain installable.
-- **v0.5.x (animus-cli) + v0.2.x (plugin repos).** Signing is ENABLED in the release workflows of all `launchapp-dev/*` plugins. New tags ship signed binaries. The CLI verifies by default and warns on unsigned installs.
+- **v0.4.x (animus-cli) + v0.1.2 (plugin repos) — CURRENT.** Signing is ENABLED in the release workflows of all `launchapp-dev/*` plugins. Tags published from v0.1.2 onward ship signed binaries (`<asset>.tar.gz.bundle` alongside each asset). The animus-cli verifies by default when a bundle is present and warns/installs when one is absent. Verification shells out to the `cosign` binary; when `cosign` isn't on `$PATH`, installs proceed and the registry records `signature_status: unsigned`. Use `--require-signature` to refuse installs that don't verify, `--skip-signature` as an escape hatch.
+- **v0.5.x.** Switch CLI verification from shell-out to in-process via the `sigstore` Rust crate. CLI flag surface stays stable.
 - **v0.6.x.** Default flips to `--require-signature` for installs from `launchapp-dev/*`. Third-party plugins still install with a warning. The escape hatch is `--skip-signature`.
 - **v1.0+.** Unsigned installs are deprecated entirely. `--skip-signature` survives as an explicit opt-out for air-gapped or local-build workflows; everything else must be signed.
+
+## Implementation notes (v0.4.x)
+
+- The trusted-signers config lives at `~/.animus/trusted-signers.yaml` (overridable via `--trusted-signers <PATH>` or `$ANIMUS_TRUSTED_SIGNERS`). When the file is absent, the default is "verify any signer against the cert's stated identity for this repo" — i.e. no allowlist enforcement.
+- The install pipeline records `signature_status` (one of `verified`, `unsigned`, `invalid`, `untrusted_signer`, `skipped`) in `~/.animus/plugins.yaml`. `animus plugin list` surfaces it in the `SIG` column.
+- Strict-mode failures (`Invalid` and `UntrustedSigner` outcomes) abort install before the binary is copied into `~/.animus/plugins/`. `Unsigned` only aborts when `--require-signature` is set.
+- The `cosign` binary requirement is intentionally soft: missing-cosign degrades to `signature_status: unsigned` rather than blocking installs.
 
 ## Open questions
 

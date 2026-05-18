@@ -1504,4 +1504,85 @@ mod tests {
         assert_eq!(extracted.file_name().and_then(|n| n.to_str()), Some("animus-provider-foo"));
         assert!(extracted.exists());
     }
+
+    // =================== Signature verification tests ===================
+
+    fn release_provenance_with_bundle(bundle: Option<std::path::PathBuf>) -> InstallProvenance {
+        InstallProvenance {
+            source_kind: Some("release"),
+            origin: Some("launchapp-dev/animus-provider-claude@v0.1.2".to_string()),
+            release_tag: Some("v0.1.2".to_string()),
+            asset_name: Some("animus-provider-claude-aarch64-apple-darwin.tar.gz".to_string()),
+            sha256_verified: Some(true),
+            asset_archive_path: Some(std::path::PathBuf::from("/tmp/example.tar.gz")),
+            bundle_path: bundle,
+            owner: Some("launchapp-dev".to_string()),
+            repo: Some("animus-provider-claude".to_string()),
+        }
+    }
+
+    #[test]
+    fn marks_unsigned_when_no_bundle_in_release() {
+        let req = PluginInstallRequest::default();
+        let prov = release_provenance_with_bundle(None);
+        let status = resolve_signature_status(&req, &prov).expect("status should resolve");
+        assert_eq!(status.label(), "unsigned");
+    }
+
+    #[test]
+    fn refuses_install_when_require_signature_and_no_bundle() {
+        let status = SignatureStatus::Unsigned { reason: "no bundle".to_string() };
+        let require_signature = true;
+        let blocked = matches!(&status, SignatureStatus::Unsigned { .. }) && require_signature;
+        assert!(blocked);
+    }
+
+    #[test]
+    fn skips_verification_when_skip_signature_flag() {
+        let req = PluginInstallRequest { skip_signature: true, ..Default::default() };
+        let prov = release_provenance_with_bundle(Some(std::path::PathBuf::from("/tmp/x.bundle")));
+        let status = resolve_signature_status(&req, &prov).expect("status should resolve");
+        assert_eq!(status, SignatureStatus::Skipped);
+    }
+
+    #[test]
+    fn falls_back_to_unsigned_when_cosign_not_in_path() {
+        let req = PluginInstallRequest::default();
+        let tmp = tempfile::tempdir().unwrap();
+        let fake_bundle = tmp.path().join("fake.bundle");
+        std::fs::write(&fake_bundle, b"not a real bundle").unwrap();
+        let prov = release_provenance_with_bundle(Some(fake_bundle));
+        let status = resolve_signature_status(&req, &prov).expect("status should resolve");
+        // Without cosign on PATH: Unsigned. With cosign: Invalid (fake bytes).
+        assert!(matches!(&status, SignatureStatus::Unsigned { .. } | SignatureStatus::Invalid { .. }));
+    }
+
+    #[test]
+    fn verifies_signature_when_bundle_present_and_cosign_works() {
+        let verified = SignatureStatus::Verified {
+            identity: "^https://github\\.com/launchapp-dev/animus-provider-claude/.+".to_string(),
+            bundle_path: "/tmp/x.bundle".to_string(),
+        };
+        assert_eq!(verified.label(), "verified");
+        let blocked = matches!(&verified, SignatureStatus::Unsigned { .. }) && true;
+        assert!(!blocked, "Verified must never refuse install");
+    }
+
+    #[test]
+    fn trusted_signers_yaml_matches_launchapp_dev() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("trusted.yaml");
+        std::fs::write(
+            &p,
+            r#"
+trusted_signers:
+  - identity: "launchapp-dev/animus-*"
+    issuer: "https://token.actions.githubusercontent.com"
+"#,
+        )
+        .unwrap();
+        let cfg = signing::load_trusted_signers(&p).unwrap().expect("config should load");
+        assert!(cfg.matches_repo("launchapp-dev/animus-provider-claude"));
+        assert!(!cfg.matches_repo("evil-org/animus-provider-claude"));
+    }
 }

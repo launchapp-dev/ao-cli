@@ -145,6 +145,25 @@ impl DefaultDaemonRunHost {
                     self.logger.warn("plugins", warning.clone()).emit();
                 }
             }
+            DaemonRunEvent::SubjectRouterResolved { plugin_count, kinds, disable_env_set, warnings, .. } => {
+                let summary = if *plugin_count == 0 {
+                    "subject router empty (no subject_backend plugins active)".to_string()
+                } else {
+                    format!("subject router resolved: {plugin_count} plugin(s), kinds={:?}", kinds)
+                };
+                self.logger
+                    .info("plugins", summary)
+                    .meta(json!({
+                        "plugin_count": plugin_count,
+                        "kinds": kinds,
+                        "disable_env_set": disable_env_set,
+                        "warnings": warnings,
+                    }))
+                    .emit();
+                for warning in warnings {
+                    self.logger.warn("plugins", warning.clone()).emit();
+                }
+            }
         }
     }
 
@@ -460,6 +479,18 @@ impl DaemonRunHooks for DefaultDaemonRunHost {
                     "warnings": warnings,
                 }),
             ),
+            DaemonRunEvent::SubjectRouterResolved { project_root, plugin_count, kinds, disable_env_set, warnings } => {
+                self.emit_daemon_event_with_notifications(
+                    "subject-router-resolved",
+                    Some(project_root),
+                    json!({
+                        "plugin_count": plugin_count,
+                        "kinds": kinds,
+                        "disable_env_set": disable_env_set,
+                        "warnings": warnings,
+                    }),
+                )
+            }
         }
     }
 

@@ -167,8 +167,7 @@ pub(crate) async fn run_plugin_search(req: PluginSearchRequest) -> Result<Plugin
 }
 
 fn to_search_row(entry: RegistryPluginEntry) -> PluginSearchRow {
-    let install_command =
-        entry.install_hint.clone().unwrap_or_else(|| format!("animus plugin install {}", entry.repo));
+    let install_command = entry.install_hint.clone().unwrap_or_else(|| format!("animus plugin install {}", entry.repo));
     PluginSearchRow {
         name: entry.name,
         kind: entry.kind,
@@ -395,9 +394,8 @@ pub(crate) async fn run_plugin_update(req: PluginUpdateRequest) -> Result<Plugin
         req.registry_url.clone()
     };
     let registry = fetch_registry_index(&registry_url, req.no_cache).await.ok();
-    let by_name: BTreeMap<String, RegistryPluginEntry> = registry
-        .map(|idx| idx.plugins.into_iter().map(|p| (p.name.clone(), p)).collect())
-        .unwrap_or_default();
+    let by_name: BTreeMap<String, RegistryPluginEntry> =
+        registry.map(|idx| idx.plugins.into_iter().map(|p| (p.name.clone(), p)).collect()).unwrap_or_default();
 
     let mut results: Vec<PluginUpdateRow> = Vec::new();
     let mut updated = 0usize;
@@ -753,7 +751,13 @@ mod tests {
             registry_version: Some("0.1.0".to_string()),
             updated_at: None,
             plugins: vec![
-                entry("animus-subject-linear", "subject_backend", &["linear", "subject"], Some("alpha"), "launchapp-dev"),
+                entry(
+                    "animus-subject-linear",
+                    "subject_backend",
+                    &["linear", "subject"],
+                    Some("alpha"),
+                    "launchapp-dev",
+                ),
                 entry("animus-provider-claude", "provider", &["llm", "claude"], Some("alpha"), "launchapp-dev"),
                 entry("animus-provider-gemini", "provider", &["llm", "google"], Some("stable"), "launchapp-dev"),
                 entry("animus-provider-third-party", "provider", &["llm"], Some("alpha"), "other-org"),

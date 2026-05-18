@@ -22,7 +22,8 @@ const DEFAULT_PLUGIN_REGISTRY_URL_MCP: &str =
 
 fn anyhow_to_mcp_marketplace(err: anyhow::Error) -> McpError {
     let chain: Vec<String> = err.chain().map(|cause| cause.to_string()).collect();
-    if chain.iter().any(|c| c.contains("not found")) || chain.iter().any(|c| c.contains("must") || c.contains("invalid"))
+    if chain.iter().any(|c| c.contains("not found"))
+        || chain.iter().any(|c| c.contains("must") || c.contains("invalid"))
     {
         McpError::invalid_params(chain.join(": "), None)
     } else {

@@ -65,6 +65,8 @@ where
 
     resolve_log_storage_dispatch_for_daemon(project_root, &primary_root, hooks);
 
+    resolve_subject_dispatch_for_daemon(project_root, &primary_root, hooks).await;
+
     // Trigger backend plugins. Off by default behind an env flag mirroring
     // the provider-plugin opt-out shape.
     let trigger_event_queue: Arc<Mutex<Vec<TriggerSupervisorEvent>>> = Arc::new(Mutex::new(Vec::new()));
@@ -255,6 +257,41 @@ fn drain_trigger_events<H: DaemonRunHooks>(
         hooks.handle_event(daemon_event)?;
     }
     Ok(())
+}
+
+/// Resolve which subject-backend plugins the daemon will route through
+/// and emit a [`DaemonRunEvent::SubjectRouterResolved`] so operators see
+/// the choice on every startup. Failures (discovery error, plugin spawn
+/// failure, duplicate-kind collision) are degraded to an empty router
+/// plus a warning rather than aborting startup — a misbehaving subject
+/// plugin must never block the daemon from coming up. CLI `animus subject`
+/// calls against unrouted kinds will surface `NotFound`.
+async fn resolve_subject_dispatch_for_daemon<H: DaemonRunHooks>(project_root: &str, primary_root: &str, hooks: &mut H) {
+    let disable_env_set = crate::subject_plugins_disable_env_set();
+    match crate::resolve_subject_dispatch(Path::new(project_root)).await {
+        Ok(resolution) => {
+            let plugin_count = resolution.selected.plugin_count();
+            let kinds = resolution.selected.kinds().to_vec();
+            let _ = hooks.handle_event(DaemonRunEvent::SubjectRouterResolved {
+                project_root: primary_root.to_string(),
+                plugin_count,
+                kinds,
+                disable_env_set,
+                warnings: resolution.warnings,
+            });
+        }
+        Err(error) => {
+            let _ = hooks.handle_event(DaemonRunEvent::SubjectRouterResolved {
+                project_root: primary_root.to_string(),
+                plugin_count: 0,
+                kinds: Vec::new(),
+                disable_env_set,
+                warnings: vec![format!(
+                    "subject_backend discovery failed; subject CLI calls will return NotFound: {error:#}"
+                )],
+            });
+        }
+    }
 }
 
 /// Resolve which log storage backend the daemon will route through and

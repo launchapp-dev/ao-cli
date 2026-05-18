@@ -138,4 +138,9 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: LogsCommand,
     },
+    /// List, get, create, and update subjects via installed subject_backend plugins.
+    Subject {
+        #[command(subcommand)]
+        command: SubjectCommand,
+    },
 }

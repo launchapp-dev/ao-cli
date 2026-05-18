@@ -3,6 +3,7 @@ mod dispatch;
 mod log_storage;
 mod queue;
 mod schedule;
+mod subject_dispatch;
 mod tick;
 
 pub use daemon::{
@@ -30,6 +31,10 @@ pub use queue::{
 pub use schedule::{
     discover_trigger_plugins, ScheduleDispatch, ScheduleDispatchOutcome, TriggerDispatch, TriggerDispatchOutcome,
     TriggerSupervisor, TriggerSupervisorEvent, TriggerSupervisorSink, MAX_RESTART_ATTEMPTS,
+};
+pub use subject_dispatch::{
+    discover_subject_backends, resolve_subject_dispatch, subject_plugins_disable_env_set, SubjectDispatchResolution,
+    SubjectPluginDispatch, SUBJECT_PLUGINS_DISABLE_ENV,
 };
 pub use tick::{
     default_slim_project_tick_driver, run_project_tick, run_project_tick_at, DefaultProjectTickServices,

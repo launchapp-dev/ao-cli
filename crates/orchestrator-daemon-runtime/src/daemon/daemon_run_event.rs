@@ -108,6 +108,22 @@ pub enum DaemonRunEvent {
         disable_env_set: bool,
         warnings: Vec<String>,
     },
+    /// Resolved which subject-backend plugins the daemon will route
+    /// `<kind>/<verb>` calls through for this run. Emitted once at
+    /// startup, after subject-plugin discovery completes. `plugin_count`
+    /// is the number of installed subject_backend plugins that
+    /// initialized successfully; `kinds` summarizes the manifest-declared
+    /// subject_kind capabilities seen across them. Unlike log storage,
+    /// there is no in-tree fallback — when `plugin_count == 0`, every
+    /// `animus subject <verb>` call returns `NotFound` with the missing
+    /// kind named.
+    SubjectRouterResolved {
+        project_root: String,
+        plugin_count: usize,
+        kinds: Vec<String>,
+        disable_env_set: bool,
+        warnings: Vec<String>,
+    },
     Shutdown {
         project_root: String,
         daemon_pid: u32,

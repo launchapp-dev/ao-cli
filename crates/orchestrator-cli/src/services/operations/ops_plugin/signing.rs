@@ -69,10 +69,7 @@ pub(crate) fn verify_with_cosign(
 
     let output = cmd.output().context("failed to spawn cosign verify-blob")?;
     if output.status.success() {
-        Ok(SignatureStatus::Verified {
-            identity: regex.to_string(),
-            bundle_path: bundle_path.display().to_string(),
-        })
+        Ok(SignatureStatus::Verified { identity: regex.to_string(), bundle_path: bundle_path.display().to_string() })
     } else {
         Ok(SignatureStatus::Invalid {
             identity_pattern: regex.to_string(),

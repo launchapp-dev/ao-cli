@@ -1,10 +1,23 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::time::Duration;
 
 use animus_plugin_protocol::PluginManifest;
 use anyhow::{Context, Result};
 use serde::Deserialize;
+use tokio::io::AsyncReadExt;
+
+use crate::host::PLUGIN_BASE_ENV_ALLOWLIST;
+
+/// Hard ceiling on how long a plugin gets to print its manifest before the
+/// host kills the child and surfaces a discovery warning. Manifests are
+/// static metadata — anything beyond a second is pathological.
+const MANIFEST_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Hard ceiling on bytes the host will buffer from a plugin's stdout during
+/// the `--manifest` probe. A manifest is JSON in the kilobytes; anything
+/// over 1 MiB is either a bug or an attack.
+const MANIFEST_PROBE_MAX_STDOUT: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiscoverySource {
@@ -203,24 +216,153 @@ pub fn discover_plugins(project_root: impl Into<PathBuf>) -> Result<Vec<Discover
     PluginDiscovery::new().with_project_root(project_root).discover()
 }
 
+/// Probe a plugin binary's `--manifest` output.
+///
+/// This is the security-sensitive entry point for plugin discovery: it
+/// executes an arbitrary binary on the user's machine. The probe is
+/// sandboxed to defend against three classes of misbehavior:
+///
+/// 1. **Hangs.** Wrapped in a [`MANIFEST_PROBE_TIMEOUT`] (5s) — if the
+///    plugin blocks on stdin or sleeps, the child is killed via
+///    `kill_on_drop(true)` and the caller sees a clear timeout error.
+/// 2. **Memory bombs.** Stdout is capped at
+///    [`MANIFEST_PROBE_MAX_STDOUT`] (1 MiB) — manifests are small JSON,
+///    anything bigger is rejected before the host allocates more memory.
+/// 3. **Env leakage.** The child's environment is scrubbed via
+///    `env_clear()` and only [`PLUGIN_BASE_ENV_ALLOWLIST`] is forwarded
+///    — the manifest probe never needs API credentials, and any plugin
+///    that asks for them during `--manifest` has a bug.
+///
+/// The function is sync (its callers are sync); internally it spawns a
+/// dedicated single-threaded tokio runtime on a worker thread so it
+/// remains safe to call from inside an outer tokio runtime as well as
+/// from plain sync code.
 pub fn fetch_manifest(path: &Path) -> Result<PluginManifest> {
-    let output =
-        Command::new(path).arg("--manifest").output().with_context(|| format!("failed to run {}", path.display()))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let trimmed = stderr.trim();
-        if trimmed.is_empty() {
-            anyhow::bail!("plugin manifest command failed for {} (exit={:?})", path.display(), output.status.code());
-        }
-        anyhow::bail!(
-            "plugin manifest command failed for {} (exit={:?}): {}",
-            path.display(),
-            output.status.code(),
-            trimmed
-        );
+    let owned_path = path.to_path_buf();
+    let join_result = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_io()
+            .enable_time()
+            .build()
+            .context("failed to build manifest-probe runtime")?;
+        runtime.block_on(fetch_manifest_inner(&owned_path))
+    })
+    .join();
+
+    match join_result {
+        Ok(result) => result,
+        Err(_) => anyhow::bail!("manifest probe worker thread panicked for {}", path.display()),
     }
-    serde_json::from_slice(&output.stdout)
-        .with_context(|| format!("plugin {} returned malformed --manifest JSON", path.display()))
+}
+
+async fn fetch_manifest_inner(path: &Path) -> Result<PluginManifest> {
+    let mut command = tokio::process::Command::new(path);
+    command
+        .arg("--manifest")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+
+    // Scrub the daemon's environment before invoking the plugin. The same
+    // allowlist used by full plugin spawns (host.rs) — manifest probes
+    // never legitimately need plugin-declared env_required, since they
+    // only print static metadata. A plugin that needs API credentials to
+    // emit its manifest is a plugin bug, not a host concern.
+    let allow: BTreeSet<&str> = PLUGIN_BASE_ENV_ALLOWLIST.iter().copied().collect();
+    command.env_clear();
+    for var in &allow {
+        if let Some(value) = std::env::var_os(var) {
+            command.env(var, value);
+        }
+    }
+
+    let mut child = command.spawn().with_context(|| format!("failed to run {}", path.display()))?;
+    let mut stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("failed to capture plugin stdout"))?;
+    let mut stderr = child.stderr.take().ok_or_else(|| anyhow::anyhow!("failed to capture plugin stderr"))?;
+
+    let probe = async {
+        let mut stdout_buf: Vec<u8> = Vec::with_capacity(8 * 1024);
+        let mut stderr_buf: Vec<u8> = Vec::with_capacity(4 * 1024);
+        let mut stdout_done = false;
+        let mut stderr_done = false;
+        let mut stdout_chunk = [0u8; 8 * 1024];
+        let mut stderr_chunk = [0u8; 4 * 1024];
+
+        // Interleave stdout/stderr reads so a plugin can't deadlock us by
+        // filling one pipe while we wait on the other. Bail the moment
+        // stdout exceeds the cap so the child can be killed before it
+        // produces more data.
+        while !stdout_done || !stderr_done {
+            tokio::select! {
+                read = stdout.read(&mut stdout_chunk), if !stdout_done => {
+                    let n = read.with_context(|| format!("failed to read stdout from {}", path.display()))?;
+                    if n == 0 {
+                        stdout_done = true;
+                    } else if stdout_buf.len() + n > MANIFEST_PROBE_MAX_STDOUT {
+                        anyhow::bail!(
+                            "plugin produced >1MiB on stdout for --manifest probe at {}; refusing to load",
+                            path.display()
+                        );
+                    } else {
+                        stdout_buf.extend_from_slice(&stdout_chunk[..n]);
+                    }
+                }
+                read = stderr.read(&mut stderr_chunk), if !stderr_done => {
+                    let n = read.with_context(|| format!("failed to read stderr from {}", path.display()))?;
+                    if n == 0 {
+                        stderr_done = true;
+                    } else if stderr_buf.len() + n > MANIFEST_PROBE_MAX_STDOUT {
+                        // Stderr cap mirrors stdout's — a plugin spewing
+                        // GBs of stderr would wedge discovery too.
+                        anyhow::bail!(
+                            "plugin produced >1MiB on stderr for --manifest probe at {}; refusing to load",
+                            path.display()
+                        );
+                    } else {
+                        stderr_buf.extend_from_slice(&stderr_chunk[..n]);
+                    }
+                }
+            }
+        }
+
+        let status = child.wait().await.with_context(|| format!("failed to wait on {}", path.display()))?;
+
+        if !status.success() {
+            let stderr_text = String::from_utf8_lossy(&stderr_buf);
+            let trimmed = stderr_text.trim();
+            if trimmed.is_empty() {
+                anyhow::bail!("plugin manifest command failed for {} (exit={:?})", path.display(), status.code());
+            }
+            anyhow::bail!(
+                "plugin manifest command failed for {} (exit={:?}): {}",
+                path.display(),
+                status.code(),
+                trimmed
+            );
+        }
+
+        serde_json::from_slice::<PluginManifest>(&stdout_buf)
+            .with_context(|| format!("plugin {} returned malformed --manifest JSON", path.display()))
+    };
+
+    // Drive the probe under an overall deadline. When the timeout fires
+    // (or when probe returns Err early), `child` is dropped and
+    // `kill_on_drop` reaps the still-running process so we don't leak it.
+    match tokio::time::timeout(MANIFEST_PROBE_TIMEOUT, probe).await {
+        Ok(result) => result,
+        Err(_) => {
+            // Explicitly kill before drop so the reap is synchronous —
+            // `kill_on_drop` schedules the reap async, and we want the
+            // child gone before this function returns.
+            let _ = child.start_kill();
+            anyhow::bail!(
+                "plugin manifest probe timed out after {}s for {}",
+                MANIFEST_PROBE_TIMEOUT.as_secs(),
+                path.display()
+            )
+        }
+    }
 }
 
 fn scan_dir(
@@ -616,5 +758,99 @@ mod tests {
             resolved, legacy_file,
             "default_config_path() must fall back to the legacy location when canonical is absent"
         );
+    }
+
+    // ---- fetch_manifest sandboxing (gap #10) -----------------------------
+
+    #[cfg(unix)]
+    #[test]
+    fn fetch_manifest_kills_hanging_plugin_after_timeout() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let plugin = temp.path().join("animus-plugin-hang");
+        // Sleep forever — discovery used to wait synchronously and freeze.
+        fs::write(&plugin, "#!/bin/sh\nsleep 600\n").expect("write plugin");
+        let mut perms = fs::metadata(&plugin).expect("metadata").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&plugin, perms).expect("chmod");
+
+        let started = std::time::Instant::now();
+        let result = fetch_manifest(&plugin);
+        let elapsed = started.elapsed();
+
+        let err = result.expect_err("hanging plugin must not return a manifest");
+        let reason = format!("{err:#}");
+        assert!(reason.contains("timed out"), "error must mention timeout, got: {reason}");
+        assert!(
+            reason.contains(plugin.display().to_string().as_str()),
+            "error must mention the plugin path so operators can debug, got: {reason}"
+        );
+        // Allow generous slack over the 5s budget — CI machines are slow.
+        assert!(
+            elapsed < std::time::Duration::from_secs(15),
+            "fetch_manifest must return promptly after timeout, took {elapsed:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fetch_manifest_kills_plugin_that_overruns_stdout_cap() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let plugin = temp.path().join("animus-plugin-spew");
+        // Use `yes` to produce well over 1 MiB of stdout very quickly.
+        // `head -c 4194304` is portable and bounds the worst case in case
+        // our stdout cap fails — we don't want to fill the test runner's
+        // disk.
+        fs::write(
+            &plugin,
+            "#!/bin/sh\n# print ~4 MiB of garbage to stdout to overrun the 1 MiB cap\nyes 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' | head -c 4194304\n",
+        )
+        .expect("write plugin");
+        let mut perms = fs::metadata(&plugin).expect("metadata").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&plugin, perms).expect("chmod");
+
+        let err = fetch_manifest(&plugin).expect_err("plugin that exceeds stdout cap must fail");
+        let reason = format!("{err:#}");
+        assert!(
+            reason.contains(">1MiB") || reason.contains("1MiB"),
+            "error must mention the stdout cap, got: {reason}"
+        );
+        assert!(
+            reason.contains(plugin.display().to_string().as_str()),
+            "error must mention the plugin path, got: {reason}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fetch_manifest_scrubs_secret_env_vars_from_plugin() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _guard = ENV_GUARD.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let plugin = temp.path().join("animus-plugin-snoop");
+        // The plugin echoes a placeholder manifest if the secret is NOT
+        // visible, otherwise it fails with the secret value. We use a
+        // unique env name so it doesn't collide with the rest of the
+        // test suite's env state.
+        let secret_name = "ANIMUS_TEST_MANIFEST_PROBE_SECRET_XYZ";
+        let script = format!(
+            "#!/bin/sh\nif [ -n \"${{{}}}\" ]; then\n  echo 'plugin saw secret: '${{{}}} >&2\n  exit 17\nfi\nprintf '{{\"name\":\"snoop\",\"version\":\"0.1.0\",\"plugin_kind\":\"custom\",\"description\":\"t\",\"protocol_version\":\"1.0.0\",\"capabilities\":[]}}\\n'\n",
+            secret_name, secret_name
+        );
+        fs::write(&plugin, script).expect("write plugin");
+        let mut perms = fs::metadata(&plugin).expect("metadata").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&plugin, perms).expect("chmod");
+
+        let _secret = EnvVarGuard::set(secret_name, "sensitive-value-do-not-leak");
+
+        let manifest = fetch_manifest(&plugin).expect("manifest probe must succeed when env is scrubbed");
+        assert_eq!(manifest.name, "snoop", "manifest must round-trip when secret is scrubbed");
     }
 }

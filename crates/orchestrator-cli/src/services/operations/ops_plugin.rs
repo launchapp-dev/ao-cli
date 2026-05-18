@@ -341,7 +341,17 @@ pub(crate) async fn run_plugin_install(req: PluginInstallRequest) -> Result<Plug
         return Err(invalid_input_error("--require-signature and --skip-signature are mutually exclusive"));
     }
 
-    let (source_path, default_name, provenance) = if let Some(slug) = req.source.as_deref() {
+    // `_install_temp` keeps the install-staging directory alive for the
+    // remainder of this function. It drops at the end (RAII) so the
+    // tempdir is reliably cleaned up whether install succeeds, errors,
+    // or returns early — closing the GBs-of-`animus-plugin-install-*`
+    // accumulation the old `std::env::temp_dir().join(uuid)` left behind.
+    let (source_path, default_name, provenance, _install_temp): (
+        PathBuf,
+        String,
+        InstallProvenance,
+        Option<tempfile::TempDir>,
+    ) = if let Some(slug) = req.source.as_deref() {
         let spec = parse_repo_spec(slug)?;
         let release = resolve_release_install(spec, req.tag.clone()).await?;
         let provenance = InstallProvenance {
@@ -355,22 +365,22 @@ pub(crate) async fn run_plugin_install(req: PluginInstallRequest) -> Result<Plug
             owner: Some(release.owner.clone()),
             repo: Some(release.repo.clone()),
         };
-        (release.binary_path, release.plugin_name_hint, provenance)
+        (release.binary_path, release.plugin_name_hint, provenance, Some(release._temp_dir))
     } else if let Some(p) = req.path.as_deref() {
-        (PathBuf::from(p), String::new(), InstallProvenance { source_kind: Some("path"), ..Default::default() })
+        (PathBuf::from(p), String::new(), InstallProvenance { source_kind: Some("path"), ..Default::default() }, None)
     } else if let Some(u) = req.url.as_deref() {
         let expected = req
             .sha256
             .as_deref()
             .ok_or_else(|| invalid_input_error("sha256 is required when installing from a URL"))?;
-        let path = fetch_url_to_temp(u, expected).await?;
+        let (path, temp_dir) = fetch_url_to_temp(u, expected).await?;
         let provenance = InstallProvenance {
             source_kind: Some("url"),
             origin: Some(u.to_string()),
             sha256_verified: Some(true),
             ..Default::default()
         };
-        (path, String::new(), provenance)
+        (path, String::new(), provenance, Some(temp_dir))
     } else {
         unreachable!("validated above");
     };
@@ -814,7 +824,31 @@ fn ensure_executable(_path: &Path) -> Result<()> {
     Ok(())
 }
 
-async fn fetch_url_to_temp(url: &str, expected_sha256: &str) -> Result<PathBuf> {
+/// Create a fresh staging directory for a plugin install under
+/// `$TMPDIR/animus-plugin-install-<random>`.
+///
+/// Returns a [`tempfile::TempDir`] guard — when it drops, the directory
+/// is removed recursively via RAII. The pre-fix code used
+/// `std::env::temp_dir().join(uuid)` and never cleaned up, accumulating
+/// GBs of orphaned install dirs over time on power-user machines.
+fn create_install_staging_dir() -> Result<tempfile::TempDir> {
+    tempfile::Builder::new()
+        .prefix("animus-plugin-install-")
+        .tempdir()
+        .context("failed to create plugin install staging dir")
+}
+
+/// Download a plugin asset from `url` to a freshly created staging
+/// directory and verify its sha256.
+///
+/// Returns the on-disk path of the downloaded file **and** the
+/// [`tempfile::TempDir`] guard that owns the staging directory. The
+/// caller MUST keep the `TempDir` alive until it has copied the binary
+/// to its final home — when the guard drops, the staging dir (and the
+/// returned path inside it) are deleted via RAII. This closes the GB-of-
+/// orphaned-`animus-plugin-install-*` dirs leak that accumulated under
+/// `$TMPDIR` over time.
+async fn fetch_url_to_temp(url: &str, expected_sha256: &str) -> Result<(PathBuf, tempfile::TempDir)> {
     if !url.starts_with("https://") {
         return Err(invalid_input_error("--url must use https://"));
     }
@@ -834,13 +868,12 @@ async fn fetch_url_to_temp(url: &str, expected_sha256: &str) -> Result<PathBuf> 
         )));
     }
 
-    let temp_dir = std::env::temp_dir().join(format!("animus-plugin-install-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&temp_dir)?;
+    let temp_dir = create_install_staging_dir()?;
     let filename = url.rsplit('/').next().unwrap_or("plugin");
-    let dest = temp_dir.join(filename);
+    let dest = temp_dir.path().join(filename);
     std::fs::write(&dest, &bytes)
         .with_context(|| format!("failed to write downloaded plugin to {}", dest.display()))?;
-    Ok(dest)
+    Ok((dest, temp_dir))
 }
 
 // ===== Public-repo (GitHub release) install support =====
@@ -1058,9 +1091,21 @@ async fn download_text(url: &str) -> Result<String> {
     response.text().await.with_context(|| format!("failed to read body from {url}"))
 }
 
-/// Extract a `.tar.gz` archive into `dest_dir`. Returns the path of the
-/// first regular file found inside the archive (the plugin binary).
-fn extract_tarball(archive: &Path, dest_dir: &Path) -> Result<PathBuf> {
+/// Extract a `.tar.gz` archive into `dest_dir` and pick the plugin binary
+/// out of the extracted tree.
+///
+/// Selection priority (deterministic — `first_file()` was order-dependent
+/// and silently installed READMEs):
+///
+/// 1. A regular file whose basename matches `expected_name` exactly (with
+///    or without a `.exe` suffix).
+/// 2. If exactly one extracted file has any execute bit set, use it.
+/// 3. Otherwise, error with a list of every extracted file so the operator
+///    can see why the install was rejected.
+///
+/// `expected_name` is the plugin name derived from the install source —
+/// typically the GitHub repo basename (`animus-provider-claude`).
+fn extract_tarball(archive: &Path, dest_dir: &Path, expected_name: &str) -> Result<PathBuf> {
     let file = std::fs::File::open(archive).with_context(|| format!("failed to open {}", archive.display()))?;
     let gz = flate2::read::GzDecoder::new(file);
     let mut tar_reader = tar::Archive::new(gz);
@@ -1070,24 +1115,68 @@ fn extract_tarball(archive: &Path, dest_dir: &Path) -> Result<PathBuf> {
         .unpack(dest_dir)
         .with_context(|| format!("failed to extract {} into {}", archive.display(), dest_dir.display()))?;
 
-    fn first_file(dir: &Path) -> Result<Option<PathBuf>> {
+    fn collect_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
         for entry in std::fs::read_dir(dir)? {
             let entry = entry?;
             let path = entry.path();
             let metadata = entry.metadata()?;
             if metadata.is_file() {
-                return Ok(Some(path));
-            }
-            if metadata.is_dir() {
-                if let Some(found) = first_file(&path)? {
-                    return Ok(Some(found));
-                }
+                out.push(path);
+            } else if metadata.is_dir() {
+                collect_files(&path, out)?;
             }
         }
-        Ok(None)
+        Ok(())
     }
 
-    first_file(dest_dir)?.ok_or_else(|| anyhow!("tarball {} contained no regular files", archive.display()))
+    let mut files = Vec::new();
+    collect_files(dest_dir, &mut files)?;
+    if files.is_empty() {
+        return Err(anyhow!("tarball {} contained no regular files", archive.display()));
+    }
+
+    // 1. Exact basename match (with or without `.exe`).
+    if let Some(matched) = files.iter().find(|path| {
+        let Some(base) = path.file_name().and_then(|n| n.to_str()) else {
+            return false;
+        };
+        base.eq_ignore_ascii_case(expected_name) || base.eq_ignore_ascii_case(&format!("{expected_name}.exe"))
+    }) {
+        return Ok(matched.clone());
+    }
+
+    // 2. Sole executable.
+    let executables: Vec<&PathBuf> = files.iter().filter(|p| is_executable_file(p)).collect();
+    if executables.len() == 1 {
+        return Ok(executables[0].clone());
+    }
+
+    // 3. Ambiguous — list every file we extracted so operators can see why
+    //    we refused to guess.
+    let names: Vec<String> = files
+        .iter()
+        .filter_map(|p| p.strip_prefix(dest_dir).ok().and_then(|rel| rel.to_str()).map(str::to_string))
+        .collect();
+    Err(anyhow!(
+        "could not determine which file is the plugin binary in {}; expected one named '{}'. Extracted files: [{}]",
+        archive.display(),
+        expected_name,
+        names.join(", ")
+    ))
+}
+
+#[cfg(unix)]
+fn is_executable_file(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path).map(|m| m.is_file() && (m.permissions().mode() & 0o111) != 0).unwrap_or(false)
+}
+
+#[cfg(not(unix))]
+fn is_executable_file(path: &Path) -> bool {
+    // On non-unix targets the executable bit isn't a stable signal — fall
+    // back to existence + regular-file. Selection then relies on the
+    // basename-match path (which is the common case for our releases).
+    std::fs::metadata(path).map(|m| m.is_file()).unwrap_or(false)
 }
 
 /// Result of resolving a public-repo install source.
@@ -1107,6 +1196,12 @@ struct ReleaseInstall {
     owner: String,
     /// `<repo>` of the GitHub repo, for identity matching.
     repo: String,
+    /// RAII guard for the staging directory the asset was downloaded into.
+    /// All paths above point inside this guard's directory; the caller
+    /// must keep `_temp_dir` alive until the binary has been copied to
+    /// its final home. Dropping the guard recursively removes the staging
+    /// dir — closes the `$TMPDIR/animus-plugin-install-*` leak.
+    _temp_dir: tempfile::TempDir,
 }
 
 async fn resolve_release_install(spec: RepoSpec, explicit_tag: Option<String>) -> Result<ReleaseInstall> {
@@ -1143,10 +1238,14 @@ async fn resolve_release_install(spec: RepoSpec, explicit_tag: Option<String>) -
         ))
     })?;
 
-    let temp_dir = std::env::temp_dir().join(format!("animus-plugin-install-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&temp_dir).with_context(|| format!("failed to create temp dir {}", temp_dir.display()))?;
+    // RAII staging dir — drops when `ReleaseInstall` drops. Replaces the
+    // pre-fix `std::env::temp_dir().join(uuid)` that was created and
+    // never cleaned up, accumulating GBs of orphaned staging dirs under
+    // `$TMPDIR` over time.
+    let temp_dir = create_install_staging_dir()?;
+    let temp_path = temp_dir.path().to_path_buf();
 
-    let asset_path = temp_dir.join(&asset.name);
+    let asset_path = temp_path.join(&asset.name);
     download_to_path(&asset.browser_download_url, &asset_path).await?;
 
     // Resolve expected SHA256: sidecar asset > release `digest` field.
@@ -1194,10 +1293,16 @@ async fn resolve_release_install(spec: RepoSpec, explicit_tag: Option<String>) -
     }
 
     // Extract if tarball; otherwise treat as a bare binary.
+    // The expected plugin binary basename is the GitHub repo name —
+    // releases publish `animus-provider-foo-<target>.tar.gz` containing a
+    // single binary named `animus-provider-foo`. Passing the repo name
+    // lets `extract_tarball` deterministically reject tarballs that ship
+    // README/LICENSE alongside the binary instead of installing whatever
+    // happened to come back first in walk order.
     let lower = asset.name.to_ascii_lowercase();
     let binary_path = if lower.ends_with(".tar.gz") || lower.ends_with(".tgz") {
-        let extract_dir = temp_dir.join("extracted");
-        extract_tarball(&asset_path, &extract_dir)?
+        let extract_dir = temp_path.join("extracted");
+        extract_tarball(&asset_path, &extract_dir, &spec.repo)?
     } else {
         asset_path.clone()
     };
@@ -1206,7 +1311,7 @@ async fn resolve_release_install(spec: RepoSpec, explicit_tag: Option<String>) -
     // the original archive (not the extracted binary).
     let bundle_path = match find_bundle_sidecar(&release.assets, &asset.name) {
         Some(bundle_asset) => {
-            let local = temp_dir.join(&bundle_asset.name);
+            let local = temp_path.join(&bundle_asset.name);
             match download_to_path(&bundle_asset.browser_download_url, &local).await {
                 Ok(()) => Some(local),
                 Err(err) => {
@@ -1236,6 +1341,7 @@ async fn resolve_release_install(spec: RepoSpec, explicit_tag: Option<String>) -
         bundle_path,
         owner: spec.owner.clone(),
         repo: spec.repo.clone(),
+        _temp_dir: temp_dir,
     })
 }
 
@@ -1707,7 +1813,7 @@ mod tests {
     }
 
     #[test]
-    fn extract_tarball_returns_first_file() {
+    fn extract_tarball_returns_named_binary() {
         use std::io::Write;
         let dir = tempfile::tempdir().unwrap();
         let archive_path = dir.path().join("plugin.tar.gz");
@@ -1723,9 +1829,183 @@ mod tests {
         }
 
         let extract_dir = dir.path().join("extracted");
-        let extracted = extract_tarball(&archive_path, &extract_dir).unwrap();
+        let extracted = extract_tarball(&archive_path, &extract_dir, "animus-provider-foo").unwrap();
         assert_eq!(extracted.file_name().and_then(|n| n.to_str()), Some("animus-provider-foo"));
         assert!(extracted.exists());
+    }
+
+    /// Tarball containing README + LICENSE alongside the binary. Pre-fix
+    /// behavior installed the README. With basename matching the binary
+    /// always wins.
+    #[test]
+    fn extract_tarball_prefers_matching_basename() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let archive_path = dir.path().join("plugin.tar.gz");
+
+        // Write three files into a staging dir, then archive all three.
+        let staging = dir.path().join("staging");
+        std::fs::create_dir_all(&staging).unwrap();
+        let readme = staging.join("README.md");
+        let license = staging.join("LICENSE");
+        let binary = staging.join("animus-provider-foo");
+        std::fs::File::create(&readme).unwrap().write_all(b"# Foo Plugin\n").unwrap();
+        std::fs::File::create(&license).unwrap().write_all(b"MIT\n").unwrap();
+        std::fs::File::create(&binary).unwrap().write_all(b"#!/bin/sh\necho ok\n").unwrap();
+
+        let file = std::fs::File::create(&archive_path).unwrap();
+        let enc = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+        let mut builder = tar::Builder::new(enc);
+        builder.append_path_with_name(&readme, "README.md").unwrap();
+        builder.append_path_with_name(&license, "LICENSE").unwrap();
+        builder.append_path_with_name(&binary, "animus-provider-foo").unwrap();
+        let enc = builder.into_inner().unwrap();
+        enc.finish().unwrap();
+
+        let extract_dir = dir.path().join("extracted");
+        let extracted = extract_tarball(&archive_path, &extract_dir, "animus-provider-foo").unwrap();
+        assert_eq!(
+            extracted.file_name().and_then(|n| n.to_str()),
+            Some("animus-provider-foo"),
+            "basename match must win even when README/LICENSE come first in walk order"
+        );
+    }
+
+    /// No file name-matches the expected plugin name, but exactly one is
+    /// executable. The executable wins. Mirrors releases that publish
+    /// `<plugin>-<version>` style binaries.
+    #[cfg(unix)]
+    #[test]
+    fn extract_tarball_picks_only_executable_when_no_name_match() {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let archive_path = dir.path().join("plugin.tar.gz");
+
+        let staging = dir.path().join("staging");
+        std::fs::create_dir_all(&staging).unwrap();
+        let readme = staging.join("README.md");
+        let binary = staging.join("animus-provider-foo-v0.1.0");
+        std::fs::File::create(&readme).unwrap().write_all(b"# readme\n").unwrap();
+        std::fs::File::create(&binary).unwrap().write_all(b"#!/bin/sh\necho ok\n").unwrap();
+        // Mark the binary executable; README stays mode 0o644.
+        let mut perms = std::fs::metadata(&binary).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&binary, perms).unwrap();
+
+        let file = std::fs::File::create(&archive_path).unwrap();
+        let enc = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+        let mut builder = tar::Builder::new(enc);
+        builder.append_path_with_name(&readme, "README.md").unwrap();
+        builder.append_path_with_name(&binary, "animus-provider-foo-v0.1.0").unwrap();
+        let enc = builder.into_inner().unwrap();
+        enc.finish().unwrap();
+
+        let extract_dir = dir.path().join("extracted");
+        let extracted = extract_tarball(&archive_path, &extract_dir, "animus-provider-foo").unwrap();
+        assert_eq!(
+            extracted.file_name().and_then(|n| n.to_str()),
+            Some("animus-provider-foo-v0.1.0"),
+            "the sole executable must win when no basename matches"
+        );
+    }
+
+    // =================== Tempdir cleanup tests (gap #13) ===================
+    //
+    // The pre-fix code created `std::env::temp_dir().join(uuid)` and
+    // never removed it; the fix wraps creation in a [`tempfile::TempDir`]
+    // RAII guard. These tests track the *specific* staging dir created
+    // by `create_install_staging_dir()` (uuid-suffixed, can't collide
+    // with parallel tests' tempdirs) and assert it disappears once the
+    // guard drops — both on the happy path and when a downstream step
+    // errors before the binary is copied to its final home.
+
+    /// On success: the staging dir lives until the `TempDir` guard is
+    /// dropped, then disappears. Mirrors the install pipeline's
+    /// contract: caller holds the guard while copying out the binary,
+    /// then drops it.
+    #[test]
+    fn install_staging_dir_cleaned_up_on_success() {
+        let staging_path: PathBuf;
+        {
+            let staging = create_install_staging_dir().expect("create staging");
+            staging_path = staging.path().to_path_buf();
+            assert!(staging_path.exists(), "staging dir should exist while guard is held");
+            // Sanity: the dir lives in the platform temp dir and uses
+            // the documented `animus-plugin-install-` prefix so logs and
+            // cleanup scripts can find it.
+            let basename = staging_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            assert!(
+                basename.starts_with("animus-plugin-install-"),
+                "staging dir basename must start with `animus-plugin-install-`, got '{basename}'"
+            );
+            assert!(
+                staging_path.starts_with(std::env::temp_dir()),
+                "staging dir must live under the platform temp dir, got {staging_path:?}"
+            );
+        } // drop
+
+        // After: RAII removed the staging dir.
+        assert!(!staging_path.exists(), "staging dir must be removed when TempDir drops; leaked: {staging_path:?}");
+    }
+
+    /// On failure: even when the caller errors after creating the
+    /// staging dir, the RAII guard drop still cleans it up. Simulates
+    /// "download then sha256 mismatch" / "extraction failed" /
+    /// "manifest probe rejected" paths.
+    #[test]
+    fn install_staging_dir_cleaned_up_on_failure() {
+        let staging_path: PathBuf = (|| -> Result<PathBuf> {
+            let staging = create_install_staging_dir()?;
+            let path = staging.path().to_path_buf();
+            // Mirror the real install pipeline: write a "download" into
+            // the staging dir, then fail before copying it out.
+            std::fs::write(path.join("downloaded.tar.gz"), b"bytes")?;
+            assert!(path.exists());
+            // Return the path — `staging` drops here as it leaves the
+            // closure, simulating the install function returning Err.
+            Ok(path)
+        })()
+        .expect("setup must not fail");
+
+        assert!(
+            !staging_path.exists(),
+            "staging dir must be removed even when the install path errored before copy; leaked: {staging_path:?}"
+        );
+    }
+
+    /// Tarball with two non-matching, non-executable files. We must error
+    /// loudly and list every file rather than silently install whichever
+    /// came back first.
+    #[test]
+    fn extract_tarball_errors_clearly_on_ambiguous_content() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let archive_path = dir.path().join("plugin.tar.gz");
+
+        let staging = dir.path().join("staging");
+        std::fs::create_dir_all(&staging).unwrap();
+        let readme = staging.join("README.md");
+        let license = staging.join("LICENSE");
+        std::fs::File::create(&readme).unwrap().write_all(b"# readme\n").unwrap();
+        std::fs::File::create(&license).unwrap().write_all(b"MIT\n").unwrap();
+
+        let file = std::fs::File::create(&archive_path).unwrap();
+        let enc = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+        let mut builder = tar::Builder::new(enc);
+        builder.append_path_with_name(&readme, "README.md").unwrap();
+        builder.append_path_with_name(&license, "LICENSE").unwrap();
+        let enc = builder.into_inner().unwrap();
+        enc.finish().unwrap();
+
+        let extract_dir = dir.path().join("extracted");
+        let err = extract_tarball(&archive_path, &extract_dir, "animus-provider-foo")
+            .expect_err("ambiguous tarball must not silently install");
+        let reason = format!("{err:#}");
+        assert!(reason.contains("animus-provider-foo"), "error must name expected plugin, got: {reason}");
+        assert!(reason.contains("README.md"), "error must list README.md, got: {reason}");
+        assert!(reason.contains("LICENSE"), "error must list LICENSE, got: {reason}");
     }
 
     // =================== Signature verification tests ===================

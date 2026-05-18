@@ -453,11 +453,92 @@ fn triggers_disabled_env() -> bool {
     std::env::var("ANIMUS_DAEMON_DISABLE_TRIGGERS").map(|v| v != "0" && !v.is_empty()).unwrap_or(false)
 }
 
+/// Reserved key prefix for routing metadata the supervisor injects into the
+/// WebhookEvent payload. Keys under this prefix carry the
+/// `TriggerEvent.subject_id`, `subject_kind`, `action_hint`, and `event_id`
+/// fields that the plugin emitted — downstream tick handlers and workflow
+/// YAML branch on these without losing context.
+///
+/// We use a double-underscore namespace because:
+/// 1. JSON keys starting with `__` are universally treated as
+///    "framework-reserved" by convention.
+/// 2. The reserved keys are namespaced under `__animus_*` so a plugin payload
+///    containing its own `subject_id` or `action_hint` cannot collide with the
+///    routing metadata.
+pub(crate) const RESERVED_KEY_PREFIX: &str = "__animus_";
+pub(crate) const RESERVED_KEY_SUBJECT_ID: &str = "__animus_subject_id";
+pub(crate) const RESERVED_KEY_SUBJECT_KIND: &str = "__animus_subject_kind";
+pub(crate) const RESERVED_KEY_ACTION_HINT: &str = "__animus_action_hint";
+pub(crate) const RESERVED_KEY_EVENT_ID: &str = "__animus_event_id";
+pub(crate) const RESERVED_KEY_TRIGGER_ID: &str = "__animus_trigger_id";
+
+/// Build the WebhookEvent payload from a plugin-emitted [`TriggerEvent`].
+///
+/// Merge strategy:
+///
+/// 1. Start with the plugin-supplied `event.payload` if it is an object;
+///    otherwise wrap a scalar/array under `{ "value": <payload> }`.
+/// 2. Strip any keys the caller supplied under the [`RESERVED_KEY_PREFIX`]
+///    namespace. The `__animus_*` namespace is reserved for the supervisor;
+///    a malicious or careless plugin that tries to spoof its own
+///    `__animus_subject_id` is silently sandboxed by being moved under
+///    `__animus_user_overrides`.
+/// 3. Inject the supervisor's authoritative `subject_id`, `subject_kind`,
+///    `action_hint`, `event_id`, and `trigger_id` (when present) under the
+///    reserved keys.
+fn build_routed_payload(event: &TriggerEvent) -> serde_json::Value {
+    let user_payload = if event.payload.is_null() { serde_json::json!({}) } else { event.payload.clone() };
+    let mut object = match user_payload {
+        serde_json::Value::Object(map) => map,
+        other => {
+            let mut map = serde_json::Map::new();
+            map.insert("value".to_string(), other);
+            map
+        }
+    };
+
+    // Sandbox any caller-supplied reserved keys. We don't simply drop them
+    // because that would silently lose data; we move them under a single
+    // sub-object so downstream handlers can still see them for forensics if
+    // ever needed, but they cannot impersonate the supervisor's metadata.
+    let mut sandboxed: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+    let conflicting_keys: Vec<String> = object.keys().filter(|k| k.starts_with(RESERVED_KEY_PREFIX)).cloned().collect();
+    for key in conflicting_keys {
+        if let Some(value) = object.remove(&key) {
+            sandboxed.insert(key, value);
+        }
+    }
+    if !sandboxed.is_empty() {
+        object.insert("__animus_user_overrides".to_string(), serde_json::Value::Object(sandboxed));
+    }
+
+    if let Some(ref subject_id) = event.subject_id {
+        object.insert(RESERVED_KEY_SUBJECT_ID.to_string(), serde_json::Value::String(subject_id.clone()));
+    }
+    if let Some(ref subject_kind) = event.subject_kind {
+        object.insert(RESERVED_KEY_SUBJECT_KIND.to_string(), serde_json::Value::String(subject_kind.clone()));
+    }
+    if let Some(ref action_hint) = event.action_hint {
+        object.insert(RESERVED_KEY_ACTION_HINT.to_string(), serde_json::Value::String(action_hint.clone()));
+    }
+    object.insert(RESERVED_KEY_EVENT_ID.to_string(), serde_json::Value::String(event.event_id.clone()));
+    if let Some(ref trigger_id) = event.trigger_id {
+        object.insert(RESERVED_KEY_TRIGGER_ID.to_string(), serde_json::Value::String(trigger_id.clone()));
+    }
+
+    serde_json::Value::Object(object)
+}
+
 /// Append a plugin-emitted event to the matching trigger's `pending_events`.
 ///
 /// Returns `true` if the event was queued against a known trigger id, `false`
 /// otherwise. Unmatched events are logged but not enqueued — there's nowhere
 /// to route them to without a configured `workflow_ref`.
+///
+/// The `TriggerEvent.subject_id`, `subject_kind`, `action_hint`, and
+/// `event_id` fields are propagated into the WebhookEvent payload under
+/// `__animus_*` reserved keys so downstream tick handlers (and workflow YAML)
+/// can branch on them without losing context.
 fn route_event(project_root: &Path, event: &TriggerEvent) -> bool {
     let Some(trigger_id) = event.trigger_id.as_deref() else {
         debug!(event_id = %event.event_id, "trigger event lacks trigger_id; dropping (router has no default workflow)");
@@ -482,7 +563,7 @@ fn route_event(project_root: &Path, event: &TriggerEvent) -> bool {
     let mut state: orchestrator_core::TriggerState =
         orchestrator_core::load_trigger_state(project_root).unwrap_or_default();
     let run_state = state.triggers.entry(trigger_id.to_string()).or_default();
-    let payload = if event.payload.is_null() { serde_json::json!({}) } else { event.payload.clone() };
+    let payload = build_routed_payload(event);
     run_state.pending_events.push(WebhookEvent { event_id: event.event_id.clone(), received_at: Utc::now(), payload });
     if let Err(error) = orchestrator_core::save_trigger_state(project_root, &state) {
         warn!(trigger_id, error = %error, "failed to persist plugin trigger event");
@@ -543,7 +624,129 @@ mod tests {
         let run = state.triggers.get("slack-incoming").expect("run state");
         assert_eq!(run.pending_events.len(), 1);
         assert_eq!(run.pending_events[0].event_id, "evt-1");
-        assert_eq!(run.pending_events[0].payload, json!({ "text": "hello from slack" }));
+        // User payload survives intact; reserved __animus_event_id/__animus_trigger_id
+        // are injected by the router so downstream handlers can correlate.
+        let payload = &run.pending_events[0].payload;
+        assert_eq!(payload["text"], json!("hello from slack"));
+        assert_eq!(payload[RESERVED_KEY_EVENT_ID], json!("evt-1"));
+        assert_eq!(payload[RESERVED_KEY_TRIGGER_ID], json!("slack-incoming"));
+        // subject_id/subject_kind/action_hint were None on the event so they
+        // must NOT appear under reserved keys at all.
+        assert!(payload.get(RESERVED_KEY_SUBJECT_ID).is_none());
+        assert!(payload.get(RESERVED_KEY_SUBJECT_KIND).is_none());
+        assert!(payload.get(RESERVED_KEY_ACTION_HINT).is_none());
+    }
+
+    // ---------- Gap #9 — subject_id / action_hint propagation tests ----------
+
+    #[test]
+    fn routes_event_with_subject_id_into_payload() {
+        let temp = tempdir().expect("tempdir");
+        let project_root = temp.path();
+        write_plugin_trigger_config(project_root, "linear-incoming");
+
+        let event = TriggerEvent {
+            event_id: "evt-linear-1".to_string(),
+            trigger_id: Some("linear-incoming".to_string()),
+            subject_id: Some("linear:ENG-123".to_string()),
+            subject_kind: Some("issue".to_string()),
+            action_hint: None,
+            payload: json!({ "title": "fix login bug" }),
+        };
+
+        assert!(route_event(project_root, &event));
+        let state = orchestrator_core::load_trigger_state(project_root).expect("load state");
+        let payload = &state.triggers.get("linear-incoming").expect("run state").pending_events[0].payload;
+        assert_eq!(payload[RESERVED_KEY_SUBJECT_ID], json!("linear:ENG-123"));
+        assert_eq!(payload[RESERVED_KEY_SUBJECT_KIND], json!("issue"));
+        assert_eq!(payload[RESERVED_KEY_EVENT_ID], json!("evt-linear-1"));
+        // User payload intact.
+        assert_eq!(payload["title"], json!("fix login bug"));
+    }
+
+    #[test]
+    fn routes_event_with_action_hint_into_payload() {
+        let temp = tempdir().expect("tempdir");
+        let project_root = temp.path();
+        write_plugin_trigger_config(project_root, "slack-incoming");
+
+        let event = TriggerEvent {
+            event_id: "evt-mention-1".to_string(),
+            trigger_id: Some("slack-incoming".to_string()),
+            subject_id: None,
+            subject_kind: None,
+            action_hint: Some("create_task".to_string()),
+            payload: json!({ "user": "alice", "text": "@bot create a task for the login bug" }),
+        };
+
+        assert!(route_event(project_root, &event));
+        let state = orchestrator_core::load_trigger_state(project_root).expect("load state");
+        let payload = &state.triggers.get("slack-incoming").expect("run state").pending_events[0].payload;
+        assert_eq!(payload[RESERVED_KEY_ACTION_HINT], json!("create_task"));
+        assert_eq!(payload["user"], json!("alice"));
+        assert_eq!(payload["text"], json!("@bot create a task for the login bug"));
+    }
+
+    #[test]
+    fn merges_user_payload_with_reserved_keys_correctly() {
+        // build_routed_payload is the unit under test here — exercises the
+        // pure merge without going through workflow-config plumbing.
+        let event = TriggerEvent {
+            event_id: "evt-merge".to_string(),
+            trigger_id: Some("merge-trigger".to_string()),
+            subject_id: Some("foo".to_string()),
+            subject_kind: None,
+            action_hint: None,
+            payload: json!({ "x": 1 }),
+        };
+        let merged = build_routed_payload(&event);
+        // User key survives; reserved keys land alongside it.
+        assert_eq!(merged["x"], json!(1));
+        assert_eq!(merged[RESERVED_KEY_SUBJECT_ID], json!("foo"));
+        assert_eq!(merged[RESERVED_KEY_EVENT_ID], json!("evt-merge"));
+        assert_eq!(merged[RESERVED_KEY_TRIGGER_ID], json!("merge-trigger"));
+        // Absent optional fields must NOT show up in the payload at all.
+        assert!(merged.get(RESERVED_KEY_SUBJECT_KIND).is_none());
+        assert!(merged.get(RESERVED_KEY_ACTION_HINT).is_none());
+    }
+
+    #[test]
+    fn does_not_overwrite_user_payload_with_same_reserved_key() {
+        // A plugin that tries to spoof __animus_subject_id in its own payload
+        // must NOT be able to override the supervisor's authoritative value.
+        // Caller-supplied reserved keys are sandboxed under
+        // __animus_user_overrides for forensics, never honored as routing
+        // metadata.
+        let event = TriggerEvent {
+            event_id: "evt-malicious".to_string(),
+            trigger_id: Some("trigger-x".to_string()),
+            subject_id: Some("authoritative-subject".to_string()),
+            subject_kind: None,
+            action_hint: None,
+            payload: json!({
+                "__animus_subject_id": "spoofed-subject",
+                "__animus_action_hint": "spoofed_action",
+                "normal_key": "ok"
+            }),
+        };
+        let merged = build_routed_payload(&event);
+        // Authoritative supervisor value wins.
+        assert_eq!(merged[RESERVED_KEY_SUBJECT_ID], json!("authoritative-subject"));
+        // The plugin did NOT supply action_hint, so the spoofed value must
+        // not bleed into the action_hint slot — the action_hint key must be
+        // absent from the top level.
+        assert!(
+            merged.get(RESERVED_KEY_ACTION_HINT).is_none(),
+            "spoofed __animus_action_hint must not be promoted to top level when event.action_hint is None"
+        );
+        // User's legitimate non-reserved key survives.
+        assert_eq!(merged["normal_key"], json!("ok"));
+        // Spoofed reserved keys are sandboxed under __animus_user_overrides.
+        let overrides = merged
+            .get("__animus_user_overrides")
+            .expect("sandboxed overrides should be present when conflicts occurred");
+        assert_eq!(overrides["__animus_subject_id"], json!("spoofed-subject"));
+        assert_eq!(overrides["__animus_action_hint"], json!("spoofed_action"));
     }
 
     #[test]

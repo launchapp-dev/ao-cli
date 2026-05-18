@@ -2738,10 +2738,12 @@ version = "0.1.0"
 dependencies = [
  "animus-plugin-protocol",
  "anyhow",
+ "proc-macro2",
  "semver",
  "serde",
  "serde_json",
  "serde_yaml",
+ "syn",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",

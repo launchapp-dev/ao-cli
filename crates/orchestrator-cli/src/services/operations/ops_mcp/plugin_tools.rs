@@ -68,7 +68,7 @@ pub(super) struct PluginCallInput {
     params: Option<Value>,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Deserialize, JsonSchema, Default)]
 pub(super) struct PluginInstallInput {
     /// Public GitHub repo slug to install from (e.g.
     /// `launchapp-dev/animus-provider-claude`, or with a tag
@@ -105,6 +105,17 @@ pub(super) struct PluginInstallInput {
     /// `$ANIMUS_PLUGIN_DIR`. Defaults to `~/.animus/plugins/`.
     #[serde(default)]
     plugin_dir: Option<String>,
+    /// Refuse install when no cosign signature bundle is present or when
+    /// verification fails. Defaults to false (verify-if-present).
+    #[serde(default)]
+    require_signature: Option<bool>,
+    /// Skip cosign signature verification entirely.
+    #[serde(default)]
+    skip_signature: Option<bool>,
+    /// Optional path to a trusted-signers YAML allowlist (overrides default
+    /// `~/.animus/trusted-signers.yaml`).
+    #[serde(default)]
+    trusted_signers: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -241,8 +252,20 @@ impl AoMcpServer {
         input_schema = ao_schema_for_type::<PluginInstallInput>()
     )]
     async fn ao_plugin_install(&self, params: Parameters<PluginInstallInput>) -> Result<CallToolResult, McpError> {
-        let PluginInstallInput { source, path, url, tag, name, sha256, force, skip_manifest_check, plugin_dir } =
-            params.0;
+        let PluginInstallInput {
+            source,
+            path,
+            url,
+            tag,
+            name,
+            sha256,
+            force,
+            skip_manifest_check,
+            plugin_dir,
+            require_signature,
+            skip_signature,
+            trusted_signers,
+        } = params.0;
         let output = run_plugin_install(PluginInstallRequest {
             source,
             path,
@@ -253,6 +276,9 @@ impl AoMcpServer {
             force: force.unwrap_or(false),
             skip_manifest_check: skip_manifest_check.unwrap_or(false),
             plugin_dir,
+            require_signature: require_signature.unwrap_or(false),
+            skip_signature: skip_signature.unwrap_or(false),
+            trusted_signers: trusted_signers.map(std::path::PathBuf::from),
         })
         .await
         .map_err(anyhow_to_mcp)?;
@@ -431,15 +457,10 @@ exit 0
         // Install via MCP.
         let install_result = server
             .ao_plugin_install(Parameters(PluginInstallInput {
-                source: None,
                 path: Some(stage_path.to_string_lossy().to_string()),
-                url: None,
-                tag: None,
-                name: None,
-                sha256: None,
                 force: Some(false),
                 skip_manifest_check: Some(false),
-                plugin_dir: None,
+                ..Default::default()
             }))
             .await
             .expect("install should succeed");
@@ -478,17 +499,7 @@ exit 0
         let server = new_ao_mcp_server(&project_root_for(&project));
 
         let err = server
-            .ao_plugin_install(Parameters(PluginInstallInput {
-                source: None,
-                path: None,
-                url: None,
-                tag: None,
-                name: None,
-                sha256: None,
-                force: None,
-                skip_manifest_check: None,
-                plugin_dir: None,
-            }))
+            .ao_plugin_install(Parameters(PluginInstallInput::default()))
             .await
             .expect_err("missing source/path/url should be rejected");
         let msg = err.message.to_string();
@@ -506,15 +517,8 @@ exit 0
 
         let err = server
             .ao_plugin_install(Parameters(PluginInstallInput {
-                source: None,
-                path: None,
                 url: Some("https://example.invalid/plugin".to_string()),
-                tag: None,
-                name: None,
-                sha256: None,
-                force: None,
-                skip_manifest_check: None,
-                plugin_dir: None,
+                ..Default::default()
             }))
             .await
             .expect_err("url without sha256 should be rejected");

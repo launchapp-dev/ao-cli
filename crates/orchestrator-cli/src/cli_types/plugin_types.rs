@@ -21,6 +21,85 @@ pub(crate) enum PluginCommand {
     Uninstall(PluginUninstallArgs),
     /// Scaffold a new plugin project from the launchapp-dev/animus-plugin-template scaffold.
     New(PluginNewArgs),
+    /// Search the public Animus plugin registry by substring + filters.
+    Search(PluginSearchArgs),
+    /// Browse the public Animus plugin registry, grouped by kind.
+    Browse(PluginBrowseArgs),
+    /// Update one or all installed release-source plugins to the latest tag.
+    Update(PluginUpdateArgs),
+}
+
+/// Default URL for the public Animus plugin registry index.
+pub(crate) const DEFAULT_PLUGIN_REGISTRY_URL: &str =
+    "https://raw.githubusercontent.com/launchapp-dev/animus-plugin-registry/main/plugins.json";
+
+#[derive(Debug, Args)]
+pub(crate) struct PluginSearchArgs {
+    /// Optional substring query matched against plugin name and description (case-insensitive).
+    #[arg(value_name = "QUERY")]
+    pub(crate) query: Option<String>,
+    /// Filter by plugin kind (e.g. `provider`, `subject_backend`, `trigger`).
+    #[arg(long, value_name = "KIND")]
+    pub(crate) kind: Option<String>,
+    /// Filter by tag (repeatable, ANDed).
+    #[arg(long, value_name = "TAG")]
+    pub(crate) tag: Vec<String>,
+    /// Filter by the repo owner (e.g. `launchapp-dev`).
+    #[arg(long, value_name = "ORG")]
+    pub(crate) org: Option<String>,
+    /// Filter by stability marker (e.g. `alpha`, `beta`, `stable`).
+    #[arg(long, value_name = "STABILITY")]
+    pub(crate) stability: Option<String>,
+    /// Emit results as JSON.
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+    /// Override the registry URL. Defaults to launchapp-dev/animus-plugin-registry main.
+    #[arg(long, value_name = "URL", default_value = DEFAULT_PLUGIN_REGISTRY_URL)]
+    pub(crate) registry_url: String,
+    /// Bypass the local registry cache and force a fresh fetch.
+    #[arg(long, default_value_t = false)]
+    pub(crate) no_cache: bool,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct PluginBrowseArgs {
+    /// Filter by plugin kind (e.g. `provider`, `subject_backend`, `trigger`).
+    #[arg(long, value_name = "KIND")]
+    pub(crate) kind: Option<String>,
+    /// Only show plugins that are currently installed locally.
+    #[arg(long, default_value_t = false, conflicts_with = "available")]
+    pub(crate) installed: bool,
+    /// Only show plugins that are NOT yet installed locally.
+    #[arg(long, default_value_t = false, conflicts_with = "installed")]
+    pub(crate) available: bool,
+    /// Emit results as JSON.
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+    /// Override the registry URL.
+    #[arg(long, value_name = "URL", default_value = DEFAULT_PLUGIN_REGISTRY_URL)]
+    pub(crate) registry_url: String,
+    /// Bypass the local registry cache and force a fresh fetch.
+    #[arg(long, default_value_t = false)]
+    pub(crate) no_cache: bool,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct PluginUpdateArgs {
+    /// Optional plugin name. When omitted, all installed release-source plugins are updated.
+    #[arg(value_name = "NAME")]
+    pub(crate) name: Option<String>,
+    /// Pin to a specific tag instead of resolving the latest release.
+    #[arg(long, value_name = "TAG")]
+    pub(crate) tag: Option<String>,
+    /// Show what would change without performing the install.
+    #[arg(long, default_value_t = false)]
+    pub(crate) dry_run: bool,
+    /// Emit results as JSON.
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+    /// Force reinstall even if the installed tag matches the target tag.
+    #[arg(long, default_value_t = false)]
+    pub(crate) force: bool,
 }
 
 #[derive(Debug, Args)]
@@ -64,6 +143,17 @@ pub(crate) struct PluginInstallArgs {
     /// `$ANIMUS_PLUGIN_DIR`. Defaults to `~/.animus/plugins/`.
     #[arg(long, value_name = "PATH")]
     pub(crate) plugin_dir: Option<String>,
+    /// Refuse to install when no cosign signature bundle is present or when
+    /// signature verification fails. Defaults to false (verify-if-present).
+    #[arg(long, default_value_t = false, conflicts_with = "skip_signature")]
+    pub(crate) require_signature: bool,
+    /// Skip cosign signature verification entirely (escape hatch).
+    #[arg(long, default_value_t = false)]
+    pub(crate) skip_signature: bool,
+    /// Path to a `trusted-signers.yaml` allowlist. Defaults to
+    /// `~/.animus/trusted-signers.yaml`.
+    #[arg(long, value_name = "PATH")]
+    pub(crate) trusted_signers: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]

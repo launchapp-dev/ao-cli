@@ -68,6 +68,8 @@ mod output_tail_resolution;
 mod output_tail_types;
 #[path = "ops_mcp/output_tools.rs"]
 mod output_tools;
+#[path = "ops_mcp/plugin_marketplace_tools.rs"]
+mod plugin_marketplace_tools;
 #[path = "ops_mcp/plugin_tools.rs"]
 mod plugin_tools;
 #[path = "ops_mcp/queue_command_args.rs"]
@@ -257,6 +259,7 @@ fn new_ao_mcp_server(default_project_root: &str) -> AoMcpServer {
         + AoMcpServer::workflow_runtime_tools()
         + AoMcpServer::workflow_definition_tools()
         + AoMcpServer::plugin_tool_router()
+        + AoMcpServer::plugin_marketplace_tool_router()
         + AoMcpServer::skill_tool_router()
         + AoMcpServer::memory_tool_router_for_ao();
 

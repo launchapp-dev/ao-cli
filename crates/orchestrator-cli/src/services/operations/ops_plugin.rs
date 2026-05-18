@@ -1,4 +1,16 @@
+mod marketplace;
 mod new;
+mod signing;
+
+pub(crate) use marketplace::{
+    run_plugin_browse, run_plugin_search, run_plugin_update, PluginBrowseRequest, PluginSearchRequest,
+    PluginUpdateRequest,
+};
+#[allow(unused_imports)]
+pub(crate) use signing::{
+    cosign_available, load_trusted_signers, resolve_trusted_signers_path, verify_with_cosign, SignatureStatus,
+    GITHUB_OIDC_ISSUER,
+};
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -84,6 +96,12 @@ pub(crate) struct PluginInstallOutput {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) asset_name: Option<String>,
     pub(crate) sha256_verified: bool,
+    /// Cosign signature verification outcome. Stable strings:
+    /// `verified` | `unsigned` | `invalid` | `untrusted_signer` | `skipped`.
+    /// See `docs/architecture/plugin-signing.md`.
+    pub(crate) signature_status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) signature_detail: Option<SignatureStatus>,
 }
 
 #[derive(Debug, Serialize)]
@@ -146,6 +164,15 @@ pub(crate) struct PluginInstallRequest {
     /// Override the plugin install directory. Takes precedence over
     /// `$ANIMUS_PLUGIN_DIR`. When `None`, falls back to env / default.
     pub(crate) plugin_dir: Option<String>,
+    /// Refuse install when no cosign bundle is present or when verification
+    /// fails. Default `false` — verify-if-present.
+    pub(crate) require_signature: bool,
+    /// Skip cosign verification entirely (escape hatch). Mutually exclusive
+    /// with `require_signature` (enforced at the CLI layer).
+    pub(crate) skip_signature: bool,
+    /// Optional path to the trusted-signers YAML (overrides default
+    /// `~/.animus/trusted-signers.yaml`).
+    pub(crate) trusted_signers: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -163,6 +190,9 @@ pub(crate) async fn handle_plugin(command: PluginCommand, project_root: &str, js
         PluginCommand::Install(args) => handle_plugin_install(args, json).await,
         PluginCommand::Uninstall(args) => handle_plugin_uninstall(args, json),
         PluginCommand::New(args) => new::handle_plugin_new(args, json),
+        PluginCommand::Search(args) => marketplace::handle_plugin_search(args).await,
+        PluginCommand::Browse(args) => marketplace::handle_plugin_browse(args).await,
+        PluginCommand::Update(args) => marketplace::handle_plugin_update(args).await,
     }
 }
 
@@ -295,6 +325,9 @@ pub(crate) async fn run_plugin_install(req: PluginInstallRequest) -> Result<Plug
             "--sha256 is required when installing from a URL; compute via `shasum -a 256 <plugin>`",
         ));
     }
+    if req.require_signature && req.skip_signature {
+        return Err(invalid_input_error("--require-signature and --skip-signature are mutually exclusive"));
+    }
 
     let (source_path, default_name, provenance) = if let Some(slug) = req.source.as_deref() {
         let spec = parse_repo_spec(slug)?;
@@ -305,6 +338,10 @@ pub(crate) async fn run_plugin_install(req: PluginInstallRequest) -> Result<Plug
             release_tag: Some(release.release_tag.clone()),
             asset_name: Some(release.asset_name.clone()),
             sha256_verified: Some(release.sha256_verified),
+            asset_archive_path: release.asset_archive_path.clone(),
+            bundle_path: release.bundle_path.clone(),
+            owner: Some(release.owner.clone()),
+            repo: Some(release.repo.clone()),
         };
         (release.binary_path, release.plugin_name_hint, provenance)
     } else if let Some(p) = req.path.as_deref() {
@@ -338,6 +375,26 @@ pub(crate) async fn run_plugin_install(req: PluginInstallRequest) -> Result<Plug
         if !expected.eq_ignore_ascii_case(&computed_sha) {
             return Err(invalid_input_error(format!("sha256 mismatch: expected {expected}, computed {computed_sha}")));
         }
+    }
+
+    let signature_detail = resolve_signature_status(&req, &provenance)?;
+    match &signature_detail {
+        SignatureStatus::Invalid { message, .. } => {
+            return Err(invalid_input_error(format!(
+                "cosign signature verification FAILED; refusing install: {message}"
+            )));
+        }
+        SignatureStatus::UntrustedSigner { identity_pattern } => {
+            return Err(invalid_input_error(format!(
+                "signature is valid but the signer is not in trusted-signers.yaml (identity pattern: {identity_pattern})"
+            )));
+        }
+        SignatureStatus::Unsigned { reason } if req.require_signature => {
+            return Err(invalid_input_error(format!(
+                "--require-signature is set but no cosign signature could be verified: {reason}"
+            )));
+        }
+        _ => {}
     }
 
     let plugin_name = match req.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
@@ -425,6 +482,20 @@ pub(crate) async fn run_plugin_install(req: PluginInstallRequest) -> Result<Plug
             serde_yaml::Value::String("installed_at".to_string()),
             serde_yaml::Value::String(chrono::Utc::now().to_rfc3339()),
         );
+        map.insert(
+            serde_yaml::Value::String("signature_status".to_string()),
+            serde_yaml::Value::String(signature_detail.label().to_string()),
+        );
+        if let SignatureStatus::Verified { identity, bundle_path } = &signature_detail {
+            map.insert(
+                serde_yaml::Value::String("signature_identity".to_string()),
+                serde_yaml::Value::String(identity.clone()),
+            );
+            map.insert(
+                serde_yaml::Value::String("signature_bundle".to_string()),
+                serde_yaml::Value::String(bundle_path.clone()),
+            );
+        }
         map
     };
     let table = match manifest.as_ref().map(|m| m.plugin_kind.as_str()) {
@@ -439,6 +510,9 @@ pub(crate) async fn run_plugin_install(req: PluginInstallRequest) -> Result<Plug
         None => req.sha256.is_some(),
     };
 
+    let signature_status = signature_detail.label().to_string();
+    let signature_detail = Some(signature_detail);
+
     Ok(PluginInstallOutput {
         name: plugin_name,
         installed_path: installed_path.to_string_lossy().to_string(),
@@ -450,6 +524,8 @@ pub(crate) async fn run_plugin_install(req: PluginInstallRequest) -> Result<Plug
         release_tag: provenance.release_tag,
         asset_name: provenance.asset_name,
         sha256_verified,
+        signature_status,
+        signature_detail,
     })
 }
 
@@ -487,16 +563,95 @@ fn handle_plugin_list(args: PluginListArgs, project_root: &str, json: bool) -> R
         include_system_path: args.include_system_path,
     })?;
 
-    if !json {
-        for warning in &output.warnings {
-            eprintln!(
-                "warning: plugin '{}' was discovered ({}) but could not be loaded: {} ({})",
-                warning.name, warning.source, warning.reason, warning.path
-            );
-        }
+    if json {
+        return print_value(output, true);
     }
 
-    print_value(output, json)
+    for warning in &output.warnings {
+        eprintln!(
+            "warning: plugin '{}' was discovered ({}) but could not be loaded: {} ({})",
+            warning.name, warning.source, warning.reason, warning.path
+        );
+    }
+
+    print_plugin_list_table(&output)
+}
+
+/// Render `plugin list` results as a table with source-of-truth columns:
+/// `NAME  KIND  VERSION  SOURCE  INSTALLED  PATH`.
+fn print_plugin_list_table(output: &PluginListOutput) -> Result<()> {
+    if output.plugins.is_empty() {
+        println!("no plugins discovered");
+        return Ok(());
+    }
+    let installed = marketplace::read_installed_index().unwrap_or_default();
+    struct Row {
+        name: String,
+        kind: String,
+        version: String,
+        source: String,
+        installed: String,
+        path: String,
+    }
+    let rows: Vec<Row> = output
+        .plugins
+        .iter()
+        .map(|p| {
+            let installed_entry = installed.get(&p.name);
+            let source = installed_entry
+                .map(marketplace::format_installed_source)
+                .unwrap_or_else(|| "--".to_string());
+            let installed_at = installed_entry
+                .and_then(|e| e.installed_at.as_deref())
+                .map(|s| s.split('T').next().unwrap_or(s).to_string())
+                .unwrap_or_else(|| "--".to_string());
+            Row {
+                name: p.name.clone(),
+                kind: p.plugin_kind.clone(),
+                version: if p.version.is_empty() { "--".to_string() } else { p.version.clone() },
+                source,
+                installed: installed_at,
+                path: p.path.clone(),
+            }
+        })
+        .collect();
+    let widths = [
+        rows.iter().map(|r| r.name.len()).max().unwrap_or(4).max(4),
+        rows.iter().map(|r| r.kind.len()).max().unwrap_or(4).max(4),
+        rows.iter().map(|r| r.version.len()).max().unwrap_or(7).max(7),
+        rows.iter().map(|r| r.source.len()).max().unwrap_or(6).max(6),
+        rows.iter().map(|r| r.installed.len()).max().unwrap_or(9).max(9),
+    ];
+    println!(
+        "{:<w0$}  {:<w1$}  {:<w2$}  {:<w3$}  {:<w4$}  PATH",
+        "NAME",
+        "KIND",
+        "VERSION",
+        "SOURCE",
+        "INSTALLED",
+        w0 = widths[0],
+        w1 = widths[1],
+        w2 = widths[2],
+        w3 = widths[3],
+        w4 = widths[4],
+    );
+    for row in &rows {
+        println!(
+            "{:<w0$}  {:<w1$}  {:<w2$}  {:<w3$}  {:<w4$}  {}",
+            row.name,
+            row.kind,
+            row.version,
+            row.source,
+            row.installed,
+            row.path,
+            w0 = widths[0],
+            w1 = widths[1],
+            w2 = widths[2],
+            w3 = widths[3],
+            w4 = widths[4],
+        );
+    }
+    Ok(())
 }
 
 fn find_plugin(project_root: &str, name: &str, include_system_path: bool) -> Result<DiscoveredPlugin> {
@@ -913,6 +1068,14 @@ struct ReleaseInstall {
     release_tag: String,
     origin: String,
     sha256_verified: bool,
+    /// Downloaded asset archive (`.tar.gz` etc.) — what cosign signed.
+    asset_archive_path: Option<PathBuf>,
+    /// Local path of the `.bundle` sidecar, when one was published alongside the asset.
+    bundle_path: Option<PathBuf>,
+    /// `<owner>` of the GitHub repo, for identity matching.
+    owner: String,
+    /// `<repo>` of the GitHub repo, for identity matching.
+    repo: String,
 }
 
 async fn resolve_release_install(spec: RepoSpec, explicit_tag: Option<String>) -> Result<ReleaseInstall> {
@@ -1008,6 +1171,22 @@ async fn resolve_release_install(spec: RepoSpec, explicit_tag: Option<String>) -
         asset_path.clone()
     };
 
+    // Download the cosign signature bundle if one is published. Bundles match
+    // the original archive (not the extracted binary).
+    let bundle_path = match find_bundle_sidecar(&release.assets, &asset.name) {
+        Some(bundle_asset) => {
+            let local = temp_dir.join(&bundle_asset.name);
+            match download_to_path(&bundle_asset.browser_download_url, &local).await {
+                Ok(()) => Some(local),
+                Err(err) => {
+                    eprintln!("warning: failed to download cosign bundle '{}': {}", bundle_asset.name, err);
+                    None
+                }
+            }
+        }
+        None => None,
+    };
+
     let plugin_name_hint = binary_path
         .file_name()
         .and_then(|f| f.to_str())
@@ -1022,7 +1201,72 @@ async fn resolve_release_install(spec: RepoSpec, explicit_tag: Option<String>) -
         release_tag: release.tag_name.clone(),
         origin: format!("{}/{}@{}", spec.owner, spec.repo, release.tag_name),
         sha256_verified,
+        asset_archive_path: Some(asset_path.clone()),
+        bundle_path,
+        owner: spec.owner.clone(),
+        repo: spec.repo.clone(),
     })
+}
+
+/// Look up the cosign signature bundle (`<asset>.bundle`) in the release
+/// assets, if present.
+fn find_bundle_sidecar<'a>(assets: &'a [GithubReleaseAsset], asset_name: &str) -> Option<&'a GithubReleaseAsset> {
+    let bundle_name = format!("{asset_name}.bundle");
+    assets.iter().find(|a| a.name.eq_ignore_ascii_case(&bundle_name))
+}
+
+/// Verify the cosign signature for the install source (if any), apply the
+/// trusted-signers policy, and return the resulting [`SignatureStatus`]. The
+/// caller is responsible for turning hard-fail statuses (`Invalid`,
+/// `UntrustedSigner`, `Unsigned` under `--require-signature`) into install
+/// errors.
+fn resolve_signature_status(req: &PluginInstallRequest, provenance: &InstallProvenance) -> Result<SignatureStatus> {
+    if req.skip_signature {
+        return Ok(SignatureStatus::Skipped);
+    }
+
+    let (Some(asset_archive), Some(bundle_path)) =
+        (provenance.asset_archive_path.as_deref(), provenance.bundle_path.as_deref())
+    else {
+        return Ok(SignatureStatus::Unsigned {
+            reason: match provenance.source_kind {
+                Some("release") => "no cosign signature bundle published in release".to_string(),
+                Some("path") => "local --path install; cosign signatures only apply to release assets".to_string(),
+                Some("url") => "direct --url install; cosign signatures only apply to release assets".to_string(),
+                _ => "no signature context available for this install source".to_string(),
+            },
+        });
+    };
+
+    let signers_path = resolve_trusted_signers_path(req.trusted_signers.as_deref());
+    let trusted = load_trusted_signers(&signers_path)?;
+    let identity_regex = if let (Some(owner), Some(repo)) = (provenance.owner.as_deref(), provenance.repo.as_deref()) {
+        let cfg = trusted.clone().unwrap_or_default();
+        Some(cfg.identity_regexp_for(owner, repo))
+    } else {
+        None
+    };
+
+    if !cosign_available() {
+        return Ok(SignatureStatus::Unsigned {
+            reason: "cosign binary not found on PATH; install cosign from https://github.com/sigstore/cosign to enable signature verification".to_string(),
+        });
+    }
+
+    let status = verify_with_cosign(asset_archive, bundle_path, identity_regex.as_deref(), GITHUB_OIDC_ISSUER)?;
+    if let SignatureStatus::Verified { .. } = &status {
+        if let Some(cfg) = trusted.as_ref() {
+            if let (Some(owner), Some(repo)) = (provenance.owner.as_deref(), provenance.repo.as_deref()) {
+                let slug = format!("{owner}/{repo}");
+                if !cfg.matches_repo(&slug) {
+                    return Ok(SignatureStatus::UntrustedSigner {
+                        identity_pattern: identity_regex.unwrap_or_else(|| ".*".to_string()),
+                    });
+                }
+            }
+        }
+    }
+    Ok(status)
 }
 
 /// Provenance attached to a resolved install source. Recorded in the registry
@@ -1035,6 +1279,14 @@ struct InstallProvenance {
     asset_name: Option<String>,
     /// `Some(true)` if checksum verification ran and passed during resolution.
     sha256_verified: Option<bool>,
+    /// Path to the archive that cosign signs (the `.tar.gz`, not the extracted binary).
+    asset_archive_path: Option<PathBuf>,
+    /// Local path to the cosign `.bundle`, when published.
+    bundle_path: Option<PathBuf>,
+    /// `<owner>` for identity-regex construction.
+    owner: Option<String>,
+    /// `<repo>` for identity-regex construction.
+    repo: Option<String>,
 }
 
 async fn handle_plugin_install(args: PluginInstallArgs, json: bool) -> Result<()> {
@@ -1056,6 +1308,9 @@ async fn handle_plugin_install(args: PluginInstallArgs, json: bool) -> Result<()
         force: args.force,
         skip_manifest_check: args.skip_manifest_check,
         plugin_dir: args.plugin_dir,
+        require_signature: args.require_signature,
+        skip_signature: args.skip_signature,
+        trusted_signers: args.trusted_signers,
     })
     .await?;
     print_value(output, json)

@@ -10,7 +10,12 @@ pub const PROTOCOL_VERSION: &str = "1.0.0";
 pub const PLUGIN_KIND_PROVIDER: &str = "provider";
 pub const PLUGIN_KIND_TASK_BACKEND: &str = "task_backend";
 pub const PLUGIN_KIND_SUBJECT_BACKEND: &str = "subject_backend";
+pub const PLUGIN_KIND_TRIGGER_BACKEND: &str = "trigger_backend";
 pub const PLUGIN_KIND_CUSTOM: &str = "custom";
+
+pub const TRIGGER_METHOD_WATCH: &str = "trigger/watch";
+pub const TRIGGER_METHOD_EVENT: &str = "trigger/event";
+pub const TRIGGER_METHOD_ACK: &str = "trigger/ack";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RpcRequest {
@@ -171,6 +176,46 @@ pub struct HealthCheckResult {
     pub memory_usage_bytes: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_error: Option<String>,
+}
+
+/// Parameters sent from host to plugin in the `trigger/watch` request.
+///
+/// Trigger backend plugins receive this once during startup. After replying
+/// to the request the plugin emits `trigger/event` notifications whenever it
+/// observes something the host should react to.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TriggerWatchParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config: Option<Value>,
+}
+
+/// A trigger event emitted by a trigger backend plugin.
+///
+/// Plugins deliver these as `trigger/event` JSON-RPC notifications. The host
+/// routes the event to the matching trigger configuration using `trigger_id`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TriggerEvent {
+    pub event_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_hint: Option<String>,
+    #[serde(default)]
+    pub payload: Value,
+}
+
+/// Parameters sent from host to plugin in the `trigger/ack` notification.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TriggerAckParams {
+    pub event_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
 }
 
 #[cfg(test)]

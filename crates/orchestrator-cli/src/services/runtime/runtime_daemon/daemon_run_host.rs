@@ -93,6 +93,35 @@ impl DefaultDaemonRunHost {
             DaemonRunEvent::PluginsDiscoveryFailed { error, .. } => {
                 self.logger.warn("plugins", "plugin discovery failed").err(error).emit();
             }
+            DaemonRunEvent::TriggerPluginsStarted { plugin_count, .. } => {
+                self.logger.info("triggers", format!("trigger plugins started: {plugin_count}")).emit();
+            }
+            DaemonRunEvent::TriggerPluginStartFailed { plugin_name, error, .. } => {
+                self.logger.warn("triggers", format!("trigger plugin {plugin_name} failed to start")).err(error).emit();
+            }
+            DaemonRunEvent::TriggerPluginEvent { plugin_name, event_id, trigger_id, routed, .. } => {
+                let label = trigger_id.as_deref().unwrap_or("<unrouted>");
+                self.logger
+                    .info(
+                        "triggers",
+                        format!("trigger event {event_id} from {plugin_name} -> {label} (routed={routed})"),
+                    )
+                    .emit();
+            }
+            DaemonRunEvent::TriggerPluginRestart { plugin_name, attempt, delay_ms, .. } => {
+                self.logger
+                    .warn(
+                        "triggers",
+                        format!("restarting trigger plugin {plugin_name} (attempt {attempt}, delay {delay_ms}ms)"),
+                    )
+                    .emit();
+            }
+            DaemonRunEvent::TriggerPluginCrashed { plugin_name, attempts, error, .. } => {
+                self.logger
+                    .error("triggers", format!("trigger plugin {plugin_name} crashed after {attempts} attempts"))
+                    .err(error)
+                    .emit();
+            }
         }
     }
 
@@ -348,6 +377,49 @@ impl DaemonRunHooks for DefaultDaemonRunHost {
                     "plugins-discovery-failed",
                     Some(project_root),
                     json!({ "error": error }),
+                ),
+            DaemonRunEvent::TriggerPluginsStarted { project_root, plugin_count } => self
+                .emit_daemon_event_with_notifications(
+                    "trigger-plugins-started",
+                    Some(project_root),
+                    json!({ "plugin_count": plugin_count }),
+                ),
+            DaemonRunEvent::TriggerPluginStartFailed { project_root, plugin_name, error } => self
+                .emit_daemon_event_with_notifications(
+                    "trigger-plugin-start-failed",
+                    Some(project_root),
+                    json!({ "plugin": plugin_name, "error": error }),
+                ),
+            DaemonRunEvent::TriggerPluginEvent { project_root, plugin_name, event_id, trigger_id, routed } => self
+                .emit_daemon_event_with_notifications(
+                    "trigger-plugin-event",
+                    Some(project_root),
+                    json!({
+                        "plugin": plugin_name,
+                        "event_id": event_id,
+                        "trigger_id": trigger_id,
+                        "routed": routed,
+                    }),
+                ),
+            DaemonRunEvent::TriggerPluginRestart { project_root, plugin_name, attempt, delay_ms } => self
+                .emit_daemon_event_with_notifications(
+                    "trigger-plugin-restart",
+                    Some(project_root),
+                    json!({
+                        "plugin": plugin_name,
+                        "attempt": attempt,
+                        "delay_ms": delay_ms,
+                    }),
+                ),
+            DaemonRunEvent::TriggerPluginCrashed { project_root, plugin_name, attempts, error } => self
+                .emit_daemon_event_with_notifications(
+                    "trigger-plugin-crashed",
+                    Some(project_root),
+                    json!({
+                        "plugin": plugin_name,
+                        "attempts": attempts,
+                        "error": error,
+                    }),
                 ),
         }
     }

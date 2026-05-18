@@ -769,6 +769,12 @@ pub fn validate_workflow_config_with_project_root(config: &WorkflowConfig, proje
                     ));
                 }
             }
+            crate::workflow_config::TriggerType::Plugin => {
+                // Plugin triggers delegate event production to a trigger
+                // backend plugin discovered by the daemon. The config block
+                // is forwarded opaquely to the plugin via `trigger/watch`;
+                // the host does not validate its shape.
+            }
         }
     }
 

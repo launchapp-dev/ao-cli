@@ -69,6 +69,34 @@ pub enum DaemonRunEvent {
         project_root: String,
         setting: String,
     },
+    TriggerPluginsStarted {
+        project_root: String,
+        plugin_count: usize,
+    },
+    TriggerPluginStartFailed {
+        project_root: String,
+        plugin_name: String,
+        error: String,
+    },
+    TriggerPluginEvent {
+        project_root: String,
+        plugin_name: String,
+        event_id: String,
+        trigger_id: Option<String>,
+        routed: bool,
+    },
+    TriggerPluginRestart {
+        project_root: String,
+        plugin_name: String,
+        attempt: u32,
+        delay_ms: u64,
+    },
+    TriggerPluginCrashed {
+        project_root: String,
+        plugin_name: String,
+        attempts: u32,
+        error: String,
+    },
     Shutdown {
         project_root: String,
         daemon_pid: u32,

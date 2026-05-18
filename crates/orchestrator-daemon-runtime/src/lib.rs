@@ -22,7 +22,10 @@ pub use queue::{
     remove_terminal_dispatch_queue_entry_non_fatal, reorder_subjects, save_dispatch_queue_state, DispatchQueueEntry,
     DispatchQueueEntryStatus, DispatchQueueState, QueueEnqueueResult, QueueEntrySnapshot, QueueSnapshot, QueueStats,
 };
-pub use schedule::{ScheduleDispatch, ScheduleDispatchOutcome, TriggerDispatch, TriggerDispatchOutcome};
+pub use schedule::{
+    discover_trigger_plugins, ScheduleDispatch, ScheduleDispatchOutcome, TriggerDispatch, TriggerDispatchOutcome,
+    TriggerSupervisor, TriggerSupervisorEvent, TriggerSupervisorSink, MAX_RESTART_ATTEMPTS,
+};
 pub use tick::{
     default_slim_project_tick_driver, run_project_tick, run_project_tick_at, DefaultProjectTickServices,
     DefaultSlimProjectTickDriver, ProjectTickContext, ProjectTickExecutionOutcome, ProjectTickHooks, ProjectTickPlan,

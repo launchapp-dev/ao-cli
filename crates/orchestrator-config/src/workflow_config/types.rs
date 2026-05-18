@@ -435,6 +435,13 @@ pub enum TriggerType {
     Webhook,
     /// GitHub webhook with event filtering.
     GithubWebhook,
+    /// External trigger backend plugin (Slack, file watchers, custom adapters).
+    ///
+    /// The daemon spawns the plugin via the stdio plugin host and forwards
+    /// `trigger/event` notifications into the same `pending_events` queue
+    /// used by webhook triggers. Plugin-routed events are drained by
+    /// `TriggerDispatch::process_due_triggers` each tick.
+    Plugin,
 }
 
 fn default_trigger_enabled() -> bool {

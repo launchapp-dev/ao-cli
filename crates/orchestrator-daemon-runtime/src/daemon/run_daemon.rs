@@ -1,5 +1,7 @@
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use anyhow::Context;
@@ -16,6 +18,9 @@ use crate::DaemonRuntimeState;
 use crate::DiscoveredPluginSummary;
 use crate::ProjectTickHooks;
 use crate::ProjectTickRunMode;
+use crate::TriggerSupervisor;
+use crate::TriggerSupervisorEvent;
+use crate::TriggerSupervisorSink;
 
 pub async fn run_daemon<D, H>(
     project_root: &str,
@@ -57,6 +62,32 @@ where
     }
 
     discover_plugins_for_daemon(project_root, &primary_root, hooks)?;
+
+    // Trigger backend plugins. Off by default behind an env flag mirroring
+    // the provider-plugin opt-out shape.
+    let trigger_event_queue: Arc<Mutex<Vec<TriggerSupervisorEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let trigger_supervisor = if triggers_disabled() {
+        None
+    } else {
+        let queue = trigger_event_queue.clone();
+        let sink: TriggerSupervisorSink = Arc::new(move |event| {
+            if let Ok(mut guard) = queue.lock() {
+                guard.push(event);
+            }
+        });
+        match TriggerSupervisor::start(Path::new(project_root), sink).await {
+            Ok(supervisor) => Some(supervisor),
+            Err(error) => {
+                hooks.handle_event(DaemonRunEvent::TriggerPluginStartFailed {
+                    project_root: primary_root.clone(),
+                    plugin_name: "<supervisor>".to_string(),
+                    error: format!("{error:#}"),
+                })?;
+                None
+            }
+        }
+    };
+    drain_trigger_events(&primary_root, &trigger_event_queue, hooks)?;
 
     match orchestrator_core::validate_and_compile_yaml_workflows(Path::new(project_root)) {
         Ok(Some(result)) => {
@@ -114,6 +145,8 @@ where
             break;
         }
 
+        drain_trigger_events(&primary_root, &trigger_event_queue, hooks)?;
+
         if let Err(error) = hooks.flush_notifications(&primary_root).await {
             hooks.handle_event(DaemonRunEvent::NotificationRuntimeError {
                 project_root: Some(primary_root.clone()),
@@ -155,12 +188,70 @@ where
         }
     }
 
+    if let Some(supervisor) = trigger_supervisor {
+        let _ = supervisor.shutdown().await;
+        drain_trigger_events(&primary_root, &trigger_event_queue, hooks)?;
+    }
+
     if stop_daemon_on_exit {
         let _ = hooks.stop_daemon(&primary_root).await;
     }
 
     hooks.handle_event(DaemonRunEvent::Status { project_root: primary_root.clone(), status: "stopped".to_string() })?;
     hooks.handle_event(DaemonRunEvent::Shutdown { project_root: primary_root, daemon_pid })?;
+    Ok(())
+}
+
+fn triggers_disabled() -> bool {
+    std::env::var("ANIMUS_DAEMON_DISABLE_TRIGGERS").map(|v| v != "0" && !v.is_empty()).unwrap_or(false)
+}
+
+fn drain_trigger_events<H: DaemonRunHooks>(
+    primary_root: &str,
+    queue: &Arc<Mutex<Vec<TriggerSupervisorEvent>>>,
+    hooks: &mut H,
+) -> Result<()> {
+    let drained: Vec<TriggerSupervisorEvent> = {
+        let mut guard = match queue.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        std::mem::take(&mut *guard)
+    };
+    for event in drained {
+        let daemon_event = match event {
+            TriggerSupervisorEvent::Started { plugin_count } => {
+                DaemonRunEvent::TriggerPluginsStarted { project_root: primary_root.to_string(), plugin_count }
+            }
+            TriggerSupervisorEvent::StartFailed { plugin_name, error } => {
+                DaemonRunEvent::TriggerPluginStartFailed { project_root: primary_root.to_string(), plugin_name, error }
+            }
+            TriggerSupervisorEvent::Event { plugin_name, event_id, trigger_id, routed } => {
+                DaemonRunEvent::TriggerPluginEvent {
+                    project_root: primary_root.to_string(),
+                    plugin_name,
+                    event_id,
+                    trigger_id,
+                    routed,
+                }
+            }
+            TriggerSupervisorEvent::Restart { plugin_name, attempt, delay_ms } => {
+                DaemonRunEvent::TriggerPluginRestart {
+                    project_root: primary_root.to_string(),
+                    plugin_name,
+                    attempt,
+                    delay_ms,
+                }
+            }
+            TriggerSupervisorEvent::Crashed { plugin_name, attempts, error } => DaemonRunEvent::TriggerPluginCrashed {
+                project_root: primary_root.to_string(),
+                plugin_name,
+                attempts,
+                error,
+            },
+        };
+        hooks.handle_event(daemon_event)?;
+    }
     Ok(())
 }
 

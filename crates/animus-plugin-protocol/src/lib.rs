@@ -374,6 +374,77 @@ pub struct HealthCheckResult {
     pub last_error: Option<String>,
 }
 
+/// Parameters sent from host to plugin in the `trigger/watch` request.
+///
+/// Trigger backend plugins receive this once during startup. After replying
+/// to the request the plugin emits `trigger/event` notifications whenever it
+/// observes something the host should react to. The plugin keeps watching
+/// until it receives a `shutdown` request or its stdio closes.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TriggerWatchParams {
+    /// Optional resume cursor from a previous run; semantics are
+    /// plugin-defined. Plugins should ignore it if unrecognized.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<Value>,
+    /// Plugin-specific configuration forwarded from project workflow YAML.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config: Option<Value>,
+}
+
+/// A trigger event emitted by a trigger backend plugin.
+///
+/// Plugins deliver these as `trigger/event` JSON-RPC notifications. The host
+/// routes the event to the matching trigger configuration; what the host
+/// does next depends on `action_hint` and `subject_id`:
+///
+/// - `subject_id` is set → the host resolves the subject (via the configured
+///   subject backend) and may kick the subject's assigned workflow.
+/// - `action_hint` is `Some("create_task")` → the host creates a new task
+///   with `payload` as input context.
+/// - Otherwise the host enqueues the event against the trigger's
+///   `workflow_ref` (if configured) using the existing webhook dispatch path.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TriggerEvent {
+    /// Unique event id assigned by the plugin. Used by the host to send back
+    /// `trigger/ack`. Plugins should make this stable across restarts when
+    /// possible so duplicate deliveries can be deduplicated.
+    pub event_id: String,
+    /// Logical trigger id this event belongs to. Matches the `id` of a
+    /// `WorkflowTrigger` in the project's workflow YAML.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_id: Option<String>,
+    /// Optional subject the event refers to (e.g. a Linear issue id). When
+    /// set, the host may resolve the subject via its configured subject
+    /// backend and kick the subject's assigned workflow.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject_id: Option<String>,
+    /// Optional subject kind for `subject_id` (e.g. `"issue"`, `"task"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject_kind: Option<String>,
+    /// Optional hint for what the host should do (`"create_task"`,
+    /// `"run_workflow"`, ...). Plugins may omit this and let the host fall
+    /// back to the trigger config's `workflow_ref`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_hint: Option<String>,
+    /// Event payload. Forwarded to the spawned workflow as input.
+    #[serde(default)]
+    pub payload: Value,
+}
+
+/// Parameters sent from host to plugin in the `trigger/ack` notification.
+///
+/// The host emits this after it has accepted an event for processing. Plugins
+/// use it to persist a cursor or trim a server-side queue.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TriggerAckParams {
+    /// The `event_id` being acknowledged.
+    pub event_id: String,
+    /// Optional status the host wants to report (`"dispatched"`,
+    /// `"skipped"`, `"failed"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -421,5 +492,27 @@ mod tests {
     fn health_status_serializes_snake_case() {
         let v = serde_json::to_value(HealthStatus::Degraded).unwrap();
         assert_eq!(v, serde_json::json!("degraded"));
+    }
+
+    #[test]
+    fn trigger_event_round_trips_minimum_fields() {
+        let event = TriggerEvent {
+            event_id: "evt-1".to_string(),
+            trigger_id: Some("on-slack-message".to_string()),
+            subject_id: None,
+            subject_kind: None,
+            action_hint: None,
+            payload: serde_json::json!({ "text": "hello" }),
+        };
+        let encoded = serde_json::to_value(&event).unwrap();
+        let decoded: TriggerEvent = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded, event);
+    }
+
+    #[test]
+    fn trigger_watch_params_default_is_empty() {
+        let params = TriggerWatchParams::default();
+        let encoded = serde_json::to_value(&params).unwrap();
+        assert_eq!(encoded, serde_json::json!({}));
     }
 }

@@ -44,6 +44,7 @@ impl TriggerDispatch {
                         t.trigger_type,
                         orchestrator_core::workflow_config::TriggerType::Webhook
                             | orchestrator_core::workflow_config::TriggerType::GithubWebhook
+                            | orchestrator_core::workflow_config::TriggerType::Plugin
                     )
             })
             .collect();
@@ -111,6 +112,7 @@ impl TriggerDispatch {
             for event in pending {
                 let trigger_source = match trigger.trigger_type {
                     orchestrator_core::workflow_config::TriggerType::GithubWebhook => "github-webhook",
+                    orchestrator_core::workflow_config::TriggerType::Plugin => "plugin",
                     _ => "webhook",
                 };
 

@@ -1,4 +1,5 @@
 pub mod builtins;
+pub mod env_interp;
 pub mod loading;
 pub mod resolution;
 pub mod types;

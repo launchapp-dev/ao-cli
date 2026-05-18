@@ -119,8 +119,29 @@ LINEAR_API_TOKEN=lin_api_... OPENAI_API_KEY=sk-... animus daemon start --autonom
 
 ### Workflow YAML interpolation (non-secret config)
 
-Workflow YAML supports `${VAR}` interpolation **for non-secret config only** so the same
-YAML can target dev, staging, and prod without edits.
+Workflow YAML supports shell-style `${VAR}` interpolation **for non-secret config only** so
+the same YAML can target dev, staging, and prod without edits. Substitution is performed by
+the workflow YAML loader **before** the YAML is parsed, so every string scalar in the file
+(`.animus/workflows.yaml`, `.animus/workflows/*.yaml`, and pack-shipped workflow overlays)
+accepts the same syntax uniformly.
+
+#### Syntax
+
+| Form | Meaning |
+| --- | --- |
+| `${VAR}` | Required. Errors with file path + line number if `VAR` is unset. |
+| `${VAR:-default}` | Optional. Falls back to the literal `default` when `VAR` is unset or empty. |
+| `${VAR:?message}` | Required with a custom error message. |
+| `$$` | Literal `$`. |
+
+A lone `$` not followed by `{` or `$` passes through unchanged, so prose like `cost $5` is
+preserved.
+
+Env var names follow POSIX shell rules — they must start with a letter or underscore and
+contain only letters, digits, and underscores. The loader rejects invalid names with the
+offending file path and line number.
+
+#### Example
 
 ```yaml
 # CORRECT — non-secret config in YAML, secrets from plugin env
@@ -130,6 +151,7 @@ subjects:
     config:
       team_id: ${LINEAR_TEAM_ID:-default-team-uuid}
       api_url: ${LINEAR_API_URL:-https://api.linear.app/graphql}
+      workspace: ${LINEAR_WORKSPACE:?set LINEAR_WORKSPACE for this workflow}
 
 # LINEAR_API_TOKEN is set in the daemon's environment, NOT here.
 # animus-subject-linear reads it directly from its process env at startup.
@@ -145,8 +167,35 @@ subjects:
       api_token: ${LINEAR_API_TOKEN}   # secrets should not be in YAML at all
 ```
 
-The default fallback syntax `${VAR:-default}` is supported; if `VAR` is unset, the literal
-default is used.
+#### Error reporting
+
+When a required `${VAR}` is unset, the loader fails fast with a message that cites the YAML
+file path and 1-based line number:
+
+```
+workflow YAML at .animus/workflows/agents.yaml line 12 references unset env var LINEAR_TEAM_ID.
+```
+
+#### `.env` files
+
+The daemon does **not** auto-load `.env` files. To pre-load variables before starting the
+daemon, source them in the parent shell:
+
+```bash
+set -a; source .env; set +a
+animus daemon start --autonomous
+```
+
+Or use a process supervisor (systemd, launchd, docker-compose) that supports an
+`EnvironmentFile` directive.
+
+#### What gets interpolated
+
+Every string scalar in the YAML — including subject configs, provider tokens, workflow
+metadata, env override blocks, and any future plugin-config field — is substituted. Numeric
+and boolean YAML values pass through unchanged. Comments are not stripped before
+substitution, so `# ${VAR}` inside a comment is also substituted; this is intentional and
+matches docker-compose semantics.
 
 ## Environment Variables
 

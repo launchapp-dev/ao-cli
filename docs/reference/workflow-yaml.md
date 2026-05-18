@@ -56,7 +56,17 @@ mcp_servers:
 
 ### Variable Interpolation
 
-Environment values support `${VAR}` interpolation from the host environment:
+Every string scalar in `.animus/workflows.yaml`, `.animus/workflows/*.yaml`, and
+pack-shipped workflow overlays supports shell-style `${VAR}` interpolation. Substitution
+runs **before** YAML parsing, so subject backend configs, provider tokens, MCP `env`
+blocks, phase env overrides, and any other string field all use the same syntax:
+
+| Form | Meaning |
+| --- | --- |
+| `${VAR}` | Required. Errors with file path + line number if `VAR` is unset. |
+| `${VAR:-default}` | Optional. Falls back to literal `default`. |
+| `${VAR:?message}` | Required with custom error message. |
+| `$$` | Literal `$`. |
 
 ```yaml
 mcp_servers:
@@ -65,7 +75,12 @@ mcp_servers:
     args: ["-y", "@hubspot/mcp-server"]
     env:
       HUBSPOT_ACCESS_TOKEN: "${HUBSPOT_ACCESS_TOKEN}"
+      HUBSPOT_BASE_URL: "${HUBSPOT_BASE_URL:-https://api.hubapi.com}"
 ```
+
+For subject backend and provider config patterns (and guidance on keeping **secrets** out of
+YAML), see
+[Workflow YAML environment variable interpolation](configuration.md#workflow-yaml-interpolation-non-secret-config).
 
 ---
 

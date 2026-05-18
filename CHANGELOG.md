@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Features
+
+- **`feat(workflow-config)`: `${VAR}` env-var interpolation in workflow YAML.** `.animus/workflows.yaml`, `.animus/workflows/*.yaml`, and pack-shipped workflow overlays now support shell-style `${VAR}`, `${VAR:-default}`, and `${VAR:?error}` interpolation. Substitution runs before YAML parsing so every string scalar — subject backend configs, provider tokens, MCP `env` blocks, phase env overrides — accepts the same syntax uniformly. Unset required vars fail fast with the YAML file path + line number. Use `$$` to embed a literal `$`. Recommended for non-secret config like team IDs, base URLs, and feature flags; credentials still belong in the daemon's process environment, not in YAML. See [docs/reference/configuration.md](docs/reference/configuration.md#workflow-yaml-interpolation-non-secret-config).
+
 ## [0.4.2] - 2026-05-17
 
 Same-day follow-up to v0.4.1. Ships the full v0.4.0 plugin ecosystem: every

@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 
 use super::builtins::builtin_workflow_config;
+use super::env_interp::interpolate_env;
 use super::types::*;
 use super::yaml_parser::{parse_yaml_workflow_config_with_base, workflow_config_to_yaml_file};
 use super::yaml_types::*;
@@ -58,8 +59,11 @@ pub(crate) fn compile_yaml_sources_with_base(
     let mut merged_config: Option<WorkflowConfig> = None;
     for (path, content) in yaml_sources {
         let overlay_base = merged_config.as_ref().unwrap_or(base);
-        let parsed = parse_yaml_workflow_config_with_base(content, overlay_base)
-            .with_context(|| format!("error in YAML file {}", path.display()))?;
+        let source_label = path.display().to_string();
+        let substituted = interpolate_env(content, &source_label)
+            .with_context(|| format!("env-var interpolation failed for {}", source_label))?;
+        let parsed = parse_yaml_workflow_config_with_base(&substituted, overlay_base)
+            .with_context(|| format!("error in YAML file {}", source_label))?;
         merged_config = Some(match merged_config {
             None => parsed,
             Some(base) => merge_yaml_into_config(base, parsed),

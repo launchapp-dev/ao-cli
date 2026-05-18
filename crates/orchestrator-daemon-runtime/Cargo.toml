@@ -29,6 +29,7 @@ workflow-runner-v2 = { path = "../workflow-runner-v2" }
 [dev-dependencies]
 protocol = { workspace = true, features = ["test-utils"] }
 tempfile = "3"
+tokio = { version = "1", features = ["io-util", "macros", "process", "rt", "signal", "test-util", "time"] }
 
 [lints]
 workspace = true

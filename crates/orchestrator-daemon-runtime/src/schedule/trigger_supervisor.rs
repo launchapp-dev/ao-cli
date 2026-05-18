@@ -30,16 +30,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use animus_plugin_protocol::{
+    TriggerAckParams, TriggerEvent, TriggerWatchParams, PLUGIN_KIND_TRIGGER_BACKEND, TRIGGER_METHOD_ACK,
+    TRIGGER_METHOD_EVENT, TRIGGER_METHOD_WATCH,
+};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::Utc;
 use orchestrator_core::workflow_config::TriggerType;
 use orchestrator_core::WebhookEvent;
 use orchestrator_plugin_host::{discover_plugins, DiscoveredPlugin, PluginHost};
-use orchestrator_plugin_protocol::{
-    TriggerAckParams, TriggerEvent, TriggerWatchParams, PLUGIN_KIND_TRIGGER_BACKEND, TRIGGER_METHOD_ACK,
-    TRIGGER_METHOD_EVENT, TRIGGER_METHOD_WATCH,
-};
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
@@ -488,8 +488,8 @@ fn route_event(project_root: &Path, event: &TriggerEvent) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use animus_plugin_protocol::PluginManifest;
     use orchestrator_core::workflow_config::WorkflowTrigger;
-    use orchestrator_plugin_protocol::PluginManifest;
     use serde_json::json;
     use std::sync::Mutex as StdMutex;
     use tempfile::tempdir;
@@ -652,7 +652,7 @@ mod tests {
                 version: "0.0.0".to_string(),
                 plugin_kind: PLUGIN_KIND_TRIGGER_BACKEND.to_string(),
                 description: "fake trigger plugin for unit tests".to_string(),
-                protocol_version: orchestrator_plugin_protocol::PROTOCOL_VERSION.to_string(),
+                protocol_version: animus_plugin_protocol::PROTOCOL_VERSION.to_string(),
                 capabilities: Vec::new(),
             },
             source: orchestrator_plugin_host::DiscoverySource::ExplicitConfig,

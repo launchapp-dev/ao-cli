@@ -143,7 +143,7 @@ impl PluginSubjectFallback {
                 Ok(value) => {
                     return build_context_from_plugin(subject, value, fallback_title, fallback_description);
                 }
-                Err(err) if err.code == orchestrator_plugin_protocol::error_codes::METHOD_NOT_FOUND => {
+                Err(err) if err.code == animus_plugin_protocol::error_codes::METHOD_NOT_FOUND => {
                     debug!(plugin = %name, kind, "plugin does not handle subject kind");
                     continue;
                 }

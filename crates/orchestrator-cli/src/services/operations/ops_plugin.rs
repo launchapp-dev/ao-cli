@@ -15,12 +15,12 @@ pub(crate) use signing::{
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
+use animus_plugin_protocol::PluginManifest;
 use anyhow::{anyhow, Context, Result};
 use orchestrator_plugin_host::{
     discover_plugins, legacy_plugins_registry_path, plugin_install_dir, plugins_registry_path, DiscoveredPlugin,
     DiscoverySource, DiscoveryWarning, PluginDiscovery, PluginHost,
 };
-use orchestrator_plugin_protocol::PluginManifest;
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};

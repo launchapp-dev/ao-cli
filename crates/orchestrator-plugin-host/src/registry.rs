@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use animus_plugin_protocol::McpTool;
 use anyhow::{anyhow, Result};
-use orchestrator_plugin_protocol::McpTool;
 use serde_json::Value;
 use tokio::process::{ChildStdin, ChildStdout};
 

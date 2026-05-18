@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use animus_plugin_protocol::PluginManifest;
 use anyhow::{Context, Result};
-use orchestrator_plugin_protocol::PluginManifest;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

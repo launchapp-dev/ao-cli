@@ -410,7 +410,7 @@ Animus is a Rust workspace. The core crates:
 - `orchestrator-git-ops` — worktree and branch management
 - `orchestrator-notifications` — event streaming and notifications
 - `orchestrator-logging` — shared logging utilities
-- `orchestrator-plugin-host` / `orchestrator-plugin-protocol` — stdio plugin foundation
+- `orchestrator-plugin-host` / `animus-plugin-protocol` — stdio plugin foundation
 - `animus-provider-mock` / `animus-plugin-smoke` — in-tree contract test fixtures for the plugin protocol
 - `orchestrator-web-contracts` / `orchestrator-web-api` / `orchestrator-web-server` — embedded React 18 dashboard
 

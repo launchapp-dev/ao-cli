@@ -52,6 +52,13 @@ pub const PLUGIN_KIND_PROVIDER: &str = "provider";
 /// `subject/schema`.
 pub const PLUGIN_KIND_SUBJECT_BACKEND: &str = "subject_backend";
 
+/// Plugin kind for task backend plugins.
+///
+/// Reserved for plugins that own the task store itself (legacy alias used by
+/// some in-tree probes). New plugins should prefer
+/// [`PLUGIN_KIND_SUBJECT_BACKEND`].
+pub const PLUGIN_KIND_TASK_BACKEND: &str = "task_backend";
+
 /// Plugin kind for trigger backend plugins (Slack, generic webhooks, file
 /// watchers, ...).
 ///
@@ -65,6 +72,15 @@ pub const PLUGIN_KIND_TRIGGER_BACKEND: &str = "trigger_backend";
 /// their domain methods opaquely. Custom plugins are typically invoked via
 /// the `animus.plugin.call` MCP tool.
 pub const PLUGIN_KIND_CUSTOM: &str = "custom";
+
+/// Method name for the trigger-backend `trigger/watch` request.
+pub const TRIGGER_METHOD_WATCH: &str = "trigger/watch";
+
+/// Method name for the trigger-backend `trigger/event` notification.
+pub const TRIGGER_METHOD_EVENT: &str = "trigger/event";
+
+/// Method name for the trigger-backend `trigger/ack` notification.
+pub const TRIGGER_METHOD_ACK: &str = "trigger/ack";
 
 /// JSON-RPC 2.0 standard error codes plus Animus-specific extensions.
 ///
@@ -265,6 +281,11 @@ pub struct PluginCapabilities {
     /// Plugin honors `$/cancelRequest` notifications.
     #[serde(default)]
     pub cancellation: bool,
+    /// Optional projection names the plugin can serve (subject backends
+    /// only). Hosts may request a projection by name in calls that opt into
+    /// projected views.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub projections: Vec<String>,
     /// Subject kinds the plugin can produce (subject backends only).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub subject_kinds: Vec<String>,

@@ -19,7 +19,6 @@ members = [
   "crates/orchestrator-git-ops",
   "crates/orchestrator-logging",
   "crates/orchestrator-plugin-host",
-  "crates/orchestrator-plugin-protocol",
   "crates/orchestrator-config",
   "crates/orchestrator-core",
   "crates/orchestrator-store",
@@ -58,7 +57,6 @@ orchestrator-notifications = { path = "crates/orchestrator-notifications" }
 orchestrator-git-ops = { path = "crates/orchestrator-git-ops" }
 orchestrator-logging = { path = "crates/orchestrator-logging" }
 orchestrator-plugin-host = { path = "crates/orchestrator-plugin-host" }
-orchestrator-plugin-protocol = { path = "crates/orchestrator-plugin-protocol" }
 orchestrator-config = { path = "crates/orchestrator-config" }
 orchestrator-core = { path = "crates/orchestrator-core" }
 orchestrator-providers = { path = "crates/orchestrator-providers" }

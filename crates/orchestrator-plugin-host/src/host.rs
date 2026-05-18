@@ -2,18 +2,59 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{anyhow, Result};
-use orchestrator_plugin_protocol::{
+use animus_plugin_protocol::{
     error_codes, HealthCheckResult, HostCapabilities, HostInfo, InitializeParams, InitializeResult, RpcError,
     RpcNotification, RpcRequest, RpcResponse, PROTOCOL_VERSION,
 };
+use anyhow::{anyhow, Result};
+use semver::Version;
 use serde_json::Value;
+use thiserror::Error;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite};
 use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
 use crate::StdioTransport;
+
+/// Structured plugin-host errors that benefit from being matched on by
+/// callers. Most internal failures still flow through `anyhow::Error`; this
+/// enum is reserved for conditions the daemon needs to react to (e.g. log a
+/// plugin as incompatible and skip it instead of crashing the supervisor).
+#[derive(Debug, Error)]
+pub enum HostError {
+    /// The plugin advertised a `protocol_version` that the host cannot speak.
+    ///
+    /// Major-version mismatch (or non-semver gibberish) trips this. The host
+    /// should quarantine the plugin and surface the message so users can see
+    /// which plugin is wedged.
+    #[error("incompatible plugin protocol: {0}")]
+    IncompatibleProtocol(String),
+}
+
+/// Validate that a plugin's advertised `protocol_version` is wire-compatible
+/// with the host's [`PROTOCOL_VERSION`].
+///
+/// Compatibility is gated by the semver major component. Plugins reporting a
+/// matching major are accepted (minor/patch drift is treated as additive and
+/// backwards-compatible). Plugins reporting a different major — or a
+/// non-semver string — are rejected with [`HostError::IncompatibleProtocol`].
+pub fn check_protocol_compat(plugin_version: &str) -> Result<(), HostError> {
+    let host: Version = PROTOCOL_VERSION
+        .parse()
+        .map_err(|err| HostError::IncompatibleProtocol(format!("host protocol version is not valid semver: {err}")))?;
+    let plugin: Version = plugin_version.parse().map_err(|_| {
+        HostError::IncompatibleProtocol(format!(
+            "plugin advertised non-semver protocol_version '{plugin_version}' (host speaks {PROTOCOL_VERSION})"
+        ))
+    })?;
+    if plugin.major != host.major {
+        return Err(HostError::IncompatibleProtocol(format!(
+            "plugin protocol_version {plugin_version} incompatible with host {PROTOCOL_VERSION} (major version mismatch)"
+        )));
+    }
+    Ok(())
+}
 
 /// Sink for plugin stderr lines. Receives `(plugin_name, line)` on each stderr line.
 pub type PluginStderrSink = Arc<dyn Fn(&str, &str) + Send + Sync>;
@@ -169,6 +210,11 @@ where
 
         let result: InitializeResult =
             serde_json::from_value(response.result.ok_or_else(|| anyhow!("plugin initialize returned no result"))?)?;
+
+        if let Err(host_error) = check_protocol_compat(&result.protocol_version) {
+            return Err(anyhow!("plugin '{}' rejected at handshake: {host_error}", self.name));
+        }
+
         self.notify("initialized", None).await?;
         debug!(plugin = %self.name, plugin_name = %result.plugin_info.name, "stdio plugin initialized");
         Ok(result)
@@ -225,10 +271,50 @@ where
 
 #[cfg(test)]
 mod tests {
-    use orchestrator_plugin_protocol::{PluginCapabilities, PluginInfo, RpcRequest, RpcResponse};
+    use animus_plugin_protocol::{PluginCapabilities, PluginInfo, RpcRequest, RpcResponse};
     use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader};
 
     use super::*;
+
+    fn ok_initialize_response(id: Option<Value>, protocol_version: &str) -> RpcResponse {
+        RpcResponse::ok(
+            id,
+            serde_json::json!(InitializeResult {
+                protocol_version: protocol_version.to_string(),
+                plugin_info: PluginInfo {
+                    name: "test".to_string(),
+                    version: "0.1.0".to_string(),
+                    plugin_kind: "custom".to_string(),
+                    description: None,
+                },
+                capabilities: PluginCapabilities::default(),
+            }),
+        )
+    }
+
+    async fn drive_handshake(plugin_protocol_version: &'static str) -> Result<InitializeResult> {
+        let (host_reader, mut plugin_writer) = duplex(8192);
+        let (plugin_reader, host_writer) = duplex(8192);
+
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(plugin_reader);
+            let mut line = String::new();
+            reader.read_line(&mut line).await.expect("read initialize");
+            let request: RpcRequest = serde_json::from_str(line.trim()).expect("parse initialize");
+
+            let response = ok_initialize_response(request.id, plugin_protocol_version);
+            let mut encoded = serde_json::to_string(&response).expect("encode response");
+            encoded.push('\n');
+            plugin_writer.write_all(encoded.as_bytes()).await.expect("write response");
+
+            // The host only sends `initialized` after compat check passes; reading
+            // here is best-effort so rejected handshakes don't deadlock the test.
+            let _ = reader.read_line(&mut line).await;
+        });
+
+        let mut host = PluginHost::from_streams("test", host_reader, host_writer);
+        host.handshake().await
+    }
 
     #[tokio::test]
     async fn handshake_sends_initialize_and_initialized() {
@@ -242,18 +328,7 @@ mod tests {
             let request: RpcRequest = serde_json::from_str(line.trim()).expect("parse initialize");
             assert_eq!(request.method, "initialize");
 
-            let response = RpcResponse::ok(
-                request.id,
-                serde_json::json!(InitializeResult {
-                    protocol_version: PROTOCOL_VERSION.to_string(),
-                    plugin_info: PluginInfo {
-                        name: "test".to_string(),
-                        version: "0.1.0".to_string(),
-                        plugin_kind: "custom".to_string(),
-                    },
-                    capabilities: PluginCapabilities::default(),
-                }),
-            );
+            let response = ok_initialize_response(request.id, PROTOCOL_VERSION);
             let mut encoded = serde_json::to_string(&response).expect("encode response");
             encoded.push('\n');
             plugin_writer.write_all(encoded.as_bytes()).await.expect("write response");
@@ -268,5 +343,46 @@ mod tests {
         let result = host.handshake().await.expect("handshake should succeed");
 
         assert_eq!(result.plugin_info.name, "test");
+    }
+
+    #[test]
+    fn check_protocol_compat_accepts_matching_major() {
+        // PROTOCOL_VERSION = "1.0.0"; same major => OK.
+        assert!(check_protocol_compat(PROTOCOL_VERSION).is_ok());
+        assert!(check_protocol_compat("1.0.0").is_ok());
+    }
+
+    #[test]
+    fn check_protocol_compat_accepts_minor_patch_drift_within_major() {
+        // Host 1.0.0 + plugin 1.2.5 => OK (additive minor/patch is backwards-compatible).
+        assert!(check_protocol_compat("1.2.5").is_ok());
+        assert!(check_protocol_compat("1.0.99").is_ok());
+        assert!(check_protocol_compat("1.999.0").is_ok());
+    }
+
+    #[test]
+    fn check_protocol_compat_rejects_major_mismatch() {
+        // Host 1.0.0 + plugin 2.0.0 => error.
+        let err = check_protocol_compat("2.0.0").expect_err("major mismatch must fail");
+        let HostError::IncompatibleProtocol(message) = err;
+        assert!(message.contains("major version mismatch"), "unexpected message: {message}");
+    }
+
+    #[test]
+    fn check_protocol_compat_rejects_non_semver() {
+        // Host 1.0.0 + plugin "garbage" => error.
+        let err = check_protocol_compat("garbage").expect_err("non-semver must fail");
+        let HostError::IncompatibleProtocol(message) = err;
+        assert!(message.contains("non-semver"), "unexpected message: {message}");
+    }
+
+    #[tokio::test]
+    async fn handshake_rejects_plugin_with_major_mismatch() {
+        let err = drive_handshake("2.0.0").await.expect_err("major mismatch must abort handshake");
+        let message = format!("{err}");
+        assert!(
+            message.contains("incompatible plugin protocol") && message.contains("major version mismatch"),
+            "unexpected error: {message}"
+        );
     }
 }

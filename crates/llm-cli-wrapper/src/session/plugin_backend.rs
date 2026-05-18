@@ -9,10 +9,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use animus_plugin_protocol::RpcNotification;
 use async_trait::async_trait;
 use orchestrator_logging::Logger;
 use orchestrator_plugin_host::{PluginHost, PluginStderrSink};
-use orchestrator_plugin_protocol::RpcNotification;
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -442,7 +442,7 @@ pub fn discover_provider_plugins(project_root: &std::path::Path) -> Vec<Discover
     discover_plugins(&project_root)
         .unwrap_or_default()
         .into_iter()
-        .filter(|plugin| plugin.manifest.plugin_kind == orchestrator_plugin_protocol::PLUGIN_KIND_PROVIDER)
+        .filter(|plugin| plugin.manifest.plugin_kind == animus_plugin_protocol::PLUGIN_KIND_PROVIDER)
         .map(|plugin| {
             let provider_tool = plugin
                 .name

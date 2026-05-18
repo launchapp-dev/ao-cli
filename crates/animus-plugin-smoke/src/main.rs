@@ -6,17 +6,17 @@
 
 use std::io::{self, IsTerminal, Write};
 
-use anyhow::Result;
-use orchestrator_plugin_protocol::{
+use animus_plugin_protocol::{
     error_codes, HealthCheckResult, HealthStatus, InitializeResult, McpTool, PluginCapabilities, PluginInfo,
     PluginManifest, RpcError, RpcRequest, RpcResponse, PROTOCOL_VERSION,
 };
+use anyhow::Result;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 const PLUGIN_NAME: &str = "animus-plugin-smoke";
 const PLUGIN_VERSION: &str = env!("CARGO_PKG_VERSION");
-const PLUGIN_KIND: &str = orchestrator_plugin_protocol::PLUGIN_KIND_SUBJECT_BACKEND;
+const PLUGIN_KIND: &str = animus_plugin_protocol::PLUGIN_KIND_SUBJECT_BACKEND;
 const SUBJECT_KIND: &str = "smoke";
 
 fn manifest() -> PluginManifest {
@@ -42,10 +42,13 @@ fn initialize_result() -> InitializeResult {
             name: PLUGIN_NAME.to_string(),
             version: PLUGIN_VERSION.to_string(),
             plugin_kind: PLUGIN_KIND.to_string(),
+            description: None,
         },
         capabilities: PluginCapabilities {
             methods: vec!["smoke/get".to_string(), "health/check".to_string()],
             streaming: false,
+            progress: false,
+            cancellation: false,
             projections: Vec::new(),
             subject_kinds: vec![SUBJECT_KIND.to_string()],
             mcp_tools: vec![McpTool {

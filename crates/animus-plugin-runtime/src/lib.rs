@@ -23,14 +23,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
+use animus_plugin_protocol::{
+    error_codes, HealthCheckResult, HealthStatus, InitializeResult, PluginCapabilities, PluginInfo, PluginManifest,
+    RpcError, RpcNotification, RpcRequest, RpcResponse, PROTOCOL_VERSION,
+};
 use anyhow::Result;
 use async_trait::async_trait;
 use cli_wrapper::session::{
     session_backend::SessionBackend, session_event::SessionEvent, session_request::SessionRequest,
-};
-use orchestrator_plugin_protocol::{
-    error_codes, HealthCheckResult, HealthStatus, InitializeResult, PluginCapabilities, PluginInfo, PluginManifest,
-    RpcError, RpcNotification, RpcRequest, RpcResponse, PROTOCOL_VERSION,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -54,7 +54,7 @@ impl ProviderInfo {
         PluginManifest {
             name: self.plugin_name.to_string(),
             version: self.plugin_version.to_string(),
-            plugin_kind: orchestrator_plugin_protocol::PLUGIN_KIND_PROVIDER.to_string(),
+            plugin_kind: animus_plugin_protocol::PLUGIN_KIND_PROVIDER.to_string(),
             description: self.description.to_string(),
             protocol_version: PROTOCOL_VERSION.to_string(),
             capabilities: vec![
@@ -72,7 +72,8 @@ impl ProviderInfo {
             plugin_info: PluginInfo {
                 name: self.plugin_name.to_string(),
                 version: self.plugin_version.to_string(),
-                plugin_kind: orchestrator_plugin_protocol::PLUGIN_KIND_PROVIDER.to_string(),
+                plugin_kind: animus_plugin_protocol::PLUGIN_KIND_PROVIDER.to_string(),
+                description: Some(self.description.to_string()),
             },
             capabilities: PluginCapabilities {
                 methods: vec![
@@ -82,6 +83,8 @@ impl ProviderInfo {
                     "health/check".to_string(),
                 ],
                 streaming: true,
+                progress: false,
+                cancellation: true,
                 projections: Vec::new(),
                 subject_kinds: Vec::new(),
                 mcp_tools: Vec::new(),

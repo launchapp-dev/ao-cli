@@ -10,7 +10,7 @@ pub use discovery::{
     discover_plugins, legacy_plugins_registry_path, plugin_install_dir, plugins_registry_path, DiscoveredPlugin,
     DiscoverySource, DiscoveryWarning, PluginConfigEntry, PluginDiscovery,
 };
-pub use host::{PluginHost, PluginNotificationRx, PluginStderrSink};
+pub use host::{check_protocol_compat, HostError, PluginHost, PluginNotificationRx, PluginStderrSink};
 pub use registry::PluginRegistry;
 pub use subject_router::SubjectRouter;
 pub use transport::StdioTransport;

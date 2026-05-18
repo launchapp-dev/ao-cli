@@ -99,10 +99,10 @@ dependencies = [
 name = "animus-plugin-runtime"
 version = "0.1.0"
 dependencies = [
+ "animus-plugin-protocol",
  "anyhow",
  "async-trait",
  "llm-cli-wrapper",
- "orchestrator-plugin-protocol",
  "serde",
  "serde_json",
  "tokio",
@@ -113,8 +113,8 @@ dependencies = [
 name = "animus-plugin-smoke"
 version = "0.1.0"
 dependencies = [
+ "animus-plugin-protocol",
  "anyhow",
- "orchestrator-plugin-protocol",
  "serde_json",
  "tokio",
 ]
@@ -2179,6 +2179,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 name = "llm-cli-wrapper"
 version = "0.1.0"
 dependencies = [
+ "animus-plugin-protocol",
  "anyhow",
  "async-trait",
  "chrono",
@@ -2186,7 +2187,6 @@ dependencies = [
  "colored",
  "orchestrator-logging",
  "orchestrator-plugin-host",
- "orchestrator-plugin-protocol",
  "protocol",
  "regex",
  "serde",
@@ -2575,6 +2575,7 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 name = "orchestrator-cli"
 version = "0.4.2"
 dependencies = [
+ "animus-plugin-protocol",
  "anyhow",
  "assert_cmd",
  "async-trait",
@@ -2594,7 +2595,6 @@ dependencies = [
  "orchestrator-logging",
  "orchestrator-notifications",
  "orchestrator-plugin-host",
- "orchestrator-plugin-protocol",
  "orchestrator-web-api",
  "orchestrator-web-server",
  "protocol",
@@ -2667,6 +2667,7 @@ dependencies = [
 name = "orchestrator-daemon-runtime"
 version = "0.1.0"
 dependencies = [
+ "animus-plugin-protocol",
  "anyhow",
  "async-trait",
  "chrono",
@@ -2676,7 +2677,6 @@ dependencies = [
  "orchestrator-core",
  "orchestrator-logging",
  "orchestrator-plugin-host",
- "orchestrator-plugin-protocol",
  "protocol",
  "serde",
  "serde_json",
@@ -2736,33 +2736,27 @@ dependencies = [
 name = "orchestrator-plugin-host"
 version = "0.1.0"
 dependencies = [
+ "animus-plugin-protocol",
  "anyhow",
- "orchestrator-plugin-protocol",
+ "semver",
  "serde",
  "serde_json",
  "serde_yaml",
  "tempfile",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "orchestrator-plugin-protocol"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
 ]
 
 [[package]]
 name = "orchestrator-providers"
 version = "0.1.0"
 dependencies = [
+ "animus-plugin-protocol",
  "anyhow",
  "async-trait",
  "chrono",
  "orchestrator-plugin-host",
- "orchestrator-plugin-protocol",
  "protocol",
  "serde",
  "serde_json",

@@ -74,7 +74,7 @@ from the daemon's view.
 ## The plugin contract
 
 Subject backends are stdio plugins of kind `subject_backend` (already
-reserved in `crates/orchestrator-plugin-protocol/src/lib.rs:12`). They speak
+reserved in `crates/animus-plugin-protocol/src/lib.rs`). They speak
 the existing newline-delimited JSON-RPC 2.0 protocol with the standard
 `initialize` / `initialized` / `health/check` / `$/ping` lifecycle. The
 subject-specific surface adds these methods:

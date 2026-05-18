@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
+use animus_plugin_protocol::RpcError;
 use anyhow::{anyhow, Result};
-use orchestrator_plugin_protocol::RpcError;
 use serde_json::Value;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::process::{ChildStdin, ChildStdout};
@@ -48,14 +48,14 @@ where
         let kind = method.split('/').next().unwrap_or_default();
         let Some(plugin_name) = self.kind_to_plugin.get(kind) else {
             return Err(RpcError {
-                code: orchestrator_plugin_protocol::error_codes::METHOD_NOT_FOUND,
+                code: animus_plugin_protocol::error_codes::METHOD_NOT_FOUND,
                 message: format!("no subject backend registered for kind '{kind}'"),
                 data: None,
             });
         };
         let Some(host) = self.hosts.get_mut(plugin_name) else {
             return Err(RpcError {
-                code: orchestrator_plugin_protocol::error_codes::INTERNAL_ERROR,
+                code: animus_plugin_protocol::error_codes::INTERNAL_ERROR,
                 message: format!("subject backend '{plugin_name}' is not available"),
                 data: None,
             });
@@ -71,7 +71,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use orchestrator_plugin_protocol::{InitializeResult, PluginCapabilities, PluginInfo, RpcRequest, RpcResponse};
+    use animus_plugin_protocol::{InitializeResult, PluginCapabilities, PluginInfo, RpcRequest, RpcResponse};
     use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
 
     use super::*;
@@ -99,6 +99,7 @@ mod tests {
                                 name: name_for_task.clone(),
                                 version: "0.1.0".to_string(),
                                 plugin_kind: "subject_backend".to_string(),
+                                description: None,
                             },
                             capabilities: PluginCapabilities {
                                 subject_kinds: kinds.clone(),

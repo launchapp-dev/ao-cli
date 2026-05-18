@@ -126,11 +126,11 @@ pub trait PlanningServiceApi: Send + Sync {
 pub mod builtin;
 pub mod git;
 pub mod plugins {
+    pub use animus_plugin_protocol as protocol;
     pub use orchestrator_plugin_host::{
         discover_plugins, DiscoveredPlugin, DiscoverySource, DiscoveryWarning, PluginConfigEntry, PluginDiscovery,
         PluginHost, PluginRegistry, StdioTransport, SubjectRouter,
     };
-    pub use orchestrator_plugin_protocol as protocol;
 }
 pub mod subject_adapter;
 

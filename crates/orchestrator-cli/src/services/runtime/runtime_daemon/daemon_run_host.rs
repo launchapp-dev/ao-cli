@@ -122,6 +122,29 @@ impl DefaultDaemonRunHost {
                     .err(error)
                     .emit();
             }
+            DaemonRunEvent::LogStorageDispatchResolved {
+                plugin_name,
+                candidate_count,
+                disable_env_set,
+                warnings,
+                ..
+            } => {
+                let summary = match plugin_name {
+                    Some(name) => format!("log storage routed through plugin {name}"),
+                    None => "log storage using in-tree fallback (events.jsonl)".to_string(),
+                };
+                self.logger
+                    .info("plugins", summary)
+                    .meta(json!({
+                        "candidate_count": candidate_count,
+                        "disable_env_set": disable_env_set,
+                        "warnings": warnings,
+                    }))
+                    .emit();
+                for warning in warnings {
+                    self.logger.warn("plugins", warning.clone()).emit();
+                }
+            }
         }
     }
 
@@ -421,6 +444,22 @@ impl DaemonRunHooks for DefaultDaemonRunHost {
                         "error": error,
                     }),
                 ),
+            DaemonRunEvent::LogStorageDispatchResolved {
+                project_root,
+                plugin_name,
+                candidate_count,
+                disable_env_set,
+                warnings,
+            } => self.emit_daemon_event_with_notifications(
+                "log-storage-dispatch-resolved",
+                Some(project_root),
+                json!({
+                    "plugin": plugin_name,
+                    "candidate_count": candidate_count,
+                    "disable_env_set": disable_env_set,
+                    "warnings": warnings,
+                }),
+            ),
         }
     }
 

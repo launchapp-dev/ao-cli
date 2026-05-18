@@ -1,5 +1,6 @@
 mod daemon;
 mod dispatch;
+mod log_storage;
 mod queue;
 mod schedule;
 mod tick;
@@ -14,6 +15,10 @@ pub use dispatch::{
     ready_dispatch_limit, ready_dispatch_limit_for_options, schedule_headroom, workflow_current_phase_id,
     CompletedProcess, CompletionReconciliationPlan, DispatchNotice, DispatchNoticeSink, DispatchSelectionSource,
     DispatchWorkflowStart, DispatchWorkflowStartSummary, PlannedDispatchStart, ProcessManager,
+};
+pub use log_storage::{
+    discover_log_storage_backends, log_storage_disable_env_set, resolve_log_storage_dispatch, LogStorageDispatch,
+    LogStorageResolution, LOG_STORAGE_DISABLE_ENV,
 };
 pub use protocol::{RunnerEvent, SubjectDispatch, SubjectExecutionFact};
 pub use queue::{

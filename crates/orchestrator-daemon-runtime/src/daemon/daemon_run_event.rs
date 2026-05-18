@@ -97,6 +97,17 @@ pub enum DaemonRunEvent {
         attempts: u32,
         error: String,
     },
+    /// Resolved which log storage backend the daemon will route through
+    /// for this run. Emitted once at startup, after plugin discovery
+    /// completes. `plugin_name` is `None` when the in-tree fallback is
+    /// active.
+    LogStorageDispatchResolved {
+        project_root: String,
+        plugin_name: Option<String>,
+        candidate_count: usize,
+        disable_env_set: bool,
+        warnings: Vec<String>,
+    },
     Shutdown {
         project_root: String,
         daemon_pid: u32,

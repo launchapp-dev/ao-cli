@@ -65,6 +65,33 @@ pub const PLUGIN_KIND_TASK_BACKEND: &str = "task_backend";
 /// Reserved for v0.4.x. The trigger protocol is not finalized in v0.4.0.
 pub const PLUGIN_KIND_TRIGGER_BACKEND: &str = "trigger_backend";
 
+/// Plugin kind for log storage backend plugins (file-backed, hosted SaaS,
+/// OpenTelemetry exporters, ...).
+///
+/// Log storage backends receive `log/entry` notifications from the daemon
+/// and any other supervised plugin and own persisting / forwarding them.
+/// When no plugin is installed the daemon falls back to the in-tree
+/// `orchestrator-logging::Logger` which writes structured events to
+/// `events.jsonl`.
+pub const PLUGIN_KIND_LOG_STORAGE_BACKEND: &str = "log_storage_backend";
+
+/// Method name for the log-storage `log/entry` notification.
+///
+/// Emitted by any supervised plugin to forward a structured log entry to
+/// the active log storage backend (plugin or in-tree fallback). The
+/// notification payload is JSON-typed to match
+/// `orchestrator_logging::LogEntry` so the in-tree fallback can persist the
+/// entry verbatim and a plugin backend can choose its own schema mapping.
+pub const LOG_STORAGE_METHOD_ENTRY: &str = "log/entry";
+
+/// Method name for the log-storage `log_storage/tail` request.
+///
+/// Hosts call this against an active log storage backend plugin to fetch
+/// a bounded slice of recent entries. Streaming follow-up notifications
+/// (when supported by the plugin) carry the original request id per the
+/// notification streaming contract documented in `spec.md`.
+pub const LOG_STORAGE_METHOD_TAIL: &str = "log_storage/tail";
+
 /// Plugin kind for plugins that don't fit a built-in category.
 ///
 /// Custom plugins still go through the standard

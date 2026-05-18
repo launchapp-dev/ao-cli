@@ -332,6 +332,12 @@ fn protocol_public_surface_does_not_drift_against_standalone() {
         "TRIGGER_METHOD_WATCH",
         "TRIGGER_METHOD_EVENT",
         "TRIGGER_METHOD_ACK",
+        // Added in the in-tree crate for the v0.4.0 log-storage plugin cut
+        // (commit #1 of the three-commit sequence). Slated for inclusion in
+        // the next standalone tag.
+        "PLUGIN_KIND_LOG_STORAGE_BACKEND",
+        "LOG_STORAGE_METHOD_ENTRY",
+        "LOG_STORAGE_METHOD_TAIL",
         // Manifest.env_required + PluginCapabilities.projections — additions
         // covered by the next standalone release.
         "PluginManifest.env_required",

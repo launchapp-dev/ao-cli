@@ -63,6 +63,8 @@ where
 
     discover_plugins_for_daemon(project_root, &primary_root, hooks)?;
 
+    resolve_log_storage_dispatch_for_daemon(project_root, &primary_root, hooks);
+
     // Trigger backend plugins. Off by default behind an env flag mirroring
     // the provider-plugin opt-out shape.
     let trigger_event_queue: Arc<Mutex<Vec<TriggerSupervisorEvent>>> = Arc::new(Mutex::new(Vec::new()));
@@ -253,6 +255,39 @@ fn drain_trigger_events<H: DaemonRunHooks>(
         hooks.handle_event(daemon_event)?;
     }
     Ok(())
+}
+
+/// Resolve which log storage backend the daemon will route through and
+/// emit a [`DaemonRunEvent::LogStorageDispatchResolved`] so operators see
+/// the choice on every startup. Failures are degraded to in-tree + a
+/// warning rather than aborting startup — a misbehaving log_storage
+/// plugin must never block the daemon from coming up.
+fn resolve_log_storage_dispatch_for_daemon<H: DaemonRunHooks>(project_root: &str, primary_root: &str, hooks: &mut H) {
+    let disable_env_set = crate::log_storage_disable_env_set();
+    match crate::resolve_log_storage_dispatch(Path::new(project_root)) {
+        Ok(resolution) => {
+            let plugin_name = resolution.selected.plugin_name().map(|s| s.to_string());
+            let candidate_count = resolution.all_candidates.len();
+            let _ = hooks.handle_event(DaemonRunEvent::LogStorageDispatchResolved {
+                project_root: primary_root.to_string(),
+                plugin_name,
+                candidate_count,
+                disable_env_set,
+                warnings: resolution.warnings,
+            });
+        }
+        Err(error) => {
+            let _ = hooks.handle_event(DaemonRunEvent::LogStorageDispatchResolved {
+                project_root: primary_root.to_string(),
+                plugin_name: None,
+                candidate_count: 0,
+                disable_env_set,
+                warnings: vec![format!(
+                    "log_storage_backend discovery failed; falling back to in-tree Logger: {error:#}"
+                )],
+            });
+        }
+    }
 }
 
 fn discover_plugins_for_daemon<H: DaemonRunHooks>(project_root: &str, primary_root: &str, hooks: &mut H) -> Result<()> {

@@ -133,4 +133,9 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: TriggerCommand,
     },
+    /// Tail and inspect daemon log output (in-tree or via log_storage_backend plugin).
+    Logs {
+        #[command(subcommand)]
+        command: LogsCommand,
+    },
 }

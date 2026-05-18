@@ -1,0 +1,221 @@
+use std::path::Path;
+
+use anyhow::{anyhow, Result};
+use chrono::{Duration as ChronoDuration, Utc};
+use orchestrator_daemon_runtime::{resolve_log_storage_dispatch, LogStorageDispatch};
+use orchestrator_logging::{Level, LogEntry, Logger};
+use serde::Serialize;
+
+use crate::{print_value, LogsCommand, LogsTailArgs};
+
+#[derive(Debug, Serialize)]
+struct LogsTailResponse {
+    backend: &'static str,
+    plugin_name: Option<String>,
+    project_root: String,
+    entries: Vec<LogEntry>,
+}
+
+pub(crate) async fn handle_logs(command: LogsCommand, project_root: &str, json: bool) -> Result<()> {
+    match command {
+        LogsCommand::Tail(args) => handle_logs_tail(args, project_root, json).await,
+    }
+}
+
+async fn handle_logs_tail(args: LogsTailArgs, project_root: &str, json: bool) -> Result<()> {
+    let level = parse_level(&args.level)?;
+    let since_duration = parse_duration(&args.since)?;
+    let since_ts = (Utc::now() - since_duration).to_rfc3339();
+    let limit = args.limit.max(1);
+
+    let resolution = resolve_log_storage_dispatch(Path::new(project_root))?;
+
+    match resolution.selected.as_ref() {
+        LogStorageDispatch::InTree { project_root: pr } => {
+            let logger = Logger::for_project(pr);
+            let entries = read_in_tree_entries(&logger, limit, level, since_ts.as_str(), args.plugin.as_deref());
+            emit_response(
+                LogsTailResponse {
+                    backend: "in_tree",
+                    plugin_name: None,
+                    project_root: pr.display().to_string(),
+                    entries,
+                },
+                json,
+            )
+        }
+        LogStorageDispatch::Plugin { project_root: pr, plugin } => {
+            // v0.4.0 ships the discovery + dispatch wiring. Calling
+            // `log_storage/tail` against the live plugin is deferred to a
+            // v0.4.1+ commit (the runtime helper layer for streaming
+            // tail subscriptions is still being designed). Until then,
+            // surface the active backend identity and the in-tree
+            // fallback file so operators have a single CLI to drive the
+            // tail experience.
+            let logger = Logger::for_project(pr);
+            let entries = read_in_tree_entries(&logger, limit, level, since_ts.as_str(), args.plugin.as_deref());
+            if !json {
+                eprintln!(
+                    "note: active backend is plugin '{}'; live tail via log_storage/tail lands in v0.4.1. \
+                     Falling back to in-tree events.jsonl reader for this command.",
+                    plugin.name
+                );
+            }
+            emit_response(
+                LogsTailResponse {
+                    backend: "plugin",
+                    plugin_name: Some(plugin.name.clone()),
+                    project_root: pr.display().to_string(),
+                    entries,
+                },
+                json,
+            )
+        }
+    }
+}
+
+fn emit_response(response: LogsTailResponse, json: bool) -> Result<()> {
+    if json {
+        print_value(response, true)
+    } else {
+        for entry in &response.entries {
+            let plugin_suffix = entry.provider.as_deref().map(|p| format!(" [{}]", p)).unwrap_or_default();
+            println!("{} {:>5} {}{} :: {}", entry.ts, entry.level, entry.cat, plugin_suffix, entry.msg);
+        }
+        Ok(())
+    }
+}
+
+fn read_in_tree_entries(
+    logger: &Logger,
+    limit: usize,
+    level: Level,
+    since_ts: &str,
+    plugin_filter: Option<&str>,
+) -> Vec<LogEntry> {
+    // Overscan and then trim from the most-recent side. `read_entries_since`
+    // returns entries in chronological order (oldest first); we want the
+    // `limit` MOST RECENT matches, so we filter, keep the tail, and let
+    // the CLI render them oldest-first for human-readability.
+    let candidate_pool = limit.saturating_mul(4).max(limit * 4);
+    let entries = logger.read_entries_since(candidate_pool, None, Some(level), Some(since_ts));
+    let mut filtered: Vec<LogEntry> = entries
+        .into_iter()
+        .filter(|e| {
+            plugin_filter.map(|name| e.provider.as_deref() == Some(name) || e.meta_plugin_matches(name)).unwrap_or(true)
+        })
+        .collect();
+    if filtered.len() > limit {
+        let drop = filtered.len() - limit;
+        filtered.drain(0..drop);
+    }
+    filtered
+}
+
+fn parse_level(raw: &str) -> Result<Level> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "debug" => Ok(Level::Debug),
+        "info" => Ok(Level::Info),
+        "warn" | "warning" => Ok(Level::Warn),
+        "error" | "err" => Ok(Level::Error),
+        other => Err(anyhow!("invalid --level value '{other}'; expected one of debug|info|warn|error")),
+    }
+}
+
+fn parse_duration(raw: &str) -> Result<ChronoDuration> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(anyhow!("--since cannot be empty"));
+    }
+    let (num_part, unit) = trimmed.split_at(
+        trimmed
+            .find(|c: char| !c.is_ascii_digit() && c != '.')
+            .ok_or_else(|| anyhow!("--since '{}' missing unit (use s/m/h/d)", trimmed))?,
+    );
+    let value: i64 = num_part
+        .parse::<f64>()
+        .map(|v| v as i64)
+        .map_err(|_| anyhow!("--since '{}' has invalid numeric component", trimmed))?;
+    match unit.trim() {
+        "s" | "sec" | "secs" | "seconds" => Ok(ChronoDuration::seconds(value.max(0))),
+        "m" | "min" | "mins" | "minutes" => Ok(ChronoDuration::minutes(value.max(0))),
+        "h" | "hr" | "hrs" | "hour" | "hours" => Ok(ChronoDuration::hours(value.max(0))),
+        "d" | "day" | "days" => Ok(ChronoDuration::days(value.max(0))),
+        other => Err(anyhow!("--since '{}' has unknown unit '{}' (use s/m/h/d)", trimmed, other)),
+    }
+}
+
+/// Extension trait: search the structured meta payload for a plugin
+/// reference. Provider plugin fan-out writes a `meta.plugin` field, so
+/// `--plugin` should match against it too.
+trait LogEntryMetaExt {
+    fn meta_plugin_matches(&self, name: &str) -> bool;
+}
+
+impl LogEntryMetaExt for LogEntry {
+    fn meta_plugin_matches(&self, name: &str) -> bool {
+        match self.meta.as_ref().and_then(|v| v.get("plugin")).and_then(|v| v.as_str()) {
+            Some(plugin) => plugin == name,
+            None => false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn parse_level_accepts_canonical_names() {
+        assert!(matches!(parse_level("debug").unwrap(), Level::Debug));
+        assert!(matches!(parse_level("INFO").unwrap(), Level::Info));
+        assert!(matches!(parse_level("warning").unwrap(), Level::Warn));
+        assert!(matches!(parse_level("err").unwrap(), Level::Error));
+        assert!(parse_level("trace").is_err(), "trace is not a supported level");
+    }
+
+    #[test]
+    fn parse_duration_accepts_common_shortcuts() {
+        assert_eq!(parse_duration("1h").unwrap(), ChronoDuration::hours(1));
+        assert_eq!(parse_duration("30m").unwrap(), ChronoDuration::minutes(30));
+        assert_eq!(parse_duration("15s").unwrap(), ChronoDuration::seconds(15));
+        assert_eq!(parse_duration("2d").unwrap(), ChronoDuration::days(2));
+        assert!(parse_duration("forever").is_err(), "non-numeric prefix must fail");
+        assert!(parse_duration("10").is_err(), "missing unit must fail");
+    }
+
+    #[test]
+    fn logs_tail_in_tree_reads_events_jsonl() {
+        // Write a fixture events.jsonl with mixed levels and read it back
+        // through the same reader logs_tail uses, with --level=warn and
+        // --limit=3.
+        let temp = tempfile::tempdir().expect("tempdir");
+        let logs_dir = temp.path().join(".animus/logs");
+        fs::create_dir_all(&logs_dir).expect("mkdir");
+
+        let logger = Logger::open(&logs_dir, "events.jsonl", Level::Debug);
+        logger.debug("test", "debug-noise").emit();
+        logger.info("test", "info-baseline").emit();
+        logger.warn("test", "warn-one").emit();
+        logger.warn("test", "warn-two").provider("kimi-code").emit();
+        logger.error("test", "error-one").emit();
+        logger.info("test", "info-trailing").emit();
+
+        let since_ts = (Utc::now() - ChronoDuration::hours(1)).to_rfc3339();
+        let entries = read_in_tree_entries(&logger, 3, Level::Warn, since_ts.as_str(), None);
+
+        assert_eq!(entries.len(), 3, "expected 3 entries at warn+ level, got {:?}", entries.len());
+        let messages: Vec<&str> = entries.iter().map(|e| e.msg.as_str()).collect();
+        assert!(messages.contains(&"warn-one"), "warn-one missing: {messages:?}");
+        assert!(messages.contains(&"warn-two"), "warn-two missing: {messages:?}");
+        assert!(messages.contains(&"error-one"), "error-one missing: {messages:?}");
+        assert!(!messages.iter().any(|m| m == &"debug-noise"), "debug entries must be filtered out");
+        assert!(!messages.iter().any(|m| m == &"info-baseline"), "info entries must be filtered out");
+
+        // Plugin filter narrows the set further.
+        let plugin_filtered = read_in_tree_entries(&logger, 10, Level::Warn, since_ts.as_str(), Some("kimi-code"));
+        assert_eq!(plugin_filtered.len(), 1, "expected exactly one warn-and-above entry tagged kimi-code");
+        assert_eq!(plugin_filtered[0].msg, "warn-two");
+    }
+}

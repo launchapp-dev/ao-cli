@@ -5,8 +5,9 @@
 //! `Finished`, and shuts the plugin down. Lightweight per-call lifecycle keeps the
 //! v1 surface simple; pooling can come later.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
 use animus_plugin_protocol::{EnvRequirement, RpcNotification};
@@ -34,6 +35,32 @@ use super::{
 };
 use crate::error::{Error, Result};
 
+/// In-memory record of a live `agent/run`-initiated session whose plugin host
+/// must be reused for subsequent control-plane calls (currently just
+/// `agent/cancel`).
+///
+/// Keyed by the `control_session_id` minted in [`PluginSessionBackend::dispatch`]
+/// and returned to callers via [`SessionRun::session_id`].
+///
+/// TODO(audit-gap-7-followup): add TTL-based background eviction so handles
+/// for plugins that crash or fail to send `Finished` don't accumulate.
+pub(crate) struct SessionHandle {
+    pub(crate) host: PluginHost,
+    /// When the session was registered; reserved for TTL eviction in a
+    /// follow-up commit.
+    #[allow(dead_code)]
+    pub(crate) started_at: Instant,
+    /// Cached from the plugin's `initialize` response so cancel routing can
+    /// short-circuit with [`HostError::CapabilityNotSupported`] without paying
+    /// for a wasted RPC round trip.
+    pub(crate) cancellation: bool,
+}
+
+/// Map of `control_session_id` -> live [`SessionHandle`]. Guarded by a sync
+/// mutex because the operations are all CPU-bound (HashMap insert/get/remove);
+/// we never hold this lock across `.await`.
+pub(crate) type SessionMap = Arc<StdMutex<HashMap<String, SessionHandle>>>;
+
 /// Wraps a discovered AO STDIO plugin so the resolver can route `agent/run`
 /// through it as if it were any other in-tree backend.
 #[derive(Clone)]
@@ -44,6 +71,7 @@ pub struct PluginSessionBackend {
     pub(crate) display_name: String,
     pub(crate) project_root: Option<PathBuf>,
     pub(crate) env_required: Vec<EnvRequirement>,
+    pub(crate) sessions: SessionMap,
 }
 
 impl PluginSessionBackend {
@@ -51,7 +79,29 @@ impl PluginSessionBackend {
         let plugin_name = plugin_name.into();
         let provider_tool = provider_tool.into();
         let display_name = format!("Plugin Provider ({plugin_name})");
-        Self { plugin_name, binary_path, provider_tool, display_name, project_root: None, env_required: Vec::new() }
+        Self {
+            plugin_name,
+            binary_path,
+            provider_tool,
+            display_name,
+            project_root: None,
+            env_required: Vec::new(),
+            sessions: Arc::new(StdMutex::new(HashMap::new())),
+        }
+    }
+
+    /// Test-only: insert a `SessionHandle` directly into the session map so a
+    /// fake host can be exercised by `dispatch_cancel` without first running
+    /// `dispatch`. Production code never touches this.
+    #[cfg(test)]
+    pub(crate) fn insert_session_for_test(&self, control_session_id: impl Into<String>, handle: SessionHandle) {
+        self.sessions.lock().expect("session map mutex poisoned in test").insert(control_session_id.into(), handle);
+    }
+
+    /// Test-only: peek at whether a session is currently registered.
+    #[cfg(test)]
+    pub(crate) fn has_session_for_test(&self, control_session_id: &str) -> bool {
+        self.sessions.lock().expect("session map mutex poisoned in test").contains_key(control_session_id)
     }
 
     /// Bind a project root so structured log entries about every spawn / call /
@@ -167,17 +217,40 @@ impl PluginSessionBackend {
         // Subscribe before handshake so even handshake-time notifications are visible.
         let mut notifications = host.subscribe_notifications();
 
-        if let Err(error) = host.handshake().await {
-            graceful_shutdown(host).await;
-            let message = format!(
-                "plugin '{}' handshake failed: {error}; to bypass this plugin and use the in-tree backend, set ANIMUS_PROVIDER_DISABLE_PLUGIN=1 and restart the daemon",
-                self.plugin_name
-            );
-            if let Some(logger) = self.project_logger() {
-                logger.error("plugin.dispatch.handshake", &message).err(error.to_string()).emit();
+        let init_result = match host.handshake().await {
+            Ok(result) => result,
+            Err(error) => {
+                graceful_shutdown(host).await;
+                let message = format!(
+                    "plugin '{}' handshake failed: {error}; to bypass this plugin and use the in-tree backend, set ANIMUS_PROVIDER_DISABLE_PLUGIN=1 and restart the daemon",
+                    self.plugin_name
+                );
+                if let Some(logger) = self.project_logger() {
+                    logger.error("plugin.dispatch.handshake", &message).err(error.to_string()).emit();
+                }
+                return Err(Error::ExecutionFailed(message));
             }
-            return Err(Error::ExecutionFailed(message));
+        };
+
+        // Register the session-keyed host so dispatch_cancel can route through
+        // the SAME transport instead of spawning a brand-new plugin process
+        // that has no knowledge of the in-flight session. Insert BEFORE the
+        // streaming task starts so cancel callers observe the handle even on
+        // very fast plugins. The streaming task removes the entry when the
+        // run finishes (success, error, or timeout).
+        {
+            let mut guard = self.sessions.lock().expect("session map mutex poisoned");
+            guard.insert(
+                control_session_id.clone(),
+                SessionHandle {
+                    host: host.clone(),
+                    started_at: Instant::now(),
+                    cancellation: init_result.capabilities.cancellation,
+                },
+            );
         }
+        let sessions_for_cleanup = self.sessions.clone();
+        let control_session_id_for_cleanup = control_session_id.clone();
 
         // Hand the SessionRun receiver out IMMEDIATELY so the caller can read live
         // stream events while the plugin is still working. The actual JSON-RPC call
@@ -270,6 +343,7 @@ impl PluginSessionBackend {
                             .emit();
                     }
                     let _ = stream_tx.send(SessionEvent::Finished { exit_code: Some(1) }).await;
+                    remove_session(&sessions_for_cleanup, &control_session_id_for_cleanup);
                     graceful_shutdown(host).await;
                     return;
                 }
@@ -288,11 +362,13 @@ impl PluginSessionBackend {
                             .emit();
                     }
                     let _ = stream_tx.send(SessionEvent::Finished { exit_code: Some(124) }).await;
+                    remove_session(&sessions_for_cleanup, &control_session_id_for_cleanup);
                     graceful_shutdown(host).await;
                     return;
                 }
             };
 
+            remove_session(&sessions_for_cleanup, &control_session_id_for_cleanup);
             graceful_shutdown(host).await;
 
             if let Some(response) = outcome {
@@ -340,22 +416,39 @@ impl PluginSessionBackend {
                 .meta(json!({ "plugin": self.plugin_name, "session_id": session_id }))
                 .emit();
         }
-        let spawn_options = self.spawn_options(&[]);
-        let host = PluginHost::spawn_with_options(&self.binary_path, &[], spawn_options)
-            .await
-            .map_err(|error| Error::ExecutionFailed(format!("plugin '{}' spawn failed: {error}", self.plugin_name)))?;
-        if let Err(error) = host.handshake().await {
-            graceful_shutdown(host).await;
+
+        // Look the session up under the lock; CLONE the host out (PluginHost is
+        // an Arc<PluginHostInner>, so cloning is cheap and shares the same
+        // transport with the original dispatch task), then DROP the lock
+        // before doing any await. Holding a sync mutex across .await would
+        // deadlock under tokio's current-thread scheduler.
+        let (host, cancellation) = {
+            let guard = self.sessions.lock().expect("session map mutex poisoned");
+            match guard.get(session_id) {
+                Some(handle) => (handle.host.clone(), handle.cancellation),
+                None => {
+                    return Err(Error::ExecutionFailed(format!(
+                        "no active session '{session_id}' for plugin '{}'; nothing to cancel",
+                        self.plugin_name
+                    )));
+                }
+            }
+        };
+
+        if !cancellation {
             return Err(Error::ExecutionFailed(format!(
-                "plugin '{}' handshake failed: {error}; to bypass this plugin and use the in-tree backend, set ANIMUS_PROVIDER_DISABLE_PLUGIN=1 and restart the daemon",
+                "plugin '{}' does not advertise capability 'cancellation'; cancel rejected",
                 self.plugin_name
             )));
         }
+
         let request_future = host.request("agent/cancel".to_string(), Some(json!({ "session_id": session_id })));
         let result = tokio::time::timeout(cancel_timeout, request_future).await;
-        graceful_shutdown(host).await;
         match result {
-            Ok(Ok(_)) => Ok(()),
+            Ok(Ok(_)) => {
+                remove_session(&self.sessions, session_id);
+                Ok(())
+            }
             Ok(Err(error)) => Err(Error::ExecutionFailed(format!(
                 "plugin '{}' agent/cancel failed: {}",
                 self.plugin_name, error.message
@@ -367,6 +460,17 @@ impl PluginSessionBackend {
             ))),
         }
     }
+}
+
+/// Briefly lock the session map and drop the entry for `session_id`. The
+/// dropped [`SessionHandle`] (and its embedded `PluginHost`) is released
+/// outside the lock, so nothing async runs under the mutex guard.
+fn remove_session(sessions: &SessionMap, session_id: &str) {
+    let removed = {
+        let mut guard = sessions.lock().expect("session map mutex poisoned");
+        guard.remove(session_id)
+    };
+    drop(removed);
 }
 
 #[async_trait]
@@ -511,4 +615,142 @@ pub fn discover_provider_plugins(project_root: &std::path::Path) -> Vec<Discover
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    //! Minimum-viable coverage for the cancel-routes-through-existing-host
+    //! property. Heavier scenarios (concurrent runs, in-flight cancel
+    //! propagation) intentionally deferred — see audit gap #7 follow-up.
+    use super::*;
+    use animus_plugin_protocol::{RpcRequest, RpcResponse};
+    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+    use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    /// Spin up an in-process fake plugin reachable through a `PluginHost`. The
+    /// fake echoes every incoming JSON-RPC request back as a success response,
+    /// recording how many requests it observed in a shared counter the caller
+    /// can inspect.
+    fn spawn_fake_host(name: &str) -> (PluginHost, Arc<AtomicUsize>) {
+        let (host_reader, mut plugin_writer) = duplex(8192);
+        let (plugin_reader, host_writer) = duplex(8192);
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_for_task = counter.clone();
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(plugin_reader);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {
+                        let trimmed = line.trim();
+                        if trimmed.is_empty() {
+                            continue;
+                        }
+                        let request: RpcRequest = match serde_json::from_str(trimmed) {
+                            Ok(value) => value,
+                            Err(_) => continue,
+                        };
+                        if request.id.is_none() {
+                            // Notification (e.g. `initialized`, `exit`); never echo.
+                            continue;
+                        }
+                        counter_for_task.fetch_add(1, AtomicOrdering::SeqCst);
+                        let response =
+                            RpcResponse::ok(request.id, json!({ "method": request.method, "echo": request.params }));
+                        let mut encoded = serde_json::to_string(&response).expect("encode response");
+                        encoded.push('\n');
+                        if plugin_writer.write_all(encoded.as_bytes()).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+        let host = PluginHost::from_streams(name.to_string(), host_reader, host_writer);
+        (host, counter)
+    }
+
+    fn fresh_backend() -> PluginSessionBackend {
+        // binary_path is never spawned in these tests because we exclusively
+        // exercise dispatch_cancel against pre-inserted handles. Any path works.
+        PluginSessionBackend::new("test-plugin", PathBuf::from("/nonexistent/test-plugin"), "test")
+    }
+
+    #[tokio::test]
+    async fn cancel_unknown_session_returns_not_found() {
+        let backend = fresh_backend();
+        let err = backend.dispatch_cancel("never-existed").await.expect_err("cancel must error");
+        let message = format!("{err}");
+        assert!(
+            message.contains("no active session") && message.contains("never-existed"),
+            "unexpected error message: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancel_routes_through_existing_host() {
+        let backend = fresh_backend();
+        let (host, request_counter) = spawn_fake_host("test-plugin");
+        // Sanity: brand-new fake host has not seen any requests yet.
+        assert_eq!(request_counter.load(AtomicOrdering::SeqCst), 0);
+
+        backend.insert_session_for_test(
+            "session-1",
+            SessionHandle { host, started_at: Instant::now(), cancellation: true },
+        );
+
+        backend.dispatch_cancel("session-1").await.expect("cancel must succeed against the fake host");
+
+        // The fake host's request counter went up by exactly one (the
+        // agent/cancel call). If dispatch_cancel had spawned a NEW host and
+        // bypassed our session, the counter would still be zero.
+        assert_eq!(
+            request_counter.load(AtomicOrdering::SeqCst),
+            1,
+            "cancel must route through the registered host, not a fresh transport"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancel_removes_session_from_map_on_success() {
+        let backend = fresh_backend();
+        let (host, _counter) = spawn_fake_host("test-plugin");
+        backend.insert_session_for_test(
+            "session-2",
+            SessionHandle { host, started_at: Instant::now(), cancellation: true },
+        );
+        assert!(backend.has_session_for_test("session-2"), "precondition: session must be registered");
+
+        backend.dispatch_cancel("session-2").await.expect("cancel must succeed");
+
+        assert!(
+            !backend.has_session_for_test("session-2"),
+            "session must be removed from the map after a successful cancel"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancel_rejects_when_plugin_lacks_capability() {
+        let backend = fresh_backend();
+        let (host, request_counter) = spawn_fake_host("test-plugin");
+        backend.insert_session_for_test(
+            "session-3",
+            SessionHandle { host, started_at: Instant::now(), cancellation: false },
+        );
+
+        let err = backend.dispatch_cancel("session-3").await.expect_err("cancel must error");
+        let message = format!("{err}");
+        assert!(
+            message.contains("does not advertise capability 'cancellation'"),
+            "unexpected error message: {message}"
+        );
+        // The fake plugin must NOT have been called at all.
+        assert_eq!(
+            request_counter.load(AtomicOrdering::SeqCst),
+            0,
+            "cancel must short-circuit before issuing an RPC when capability is unset"
+        );
+    }
 }

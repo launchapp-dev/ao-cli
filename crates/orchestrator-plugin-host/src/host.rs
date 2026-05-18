@@ -76,6 +76,16 @@ pub enum HostError {
     /// response from the plugin is silently discarded.
     #[error("plugin request timed out after {0:?}")]
     Timeout(Duration),
+    /// The plugin did not advertise the capability the host is trying to
+    /// invoke. Returned by higher-level callers (e.g. the session backend's
+    /// cancel routing) when the plugin's handshake-reported
+    /// [`PluginCapabilities`](animus_plugin_protocol::PluginCapabilities) does
+    /// not include the required feature.
+    ///
+    /// Carries the capability name so callers can surface a useful message
+    /// (e.g. "plugin 'foo' does not advertise capability 'cancellation'").
+    #[error("plugin does not advertise capability: {0}")]
+    CapabilityNotSupported(String),
 }
 
 /// Validate that a plugin's advertised `protocol_version` is wire-compatible

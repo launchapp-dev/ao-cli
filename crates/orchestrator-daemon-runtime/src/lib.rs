@@ -1,5 +1,6 @@
 mod daemon;
 mod dispatch;
+mod inproc_subject_backend;
 mod log_storage;
 mod queue;
 mod schedule;
@@ -16,6 +17,12 @@ pub use dispatch::{
     ready_dispatch_limit, ready_dispatch_limit_for_options, schedule_headroom, workflow_current_phase_id,
     CompletedProcess, CompletionReconciliationPlan, DispatchNotice, DispatchNoticeSink, DispatchSelectionSource,
     DispatchWorkflowStart, DispatchWorkflowStartSummary, PlannedDispatchStart, ProcessManager,
+};
+pub use inproc_subject_backend::{
+    add_kind_prefix, build_inproc_adapters_for_project, build_inproc_subject_adapters, env_truthy,
+    requirements_adapter_enabled, spawn_inproc_requirements_backend, spawn_inproc_task_backend, strip_kind_prefix,
+    task_adapter_enabled, BuiltinAdapterOpts, BUILTIN_REQUIREMENTS_PLUGIN_NAME, BUILTIN_TASK_PLUGIN_NAME,
+    DISABLE_BUILTIN_REQUIREMENTS_ADAPTER_ENV, DISABLE_BUILTIN_TASK_ADAPTER_ENV, REQUIREMENT_KIND, TASK_KIND,
 };
 pub use log_storage::{
     discover_log_storage_backends, log_storage_disable_env_set, resolve_log_storage_dispatch, LogStorageDispatch,

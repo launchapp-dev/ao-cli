@@ -2677,6 +2677,7 @@ dependencies = [
  "orchestrator-core",
  "orchestrator-logging",
  "orchestrator-plugin-host",
+ "orchestrator-providers",
  "protocol",
  "serde",
  "serde_json",

@@ -5,7 +5,10 @@ use orchestrator_daemon_runtime::{resolve_subject_dispatch, SubjectPluginDispatc
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use crate::{print_value, SubjectCommand, SubjectCreateArgs, SubjectGetArgs, SubjectListArgs, SubjectUpdateArgs};
+use crate::{
+    print_value, SubjectCommand, SubjectCreateArgs, SubjectGetArgs, SubjectListArgs, SubjectNextArgs,
+    SubjectStatusArgs, SubjectUpdateArgs,
+};
 
 #[derive(Debug, Serialize)]
 struct SubjectCallResponse {
@@ -22,6 +25,8 @@ pub(crate) async fn handle_subject(command: SubjectCommand, project_root: &str, 
         SubjectCommand::Get(args) => handle_subject_get(args, project_root, json).await,
         SubjectCommand::Create(args) => handle_subject_create(args, project_root, json).await,
         SubjectCommand::Update(args) => handle_subject_update(args, project_root, json).await,
+        SubjectCommand::Next(args) => handle_subject_next(args, project_root, json).await,
+        SubjectCommand::Status(args) => handle_subject_status(args, project_root, json).await,
     }
 }
 
@@ -94,6 +99,25 @@ async fn handle_subject_update(args: SubjectUpdateArgs, project_root: &str, json
     }
     let params = Some(json!({ "id": id, "patch": Value::Object(patch) }));
     dispatch(kind, "update", params, project_root, json).await
+}
+
+async fn handle_subject_next(args: SubjectNextArgs, project_root: &str, json: bool) -> Result<()> {
+    let kind = require_kind(&args.kind)?;
+    dispatch(kind, "next", None, project_root, json).await
+}
+
+async fn handle_subject_status(args: SubjectStatusArgs, project_root: &str, json: bool) -> Result<()> {
+    let kind = require_kind(&args.kind)?;
+    let id = args.id.trim();
+    if id.is_empty() {
+        return Err(anyhow!("--id must not be empty"));
+    }
+    let status = args.status.trim();
+    if status.is_empty() {
+        return Err(anyhow!("--status must not be empty"));
+    }
+    let params = Some(json!({ "id": id, "status": status }));
+    dispatch(kind, "status", params, project_root, json).await
 }
 
 fn require_kind(raw: &str) -> Result<&str> {

@@ -16,6 +16,14 @@ pub(crate) enum SubjectCommand {
     Create(SubjectCreateArgs),
     /// Update a subject through the active subject_backend plugin.
     Update(SubjectUpdateArgs),
+    /// Return the highest-priority Ready subject for the given kind.
+    ///
+    /// Backed by the in-tree task / requirement adapters; external
+    /// subject_backend plugins may opt in by implementing `<kind>/next`.
+    /// Returns JSON `null` when no eligible subject exists.
+    Next(SubjectNextArgs),
+    /// Set the status of a subject by id through the active subject_backend.
+    Status(SubjectStatusArgs),
 }
 
 #[derive(Debug, Args)]
@@ -89,4 +97,24 @@ pub(crate) struct SubjectUpdateArgs {
     /// Replace labels with this comma-separated list.
     #[arg(long, value_name = "L1,L2", value_delimiter = ',')]
     pub labels: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct SubjectNextArgs {
+    /// Subject kind to route through.
+    #[arg(long, value_name = "KIND")]
+    pub kind: String,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct SubjectStatusArgs {
+    /// Subject kind to route through.
+    #[arg(long, value_name = "KIND")]
+    pub kind: String,
+    /// Backend-qualified subject id.
+    #[arg(long, value_name = "ID")]
+    pub id: String,
+    /// New normalized status to set.
+    #[arg(long, value_name = "STATUS")]
+    pub status: String,
 }

@@ -42,6 +42,11 @@ use serde_json::Value;
 
 use animus_plugin_protocol::{RpcError, PLUGIN_KIND_SUBJECT_BACKEND};
 
+use crate::inproc_subject_backend::{
+    build_inproc_adapters_for_project, requirements_adapter_enabled, task_adapter_enabled, BuiltinAdapterOpts,
+    BUILTIN_REQUIREMENTS_PLUGIN_NAME, BUILTIN_TASK_PLUGIN_NAME, REQUIREMENT_KIND, TASK_KIND,
+};
+
 /// Environment variable that forces subject-backend plugin discovery to
 /// be skipped entirely. Mirrors `ANIMUS_DAEMON_DISABLE_LOG_STORAGE_PLUGIN`
 /// from [`crate::log_storage`] and the provider plugin opt-out shape.
@@ -188,7 +193,52 @@ pub async fn resolve_subject_dispatch(project_root: &Path) -> Result<SubjectDisp
         });
     }
 
-    if candidates.is_empty() {
+    // Identify which subject kinds are claimed by external plugin
+    // manifests so we can skip the in-tree adapter for that kind (the
+    // external plugin wins; the router would reject a duplicate
+    // otherwise).
+    let mut externally_claimed_kinds: Vec<String> = Vec::new();
+    for plugin in &candidates {
+        for cap in &plugin.manifest.capabilities {
+            if let Some(rest) = cap.strip_prefix("subject_kind:") {
+                let trimmed = rest.trim().to_string();
+                if !trimmed.is_empty() && !externally_claimed_kinds.contains(&trimmed) {
+                    externally_claimed_kinds.push(trimmed);
+                }
+            }
+        }
+    }
+
+    // Build in-tree adapters for the project. Skip an adapter when an
+    // external plugin already claims its kind, and surface a warning
+    // about the displacement so operators can see it.
+    let mut opts = BuiltinAdapterOpts::default();
+    if externally_claimed_kinds.iter().any(|k| k == TASK_KIND) {
+        if task_adapter_enabled(&opts) {
+            warnings.push(format!(
+                "in-tree {TASK_KIND} subject adapter displaced by external subject_backend plugin claiming kind '{TASK_KIND}'",
+            ));
+        }
+        opts.force_disable_task = true;
+    }
+    if externally_claimed_kinds.iter().any(|k| k == REQUIREMENT_KIND) {
+        if requirements_adapter_enabled(&opts) {
+            warnings.push(format!(
+                "in-tree {REQUIREMENT_KIND} subject adapter displaced by external subject_backend plugin claiming kind '{REQUIREMENT_KIND}'",
+            ));
+        }
+        opts.force_disable_requirements = true;
+    }
+
+    let inproc_adapters = match build_inproc_adapters_for_project(project_root, &opts) {
+        Ok(adapters) => adapters,
+        Err(err) => {
+            warnings.push(format!("in-tree subject adapter init failed: {err}"));
+            Vec::new()
+        }
+    };
+
+    if candidates.is_empty() && inproc_adapters.is_empty() {
         return Ok(SubjectDispatchResolution {
             selected: SubjectPluginDispatch::empty(),
             all_candidates: candidates,
@@ -197,7 +247,29 @@ pub async fn resolve_subject_dispatch(project_root: &Path) -> Result<SubjectDisp
     }
 
     let mut hosts: HashMap<String, PluginHost> = HashMap::new();
+    let mut kinds: Vec<String> = Vec::new();
+    let mut plugin_count = 0usize;
+
+    // Insert in-tree hosts first; their names are reserved internal
+    // identifiers so they never collide with discovered plugin names.
+    for (kind, plugin_name, host) in inproc_adapters {
+        if !kinds.contains(&kind) {
+            kinds.push(kind);
+        }
+        hosts.insert(plugin_name, host);
+        plugin_count += 1;
+    }
+
     for plugin in &candidates {
+        // Defensive: refuse to spawn a discovered plugin whose name
+        // collides with a reserved in-tree adapter name.
+        if plugin.name == BUILTIN_TASK_PLUGIN_NAME || plugin.name == BUILTIN_REQUIREMENTS_PLUGIN_NAME {
+            warnings.push(format!(
+                "external subject_backend plugin '{}' shadows reserved in-tree adapter name; skipping",
+                plugin.name
+            ));
+            continue;
+        }
         let options = PluginSpawnOptions::for_manifest(
             plugin.name.clone(),
             &plugin.manifest.env_required,
@@ -208,6 +280,7 @@ pub async fn resolve_subject_dispatch(project_root: &Path) -> Result<SubjectDisp
             .await
             .with_context(|| format!("failed to spawn subject_backend plugin '{}'", plugin.name))?;
         hosts.insert(plugin.name.clone(), host);
+        plugin_count += 1;
     }
 
     let router = SubjectRouter::from_initialized_hosts(hosts).await?;
@@ -216,7 +289,6 @@ pub async fn resolve_subject_dispatch(project_root: &Path) -> Result<SubjectDisp
     // hint for the SubjectRouterResolved event). The router is the
     // authoritative source for dispatch, but it doesn't expose its
     // kind table; the daemon event log only needs a coarse summary.
-    let mut kinds: Vec<String> = Vec::new();
     for plugin in &candidates {
         for cap in &plugin.manifest.capabilities {
             if let Some(rest) = cap.strip_prefix("subject_kind:") {
@@ -228,7 +300,6 @@ pub async fn resolve_subject_dispatch(project_root: &Path) -> Result<SubjectDisp
         }
     }
 
-    let plugin_count = candidates.len();
     Ok(SubjectDispatchResolution {
         selected: SubjectPluginDispatch::from_router(router, kinds, plugin_count),
         all_candidates: candidates,
@@ -361,6 +432,10 @@ mod tests {
         let _disable = EnvGuard::unset(SUBJECT_PLUGINS_DISABLE_ENV);
         let _animus_home = EnvGuard::set("ANIMUS_CONFIG_DIR", "/tmp/animus-test-empty-home-subj-xyz123");
         let _plugin_dir = EnvGuard::set("ANIMUS_PLUGIN_DIR", "");
+        // Disable in-tree adapters so we observe the truly-empty case;
+        // by default the in-tree task + requirement adapters mount.
+        let _disable_task = EnvGuard::set(crate::inproc_subject_backend::DISABLE_BUILTIN_TASK_ADAPTER_ENV, "1");
+        let _disable_req = EnvGuard::set(crate::inproc_subject_backend::DISABLE_BUILTIN_REQUIREMENTS_ADAPTER_ENV, "1");
 
         let (_temp, project_root) = isolated_project();
 
@@ -369,6 +444,43 @@ mod tests {
         assert_eq!(resolution.selected.plugin_count(), 0);
         assert!(resolution.warnings.is_empty(), "no plugins → no warnings");
         assert!(resolution.all_candidates.is_empty());
+    }
+
+    #[tokio::test]
+    async fn in_tree_task_adapter_mounts_by_default() {
+        let _guard = ENV_LOCK.lock().await;
+        let _disable = EnvGuard::unset(SUBJECT_PLUGINS_DISABLE_ENV);
+        let _animus_home = EnvGuard::set("ANIMUS_CONFIG_DIR", "/tmp/animus-test-intree-task-default-home-zzz");
+        let _plugin_dir = EnvGuard::set("ANIMUS_PLUGIN_DIR", "");
+        let _disable_task = EnvGuard::unset(crate::inproc_subject_backend::DISABLE_BUILTIN_TASK_ADAPTER_ENV);
+        let _disable_req = EnvGuard::unset(crate::inproc_subject_backend::DISABLE_BUILTIN_REQUIREMENTS_ADAPTER_ENV);
+
+        let (_temp, project_root) = isolated_project();
+        let resolution = resolve_subject_dispatch(&project_root).await.expect("resolve");
+        assert!(resolution.selected.is_active(), "in-tree adapters mount by default");
+        // Two adapters: task + requirement.
+        assert_eq!(resolution.selected.plugin_count(), 2, "task + requirement adapters mount");
+        let kinds = resolution.selected.kinds();
+        assert!(kinds.contains(&"task".to_string()), "kinds includes task: {kinds:?}");
+        assert!(kinds.contains(&"requirement".to_string()), "kinds includes requirement: {kinds:?}");
+    }
+
+    #[tokio::test]
+    async fn disable_builtin_task_env_unmounts_only_task() {
+        let _guard = ENV_LOCK.lock().await;
+        let _disable = EnvGuard::unset(SUBJECT_PLUGINS_DISABLE_ENV);
+        let _animus_home = EnvGuard::set("ANIMUS_CONFIG_DIR", "/tmp/animus-test-disable-builtin-task-home-zzz");
+        let _plugin_dir = EnvGuard::set("ANIMUS_PLUGIN_DIR", "");
+        let _disable_task = EnvGuard::set(crate::inproc_subject_backend::DISABLE_BUILTIN_TASK_ADAPTER_ENV, "1");
+        let _disable_req = EnvGuard::unset(crate::inproc_subject_backend::DISABLE_BUILTIN_REQUIREMENTS_ADAPTER_ENV);
+
+        let (_temp, project_root) = isolated_project();
+        let resolution = resolve_subject_dispatch(&project_root).await.expect("resolve");
+        assert!(resolution.selected.is_active(), "requirement adapter still mounts");
+        assert_eq!(resolution.selected.plugin_count(), 1, "only requirement adapter mounts");
+        let kinds = resolution.selected.kinds();
+        assert!(!kinds.contains(&"task".to_string()), "task adapter disabled: {kinds:?}");
+        assert!(kinds.contains(&"requirement".to_string()), "requirement adapter mounted: {kinds:?}");
     }
 
     #[tokio::test]

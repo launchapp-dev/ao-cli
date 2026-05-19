@@ -261,6 +261,14 @@ animus
 ├── init                     Initialize an Animus project from a template
 │   (no subcommands)         Supports registry-backed or local copy templates, plan mode, and daemon defaults
 │
+├── subject                  List/get/create/update subjects via in-tree adapters or installed subject_backend plugins
+│   ├── list                 List subjects for a given kind (`--kind task|requirement|<external>`)
+│   ├── get                  Fetch one subject by wire id (`<kind>:<native_id>`)
+│   ├── create               Create a subject (`--title` required)
+│   ├── update               Patch a subject (status / priority / labels)
+│   ├── next                 Highest-priority Ready subject for the kind, or null
+│   └── status               Set the subject's normalized status
+│
 ├── setup                    Guided onboarding and configuration wizard
 ├── cloud                    Sync tasks and requirements with a remote animus-sync server
 │   ├── login                Authenticate with animus cloud using device auth flow

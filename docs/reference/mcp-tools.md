@@ -4,6 +4,14 @@ All MCP tools exposed by `animus mcp serve`. These tools allow AI agents to inte
 
 Every tool accepts an optional `project_root` parameter to override the default project root.
 
+**v0.4.0 note — unified subject surface.** Tasks and requirements are also reachable through the
+unified `animus subject --kind <kind>` CLI verb (`list`, `get`, `create`, `update`, `next`,
+`status`). The in-tree `SubjectBackend` adapters at `kind=task` and `kind=requirement` read and
+write the same state the legacy `animus.task.*` / `animus.requirements.*` MCP tools touch. The
+legacy MCP tools remain available for v0.4.x; agents are encouraged to migrate to the subject
+surface for consistency with externally-installed subject_backend plugins (Linear, Jira, GitHub
+Issues, etc.).
+
 ---
 
 ## Agent Control (10 tools)

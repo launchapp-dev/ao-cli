@@ -148,14 +148,32 @@ Web UI:
 Visible top-level command groups currently include:
 
 - `daemon`, `agent`, `project`, `queue`, `task`, `workflow`
-- `vision`, `requirements`, `architecture`
+- `requirements`, `subject`
 - `history`, `errors`, `git`, `skill`, `model`, `runner`
-- `status`, `output`, `mcp`, `web`, `setup`, `tui`, `doctor`
+- `status`, `now`, `output`, `mcp`, `web`, `setup`, `init`, `doctor`
+- `pack`, `plugin`, `trigger`, `logs`, `cloud`
 
-Hidden but implemented:
+Hidden but implemented: none currently.
 
-- `review`
-- `qa`
+For tasks and requirements, the v0.4.0 cut adds in-tree
+`SubjectBackend` adapters under the unified `animus subject --kind
+<kind>` surface. The legacy `animus task` and `animus requirements`
+command trees still exist alongside the subject surface; both routes
+read and write the same `~/.animus/<repo-scope>/` state. Set
+`ANIMUS_DAEMON_DISABLE_BUILTIN_TASK_ADAPTER=1` or
+`ANIMUS_DAEMON_DISABLE_BUILTIN_REQUIREMENTS_ADAPTER=1` to opt out of
+either in-tree adapter. External subject_backend plugins claiming
+`kind=task` or `kind=requirement` automatically displace the in-tree
+adapter (the `SubjectRouter` rejects duplicate kinds at startup).
+
+Subject CLI verbs available against any registered backend:
+
+- `animus subject list --kind <kind>`
+- `animus subject get --kind <kind> --id <id>`
+- `animus subject create --kind <kind> --title <title> [...]`
+- `animus subject update --kind <kind> --id <id> [...]`
+- `animus subject next --kind <kind>`              (highest-priority Ready)
+- `animus subject status --kind <kind> --id <id> --status <s>`
 
 Use `cargo run -p orchestrator-cli -- --help` or `docs/reference/cli/index.md`
 when changing or documenting the command tree.
@@ -214,7 +232,8 @@ If GraphQL contracts change, verify the Rust schema export path and regenerate c
 
 Animus is meant to self-host its planning and execution state.
 
-Common flow:
+Common flow (legacy task surface; both `animus task` and `animus subject
+--kind task` operate on the same in-tree state):
 
 ```bash
 animus task next
@@ -222,6 +241,14 @@ animus task status --id TASK-XXX --status in-progress
 animus workflow run --task-id TASK-XXX
 animus queue list
 animus daemon health
+```
+
+Equivalent via the unified subject surface:
+
+```bash
+animus subject next --kind task
+animus subject status --kind task --id task:TASK-XXX --status in-progress
+animus workflow run --task-id TASK-XXX
 ```
 
 If a task is specifically about persistence or migrations, it can justify direct state-file work.

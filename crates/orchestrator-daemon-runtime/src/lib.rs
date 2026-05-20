@@ -1,3 +1,4 @@
+pub mod control;
 mod daemon;
 mod dispatch;
 mod inproc_subject_backend;

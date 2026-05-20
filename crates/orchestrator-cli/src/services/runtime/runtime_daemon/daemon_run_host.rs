@@ -164,6 +164,26 @@ impl DefaultDaemonRunHost {
                     self.logger.warn("plugins", warning.clone()).emit();
                 }
             }
+            DaemonRunEvent::ControlServerResolved { socket_path, disable_env_set, warnings, .. } => {
+                let summary = if *disable_env_set {
+                    format!("control server disabled via env (would have bound {})", socket_path.display())
+                } else if warnings.is_empty() {
+                    format!("control server bound at {}", socket_path.display())
+                } else {
+                    format!("control server not started (failures noted); intended path {}", socket_path.display())
+                };
+                self.logger
+                    .info("control", summary)
+                    .meta(json!({
+                        "socket_path": socket_path.display().to_string(),
+                        "disable_env_set": disable_env_set,
+                        "warnings": warnings,
+                    }))
+                    .emit();
+                for warning in warnings {
+                    self.logger.warn("control", warning.clone()).emit();
+                }
+            }
         }
     }
 
@@ -491,6 +511,16 @@ impl DaemonRunHooks for DefaultDaemonRunHost {
                     }),
                 )
             }
+            DaemonRunEvent::ControlServerResolved { project_root, socket_path, disable_env_set, warnings } => self
+                .emit_daemon_event_with_notifications(
+                    "control-server-resolved",
+                    Some(project_root),
+                    json!({
+                        "socket_path": socket_path.display().to_string(),
+                        "disable_env_set": disable_env_set,
+                        "warnings": warnings,
+                    }),
+                ),
         }
     }
 

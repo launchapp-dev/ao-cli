@@ -88,8 +88,49 @@ dependencies = [
 ]
 
 [[package]]
+name = "animus-control-protocol"
+version = "0.1.3"
+source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.3#30306c9cf7a540b7a7168aad9ee1c5187a7dc724"
+dependencies = [
+ "animus-log-storage-protocol",
+ "animus-plugin-protocol 0.1.3",
+ "animus-subject-protocol 0.1.3",
+ "animus-trigger-protocol",
+ "async-trait",
+ "chrono",
+ "futures-core",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "animus-log-storage-protocol"
+version = "0.1.3"
+source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.3#30306c9cf7a540b7a7168aad9ee1c5187a7dc724"
+dependencies = [
+ "animus-plugin-protocol 0.1.3",
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "futures-core",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "animus-plugin-protocol"
 version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "animus-plugin-protocol"
+version = "0.1.3"
+source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.3#30306c9cf7a540b7a7168aad9ee1c5187a7dc724"
 dependencies = [
  "serde",
  "serde_json",
@@ -99,7 +140,7 @@ dependencies = [
 name = "animus-plugin-runtime"
 version = "0.1.0"
 dependencies = [
- "animus-plugin-protocol",
+ "animus-plugin-protocol 0.1.0",
  "anyhow",
  "async-trait",
  "llm-cli-wrapper",
@@ -113,7 +154,7 @@ dependencies = [
 name = "animus-plugin-smoke"
 version = "0.1.0"
 dependencies = [
- "animus-plugin-protocol",
+ "animus-plugin-protocol 0.1.0",
  "anyhow",
  "serde_json",
  "tokio",
@@ -186,7 +227,7 @@ dependencies = [
 name = "animus-provider-protocol"
 version = "0.1.0"
 dependencies = [
- "animus-plugin-protocol",
+ "animus-plugin-protocol 0.1.0",
  "anyhow",
  "async-trait",
  "serde",
@@ -198,7 +239,37 @@ dependencies = [
 name = "animus-subject-protocol"
 version = "0.1.0"
 dependencies = [
- "animus-plugin-protocol",
+ "animus-plugin-protocol 0.1.0",
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "futures-core",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "animus-subject-protocol"
+version = "0.1.3"
+source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.3#30306c9cf7a540b7a7168aad9ee1c5187a7dc724"
+dependencies = [
+ "animus-plugin-protocol 0.1.3",
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "futures-core",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "animus-trigger-protocol"
+version = "0.1.3"
+source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.3#30306c9cf7a540b7a7168aad9ee1c5187a7dc724"
+dependencies = [
+ "animus-plugin-protocol 0.1.3",
  "anyhow",
  "async-trait",
  "chrono",
@@ -2179,7 +2250,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 name = "llm-cli-wrapper"
 version = "0.1.0"
 dependencies = [
- "animus-plugin-protocol",
+ "animus-plugin-protocol 0.1.0",
  "anyhow",
  "async-trait",
  "chrono",
@@ -2575,7 +2646,7 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 name = "orchestrator-cli"
 version = "0.4.2"
 dependencies = [
- "animus-plugin-protocol",
+ "animus-plugin-protocol 0.1.0",
  "anyhow",
  "assert_cmd",
  "async-trait",
@@ -2667,12 +2738,16 @@ dependencies = [
 name = "orchestrator-daemon-runtime"
 version = "0.1.0"
 dependencies = [
- "animus-plugin-protocol",
+ "animus-control-protocol",
+ "animus-plugin-protocol 0.1.0",
+ "animus-subject-protocol 0.1.3",
  "anyhow",
  "async-trait",
  "chrono",
  "croner",
  "fs2",
+ "futures-core",
+ "futures-util",
  "glob",
  "orchestrator-core",
  "orchestrator-logging",
@@ -2682,7 +2757,9 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror 1.0.69",
  "tokio",
+ "tokio-stream",
  "tracing",
  "uuid",
  "workflow-runner-v2",
@@ -2737,7 +2814,7 @@ dependencies = [
 name = "orchestrator-plugin-host"
 version = "0.1.0"
 dependencies = [
- "animus-plugin-protocol",
+ "animus-plugin-protocol 0.1.0",
  "anyhow",
  "proc-macro2",
  "semver",
@@ -2755,7 +2832,7 @@ dependencies = [
 name = "orchestrator-providers"
 version = "0.1.0"
 dependencies = [
- "animus-plugin-protocol",
+ "animus-plugin-protocol 0.1.0",
  "anyhow",
  "async-trait",
  "chrono",

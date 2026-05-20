@@ -124,6 +124,22 @@ pub enum DaemonRunEvent {
         disable_env_set: bool,
         warnings: Vec<String>,
     },
+    /// Resolved the daemon's control RPC server for this run.
+    ///
+    /// Emitted once at startup, after the InProcessSurface is built and
+    /// either bound to a Unix socket or skipped due to
+    /// `ANIMUS_DAEMON_DISABLE_CONTROL_SERVER` being set. `socket_path`
+    /// carries the bound path so operators (and downstream CLI / MCP
+    /// migrations in C6 / C7 / C8) can locate the server in
+    /// `events.jsonl`. `disable_env_set = true` means the server was
+    /// deliberately not started; in that case `socket_path` is the path
+    /// that *would* have been used.
+    ControlServerResolved {
+        project_root: String,
+        socket_path: std::path::PathBuf,
+        disable_env_set: bool,
+        warnings: Vec<String>,
+    },
     Shutdown {
         project_root: String,
         daemon_pid: u32,

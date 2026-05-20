@@ -67,6 +67,8 @@ where
 
     resolve_subject_dispatch_for_daemon(project_root, &primary_root, hooks).await;
 
+    let control_server_handle = start_control_server_for_daemon(project_root, &primary_root, hooks).await;
+
     // Trigger backend plugins. Off by default behind an env flag mirroring
     // the provider-plugin opt-out shape.
     let trigger_event_queue: Arc<Mutex<Vec<TriggerSupervisorEvent>>> = Arc::new(Mutex::new(Vec::new()));
@@ -197,6 +199,10 @@ where
         drain_trigger_events(&primary_root, &trigger_event_queue, hooks)?;
     }
 
+    if let Some(server) = control_server_handle {
+        let _ = server.shutdown().await;
+    }
+
     if stop_daemon_on_exit {
         let _ = hooks.stop_daemon(&primary_root).await;
     }
@@ -323,6 +329,67 @@ fn resolve_log_storage_dispatch_for_daemon<H: DaemonRunHooks>(project_root: &str
                     "log_storage_backend discovery failed; falling back to in-tree Logger: {error:#}"
                 )],
             });
+        }
+    }
+}
+
+/// Start the daemon's control RPC server (Unix socket speaking the
+/// `animus-control-protocol` wire format).
+///
+/// Honors [`crate::control::CONTROL_SERVER_DISABLE_ENV`]: when the env
+/// var is set truthy the server is skipped and the
+/// [`DaemonRunEvent::ControlServerResolved`] event carries
+/// `disable_env_set = true`. Any bind / chmod / IO failure degrades to
+/// "no server, warning emitted" rather than aborting the daemon — a
+/// misbehaving socket must never block startup. The handle is returned
+/// for graceful shutdown on daemon teardown.
+async fn start_control_server_for_daemon<H: DaemonRunHooks>(
+    project_root: &str,
+    primary_root: &str,
+    hooks: &mut H,
+) -> Option<crate::control::ControlServerHandle> {
+    let project_root_path = Path::new(project_root);
+    let socket_path = crate::control::control_socket_path(project_root_path);
+    let disable_env_set = crate::control::control_server_disable_env_set();
+
+    if disable_env_set {
+        let _ = hooks.handle_event(DaemonRunEvent::ControlServerResolved {
+            project_root: primary_root.to_string(),
+            socket_path: socket_path.clone(),
+            disable_env_set: true,
+            warnings: vec![format!(
+                "control server skipped because {} is set",
+                crate::control::CONTROL_SERVER_DISABLE_ENV
+            )],
+        });
+        return None;
+    }
+
+    let surface = crate::control::InProcessSurface::builder(project_root_path.to_path_buf())
+        .daemon_version(env!("CARGO_PKG_VERSION").to_string())
+        .build();
+    let surface_arc: Arc<dyn animus_control_protocol::ControlSurface> = Arc::new(surface);
+
+    match crate::control::ControlServer::start(project_root_path, surface_arc).await {
+        Ok(handle) => {
+            let _ = hooks.handle_event(DaemonRunEvent::ControlServerResolved {
+                project_root: primary_root.to_string(),
+                socket_path: handle.socket_path().to_path_buf(),
+                disable_env_set: false,
+                warnings: Vec::new(),
+            });
+            Some(handle)
+        }
+        Err(error) => {
+            let _ = hooks.handle_event(DaemonRunEvent::ControlServerResolved {
+                project_root: primary_root.to_string(),
+                socket_path: socket_path.clone(),
+                disable_env_set: false,
+                warnings: vec![format!(
+                    "control server failed to start; CLI/MCP must fall back to in-process services: {error}"
+                )],
+            });
+            None
         }
     }
 }

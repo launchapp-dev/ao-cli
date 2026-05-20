@@ -1,0 +1,66 @@
+use super::*;
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub(super) struct SubjectListInput {
+    pub(super) kind: String,
+    #[serde(default)]
+    pub(super) status: Option<String>,
+    #[serde(default)]
+    pub(super) limit: Option<u32>,
+    #[serde(default)]
+    pub(super) project_root: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub(super) struct SubjectGetInput {
+    pub(super) kind: String,
+    pub(super) id: String,
+    #[serde(default)]
+    pub(super) project_root: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub(super) struct SubjectCreateInput {
+    pub(super) kind: String,
+    pub(super) title: String,
+    #[serde(default)]
+    pub(super) status: Option<String>,
+    #[serde(default)]
+    pub(super) priority: Option<String>,
+    #[serde(default)]
+    pub(super) labels: Vec<String>,
+    #[serde(default)]
+    pub(super) body: Option<String>,
+    #[serde(default)]
+    pub(super) project_root: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub(super) struct SubjectUpdateInput {
+    pub(super) kind: String,
+    pub(super) id: String,
+    #[serde(default)]
+    pub(super) status: Option<String>,
+    #[serde(default)]
+    pub(super) priority: Option<String>,
+    #[serde(default)]
+    pub(super) labels: Vec<String>,
+    #[serde(default)]
+    pub(super) project_root: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub(super) struct SubjectNextInput {
+    pub(super) kind: String,
+    #[serde(default)]
+    pub(super) project_root: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub(super) struct SubjectStatusInput {
+    pub(super) kind: String,
+    pub(super) id: String,
+    pub(super) status: String,
+    #[serde(default)]
+    pub(super) project_root: Option<String>,
+}

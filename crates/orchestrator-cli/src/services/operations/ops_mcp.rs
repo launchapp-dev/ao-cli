@@ -88,6 +88,12 @@ mod requirements_tools;
 mod runner_tools;
 #[path = "ops_mcp/skill_tools.rs"]
 mod skill_tools;
+#[path = "ops_mcp/subject_command_args.rs"]
+mod subject_command_args;
+#[path = "ops_mcp/subject_inputs.rs"]
+mod subject_inputs;
+#[path = "ops_mcp/subject_tools.rs"]
+mod subject_tools;
 #[path = "ops_mcp/task_command_args.rs"]
 mod task_command_args;
 #[path = "ops_mcp/task_inputs.rs"]
@@ -135,6 +141,11 @@ use requirements_command_args::{
     build_requirements_list_args, build_requirements_refine_args, build_requirements_update_args,
 };
 use requirements_inputs::*;
+use subject_command_args::{
+    build_subject_create_args, build_subject_get_args, build_subject_list_args, build_subject_next_args,
+    build_subject_status_args, build_subject_update_args,
+};
+use subject_inputs::*;
 use task_command_args::{
     build_bulk_status_item_args, build_bulk_update_item_args, build_task_control_args, build_task_create_args,
     build_task_delete_args, build_task_get_args, build_task_list_args, build_task_prioritized_args,
@@ -261,6 +272,7 @@ fn new_ao_mcp_server(default_project_root: &str) -> AoMcpServer {
         + AoMcpServer::plugin_tool_router()
         + AoMcpServer::plugin_marketplace_tool_router()
         + AoMcpServer::skill_tool_router()
+        + AoMcpServer::subject_tool_router()
         + AoMcpServer::memory_tool_router_for_ao();
 
     AoMcpServer {

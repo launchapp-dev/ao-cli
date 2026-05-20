@@ -775,6 +775,223 @@ async fn daemon_health_routes_through_configured_routing() {
     .expect("test timed out");
 }
 
+// =====================================================================
+// C6.5: workflow/* routing handle wired through the surface.
+// =====================================================================
+
+use crate::control::WorkflowRouting;
+
+#[derive(Default)]
+struct StubWorkflowRouting {
+    seen: Arc<Mutex<Vec<String>>>,
+}
+
+impl StubWorkflowRouting {
+    fn new() -> (Self, Arc<Mutex<Vec<String>>>) {
+        let seen: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        (Self { seen: seen.clone() }, seen)
+    }
+
+    async fn record(&self, method: &str) {
+        self.seen.lock().await.push(method.to_string());
+    }
+}
+
+#[async_trait]
+impl WorkflowRouting for StubWorkflowRouting {
+    async fn workflow_list(&self, _request: WorkflowListRequest) -> Result<WorkflowListResponse, ControlError> {
+        self.record("workflow/list").await;
+        Ok(WorkflowListResponse {
+            runs: vec![animus_control_protocol::types::WorkflowRunSummary {
+                id: "wf-stub-1".to_string(),
+                definition: "standard-workflow".to_string(),
+                status: animus_control_protocol::types::WorkflowStatus::Running,
+                subject_id: None,
+                started_at: chrono::Utc::now(),
+                finished_at: None,
+            }],
+            next_cursor: None,
+        })
+    }
+
+    async fn workflow_get(&self, _request: WorkflowGetRequest) -> Result<WorkflowRun, ControlError> {
+        self.record("workflow/get").await;
+        Ok(WorkflowRun {
+            summary: animus_control_protocol::types::WorkflowRunSummary {
+                id: "wf-stub-1".to_string(),
+                definition: "standard-workflow".to_string(),
+                status: animus_control_protocol::types::WorkflowStatus::Paused,
+                subject_id: None,
+                started_at: chrono::Utc::now(),
+                finished_at: None,
+            },
+            detail: json!({"phases": ["plan", "impl"], "machine_state": "paused"}),
+        })
+    }
+
+    async fn workflow_run(&self, _request: WorkflowRunRequest) -> Result<WorkflowRunStart, ControlError> {
+        self.record("workflow/run").await;
+        Ok(WorkflowRunStart {
+            workflow_id: "wf-stub-new".to_string(),
+            status: animus_control_protocol::types::WorkflowStatus::Pending,
+            started_at: chrono::Utc::now(),
+        })
+    }
+
+    async fn workflow_execute(&self, _request: WorkflowExecuteRequest) -> Result<WorkflowRunStart, ControlError> {
+        Err(ControlError::NotSupported("stub".to_string()))
+    }
+
+    async fn workflow_pause(&self, _request: WorkflowPauseRequest) -> Result<Unit, ControlError> {
+        self.record("workflow/pause").await;
+        Ok(Unit::default())
+    }
+
+    async fn workflow_resume(&self, _request: WorkflowResumeRequest) -> Result<Unit, ControlError> {
+        self.record("workflow/resume").await;
+        Ok(Unit::default())
+    }
+
+    async fn workflow_cancel(&self, _request: WorkflowCancelRequest) -> Result<Unit, ControlError> {
+        self.record("workflow/cancel").await;
+        Ok(Unit::default())
+    }
+}
+
+/// `workflow/list` routes through the configured WorkflowRouting handle.
+/// Without the handle the surface returns NotSupported (preserves the
+/// pre-C6.5 behavior for MCP/WebAPI callers that land later); with it
+/// the canned response from StubWorkflowRouting flows back over the
+/// wire.
+#[tokio::test]
+async fn workflow_list_routes_through_configured_routing() {
+    tokio::time::timeout(TEST_TIMEOUT, async {
+        let (routing, seen) = StubWorkflowRouting::new();
+        let routing_arc: Arc<dyn WorkflowRouting> = Arc::new(routing);
+        let surface =
+            InProcessSurface::builder(PathBuf::from("/tmp/c65-test-list")).workflow_routing(routing_arc).build();
+        let surface_arc: Arc<dyn ControlSurface> = Arc::new(surface);
+        let handle = ControlServer::start_with_socket(short_test_socket(), surface_arc).await.unwrap();
+
+        let stream = UnixStream::connect(handle.socket_path()).await.unwrap();
+        let (read_half, mut write_half) = tokio::io::split(stream);
+        let mut reader = BufReader::new(read_half);
+        let request = RpcRequest::new(201, "workflow/list", Some(json!({})));
+        send_frame(&mut write_half, &request).await.unwrap();
+        let value = read_frame_value(&mut reader).await.unwrap();
+        let response: RpcResponse = serde_json::from_value(value).unwrap();
+        assert!(response.error.is_none(), "workflow/list should succeed when routing is wired: {response:?}");
+        let result = response.result.expect("result");
+        let runs = result.get("runs").and_then(|v| v.as_array()).unwrap();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].get("id").and_then(|v| v.as_str()), Some("wf-stub-1"));
+
+        let calls = seen.lock().await.clone();
+        assert_eq!(calls, vec!["workflow/list".to_string()]);
+
+        handle.shutdown().await.unwrap();
+    })
+    .await
+    .expect("test timed out");
+}
+
+/// Without a WorkflowRouting handle attached, `workflow/list` returns the
+/// NotSupported error frame (preserves pre-C6.5 behavior for tests / MCP
+/// callers that haven't been wired yet).
+#[tokio::test]
+async fn workflow_list_without_routing_returns_not_supported() {
+    tokio::time::timeout(TEST_TIMEOUT, async {
+        let surface = InProcessSurface::builder(PathBuf::from("/tmp/c65-test-noflow")).build();
+        let surface_arc: Arc<dyn ControlSurface> = Arc::new(surface);
+        let handle = ControlServer::start_with_socket(short_test_socket(), surface_arc).await.unwrap();
+
+        let stream = UnixStream::connect(handle.socket_path()).await.unwrap();
+        let (read_half, mut write_half) = tokio::io::split(stream);
+        let mut reader = BufReader::new(read_half);
+        let request = RpcRequest::new(202, "workflow/list", Some(json!({})));
+        send_frame(&mut write_half, &request).await.unwrap();
+        let value = read_frame_value(&mut reader).await.unwrap();
+        let response: RpcResponse = serde_json::from_value(value).unwrap();
+        let error = response.error.expect("error frame");
+        assert_eq!(error.code, animus_plugin_protocol::error_codes::METHOD_NOT_SUPPORTED);
+
+        handle.shutdown().await.unwrap();
+    })
+    .await
+    .expect("test timed out");
+}
+
+/// `workflow/pause`, `workflow/resume`, and `workflow/cancel` round-trip
+/// through the configured routing handle and the stub records the
+/// invocation order.
+#[tokio::test]
+async fn workflow_pause_resume_cancel_round_trip() {
+    tokio::time::timeout(TEST_TIMEOUT, async {
+        let (routing, seen) = StubWorkflowRouting::new();
+        let routing_arc: Arc<dyn WorkflowRouting> = Arc::new(routing);
+        let surface =
+            InProcessSurface::builder(PathBuf::from("/tmp/c65-test-lifecycle")).workflow_routing(routing_arc).build();
+        let surface_arc: Arc<dyn ControlSurface> = Arc::new(surface);
+        let handle = ControlServer::start_with_socket(short_test_socket(), surface_arc).await.unwrap();
+
+        for (id, method) in [(203, "workflow/pause"), (204, "workflow/resume"), (205, "workflow/cancel")] {
+            let stream = UnixStream::connect(handle.socket_path()).await.unwrap();
+            let (read_half, mut write_half) = tokio::io::split(stream);
+            let mut reader = BufReader::new(read_half);
+            let request = RpcRequest::new(id, method, Some(json!({"id": "wf-stub-1"})));
+            send_frame(&mut write_half, &request).await.unwrap();
+            let value = read_frame_value(&mut reader).await.unwrap();
+            let response: RpcResponse = serde_json::from_value(value).unwrap();
+            assert!(response.error.is_none(), "{method} should succeed: {response:?}");
+        }
+
+        let calls = seen.lock().await.clone();
+        assert_eq!(
+            calls,
+            vec!["workflow/pause".to_string(), "workflow/resume".to_string(), "workflow/cancel".to_string()]
+        );
+
+        handle.shutdown().await.unwrap();
+    })
+    .await
+    .expect("test timed out");
+}
+
+/// `workflow/get` preserves the opaque `detail` payload end-to-end so
+/// callers that need the rich daemon-side schema can decode it. The
+/// summary fields (id, definition, status, started_at) live alongside.
+#[tokio::test]
+async fn workflow_get_preserves_opaque_detail_shape() {
+    tokio::time::timeout(TEST_TIMEOUT, async {
+        let (routing, _) = StubWorkflowRouting::new();
+        let routing_arc: Arc<dyn WorkflowRouting> = Arc::new(routing);
+        let surface =
+            InProcessSurface::builder(PathBuf::from("/tmp/c65-test-get")).workflow_routing(routing_arc).build();
+        let surface_arc: Arc<dyn ControlSurface> = Arc::new(surface);
+        let handle = ControlServer::start_with_socket(short_test_socket(), surface_arc).await.unwrap();
+
+        let stream = UnixStream::connect(handle.socket_path()).await.unwrap();
+        let (read_half, mut write_half) = tokio::io::split(stream);
+        let mut reader = BufReader::new(read_half);
+        let request = RpcRequest::new(206, "workflow/get", Some(json!({"id": "wf-stub-1"})));
+        send_frame(&mut write_half, &request).await.unwrap();
+        let value = read_frame_value(&mut reader).await.unwrap();
+        let response: RpcResponse = serde_json::from_value(value).unwrap();
+        assert!(response.error.is_none(), "workflow/get should succeed: {response:?}");
+        let result = response.result.expect("result");
+        // Summary fields land at the top level via #[serde(flatten)].
+        assert_eq!(result.get("id").and_then(|v| v.as_str()), Some("wf-stub-1"));
+        assert_eq!(result.get("status").and_then(|v| v.as_str()), Some("paused"));
+        // Opaque detail must survive the round-trip.
+        let detail = result.get("detail").expect("detail field");
+        assert_eq!(detail.get("machine_state").and_then(|v| v.as_str()), Some("paused"));
+
+        handle.shutdown().await.unwrap();
+    })
+    .await
+    .expect("test timed out");
+}
+
 /// `plugin/ping` round-trips a successful response with latency_ms
 /// through the wire when the routing handle is wired.
 #[tokio::test]

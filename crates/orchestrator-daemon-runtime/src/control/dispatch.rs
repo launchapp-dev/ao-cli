@@ -70,7 +70,7 @@ use tokio::sync::broadcast;
 
 use crate::subject_dispatch::SubjectPluginDispatch;
 
-use super::routing::{DaemonOpsRouting, PluginRouting};
+use super::routing::{DaemonOpsRouting, PluginRouting, WorkflowRouting};
 use super::streaming::{DaemonEventBus, DaemonLogBus};
 
 /// In-process [`ControlSurface`] used by the daemon's control server.
@@ -93,6 +93,7 @@ pub struct InProcessSurface {
     log_bus: Option<DaemonLogBus>,
     plugin_routing: Option<Arc<dyn PluginRouting>>,
     daemon_ops_routing: Option<Arc<dyn DaemonOpsRouting>>,
+    workflow_routing: Option<Arc<dyn WorkflowRouting>>,
 }
 
 impl InProcessSurface {
@@ -108,6 +109,7 @@ impl InProcessSurface {
             log_bus: None,
             plugin_routing: None,
             daemon_ops_routing: None,
+            workflow_routing: None,
         }
     }
 
@@ -155,6 +157,7 @@ impl std::fmt::Debug for InProcessSurface {
             .field("log_bus", &self.log_bus.is_some())
             .field("plugin_routing", &self.plugin_routing.is_some())
             .field("daemon_ops_routing", &self.daemon_ops_routing.is_some())
+            .field("workflow_routing", &self.workflow_routing.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -170,6 +173,7 @@ pub struct InProcessSurfaceBuilder {
     log_bus: Option<DaemonLogBus>,
     plugin_routing: Option<Arc<dyn PluginRouting>>,
     daemon_ops_routing: Option<Arc<dyn DaemonOpsRouting>>,
+    workflow_routing: Option<Arc<dyn WorkflowRouting>>,
 }
 
 impl InProcessSurfaceBuilder {
@@ -227,6 +231,14 @@ impl InProcessSurfaceBuilder {
         self
     }
 
+    /// Attach a [`WorkflowRouting`] handle so the surface can answer
+    /// `workflow/*` calls over the control wire. When absent, all
+    /// `workflow/*` methods return [`ControlError::NotSupported`].
+    pub fn workflow_routing(mut self, routing: Arc<dyn WorkflowRouting>) -> Self {
+        self.workflow_routing = Some(routing);
+        self
+    }
+
     /// Finalize the surface.
     pub fn build(self) -> InProcessSurface {
         InProcessSurface {
@@ -239,6 +251,7 @@ impl InProcessSurfaceBuilder {
             log_bus: self.log_bus,
             plugin_routing: self.plugin_routing,
             daemon_ops_routing: self.daemon_ops_routing,
+            workflow_routing: self.workflow_routing,
         }
     }
 }
@@ -523,34 +536,53 @@ impl ControlSurface for InProcessSurface {
 
     // ----- Workflow ---------------------------------------------------
 
-    async fn workflow_list(&self, _request: WorkflowListRequest) -> Result<WorkflowListResponse, ControlError> {
-        Err(ControlError::NotSupported("workflow/list will be wired in C6 (CLI cutover)".to_string()))
+    async fn workflow_list(&self, request: WorkflowListRequest) -> Result<WorkflowListResponse, ControlError> {
+        match &self.workflow_routing {
+            Some(routing) => routing.workflow_list(request).await,
+            None => Err(ControlError::NotSupported("workflow/list routing not configured".to_string())),
+        }
     }
 
-    async fn workflow_get(&self, _request: WorkflowGetRequest) -> Result<WorkflowRun, ControlError> {
-        Err(ControlError::NotSupported(
-            "workflow/get will be wired in C6; detail will pass through as opaque Value".to_string(),
-        ))
+    async fn workflow_get(&self, request: WorkflowGetRequest) -> Result<WorkflowRun, ControlError> {
+        match &self.workflow_routing {
+            Some(routing) => routing.workflow_get(request).await,
+            None => Err(ControlError::NotSupported("workflow/get routing not configured".to_string())),
+        }
     }
 
-    async fn workflow_run(&self, _request: WorkflowRunRequest) -> Result<WorkflowRunStart, ControlError> {
-        Err(ControlError::NotSupported("workflow/run will be wired in C6 (CLI cutover)".to_string()))
+    async fn workflow_run(&self, request: WorkflowRunRequest) -> Result<WorkflowRunStart, ControlError> {
+        match &self.workflow_routing {
+            Some(routing) => routing.workflow_run(request).await,
+            None => Err(ControlError::NotSupported("workflow/run routing not configured".to_string())),
+        }
     }
 
-    async fn workflow_execute(&self, _request: WorkflowExecuteRequest) -> Result<WorkflowRunStart, ControlError> {
-        Err(ControlError::NotSupported("workflow/execute will be wired in C6 (CLI cutover)".to_string()))
+    async fn workflow_execute(&self, request: WorkflowExecuteRequest) -> Result<WorkflowRunStart, ControlError> {
+        match &self.workflow_routing {
+            Some(routing) => routing.workflow_execute(request).await,
+            None => Err(ControlError::NotSupported("workflow/execute routing not configured".to_string())),
+        }
     }
 
-    async fn workflow_pause(&self, _request: WorkflowPauseRequest) -> Result<Unit, ControlError> {
-        Err(ControlError::NotSupported("workflow/pause will be wired in C6 (CLI cutover)".to_string()))
+    async fn workflow_pause(&self, request: WorkflowPauseRequest) -> Result<Unit, ControlError> {
+        match &self.workflow_routing {
+            Some(routing) => routing.workflow_pause(request).await,
+            None => Err(ControlError::NotSupported("workflow/pause routing not configured".to_string())),
+        }
     }
 
-    async fn workflow_resume(&self, _request: WorkflowResumeRequest) -> Result<Unit, ControlError> {
-        Err(ControlError::NotSupported("workflow/resume will be wired in C6 (CLI cutover)".to_string()))
+    async fn workflow_resume(&self, request: WorkflowResumeRequest) -> Result<Unit, ControlError> {
+        match &self.workflow_routing {
+            Some(routing) => routing.workflow_resume(request).await,
+            None => Err(ControlError::NotSupported("workflow/resume routing not configured".to_string())),
+        }
     }
 
-    async fn workflow_cancel(&self, _request: WorkflowCancelRequest) -> Result<Unit, ControlError> {
-        Err(ControlError::NotSupported("workflow/cancel will be wired in C6 (CLI cutover)".to_string()))
+    async fn workflow_cancel(&self, request: WorkflowCancelRequest) -> Result<Unit, ControlError> {
+        match &self.workflow_routing {
+            Some(routing) => routing.workflow_cancel(request).await,
+            None => Err(ControlError::NotSupported("workflow/cancel routing not configured".to_string())),
+        }
     }
 
     // ----- Agent ------------------------------------------------------

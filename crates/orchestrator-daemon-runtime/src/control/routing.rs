@@ -36,6 +36,8 @@ use animus_control_protocol::{
         PluginCallResponse, PluginInfo, PluginInfoRequest, PluginInstallRequest, PluginInstallResponse,
         PluginListRequest, PluginListResponse, PluginPingRequest, PluginPingResponse, PluginSearchRequest,
         PluginSearchResponse, PluginUninstallRequest, PluginUpdateRequest, PluginUpdateResponse, Unit,
+        WorkflowCancelRequest, WorkflowExecuteRequest, WorkflowGetRequest, WorkflowListRequest, WorkflowListResponse,
+        WorkflowPauseRequest, WorkflowResumeRequest, WorkflowRun, WorkflowRunRequest, WorkflowRunStart,
     },
     ControlError,
 };
@@ -91,6 +93,42 @@ pub trait DaemonOpsRouting: Send + Sync {
 
     /// `daemon/agents` — currently active agent sessions.
     async fn daemon_agents(&self) -> Result<DaemonAgentsResponse, ControlError>;
+}
+
+/// `workflow/*` dispatcher used by [`super::InProcessSurface`].
+///
+/// Wraps the CLI's existing `WorkflowServiceApi` + `dispatch_workflow_event`
+/// helpers behind a transport-agnostic interface, mirroring the pattern
+/// established for [`PluginRouting`]. Implementations live in
+/// `orchestrator-cli` so the daemon-runtime crate doesn't grow a
+/// dependency on `orchestrator-core`'s service hub.
+///
+/// The detail payload on `workflow/get` is opaque `Value` — the
+/// daemon-side `OrchestratorWorkflow` schema is rich (phases, decisions,
+/// machine-state) and mirroring it exhaustively into the protocol crate
+/// is deferred to a v0.4.x cleanup task.
+#[async_trait]
+pub trait WorkflowRouting: Send + Sync {
+    /// `workflow/list` — page through workflow runs filtered by status.
+    async fn workflow_list(&self, request: WorkflowListRequest) -> Result<WorkflowListResponse, ControlError>;
+
+    /// `workflow/get` — fetch one workflow run, opaque detail included.
+    async fn workflow_get(&self, request: WorkflowGetRequest) -> Result<WorkflowRun, ControlError>;
+
+    /// `workflow/run` — start a workflow for a task subject.
+    async fn workflow_run(&self, request: WorkflowRunRequest) -> Result<WorkflowRunStart, ControlError>;
+
+    /// `workflow/execute` — start a workflow by definition name with params.
+    async fn workflow_execute(&self, request: WorkflowExecuteRequest) -> Result<WorkflowRunStart, ControlError>;
+
+    /// `workflow/pause` — pause a running workflow.
+    async fn workflow_pause(&self, request: WorkflowPauseRequest) -> Result<Unit, ControlError>;
+
+    /// `workflow/resume` — resume a paused workflow.
+    async fn workflow_resume(&self, request: WorkflowResumeRequest) -> Result<Unit, ControlError>;
+
+    /// `workflow/cancel` — cancel a workflow with an optional reason.
+    async fn workflow_cancel(&self, request: WorkflowCancelRequest) -> Result<Unit, ControlError>;
 }
 
 /// Marker used by integration tests that need to assert "the surface

@@ -39,6 +39,8 @@ use animus_control_protocol::{
         PluginCallResponse, PluginInfo, PluginInfoRequest, PluginInstallRequest, PluginInstallResponse,
         PluginListRequest, PluginListResponse, PluginPingRequest, PluginPingResponse, PluginSearchRequest,
         PluginSearchResponse, PluginUninstallRequest, PluginUpdateRequest, PluginUpdateResponse, Unit,
+        WorkflowCancelRequest, WorkflowExecuteRequest, WorkflowGetRequest, WorkflowListRequest, WorkflowListResponse,
+        WorkflowPauseRequest, WorkflowResumeRequest, WorkflowRun, WorkflowRunRequest, WorkflowRunStart,
     },
 };
 use animus_plugin_protocol::{error_codes, RpcRequest, RpcResponse};
@@ -207,6 +209,43 @@ impl ControlClient {
     pub async fn daemon_agents(&self) -> Result<DaemonAgentsResponse> {
         self.call::<Value, _>(method_names::METHOD_DAEMON_AGENTS, Value::Null).await
     }
+
+    // ----- Workflow convenience methods ------------------------------
+
+    /// Call `workflow/list`.
+    pub async fn workflow_list(&self, request: WorkflowListRequest) -> Result<WorkflowListResponse> {
+        self.call(method_names::METHOD_WORKFLOW_LIST, request).await
+    }
+
+    /// Call `workflow/get`.
+    pub async fn workflow_get(&self, request: WorkflowGetRequest) -> Result<WorkflowRun> {
+        self.call(method_names::METHOD_WORKFLOW_GET, request).await
+    }
+
+    /// Call `workflow/run`.
+    pub async fn workflow_run(&self, request: WorkflowRunRequest) -> Result<WorkflowRunStart> {
+        self.call(method_names::METHOD_WORKFLOW_RUN, request).await
+    }
+
+    /// Call `workflow/execute`.
+    pub async fn workflow_execute(&self, request: WorkflowExecuteRequest) -> Result<WorkflowRunStart> {
+        self.call(method_names::METHOD_WORKFLOW_EXECUTE, request).await
+    }
+
+    /// Call `workflow/pause`.
+    pub async fn workflow_pause(&self, request: WorkflowPauseRequest) -> Result<Unit> {
+        self.call(method_names::METHOD_WORKFLOW_PAUSE, request).await
+    }
+
+    /// Call `workflow/resume`.
+    pub async fn workflow_resume(&self, request: WorkflowResumeRequest) -> Result<Unit> {
+        self.call(method_names::METHOD_WORKFLOW_RESUME, request).await
+    }
+
+    /// Call `workflow/cancel`.
+    pub async fn workflow_cancel(&self, request: WorkflowCancelRequest) -> Result<Unit> {
+        self.call(method_names::METHOD_WORKFLOW_CANCEL, request).await
+    }
 }
 
 /// Translate a JSON-RPC error from the daemon into a CLI-side anyhow
@@ -363,5 +402,52 @@ mod tests {
         assert!(is_method_unavailable(&err), "expected is_method_unavailable to be true: {err}");
         let _ = std::fs::remove_file(socket_path);
         server.abort();
+    }
+
+    /// C6.5: `workflow/list` round-trips a WorkflowListResponse through
+    /// the wire. Mirrors the daemon-side
+    /// `workflow_list_routes_through_configured_routing` test from the
+    /// CLI side: spawn a fake server, call the typed convenience method,
+    /// verify the decoded response.
+    #[tokio::test]
+    async fn workflow_list_routes_via_control_when_socket_present() {
+        let socket_path = short_sock_path();
+        let handler = |req: RpcRequest| {
+            assert_eq!(req.method, "workflow/list");
+            RpcResponse::ok(
+                req.id,
+                serde_json::json!({
+                    "runs": [{
+                        "id": "wf-1",
+                        "definition": "standard-workflow",
+                        "status": "running",
+                        "started_at": "2026-05-20T00:00:00Z",
+                    }],
+                }),
+            )
+        };
+        let server = spawn_fake_server(socket_path.clone(), handler).await;
+        let client = ControlClient::from_socket_path(socket_path.clone());
+        let request = animus_control_protocol::types::WorkflowListRequest::default();
+        let response = tokio::time::timeout(Duration::from_secs(5), client.workflow_list(request))
+            .await
+            .expect("timeout")
+            .expect("call");
+        assert_eq!(response.runs.len(), 1);
+        assert_eq!(response.runs[0].id, "wf-1");
+        let _ = std::fs::remove_file(socket_path);
+        server.abort();
+    }
+
+    /// C6.5: when no socket is present the helper returns Ok(None) so
+    /// the CLI falls back to the local in-process path. Verified end to
+    /// end by `ControlClient::try_connect`; this test pins the contract.
+    #[tokio::test]
+    async fn workflow_list_falls_back_when_socket_missing() {
+        let dir = tempfile::TempDir::new().unwrap();
+        // Use a project_root that has no `~/.animus/<scope>/control.sock`.
+        let result = ControlClient::try_connect(dir.path()).await.unwrap();
+        // Either the path doesn't exist (None) or it exists but is unusable.
+        assert!(result.is_none() || result.is_some_and(|c| !c.socket_path().exists()));
     }
 }

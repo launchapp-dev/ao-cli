@@ -1,5 +1,5 @@
 use crate::cli_types::DaemonRunArgs;
-use crate::services::operations::build_plugin_routing;
+use crate::services::operations::{build_plugin_routing, build_workflow_routing};
 use crate::services::runtime::runtime_daemon::build_daemon_ops_routing;
 use crate::services::runtime::runtime_daemon::daemon_reconciliation::recover_orphaned_running_workflows;
 use anyhow::Result;
@@ -8,7 +8,7 @@ use orchestrator_core::DaemonStatus;
 use orchestrator_core::FileServiceHub;
 use orchestrator_core::ServiceHub;
 use orchestrator_core::{load_daemon_project_config, write_daemon_project_config};
-use orchestrator_daemon_runtime::control::{DaemonOpsRouting, PluginRouting};
+use orchestrator_daemon_runtime::control::{DaemonOpsRouting, PluginRouting, WorkflowRouting};
 use orchestrator_daemon_runtime::{run_daemon, DaemonRunEvent, DaemonRunHooks, ProcessManager};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -24,14 +24,22 @@ struct CliDaemonRunHost {
     start_config: DaemonStartConfig,
     plugin_routing: Arc<dyn PluginRouting>,
     daemon_ops_routing: Arc<dyn DaemonOpsRouting>,
+    workflow_routing: Arc<dyn WorkflowRouting>,
 }
 
 impl CliDaemonRunHost {
     fn new(project_root: &str, json: bool, start_config: DaemonStartConfig) -> Self {
         let project_root_path = PathBuf::from(project_root);
         let plugin_routing = build_plugin_routing(project_root_path.clone());
-        let daemon_ops_routing = build_daemon_ops_routing(project_root_path, SystemTime::now());
-        Self { inner: DefaultDaemonRunHost::new(project_root, json), start_config, plugin_routing, daemon_ops_routing }
+        let daemon_ops_routing = build_daemon_ops_routing(project_root_path.clone(), SystemTime::now());
+        let workflow_routing = build_workflow_routing(project_root_path);
+        Self {
+            inner: DefaultDaemonRunHost::new(project_root, json),
+            start_config,
+            plugin_routing,
+            daemon_ops_routing,
+            workflow_routing,
+        }
     }
 
     fn logger(&self) -> std::sync::Arc<orchestrator_logging::Logger> {
@@ -80,6 +88,10 @@ impl DaemonRunHooks for CliDaemonRunHost {
 
     fn daemon_ops_routing(&self) -> Option<Arc<dyn DaemonOpsRouting>> {
         Some(self.daemon_ops_routing.clone())
+    }
+
+    fn workflow_routing(&self) -> Option<Arc<dyn WorkflowRouting>> {
+        Some(self.workflow_routing.clone())
     }
 }
 

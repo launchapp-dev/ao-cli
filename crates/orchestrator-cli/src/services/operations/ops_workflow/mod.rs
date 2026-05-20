@@ -1,7 +1,10 @@
 mod config;
+mod control_routing;
 pub(crate) mod execute;
 mod phases;
 mod prompt;
+
+pub(crate) use control_routing::build_workflow_routing;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -308,10 +311,26 @@ pub(crate) async fn handle_workflow(
 
     match command {
         WorkflowCommand::List(args) => {
+            // C6.5: prefer the control wire when daemon is running + json
+            // mode, so the daemon's view of workflow runs is authoritative.
+            // Falls back to the local in-process query when no socket is
+            // available or the daemon returns NotSupported (older daemon).
+            if json {
+                if let Some(response) = try_workflow_list_via_control(project_root, &args).await? {
+                    return print_value(response, true);
+                }
+            }
             let page = workflows.query(build_workflow_query(args)?).await?;
             print_value(page.items, json)
         }
-        WorkflowCommand::Get(args) => print_value(workflows.get(&args.id).await?, json),
+        WorkflowCommand::Get(args) => {
+            if json {
+                if let Some(run) = try_workflow_get_via_control(project_root, &args.id).await? {
+                    return print_value(run, true);
+                }
+            }
+            print_value(workflows.get(&args.id).await?, json)
+        }
         WorkflowCommand::Decisions(args) => print_value(workflows.decisions(&args.id).await?, json),
         WorkflowCommand::Checkpoints { command } => match command {
             WorkflowCheckpointCommand::List(args) => print_value(workflows.list_checkpoints(&args.id).await?, json),
@@ -345,6 +364,25 @@ pub(crate) async fn handle_workflow(
                 execute::handle_workflow_execute(execute_args, hub, project_root, json).await?;
                 Ok(())
             } else {
+                // C6.5: when JSON mode + task id + daemon is running,
+                // route the start through the control wire so the
+                // daemon's WorkflowService owns the run lifecycle. The
+                // wire response is a WorkflowRunStart (id + status +
+                // started_at) which is a strict subset of the local
+                // OrchestratorWorkflow shape; that's the intentional
+                // trade for the cross-transport story. Requirement /
+                // title / freeform paths and any --input-json path stay
+                // local — the wire surface only covers `workflow/run`
+                // for task subjects today.
+                if json && args.input_json.is_none() && args.requirement_id.is_none() && args.title.is_none() {
+                    if let Some(task_id) = args.task_id.as_ref() {
+                        if let Some(start) =
+                            try_workflow_run_via_control(project_root, task_id, workflow_ref.clone()).await?
+                        {
+                            return print_value(start, true);
+                        }
+                    }
+                }
                 let dispatch = match args.input_json {
                     Some(raw) => resolve_workflow_run_dispatch_from_raw_input(hub.clone(), project_root, &raw).await?,
                     None => {
@@ -378,6 +416,12 @@ pub(crate) async fn handle_workflow(
             }
         },
         WorkflowCommand::Resume(args) => {
+            if json {
+                if let Some(()) = try_workflow_resume_via_control(project_root, &args.id).await? {
+                    let workflow = workflows.get(&args.id).await?;
+                    return print_value(workflow, json);
+                }
+            }
             let outcome = dispatch_workflow_event(
                 hub.clone(),
                 project_root,
@@ -420,6 +464,12 @@ pub(crate) async fn handle_workflow(
                 );
             }
             ensure_destructive_confirmation(args.confirm.as_deref(), &args.id, "workflow pause", "--id")?;
+            if json {
+                if let Some(()) = try_workflow_pause_via_control(project_root, &args.id).await? {
+                    let workflow = workflows.get(&args.id).await?;
+                    return print_value(workflow, json);
+                }
+            }
             let outcome = dispatch_workflow_event(
                 hub.clone(),
                 project_root,
@@ -448,6 +498,12 @@ pub(crate) async fn handle_workflow(
                 );
             }
             ensure_destructive_confirmation(args.confirm.as_deref(), &args.id, "workflow cancel", "--id")?;
+            if json {
+                if let Some(()) = try_workflow_cancel_via_control(project_root, &args.id).await? {
+                    let workflow = workflows.get(&args.id).await?;
+                    return print_value(workflow, json);
+                }
+            }
             let outcome = dispatch_workflow_event(
                 hub.clone(),
                 project_root,
@@ -529,6 +585,168 @@ pub(crate) async fn handle_workflow(
             }
         },
     }
+}
+
+// =====================================================================
+// C6.5 — control-wire routing helpers for workflow/*
+// =====================================================================
+//
+// Each helper opens the control socket (returns Ok(None) when the daemon
+// isn't running so the caller falls back to the local in-process path),
+// issues the corresponding JSON-RPC call, and returns the wire-shaped
+// response. When the daemon advertises the surface but the specific
+// method is unavailable (older daemon, mid-rollout) we treat that the
+// same as "socket missing" and degrade to local.
+
+async fn try_workflow_list_via_control(
+    project_root: &str,
+    args: &crate::WorkflowListArgs,
+) -> Result<Option<animus_control_protocol::types::WorkflowListResponse>> {
+    use crate::services::control_client::{is_method_unavailable, ControlClient};
+    use animus_control_protocol::types::WorkflowListRequest as WireRequest;
+
+    let project_root_path = Path::new(project_root);
+    let Some(client) = ControlClient::try_connect(project_root_path).await? else {
+        return Ok(None);
+    };
+    let status = match args.status.as_deref() {
+        Some(raw) => parse_wire_workflow_status(raw)?,
+        None => None,
+    };
+    let limit = args.limit.map(|l| u32::try_from(l).unwrap_or(u32::MAX));
+    let cursor = if args.offset == 0 { None } else { Some(args.offset.to_string()) };
+    let request = WireRequest { status, cursor, limit };
+    match client.workflow_list(request).await {
+        Ok(response) => Ok(Some(response)),
+        Err(err) if is_method_unavailable(&err) => {
+            tracing::debug!(error = %err, "workflow/list wire returned unavailable; falling back to local");
+            Ok(None)
+        }
+        Err(err) => Err(err),
+    }
+}
+
+async fn try_workflow_get_via_control(
+    project_root: &str,
+    id: &str,
+) -> Result<Option<animus_control_protocol::types::WorkflowRun>> {
+    use crate::services::control_client::{is_method_unavailable, ControlClient};
+    use animus_control_protocol::types::WorkflowGetRequest as WireRequest;
+
+    let project_root_path = Path::new(project_root);
+    let Some(client) = ControlClient::try_connect(project_root_path).await? else {
+        return Ok(None);
+    };
+    match client.workflow_get(WireRequest { id: id.to_string() }).await {
+        Ok(response) => Ok(Some(response)),
+        Err(err) if is_method_unavailable(&err) => {
+            tracing::debug!(error = %err, "workflow/get wire returned unavailable; falling back to local");
+            Ok(None)
+        }
+        Err(err) => Err(err),
+    }
+}
+
+async fn try_workflow_run_via_control(
+    project_root: &str,
+    task_id: &str,
+    definition: Option<String>,
+) -> Result<Option<animus_control_protocol::types::WorkflowRunStart>> {
+    use crate::services::control_client::{is_method_unavailable, ControlClient};
+    use animus_control_protocol::types::WorkflowRunRequest as WireRequest;
+
+    let project_root_path = Path::new(project_root);
+    let Some(client) = ControlClient::try_connect(project_root_path).await? else {
+        return Ok(None);
+    };
+    let request = WireRequest { task_id: task_id.to_string(), definition, params: Default::default() };
+    match client.workflow_run(request).await {
+        Ok(response) => Ok(Some(response)),
+        Err(err) if is_method_unavailable(&err) => {
+            tracing::debug!(error = %err, "workflow/run wire returned unavailable; falling back to local");
+            Ok(None)
+        }
+        Err(err) => Err(err),
+    }
+}
+
+async fn try_workflow_pause_via_control(project_root: &str, id: &str) -> Result<Option<()>> {
+    use crate::services::control_client::{is_method_unavailable, ControlClient};
+    use animus_control_protocol::types::WorkflowPauseRequest as WireRequest;
+
+    let project_root_path = Path::new(project_root);
+    let Some(client) = ControlClient::try_connect(project_root_path).await? else {
+        return Ok(None);
+    };
+    match client.workflow_pause(WireRequest { id: id.to_string() }).await {
+        Ok(_) => Ok(Some(())),
+        Err(err) if is_method_unavailable(&err) => {
+            tracing::debug!(error = %err, "workflow/pause wire returned unavailable; falling back to local");
+            Ok(None)
+        }
+        Err(err) => Err(err),
+    }
+}
+
+async fn try_workflow_resume_via_control(project_root: &str, id: &str) -> Result<Option<()>> {
+    use crate::services::control_client::{is_method_unavailable, ControlClient};
+    use animus_control_protocol::types::WorkflowResumeRequest as WireRequest;
+
+    let project_root_path = Path::new(project_root);
+    let Some(client) = ControlClient::try_connect(project_root_path).await? else {
+        return Ok(None);
+    };
+    match client.workflow_resume(WireRequest { id: id.to_string() }).await {
+        Ok(_) => Ok(Some(())),
+        Err(err) if is_method_unavailable(&err) => {
+            tracing::debug!(error = %err, "workflow/resume wire returned unavailable; falling back to local");
+            Ok(None)
+        }
+        Err(err) => Err(err),
+    }
+}
+
+async fn try_workflow_cancel_via_control(project_root: &str, id: &str) -> Result<Option<()>> {
+    use crate::services::control_client::{is_method_unavailable, ControlClient};
+    use animus_control_protocol::types::WorkflowCancelRequest as WireRequest;
+
+    let project_root_path = Path::new(project_root);
+    let Some(client) = ControlClient::try_connect(project_root_path).await? else {
+        return Ok(None);
+    };
+    match client.workflow_cancel(WireRequest { id: id.to_string(), reason: None }).await {
+        Ok(_) => Ok(Some(())),
+        Err(err) if is_method_unavailable(&err) => {
+            tracing::debug!(error = %err, "workflow/cancel wire returned unavailable; falling back to local");
+            Ok(None)
+        }
+        Err(err) => Err(err),
+    }
+}
+
+/// Parse the CLI `--status` argument into the wire-side enum, returning
+/// `None` for the (already-handled) absent case. The CLI accepts core
+/// snake_case names; the wire uses kebab-case. We accept both for
+/// resilience and surface unknown values as anyhow errors with the
+/// canonical set in the message.
+fn parse_wire_workflow_status(raw: &str) -> Result<Option<animus_control_protocol::types::WorkflowStatus>> {
+    use animus_control_protocol::types::WorkflowStatus;
+    let normalized = raw.trim().to_ascii_lowercase().replace('_', "-");
+    let value = match normalized.as_str() {
+        "" => return Ok(None),
+        "pending" => WorkflowStatus::Pending,
+        "running" => WorkflowStatus::Running,
+        "paused" => WorkflowStatus::Paused,
+        "completed" => WorkflowStatus::Completed,
+        "failed" | "escalated" => WorkflowStatus::Failed,
+        "cancelled" | "canceled" => WorkflowStatus::Cancelled,
+        other => {
+            return Err(anyhow!(
+                "unknown workflow status '{other}'; expected one of pending, running, paused, completed, failed, cancelled"
+            ));
+        }
+    };
+    Ok(Some(value))
 }
 
 #[cfg(test)]

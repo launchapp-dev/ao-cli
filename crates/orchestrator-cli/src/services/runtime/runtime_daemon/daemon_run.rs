@@ -1,5 +1,7 @@
 use crate::cli_types::DaemonRunArgs;
-use crate::services::operations::{build_plugin_routing, build_queue_routing, build_workflow_routing};
+use crate::services::operations::{
+    build_agent_routing, build_plugin_routing, build_queue_routing, build_workflow_routing,
+};
 use crate::services::runtime::runtime_daemon::build_daemon_ops_routing;
 use crate::services::runtime::runtime_daemon::daemon_reconciliation::recover_orphaned_running_workflows;
 use anyhow::Result;
@@ -8,7 +10,9 @@ use orchestrator_core::DaemonStatus;
 use orchestrator_core::FileServiceHub;
 use orchestrator_core::ServiceHub;
 use orchestrator_core::{load_daemon_project_config, write_daemon_project_config};
-use orchestrator_daemon_runtime::control::{DaemonOpsRouting, PluginRouting, QueueRouting, WorkflowRouting};
+use orchestrator_daemon_runtime::control::{
+    AgentRouting, DaemonOpsRouting, PluginRouting, QueueRouting, WorkflowRouting,
+};
 use orchestrator_daemon_runtime::{run_daemon, DaemonRunEvent, DaemonRunHooks, ProcessManager};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -26,6 +30,7 @@ struct CliDaemonRunHost {
     daemon_ops_routing: Arc<dyn DaemonOpsRouting>,
     workflow_routing: Arc<dyn WorkflowRouting>,
     queue_routing: Arc<dyn QueueRouting>,
+    agent_routing: Arc<dyn AgentRouting>,
 }
 
 impl CliDaemonRunHost {
@@ -34,7 +39,8 @@ impl CliDaemonRunHost {
         let plugin_routing = build_plugin_routing(project_root_path.clone());
         let daemon_ops_routing = build_daemon_ops_routing(project_root_path.clone(), SystemTime::now());
         let workflow_routing = build_workflow_routing(project_root_path.clone());
-        let queue_routing = build_queue_routing(project_root_path);
+        let queue_routing = build_queue_routing(project_root_path.clone());
+        let agent_routing = build_agent_routing(project_root_path);
         Self {
             inner: DefaultDaemonRunHost::new(project_root, json),
             start_config,
@@ -42,6 +48,7 @@ impl CliDaemonRunHost {
             daemon_ops_routing,
             workflow_routing,
             queue_routing,
+            agent_routing,
         }
     }
 
@@ -99,6 +106,10 @@ impl DaemonRunHooks for CliDaemonRunHost {
 
     fn queue_routing(&self) -> Option<Arc<dyn QueueRouting>> {
         Some(self.queue_routing.clone())
+    }
+
+    fn agent_routing(&self) -> Option<Arc<dyn AgentRouting>> {
+        Some(self.agent_routing.clone())
     }
 }
 

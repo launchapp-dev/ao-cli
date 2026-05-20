@@ -70,7 +70,7 @@ use tokio::sync::broadcast;
 
 use crate::subject_dispatch::SubjectPluginDispatch;
 
-use super::routing::{DaemonOpsRouting, PluginRouting, QueueRouting, WorkflowRouting};
+use super::routing::{AgentRouting, DaemonOpsRouting, PluginRouting, QueueRouting, WorkflowRouting};
 use super::streaming::{DaemonEventBus, DaemonLogBus};
 
 /// In-process [`ControlSurface`] used by the daemon's control server.
@@ -95,6 +95,7 @@ pub struct InProcessSurface {
     daemon_ops_routing: Option<Arc<dyn DaemonOpsRouting>>,
     workflow_routing: Option<Arc<dyn WorkflowRouting>>,
     queue_routing: Option<Arc<dyn QueueRouting>>,
+    agent_routing: Option<Arc<dyn AgentRouting>>,
 }
 
 impl InProcessSurface {
@@ -112,6 +113,7 @@ impl InProcessSurface {
             daemon_ops_routing: None,
             workflow_routing: None,
             queue_routing: None,
+            agent_routing: None,
         }
     }
 
@@ -161,6 +163,7 @@ impl std::fmt::Debug for InProcessSurface {
             .field("daemon_ops_routing", &self.daemon_ops_routing.is_some())
             .field("workflow_routing", &self.workflow_routing.is_some())
             .field("queue_routing", &self.queue_routing.is_some())
+            .field("agent_routing", &self.agent_routing.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -178,6 +181,7 @@ pub struct InProcessSurfaceBuilder {
     daemon_ops_routing: Option<Arc<dyn DaemonOpsRouting>>,
     workflow_routing: Option<Arc<dyn WorkflowRouting>>,
     queue_routing: Option<Arc<dyn QueueRouting>>,
+    agent_routing: Option<Arc<dyn AgentRouting>>,
 }
 
 impl InProcessSurfaceBuilder {
@@ -251,6 +255,16 @@ impl InProcessSurfaceBuilder {
         self
     }
 
+    /// Attach an [`AgentRouting`] handle so the surface can answer
+    /// `agent/*` calls over the control wire. When absent, all
+    /// `agent/*` methods return [`ControlError::NotSupported`] — which
+    /// matches the historical pre-C6.7 stub behavior and lets CLI
+    /// callers degrade to the local in-process path.
+    pub fn agent_routing(mut self, routing: Arc<dyn AgentRouting>) -> Self {
+        self.agent_routing = Some(routing);
+        self
+    }
+
     /// Finalize the surface.
     pub fn build(self) -> InProcessSurface {
         InProcessSurface {
@@ -265,6 +279,7 @@ impl InProcessSurfaceBuilder {
             daemon_ops_routing: self.daemon_ops_routing,
             workflow_routing: self.workflow_routing,
             queue_routing: self.queue_routing,
+            agent_routing: self.agent_routing,
         }
     }
 }
@@ -600,16 +615,25 @@ impl ControlSurface for InProcessSurface {
 
     // ----- Agent ------------------------------------------------------
 
-    async fn agent_run(&self, _request: AgentRunRequest) -> Result<AgentRunResult, ControlError> {
-        Err(ControlError::NotSupported("agent/run will be wired in C7 (MCP cutover)".to_string()))
+    async fn agent_run(&self, request: AgentRunRequest) -> Result<AgentRunResult, ControlError> {
+        match &self.agent_routing {
+            Some(routing) => routing.agent_run(request).await,
+            None => Err(ControlError::NotSupported("agent/run routing not configured".to_string())),
+        }
     }
 
-    async fn agent_status(&self, _request: AgentStatusRequest) -> Result<AgentStatus, ControlError> {
-        Err(ControlError::NotSupported("agent/status will be wired in C7 (MCP cutover)".to_string()))
+    async fn agent_status(&self, request: AgentStatusRequest) -> Result<AgentStatus, ControlError> {
+        match &self.agent_routing {
+            Some(routing) => routing.agent_status(request).await,
+            None => Err(ControlError::NotSupported("agent/status routing not configured".to_string())),
+        }
     }
 
-    async fn agent_cancel(&self, _request: AgentCancelRequest) -> Result<Unit, ControlError> {
-        Err(ControlError::NotSupported("agent/cancel will be wired in C7 (MCP cutover)".to_string()))
+    async fn agent_cancel(&self, request: AgentCancelRequest) -> Result<Unit, ControlError> {
+        match &self.agent_routing {
+            Some(routing) => routing.agent_cancel(request).await,
+            None => Err(ControlError::NotSupported("agent/cancel routing not configured".to_string())),
+        }
     }
 
     // ----- Queue ------------------------------------------------------

@@ -1,10 +1,11 @@
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use orchestrator_core::services::ServiceHub;
 use protocol::{
-    AgentControlRequest, AgentControlResponse, AgentStatusErrorCode, AgentStatusQueryResponse, AgentStatusRequest,
-    AgentStatusResponse, RunId, RunnerStatusResponse,
+    AgentControlAction, AgentControlRequest, AgentControlResponse, AgentStatusErrorCode, AgentStatusQueryResponse,
+    AgentStatusRequest, AgentStatusResponse, RunId, RunnerStatusResponse,
 };
 use tokio::io::{AsyncBufReadExt, BufReader};
 
@@ -26,10 +27,29 @@ pub(super) async fn handle_agent_control(
     project_root: &str,
     json: bool,
 ) -> Result<()> {
+    let action: AgentControlAction = args.action.clone().into();
+
+    // C6.7: when the user requests terminate + json mode + daemon is
+    // running, route through the wire's `agent/cancel`. Pause/resume
+    // are not part of the control protocol's wire surface today and
+    // stay local. Falls back to local on socket-missing / NotSupported.
+    if json && matches!(action, AgentControlAction::Terminate) {
+        if let Some(()) = try_agent_cancel_via_control(project_root, &args.run_id).await? {
+            return print_value(
+                serde_json::json!({
+                    "run_id": args.run_id,
+                    "success": true,
+                    "message": "cancelled via control wire",
+                }),
+                true,
+            );
+        }
+    }
+
     let stream = connect_runner_for_agent_command(&hub, project_root, args.start_runner).await?;
     let (read_half, mut write_half) = tokio::io::split(stream);
 
-    let request = AgentControlRequest { run_id: RunId(args.run_id), action: args.action.into() };
+    let request = AgentControlRequest { run_id: RunId(args.run_id), action };
     write_json_line(&mut write_half, &request).await?;
 
     let mut lines = BufReader::new(read_half).lines();
@@ -62,6 +82,15 @@ pub(super) async fn handle_agent_status(
     project_root: &str,
     json: bool,
 ) -> Result<()> {
+    // C6.7: prefer the control wire when daemon is running + json mode
+    // so the daemon's view of the agent session is authoritative.
+    // Falls back to local on socket-missing or NotSupported.
+    if json {
+        if let Some(status) = try_agent_status_via_control(project_root, &args.run_id).await? {
+            return print_value(status, true);
+        }
+    }
+
     match query_agent_status_from_runner(&hub, project_root, &args.run_id, args.start_runner).await {
         Ok(AgentStatusLookup::Found(status)) => print_value(status, json),
         Ok(AgentStatusLookup::NotFound { message }) => Err(not_found_error(message)),
@@ -114,6 +143,49 @@ fn parse_agent_status_query_line(line: &str) -> Option<AgentStatusLookup> {
     }
 
     None
+}
+
+// =====================================================================
+// C6.7 — control-wire routing helpers for agent/status + agent/cancel
+// =====================================================================
+
+async fn try_agent_status_via_control(
+    project_root: &str,
+    run_id: &str,
+) -> Result<Option<animus_control_protocol::types::AgentStatus>> {
+    use crate::services::control_client::{is_method_unavailable, ControlClient};
+    use animus_control_protocol::types::AgentStatusRequest as WireRequest;
+
+    let project_root_path = Path::new(project_root);
+    let Some(client) = ControlClient::try_connect(project_root_path).await? else {
+        return Ok(None);
+    };
+    match client.agent_status(WireRequest { id: run_id.to_string() }).await {
+        Ok(response) => Ok(Some(response)),
+        Err(err) if is_method_unavailable(&err) => {
+            tracing::debug!(error = %err, "agent/status wire returned unavailable; falling back to local runner");
+            Ok(None)
+        }
+        Err(err) => Err(err),
+    }
+}
+
+async fn try_agent_cancel_via_control(project_root: &str, run_id: &str) -> Result<Option<()>> {
+    use crate::services::control_client::{is_method_unavailable, ControlClient};
+    use animus_control_protocol::types::AgentCancelRequest as WireRequest;
+
+    let project_root_path = Path::new(project_root);
+    let Some(client) = ControlClient::try_connect(project_root_path).await? else {
+        return Ok(None);
+    };
+    match client.agent_cancel(WireRequest { session_id: run_id.to_string() }).await {
+        Ok(_) => Ok(Some(())),
+        Err(err) if is_method_unavailable(&err) => {
+            tracing::debug!(error = %err, "agent/cancel wire returned unavailable; falling back to local runner");
+            Ok(None)
+        }
+        Err(err) => Err(err),
+    }
 }
 
 #[cfg(test)]

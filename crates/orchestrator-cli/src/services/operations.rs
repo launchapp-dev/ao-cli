@@ -1,3 +1,4 @@
+mod ops_agent;
 mod ops_common;
 mod ops_doctor;
 mod ops_errors;
@@ -22,6 +23,7 @@ mod ops_trigger;
 mod ops_web;
 mod ops_workflow;
 
+pub(crate) use ops_agent::*;
 use ops_common::*;
 pub(crate) use ops_doctor::*;
 pub(crate) use ops_errors::*;

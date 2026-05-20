@@ -1,6 +1,9 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use orchestrator_core::DaemonStatus;
 
+use crate::control::{DaemonOpsRouting, PluginRouting};
 use crate::DaemonRunEvent;
 
 #[async_trait::async_trait(?Send)]
@@ -29,5 +32,21 @@ pub trait DaemonRunHooks {
 
     async fn flush_notifications(&mut self, _project_root: &str) -> Result<()> {
         Ok(())
+    }
+
+    /// Provide a `plugin/*` routing handle for the control-RPC surface.
+    /// Defaults to `None`, which leaves the daemon's `InProcessSurface`
+    /// returning `NotSupported` for plugin/* methods. The CLI binary
+    /// builds an implementation that delegates back to its in-tree
+    /// `run_plugin_*` helpers.
+    fn plugin_routing(&self) -> Option<Arc<dyn PluginRouting>> {
+        None
+    }
+
+    /// Provide a `daemon/*` ops routing handle for the control-RPC
+    /// surface. Defaults to `None`, which leaves the daemon's
+    /// `InProcessSurface` returning its stub responses.
+    fn daemon_ops_routing(&self) -> Option<Arc<dyn DaemonOpsRouting>> {
+        None
     }
 }

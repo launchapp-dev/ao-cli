@@ -21,6 +21,7 @@ orchestrator-core = { path = "../orchestrator-core" }
 orchestrator-logging = { path = "../orchestrator-logging" }
 orchestrator-plugin-host = { workspace = true }
 animus-plugin-protocol = { workspace = true }
+animus-control-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.3" }
 orchestrator-web-api = { path = "../orchestrator-web-api" }
 orchestrator-web-server = { path = "../orchestrator-web-server" }
 protocol = { path = "../protocol" }

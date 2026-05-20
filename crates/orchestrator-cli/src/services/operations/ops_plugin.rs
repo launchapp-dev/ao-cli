@@ -1,7 +1,9 @@
+mod control_routing;
 mod marketplace;
 mod new;
 mod signing;
 
+pub(crate) use control_routing::build_plugin_routing;
 pub(crate) use marketplace::{
     run_plugin_browse, run_plugin_search, run_plugin_update, PluginBrowseRequest, PluginSearchRequest,
     PluginUpdateRequest,
@@ -200,10 +202,16 @@ pub(crate) struct PluginUninstallRequest {
 
 pub(crate) async fn handle_plugin(command: PluginCommand, project_root: &str, json: bool) -> Result<()> {
     match command {
-        PluginCommand::List(args) => handle_plugin_list(args, project_root, json),
+        PluginCommand::List(args) => handle_plugin_list(args, project_root, json).await,
         PluginCommand::Info(args) => handle_plugin_info(args, project_root, json).await,
         PluginCommand::Call(args) => handle_plugin_call(args, project_root, json).await,
         PluginCommand::Ping(args) => handle_plugin_ping(args, project_root, json).await,
+        // Install and uninstall stay strictly local — they have heavy
+        // filesystem side-effects (binary copy, registry yaml write,
+        // signature checks) that don't benefit from a wire round-trip.
+        // The daemon-side `plugin/install` handler exists so MCP/WebAPI
+        // (C7/C8) can call it via the wire, but the CLI's user-facing
+        // path is intentionally direct.
         PluginCommand::Install(args) => handle_plugin_install(args, json).await,
         PluginCommand::Uninstall(args) => handle_plugin_uninstall(args, json),
         PluginCommand::New(args) => new::handle_plugin_new(args, json),
@@ -618,7 +626,30 @@ fn source_label(source: DiscoverySource) -> &'static str {
     }
 }
 
-fn handle_plugin_list(args: PluginListArgs, project_root: &str, json: bool) -> Result<()> {
+async fn handle_plugin_list(args: PluginListArgs, project_root: &str, json: bool) -> Result<()> {
+    // C6: prefer the control wire when the daemon is running so the
+    // daemon's view of installed plugins is authoritative. For CLI text
+    // output we still drive the local in-process render path because it
+    // pulls richer rows from the on-disk install index. JSON mode
+    // round-trips through the wire's PluginListResponse shape (which is
+    // the same shape MCP/WebAPI will surface in C7/C8).
+    use crate::services::control_client::ControlClient;
+    use animus_control_protocol::types::PluginListRequest as WirePluginListRequest;
+
+    if json {
+        let project_root_path = std::path::Path::new(project_root);
+        if let Some(client) = ControlClient::try_connect(project_root_path).await? {
+            let request = WirePluginListRequest { include_warnings: true, kind: None };
+            match client.plugin_list(request).await {
+                Ok(response) => return print_value(response, true),
+                Err(err) if crate::services::control_client::is_method_unavailable(&err) => {
+                    tracing::debug!(error = %err, "plugin/list wire returned unavailable; falling back to local");
+                }
+                Err(err) => return Err(err),
+            }
+        }
+    }
+
     let output = run_plugin_list(PluginListRequest {
         project_root: project_root.to_string(),
         include_system_path: args.include_system_path,
@@ -725,6 +756,23 @@ fn find_plugin(project_root: &str, name: &str, include_system_path: bool) -> Res
 }
 
 async fn handle_plugin_info(args: PluginInfoArgs, project_root: &str, json: bool) -> Result<()> {
+    use crate::services::control_client::ControlClient;
+    use animus_control_protocol::types::PluginInfoRequest as WirePluginInfoRequest;
+
+    if json {
+        let project_root_path = std::path::Path::new(project_root);
+        if let Some(client) = ControlClient::try_connect(project_root_path).await? {
+            let request = WirePluginInfoRequest { name: args.name.clone() };
+            match client.plugin_info(request).await {
+                Ok(response) => return print_value(response, true),
+                Err(err) if crate::services::control_client::is_method_unavailable(&err) => {
+                    tracing::debug!(error = %err, "plugin/info wire returned unavailable; falling back to local");
+                }
+                Err(err) => return Err(err),
+            }
+        }
+    }
+
     let output = run_plugin_info(PluginInfoRequest {
         project_root: project_root.to_string(),
         name: args.name,
@@ -741,10 +789,32 @@ async fn handle_plugin_info(args: PluginInfoArgs, project_root: &str, json: bool
 }
 
 async fn handle_plugin_call(args: PluginCallArgs, project_root: &str, json: bool) -> Result<()> {
+    use crate::services::control_client::ControlClient;
+    use animus_control_protocol::types::PluginCallRequest as WirePluginCallRequest;
+
     let params = match args.params {
         Some(raw) => Some(serde_json::from_str::<Value>(&raw).context("--params must be valid JSON")?),
         None => None,
     };
+
+    if json {
+        let project_root_path = std::path::Path::new(project_root);
+        if let Some(client) = ControlClient::try_connect(project_root_path).await? {
+            let request = WirePluginCallRequest {
+                name: args.name.clone(),
+                method: args.method.clone(),
+                params: params.clone().unwrap_or(Value::Null),
+            };
+            match client.plugin_call(request).await {
+                Ok(response) => return print_value(response, true),
+                Err(err) if crate::services::control_client::is_method_unavailable(&err) => {
+                    tracing::debug!(error = %err, "plugin/call wire returned unavailable; falling back to local");
+                }
+                Err(err) => return Err(err),
+            }
+        }
+    }
+
     let output = run_plugin_call(PluginCallRequest {
         project_root: project_root.to_string(),
         name: args.name,
@@ -757,6 +827,23 @@ async fn handle_plugin_call(args: PluginCallArgs, project_root: &str, json: bool
 }
 
 async fn handle_plugin_ping(args: PluginPingArgs, project_root: &str, json: bool) -> Result<()> {
+    use crate::services::control_client::ControlClient;
+    use animus_control_protocol::types::PluginPingRequest as WirePluginPingRequest;
+
+    if json {
+        let project_root_path = std::path::Path::new(project_root);
+        if let Some(client) = ControlClient::try_connect(project_root_path).await? {
+            let request = WirePluginPingRequest { name: args.name.clone() };
+            match client.plugin_ping(request).await {
+                Ok(response) => return print_value(response, true),
+                Err(err) if crate::services::control_client::is_method_unavailable(&err) => {
+                    tracing::debug!(error = %err, "plugin/ping wire returned unavailable; falling back to local");
+                }
+                Err(err) => return Err(err),
+            }
+        }
+    }
+
     let output = run_plugin_ping(PluginPingRequest {
         project_root: project_root.to_string(),
         name: args.name,

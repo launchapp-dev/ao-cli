@@ -365,9 +365,15 @@ async fn start_control_server_for_daemon<H: DaemonRunHooks>(
         return None;
     }
 
-    let surface = crate::control::InProcessSurface::builder(project_root_path.to_path_buf())
-        .daemon_version(env!("CARGO_PKG_VERSION").to_string())
-        .build();
+    let mut surface_builder = crate::control::InProcessSurface::builder(project_root_path.to_path_buf())
+        .daemon_version(env!("CARGO_PKG_VERSION").to_string());
+    if let Some(routing) = hooks.plugin_routing() {
+        surface_builder = surface_builder.plugin_routing(routing);
+    }
+    if let Some(routing) = hooks.daemon_ops_routing() {
+        surface_builder = surface_builder.daemon_ops_routing(routing);
+    }
+    let surface = surface_builder.build();
     let surface_arc: Arc<dyn animus_control_protocol::ControlSurface> = Arc::new(surface);
 
     match crate::control::ControlServer::start(project_root_path, surface_arc).await {

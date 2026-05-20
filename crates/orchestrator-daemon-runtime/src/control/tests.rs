@@ -562,3 +562,244 @@ async fn parse_error_returns_parse_error_frame() {
     .await
     .expect("test timed out");
 }
+
+// =====================================================================
+// C6: plugin/* + daemon/* routing handles wired through the surface.
+// =====================================================================
+
+use crate::control::{DaemonOpsRouting, InProcessSurface, PluginRouting};
+
+#[derive(Default)]
+struct StubPluginRouting {
+    seen: Arc<Mutex<Vec<String>>>,
+}
+
+impl StubPluginRouting {
+    fn new() -> (Self, Arc<Mutex<Vec<String>>>) {
+        let seen: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        (Self { seen: seen.clone() }, seen)
+    }
+
+    async fn record(&self, method: &str) {
+        self.seen.lock().await.push(method.to_string());
+    }
+}
+
+#[async_trait]
+impl PluginRouting for StubPluginRouting {
+    async fn plugin_list(&self, _request: PluginListRequest) -> Result<PluginListResponse, ControlError> {
+        self.record("plugin/list").await;
+        Ok(PluginListResponse {
+            plugins: vec![PluginInfo {
+                name: "stub-plugin".to_string(),
+                version: "0.1.0".to_string(),
+                kind: "subject_backend".to_string(),
+                source: Some("local".to_string()),
+                signature_verified: false,
+                description: Some("stub for c6 test".to_string()),
+                binary_path: None,
+            }],
+            warnings: Vec::new(),
+        })
+    }
+    async fn plugin_info(&self, _request: PluginInfoRequest) -> Result<PluginInfo, ControlError> {
+        Err(ControlError::NotSupported("stub".to_string()))
+    }
+    async fn plugin_install(&self, _request: PluginInstallRequest) -> Result<PluginInstallResponse, ControlError> {
+        Err(ControlError::NotSupported("stub".to_string()))
+    }
+    async fn plugin_uninstall(&self, _request: PluginUninstallRequest) -> Result<Unit, ControlError> {
+        Err(ControlError::NotSupported("stub".to_string()))
+    }
+    async fn plugin_ping(&self, _request: PluginPingRequest) -> Result<PluginPingResponse, ControlError> {
+        Ok(PluginPingResponse { ok: true, latency_ms: Some(3), error: None })
+    }
+    async fn plugin_call(&self, _request: PluginCallRequest) -> Result<PluginCallResponse, ControlError> {
+        Err(ControlError::NotSupported("stub".to_string()))
+    }
+    async fn plugin_search(&self, _request: PluginSearchRequest) -> Result<PluginSearchResponse, ControlError> {
+        Err(ControlError::NotSupported("stub".to_string()))
+    }
+    async fn plugin_browse(&self, _request: PluginBrowseRequest) -> Result<PluginSearchResponse, ControlError> {
+        Err(ControlError::NotSupported("stub".to_string()))
+    }
+    async fn plugin_update(&self, _request: PluginUpdateRequest) -> Result<PluginUpdateResponse, ControlError> {
+        Err(ControlError::NotSupported("stub".to_string()))
+    }
+}
+
+#[derive(Default)]
+struct StubDaemonOpsRouting;
+
+#[async_trait]
+impl DaemonOpsRouting for StubDaemonOpsRouting {
+    async fn daemon_status(&self) -> Result<DaemonStatusResponse, ControlError> {
+        Ok(DaemonStatusResponse {
+            running: true,
+            pid: Some(42),
+            uptime_seconds: Some(99),
+            version: Some("stub-1.2.3".to_string()),
+            project_root: Some(PathBuf::from("/tmp/stub-project")),
+            log_path: None,
+        })
+    }
+    async fn daemon_health(&self) -> Result<DaemonHealthResponse, ControlError> {
+        Ok(DaemonHealthResponse {
+            status: DaemonHealthStatus::Degraded,
+            plugins: Vec::new(),
+            last_error: Some("stub-degraded".to_string()),
+        })
+    }
+    async fn daemon_agents(&self) -> Result<DaemonAgentsResponse, ControlError> {
+        Ok(DaemonAgentsResponse { agents: Vec::new() })
+    }
+}
+
+/// `plugin/list` routes through the configured PluginRouting handle.
+/// Without the handle the surface returns NotSupported; with it the
+/// canned response from StubPluginRouting flows back over the wire.
+#[tokio::test]
+async fn plugin_list_routes_through_configured_routing() {
+    tokio::time::timeout(TEST_TIMEOUT, async {
+        let (routing, seen) = StubPluginRouting::new();
+        let routing_arc: Arc<dyn PluginRouting> = Arc::new(routing);
+        let surface = InProcessSurface::builder(PathBuf::from("/tmp/c6-test")).plugin_routing(routing_arc).build();
+        let surface_arc: Arc<dyn ControlSurface> = Arc::new(surface);
+        let handle = ControlServer::start_with_socket(short_test_socket(), surface_arc).await.unwrap();
+
+        let stream = UnixStream::connect(handle.socket_path()).await.unwrap();
+        let (read_half, mut write_half) = tokio::io::split(stream);
+        let mut reader = BufReader::new(read_half);
+        let request = RpcRequest::new(101, "plugin/list", Some(json!({})));
+        send_frame(&mut write_half, &request).await.unwrap();
+        let value = read_frame_value(&mut reader).await.unwrap();
+        let response: RpcResponse = serde_json::from_value(value).unwrap();
+        assert!(response.error.is_none(), "plugin/list should succeed when routing is wired");
+        let result = response.result.expect("result");
+        let plugins = result.get("plugins").and_then(|v| v.as_array()).unwrap();
+        assert_eq!(plugins.len(), 1);
+        assert_eq!(plugins[0].get("name").and_then(|v| v.as_str()), Some("stub-plugin"));
+
+        // Verify the routing handle was actually invoked.
+        let calls = seen.lock().await.clone();
+        assert_eq!(calls, vec!["plugin/list".to_string()]);
+
+        handle.shutdown().await.unwrap();
+    })
+    .await
+    .expect("test timed out");
+}
+
+/// Without a PluginRouting handle attached, `plugin/list` returns the
+/// NotSupported error frame (preserves pre-C6 behavior for tests / MCP
+/// callers that haven't been wired yet).
+#[tokio::test]
+async fn plugin_list_without_routing_returns_not_supported() {
+    tokio::time::timeout(TEST_TIMEOUT, async {
+        let surface = InProcessSurface::builder(PathBuf::from("/tmp/c6-test-noplug")).build();
+        let surface_arc: Arc<dyn ControlSurface> = Arc::new(surface);
+        let handle = ControlServer::start_with_socket(short_test_socket(), surface_arc).await.unwrap();
+
+        let stream = UnixStream::connect(handle.socket_path()).await.unwrap();
+        let (read_half, mut write_half) = tokio::io::split(stream);
+        let mut reader = BufReader::new(read_half);
+        let request = RpcRequest::new(102, "plugin/list", Some(json!({})));
+        send_frame(&mut write_half, &request).await.unwrap();
+        let value = read_frame_value(&mut reader).await.unwrap();
+        let response: RpcResponse = serde_json::from_value(value).unwrap();
+        let error = response.error.expect("error frame");
+        assert_eq!(error.code, animus_plugin_protocol::error_codes::METHOD_NOT_SUPPORTED);
+
+        handle.shutdown().await.unwrap();
+    })
+    .await
+    .expect("test timed out");
+}
+
+/// `daemon/status` routes through the configured DaemonOpsRouting
+/// handle when present (e.g. when the daemon is up and the CLI is
+/// asking for live process info via the wire).
+#[tokio::test]
+async fn daemon_status_routes_through_configured_routing() {
+    tokio::time::timeout(TEST_TIMEOUT, async {
+        let routing_arc: Arc<dyn DaemonOpsRouting> = Arc::new(StubDaemonOpsRouting::default());
+        let surface =
+            InProcessSurface::builder(PathBuf::from("/tmp/c6-test-daemon")).daemon_ops_routing(routing_arc).build();
+        let surface_arc: Arc<dyn ControlSurface> = Arc::new(surface);
+        let handle = ControlServer::start_with_socket(short_test_socket(), surface_arc).await.unwrap();
+
+        let stream = UnixStream::connect(handle.socket_path()).await.unwrap();
+        let (read_half, mut write_half) = tokio::io::split(stream);
+        let mut reader = BufReader::new(read_half);
+        let request = RpcRequest::new(103, "daemon/status", None);
+        send_frame(&mut write_half, &request).await.unwrap();
+        let value = read_frame_value(&mut reader).await.unwrap();
+        let response: RpcResponse = serde_json::from_value(value).unwrap();
+        assert!(response.error.is_none(), "daemon/status should succeed when routing is wired");
+        let result = response.result.expect("result");
+        assert_eq!(result.get("pid").and_then(|v| v.as_u64()), Some(42));
+        assert_eq!(result.get("version").and_then(|v| v.as_str()), Some("stub-1.2.3"));
+
+        handle.shutdown().await.unwrap();
+    })
+    .await
+    .expect("test timed out");
+}
+
+/// `daemon/health` routes through the routing handle and surfaces a
+/// Degraded health verdict end-to-end via the wire.
+#[tokio::test]
+async fn daemon_health_routes_through_configured_routing() {
+    tokio::time::timeout(TEST_TIMEOUT, async {
+        let routing_arc: Arc<dyn DaemonOpsRouting> = Arc::new(StubDaemonOpsRouting::default());
+        let surface =
+            InProcessSurface::builder(PathBuf::from("/tmp/c6-test-health")).daemon_ops_routing(routing_arc).build();
+        let surface_arc: Arc<dyn ControlSurface> = Arc::new(surface);
+        let handle = ControlServer::start_with_socket(short_test_socket(), surface_arc).await.unwrap();
+
+        let stream = UnixStream::connect(handle.socket_path()).await.unwrap();
+        let (read_half, mut write_half) = tokio::io::split(stream);
+        let mut reader = BufReader::new(read_half);
+        let request = RpcRequest::new(104, "daemon/health", None);
+        send_frame(&mut write_half, &request).await.unwrap();
+        let value = read_frame_value(&mut reader).await.unwrap();
+        let response: RpcResponse = serde_json::from_value(value).unwrap();
+        assert!(response.error.is_none());
+        let result = response.result.expect("result");
+        assert_eq!(result.get("status").and_then(|v| v.as_str()), Some("degraded"));
+        assert_eq!(result.get("last_error").and_then(|v| v.as_str()), Some("stub-degraded"));
+
+        handle.shutdown().await.unwrap();
+    })
+    .await
+    .expect("test timed out");
+}
+
+/// `plugin/ping` round-trips a successful response with latency_ms
+/// through the wire when the routing handle is wired.
+#[tokio::test]
+async fn plugin_ping_routes_through_configured_routing() {
+    tokio::time::timeout(TEST_TIMEOUT, async {
+        let (routing, _) = StubPluginRouting::new();
+        let routing_arc: Arc<dyn PluginRouting> = Arc::new(routing);
+        let surface = InProcessSurface::builder(PathBuf::from("/tmp/c6-test-ping")).plugin_routing(routing_arc).build();
+        let surface_arc: Arc<dyn ControlSurface> = Arc::new(surface);
+        let handle = ControlServer::start_with_socket(short_test_socket(), surface_arc).await.unwrap();
+
+        let stream = UnixStream::connect(handle.socket_path()).await.unwrap();
+        let (read_half, mut write_half) = tokio::io::split(stream);
+        let mut reader = BufReader::new(read_half);
+        let request = RpcRequest::new(105, "plugin/ping", Some(json!({"name": "x"})));
+        send_frame(&mut write_half, &request).await.unwrap();
+        let value = read_frame_value(&mut reader).await.unwrap();
+        let response: RpcResponse = serde_json::from_value(value).unwrap();
+        assert!(response.error.is_none(), "plugin/ping should succeed: {response:?}");
+        let result = response.result.expect("result");
+        assert_eq!(result.get("ok").and_then(|v| v.as_bool()), Some(true));
+        assert!(result.get("latency_ms").and_then(|v| v.as_u64()).is_some());
+
+        handle.shutdown().await.unwrap();
+    })
+    .await
+    .expect("test timed out");
+}

@@ -70,6 +70,7 @@ use tokio::sync::broadcast;
 
 use crate::subject_dispatch::SubjectPluginDispatch;
 
+use super::routing::{DaemonOpsRouting, PluginRouting};
 use super::streaming::{DaemonEventBus, DaemonLogBus};
 
 /// In-process [`ControlSurface`] used by the daemon's control server.
@@ -90,6 +91,8 @@ pub struct InProcessSurface {
     subject_dispatch: Option<Arc<SubjectPluginDispatch>>,
     event_bus: Option<DaemonEventBus>,
     log_bus: Option<DaemonLogBus>,
+    plugin_routing: Option<Arc<dyn PluginRouting>>,
+    daemon_ops_routing: Option<Arc<dyn DaemonOpsRouting>>,
 }
 
 impl InProcessSurface {
@@ -103,6 +106,8 @@ impl InProcessSurface {
             subject_dispatch: None,
             event_bus: None,
             log_bus: None,
+            plugin_routing: None,
+            daemon_ops_routing: None,
         }
     }
 
@@ -148,6 +153,8 @@ impl std::fmt::Debug for InProcessSurface {
             .field("subject_dispatch", &self.subject_dispatch.is_some())
             .field("event_bus", &self.event_bus.is_some())
             .field("log_bus", &self.log_bus.is_some())
+            .field("plugin_routing", &self.plugin_routing.is_some())
+            .field("daemon_ops_routing", &self.daemon_ops_routing.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -161,6 +168,8 @@ pub struct InProcessSurfaceBuilder {
     subject_dispatch: Option<Arc<SubjectPluginDispatch>>,
     event_bus: Option<DaemonEventBus>,
     log_bus: Option<DaemonLogBus>,
+    plugin_routing: Option<Arc<dyn PluginRouting>>,
+    daemon_ops_routing: Option<Arc<dyn DaemonOpsRouting>>,
 }
 
 impl InProcessSurfaceBuilder {
@@ -202,6 +211,22 @@ impl InProcessSurfaceBuilder {
         self
     }
 
+    /// Attach a [`PluginRouting`] handle so the surface can answer
+    /// `plugin/*` calls over the control wire. When absent, all
+    /// `plugin/*` methods return [`ControlError::NotSupported`].
+    pub fn plugin_routing(mut self, routing: Arc<dyn PluginRouting>) -> Self {
+        self.plugin_routing = Some(routing);
+        self
+    }
+
+    /// Attach a [`DaemonOpsRouting`] handle so `daemon/status`,
+    /// `daemon/health`, and `daemon/agents` reflect live process state
+    /// instead of the surface's stub responses.
+    pub fn daemon_ops_routing(mut self, routing: Arc<dyn DaemonOpsRouting>) -> Self {
+        self.daemon_ops_routing = Some(routing);
+        self
+    }
+
     /// Finalize the surface.
     pub fn build(self) -> InProcessSurface {
         InProcessSurface {
@@ -212,6 +237,8 @@ impl InProcessSurfaceBuilder {
             subject_dispatch: self.subject_dispatch,
             event_bus: self.event_bus,
             log_bus: self.log_bus,
+            plugin_routing: self.plugin_routing,
+            daemon_ops_routing: self.daemon_ops_routing,
         }
     }
 }
@@ -360,45 +387,75 @@ impl ControlSurface for InProcessSurface {
 
     // ----- Plugin -----------------------------------------------------
 
-    async fn plugin_list(&self, _request: PluginListRequest) -> Result<PluginListResponse, ControlError> {
-        Err(ControlError::NotSupported("plugin/list will be wired in C6 (CLI cutover)".to_string()))
+    async fn plugin_list(&self, request: PluginListRequest) -> Result<PluginListResponse, ControlError> {
+        match &self.plugin_routing {
+            Some(routing) => routing.plugin_list(request).await,
+            None => Err(ControlError::NotSupported("plugin/list routing not configured".to_string())),
+        }
     }
 
-    async fn plugin_info(&self, _request: PluginInfoRequest) -> Result<PluginInfo, ControlError> {
-        Err(ControlError::NotSupported("plugin/info will be wired in C6 (CLI cutover)".to_string()))
+    async fn plugin_info(&self, request: PluginInfoRequest) -> Result<PluginInfo, ControlError> {
+        match &self.plugin_routing {
+            Some(routing) => routing.plugin_info(request).await,
+            None => Err(ControlError::NotSupported("plugin/info routing not configured".to_string())),
+        }
     }
 
-    async fn plugin_install(&self, _request: PluginInstallRequest) -> Result<PluginInstallResponse, ControlError> {
-        Err(ControlError::NotSupported("plugin/install will be wired in C6 (CLI cutover)".to_string()))
+    async fn plugin_install(&self, request: PluginInstallRequest) -> Result<PluginInstallResponse, ControlError> {
+        match &self.plugin_routing {
+            Some(routing) => routing.plugin_install(request).await,
+            None => Err(ControlError::NotSupported("plugin/install routing not configured".to_string())),
+        }
     }
 
-    async fn plugin_uninstall(&self, _request: PluginUninstallRequest) -> Result<Unit, ControlError> {
-        Err(ControlError::NotSupported("plugin/uninstall will be wired in C6 (CLI cutover)".to_string()))
+    async fn plugin_uninstall(&self, request: PluginUninstallRequest) -> Result<Unit, ControlError> {
+        match &self.plugin_routing {
+            Some(routing) => routing.plugin_uninstall(request).await,
+            None => Err(ControlError::NotSupported("plugin/uninstall routing not configured".to_string())),
+        }
     }
 
-    async fn plugin_ping(&self, _request: PluginPingRequest) -> Result<PluginPingResponse, ControlError> {
-        Err(ControlError::NotSupported("plugin/ping will be wired in C6 (CLI cutover)".to_string()))
+    async fn plugin_ping(&self, request: PluginPingRequest) -> Result<PluginPingResponse, ControlError> {
+        match &self.plugin_routing {
+            Some(routing) => routing.plugin_ping(request).await,
+            None => Err(ControlError::NotSupported("plugin/ping routing not configured".to_string())),
+        }
     }
 
-    async fn plugin_call(&self, _request: PluginCallRequest) -> Result<PluginCallResponse, ControlError> {
-        Err(ControlError::NotSupported("plugin/call will be wired in C6 (CLI cutover)".to_string()))
+    async fn plugin_call(&self, request: PluginCallRequest) -> Result<PluginCallResponse, ControlError> {
+        match &self.plugin_routing {
+            Some(routing) => routing.plugin_call(request).await,
+            None => Err(ControlError::NotSupported("plugin/call routing not configured".to_string())),
+        }
     }
 
-    async fn plugin_search(&self, _request: PluginSearchRequest) -> Result<PluginSearchResponse, ControlError> {
-        Err(ControlError::NotSupported("plugin/search will be wired in C6 (CLI cutover)".to_string()))
+    async fn plugin_search(&self, request: PluginSearchRequest) -> Result<PluginSearchResponse, ControlError> {
+        match &self.plugin_routing {
+            Some(routing) => routing.plugin_search(request).await,
+            None => Err(ControlError::NotSupported("plugin/search routing not configured".to_string())),
+        }
     }
 
-    async fn plugin_browse(&self, _request: PluginBrowseRequest) -> Result<PluginSearchResponse, ControlError> {
-        Err(ControlError::NotSupported("plugin/browse will be wired in C6 (CLI cutover)".to_string()))
+    async fn plugin_browse(&self, request: PluginBrowseRequest) -> Result<PluginSearchResponse, ControlError> {
+        match &self.plugin_routing {
+            Some(routing) => routing.plugin_browse(request).await,
+            None => Err(ControlError::NotSupported("plugin/browse routing not configured".to_string())),
+        }
     }
 
-    async fn plugin_update(&self, _request: PluginUpdateRequest) -> Result<PluginUpdateResponse, ControlError> {
-        Err(ControlError::NotSupported("plugin/update will be wired in C6 (CLI cutover)".to_string()))
+    async fn plugin_update(&self, request: PluginUpdateRequest) -> Result<PluginUpdateResponse, ControlError> {
+        match &self.plugin_routing {
+            Some(routing) => routing.plugin_update(request).await,
+            None => Err(ControlError::NotSupported("plugin/update routing not configured".to_string())),
+        }
     }
 
     // ----- Daemon -----------------------------------------------------
 
     async fn daemon_status(&self) -> Result<DaemonStatusResponse, ControlError> {
+        if let Some(routing) = &self.daemon_ops_routing {
+            return routing.daemon_status().await;
+        }
         let uptime_seconds = self.started_at.elapsed().map(|d| d.as_secs()).unwrap_or(0);
         Ok(DaemonStatusResponse {
             running: true,
@@ -411,6 +468,9 @@ impl ControlSurface for InProcessSurface {
     }
 
     async fn daemon_health(&self) -> Result<DaemonHealthResponse, ControlError> {
+        if let Some(routing) = &self.daemon_ops_routing {
+            return routing.daemon_health().await;
+        }
         Ok(DaemonHealthResponse { status: DaemonHealthStatus::Healthy, plugins: Vec::new(), last_error: None })
     }
 
@@ -429,6 +489,9 @@ impl ControlSurface for InProcessSurface {
     }
 
     async fn daemon_agents(&self) -> Result<DaemonAgentsResponse, ControlError> {
+        if let Some(routing) = &self.daemon_ops_routing {
+            return routing.daemon_agents().await;
+        }
         // No clean Arc reference to the live AgentPool yet; daemon-side
         // agent tracking lands as part of C7. Returning an empty list
         // matches the historical "no agents currently active" shape.

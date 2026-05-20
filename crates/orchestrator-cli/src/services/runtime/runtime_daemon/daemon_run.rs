@@ -1,4 +1,6 @@
 use crate::cli_types::DaemonRunArgs;
+use crate::services::operations::build_plugin_routing;
+use crate::services::runtime::runtime_daemon::build_daemon_ops_routing;
 use crate::services::runtime::runtime_daemon::daemon_reconciliation::recover_orphaned_running_workflows;
 use anyhow::Result;
 use orchestrator_core::services::DaemonStartConfig;
@@ -6,8 +8,11 @@ use orchestrator_core::DaemonStatus;
 use orchestrator_core::FileServiceHub;
 use orchestrator_core::ServiceHub;
 use orchestrator_core::{load_daemon_project_config, write_daemon_project_config};
+use orchestrator_daemon_runtime::control::{DaemonOpsRouting, PluginRouting};
 use orchestrator_daemon_runtime::{run_daemon, DaemonRunEvent, DaemonRunHooks, ProcessManager};
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 #[cfg(test)]
 use super::canonicalize_lossy;
@@ -17,11 +22,16 @@ use super::daemon_scheduler::{runtime_options_from_cli, slim_project_tick_driver
 struct CliDaemonRunHost {
     inner: DefaultDaemonRunHost,
     start_config: DaemonStartConfig,
+    plugin_routing: Arc<dyn PluginRouting>,
+    daemon_ops_routing: Arc<dyn DaemonOpsRouting>,
 }
 
 impl CliDaemonRunHost {
     fn new(project_root: &str, json: bool, start_config: DaemonStartConfig) -> Self {
-        Self { inner: DefaultDaemonRunHost::new(project_root, json), start_config }
+        let project_root_path = PathBuf::from(project_root);
+        let plugin_routing = build_plugin_routing(project_root_path.clone());
+        let daemon_ops_routing = build_daemon_ops_routing(project_root_path, SystemTime::now());
+        Self { inner: DefaultDaemonRunHost::new(project_root, json), start_config, plugin_routing, daemon_ops_routing }
     }
 
     fn logger(&self) -> std::sync::Arc<orchestrator_logging::Logger> {
@@ -62,6 +72,14 @@ impl DaemonRunHooks for CliDaemonRunHost {
 
     async fn flush_notifications(&mut self, project_root: &str) -> Result<()> {
         self.inner.flush_notifications(project_root).await
+    }
+
+    fn plugin_routing(&self) -> Option<Arc<dyn PluginRouting>> {
+        Some(self.plugin_routing.clone())
+    }
+
+    fn daemon_ops_routing(&self) -> Option<Arc<dyn DaemonOpsRouting>> {
+        Some(self.daemon_ops_routing.clone())
     }
 }
 

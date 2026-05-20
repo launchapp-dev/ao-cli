@@ -19,11 +19,14 @@ use crate::{
     DaemonStopArgs, DaemonStreamArgs, RunnerScopeArg,
 };
 
+mod control_routing;
 mod daemon_events;
 pub(crate) mod daemon_reconciliation;
 mod daemon_run;
 mod daemon_run_host;
 pub(crate) mod daemon_scheduler;
+
+pub(crate) use control_routing::build_daemon_ops_routing;
 
 use daemon_events::handle_daemon_events_impl;
 use daemon_run::handle_daemon_run;
@@ -89,6 +92,22 @@ fn read_daemon_pid(project_root: &str) -> Option<u32> {
 }
 
 pub(crate) async fn handle_daemon_status_command(project_root: &str, json: bool) -> Result<()> {
+    // C6: prefer the daemon's live view via the control wire when the
+    // daemon is running. Fall back to the on-disk health snapshot so
+    // `animus daemon status` keeps working when the daemon is offline.
+    if json {
+        let project_root_path = Path::new(project_root);
+        if let Some(client) = crate::services::control_client::ControlClient::try_connect(project_root_path).await? {
+            match client.daemon_status().await {
+                Ok(response) => return print_value(response, true),
+                Err(err) if crate::services::control_client::is_method_unavailable(&err) => {
+                    tracing::debug!(error = %err, "daemon/status wire unavailable; falling back to local");
+                }
+                Err(err) => return Err(err),
+            }
+        }
+    }
+
     let mut status = orchestrator_core::load_daemon_health_snapshot(Path::new(project_root)).await?.status;
     if let Some(pid) = read_daemon_pid(project_root) {
         let alive = is_process_alive(pid);
@@ -104,6 +123,19 @@ pub(crate) async fn handle_daemon_status_command(project_root: &str, json: bool)
 }
 
 pub(crate) async fn handle_daemon_health_command(project_root: &str, json: bool) -> Result<()> {
+    if json {
+        let project_root_path = Path::new(project_root);
+        if let Some(client) = crate::services::control_client::ControlClient::try_connect(project_root_path).await? {
+            match client.daemon_health().await {
+                Ok(response) => return print_value(response, true),
+                Err(err) if crate::services::control_client::is_method_unavailable(&err) => {
+                    tracing::debug!(error = %err, "daemon/health wire unavailable; falling back to local");
+                }
+                Err(err) => return Err(err),
+            }
+        }
+    }
+
     let mut health = orchestrator_core::load_daemon_health_snapshot(Path::new(project_root)).await?;
     let pid = read_daemon_pid(project_root);
     if let Some(pid) = pid {
@@ -617,6 +649,22 @@ pub(crate) async fn handle_daemon(
         DaemonCommand::Stream(args) => handle_daemon_stream(args, project_root).await,
         DaemonCommand::ClearLogs => daemon.clear_logs().await.map(|_| print_ok("daemon logs cleared", json)),
         DaemonCommand::Agents => {
+            // C6: route through the wire when the daemon is up; fall
+            // back to the per-process counter so this still works while
+            // the daemon is offline.
+            if json {
+                if let Some(client) =
+                    crate::services::control_client::ControlClient::try_connect(Path::new(project_root)).await?
+                {
+                    match client.daemon_agents().await {
+                        Ok(response) => return print_value(response, true),
+                        Err(err) if crate::services::control_client::is_method_unavailable(&err) => {
+                            tracing::debug!(error = %err, "daemon/agents wire unavailable; falling back to local");
+                        }
+                        Err(err) => return Err(err),
+                    }
+                }
+            }
             let active_agents = daemon.active_agents().await?;
             print_value(serde_json::json!({ "active_agents": active_agents }), json)
         }

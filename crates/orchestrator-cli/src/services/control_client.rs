@@ -38,9 +38,11 @@ use animus_control_protocol::{
         DaemonAgentsResponse, DaemonHealthResponse, DaemonStatusResponse, PluginBrowseRequest, PluginCallRequest,
         PluginCallResponse, PluginInfo, PluginInfoRequest, PluginInstallRequest, PluginInstallResponse,
         PluginListRequest, PluginListResponse, PluginPingRequest, PluginPingResponse, PluginSearchRequest,
-        PluginSearchResponse, PluginUninstallRequest, PluginUpdateRequest, PluginUpdateResponse, Unit,
-        WorkflowCancelRequest, WorkflowExecuteRequest, WorkflowGetRequest, WorkflowListRequest, WorkflowListResponse,
-        WorkflowPauseRequest, WorkflowResumeRequest, WorkflowRun, WorkflowRunRequest, WorkflowRunStart,
+        PluginSearchResponse, PluginUninstallRequest, PluginUpdateRequest, PluginUpdateResponse, QueueDropRequest,
+        QueueEnqueueRequest, QueueEntry, QueueHoldRequest, QueueListRequest, QueueListResponse, QueueReleaseRequest,
+        QueueReorderRequest, QueueStats, Unit, WorkflowCancelRequest, WorkflowExecuteRequest, WorkflowGetRequest,
+        WorkflowListRequest, WorkflowListResponse, WorkflowPauseRequest, WorkflowResumeRequest, WorkflowRun,
+        WorkflowRunRequest, WorkflowRunStart,
     },
 };
 use animus_plugin_protocol::{error_codes, RpcRequest, RpcResponse};
@@ -246,6 +248,43 @@ impl ControlClient {
     pub async fn workflow_cancel(&self, request: WorkflowCancelRequest) -> Result<Unit> {
         self.call(method_names::METHOD_WORKFLOW_CANCEL, request).await
     }
+
+    // ----- Queue convenience methods ---------------------------------
+
+    /// Call `queue/list`.
+    pub async fn queue_list(&self, request: QueueListRequest) -> Result<QueueListResponse> {
+        self.call(method_names::METHOD_QUEUE_LIST, request).await
+    }
+
+    /// Call `queue/enqueue`.
+    pub async fn queue_enqueue(&self, request: QueueEnqueueRequest) -> Result<QueueEntry> {
+        self.call(method_names::METHOD_QUEUE_ENQUEUE, request).await
+    }
+
+    /// Call `queue/drop`.
+    pub async fn queue_drop(&self, request: QueueDropRequest) -> Result<Unit> {
+        self.call(method_names::METHOD_QUEUE_DROP, request).await
+    }
+
+    /// Call `queue/hold`.
+    pub async fn queue_hold(&self, request: QueueHoldRequest) -> Result<Unit> {
+        self.call(method_names::METHOD_QUEUE_HOLD, request).await
+    }
+
+    /// Call `queue/release`.
+    pub async fn queue_release(&self, request: QueueReleaseRequest) -> Result<Unit> {
+        self.call(method_names::METHOD_QUEUE_RELEASE, request).await
+    }
+
+    /// Call `queue/reorder`.
+    pub async fn queue_reorder(&self, request: QueueReorderRequest) -> Result<Unit> {
+        self.call(method_names::METHOD_QUEUE_REORDER, request).await
+    }
+
+    /// Call `queue/stats`.
+    pub async fn queue_stats(&self) -> Result<QueueStats> {
+        self.call::<Value, _>(method_names::METHOD_QUEUE_STATS, Value::Null).await
+    }
 }
 
 /// Translate a JSON-RPC error from the daemon into a CLI-side anyhow
@@ -449,5 +488,116 @@ mod tests {
         let result = ControlClient::try_connect(dir.path()).await.unwrap();
         // Either the path doesn't exist (None) or it exists but is unusable.
         assert!(result.is_none() || result.is_some_and(|c| !c.socket_path().exists()));
+    }
+
+    /// C6.6: `queue/list` round-trips a QueueListResponse through the
+    /// wire. Mirrors the daemon-side
+    /// `queue_list_routes_through_configured_routing` test from the CLI
+    /// side: spawn a fake server, call the typed convenience method,
+    /// verify the decoded response.
+    #[tokio::test]
+    async fn queue_list_routes_via_control_when_socket_present() {
+        let socket_path = short_sock_path();
+        let handler = |req: RpcRequest| {
+            assert_eq!(req.method, "queue/list");
+            RpcResponse::ok(
+                req.id,
+                serde_json::json!({
+                    "entries": [{
+                        "id": "TASK-1",
+                        "subject_id": "TASK-1",
+                        "status": "ready",
+                        "priority": 2,
+                        "enqueued_at": "2026-05-20T00:00:00Z",
+                    }],
+                }),
+            )
+        };
+        let server = spawn_fake_server(socket_path.clone(), handler).await;
+        let client = ControlClient::from_socket_path(socket_path.clone());
+        let request = animus_control_protocol::types::QueueListRequest::default();
+        let response = tokio::time::timeout(Duration::from_secs(5), client.queue_list(request))
+            .await
+            .expect("timeout")
+            .expect("call");
+        assert_eq!(response.entries.len(), 1);
+        assert_eq!(response.entries[0].id, "TASK-1");
+        let _ = std::fs::remove_file(socket_path);
+        server.abort();
+    }
+
+    /// C6.6: when no socket is present the helper returns Ok(None) so
+    /// the CLI falls back to the local in-process path. Verified end to
+    /// end by `ControlClient::try_connect`; this test pins the contract.
+    #[tokio::test]
+    async fn queue_list_falls_back_when_socket_missing() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let result = ControlClient::try_connect(dir.path()).await.unwrap();
+        assert!(result.is_none() || result.is_some_and(|c| !c.socket_path().exists()));
+    }
+
+    /// C6.6: `queue/enqueue` typed call round-trips a QueueEntry shape
+    /// through the wire — verifies the request method name and the
+    /// response decode.
+    #[tokio::test]
+    async fn queue_enqueue_round_trip() {
+        let socket_path = short_sock_path();
+        let handler = |req: RpcRequest| {
+            assert_eq!(req.method, "queue/enqueue");
+            RpcResponse::ok(
+                req.id,
+                serde_json::json!({
+                    "id": "TASK-enqueued",
+                    "subject_id": "TASK-enqueued",
+                    "status": "ready",
+                    "priority": 2,
+                    "enqueued_at": "2026-05-20T00:00:00Z",
+                }),
+            )
+        };
+        let server = spawn_fake_server(socket_path.clone(), handler).await;
+        let client = ControlClient::from_socket_path(socket_path.clone());
+        let request = animus_control_protocol::types::QueueEnqueueRequest {
+            task_id: "TASK-enqueued".to_string(),
+            priority: None,
+        };
+        let response = tokio::time::timeout(Duration::from_secs(5), client.queue_enqueue(request))
+            .await
+            .expect("timeout")
+            .expect("call");
+        assert_eq!(response.id, "TASK-enqueued");
+        let _ = std::fs::remove_file(socket_path);
+        server.abort();
+    }
+
+    /// C6.6: `queue/stats` round-trip preserves the per-status counts
+    /// envelope shape — the CLI handler uses these fields verbatim.
+    #[tokio::test]
+    async fn queue_stats_round_trip() {
+        let socket_path = short_sock_path();
+        let handler = |req: RpcRequest| {
+            assert_eq!(req.method, "queue/stats");
+            RpcResponse::ok(
+                req.id,
+                serde_json::json!({
+                    "ready": 5,
+                    "held": 2,
+                    "in_flight": 1,
+                    "done_recent": 9,
+                    "dropped_recent": 0,
+                }),
+            )
+        };
+        let server = spawn_fake_server(socket_path.clone(), handler).await;
+        let client = ControlClient::from_socket_path(socket_path.clone());
+        let response =
+            tokio::time::timeout(Duration::from_secs(5), client.queue_stats()).await.expect("timeout").expect("call");
+        assert_eq!(response.ready, 5);
+        assert_eq!(response.held, 2);
+        assert_eq!(response.in_flight, 1);
+        assert_eq!(response.done_recent, 9);
+        assert_eq!(response.dropped_recent, 0);
+        let _ = std::fs::remove_file(socket_path);
+        server.abort();
     }
 }

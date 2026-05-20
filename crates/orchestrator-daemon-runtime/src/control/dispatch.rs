@@ -70,7 +70,7 @@ use tokio::sync::broadcast;
 
 use crate::subject_dispatch::SubjectPluginDispatch;
 
-use super::routing::{DaemonOpsRouting, PluginRouting, WorkflowRouting};
+use super::routing::{DaemonOpsRouting, PluginRouting, QueueRouting, WorkflowRouting};
 use super::streaming::{DaemonEventBus, DaemonLogBus};
 
 /// In-process [`ControlSurface`] used by the daemon's control server.
@@ -94,6 +94,7 @@ pub struct InProcessSurface {
     plugin_routing: Option<Arc<dyn PluginRouting>>,
     daemon_ops_routing: Option<Arc<dyn DaemonOpsRouting>>,
     workflow_routing: Option<Arc<dyn WorkflowRouting>>,
+    queue_routing: Option<Arc<dyn QueueRouting>>,
 }
 
 impl InProcessSurface {
@@ -110,6 +111,7 @@ impl InProcessSurface {
             plugin_routing: None,
             daemon_ops_routing: None,
             workflow_routing: None,
+            queue_routing: None,
         }
     }
 
@@ -158,6 +160,7 @@ impl std::fmt::Debug for InProcessSurface {
             .field("plugin_routing", &self.plugin_routing.is_some())
             .field("daemon_ops_routing", &self.daemon_ops_routing.is_some())
             .field("workflow_routing", &self.workflow_routing.is_some())
+            .field("queue_routing", &self.queue_routing.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -174,6 +177,7 @@ pub struct InProcessSurfaceBuilder {
     plugin_routing: Option<Arc<dyn PluginRouting>>,
     daemon_ops_routing: Option<Arc<dyn DaemonOpsRouting>>,
     workflow_routing: Option<Arc<dyn WorkflowRouting>>,
+    queue_routing: Option<Arc<dyn QueueRouting>>,
 }
 
 impl InProcessSurfaceBuilder {
@@ -239,6 +243,14 @@ impl InProcessSurfaceBuilder {
         self
     }
 
+    /// Attach a [`QueueRouting`] handle so the surface can answer
+    /// `queue/*` calls over the control wire. When absent, all
+    /// `queue/*` methods return [`ControlError::NotSupported`].
+    pub fn queue_routing(mut self, routing: Arc<dyn QueueRouting>) -> Self {
+        self.queue_routing = Some(routing);
+        self
+    }
+
     /// Finalize the surface.
     pub fn build(self) -> InProcessSurface {
         InProcessSurface {
@@ -252,6 +264,7 @@ impl InProcessSurfaceBuilder {
             plugin_routing: self.plugin_routing,
             daemon_ops_routing: self.daemon_ops_routing,
             workflow_routing: self.workflow_routing,
+            queue_routing: self.queue_routing,
         }
     }
 }
@@ -601,32 +614,53 @@ impl ControlSurface for InProcessSurface {
 
     // ----- Queue ------------------------------------------------------
 
-    async fn queue_list(&self, _request: QueueListRequest) -> Result<QueueListResponse, ControlError> {
-        Err(ControlError::NotSupported("queue/list will be wired in C6 (CLI cutover)".to_string()))
+    async fn queue_list(&self, request: QueueListRequest) -> Result<QueueListResponse, ControlError> {
+        match &self.queue_routing {
+            Some(routing) => routing.queue_list(request).await,
+            None => Err(ControlError::NotSupported("queue/list routing not configured".to_string())),
+        }
     }
 
-    async fn queue_enqueue(&self, _request: QueueEnqueueRequest) -> Result<QueueEntry, ControlError> {
-        Err(ControlError::NotSupported("queue/enqueue will be wired in C6 (CLI cutover)".to_string()))
+    async fn queue_enqueue(&self, request: QueueEnqueueRequest) -> Result<QueueEntry, ControlError> {
+        match &self.queue_routing {
+            Some(routing) => routing.queue_enqueue(request).await,
+            None => Err(ControlError::NotSupported("queue/enqueue routing not configured".to_string())),
+        }
     }
 
-    async fn queue_drop(&self, _request: QueueDropRequest) -> Result<Unit, ControlError> {
-        Err(ControlError::NotSupported("queue/drop will be wired in C6 (CLI cutover)".to_string()))
+    async fn queue_drop(&self, request: QueueDropRequest) -> Result<Unit, ControlError> {
+        match &self.queue_routing {
+            Some(routing) => routing.queue_drop(request).await,
+            None => Err(ControlError::NotSupported("queue/drop routing not configured".to_string())),
+        }
     }
 
-    async fn queue_hold(&self, _request: QueueHoldRequest) -> Result<Unit, ControlError> {
-        Err(ControlError::NotSupported("queue/hold will be wired in C6 (CLI cutover)".to_string()))
+    async fn queue_hold(&self, request: QueueHoldRequest) -> Result<Unit, ControlError> {
+        match &self.queue_routing {
+            Some(routing) => routing.queue_hold(request).await,
+            None => Err(ControlError::NotSupported("queue/hold routing not configured".to_string())),
+        }
     }
 
-    async fn queue_release(&self, _request: QueueReleaseRequest) -> Result<Unit, ControlError> {
-        Err(ControlError::NotSupported("queue/release will be wired in C6 (CLI cutover)".to_string()))
+    async fn queue_release(&self, request: QueueReleaseRequest) -> Result<Unit, ControlError> {
+        match &self.queue_routing {
+            Some(routing) => routing.queue_release(request).await,
+            None => Err(ControlError::NotSupported("queue/release routing not configured".to_string())),
+        }
     }
 
-    async fn queue_reorder(&self, _request: QueueReorderRequest) -> Result<Unit, ControlError> {
-        Err(ControlError::NotSupported("queue/reorder will be wired in C6 (CLI cutover)".to_string()))
+    async fn queue_reorder(&self, request: QueueReorderRequest) -> Result<Unit, ControlError> {
+        match &self.queue_routing {
+            Some(routing) => routing.queue_reorder(request).await,
+            None => Err(ControlError::NotSupported("queue/reorder routing not configured".to_string())),
+        }
     }
 
     async fn queue_stats(&self) -> Result<QueueStats, ControlError> {
-        Err(ControlError::NotSupported("queue/stats will be wired in C6 (CLI cutover)".to_string()))
+        match &self.queue_routing {
+            Some(routing) => routing.queue_stats().await,
+            None => Err(ControlError::NotSupported("queue/stats routing not configured".to_string())),
+        }
     }
 
     // ----- Project ----------------------------------------------------

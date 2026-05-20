@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use orchestrator_core::DaemonStatus;
 
-use crate::control::{DaemonOpsRouting, PluginRouting, WorkflowRouting};
+use crate::control::{DaemonOpsRouting, PluginRouting, QueueRouting, WorkflowRouting};
 use crate::DaemonRunEvent;
 
 #[async_trait::async_trait(?Send)]
@@ -56,6 +56,16 @@ pub trait DaemonRunHooks {
     /// methods. The CLI binary builds an implementation that delegates
     /// back to its in-tree `WorkflowServiceApi` helpers.
     fn workflow_routing(&self) -> Option<Arc<dyn WorkflowRouting>> {
+        None
+    }
+
+    /// Provide a `queue/*` routing handle for the control-RPC surface.
+    /// Defaults to `None`, which leaves the daemon's
+    /// `InProcessSurface` returning `NotSupported` for queue/* methods.
+    /// The CLI binary builds an implementation that delegates back to
+    /// its in-tree queue helpers (`queue_snapshot`,
+    /// `enqueue_subject_dispatch`, etc.).
+    fn queue_routing(&self) -> Option<Arc<dyn QueueRouting>> {
         None
     }
 }

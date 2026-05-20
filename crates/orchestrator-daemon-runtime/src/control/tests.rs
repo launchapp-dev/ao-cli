@@ -1020,3 +1020,207 @@ async fn plugin_ping_routes_through_configured_routing() {
     .await
     .expect("test timed out");
 }
+
+// =====================================================================
+// C6.6: queue/* routing handle wired through the surface.
+// =====================================================================
+
+use crate::control::QueueRouting;
+
+#[derive(Default)]
+struct StubQueueRouting {
+    seen: Arc<Mutex<Vec<String>>>,
+}
+
+impl StubQueueRouting {
+    fn new() -> (Self, Arc<Mutex<Vec<String>>>) {
+        let seen: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        (Self { seen: seen.clone() }, seen)
+    }
+
+    async fn record(&self, method: &str) {
+        self.seen.lock().await.push(method.to_string());
+    }
+}
+
+#[async_trait]
+impl QueueRouting for StubQueueRouting {
+    async fn queue_list(&self, _request: QueueListRequest) -> Result<QueueListResponse, ControlError> {
+        self.record("queue/list").await;
+        Ok(QueueListResponse {
+            entries: vec![QueueEntry {
+                id: "TASK-stub-1".to_string(),
+                subject_id: animus_subject_protocol_wire::SubjectId::new("TASK-stub-1"),
+                status: animus_control_protocol::types::QueueEntryStatus::Ready,
+                priority: 2,
+                enqueued_at: chrono::Utc::now(),
+                hold_reason: None,
+            }],
+            next_cursor: None,
+        })
+    }
+
+    async fn queue_enqueue(&self, _request: QueueEnqueueRequest) -> Result<QueueEntry, ControlError> {
+        self.record("queue/enqueue").await;
+        Ok(QueueEntry {
+            id: "TASK-stub-new".to_string(),
+            subject_id: animus_subject_protocol_wire::SubjectId::new("TASK-stub-new"),
+            status: animus_control_protocol::types::QueueEntryStatus::Ready,
+            priority: 2,
+            enqueued_at: chrono::Utc::now(),
+            hold_reason: None,
+        })
+    }
+
+    async fn queue_drop(&self, _request: QueueDropRequest) -> Result<Unit, ControlError> {
+        self.record("queue/drop").await;
+        Ok(Unit::default())
+    }
+
+    async fn queue_hold(&self, _request: QueueHoldRequest) -> Result<Unit, ControlError> {
+        self.record("queue/hold").await;
+        Ok(Unit::default())
+    }
+
+    async fn queue_release(&self, _request: QueueReleaseRequest) -> Result<Unit, ControlError> {
+        self.record("queue/release").await;
+        Ok(Unit::default())
+    }
+
+    async fn queue_reorder(&self, _request: QueueReorderRequest) -> Result<Unit, ControlError> {
+        self.record("queue/reorder").await;
+        Ok(Unit::default())
+    }
+
+    async fn queue_stats(&self) -> Result<QueueStats, ControlError> {
+        self.record("queue/stats").await;
+        Ok(QueueStats { ready: 3, held: 1, in_flight: 0, done_recent: 7, dropped_recent: 2 })
+    }
+}
+
+/// `queue/list` routes through the configured QueueRouting handle.
+/// Without the handle the surface returns NotSupported (preserves the
+/// pre-C6.6 behavior for MCP/WebAPI callers that land later); with it
+/// the canned response from StubQueueRouting flows back over the wire.
+#[tokio::test]
+async fn queue_list_routes_through_configured_routing() {
+    tokio::time::timeout(TEST_TIMEOUT, async {
+        let (routing, seen) = StubQueueRouting::new();
+        let routing_arc: Arc<dyn QueueRouting> = Arc::new(routing);
+        let surface = InProcessSurface::builder(PathBuf::from("/tmp/c66-test-list")).queue_routing(routing_arc).build();
+        let surface_arc: Arc<dyn ControlSurface> = Arc::new(surface);
+        let handle = ControlServer::start_with_socket(short_test_socket(), surface_arc).await.unwrap();
+
+        let stream = UnixStream::connect(handle.socket_path()).await.unwrap();
+        let (read_half, mut write_half) = tokio::io::split(stream);
+        let mut reader = BufReader::new(read_half);
+        let request = RpcRequest::new(301, "queue/list", Some(json!({})));
+        send_frame(&mut write_half, &request).await.unwrap();
+        let value = read_frame_value(&mut reader).await.unwrap();
+        let response: RpcResponse = serde_json::from_value(value).unwrap();
+        assert!(response.error.is_none(), "queue/list should succeed when routing is wired: {response:?}");
+        let result = response.result.expect("result");
+        let entries = result.get("entries").and_then(|v| v.as_array()).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].get("id").and_then(|v| v.as_str()), Some("TASK-stub-1"));
+
+        let calls = seen.lock().await.clone();
+        assert_eq!(calls, vec!["queue/list".to_string()]);
+
+        handle.shutdown().await.unwrap();
+    })
+    .await
+    .expect("test timed out");
+}
+
+/// Without a QueueRouting handle attached, `queue/list` returns the
+/// NotSupported error frame (preserves pre-C6.6 behavior for tests /
+/// MCP callers that haven't been wired yet).
+#[tokio::test]
+async fn queue_list_without_routing_returns_not_supported() {
+    tokio::time::timeout(TEST_TIMEOUT, async {
+        let surface = InProcessSurface::builder(PathBuf::from("/tmp/c66-test-noqueue")).build();
+        let surface_arc: Arc<dyn ControlSurface> = Arc::new(surface);
+        let handle = ControlServer::start_with_socket(short_test_socket(), surface_arc).await.unwrap();
+
+        let stream = UnixStream::connect(handle.socket_path()).await.unwrap();
+        let (read_half, mut write_half) = tokio::io::split(stream);
+        let mut reader = BufReader::new(read_half);
+        let request = RpcRequest::new(302, "queue/list", Some(json!({})));
+        send_frame(&mut write_half, &request).await.unwrap();
+        let value = read_frame_value(&mut reader).await.unwrap();
+        let response: RpcResponse = serde_json::from_value(value).unwrap();
+        let error = response.error.expect("error frame");
+        assert_eq!(error.code, animus_plugin_protocol::error_codes::METHOD_NOT_SUPPORTED);
+
+        handle.shutdown().await.unwrap();
+    })
+    .await
+    .expect("test timed out");
+}
+
+/// `queue/drop`, `queue/hold`, `queue/release` round-trip through the
+/// configured routing handle and the stub records the invocation order.
+#[tokio::test]
+async fn queue_drop_hold_release_round_trip() {
+    tokio::time::timeout(TEST_TIMEOUT, async {
+        let (routing, seen) = StubQueueRouting::new();
+        let routing_arc: Arc<dyn QueueRouting> = Arc::new(routing);
+        let surface =
+            InProcessSurface::builder(PathBuf::from("/tmp/c66-test-lifecycle")).queue_routing(routing_arc).build();
+        let surface_arc: Arc<dyn ControlSurface> = Arc::new(surface);
+        let handle = ControlServer::start_with_socket(short_test_socket(), surface_arc).await.unwrap();
+
+        for (id, method) in [(303, "queue/hold"), (304, "queue/release"), (305, "queue/drop")] {
+            let stream = UnixStream::connect(handle.socket_path()).await.unwrap();
+            let (read_half, mut write_half) = tokio::io::split(stream);
+            let mut reader = BufReader::new(read_half);
+            let request = RpcRequest::new(id, method, Some(json!({"id": "TASK-stub-1"})));
+            send_frame(&mut write_half, &request).await.unwrap();
+            let value = read_frame_value(&mut reader).await.unwrap();
+            let response: RpcResponse = serde_json::from_value(value).unwrap();
+            assert!(response.error.is_none(), "{method} should succeed: {response:?}");
+        }
+
+        let calls = seen.lock().await.clone();
+        assert_eq!(calls, vec!["queue/hold".to_string(), "queue/release".to_string(), "queue/drop".to_string()]);
+
+        handle.shutdown().await.unwrap();
+    })
+    .await
+    .expect("test timed out");
+}
+
+/// `queue/stats` preserves the per-status counts end-to-end through the
+/// wire so CLI / MCP callers see the same shape regardless of the
+/// transport.
+#[tokio::test]
+async fn queue_stats_preserves_envelope_shape() {
+    tokio::time::timeout(TEST_TIMEOUT, async {
+        let (routing, _) = StubQueueRouting::new();
+        let routing_arc: Arc<dyn QueueRouting> = Arc::new(routing);
+        let surface =
+            InProcessSurface::builder(PathBuf::from("/tmp/c66-test-stats")).queue_routing(routing_arc).build();
+        let surface_arc: Arc<dyn ControlSurface> = Arc::new(surface);
+        let handle = ControlServer::start_with_socket(short_test_socket(), surface_arc).await.unwrap();
+
+        let stream = UnixStream::connect(handle.socket_path()).await.unwrap();
+        let (read_half, mut write_half) = tokio::io::split(stream);
+        let mut reader = BufReader::new(read_half);
+        let request = RpcRequest::new(306, "queue/stats", None);
+        send_frame(&mut write_half, &request).await.unwrap();
+        let value = read_frame_value(&mut reader).await.unwrap();
+        let response: RpcResponse = serde_json::from_value(value).unwrap();
+        assert!(response.error.is_none(), "queue/stats should succeed: {response:?}");
+        let result = response.result.expect("result");
+        assert_eq!(result.get("ready").and_then(|v| v.as_u64()), Some(3));
+        assert_eq!(result.get("held").and_then(|v| v.as_u64()), Some(1));
+        assert_eq!(result.get("in_flight").and_then(|v| v.as_u64()), Some(0));
+        assert_eq!(result.get("done_recent").and_then(|v| v.as_u64()), Some(7));
+        assert_eq!(result.get("dropped_recent").and_then(|v| v.as_u64()), Some(2));
+
+        handle.shutdown().await.unwrap();
+    })
+    .await
+    .expect("test timed out");
+}

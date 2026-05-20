@@ -35,9 +35,11 @@ use animus_control_protocol::{
         DaemonAgentsResponse, DaemonHealthResponse, DaemonStatusResponse, PluginBrowseRequest, PluginCallRequest,
         PluginCallResponse, PluginInfo, PluginInfoRequest, PluginInstallRequest, PluginInstallResponse,
         PluginListRequest, PluginListResponse, PluginPingRequest, PluginPingResponse, PluginSearchRequest,
-        PluginSearchResponse, PluginUninstallRequest, PluginUpdateRequest, PluginUpdateResponse, Unit,
-        WorkflowCancelRequest, WorkflowExecuteRequest, WorkflowGetRequest, WorkflowListRequest, WorkflowListResponse,
-        WorkflowPauseRequest, WorkflowResumeRequest, WorkflowRun, WorkflowRunRequest, WorkflowRunStart,
+        PluginSearchResponse, PluginUninstallRequest, PluginUpdateRequest, PluginUpdateResponse, QueueDropRequest,
+        QueueEnqueueRequest, QueueEntry, QueueHoldRequest, QueueListRequest, QueueListResponse, QueueReleaseRequest,
+        QueueReorderRequest, QueueStats, Unit, WorkflowCancelRequest, WorkflowExecuteRequest, WorkflowGetRequest,
+        WorkflowListRequest, WorkflowListResponse, WorkflowPauseRequest, WorkflowResumeRequest, WorkflowRun,
+        WorkflowRunRequest, WorkflowRunStart,
     },
     ControlError,
 };
@@ -129,6 +131,45 @@ pub trait WorkflowRouting: Send + Sync {
 
     /// `workflow/cancel` — cancel a workflow with an optional reason.
     async fn workflow_cancel(&self, request: WorkflowCancelRequest) -> Result<Unit, ControlError>;
+}
+
+/// `queue/*` dispatcher used by [`super::InProcessSurface`].
+///
+/// Wraps the CLI's existing `queue_snapshot` / `enqueue_subject_dispatch`
+/// / `hold_subject` / `release_subject` / `drop_subject` /
+/// `reorder_subjects` / `queue_stats` helpers behind a transport-agnostic
+/// interface, mirroring the [`PluginRouting`] and [`WorkflowRouting`]
+/// pattern. Implementations live in `orchestrator-cli` so the
+/// daemon-runtime crate doesn't grow a dependency on
+/// `orchestrator-core`'s service hub.
+///
+/// The wire-side [`QueueEntry`] schema is intentionally leaner than the
+/// in-tree [`crate::QueueEntrySnapshot`] — wire callers get a stable id
+/// + subject_id + status + priority + enqueued_at, with the rich
+/// dispatch payload surfacing only on the CLI's local path. Adapters
+/// map the in-tree DispatchQueueEntry into the wire shape best-effort.
+#[async_trait]
+pub trait QueueRouting: Send + Sync {
+    /// `queue/list` — page through queue entries filtered by status.
+    async fn queue_list(&self, request: QueueListRequest) -> Result<QueueListResponse, ControlError>;
+
+    /// `queue/enqueue` — push a new entry onto the dispatch queue.
+    async fn queue_enqueue(&self, request: QueueEnqueueRequest) -> Result<QueueEntry, ControlError>;
+
+    /// `queue/drop` — remove an entry from the queue.
+    async fn queue_drop(&self, request: QueueDropRequest) -> Result<Unit, ControlError>;
+
+    /// `queue/hold` — pause an entry so the dispatcher won't pick it up.
+    async fn queue_hold(&self, request: QueueHoldRequest) -> Result<Unit, ControlError>;
+
+    /// `queue/release` — clear a held entry so it becomes dispatchable.
+    async fn queue_release(&self, request: QueueReleaseRequest) -> Result<Unit, ControlError>;
+
+    /// `queue/reorder` — change the relative order of queue entries.
+    async fn queue_reorder(&self, request: QueueReorderRequest) -> Result<Unit, ControlError>;
+
+    /// `queue/stats` — per-status counts and recent throughput.
+    async fn queue_stats(&self) -> Result<QueueStats, ControlError>;
 }
 
 /// Marker used by integration tests that need to assert "the surface

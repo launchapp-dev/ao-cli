@@ -1,3 +1,8 @@
+mod control_routing;
+
+pub(crate) use control_routing::build_queue_routing;
+
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
@@ -68,9 +73,38 @@ pub(crate) async fn handle_queue(
     json: bool,
 ) -> Result<()> {
     match command {
-        QueueCommand::List => print_value(queue_snapshot(project_root)?, json),
-        QueueCommand::Stats => print_value(queue_stats(project_root)?, json),
+        QueueCommand::List => {
+            // C6.6: prefer the control wire when daemon is running + json
+            // mode so the daemon's view of queue entries is authoritative.
+            // Falls back to the local in-process snapshot when no socket
+            // is available or the daemon returns NotSupported.
+            if json {
+                if let Some(response) = try_queue_list_via_control(project_root).await? {
+                    return print_value(response, true);
+                }
+            }
+            print_value(queue_snapshot(project_root)?, json)
+        }
+        QueueCommand::Stats => {
+            if json {
+                if let Some(response) = try_queue_stats_via_control(project_root).await? {
+                    return print_value(response, true);
+                }
+            }
+            print_value(queue_stats(project_root)?, json)
+        }
         QueueCommand::Enqueue(args) => {
+            // C6.6: when JSON mode + task id + daemon is running, route
+            // through the wire. Requirement / title / custom dispatches
+            // and any --input-json payload stay local — the wire
+            // `queue/enqueue` surface only covers task subjects today.
+            if json && args.input_json.is_none() && args.requirement_id.is_none() && args.title.is_none() {
+                if let Some(task_id) = args.task_id.as_ref() {
+                    if let Some(entry) = try_queue_enqueue_via_control(project_root, task_id).await? {
+                        return print_value(entry, true);
+                    }
+                }
+            }
             let input = args.input_json.map(|value| serde_json::from_str(&value)).transpose()?;
             let dispatch = resolve_enqueue_dispatch(
                 hub.clone(),
@@ -95,6 +129,11 @@ pub(crate) async fn handle_queue(
             print_value(result, true)
         }
         QueueCommand::Hold(args) => {
+            if json {
+                if let Some(()) = try_queue_hold_via_control(project_root, &args.subject_id).await? {
+                    return print_value(serde_json::json!({ "held": true, "subject_id": args.subject_id }), true);
+                }
+            }
             let held = hold_subject(project_root, &args.subject_id)?;
             if !json {
                 if held {
@@ -106,6 +145,11 @@ pub(crate) async fn handle_queue(
             print_value(serde_json::json!({ "held": held, "subject_id": args.subject_id }), true)
         }
         QueueCommand::Release(args) => {
+            if json {
+                if let Some(()) = try_queue_release_via_control(project_root, &args.subject_id).await? {
+                    return print_value(serde_json::json!({ "released": true, "subject_id": args.subject_id }), true);
+                }
+            }
             let released = release_subject(project_root, &args.subject_id)?;
             if !json {
                 if released {
@@ -117,6 +161,14 @@ pub(crate) async fn handle_queue(
             print_value(serde_json::json!({ "released": released, "subject_id": args.subject_id }), true)
         }
         QueueCommand::Drop(args) => {
+            if json {
+                if let Some(()) = try_queue_drop_via_control(project_root, &args.subject_id).await? {
+                    // Wire surface returns Unit; local removed count not
+                    // exposed across the wire. Report 1 to indicate the
+                    // drop succeeded.
+                    return print_value(serde_json::json!({ "dropped": 1, "subject_id": args.subject_id }), true);
+                }
+            }
             let removed = drop_subject(project_root, &args.subject_id)?;
             if !json {
                 if removed > 0 {
@@ -128,6 +180,12 @@ pub(crate) async fn handle_queue(
             print_value(serde_json::json!({ "dropped": removed, "subject_id": args.subject_id }), true)
         }
         QueueCommand::Reorder(args) => {
+            // Wire `queue/reorder` is single-id per-call (id + position
+            // anchor). The CLI's `--subject-id` repeated form is a
+            // multi-id reorder. We could send N wire calls in sequence
+            // but the in-tree implementation does the multi-id move
+            // atomically. Keep the CLI verb local for now and let the
+            // future wire-side multi-id reorder land as a v0.4.x cleanup.
             let reordered = reorder_subjects(project_root, args.subject_ids.clone())?;
             if !json {
                 if reordered {
@@ -139,6 +197,130 @@ pub(crate) async fn handle_queue(
             }
             print_value(serde_json::json!({ "reordered": reordered, "subject_ids": args.subject_ids }), true)
         }
+    }
+}
+
+// =====================================================================
+// C6.6 — control-wire routing helpers for queue/*
+// =====================================================================
+//
+// Each helper opens the control socket (returns Ok(None) when the daemon
+// isn't running so the caller falls back to the local in-process path),
+// issues the corresponding JSON-RPC call, and returns the wire-shaped
+// response. When the daemon advertises the surface but the specific
+// method is unavailable (older daemon, mid-rollout) we treat that the
+// same as "socket missing" and degrade to local.
+
+async fn try_queue_list_via_control(
+    project_root: &str,
+) -> Result<Option<animus_control_protocol::types::QueueListResponse>> {
+    use crate::services::control_client::{is_method_unavailable, ControlClient};
+    use animus_control_protocol::types::QueueListRequest as WireRequest;
+
+    let project_root_path = Path::new(project_root);
+    let Some(client) = ControlClient::try_connect(project_root_path).await? else {
+        return Ok(None);
+    };
+    match client.queue_list(WireRequest::default()).await {
+        Ok(response) => Ok(Some(response)),
+        Err(err) if is_method_unavailable(&err) => {
+            tracing::debug!(error = %err, "queue/list wire returned unavailable; falling back to local");
+            Ok(None)
+        }
+        Err(err) => Err(err),
+    }
+}
+
+async fn try_queue_stats_via_control(project_root: &str) -> Result<Option<animus_control_protocol::types::QueueStats>> {
+    use crate::services::control_client::{is_method_unavailable, ControlClient};
+
+    let project_root_path = Path::new(project_root);
+    let Some(client) = ControlClient::try_connect(project_root_path).await? else {
+        return Ok(None);
+    };
+    match client.queue_stats().await {
+        Ok(response) => Ok(Some(response)),
+        Err(err) if is_method_unavailable(&err) => {
+            tracing::debug!(error = %err, "queue/stats wire returned unavailable; falling back to local");
+            Ok(None)
+        }
+        Err(err) => Err(err),
+    }
+}
+
+async fn try_queue_enqueue_via_control(
+    project_root: &str,
+    task_id: &str,
+) -> Result<Option<animus_control_protocol::types::QueueEntry>> {
+    use crate::services::control_client::{is_method_unavailable, ControlClient};
+    use animus_control_protocol::types::QueueEnqueueRequest as WireRequest;
+
+    let project_root_path = Path::new(project_root);
+    let Some(client) = ControlClient::try_connect(project_root_path).await? else {
+        return Ok(None);
+    };
+    let request = WireRequest { task_id: task_id.to_string(), priority: None };
+    match client.queue_enqueue(request).await {
+        Ok(response) => Ok(Some(response)),
+        Err(err) if is_method_unavailable(&err) => {
+            tracing::debug!(error = %err, "queue/enqueue wire returned unavailable; falling back to local");
+            Ok(None)
+        }
+        Err(err) => Err(err),
+    }
+}
+
+async fn try_queue_drop_via_control(project_root: &str, id: &str) -> Result<Option<()>> {
+    use crate::services::control_client::{is_method_unavailable, ControlClient};
+    use animus_control_protocol::types::QueueDropRequest as WireRequest;
+
+    let project_root_path = Path::new(project_root);
+    let Some(client) = ControlClient::try_connect(project_root_path).await? else {
+        return Ok(None);
+    };
+    match client.queue_drop(WireRequest { id: id.to_string() }).await {
+        Ok(_) => Ok(Some(())),
+        Err(err) if is_method_unavailable(&err) => {
+            tracing::debug!(error = %err, "queue/drop wire returned unavailable; falling back to local");
+            Ok(None)
+        }
+        Err(err) => Err(err),
+    }
+}
+
+async fn try_queue_hold_via_control(project_root: &str, id: &str) -> Result<Option<()>> {
+    use crate::services::control_client::{is_method_unavailable, ControlClient};
+    use animus_control_protocol::types::QueueHoldRequest as WireRequest;
+
+    let project_root_path = Path::new(project_root);
+    let Some(client) = ControlClient::try_connect(project_root_path).await? else {
+        return Ok(None);
+    };
+    match client.queue_hold(WireRequest { id: id.to_string(), reason: None }).await {
+        Ok(_) => Ok(Some(())),
+        Err(err) if is_method_unavailable(&err) => {
+            tracing::debug!(error = %err, "queue/hold wire returned unavailable; falling back to local");
+            Ok(None)
+        }
+        Err(err) => Err(err),
+    }
+}
+
+async fn try_queue_release_via_control(project_root: &str, id: &str) -> Result<Option<()>> {
+    use crate::services::control_client::{is_method_unavailable, ControlClient};
+    use animus_control_protocol::types::QueueReleaseRequest as WireRequest;
+
+    let project_root_path = Path::new(project_root);
+    let Some(client) = ControlClient::try_connect(project_root_path).await? else {
+        return Ok(None);
+    };
+    match client.queue_release(WireRequest { id: id.to_string() }).await {
+        Ok(_) => Ok(Some(())),
+        Err(err) if is_method_unavailable(&err) => {
+            tracing::debug!(error = %err, "queue/release wire returned unavailable; falling back to local");
+            Ok(None)
+        }
+        Err(err) => Err(err),
     }
 }
 

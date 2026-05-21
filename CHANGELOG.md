@@ -4,7 +4,33 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-05-21
+
+Controller-as-plugin migration plus the daemon-wiring foundation that makes the v0.4.x plugin ecosystem operational. CLI, MCP, and WebAPI all route through the daemon's new Unix-socket control protocol when the daemon is running, falling back to in-process calls when it isn't.
+
 ### Features
+
+- **`feat(daemon)`: Unix-socket control server + control protocol.** Daemon now exposes `~/.animus/<repo-scope>/control.sock` (0700 perms) speaking newline-delimited JSON-RPC 2.0 per [`animus-control-protocol` v0.1.3](https://github.com/launchapp-dev/animus-protocol/tree/v0.1.3/animus-control-protocol). 47 method constants across 7 groups (subject, plugin, daemon, workflow, agent, queue, project). Auto-starts at daemon launch; opt-out via `ANIMUS_DAEMON_DISABLE_CONTROL_SERVER=1`. Emits `DaemonRunEvent::ControlServerResolved` so operators can find the socket path in `events.jsonl`.
+- **`feat(cli)`: every command tries the control socket first, falls back to local.** `animus plugin/daemon/workflow/queue/agent/subject` commands open the control socket when present and route through it; one-shot operations (no daemon) keep working via the existing in-process path. Preserves the `animus.cli.v1` JSON envelope on both paths.
+- **`feat(mcp)`: tool surface routes through control protocol via CLI subprocess.** `ao_workflow_*`, `ao_queue_*`, `ao_plugin_*`, `ao_daemon_*`, and `ao_agent_*` MCP tools shell out to the migrated CLI, which routes via control when the daemon is up. Six new `animus.subject.*` MCP tools added (list, get, create, update, next, status) to mirror the CLI surface.
+- **`feat(web-api)`: REST handlers route through control protocol (9 of 12 migrated).** `queue_list`, `queue_stats`, `queue_hold`, `queue_release`, `workflows_get`, `workflows_run`, `workflows_pause`, `workflows_resume`, `workflows_cancel` all try control first, fall back to direct `ServiceHub` calls. Deferred: `workflows_list`, `queue_reorder`, `workflows_resume` with feedback — wire-shape contract changes pending.
+- **`feat(daemon-logs)`: LogStorageBackend plugin discovery + `animus logs tail`.** Daemon discovers installed `log_storage_backend` plugins at startup; if exactly one is found, it becomes the active log sink. Falls back to the in-tree `Logger` writing `events.jsonl` when no plugin is installed. New `animus logs tail [--plugin] [--level] [--since] [--follow] [--json]` CLI reads from whichever backend is active. Opt-out via `ANIMUS_DAEMON_DISABLE_LOG_STORAGE_PLUGIN=1`.
+- **`feat(daemon-subject)`: SubjectBackend plugin discovery + `animus subject` CLI.** Daemon discovers installed `subject_backend` plugins, builds the `SubjectRouter` from their declared `subject_kinds`, rejects duplicate-kind claims at startup. Generic `animus subject list/get/create/update/next/status --kind <kind>` routes through whichever plugin owns that kind. Built-in `InTreeTaskSubjectBackend` + `InTreeRequirementsSubjectBackend` auto-register under `kind=task` and `kind=requirement` so legacy `animus task` and `animus requirements` keep working unchanged.
+
+### Refactors
+
+- **`refactor(control)`: relocate `ControlClient` to `orchestrator-daemon-runtime`.** Lived in `orchestrator-cli` originally; `orchestrator-web-api` couldn't depend on it (circular). Moved to the daemon-runtime crate which both already depend on. No behavior change; mechanical import updates across the CLI.
+- **`refactor(plugin-runtime)`: subject dispatch accepts `<kind>/<verb>` method names.** Aligns the runtime's dispatch table with the daemon's `SubjectRouter` kind-keyed routing. Shipped as [`animus-protocol` v0.1.2](https://github.com/launchapp-dev/animus-protocol/tree/v0.1.2); subject plugin repos (linear, sqlite, markdown, requirements) cut v0.1.2 to consume it.
+
+### Deferred to v0.4.x patches
+
+- Legacy CLI command deletion (`Command::Task`, `Command::Requirements`, hidden `Review`, `Qa`) plus matching MCP tools (`ao_task_*`, `ao_requirements_*`). The in-tree task/requirements services keep working via the new SubjectBackend adapters; deletion is a follow-up cleanup commit.
+- `workflows_list` web-api migration (router + OpenAPI contract change required)
+- `queue_reorder` web-api migration (multi-id wire support needed)
+- TTL eviction for the session-keyed host cache (deferred from the cancel-keep-host-alive MVP)
+- AgentPool integration (still `allow(dead_code)`) — agent dispatch returns `NotSupported` over the control wire pending the daemon-side query surface
+
+## [0.4.2] previously listed Unreleased features (now formally released)
 
 - **`feat(plugin)`: cosign signature verification on plugin install.** `animus plugin install <owner/repo>` now checks for a [sigstore cosign](https://www.sigstore.dev) signature bundle (`<asset>.tar.gz.bundle`) alongside the binary asset. When present, the install verifies it via the `cosign` CLI (shell-out for v0.4.x; in-process `sigstore-rs` planned for v0.5+). Default mode: verify-if-present and record `signature_status: verified|unsigned` in `~/.animus/plugins.yaml`. New flags: `--require-signature` refuses install when no bundle is published or verification fails; `--skip-signature` bypasses verification entirely; `--trusted-signers <PATH>` points at a YAML allowlist (default `~/.animus/trusted-signers.yaml`). A FAILING signature always refuses install. The `cosign` binary is a soft dependency — when missing, installs degrade to `signature_status: unsigned` rather than failing. `animus plugin list` gains a `SIG` column surfacing the recorded status. Plugin release workflows (`launchapp-dev/animus-*`) ship signing as of plugin tag `v0.1.2+` via GitHub Actions OIDC (no secrets to manage). See [docs/architecture/plugin-signing.md](docs/architecture/plugin-signing.md).
 - **`feat(workflow-config)`: `${VAR}` env-var interpolation in workflow YAML.** `.animus/workflows.yaml`, `.animus/workflows/*.yaml`, and pack-shipped workflow overlays now support shell-style `${VAR}`, `${VAR:-default}`, and `${VAR:?error}` interpolation. Substitution runs before YAML parsing so every string scalar — subject backend configs, provider tokens, MCP `env` blocks, phase env overrides — accepts the same syntax uniformly. Unset required vars fail fast with the YAML file path + line number. Use `$$` to embed a literal `$`. Recommended for non-secret config like team IDs, base URLs, and feature flags; credentials still belong in the daemon's process environment, not in YAML. See [docs/reference/configuration.md](docs/reference/configuration.md#workflow-yaml-interpolation-non-secret-config).

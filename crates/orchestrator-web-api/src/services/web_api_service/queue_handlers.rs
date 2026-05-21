@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use chrono::{DateTime, Utc};
 use orchestrator_daemon_runtime::{
     hold_subject, queue_snapshot, release_subject, reorder_subjects, DispatchQueueEntryStatus, QueueEntrySnapshot,
@@ -77,6 +79,10 @@ fn queue_entry_json(
 impl WebApiService {
     pub async fn queue_list(&self) -> Result<serde_json::Value, WebApiError> {
         let project_root = &self.context.project_root;
+        if let Some(wire) = try_queue_list_via_control(project_root).await {
+            // wire shape differs from local; v0.4.x cleanup
+            return Ok(serde_json::to_value(wire).unwrap_or(serde_json::Value::Null));
+        }
         let snapshot = queue_snapshot(project_root)
             .map_err(|e| WebApiError::new("internal_error", format!("failed to load queue: {}", e), 1))?;
 
@@ -105,6 +111,10 @@ impl WebApiService {
 
     pub async fn queue_stats(&self) -> Result<serde_json::Value, WebApiError> {
         let project_root = &self.context.project_root;
+        if let Some(wire) = try_queue_stats_via_control(project_root).await {
+            // wire shape differs from local; v0.4.x cleanup
+            return Ok(serde_json::to_value(wire).unwrap_or(serde_json::Value::Null));
+        }
         let snapshot = queue_snapshot(project_root)
             .map_err(|e| WebApiError::new("internal_error", format!("failed to load queue: {}", e), 1))?;
         let now = Utc::now();
@@ -123,6 +133,10 @@ impl WebApiService {
         let request: QueueReorderRequest = parse_json_body(body)?;
         let project_root = &self.context.project_root;
 
+        // Wire `queue/reorder` is single-id + anchor + position while the
+        // local path takes a Vec of subject ids. The shapes are not
+        // compatible, so route stays local for now. v0.4.x cleanup will
+        // wire a multi-id reorder.
         let updated = reorder_subjects(project_root, request.subject_ids)
             .map_err(|e| WebApiError::new("internal_error", format!("failed to reorder queue: {}", e), 1))?;
 
@@ -137,6 +151,10 @@ impl WebApiService {
         let _request: QueueHoldRequest = parse_json_body(body).unwrap_or(QueueHoldRequest {});
         let project_root = &self.context.project_root;
 
+        if let Some(()) = try_queue_hold_via_control(project_root, task_id).await {
+            self.publish_event("queue-hold", serde_json::json!({ "task_id": task_id, "held": true }));
+            return Ok(serde_json::json!({ "held": true, "task_id": task_id }));
+        }
         let updated = hold_subject(project_root, task_id)
             .map_err(|e| WebApiError::new("internal_error", format!("failed to hold task: {}", e), 1))?;
 
@@ -155,6 +173,19 @@ impl WebApiService {
         let request: QueueReleaseRequest = parse_json_body(body).unwrap_or(QueueReleaseRequest { reason: None });
         let project_root = &self.context.project_root;
 
+        if let Some(()) = try_queue_release_via_control(project_root, task_id).await {
+            let mut payload = serde_json::json!({ "task_id": task_id, "released": true });
+            if let Some(reason) = request.reason.as_deref() {
+                payload["reason"] = serde_json::Value::String(reason.to_string());
+            }
+            self.publish_event("queue-release", payload);
+
+            let mut response = serde_json::json!({ "released": true, "task_id": task_id });
+            if let Some(reason) = request.reason.as_deref() {
+                response["reason"] = serde_json::Value::String(reason.to_string());
+            }
+            return Ok(response);
+        }
         let updated = release_subject(project_root, task_id)
             .map_err(|e| WebApiError::new("internal_error", format!("failed to release task: {}", e), 1))?;
 
@@ -172,6 +203,101 @@ impl WebApiService {
         }
 
         Ok(response)
+    }
+}
+
+// ---- try-control helpers (C8: web-api routes via daemon control) ----
+//
+// Each helper opens the daemon's Unix socket, attempts the RPC, and
+// returns Some(wire_response) on success. Returns None when the daemon
+// is not running, the socket is missing/stale, the RPC method is
+// unavailable, or the RPC errors — callers then fall back to the local
+// code path.
+
+async fn try_queue_list_via_control(project_root: &str) -> Option<animus_control_protocol::types::QueueListResponse> {
+    use animus_control_protocol::types::QueueListRequest as WireRequest;
+    use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
+
+    let project_root_path = Path::new(project_root);
+    let client = match ControlClient::try_connect(project_root_path).await {
+        Ok(Some(c)) => c,
+        _ => return None,
+    };
+    match client.queue_list(WireRequest::default()).await {
+        Ok(response) => Some(response),
+        Err(err) if is_method_unavailable(&err) => {
+            tracing::debug!(error = %err, "queue/list wire unavailable; falling back to local");
+            None
+        }
+        Err(err) => {
+            tracing::debug!(error = %err, "queue/list wire error; falling back to local");
+            None
+        }
+    }
+}
+
+async fn try_queue_stats_via_control(project_root: &str) -> Option<animus_control_protocol::types::QueueStats> {
+    use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
+
+    let project_root_path = Path::new(project_root);
+    let client = match ControlClient::try_connect(project_root_path).await {
+        Ok(Some(c)) => c,
+        _ => return None,
+    };
+    match client.queue_stats().await {
+        Ok(response) => Some(response),
+        Err(err) if is_method_unavailable(&err) => {
+            tracing::debug!(error = %err, "queue/stats wire unavailable; falling back to local");
+            None
+        }
+        Err(err) => {
+            tracing::debug!(error = %err, "queue/stats wire error; falling back to local");
+            None
+        }
+    }
+}
+
+async fn try_queue_hold_via_control(project_root: &str, id: &str) -> Option<()> {
+    use animus_control_protocol::types::QueueHoldRequest as WireRequest;
+    use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
+
+    let project_root_path = Path::new(project_root);
+    let client = match ControlClient::try_connect(project_root_path).await {
+        Ok(Some(c)) => c,
+        _ => return None,
+    };
+    match client.queue_hold(WireRequest { id: id.to_string(), reason: None }).await {
+        Ok(_) => Some(()),
+        Err(err) if is_method_unavailable(&err) => {
+            tracing::debug!(error = %err, "queue/hold wire unavailable; falling back to local");
+            None
+        }
+        Err(err) => {
+            tracing::debug!(error = %err, "queue/hold wire error; falling back to local");
+            None
+        }
+    }
+}
+
+async fn try_queue_release_via_control(project_root: &str, id: &str) -> Option<()> {
+    use animus_control_protocol::types::QueueReleaseRequest as WireRequest;
+    use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
+
+    let project_root_path = Path::new(project_root);
+    let client = match ControlClient::try_connect(project_root_path).await {
+        Ok(Some(c)) => c,
+        _ => return None,
+    };
+    match client.queue_release(WireRequest { id: id.to_string() }).await {
+        Ok(_) => Some(()),
+        Err(err) if is_method_unavailable(&err) => {
+            tracing::debug!(error = %err, "queue/release wire unavailable; falling back to local");
+            None
+        }
+        Err(err) => {
+            tracing::debug!(error = %err, "queue/release wire error; falling back to local");
+            None
+        }
     }
 }
 

@@ -8,6 +8,7 @@ use orchestrator_core::{
 use protocol::orchestrator::{WorkflowRunInput, SUBJECT_KIND_CUSTOM};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::path::Path;
 
 use super::{parsing::parse_json_body, requests::WorkflowRunRequest, WebApiError, WebApiService};
 
@@ -136,6 +137,10 @@ fn resolve_requirement_workflow_ref(project_root: &str) -> Result<String, String
 
 impl WebApiService {
     pub async fn workflows_list(&self, query: WorkflowQuery) -> Result<ListPage<OrchestratorWorkflow>, WebApiError> {
+        // workflows_list stays local: handler returns ListPage<OrchestratorWorkflow>
+        // and the wire `WorkflowListResponse` is leaner than the historical
+        // OrchestratorWorkflow. Migrating requires a return-type contract
+        // change at the router + OpenAPI surface. Deferred to v0.4.x cleanup.
         Ok(self.context.hub.workflows().query(query).await?)
     }
 
@@ -258,6 +263,10 @@ impl WebApiService {
     }
 
     pub async fn workflows_get(&self, id: &str) -> Result<Value, WebApiError> {
+        if let Some(wire) = try_workflow_get_via_control(&self.context.project_root, id).await {
+            // wire shape differs from local; v0.4.x cleanup
+            return Ok(serde_json::to_value(wire).unwrap_or(Value::Null));
+        }
         Ok(json!(self.context.hub.workflows().get(id).await?))
     }
 
@@ -277,6 +286,25 @@ impl WebApiService {
         let dispatch =
             resolve_workflow_run_dispatch_from_body(self.context.hub.as_ref(), &self.context.project_root, body)
                 .await?;
+        // Route through control only when the dispatch is task-shaped;
+        // the wire `workflow/run` requires a `task_id`. Requirement and
+        // custom dispatches stay local. v0.4.x cleanup will broaden the
+        // wire surface.
+        if let Some(task_id) = dispatch.subject.task_id() {
+            let definition = Some(dispatch.workflow_ref.clone());
+            if let Some(wire) = try_workflow_run_via_control(&self.context.project_root, task_id, definition).await {
+                self.publish_event(
+                    "workflow-run",
+                    json!({
+                        "workflow_id": wire.workflow_id,
+                        "subject_id": task_id,
+                        "task_id": task_id,
+                    }),
+                );
+                // wire shape differs from local; v0.4.x cleanup
+                return Ok(serde_json::to_value(wire).unwrap_or(Value::Null));
+            }
+        }
         let workflow = self.context.hub.workflows().run(dispatch.to_workflow_run_input()).await?;
         let subject_id = workflow.subject.title.clone().unwrap_or_else(|| workflow.subject.id.clone());
         self.publish_event(
@@ -291,6 +319,15 @@ impl WebApiService {
     }
 
     pub async fn workflows_resume(&self, id: &str, feedback: Option<String>) -> Result<Value, WebApiError> {
+        // Wire `workflow/resume` does not currently carry resume feedback;
+        // when feedback is present we stay on the local path so the
+        // checkpoint feedback survives. v0.4.x cleanup will lift this.
+        if feedback.is_none() {
+            if let Some(()) = try_workflow_resume_via_control(&self.context.project_root, id).await {
+                self.publish_event("workflow-resume", json!({ "workflow_id": id }));
+                return Ok(json!({ "workflow_id": id, "status": "resumed" }));
+            }
+        }
         let outcome = dispatch_workflow_event(
             self.context.hub.clone(),
             &self.context.project_root,
@@ -304,6 +341,10 @@ impl WebApiService {
     }
 
     pub async fn workflows_pause(&self, id: &str) -> Result<Value, WebApiError> {
+        if let Some(()) = try_workflow_pause_via_control(&self.context.project_root, id).await {
+            self.publish_event("workflow-pause", json!({ "workflow_id": id }));
+            return Ok(json!({ "workflow_id": id, "status": "paused" }));
+        }
         let outcome = dispatch_workflow_event(
             self.context.hub.clone(),
             &self.context.project_root,
@@ -317,6 +358,10 @@ impl WebApiService {
     }
 
     pub async fn workflows_cancel(&self, id: &str) -> Result<Value, WebApiError> {
+        if let Some(()) = try_workflow_cancel_via_control(&self.context.project_root, id).await {
+            self.publish_event("workflow-cancel", json!({ "workflow_id": id }));
+            return Ok(json!({ "workflow_id": id, "status": "cancelled" }));
+        }
         let outcome = dispatch_workflow_event(
             self.context.hub.clone(),
             &self.context.project_root,
@@ -542,6 +587,132 @@ impl WebApiService {
             "phase_id": resolved_phase_id,
             "has_more": has_more,
         }))
+    }
+}
+
+// ---- try-control helpers (C8: web-api routes via daemon control) ----
+//
+// Each helper opens the daemon's Unix socket, attempts the RPC, and
+// returns Some(wire_response) on success. Returns None when the daemon
+// is not running, the socket is missing/stale, the RPC method is
+// unavailable, or the RPC errors — callers then fall back to the local
+// code path.
+
+async fn try_workflow_get_via_control(
+    project_root: &str,
+    id: &str,
+) -> Option<animus_control_protocol::types::WorkflowRun> {
+    use animus_control_protocol::types::WorkflowGetRequest as WireRequest;
+    use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
+
+    let project_root_path = Path::new(project_root);
+    let client = match ControlClient::try_connect(project_root_path).await {
+        Ok(Some(c)) => c,
+        _ => return None,
+    };
+    match client.workflow_get(WireRequest { id: id.to_string() }).await {
+        Ok(response) => Some(response),
+        Err(err) if is_method_unavailable(&err) => {
+            tracing::debug!(error = %err, "workflow/get wire unavailable; falling back to local");
+            None
+        }
+        Err(err) => {
+            tracing::debug!(error = %err, "workflow/get wire error; falling back to local");
+            None
+        }
+    }
+}
+
+async fn try_workflow_run_via_control(
+    project_root: &str,
+    task_id: &str,
+    definition: Option<String>,
+) -> Option<animus_control_protocol::types::WorkflowRunStart> {
+    use animus_control_protocol::types::WorkflowRunRequest as WireRequest;
+    use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
+
+    let project_root_path = Path::new(project_root);
+    let client = match ControlClient::try_connect(project_root_path).await {
+        Ok(Some(c)) => c,
+        _ => return None,
+    };
+    let request = WireRequest { task_id: task_id.to_string(), definition, params: Default::default() };
+    match client.workflow_run(request).await {
+        Ok(response) => Some(response),
+        Err(err) if is_method_unavailable(&err) => {
+            tracing::debug!(error = %err, "workflow/run wire unavailable; falling back to local");
+            None
+        }
+        Err(err) => {
+            tracing::debug!(error = %err, "workflow/run wire error; falling back to local");
+            None
+        }
+    }
+}
+
+async fn try_workflow_pause_via_control(project_root: &str, id: &str) -> Option<()> {
+    use animus_control_protocol::types::WorkflowPauseRequest as WireRequest;
+    use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
+
+    let project_root_path = Path::new(project_root);
+    let client = match ControlClient::try_connect(project_root_path).await {
+        Ok(Some(c)) => c,
+        _ => return None,
+    };
+    match client.workflow_pause(WireRequest { id: id.to_string() }).await {
+        Ok(_) => Some(()),
+        Err(err) if is_method_unavailable(&err) => {
+            tracing::debug!(error = %err, "workflow/pause wire unavailable; falling back to local");
+            None
+        }
+        Err(err) => {
+            tracing::debug!(error = %err, "workflow/pause wire error; falling back to local");
+            None
+        }
+    }
+}
+
+async fn try_workflow_resume_via_control(project_root: &str, id: &str) -> Option<()> {
+    use animus_control_protocol::types::WorkflowResumeRequest as WireRequest;
+    use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
+
+    let project_root_path = Path::new(project_root);
+    let client = match ControlClient::try_connect(project_root_path).await {
+        Ok(Some(c)) => c,
+        _ => return None,
+    };
+    match client.workflow_resume(WireRequest { id: id.to_string() }).await {
+        Ok(_) => Some(()),
+        Err(err) if is_method_unavailable(&err) => {
+            tracing::debug!(error = %err, "workflow/resume wire unavailable; falling back to local");
+            None
+        }
+        Err(err) => {
+            tracing::debug!(error = %err, "workflow/resume wire error; falling back to local");
+            None
+        }
+    }
+}
+
+async fn try_workflow_cancel_via_control(project_root: &str, id: &str) -> Option<()> {
+    use animus_control_protocol::types::WorkflowCancelRequest as WireRequest;
+    use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
+
+    let project_root_path = Path::new(project_root);
+    let client = match ControlClient::try_connect(project_root_path).await {
+        Ok(Some(c)) => c,
+        _ => return None,
+    };
+    match client.workflow_cancel(WireRequest { id: id.to_string(), reason: None }).await {
+        Ok(_) => Some(()),
+        Err(err) if is_method_unavailable(&err) => {
+            tracing::debug!(error = %err, "workflow/cancel wire unavailable; falling back to local");
+            None
+        }
+        Err(err) => {
+            tracing::debug!(error = %err, "workflow/cancel wire error; falling back to local");
+            None
+        }
     }
 }
 

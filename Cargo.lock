@@ -2861,6 +2861,7 @@ dependencies = [
 name = "orchestrator-web-api"
 version = "0.1.0"
 dependencies = [
+ "animus-control-protocol",
  "anyhow",
  "chrono",
  "orchestrator-config",
@@ -2872,6 +2873,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "tracing",
  "uuid",
 ]
 

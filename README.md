@@ -4,12 +4,12 @@
 
 <br/>
 
-[![Typing SVG](https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=500&size=20&duration=3000&pause=1500&color=58A6FF&center=true&vCenter=true&multiline=true&repeat=true&random=false&width=700&height=80&lines=Define+your+engineering+team+as+YAML.;Dispatch+tasks+to+AI+agents+across+isolated+worktrees.;Review%2C+merge%2C+and+ship+%E2%80%94+while+you+sleep.)](https://github.com/launchapp-dev/ao)
+[![Typing SVG](https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=500&size=20&duration=3000&pause=1500&color=58A6FF&center=true&vCenter=true&multiline=true&repeat=true&random=false&width=700&height=80&lines=Define+your+engineering+team+as+YAML.;Dispatch+tasks+to+AI+agents+across+isolated+worktrees.;Review%2C+merge%2C+and+ship+%E2%80%94+while+you+sleep.)](https://github.com/launchapp-dev/animus-cli)
 
 <br/>
 <br/>
 
-<a href="https://github.com/launchapp-dev/ao/releases/latest"><img src="https://img.shields.io/github/v/release/launchapp-dev/ao?style=for-the-badge&color=1f6feb&labelColor=0d1117&logo=github&logoColor=f0f6fc" alt="Release" /></a>
+<a href="https://github.com/launchapp-dev/animus-cli/releases/latest"><img src="https://img.shields.io/github/v/release/launchapp-dev/animus-cli?style=for-the-badge&color=1f6feb&labelColor=0d1117&logo=github&logoColor=f0f6fc" alt="Release v0.4.4" /></a>
 &nbsp;
 <img src="https://img.shields.io/badge/rust-100%25-f0f6fc?style=for-the-badge&labelColor=0d1117&logo=rust&logoColor=f0f6fc" alt="Rust" />
 &nbsp;
@@ -31,14 +31,14 @@
 
 Open a fresh **Claude Code** (or **Codex** / **OpenCode** / **Cursor**) session and paste this. The agent installs the Animus CLI, clones `animus-skills`, runs the setup script, and adds the project section to `CLAUDE.md` / `AGENTS.md`. You'll be running workflows in about a minute.
 
-> Install Animus + Animus Skills: run **`curl -fsSL https://raw.githubusercontent.com/launchapp-dev/ao/main/install.sh | bash`** to install the `animus` CLI, then **`git clone --single-branch --depth 1 https://github.com/launchapp-dev/animus-skills.git ~/.claude/skills/animus-skills && cd ~/.claude/skills/animus-skills && ./setup`** to link the skills and write `.mcp.json`. Then add an "Animus" section to CLAUDE.md (or AGENTS.md for Codex) listing the slash commands: `/animus-setup`, `/animus-getting-started`, `/animus-mcp-setup`, `/animus-workflow-authoring`, `/animus-pack-authoring`, `/animus-skill-authoring`, `/animus-troubleshooting`. Restart the agent so the new `animus` MCP server is picked up. From a project root, run `/animus-setup` to scaffold `.animus/` and the first workflow.
+> Install Animus + Animus Skills: run **`curl -fsSL https://raw.githubusercontent.com/launchapp-dev/animus-cli/main/scripts/install.sh | bash`** to install the `animus` CLI (v0.4.4), then **`git clone --single-branch --depth 1 https://github.com/launchapp-dev/animus-skills.git ~/.claude/skills/animus-skills && cd ~/.claude/skills/animus-skills && ./setup`** to link the skills and write `.mcp.json`. Then add an "Animus" section to CLAUDE.md (or AGENTS.md for Codex) listing the slash commands: `/animus-setup`, `/animus-getting-started`, `/animus-mcp-setup`, `/animus-workflow-authoring`, `/animus-pack-authoring`, `/animus-skill-authoring`, `/animus-troubleshooting`. Restart the agent so the new `animus` MCP server is picked up. From a project root, run `/animus-setup` to scaffold `.animus/` and the first workflow.
 
 For Codex CLI, swap the clone path to `~/.codex/skills/animus-skills` and edit `AGENTS.md` instead of `CLAUDE.md`.
 
 ### Manual install (no agent)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/launchapp-dev/ao/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/launchapp-dev/animus-cli/main/scripts/install.sh | bash
 ```
 
 The upstream installer currently targets macOS. On Linux and Windows, use a release archive or build from source.
@@ -48,10 +48,10 @@ The upstream installer currently targets macOS. On Linux and Windows, use a rele
 
 ```bash
 # Specific version
-AO_VERSION=v0.3.0 curl -fsSL https://raw.githubusercontent.com/launchapp-dev/ao/main/install.sh | bash
+ANIMUS_VERSION=v0.4.4 curl -fsSL https://raw.githubusercontent.com/launchapp-dev/animus-cli/main/scripts/install.sh | bash
 
 # Custom directory
-AO_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/launchapp-dev/ao/main/install.sh | bash
+ANIMUS_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/launchapp-dev/animus-cli/main/scripts/install.sh | bash
 ```
 
 </details>
@@ -77,7 +77,7 @@ Animus turns a single YAML file into an autonomous software delivery pipeline.
 
 You define agents, wire them into phases, compose phases into workflows, schedule everything with cron — and Animus's daemon handles the rest: dispatching tasks to AI agents in isolated git worktrees, managing quality gates, and merging the results.
 
-As of v0.4.0, Animus is plugin-first. The core daemon is the orchestration runtime; providers (Claude, Codex, Gemini, OpenCode, any OpenAI-compatible HTTP endpoint) and subject backends (native task queue, Linear, anything you scaffold from the template) ship as independent `animus-*` repositories under [launchapp-dev](https://github.com/launchapp-dev). `animus plugin install <owner/repo>` pulls them in.
+As of v0.4.4, Animus is plugin-first. The core daemon is the orchestration runtime; providers (Claude, Codex, Gemini, OpenCode, any OpenAI-compatible HTTP endpoint), subject backends (in-tree task + requirement adapters plus Linear / SQLite / markdown / requirements plugins), triggers (webhook, Slack), and log storage all ship as independent `animus-*` repositories under [launchapp-dev](https://github.com/launchapp-dev) — 14 repos live today. `animus plugin install <owner/repo>` pulls them in (with optional cosign signature verification). The daemon discovers installed plugins at startup, exposes a Unix-socket control protocol, and the CLI/MCP/WebAPI all route through it.
 
 ```
                 ┌──────────────────────────────────────────────────┐
@@ -105,22 +105,29 @@ cd your-project                                  # any git repo
 animus doctor                                    # check prerequisites and auto-remediate
 animus init --template task-queue --non-interactive   # scaffold .animus/ from the task-queue template
 
+# Install a provider plugin from a public GitHub release:
+animus plugin install launchapp-dev/animus-provider-claude
+
 # Option 1: run a workflow on demand
-animus task create --title "Add rate limiting" --task-type feature --priority high
+animus subject create --kind task --title "Add rate limiting" --task-type feature --priority high
 animus workflow run --task-id TASK-001
 
 # Option 2: go fully autonomous
-animus daemon start --autonomous                 # daemon executes ready tasks continuously
+animus daemon start --autonomous                 # daemon executes ready subjects continuously
 animus daemon health                             # verify it's up
-
-# Install a provider plugin from a public GitHub release:
-animus plugin install launchapp-dev/animus-provider-claude
+animus logs tail --follow                        # stream events as the daemon works
 
 # Scaffold a brand-new subject backend (Jira, Notion, anything with an API):
 animus plugin new --kind subject --name jira
 ```
 
 Bundled `init` templates: **`task-queue`**, **`conductor`**, **`direct-workflow`**.
+
+> **v0.4.4 note:** `animus task ...` and `animus requirements ...` were removed
+> in favor of `animus subject --kind <kind>`. The in-tree task and requirement
+> adapters auto-register so the verb surface (`list`, `get`, `create`, `update`,
+> `next`, `status`) works identically — just route through `subject --kind task`
+> or `subject --kind requirement`.
 
 ---
 
@@ -292,21 +299,29 @@ Every task gets its own git worktree. Agents work in parallel on separate branch
 
 ---
 
-## Cloud Sync (optional)
+## Plugin Ecosystem
 
-Sync your Animus project state to a backend so a second machine, a teammate, or a hosted runner can pick up the same queue and run history.
+The full v0.4.x ecosystem — 14 standalone GitHub repos under
+[launchapp-dev](https://github.com/launchapp-dev), each tagged `v0.1.x`
+with green CI:
+
+| Kind | Repos |
+|---|---|
+| **Protocol + tooling** | [`animus-protocol`](https://github.com/launchapp-dev/animus-protocol), [`animus-plugin-template`](https://github.com/launchapp-dev/animus-plugin-template), [`animus-plugin-registry`](https://github.com/launchapp-dev/animus-plugin-registry) |
+| **Subject backends** | [`animus-subject-linear`](https://github.com/launchapp-dev/animus-subject-linear), [`animus-subject-sqlite`](https://github.com/launchapp-dev/animus-subject-sqlite), [`animus-subject-markdown`](https://github.com/launchapp-dev/animus-subject-markdown), [`animus-subject-requirements`](https://github.com/launchapp-dev/animus-subject-requirements) |
+| **Providers** | [`animus-provider-claude`](https://github.com/launchapp-dev/animus-provider-claude), [`animus-provider-codex`](https://github.com/launchapp-dev/animus-provider-codex), [`animus-provider-gemini`](https://github.com/launchapp-dev/animus-provider-gemini), [`animus-provider-opencode`](https://github.com/launchapp-dev/animus-provider-opencode), [`animus-provider-oai`](https://github.com/launchapp-dev/animus-provider-oai) |
+| **Triggers** | [`animus-trigger-webhook`](https://github.com/launchapp-dev/animus-trigger-webhook), [`animus-trigger-slack`](https://github.com/launchapp-dev/animus-trigger-slack) |
+| **Log storage** | [`animus-log-storage-file`](https://github.com/launchapp-dev/animus-log-storage-file) |
 
 ```bash
-animus cloud login                     # OAuth device flow
-animus cloud link                      # link this repo to a cloud project
-animus cloud push                      # upload local config + state bundle
-animus cloud pull                      # pull remote bundle into this checkout
-animus cloud status                    # show link + last-sync state
-animus cloud deploy create             # provision a hosted runner for this repo
-animus cloud deploy {start|stop|status|destroy}
+animus plugin install launchapp-dev/animus-provider-claude
+animus plugin list                     # see what's installed with SIG column
+animus plugin new my-thing --kind subject   # scaffold from the template
 ```
 
-Cloud sync is opt-in — the daemon and CLI work fully offline without it.
+Installs verify a sigstore cosign signature when one is published. Use
+`--require-signature` to enforce. See
+[docs/architecture/plugin-signing.md](docs/architecture/plugin-signing.md).
 
 ---
 
@@ -362,26 +377,24 @@ The `./setup` script supports `--host claude|codex|opencode|cursor|slate|kiro|al
 ## CLI
 
 ```
-animus task          Create, list, update, prioritize tasks
+animus subject       Unified subject surface: list/get/create/update/next/status --kind <kind>
+                     (in-tree: kind=task, kind=requirement; plus any installed subject plugin)
 animus workflow      Run and manage multi-phase workflows
 animus daemon        Start/stop the autonomous scheduler (--autonomous, health, stream)
 animus queue         Inspect and manage the dispatch queue
 animus agent         Control agent runner processes
 animus runner        Inspect and restart the agent runner pool
 animus output        Stream and inspect agent output
-animus trigger       Manage event triggers (file_watcher, webhook, github_webhook)
+animus logs          Tail daemon events.jsonl or whichever log-storage plugin is active
+animus trigger       Manage event triggers (file_watcher, webhook, github_webhook, slack)
 animus pack          Install, list, and update workflow packs
-animus plugin        Manage stdio plugins
+animus plugin        Install, list, inspect, and scaffold stdio plugins
 animus skill         Install and inspect Animus skills
 animus model         Inspect the model registry and routing
 animus project       Per-project config and scope helpers
-animus requirements  Manage product requirements
 animus git           Worktree and branch helpers
-animus history       Inspect run history
-animus errors        Browse phase and runtime error reports
+animus history       Inspect run history (includes phase + runtime error reports)
 animus init          Initialize a project from a template registry or local template
-animus setup         Lower-level bootstrap and configuration wizard
-animus cloud         Cloud sync (login, link, push, pull, status, deploy)
 animus mcp           Start Animus as an MCP server
 animus web           Launch the embedded web dashboard
 animus status        Project overview at a glance
@@ -389,6 +402,12 @@ animus doctor        Health checks, auto-remediation, and troubleshooting
 ```
 
 Run `animus --help` for the full surface.
+
+**Removed in v0.4.4:** `animus task` (→ `animus subject --kind task`),
+`animus requirements` (→ `animus subject --kind requirement`),
+`animus cloud` (now an out-of-tree plugin), `animus setup`
+(→ `animus init`), `animus now` (→ `animus status`),
+`animus errors` (→ `animus history`).
 
 ---
 
@@ -416,18 +435,25 @@ Animus is a Rust workspace. The core crates:
 
 ### Plugin ecosystem
 
-Provider and subject backends live in their own GitHub repositories under [launchapp-dev](https://github.com/launchapp-dev) and are installed via `animus plugin install <owner/repo>`. Each is tagged `v0.1.0` with green CI:
+Provider, subject, trigger, and log-storage backends live in their own GitHub repositories under [launchapp-dev](https://github.com/launchapp-dev) and are installed via `animus plugin install <owner/repo>`. 14 repos live today, each tagged `v0.1.x` with green CI:
 
 | Repository | Purpose |
 |---|---|
-| [`animus-protocol`](https://github.com/launchapp-dev/animus-protocol) | Plugin protocol Rust crates published to crates.io (`animus-plugin-protocol`, `animus-subject-protocol`, `animus-provider-protocol`, `animus-plugin-runtime`, `animus-session-backend`) |
+| [`animus-protocol`](https://github.com/launchapp-dev/animus-protocol) | Plugin protocol Rust crates published to crates.io (`animus-plugin-protocol`, `animus-subject-protocol`, `animus-provider-protocol`, `animus-plugin-runtime`, `animus-session-backend`, `animus-control-protocol`). Latest: v0.1.3. |
 | [`animus-plugin-template`](https://github.com/launchapp-dev/animus-plugin-template) | Subject + provider scaffolds, consumed by `animus plugin new` |
-| [`animus-subject-linear`](https://github.com/launchapp-dev/animus-subject-linear) | Linear GraphQL subject backend (reference impl) |
+| [`animus-plugin-registry`](https://github.com/launchapp-dev/animus-plugin-registry) | Marketplace index (browse + search) |
+| [`animus-subject-linear`](https://github.com/launchapp-dev/animus-subject-linear) | Linear GraphQL subject backend |
+| [`animus-subject-sqlite`](https://github.com/launchapp-dev/animus-subject-sqlite) | SQLite-backed subject store |
+| [`animus-subject-markdown`](https://github.com/launchapp-dev/animus-subject-markdown) | Markdown-file subject store |
+| [`animus-subject-requirements`](https://github.com/launchapp-dev/animus-subject-requirements) | Requirement-tree subject backend |
 | [`animus-provider-claude`](https://github.com/launchapp-dev/animus-provider-claude) | Claude Code CLI provider |
 | [`animus-provider-codex`](https://github.com/launchapp-dev/animus-provider-codex) | Codex CLI provider |
 | [`animus-provider-gemini`](https://github.com/launchapp-dev/animus-provider-gemini) | Gemini CLI provider |
 | [`animus-provider-opencode`](https://github.com/launchapp-dev/animus-provider-opencode) | OpenCode CLI provider |
 | [`animus-provider-oai`](https://github.com/launchapp-dev/animus-provider-oai) | OpenAI-compatible HTTP provider |
+| [`animus-trigger-webhook`](https://github.com/launchapp-dev/animus-trigger-webhook) | Generic webhook trigger plugin |
+| [`animus-trigger-slack`](https://github.com/launchapp-dev/animus-trigger-slack) | Slack event trigger plugin |
+| [`animus-log-storage-file`](https://github.com/launchapp-dev/animus-log-storage-file) | File log-storage backend |
 
 ```mermaid
 graph LR
@@ -457,6 +483,7 @@ graph LR
 | macOS | Apple Silicon (M1+) | `aarch64-apple-darwin` |
 | macOS | Intel | `x86_64-apple-darwin` |
 | Linux | x86_64 | `x86_64-unknown-linux-gnu` |
+| Linux | arm64 | `aarch64-unknown-linux-gnu` |
 | Windows | x86_64 | `x86_64-pc-windows-msvc` |
 
 ---
@@ -472,7 +499,7 @@ This project is licensed under the [Elastic License 2.0 (ELv2)](LICENSE). You ma
 **Update**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/launchapp-dev/ao/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/launchapp-dev/animus-cli/main/scripts/install.sh | bash
 ```
 
 **Uninstall**

@@ -1,3 +1,7 @@
+# Animus daemon image — built for v0.4.4 (2026-05-21).
+# Bundles the CLI + runtime binaries; install provider plugins at runtime via
+# `animus plugin install launchapp-dev/animus-provider-<name>`.
+
 # ── Stage 1: Build all daemon binaries ─────────────────────────────────────────
 FROM rust:1.89-bookworm AS builder
 
@@ -49,8 +53,8 @@ RUN ARCH=$(dpkg --print-architecture | sed 's/^amd64$/x86_64/') \
     && chmod +x /usr/local/bin/opencode \
     && rm /tmp/opencode.tar.gz
 
-# Create Animus state directory
-RUN mkdir -p /root/.animus
+# Create Animus state directory + plugin install root
+RUN mkdir -p /root/.animus /root/.animus/plugins
 
 # Copy binaries from builder
 COPY --from=builder /src/target/release/animus /usr/local/bin/animus

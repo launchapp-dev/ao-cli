@@ -2,9 +2,12 @@
 set -euo pipefail
 
 # Animus CLI Installer for macOS
-# Usage: curl -fsSL https://raw.githubusercontent.com/launchapp-dev/ao/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/launchapp-dev/animus-cli/main/scripts/install.sh | bash
+#
+# Pin a specific version: ANIMUS_VERSION=v0.4.4 curl ... | bash
+# Latest tested release:  v0.4.4 (2026-05-21)
 
-REPO="launchapp-dev/ao"
+REPO="launchapp-dev/animus-cli"
 INSTALL_DIR="${ANIMUS_INSTALL_DIR:-${HOME}/.local/bin}"
 BINARIES=(animus agent-runner llm-cli-wrapper animus-oai-runner ao-workflow-runner)
 
@@ -62,7 +65,7 @@ main() {
 
   info "Installing Animus CLI ${version} for ${target}"
 
-  archive_name="ao-${version}-${target}.tar.gz"
+  archive_name="animus-${version}-${target}.tar.gz"
   archive_url="https://github.com/${REPO}/releases/download/${version}/${archive_name}"
   checksums_url="https://github.com/${REPO}/releases/download/${version}/SHA256SUMS.txt"
 
@@ -83,7 +86,7 @@ main() {
   info "Extracting..."
   tar -xzf "${TMPDIR_INSTALL}/${archive_name}" -C "${TMPDIR_INSTALL}"
 
-  local stage_dir="${TMPDIR_INSTALL}/ao-${version}-${target}"
+  local stage_dir="${TMPDIR_INSTALL}/animus-${version}-${target}"
   if [[ ! -d "${stage_dir}" ]]; then
     stage_dir="$(find "${TMPDIR_INSTALL}" -mindepth 1 -maxdepth 1 -type d | head -1)"
   fi
@@ -130,14 +133,16 @@ main() {
     animus --version
     echo ""
     info "Run 'animus doctor' in a git repo to check prerequisites"
-    info "Run 'animus setup' to initialize a project"
+    info "Run 'animus init' to initialize a project"
+    info "Then install a provider plugin, e.g.:"
+    info "  animus plugin install launchapp-dev/animus-provider-claude"
     info "'ao' is also available as an alias"
   elif command -v ao &>/dev/null; then
     info "Verifying installation..."
     ao --version
     echo ""
     info "Run 'ao doctor' in a git repo to check prerequisites"
-    info "Run 'ao setup' to initialize a project"
+    info "Run 'ao init' to initialize a project"
   else
     echo ""
     info "Restart your shell, then run 'animus --version' to verify"

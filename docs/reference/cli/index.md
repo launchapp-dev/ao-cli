@@ -64,29 +64,6 @@ animus
 │   ├── drop                 Drop (remove) a queued subject dispatch regardless of status
 │   └── reorder              Reorder queued subjects by subject id
 │
-├── task                     Manage tasks, dependencies, status, and operational controls
-│   ├── list                 List tasks with optional filters
-│   ├── next                 Get the next ready task
-│   ├── stats                Show task statistics
-│   ├── get                  Get a task by id
-│   ├── create               Create a task
-│   ├── update               Update a task
-│   ├── delete               Delete a task (confirmation required)
-│   ├── assign               Assign an assignee to a task
-│   ├── checklist-add        Add a checklist item
-│   ├── checklist-update     Mark a checklist item complete/incomplete
-│   ├── dependency-add       Add a task dependency edge
-│   ├── dependency-remove    Remove a task dependency edge
-│   ├── status               Set task status
-│   ├── history              Show workflow dispatch history for a task
-│   ├── pause                Pause a task
-│   ├── resume               Resume a paused task
-│   ├── cancel               Cancel a task (confirmation required)
-│   ├── reopen               Reopen a task from terminal state (Done/Cancelled) back to Backlog
-│   ├── set-priority         Set task priority
-│   ├── set-deadline         Set or clear task deadline
-│   └── rebalance-priority   Rebalance task priorities using a high-priority budget policy
-│
 ├── workflow                 Run and control workflow execution
 │   ├── list                 List workflows
 │   ├── get                  Get workflow details
@@ -126,41 +103,12 @@ animus
 │   ├── prompt
 │   │   └── render           Render workflow phase prompt text and prompt sections
 │
-├── requirements            Draft and manage project requirements
-│   ├── execute              Execute a requirement into implementation tasks and optional workflows
-│   ├── list                 List requirements
-│   ├── get                  Get a requirement by id
-│   ├── create               Create a requirement
-│   ├── update               Update a requirement
-│   ├── delete               Delete a requirement
-│   ├── graph
-│   │   ├── get              Read the requirement graph
-│   │   └── save             Replace the requirement graph with provided JSON
-│   ├── mockups
-│   │   ├── list             List requirement mockups
-│   │   ├── create           Create a mockup record
-│   │   ├── link             Link a mockup to requirements or flows
-│   │   └── get-file         Get a mockup file by relative path
-│   └── recommendations
-│       ├── scan             Run recommendation scan over current project context
-│       ├── list             List saved recommendation reports
-│       ├── apply            Apply a recommendation report
-│       ├── config-get       Read recommendation config
-│       └── config-update    Update recommendation config
-│
 ├── history                  Inspect and search execution history
 │   ├── task                 List history records for a task
 │   ├── get                  Get a history record by id
 │   ├── recent               List recent history records
 │   ├── search               Search history records
 │   └── cleanup              Remove old history records
-│
-├── errors                   Inspect and retry recorded operational errors
-│   ├── list                 List recorded errors
-│   ├── get                  Get an error by id
-│   ├── stats                Show error summary stats
-│   ├── retry                Retry an error by id
-│   └── cleanup              Remove old error records
 │
 ├── git                      Manage Git repositories, worktrees, and confirmation requests
 │   ├── repo
@@ -240,8 +188,6 @@ animus
 │   └── restart-stats        Show runner restart statistics
 │
 ├── status                   Show a unified project status dashboard
-├── now                      Show unified work inbox and current focus
-│   (no subcommands)         Displays: next task, active workflows, blocked items, stale items
 ├── output                   Inspect run output and artifacts
 │   ├── run                  Read run event payloads
 │   ├── phase-outputs        Read persisted workflow phase outputs
@@ -269,18 +215,16 @@ animus
 │   ├── next                 Highest-priority Ready subject for the kind, or null
 │   └── status               Set the subject's normalized status
 │
-├── setup                    Guided onboarding and configuration wizard
-├── cloud                    Sync tasks and requirements with a remote animus-sync server
-│   ├── login                Authenticate with animus cloud using device auth flow
-│   ├── setup                Configure the sync server connection for this project
-│   ├── push                 Push local tasks, requirements, and workflow config to the sync server
-│   ├── pull                 Pull tasks and requirements from the sync server into local state
-│   ├── status               Show sync configuration, cloud projects, daemon states, and active workflows
-│   ├── link                 Link this project (auto-detects from git remote or uses explicit project ID)
-│   └── deploy               Manage deployments on animus-cloud
-│
 └── doctor                   Run environment and configuration diagnostics
 ```
+
+> **v0.4.4 surfaces removed.** Use `animus subject --kind task` for the
+> former `animus task ...` tree and `animus subject --kind requirement`
+> for the former `animus requirements ...` tree. `animus setup` was
+> folded into `animus init`, `animus now` into `animus status`, and
+> `animus errors` into `animus history`. `animus cloud` was retired —
+> cloud sync ships as a separate plugin. See the v0.4.4 entry in
+> [CHANGELOG.md](../../../CHANGELOG.md) for the full surface map.
 
 ## Selected Command Flags
 

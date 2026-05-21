@@ -147,24 +147,32 @@ Web UI:
 
 Visible top-level command groups currently include:
 
-- `daemon`, `agent`, `project`, `queue`, `task`, `workflow`
-- `requirements`, `subject`
-- `history`, `errors`, `git`, `skill`, `model`, `runner`
-- `status`, `now`, `output`, `mcp`, `web`, `setup`, `init`, `doctor`
-- `pack`, `plugin`, `trigger`, `logs`, `cloud`
+- `daemon`, `agent`, `project`, `queue`, `workflow`, `subject`
+- `history`, `git`, `skill`, `model`, `runner`
+- `status`, `output`, `mcp`, `web`, `init`, `doctor`
+- `pack`, `plugin`, `trigger`, `logs`
 
 Hidden but implemented: none currently.
 
-For tasks and requirements, the v0.4.0 cut adds in-tree
-`SubjectBackend` adapters under the unified `animus subject --kind
-<kind>` surface. The legacy `animus task` and `animus requirements`
-command trees still exist alongside the subject surface; both routes
-read and write the same `~/.animus/<repo-scope>/` state. Set
+Tasks and requirements live exclusively under the unified
+`animus subject --kind <kind>` surface as of v0.4.4. The legacy
+`animus task` and `animus requirements` command trees were removed;
+the in-tree `InTreeTaskSubjectBackend` and
+`InTreeRequirementsSubjectBackend` adapters keep the underlying
+`orchestrator-core` task and requirements services backing
+`~/.animus/<repo-scope>/` state. Set
 `ANIMUS_DAEMON_DISABLE_BUILTIN_TASK_ADAPTER=1` or
 `ANIMUS_DAEMON_DISABLE_BUILTIN_REQUIREMENTS_ADAPTER=1` to opt out of
 either in-tree adapter. External subject_backend plugins claiming
 `kind=task` or `kind=requirement` automatically displace the in-tree
 adapter (the `SubjectRouter` rejects duplicate kinds at startup).
+
+Also removed in v0.4.4: `animus cloud`, `animus setup`, `animus now`,
+and `animus errors`. Use `animus init` (onboarding), `animus status`
+(unified inbox + status), and `animus history` (operational error
+history) instead. The matching MCP tool families (`ao_task_*`,
+`ao_requirements_*`, `ao_cloud_*`, `ao_errors_*`) were dropped at the
+same time.
 
 Subject CLI verbs available against any registered backend:
 

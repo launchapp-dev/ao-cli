@@ -4,13 +4,13 @@ All MCP tools exposed by `animus mcp serve`. These tools allow AI agents to inte
 
 Every tool accepts an optional `project_root` parameter to override the default project root.
 
-**v0.4.0 note — unified subject surface.** Tasks and requirements are also reachable through the
-unified `animus subject --kind <kind>` CLI verb (`list`, `get`, `create`, `update`, `next`,
-`status`). The in-tree `SubjectBackend` adapters at `kind=task` and `kind=requirement` read and
-write the same state the legacy `animus.task.*` / `animus.requirements.*` MCP tools touch. The
-legacy MCP tools remain available for v0.4.x; agents are encouraged to migrate to the subject
-surface for consistency with externally-installed subject_backend plugins (Linear, Jira, GitHub
-Issues, etc.).
+**v0.4.4 note — subject surface is now mandatory for tasks and requirements.** The legacy
+`animus.task.*` / `animus.requirements.*` / `animus.cloud.*` / `animus.errors.*` MCP tool
+families were removed. Use the unified `animus.subject.*` tools with `kind=task` or
+`kind=requirement`; they route through the same in-tree `SubjectBackend` adapters that back
+`~/.animus/<repo-scope>/` state, so behavior is identical to the dropped per-domain tools.
+External subject_backend plugins (Linear, Jira, GitHub Issues, etc.) plug into the same
+surface and can claim their own `kind`.
 
 ---
 
@@ -49,37 +49,21 @@ Issues, etc.).
 
 ---
 
-## Task Operations (20 tools)
+## Subject Operations (6 tools)
 
-### Query Tools (6)
-
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `animus.task.list` | List tasks with filters | `status`, `priority`, `task_type`, `assignee_type`, `tag[]`, `risk`, `linked_requirement`, `linked_architecture_entity`, `search`, `limit`, `offset`, `max_tokens` |
-| `animus.task.get` | Fetch full task details by ID | `id` |
-| `animus.task.prioritized` | List tasks sorted by priority | `status`, `priority`, `assignee_type`, `search`, `limit`, `offset`, `max_tokens` |
-| `animus.task.next` | Get the single highest priority ready task | `project_root` |
-| `animus.task.stats` | Aggregate task metrics by status, priority, type | `project_root` |
-| `animus.task.history` | View workflow dispatch history for a task | `id` |
-
-### Mutation Tools (14)
+The subject surface replaces the per-domain `animus.task.*` and `animus.requirements.*` tool
+families removed in v0.4.4. Set `kind` to `task` to drive the in-tree task adapter, `requirement`
+to drive the in-tree requirements adapter, or any other kind claimed by an installed
+`subject_backend` plugin (e.g. `linear`, `jira`, `github-issue`).
 
 | Tool | Description | Key Parameters |
 |---|---|---|
-| `animus.task.create` | Create a new task | `title`, `description`, `priority`, `task_type`, `linked_requirement[]`, `linked_architecture_entity[]`, `project_root` |
-| `animus.task.update` | Update task fields | `id`, `title`, `description`, `priority`, `status`, `assignee`, `linked_architecture_entity[]`, `replace_linked_architecture_entities`, `input_json` |
-| `animus.task.delete` | Delete a task (destructive) | `id`, `confirm`, `dry_run` |
-| `animus.task.status` | Update task status | `id`, `status` |
-| `animus.task.assign` | Assign task to user or agent | `id`, `assignee`, `assignee_type`, `agent_role`, `model` |
-| `animus.task.pause` | Pause a running task | `id` |
-| `animus.task.resume` | Resume a paused task | `id` |
-| `animus.task.cancel` | Cancel a task | `id`, `confirm`, `dry_run` |
-| `animus.task.set-priority` | Set task priority | `id`, `priority` |
-| `animus.task.set-deadline` | Set or clear task deadline | `id`, `deadline` |
-| `animus.task.checklist-add` | Add a checklist item to a task | `id`, `description` |
-| `animus.task.checklist-update` | Toggle checklist item completion | `id`, `item_id`, `completed` |
-| `animus.task.bulk-status` | Batch-update status for multiple tasks | `updates[]` (each: `id`, `status`), `on_error` |
-| `animus.task.bulk-update` | Batch-update fields for multiple tasks | `updates[]` (each: `id` + fields), `on_error` |
+| `animus.subject.list` | List subjects for a kind | `kind`, `status`, `priority`, `limit`, `offset`, `max_tokens` |
+| `animus.subject.get` | Fetch a subject by wire id (`<kind>:<native_id>`) | `kind`, `id` |
+| `animus.subject.create` | Create a subject | `kind`, `title`, `description`, `priority`, `status`, `labels[]`, `input_json` |
+| `animus.subject.update` | Patch a subject's fields | `kind`, `id`, `title`, `description`, `priority`, `status`, `labels[]`, `input_json` |
+| `animus.subject.next` | Highest-priority Ready subject for a kind, or null | `kind` |
+| `animus.subject.status` | Set a subject's normalized status | `kind`, `id`, `status` |
 
 ---
 
@@ -115,19 +99,6 @@ Issues, etc.).
 | `animus.workflow.definitions.list` | List workflow definitions | `project_root` |
 | `animus.workflow.config.get` | Read effective workflow configuration | `project_root` |
 | `animus.workflow.config.validate` | Validate workflow config for errors | `project_root` |
-
----
-
-## Requirements (6 tools)
-
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `animus.requirements.list` | List requirements with pagination | `limit`, `offset`, `max_tokens`, `status` |
-| `animus.requirements.get` | Get full requirement details by ID | `id` |
-| `animus.requirements.create` | Create a new requirement | `title`, `description`, `priority`, `acceptance_criterion[]` |
-| `animus.requirements.update` | Update requirement fields | `id`, `title`, `description`, `priority`, `status`, `acceptance_criterion[]` |
-| `animus.requirements.delete` | Delete a requirement | `id` |
-| `animus.requirements.refine` | Refine requirements with optional AI assistance | `id[]`, `focus`, `use_ai`, `tool`, `model`, `timeout_secs`, `start_runner`, `input_json` |
 
 ---
 

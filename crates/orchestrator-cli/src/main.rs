@@ -41,7 +41,6 @@ async fn run(cli: Cli) -> Result<()> {
     let (project_root, _) = resolve_project_root(&runtime_config);
     match cli.command {
         Command::Init(args) => services::operations::handle_init(args, &project_root, cli.json).await,
-        Command::Setup(args) => services::operations::handle_setup(args, &project_root, cli.json).await,
         Command::Doctor(args) => services::operations::handle_doctor(&project_root, args, cli.json).await,
         Command::Pack { command } => services::operations::handle_pack(command, &project_root, cli.json).await,
         Command::Plugin { command } => services::operations::handle_plugin(command, &project_root, cli.json).await,
@@ -53,10 +52,6 @@ async fn run(cli: Cli) -> Result<()> {
             services::runtime::handle_daemon_health_command(&project_root, cli.json).await
         }
         Command::History { command } => services::operations::handle_history(command, &project_root, cli.json).await,
-        Command::Now => services::operations::handle_now(&project_root, cli.json).await,
-        Command::Task { command: TaskCommand::Stats(args) } => {
-            services::runtime::handle_task_stats(args, &project_root, cli.json).await
-        }
         Command::Trigger { command } => services::operations::handle_trigger(command, &project_root, cli.json).await,
         Command::Logs { command } => services::operations::handle_logs(command, &project_root, cli.json).await,
         Command::Subject { command } => services::operations::handle_subject(command, &project_root, cli.json).await,
@@ -73,19 +68,10 @@ async fn run(cli: Cli) -> Result<()> {
                 Command::Queue { command } => {
                     services::operations::handle_queue(command, hub.clone(), &project_root, cli.json).await
                 }
-                Command::Task { command } => {
-                    services::runtime::handle_task(command, hub.clone(), &project_root, cli.json).await
-                }
                 Command::Workflow { command } => {
                     services::operations::handle_workflow(command, hub.clone(), &project_root, cli.json).await
                 }
-                Command::Requirements { command } => {
-                    services::operations::handle_requirements(command, hub.clone(), &project_root, cli.json).await
-                }
                 Command::History { .. } => unreachable!("command handled before hub creation"),
-                Command::Errors { command } => {
-                    services::operations::handle_errors(command, &project_root, cli.json).await
-                }
                 Command::Git { command } => services::operations::handle_git(command, &project_root, cli.json).await,
                 Command::Skill { command } => {
                     services::operations::handle_skill(command, &project_root, cli.json).await
@@ -98,7 +84,6 @@ async fn run(cli: Cli) -> Result<()> {
                 Command::Runner { command } => {
                     services::operations::handle_runner(command, hub.clone(), &project_root, cli.json).await
                 }
-                Command::Now => unreachable!("command handled before hub creation"),
                 Command::Output { command } => {
                     services::operations::handle_output(command, &project_root, cli.json).await
                 }
@@ -106,14 +91,10 @@ async fn run(cli: Cli) -> Result<()> {
                 Command::Web { command } => {
                     services::operations::handle_web(command, hub.clone(), &project_root, cli.json).await
                 }
-                Command::Cloud { command } => {
-                    services::cloud::handle_cloud(command, hub.clone(), &project_root, cli.json).await
-                }
                 Command::Status | Command::Version => {
                     unreachable!("command handled before runtime initialization")
                 }
                 Command::Init(_)
-                | Command::Setup(_)
                 | Command::Doctor(_)
                 | Command::Trigger { .. }
                 | Command::Logs { .. }

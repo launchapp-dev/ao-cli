@@ -43,30 +43,15 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: QueueCommand,
     },
-    /// Manage tasks, dependencies, status, and operational controls.
-    Task {
-        #[command(subcommand)]
-        command: TaskCommand,
-    },
     /// Run and control workflow execution.
     Workflow {
         #[command(subcommand)]
         command: WorkflowCommand,
     },
-    /// Draft and manage project requirements.
-    Requirements {
-        #[command(subcommand)]
-        command: RequirementsCommand,
-    },
     /// Inspect and search execution history.
     History {
         #[command(subcommand)]
         command: HistoryCommand,
-    },
-    /// Inspect and retry recorded operational errors.
-    Errors {
-        #[command(subcommand)]
-        command: ErrorsCommand,
     },
     /// Manage Git repositories, worktrees, and confirmation requests.
     Git {
@@ -100,8 +85,6 @@ pub(crate) enum Command {
     },
     /// Show a unified project status dashboard.
     Status,
-    /// Show unified work inbox and current focus (next task, active workflows, blocked/stale items).
-    Now,
     /// Inspect run output and artifacts.
     Output {
         #[command(subcommand)]
@@ -119,13 +102,6 @@ pub(crate) enum Command {
     },
     /// Initialize an Animus project from a template.
     Init(InitArgs),
-    /// Guided onboarding and configuration wizard.
-    Setup(SetupArgs),
-    /// Sync tasks and requirements with a remote ao-sync server.
-    Cloud {
-        #[command(subcommand)]
-        command: CloudCommand,
-    },
     /// Run environment and configuration diagnostics.
     Doctor(DoctorArgs),
     /// Inspect and manage event triggers.

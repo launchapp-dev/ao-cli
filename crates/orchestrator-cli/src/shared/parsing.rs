@@ -1,27 +1,12 @@
 use anyhow::Result;
-use orchestrator_core::{
-    DependencyType, Priority, ProjectType, RequirementPriority, RequirementQuerySort, RequirementStatus,
-    RequirementType, RiskLevel, TaskQuerySort, TaskStatus, TaskType, WorkflowQuerySort, WorkflowStatus,
-};
+use orchestrator_core::{ProjectType, WorkflowQuerySort, WorkflowStatus};
 use protocol::{AgentRunEvent, RunId};
 use serde_json::Value;
 
 use crate::{ensure_safe_run_id, event_matches_run, invalid_input_error, not_found_error, run_dir};
 
-const TASK_STATUS_EXPECTED: &str = "backlog|todo|ready|in-progress|in_progress|blocked|on-hold|on_hold|done|cancelled";
-const TASK_TYPE_EXPECTED: &str = "feature|bugfix|hotfix|refactor|docs|test|chore|experiment";
-const PRIORITY_EXPECTED: &str = "critical|high|medium|low";
-const TASK_SORT_EXPECTED: &str = "priority|updated-at|updated_at|created-at|created_at|id";
-const REQUIREMENT_PRIORITY_EXPECTED: &str = "must|should|could|wont|won't";
-const REQUIREMENT_STATUS_EXPECTED: &str = "draft|refined|planned|in-progress|in_progress|done";
-const REQUIREMENT_CATEGORY_EXPECTED: &str = "documentation|usability|runtime|integration|quality|release|security";
-const REQUIREMENT_TYPE_EXPECTED: &str =
-    "product|functional|non-functional|nonfunctional|non_functional|technical|other";
-const REQUIREMENT_SORT_EXPECTED: &str = "id|updated-at|updated_at|priority|status";
 const WORKFLOW_STATUS_EXPECTED: &str = "pending|running|paused|completed|failed|escalated|cancelled";
 const WORKFLOW_SORT_EXPECTED: &str = "started-at|started_at|status|workflow-ref|workflow_ref|id";
-const DEPENDENCY_TYPE_EXPECTED: &str =
-    "blocks-by|blocks_by|blocksby|blocked-by|blocked_by|blockedby|related-to|related_to|relatedto";
 const PROJECT_TYPE_EXPECTED: &str =
     "web-app|mobile-app|desktop-app|full-stack-platform|full-stack|saas|library|infrastructure|other";
 pub(crate) const COMMAND_HELP_HINT: &str = "run the same command with --help";
@@ -153,165 +138,6 @@ pub(crate) fn read_agent_status(project_root: &str, run_id: &str, jsonl_dir_over
     }))
 }
 
-pub(crate) fn parse_task_status(value: &str) -> Result<TaskStatus> {
-    value.parse().map_err(|_| invalid_value_error("status", value, TASK_STATUS_EXPECTED))
-}
-
-pub(crate) fn parse_task_type_opt(value: Option<&str>) -> Result<Option<TaskType>> {
-    let Some(value) = value else {
-        return Ok(None);
-    };
-
-    let normalized = value.trim().to_ascii_lowercase();
-    let task_type = match normalized.as_str() {
-        "feature" => TaskType::Feature,
-        "bugfix" => TaskType::Bugfix,
-        "hotfix" => TaskType::Hotfix,
-        "refactor" => TaskType::Refactor,
-        "docs" => TaskType::Docs,
-        "test" => TaskType::Test,
-        "chore" => TaskType::Chore,
-        "experiment" => TaskType::Experiment,
-        _ => return Err(invalid_value_error("task type", value, TASK_TYPE_EXPECTED)),
-    };
-
-    Ok(Some(task_type))
-}
-
-pub(crate) fn parse_priority_opt(value: Option<&str>) -> Result<Option<Priority>> {
-    let Some(value) = value else {
-        return Ok(None);
-    };
-
-    let normalized = value.trim().to_ascii_lowercase();
-    let priority = match normalized.as_str() {
-        "critical" => Priority::Critical,
-        "high" => Priority::High,
-        "medium" => Priority::Medium,
-        "low" => Priority::Low,
-        _ => return Err(invalid_value_error("priority", value, PRIORITY_EXPECTED)),
-    };
-
-    Ok(Some(priority))
-}
-
-pub(crate) fn parse_task_query_sort_opt(value: Option<&str>) -> Result<Option<TaskQuerySort>> {
-    let Some(value) = value else {
-        return Ok(None);
-    };
-
-    let normalized = value.trim().to_ascii_lowercase().replace('_', "-");
-    let sort = match normalized.as_str() {
-        "priority" => TaskQuerySort::Priority,
-        "updated-at" => TaskQuerySort::UpdatedAt,
-        "created-at" => TaskQuerySort::CreatedAt,
-        "id" => TaskQuerySort::Id,
-        _ => return Err(invalid_value_error("task sort", value, TASK_SORT_EXPECTED)),
-    };
-
-    Ok(Some(sort))
-}
-
-pub(crate) fn parse_requirement_priority_opt(value: Option<&str>) -> Result<Option<RequirementPriority>> {
-    let Some(value) = value else {
-        return Ok(None);
-    };
-
-    let normalized = value.trim().to_ascii_lowercase();
-    let priority = match normalized.as_str() {
-        "must" => RequirementPriority::Must,
-        "should" => RequirementPriority::Should,
-        "could" => RequirementPriority::Could,
-        "wont" | "won't" => RequirementPriority::Wont,
-        _ => return Err(invalid_value_error("requirement priority", value, REQUIREMENT_PRIORITY_EXPECTED)),
-    };
-
-    Ok(Some(priority))
-}
-
-pub(crate) fn parse_requirement_status_opt(value: Option<&str>) -> Result<Option<RequirementStatus>> {
-    let Some(value) = value else {
-        return Ok(None);
-    };
-
-    let normalized = value.trim().to_ascii_lowercase().replace('_', "-");
-    let status = match normalized.as_str() {
-        "draft" => RequirementStatus::Draft,
-        "refined" => RequirementStatus::Refined,
-        "planned" => RequirementStatus::Planned,
-        "in-progress" => RequirementStatus::InProgress,
-        "done" => RequirementStatus::Done,
-        _ => return Err(invalid_value_error("requirement status", value, REQUIREMENT_STATUS_EXPECTED)),
-    };
-
-    Ok(Some(status))
-}
-
-pub(crate) fn parse_requirement_category_opt(value: Option<&str>) -> Result<Option<String>> {
-    let Some(value) = value else {
-        return Ok(None);
-    };
-
-    let normalized = value.trim().to_ascii_lowercase();
-    let category = match normalized.as_str() {
-        "documentation" | "usability" | "runtime" | "integration" | "quality" | "release" | "security" => normalized,
-        _ => return Err(invalid_value_error("requirement category", value, REQUIREMENT_CATEGORY_EXPECTED)),
-    };
-
-    Ok(Some(category))
-}
-
-pub(crate) fn parse_requirement_type_opt(value: Option<&str>) -> Result<Option<RequirementType>> {
-    let Some(value) = value else {
-        return Ok(None);
-    };
-
-    let normalized = value.trim().to_ascii_lowercase().replace('_', "-");
-    let requirement_type = match normalized.as_str() {
-        "product" => RequirementType::Product,
-        "functional" => RequirementType::Functional,
-        "non-functional" => RequirementType::NonFunctional,
-        "technical" => RequirementType::Technical,
-        "other" => RequirementType::Other,
-        _ => return Err(invalid_value_error("requirement type", value, REQUIREMENT_TYPE_EXPECTED)),
-    };
-
-    Ok(Some(requirement_type))
-}
-
-pub(crate) fn parse_requirement_query_sort_opt(value: Option<&str>) -> Result<Option<RequirementQuerySort>> {
-    let Some(value) = value else {
-        return Ok(None);
-    };
-
-    let normalized = value.trim().to_ascii_lowercase().replace('_', "-");
-    let sort = match normalized.as_str() {
-        "id" => RequirementQuerySort::Id,
-        "updated-at" => RequirementQuerySort::UpdatedAt,
-        "priority" => RequirementQuerySort::Priority,
-        "status" => RequirementQuerySort::Status,
-        _ => return Err(invalid_value_error("requirement sort", value, REQUIREMENT_SORT_EXPECTED)),
-    };
-
-    Ok(Some(sort))
-}
-
-pub(crate) fn parse_risk_opt(value: Option<&str>) -> Result<Option<RiskLevel>> {
-    let Some(value) = value else {
-        return Ok(None);
-    };
-
-    let normalized = value.trim().to_ascii_lowercase();
-    let risk = match normalized.as_str() {
-        "high" => RiskLevel::High,
-        "medium" => RiskLevel::Medium,
-        "low" => RiskLevel::Low,
-        _ => return Err(invalid_value_error("risk level", value, "high|medium|low")),
-    };
-
-    Ok(Some(risk))
-}
-
 pub(crate) fn parse_workflow_status_opt(value: Option<&str>) -> Result<Option<WorkflowStatus>> {
     let Some(value) = value else {
         return Ok(None);
@@ -347,18 +173,6 @@ pub(crate) fn parse_workflow_query_sort_opt(value: Option<&str>) -> Result<Optio
     };
 
     Ok(Some(sort))
-}
-
-pub(crate) fn parse_dependency_type(value: &str) -> Result<DependencyType> {
-    let normalized = value.trim().to_ascii_lowercase();
-    let dependency_type = match normalized.as_str() {
-        "blocks-by" | "blocks_by" | "blocksby" => DependencyType::BlocksBy,
-        "blocked-by" | "blocked_by" | "blockedby" => DependencyType::BlockedBy,
-        "related-to" | "related_to" | "relatedto" => DependencyType::RelatedTo,
-        _ => return Err(invalid_value_error("dependency type", value, DEPENDENCY_TYPE_EXPECTED)),
-    };
-
-    Ok(dependency_type)
 }
 
 pub(crate) fn parse_project_type_opt(value: Option<&str>) -> Result<Option<ProjectType>> {
@@ -420,69 +234,9 @@ mod tests {
     }
 
     #[test]
-    fn parse_task_status_is_case_insensitive_and_trimmed() {
-        assert_eq!(
-            parse_task_status("  In_Progress  ").expect("mixed-case aliases should parse"),
-            TaskStatus::InProgress
-        );
-    }
-
-    #[test]
-    fn parse_task_status_rejects_unknown_values_with_actionable_message() {
-        let err = parse_task_status("invalid-status").expect_err("unknown status should fail");
-        let message = err.to_string();
-        assert!(message.contains("invalid status"));
-        assert!(message.contains("expected one of"));
-        assert!(message.contains("in-progress|in_progress"));
-        assert!(message.contains(COMMAND_HELP_HINT));
-    }
-
-    #[test]
-    fn parse_priority_rejects_unknown_values_with_actionable_message() {
-        let err = parse_priority_opt(Some("urgent")).expect_err("unknown priority should fail");
-        let message = err.to_string();
-        assert!(message.contains("invalid priority"));
-        assert!(message.contains(PRIORITY_EXPECTED));
-        assert!(message.contains(COMMAND_HELP_HINT));
-    }
-
-    #[test]
-    fn parse_priority_rejects_empty_values_with_explicit_placeholder() {
-        let err = parse_priority_opt(Some("   ")).expect_err("empty priority should fail");
-        let message = err.to_string();
-        assert!(message.contains("invalid priority '<empty>'"));
-        assert!(message.contains(COMMAND_HELP_HINT));
-    }
-
-    #[test]
-    fn parse_task_query_sort_accepts_aliases() {
-        assert_eq!(parse_task_query_sort_opt(Some("updated_at")).unwrap(), Some(TaskQuerySort::UpdatedAt));
-    }
-
-    #[test]
-    fn parse_requirement_filters_accept_aliases() {
-        assert_eq!(parse_requirement_priority_opt(Some("won't")).unwrap(), Some(RequirementPriority::Wont));
-        assert_eq!(parse_requirement_status_opt(Some("in_progress")).unwrap(), Some(RequirementStatus::InProgress));
-        assert_eq!(parse_requirement_type_opt(Some("non_functional")).unwrap(), Some(RequirementType::NonFunctional));
-        assert_eq!(
-            parse_requirement_query_sort_opt(Some("updated_at")).unwrap(),
-            Some(RequirementQuerySort::UpdatedAt)
-        );
-    }
-
-    #[test]
     fn parse_workflow_filters_accept_aliases() {
         assert_eq!(parse_workflow_status_opt(Some("running")).unwrap(), Some(WorkflowStatus::Running));
         assert_eq!(parse_workflow_query_sort_opt(Some("workflow_ref")).unwrap(), Some(WorkflowQuerySort::WorkflowRef));
-    }
-
-    #[test]
-    fn parse_dependency_type_rejects_unknown_values_with_actionable_message() {
-        let err = parse_dependency_type("unrelated").expect_err("unknown dependency type should fail");
-        let message = err.to_string();
-        assert!(message.contains("invalid dependency type"));
-        assert!(message.contains("blocks-by|blocks_by|blocksby"));
-        assert!(message.contains(COMMAND_HELP_HINT));
     }
 
     #[test]

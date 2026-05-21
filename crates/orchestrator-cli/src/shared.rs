@@ -19,7 +19,6 @@ mod tests {
     use super::*;
     use crate::AgentRunArgs;
     use anyhow::anyhow;
-    use orchestrator_core::{DependencyType, TaskStatus};
     use protocol::RunId;
     use std::path::Path;
 
@@ -43,21 +42,6 @@ mod tests {
     }
 
     use protocol::test_utils::EnvVarGuard;
-
-    #[test]
-    fn parse_task_status_supports_aliases() {
-        assert_eq!(parse_task_status("todo").unwrap(), TaskStatus::Backlog);
-        assert_eq!(parse_task_status("in-progress").unwrap(), TaskStatus::InProgress);
-        assert_eq!(parse_task_status("on_hold").unwrap(), TaskStatus::OnHold);
-        assert!(parse_task_status("nonsense").is_err());
-    }
-
-    #[test]
-    fn parse_dependency_type_supports_aliases() {
-        assert_eq!(parse_dependency_type("blocked_by").unwrap(), DependencyType::BlockedBy);
-        assert_eq!(parse_dependency_type("related-to").unwrap(), DependencyType::RelatedTo);
-        assert!(parse_dependency_type("invalid").is_err());
-    }
 
     #[test]
     fn runner_config_dir_defaults_to_project_scope() {

@@ -78,12 +78,6 @@ mod queue_command_args;
 mod queue_inputs;
 #[path = "ops_mcp/queue_tools.rs"]
 mod queue_tools;
-#[path = "ops_mcp/requirements_command_args.rs"]
-mod requirements_command_args;
-#[path = "ops_mcp/requirements_inputs.rs"]
-mod requirements_inputs;
-#[path = "ops_mcp/requirements_tools.rs"]
-mod requirements_tools;
 #[path = "ops_mcp/runner_tools.rs"]
 mod runner_tools;
 #[path = "ops_mcp/skill_tools.rs"]
@@ -94,14 +88,6 @@ mod subject_command_args;
 mod subject_inputs;
 #[path = "ops_mcp/subject_tools.rs"]
 mod subject_tools;
-#[path = "ops_mcp/task_command_args.rs"]
-mod task_command_args;
-#[path = "ops_mcp/task_inputs.rs"]
-mod task_inputs;
-#[path = "ops_mcp/task_mutation_tools.rs"]
-mod task_mutation_tools;
-#[path = "ops_mcp/task_query_tools.rs"]
-mod task_query_tools;
 #[path = "ops_mcp/workflow_command_args.rs"]
 mod workflow_command_args;
 #[path = "ops_mcp/workflow_definition_tools.rs"]
@@ -136,22 +122,11 @@ use output::build_output_tail_result;
 use output_inputs::*;
 use queue_command_args::{build_queue_enqueue_args, build_queue_reorder_args};
 use queue_inputs::*;
-use requirements_command_args::{
-    build_requirements_create_args, build_requirements_delete_args, build_requirements_get_args,
-    build_requirements_list_args, build_requirements_refine_args, build_requirements_update_args,
-};
-use requirements_inputs::*;
 use subject_command_args::{
     build_subject_create_args, build_subject_get_args, build_subject_list_args, build_subject_next_args,
     build_subject_status_args, build_subject_update_args,
 };
 use subject_inputs::*;
-use task_command_args::{
-    build_bulk_status_item_args, build_bulk_update_item_args, build_task_control_args, build_task_create_args,
-    build_task_delete_args, build_task_get_args, build_task_list_args, build_task_prioritized_args,
-    validate_bulk_status_input, validate_bulk_update_input,
-};
-use task_inputs::*;
 use workflow_command_args::{
     build_bulk_workflow_run_item_args, build_workflow_list_args, validate_workflow_run_multiple_input,
 };
@@ -259,10 +234,7 @@ pub(super) fn new_memory_mcp_server(default_project_root: &str) -> MemoryMcpServ
 }
 
 fn new_ao_mcp_server(default_project_root: &str) -> AoMcpServer {
-    let tool_router = AoMcpServer::task_query_tools()
-        + AoMcpServer::task_mutation_tools()
-        + AoMcpServer::requirements_tool_router()
-        + AoMcpServer::daemon_tool_router()
+    let tool_router = AoMcpServer::daemon_tool_router()
         + AoMcpServer::queue_tool_router()
         + AoMcpServer::agent_tool_router()
         + AoMcpServer::output_tool_router()

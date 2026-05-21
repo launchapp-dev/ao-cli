@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-05-21
+
+Cleanup release that drops the legacy CLI command surfaces v0.4.3 made redundant. The in-tree `SubjectBackend` adapters (`InTreeTaskSubjectBackend`, `InTreeRequirementsSubjectBackend`) plus the external subject_backend plugin ecosystem cover the use cases through the unified `animus subject --kind <kind>` surface.
+
+### Removed
+
+- **`feat(cli)`: delete legacy `animus task` command tree.** Replaced by `animus subject --kind task` against the in-tree task adapter. Underlying `orchestrator-core::services::task*` services are untouched and continue to back both the subject adapter and the daemon's workflow runtime.
+- **`feat(cli)`: delete legacy `animus requirements` command tree.** Replaced by `animus subject --kind requirement` against the in-tree requirements adapter. `orchestrator-core::services::requirements*` is preserved.
+- **`feat(cli)`: delete legacy `animus cloud` command tree.** Animus-sync legacy surface; cloud sync now ships as an out-of-tree plugin.
+- **`feat(cli)`: delete `animus setup` command.** `animus init` is the supported onboarding entry point.
+- **`feat(cli)`: delete `animus now` command.** Overlaps with `animus status`; consolidate on the unified status dashboard.
+- **`feat(cli)`: delete `animus errors` command tree.** Folded into `animus history`.
+- **`feat(mcp)`: delete `ao_task_*` / `animus.task.*` MCP tool family.** Use `animus.subject.*` with `kind=task`.
+- **`feat(mcp)`: delete `ao_requirements_*` / `animus.requirements.*` MCP tool family.** Use `animus.subject.*` with `kind=requirement`.
+- Companion cleanup: removes the now-unused `shared/parsing.rs` task/requirement value parsers, the `cli_types/shared_types.rs` task/requirement help-text constants, and the `services/runtime/stale_in_progress.rs` summary helpers (only the deleted task handler consumed them).
+
+### Preserved
+
+- `orchestrator-core` services for tasks and requirements stay intact — both the new subject adapters and the daemon's workflow runtime continue to depend on them.
+- All other CLI command groups (`daemon`, `agent`, `project`, `queue`, `workflow`, `history`, `git`, `skill`, `model`, `pack`, `plugin`, `runner`, `status`, `output`, `mcp`, `web`, `init`, `doctor`, `trigger`, `logs`, `subject`) are unchanged.
+
 ## [0.4.3] - 2026-05-21
 
 Controller-as-plugin migration plus the daemon-wiring foundation that makes the v0.4.x plugin ecosystem operational. CLI, MCP, and WebAPI all route through the daemon's new Unix-socket control protocol when the daemon is running, falling back to in-process calls when it isn't.
@@ -24,7 +45,7 @@ Controller-as-plugin migration plus the daemon-wiring foundation that makes the 
 
 ### Deferred to v0.4.x patches
 
-- Legacy CLI command deletion (`Command::Task`, `Command::Requirements`, hidden `Review`, `Qa`) plus matching MCP tools (`ao_task_*`, `ao_requirements_*`). The in-tree task/requirements services keep working via the new SubjectBackend adapters; deletion is a follow-up cleanup commit.
+- Legacy CLI command deletion (`Command::Task`, `Command::Requirements`, hidden `Review`, `Qa`) plus matching MCP tools (`ao_task_*`, `ao_requirements_*`). The in-tree task/requirements services keep working via the new SubjectBackend adapters; deletion is a follow-up cleanup commit. (Shipped in v0.4.4.)
 - `workflows_list` web-api migration (router + OpenAPI contract change required)
 - `queue_reorder` web-api migration (multi-id wire support needed)
 - TTL eviction for the session-keyed host cache (deferred from the cancel-keep-host-alive MVP)

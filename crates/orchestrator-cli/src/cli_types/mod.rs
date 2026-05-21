@@ -1,8 +1,6 @@
 mod agent_types;
-mod cloud_types;
 mod daemon_types;
 mod doctor_types;
-mod errors_types;
 mod git_types;
 mod history_types;
 mod init_types;
@@ -15,23 +13,18 @@ mod plugin_types;
 mod queue_types;
 
 mod project_types;
-mod requirements_types;
 mod root_types;
 mod runner_types;
-mod setup_types;
 mod shared_types;
 mod skill_types;
 mod subject_types;
-mod task_types;
 mod trigger_types;
 mod web_types;
 mod workflow_types;
 
 pub(crate) use agent_types::*;
-pub(crate) use cloud_types::*;
 pub(crate) use daemon_types::*;
 pub(crate) use doctor_types::*;
-pub(crate) use errors_types::*;
 pub(crate) use git_types::*;
 pub(crate) use history_types::*;
 pub(crate) use init_types::*;
@@ -44,14 +37,11 @@ pub(crate) use plugin_types::*;
 pub(crate) use queue_types::*;
 
 pub(crate) use project_types::*;
-pub(crate) use requirements_types::*;
 pub(crate) use root_types::*;
 pub(crate) use runner_types::*;
-pub(crate) use setup_types::*;
 pub(crate) use shared_types::*;
 pub(crate) use skill_types::*;
 pub(crate) use subject_types::*;
-pub(crate) use task_types::*;
 pub(crate) use trigger_types::*;
 pub(crate) use web_types::*;
 pub(crate) use workflow_types::*;
@@ -150,19 +140,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_requirements_execute_with_single_id() {
-        let cli = Cli::try_parse_from(["animus", "requirements", "execute", "--id", "REQ-123"])
-            .expect("requirements execute should parse");
-
-        match cli.command {
-            Command::Requirements { command: RequirementsCommand::Execute(args) } => {
-                assert_eq!(args.requirement_id, "REQ-123");
-            }
-            _ => panic!("expected requirements execute command"),
-        }
-    }
-
-    #[test]
     fn parses_workflow_run_with_positional_pipeline() {
         let cli = Cli::try_parse_from(["animus", "workflow", "run", "animus.task/standard", "--task-id", "TASK-123"])
             .expect("workflow run should parse");
@@ -177,12 +154,6 @@ mod tests {
     }
 
     #[test]
-    fn rejects_removed_task_prioritized_command() {
-        let error = Cli::try_parse_from(["animus", "task", "prioritized"]).expect_err("removed command should fail");
-        assert_eq!(error.kind(), ErrorKind::InvalidSubcommand);
-    }
-
-    #[test]
     fn rejects_removed_workflow_update_definition_command() {
         let error =
             Cli::try_parse_from(["animus", "workflow", "update-definition"]).expect_err("removed command should fail");
@@ -190,67 +161,41 @@ mod tests {
     }
 
     #[test]
-    fn parses_cloud_deploy_create_command() {
-        let cli = Cli::try_parse_from([
-            "animus",
-            "cloud",
-            "deploy",
-            "create",
-            "--app-name",
-            "test-app",
-            "--region",
-            "fra",
-            "--machine-size",
-            "shared-cpu-1x",
-        ])
-        .expect("cloud deploy create should parse");
-
-        match cli.command {
-            Command::Cloud { command: CloudCommand::Deploy { command: DeployCommand::Create(args) } } => {
-                assert_eq!(args.app_name, "test-app");
-                assert_eq!(args.region, "fra");
-                assert_eq!(args.machine_size, "shared-cpu-1x");
-            }
-            _ => panic!("expected cloud deploy create command"),
-        }
+    fn rejects_removed_task_command_tree() {
+        let error = Cli::try_parse_from(["animus", "task", "list"]).expect_err("legacy task tree should be removed");
+        assert_eq!(error.kind(), ErrorKind::InvalidSubcommand);
     }
 
     #[test]
-    fn parses_cloud_deploy_start_command() {
-        let cli = Cli::try_parse_from(["animus", "cloud", "deploy", "start", "--app-name", "test-app"])
-            .expect("cloud deploy start should parse");
-
-        match cli.command {
-            Command::Cloud { command: CloudCommand::Deploy { command: DeployCommand::Start(args) } } => {
-                assert_eq!(args.app_name, "test-app");
-            }
-            _ => panic!("expected cloud deploy start command"),
-        }
+    fn rejects_removed_requirements_command_tree() {
+        let error = Cli::try_parse_from(["animus", "requirements", "list"])
+            .expect_err("legacy requirements tree should be removed");
+        assert_eq!(error.kind(), ErrorKind::InvalidSubcommand);
     }
 
     #[test]
-    fn parses_cloud_deploy_stop_command() {
-        let cli = Cli::try_parse_from(["animus", "cloud", "deploy", "stop", "--app-name", "test-app"])
-            .expect("cloud deploy stop should parse");
-
-        match cli.command {
-            Command::Cloud { command: CloudCommand::Deploy { command: DeployCommand::Stop(args) } } => {
-                assert_eq!(args.app_name, "test-app");
-            }
-            _ => panic!("expected cloud deploy stop command"),
-        }
+    fn rejects_removed_cloud_command_tree() {
+        let error =
+            Cli::try_parse_from(["animus", "cloud", "status"]).expect_err("legacy cloud tree should be removed");
+        assert_eq!(error.kind(), ErrorKind::InvalidSubcommand);
     }
 
     #[test]
-    fn parses_cloud_deploy_status_command() {
-        let cli = Cli::try_parse_from(["animus", "cloud", "deploy", "status", "--app-name", "test-app"])
-            .expect("cloud deploy status should parse");
+    fn rejects_removed_errors_command_tree() {
+        let error =
+            Cli::try_parse_from(["animus", "errors", "list"]).expect_err("legacy errors tree should be removed");
+        assert_eq!(error.kind(), ErrorKind::InvalidSubcommand);
+    }
 
-        match cli.command {
-            Command::Cloud { command: CloudCommand::Deploy { command: DeployCommand::Status(args) } } => {
-                assert_eq!(args.app_name, "test-app");
-            }
-            _ => panic!("expected cloud deploy status command"),
-        }
+    #[test]
+    fn rejects_removed_setup_command() {
+        let error = Cli::try_parse_from(["animus", "setup"]).expect_err("legacy setup command should be removed");
+        assert_eq!(error.kind(), ErrorKind::InvalidSubcommand);
+    }
+
+    #[test]
+    fn rejects_removed_now_command() {
+        let error = Cli::try_parse_from(["animus", "now"]).expect_err("legacy now command should be removed");
+        assert_eq!(error.kind(), ErrorKind::InvalidSubcommand);
     }
 }

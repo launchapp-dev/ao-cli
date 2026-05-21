@@ -633,8 +633,8 @@ async fn handle_plugin_list(args: PluginListArgs, project_root: &str, json: bool
     // pulls richer rows from the on-disk install index. JSON mode
     // round-trips through the wire's PluginListResponse shape (which is
     // the same shape MCP/WebAPI will surface in C7/C8).
-    use crate::services::control_client::ControlClient;
     use animus_control_protocol::types::PluginListRequest as WirePluginListRequest;
+    use orchestrator_daemon_runtime::control::ControlClient;
 
     if json {
         let project_root_path = std::path::Path::new(project_root);
@@ -642,7 +642,7 @@ async fn handle_plugin_list(args: PluginListArgs, project_root: &str, json: bool
             let request = WirePluginListRequest { include_warnings: true, kind: None };
             match client.plugin_list(request).await {
                 Ok(response) => return print_value(response, true),
-                Err(err) if crate::services::control_client::is_method_unavailable(&err) => {
+                Err(err) if orchestrator_daemon_runtime::control::is_method_unavailable(&err) => {
                     tracing::debug!(error = %err, "plugin/list wire returned unavailable; falling back to local");
                 }
                 Err(err) => return Err(err),
@@ -756,8 +756,8 @@ fn find_plugin(project_root: &str, name: &str, include_system_path: bool) -> Res
 }
 
 async fn handle_plugin_info(args: PluginInfoArgs, project_root: &str, json: bool) -> Result<()> {
-    use crate::services::control_client::ControlClient;
     use animus_control_protocol::types::PluginInfoRequest as WirePluginInfoRequest;
+    use orchestrator_daemon_runtime::control::ControlClient;
 
     if json {
         let project_root_path = std::path::Path::new(project_root);
@@ -765,7 +765,7 @@ async fn handle_plugin_info(args: PluginInfoArgs, project_root: &str, json: bool
             let request = WirePluginInfoRequest { name: args.name.clone() };
             match client.plugin_info(request).await {
                 Ok(response) => return print_value(response, true),
-                Err(err) if crate::services::control_client::is_method_unavailable(&err) => {
+                Err(err) if orchestrator_daemon_runtime::control::is_method_unavailable(&err) => {
                     tracing::debug!(error = %err, "plugin/info wire returned unavailable; falling back to local");
                 }
                 Err(err) => return Err(err),
@@ -789,8 +789,8 @@ async fn handle_plugin_info(args: PluginInfoArgs, project_root: &str, json: bool
 }
 
 async fn handle_plugin_call(args: PluginCallArgs, project_root: &str, json: bool) -> Result<()> {
-    use crate::services::control_client::ControlClient;
     use animus_control_protocol::types::PluginCallRequest as WirePluginCallRequest;
+    use orchestrator_daemon_runtime::control::ControlClient;
 
     let params = match args.params {
         Some(raw) => Some(serde_json::from_str::<Value>(&raw).context("--params must be valid JSON")?),
@@ -807,7 +807,7 @@ async fn handle_plugin_call(args: PluginCallArgs, project_root: &str, json: bool
             };
             match client.plugin_call(request).await {
                 Ok(response) => return print_value(response, true),
-                Err(err) if crate::services::control_client::is_method_unavailable(&err) => {
+                Err(err) if orchestrator_daemon_runtime::control::is_method_unavailable(&err) => {
                     tracing::debug!(error = %err, "plugin/call wire returned unavailable; falling back to local");
                 }
                 Err(err) => return Err(err),
@@ -827,8 +827,8 @@ async fn handle_plugin_call(args: PluginCallArgs, project_root: &str, json: bool
 }
 
 async fn handle_plugin_ping(args: PluginPingArgs, project_root: &str, json: bool) -> Result<()> {
-    use crate::services::control_client::ControlClient;
     use animus_control_protocol::types::PluginPingRequest as WirePluginPingRequest;
+    use orchestrator_daemon_runtime::control::ControlClient;
 
     if json {
         let project_root_path = std::path::Path::new(project_root);
@@ -836,7 +836,7 @@ async fn handle_plugin_ping(args: PluginPingArgs, project_root: &str, json: bool
             let request = WirePluginPingRequest { name: args.name.clone() };
             match client.plugin_ping(request).await {
                 Ok(response) => return print_value(response, true),
-                Err(err) if crate::services::control_client::is_method_unavailable(&err) => {
+                Err(err) if orchestrator_daemon_runtime::control::is_method_unavailable(&err) => {
                     tracing::debug!(error = %err, "plugin/ping wire returned unavailable; falling back to local");
                 }
                 Err(err) => return Err(err),

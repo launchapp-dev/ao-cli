@@ -128,8 +128,8 @@ async fn try_agent_run_via_control(
     project_root: &str,
     args: &AgentRunArgs,
 ) -> Result<Option<animus_control_protocol::types::AgentRunResult>> {
-    use crate::services::control_client::{is_method_unavailable, ControlClient};
     use animus_control_protocol::types::AgentRunRequest as WireRequest;
+    use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
 
     let project_root_path = Path::new(project_root);
     let Some(client) = ControlClient::try_connect(project_root_path).await? else {

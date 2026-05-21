@@ -34,6 +34,7 @@
 //! from starting the server. Useful for tests of the in-process fallback
 //! path while C6/C7/C8 land.
 
+pub mod client;
 pub mod connection;
 pub mod dispatch;
 pub mod routing;
@@ -43,6 +44,7 @@ pub mod streaming;
 #[cfg(test)]
 mod tests;
 
+pub use client::{is_method_unavailable, ControlClient};
 pub use connection::ControlConnection;
 pub use dispatch::{InProcessSurface, InProcessSurfaceBuilder};
 pub use routing::{AgentRouting, DaemonOpsRouting, PluginRouting, QueueRouting, WorkflowRouting};

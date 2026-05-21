@@ -97,10 +97,12 @@ pub(crate) async fn handle_daemon_status_command(project_root: &str, json: bool)
     // `animus daemon status` keeps working when the daemon is offline.
     if json {
         let project_root_path = Path::new(project_root);
-        if let Some(client) = crate::services::control_client::ControlClient::try_connect(project_root_path).await? {
+        if let Some(client) =
+            orchestrator_daemon_runtime::control::ControlClient::try_connect(project_root_path).await?
+        {
             match client.daemon_status().await {
                 Ok(response) => return print_value(response, true),
-                Err(err) if crate::services::control_client::is_method_unavailable(&err) => {
+                Err(err) if orchestrator_daemon_runtime::control::is_method_unavailable(&err) => {
                     tracing::debug!(error = %err, "daemon/status wire unavailable; falling back to local");
                 }
                 Err(err) => return Err(err),
@@ -125,10 +127,12 @@ pub(crate) async fn handle_daemon_status_command(project_root: &str, json: bool)
 pub(crate) async fn handle_daemon_health_command(project_root: &str, json: bool) -> Result<()> {
     if json {
         let project_root_path = Path::new(project_root);
-        if let Some(client) = crate::services::control_client::ControlClient::try_connect(project_root_path).await? {
+        if let Some(client) =
+            orchestrator_daemon_runtime::control::ControlClient::try_connect(project_root_path).await?
+        {
             match client.daemon_health().await {
                 Ok(response) => return print_value(response, true),
-                Err(err) if crate::services::control_client::is_method_unavailable(&err) => {
+                Err(err) if orchestrator_daemon_runtime::control::is_method_unavailable(&err) => {
                     tracing::debug!(error = %err, "daemon/health wire unavailable; falling back to local");
                 }
                 Err(err) => return Err(err),
@@ -654,11 +658,11 @@ pub(crate) async fn handle_daemon(
             // the daemon is offline.
             if json {
                 if let Some(client) =
-                    crate::services::control_client::ControlClient::try_connect(Path::new(project_root)).await?
+                    orchestrator_daemon_runtime::control::ControlClient::try_connect(Path::new(project_root)).await?
                 {
                     match client.daemon_agents().await {
                         Ok(response) => return print_value(response, true),
-                        Err(err) if crate::services::control_client::is_method_unavailable(&err) => {
+                        Err(err) if orchestrator_daemon_runtime::control::is_method_unavailable(&err) => {
                             tracing::debug!(error = %err, "daemon/agents wire unavailable; falling back to local");
                         }
                         Err(err) => return Err(err),

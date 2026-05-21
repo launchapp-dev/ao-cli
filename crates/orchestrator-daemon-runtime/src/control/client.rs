@@ -32,6 +32,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::control::control_socket_path;
 use animus_control_protocol::{
     method as method_names,
     types::{
@@ -48,7 +49,6 @@ use animus_control_protocol::{
 };
 use animus_plugin_protocol::{error_codes, RpcRequest, RpcResponse};
 use anyhow::{anyhow, Context, Result};
-use orchestrator_daemon_runtime::control::control_socket_path;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};

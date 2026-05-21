@@ -1761,7 +1761,7 @@ fn build_cli_error_payload_preserves_json_like_error_text() {
 //    matching the `animus subject` surface.
 //
 // The end-to-end "actually fires the control socket" coverage lives in
-// `crate::services::control_client::tests` and the daemon-runtime
+// `orchestrator_daemon_runtime::control::client::tests` and the daemon-runtime
 // control server tests; MCP→CLI→ControlClient is verified by
 // composition.
 // =====================================================================
@@ -1805,8 +1805,8 @@ fn mcp_queue_list_falls_back_to_local_when_socket_missing() {
     let args = vec!["queue".to_string(), "list".to_string()];
     assert_eq!(args, vec!["queue".to_string(), "list".to_string()]);
     // Symbolic check: the actual fallback behavior is unit-tested in
-    // control_client.rs (`try_connect_returns_none_when_socket_missing`)
-    // and ops_queue.rs.
+    // orchestrator-daemon-runtime's control/client.rs
+    // (`try_connect_returns_none_when_socket_missing`) and ops_queue.rs.
 }
 
 #[test]

@@ -214,8 +214,8 @@ pub(crate) async fn handle_queue(
 async fn try_queue_list_via_control(
     project_root: &str,
 ) -> Result<Option<animus_control_protocol::types::QueueListResponse>> {
-    use crate::services::control_client::{is_method_unavailable, ControlClient};
     use animus_control_protocol::types::QueueListRequest as WireRequest;
+    use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
 
     let project_root_path = Path::new(project_root);
     let Some(client) = ControlClient::try_connect(project_root_path).await? else {
@@ -232,7 +232,7 @@ async fn try_queue_list_via_control(
 }
 
 async fn try_queue_stats_via_control(project_root: &str) -> Result<Option<animus_control_protocol::types::QueueStats>> {
-    use crate::services::control_client::{is_method_unavailable, ControlClient};
+    use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
 
     let project_root_path = Path::new(project_root);
     let Some(client) = ControlClient::try_connect(project_root_path).await? else {
@@ -252,8 +252,8 @@ async fn try_queue_enqueue_via_control(
     project_root: &str,
     task_id: &str,
 ) -> Result<Option<animus_control_protocol::types::QueueEntry>> {
-    use crate::services::control_client::{is_method_unavailable, ControlClient};
     use animus_control_protocol::types::QueueEnqueueRequest as WireRequest;
+    use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
 
     let project_root_path = Path::new(project_root);
     let Some(client) = ControlClient::try_connect(project_root_path).await? else {
@@ -271,8 +271,8 @@ async fn try_queue_enqueue_via_control(
 }
 
 async fn try_queue_drop_via_control(project_root: &str, id: &str) -> Result<Option<()>> {
-    use crate::services::control_client::{is_method_unavailable, ControlClient};
     use animus_control_protocol::types::QueueDropRequest as WireRequest;
+    use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
 
     let project_root_path = Path::new(project_root);
     let Some(client) = ControlClient::try_connect(project_root_path).await? else {
@@ -289,8 +289,8 @@ async fn try_queue_drop_via_control(project_root: &str, id: &str) -> Result<Opti
 }
 
 async fn try_queue_hold_via_control(project_root: &str, id: &str) -> Result<Option<()>> {
-    use crate::services::control_client::{is_method_unavailable, ControlClient};
     use animus_control_protocol::types::QueueHoldRequest as WireRequest;
+    use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
 
     let project_root_path = Path::new(project_root);
     let Some(client) = ControlClient::try_connect(project_root_path).await? else {
@@ -307,8 +307,8 @@ async fn try_queue_hold_via_control(project_root: &str, id: &str) -> Result<Opti
 }
 
 async fn try_queue_release_via_control(project_root: &str, id: &str) -> Result<Option<()>> {
-    use crate::services::control_client::{is_method_unavailable, ControlClient};
     use animus_control_protocol::types::QueueReleaseRequest as WireRequest;
+    use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
 
     let project_root_path = Path::new(project_root);
     let Some(client) = ControlClient::try_connect(project_root_path).await? else {

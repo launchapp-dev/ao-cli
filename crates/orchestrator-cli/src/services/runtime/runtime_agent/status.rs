@@ -153,8 +153,8 @@ async fn try_agent_status_via_control(
     project_root: &str,
     run_id: &str,
 ) -> Result<Option<animus_control_protocol::types::AgentStatus>> {
-    use crate::services::control_client::{is_method_unavailable, ControlClient};
     use animus_control_protocol::types::AgentStatusRequest as WireRequest;
+    use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
 
     let project_root_path = Path::new(project_root);
     let Some(client) = ControlClient::try_connect(project_root_path).await? else {
@@ -171,8 +171,8 @@ async fn try_agent_status_via_control(
 }
 
 async fn try_agent_cancel_via_control(project_root: &str, run_id: &str) -> Result<Option<()>> {
-    use crate::services::control_client::{is_method_unavailable, ControlClient};
     use animus_control_protocol::types::AgentCancelRequest as WireRequest;
+    use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
 
     let project_root_path = Path::new(project_root);
     let Some(client) = ControlClient::try_connect(project_root_path).await? else {

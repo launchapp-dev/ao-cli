@@ -602,8 +602,8 @@ async fn try_workflow_list_via_control(
     project_root: &str,
     args: &crate::WorkflowListArgs,
 ) -> Result<Option<animus_control_protocol::types::WorkflowListResponse>> {
-    use crate::services::control_client::{is_method_unavailable, ControlClient};
     use animus_control_protocol::types::WorkflowListRequest as WireRequest;
+    use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
 
     let project_root_path = Path::new(project_root);
     let Some(client) = ControlClient::try_connect(project_root_path).await? else {
@@ -630,8 +630,8 @@ async fn try_workflow_get_via_control(
     project_root: &str,
     id: &str,
 ) -> Result<Option<animus_control_protocol::types::WorkflowRun>> {
-    use crate::services::control_client::{is_method_unavailable, ControlClient};
     use animus_control_protocol::types::WorkflowGetRequest as WireRequest;
+    use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
 
     let project_root_path = Path::new(project_root);
     let Some(client) = ControlClient::try_connect(project_root_path).await? else {
@@ -652,8 +652,8 @@ async fn try_workflow_run_via_control(
     task_id: &str,
     definition: Option<String>,
 ) -> Result<Option<animus_control_protocol::types::WorkflowRunStart>> {
-    use crate::services::control_client::{is_method_unavailable, ControlClient};
     use animus_control_protocol::types::WorkflowRunRequest as WireRequest;
+    use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
 
     let project_root_path = Path::new(project_root);
     let Some(client) = ControlClient::try_connect(project_root_path).await? else {
@@ -671,8 +671,8 @@ async fn try_workflow_run_via_control(
 }
 
 async fn try_workflow_pause_via_control(project_root: &str, id: &str) -> Result<Option<()>> {
-    use crate::services::control_client::{is_method_unavailable, ControlClient};
     use animus_control_protocol::types::WorkflowPauseRequest as WireRequest;
+    use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
 
     let project_root_path = Path::new(project_root);
     let Some(client) = ControlClient::try_connect(project_root_path).await? else {
@@ -689,8 +689,8 @@ async fn try_workflow_pause_via_control(project_root: &str, id: &str) -> Result<
 }
 
 async fn try_workflow_resume_via_control(project_root: &str, id: &str) -> Result<Option<()>> {
-    use crate::services::control_client::{is_method_unavailable, ControlClient};
     use animus_control_protocol::types::WorkflowResumeRequest as WireRequest;
+    use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
 
     let project_root_path = Path::new(project_root);
     let Some(client) = ControlClient::try_connect(project_root_path).await? else {
@@ -707,8 +707,8 @@ async fn try_workflow_resume_via_control(project_root: &str, id: &str) -> Result
 }
 
 async fn try_workflow_cancel_via_control(project_root: &str, id: &str) -> Result<Option<()>> {
-    use crate::services::control_client::{is_method_unavailable, ControlClient};
     use animus_control_protocol::types::WorkflowCancelRequest as WireRequest;
+    use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
 
     let project_root_path = Path::new(project_root);
     let Some(client) = ControlClient::try_connect(project_root_path).await? else {

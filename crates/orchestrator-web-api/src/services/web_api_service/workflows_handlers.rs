@@ -137,12 +137,17 @@ fn resolve_requirement_workflow_ref(project_root: &str) -> Result<String, String
 
 impl WebApiService {
     pub async fn workflows_list(&self, query: WorkflowQuery) -> Result<ListPage<OrchestratorWorkflow>, WebApiError> {
-        // workflows_list stays local: handler returns ListPage<OrchestratorWorkflow>
-        // and the wire `WorkflowListResponse` is leaner than the historical
-        // OrchestratorWorkflow. Migrating requires a return-type contract
-        // change at the router + OpenAPI surface, which also needs the
-        // web UI's GraphQL client to track. Deferred to v0.4.8 (alongside
-        // animus-protocol v0.1.4 if a leaner wire shape needs new fields).
+        // workflows_list stays local: handler returns
+        // `ListPage<OrchestratorWorkflow>` (offset/total pagination,
+        // snake_case `WorkflowStatus`, full phase + machine-state shape)
+        // while the wire `WorkflowListResponse` is cursor-paginated and
+        // returns `WorkflowRunSummary` with kebab-case status and no
+        // `Escalated` variant. A faithful conversion requires either a
+        // lossy stub + Into impl that the web UI then has to ignore, or
+        // changing the handler's typed return contract through
+        // `paginated_success_response`, ETag computation, and a stack of
+        // typed tests. Deferred to v0.4.9 — wire is bumped to v0.1.4 in
+        // v0.4.8 but the migration of this handler is held back.
         Ok(self.context.hub.workflows().query(query).await?)
     }
 
@@ -321,17 +326,15 @@ impl WebApiService {
     }
 
     pub async fn workflows_resume(&self, id: &str, feedback: Option<String>) -> Result<Value, WebApiError> {
-        // Wire `workflow/resume` does not currently carry resume feedback;
-        // when feedback is present we stay on the local path so the
-        // checkpoint feedback survives. Adding the field to
-        // `WorkflowResumeRequest` requires bumping animus-protocol to
-        // v0.1.4 and updating every downstream consumer; deferred to
-        // v0.4.8 alongside the other web-api wire migrations.
-        if feedback.is_none() {
-            if let Some(()) = try_workflow_resume_via_control(&self.context.project_root, id).await {
-                self.publish_event("workflow-resume", json!({ "workflow_id": id }));
-                return Ok(json!({ "workflow_id": id, "status": "resumed" }));
-            }
+        // animus-protocol v0.1.4 added an optional `feedback` field on
+        // `WorkflowResumeRequest`, so the wire path now carries reviewer
+        // comments. Fall back to the local dispatcher only if the daemon
+        // is unreachable.
+        if let Some(()) =
+            try_workflow_resume_via_control(&self.context.project_root, id, feedback.clone()).await
+        {
+            self.publish_event("workflow-resume", json!({ "workflow_id": id }));
+            return Ok(json!({ "workflow_id": id, "status": "resumed" }));
         }
         let outcome = dispatch_workflow_event(
             self.context.hub.clone(),
@@ -677,7 +680,11 @@ async fn try_workflow_pause_via_control(project_root: &str, id: &str) -> Option<
     }
 }
 
-async fn try_workflow_resume_via_control(project_root: &str, id: &str) -> Option<()> {
+async fn try_workflow_resume_via_control(
+    project_root: &str,
+    id: &str,
+    feedback: Option<String>,
+) -> Option<()> {
     use animus_control_protocol::types::WorkflowResumeRequest as WireRequest;
     use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
 
@@ -686,7 +693,10 @@ async fn try_workflow_resume_via_control(project_root: &str, id: &str) -> Option
         Ok(Some(c)) => c,
         _ => return None,
     };
-    match client.workflow_resume(WireRequest { id: id.to_string() }).await {
+    match client
+        .workflow_resume(WireRequest { id: id.to_string(), feedback })
+        .await
+    {
         Ok(_) => Some(()),
         Err(err) if is_method_unavailable(&err) => {
             tracing::debug!(error = %err, "workflow/resume wire unavailable; falling back to local");

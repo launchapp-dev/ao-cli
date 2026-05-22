@@ -696,7 +696,7 @@ async fn try_workflow_resume_via_control(project_root: &str, id: &str) -> Result
     let Some(client) = ControlClient::try_connect(project_root_path).await? else {
         return Ok(None);
     };
-    match client.workflow_resume(WireRequest { id: id.to_string() }).await {
+    match client.workflow_resume(WireRequest { id: id.to_string(), feedback: None }).await {
         Ok(_) => Ok(Some(())),
         Err(err) if is_method_unavailable(&err) => {
             tracing::debug!(error = %err, "workflow/resume wire returned unavailable; falling back to local");

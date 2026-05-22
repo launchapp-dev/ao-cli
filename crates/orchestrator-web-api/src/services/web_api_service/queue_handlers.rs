@@ -133,12 +133,14 @@ impl WebApiService {
         let request: QueueReorderRequest = parse_json_body(body)?;
         let project_root = &self.context.project_root;
 
-        // Wire `queue/reorder` is single-id + anchor + position while the
-        // local path takes a Vec of subject ids. The shapes are not
-        // compatible, so route stays local. Lifting requires adding a
-        // multi-id variant to `QueueReorderRequest` in animus-protocol
-        // (v0.1.4); deferred to v0.4.8 alongside the other web-api
-        // migrations.
+        // Prefer the daemon control wire (v0.1.4 added `subject_ids` for the
+        // multi-id form). Fall back to the local file path when the daemon
+        // isn't running or doesn't expose `queue/reorder`.
+        if let Some(()) = try_queue_reorder_via_control(project_root, request.subject_ids.clone()).await {
+            self.publish_event("queue-reorder", serde_json::json!({ "message": "queue reordered" }));
+            return Ok(serde_json::json!({ "reordered": true }));
+        }
+
         let updated = reorder_subjects(project_root, request.subject_ids)
             .map_err(|e| WebApiError::new("internal_error", format!("failed to reorder queue: {}", e), 1))?;
 
@@ -276,6 +278,38 @@ async fn try_queue_hold_via_control(project_root: &str, id: &str) -> Option<()> 
         }
         Err(err) => {
             tracing::debug!(error = %err, "queue/hold wire error; falling back to local");
+            None
+        }
+    }
+}
+
+async fn try_queue_reorder_via_control(project_root: &str, subject_ids: Vec<String>) -> Option<()> {
+    use animus_control_protocol::types::{QueueReorderPosition, QueueReorderRequest as WireRequest};
+    use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
+
+    if subject_ids.is_empty() {
+        return None;
+    }
+
+    let project_root_path = Path::new(project_root);
+    let client = match ControlClient::try_connect(project_root_path).await {
+        Ok(Some(c)) => c,
+        _ => return None,
+    };
+    let request = WireRequest {
+        id: None,
+        subject_ids,
+        anchor_id: None,
+        position: QueueReorderPosition::Back,
+    };
+    match client.queue_reorder(request).await {
+        Ok(_) => Some(()),
+        Err(err) if is_method_unavailable(&err) => {
+            tracing::debug!(error = %err, "queue/reorder wire unavailable; falling back to local");
+            None
+        }
+        Err(err) => {
+            tracing::debug!(error = %err, "queue/reorder wire error; falling back to local");
             None
         }
     }

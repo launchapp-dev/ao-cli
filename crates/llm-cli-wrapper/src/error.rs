@@ -12,6 +12,19 @@ pub enum Error {
     #[error("CLI execution failed: {0}")]
     ExecutionFailed(String),
 
+    /// The plugin's `initialize` handshake did not advertise the capability
+    /// the caller is trying to invoke (e.g. `agent/cancel` against a plugin
+    /// whose `capabilities.cancellation` is `false`). Pattern-match on this
+    /// variant instead of grepping `ExecutionFailed` strings when you want
+    /// to short-circuit gracefully.
+    #[error("plugin '{plugin}' does not advertise capability '{capability}'")]
+    CapabilityNotSupported {
+        /// Plugin name from the manifest / handshake.
+        plugin: String,
+        /// Capability that was missing (e.g. `"cancellation"`).
+        capability: String,
+    },
+
     #[error("CLI authentication required: {0}")]
     AuthenticationRequired(String),
 

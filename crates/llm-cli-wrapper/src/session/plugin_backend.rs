@@ -436,10 +436,10 @@ impl PluginSessionBackend {
         };
 
         if !cancellation {
-            return Err(Error::ExecutionFailed(format!(
-                "plugin '{}' does not advertise capability 'cancellation'; cancel rejected",
-                self.plugin_name
-            )));
+            return Err(Error::CapabilityNotSupported {
+                plugin: self.plugin_name.clone(),
+                capability: "cancellation".to_string(),
+            });
         }
 
         let request_future = host.request("agent/cancel".to_string(), Some(json!({ "session_id": session_id })));
@@ -741,6 +741,14 @@ mod tests {
         );
 
         let err = backend.dispatch_cancel("session-3").await.expect_err("cancel must error");
+        // Callers should be able to pattern-match the typed variant.
+        match &err {
+            Error::CapabilityNotSupported { capability, .. } => {
+                assert_eq!(capability, "cancellation");
+            }
+            other => panic!("expected CapabilityNotSupported, got: {other:?}"),
+        }
+        // And the Display impl is still descriptive for human-readable logs.
         let message = format!("{err}");
         assert!(
             message.contains("does not advertise capability 'cancellation'"),

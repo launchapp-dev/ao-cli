@@ -135,8 +135,10 @@ impl WebApiService {
 
         // Wire `queue/reorder` is single-id + anchor + position while the
         // local path takes a Vec of subject ids. The shapes are not
-        // compatible, so route stays local for now. v0.4.x cleanup will
-        // wire a multi-id reorder.
+        // compatible, so route stays local. Lifting requires adding a
+        // multi-id variant to `QueueReorderRequest` in animus-protocol
+        // (v0.1.4); deferred to v0.4.8 alongside the other web-api
+        // migrations.
         let updated = reorder_subjects(project_root, request.subject_ids)
             .map_err(|e| WebApiError::new("internal_error", format!("failed to reorder queue: {}", e), 1))?;
 

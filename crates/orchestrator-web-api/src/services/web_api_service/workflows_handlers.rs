@@ -140,7 +140,9 @@ impl WebApiService {
         // workflows_list stays local: handler returns ListPage<OrchestratorWorkflow>
         // and the wire `WorkflowListResponse` is leaner than the historical
         // OrchestratorWorkflow. Migrating requires a return-type contract
-        // change at the router + OpenAPI surface. Deferred to v0.4.x cleanup.
+        // change at the router + OpenAPI surface, which also needs the
+        // web UI's GraphQL client to track. Deferred to v0.4.8 (alongside
+        // animus-protocol v0.1.4 if a leaner wire shape needs new fields).
         Ok(self.context.hub.workflows().query(query).await?)
     }
 
@@ -321,7 +323,10 @@ impl WebApiService {
     pub async fn workflows_resume(&self, id: &str, feedback: Option<String>) -> Result<Value, WebApiError> {
         // Wire `workflow/resume` does not currently carry resume feedback;
         // when feedback is present we stay on the local path so the
-        // checkpoint feedback survives. v0.4.x cleanup will lift this.
+        // checkpoint feedback survives. Adding the field to
+        // `WorkflowResumeRequest` requires bumping animus-protocol to
+        // v0.1.4 and updating every downstream consumer; deferred to
+        // v0.4.8 alongside the other web-api wire migrations.
         if feedback.is_none() {
             if let Some(()) = try_workflow_resume_via_control(&self.context.project_root, id).await {
                 self.publish_event("workflow-resume", json!({ "workflow_id": id }));

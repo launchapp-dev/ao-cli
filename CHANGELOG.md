@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-05-22
+
+Wire-routing patch: the daemon's `daemon/logs` control method finally drives `animus logs tail`, and MCP gets the matching surface. Two of the three deferred web-api handlers stay deferred with v0.4.8-tagged notes; the cross-repo plugin runtime cascade ships in a separate window.
+
+### Features
+
+- **`feat(logs)`: route `animus logs tail` through the control wire when the daemon is up.** Adds `ControlClient::daemon_logs` (streaming consumer with a caller-side limit), wires the daemon's `daemon/logs` surface to read historical entries via the active `LogStorageDispatch`, and updates `ops_logs::handle_logs_tail` so the daemon-up branch no longer opens `events.jsonl` directly. Operators get a single transport regardless of which side is serving; the plugin live-tail path (long-lived `log_storage_backend` plugin host) stays deferred but the contract is now wire-first.
+- **`feat(mcp)`: add `animus.logs.tail` tool.** Mirrors the `animus.subject.*` pattern — typed input struct, args builder, `run_tool` shell-out — so agents can pull the daemon's log tail through MCP without re-implementing the wire-fallback logic.
+
+### Deferred to v0.4.8
+
+- **`web-api workflows_list`** keeps returning `ListPage<OrchestratorWorkflow>`. Migrating to the leaner wire `WorkflowListResponse` needs a router + OpenAPI contract change and a GraphQL/web-UI follow-up.
+- **`web-api queue_reorder`** stays on the local Vec-of-subject-ids path. Wire `QueueReorderRequest` is single-id + anchor + position; lifting requires a multi-id variant in animus-protocol v0.1.4.
+- **`web-api workflows_resume` with feedback** stays local. `WorkflowResumeRequest` lacks a feedback field on the wire; adding it needs an animus-protocol v0.1.4 bump.
+- **Plugin runtime `log::{info!, warn!, …}` macros + per-plugin cascade.** Building the `animus_plugin_runtime::log` macros and re-pinning the 10+ subject/provider/trigger/log-storage plugin repos onto v0.1.4 is a separate window.
+
 ## [0.4.6] - 2026-05-22
 
 CI workflow cleanup. Two workflows have been failing on every commit since v0.4.1:

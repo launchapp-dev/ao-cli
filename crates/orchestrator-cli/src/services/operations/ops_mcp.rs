@@ -54,6 +54,8 @@ mod list_guard;
 mod list_profiles;
 #[path = "ops_mcp/list_types.rs"]
 mod list_types;
+#[path = "ops_mcp/logs_tools.rs"]
+mod logs_tools;
 #[path = "ops_mcp/memory_tools.rs"]
 mod memory_tools;
 #[path = "ops_mcp/output.rs"]
@@ -72,8 +74,6 @@ mod output_tools;
 mod plugin_marketplace_tools;
 #[path = "ops_mcp/plugin_tools.rs"]
 mod plugin_tools;
-#[path = "ops_mcp/logs_tools.rs"]
-mod logs_tools;
 #[path = "ops_mcp/queue_command_args.rs"]
 mod queue_command_args;
 #[path = "ops_mcp/queue_inputs.rs"]

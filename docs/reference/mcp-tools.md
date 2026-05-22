@@ -67,6 +67,18 @@ to drive the in-tree requirements adapter, or any other kind claimed by an insta
 
 ---
 
+## Log Operations (1 tool)
+
+Surfaces the CLI's `animus logs tail` to MCP callers. Routes through the daemon
+control wire when the daemon is running, otherwise reads the in-tree
+`events.jsonl` fallback directly.
+
+| Tool | Description | Key Parameters |
+|---|---|---|
+| `animus.logs.tail` | Tail recent log entries from the active `log_storage_backend` | `plugin`, `level`, `since`, `limit`, `project_root` |
+
+---
+
 ## Workflow Operations (16 tools)
 
 ### Runtime Tools (9)

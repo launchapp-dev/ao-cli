@@ -51,7 +51,7 @@ use animus_control_protocol::{
     control_trait::{DaemonEventStream, DaemonLogStream, SubjectWatchStream},
     types::{
         AgentCancelRequest, AgentRunRequest, AgentRunResult, AgentStatus, AgentStatusRequest, DaemonAgentsResponse,
-        DaemonEventsRequest, DaemonHealthResponse, DaemonHealthStatus, DaemonLogsRequest,
+        DaemonEventsRequest, DaemonHealthResponse, DaemonHealthStatus, DaemonLogEntry, DaemonLogsRequest,
         DaemonRunEvent as WireDaemonRunEvent, DaemonStatusResponse, PluginBrowseRequest, PluginCallRequest,
         PluginCallResponse, PluginInfo, PluginInfoRequest, PluginInstallRequest, PluginInstallResponse,
         PluginListRequest, PluginListResponse, PluginPingRequest, PluginPingResponse, PluginSearchRequest,
@@ -68,6 +68,7 @@ use animus_control_protocol::{
 use animus_subject_protocol_wire::{Subject as WireSubject, SubjectChangedEvent};
 use tokio::sync::broadcast;
 
+use crate::log_storage::{resolve_log_storage_dispatch, LogStorageDispatch};
 use crate::subject_dispatch::SubjectPluginDispatch;
 
 use super::routing::{AgentRouting, DaemonOpsRouting, PluginRouting, QueueRouting, WorkflowRouting};
@@ -550,16 +551,50 @@ impl ControlSurface for InProcessSurface {
         Ok(Box::pin(stream))
     }
 
-    async fn daemon_logs(&self, _request: DaemonLogsRequest) -> Result<DaemonLogStream, ControlError> {
-        let bus = self
-            .log_bus
-            .as_ref()
-            .ok_or_else(|| ControlError::Unavailable("daemon log bus not initialized".to_string()))?;
-        let rx = bus.subscribe();
-        let stream = broadcast_to_stream(rx).map(|value| {
-            serde_json::from_value(value).map_err(|e| ControlError::Internal(format!("daemon/logs decode: {e}")))
-        });
-        Ok(Box::pin(stream))
+    async fn daemon_logs(&self, request: DaemonLogsRequest) -> Result<DaemonLogStream, ControlError> {
+        // v0.4.7: route through the active LogStorageDispatch so the
+        // historical tail is wire-driven (CLI `animus logs tail` no longer
+        // opens events.jsonl directly when the daemon is up). When a
+        // log_storage_backend plugin is installed the dispatch resolution
+        // records the plugin identity in its warnings; until a long-lived
+        // log-storage plugin host lands we still read the in-tree file
+        // for content, but the call goes through the wire so MCP and web
+        // surfaces share one transport.
+        //
+        // Streaming `follow=true` is not supported yet — the stream
+        // completes after the historical batch. When the log_bus is
+        // attached we tack live notifications onto the tail; otherwise we
+        // close after the historical batch.
+        let project_root = self.project_root.clone();
+        let limit = log_request_limit(&request);
+        let level_floor = request.level;
+        let plugin_filter = request.plugin.clone();
+        let since_filter = request.since;
+
+        let resolution = resolve_log_storage_dispatch(&project_root)
+            .map_err(|e| ControlError::Internal(format!("log dispatch resolution: {e}")))?;
+
+        let historical: Vec<DaemonLogEntry> = match resolution.selected.as_ref() {
+            LogStorageDispatch::InTree { project_root: pr } | LogStorageDispatch::Plugin { project_root: pr, .. } => {
+                read_in_tree_log_entries(pr, limit, level_floor, since_filter, plugin_filter.as_deref())
+            }
+        };
+
+        let historical_stream = futures_util::stream::iter(historical.into_iter().map(Ok));
+
+        if request.follow {
+            if let Some(bus) = self.log_bus.as_ref() {
+                let rx = bus.subscribe();
+                let live_stream = broadcast_to_stream(rx).map(|value| {
+                    serde_json::from_value(value)
+                        .map_err(|e| ControlError::Internal(format!("daemon/logs decode: {e}")))
+                });
+                return Ok(Box::pin(historical_stream.chain(live_stream)));
+            }
+            // follow=true but no bus: still send historical and close.
+        }
+
+        Ok(Box::pin(historical_stream))
     }
 
     // ----- Workflow ---------------------------------------------------
@@ -725,4 +760,198 @@ use futures_util::StreamExt;
 /// best we can do.
 fn broadcast_to_stream(rx: broadcast::Receiver<Value>) -> impl Stream<Item = Value> + Send + 'static {
     tokio_stream::wrappers::BroadcastStream::new(rx).filter_map(|res| async move { res.ok() })
+}
+
+/// Default cap on historical entries served by `daemon/logs`.
+///
+/// The wire request shape lacks a `limit` field, so we cap server-side to
+/// keep a single CLI invocation bounded. CLI callers stream the historical
+/// batch and stop after they've collected the limit they want.
+const DAEMON_LOGS_DEFAULT_LIMIT: usize = 200;
+
+/// Pluck the effective per-call limit from a [`DaemonLogsRequest`]. Today
+/// the wire request has no explicit limit; reserve the function so a
+/// future protocol bump that adds one needs to update exactly one place.
+fn log_request_limit(_request: &DaemonLogsRequest) -> usize {
+    DAEMON_LOGS_DEFAULT_LIMIT
+}
+
+/// Read historical entries from the project's in-tree `events.jsonl` and
+/// convert each row from [`orchestrator_logging::LogEntry`] into the
+/// protocol [`DaemonLogEntry`] shape. Filters mirror
+/// [`DaemonLogsRequest`].
+///
+/// Returns entries in chronological order (oldest first) so the streamed
+/// view matches how a human reads a tail. Plugin-backed dispatch falls
+/// through to the same file today because the long-lived log-storage
+/// plugin host is deferred — the file is the source of truth until a
+/// supervisor exists to relay `log_storage/tail` against the plugin.
+fn read_in_tree_log_entries(
+    project_root: &std::path::Path,
+    limit: usize,
+    level_floor: Option<animus_log_storage_protocol::LogLevel>,
+    since: Option<chrono::DateTime<chrono::Utc>>,
+    plugin_filter: Option<&str>,
+) -> Vec<DaemonLogEntry> {
+    use orchestrator_logging::Logger;
+    let logger = Logger::for_project(project_root);
+    // Map the wire level floor onto the in-tree Level enum. The wire has
+    // a Trace level that the in-tree reader does not — Trace requests
+    // degrade to Debug (the lowest in-tree level).
+    let level_filter = level_floor.map(wire_level_to_local);
+    let since_str = since.map(|ts| ts.to_rfc3339());
+
+    // Overscan and trim, matching the CLI reader's strategy so the
+    // returned set is the most recent `limit` matches even when many
+    // entries fail the plugin filter.
+    let pool = limit.saturating_mul(4).max(limit);
+    let raw = logger.read_entries_since(pool, None, level_filter, since_str.as_deref());
+
+    let mut filtered: Vec<orchestrator_logging::LogEntry> =
+        raw.into_iter().filter(|entry| plugin_matches(entry, plugin_filter)).collect();
+    if filtered.len() > limit {
+        let drop = filtered.len() - limit;
+        filtered.drain(0..drop);
+    }
+
+    filtered.into_iter().map(local_entry_to_wire).collect()
+}
+
+fn plugin_matches(entry: &orchestrator_logging::LogEntry, plugin_filter: Option<&str>) -> bool {
+    let Some(name) = plugin_filter else {
+        return true;
+    };
+    if entry.provider.as_deref() == Some(name) {
+        return true;
+    }
+    entry.meta.as_ref().and_then(|v| v.get("plugin")).and_then(|v| v.as_str()).map(|p| p == name).unwrap_or(false)
+}
+
+fn wire_level_to_local(level: animus_log_storage_protocol::LogLevel) -> orchestrator_logging::Level {
+    use animus_log_storage_protocol::LogLevel;
+    match level {
+        // The in-tree reader does not distinguish Trace from Debug; map
+        // Trace down to Debug so a `--level=trace` request still returns
+        // every Debug entry.
+        LogLevel::Trace | LogLevel::Debug => orchestrator_logging::Level::Debug,
+        LogLevel::Info => orchestrator_logging::Level::Info,
+        LogLevel::Warn => orchestrator_logging::Level::Warn,
+        LogLevel::Error => orchestrator_logging::Level::Error,
+    }
+}
+
+fn local_level_to_wire(level: orchestrator_logging::Level) -> animus_log_storage_protocol::LogLevel {
+    use animus_log_storage_protocol::LogLevel;
+    match level {
+        orchestrator_logging::Level::Debug => LogLevel::Debug,
+        orchestrator_logging::Level::Info => LogLevel::Info,
+        orchestrator_logging::Level::Warn => LogLevel::Warn,
+        orchestrator_logging::Level::Error => LogLevel::Error,
+    }
+}
+
+fn local_entry_to_wire(entry: orchestrator_logging::LogEntry) -> DaemonLogEntry {
+    use animus_log_storage_protocol::LogSource;
+    use chrono::DateTime;
+
+    let ts = DateTime::parse_from_rfc3339(&entry.ts)
+        .map(|dt| dt.with_timezone(&chrono::Utc))
+        .unwrap_or_else(|_| chrono::Utc::now());
+
+    // `provider` carries the plugin name in the in-tree schema, so a
+    // provider-tagged entry classifies as Plugin source with the plugin
+    // name in `source_name`.
+    let (source, source_name) = match entry.provider.as_ref() {
+        Some(name) => (LogSource::Plugin, Some(name.clone())),
+        None => (LogSource::Daemon, None),
+    };
+
+    // Synthesize a stable id from (ts, cat, msg) so the stream consumer
+    // can dedupe across overlapping historical+follow batches. UUIDs
+    // would also work; the v0.4.7 stream is short-lived enough that the
+    // hash is sufficient.
+    let id = format!("{}|{}|{}", entry.ts, entry.cat, short_hash(&entry.msg));
+
+    let fields = serde_json::to_value(&entry).unwrap_or(serde_json::Value::Null);
+
+    DaemonLogEntry {
+        id,
+        ts,
+        level: local_level_to_wire(entry.level),
+        source,
+        source_name,
+        target: entry.cat,
+        message: entry.msg,
+        fields,
+    }
+}
+
+fn short_hash(msg: &str) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    msg.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+#[cfg(test)]
+mod log_dispatch_tests {
+    //! v0.4.7 Item 1: prove the daemon's `daemon/logs` historical reader
+    //! projects in-tree `events.jsonl` rows into the protocol's
+    //! `DaemonLogEntry` shape with level + plugin filtering preserved.
+
+    use super::*;
+    use animus_log_storage_protocol::{LogLevel, LogSource};
+    use orchestrator_logging::{Level, Logger};
+    use tempfile::TempDir;
+
+    fn fixture_logger(temp: &TempDir) -> Logger {
+        let logs_dir = temp.path().join(".animus/logs");
+        std::fs::create_dir_all(&logs_dir).expect("mkdir");
+        Logger::open(&logs_dir, "events.jsonl", Level::Debug)
+    }
+
+    #[test]
+    fn read_in_tree_log_entries_projects_into_wire_shape() {
+        let temp = TempDir::new().expect("tempdir");
+        let logger = fixture_logger(&temp);
+        logger.info("test", "info-line").emit();
+        logger.warn("test", "warn-line").provider("kimi-code").emit();
+        logger.error("test", "error-line").emit();
+
+        let entries = read_in_tree_log_entries(temp.path(), 10, Some(LogLevel::Warn), None, None);
+        assert_eq!(entries.len(), 2, "expected warn+error, got {entries:?}");
+        // Chronological order: warn first, then error.
+        assert_eq!(entries[0].message, "warn-line");
+        assert_eq!(entries[0].level, LogLevel::Warn);
+        assert_eq!(entries[0].source, LogSource::Plugin);
+        assert_eq!(entries[0].source_name.as_deref(), Some("kimi-code"));
+        assert_eq!(entries[1].message, "error-line");
+        assert_eq!(entries[1].level, LogLevel::Error);
+        assert_eq!(entries[1].source, LogSource::Daemon);
+    }
+
+    #[test]
+    fn read_in_tree_log_entries_plugin_filter_narrows_set() {
+        let temp = TempDir::new().expect("tempdir");
+        let logger = fixture_logger(&temp);
+        logger.warn("test", "no-plugin").emit();
+        logger.warn("test", "kimi").provider("kimi-code").emit();
+        logger.warn("test", "gpt").provider("gpt-code").emit();
+
+        let entries = read_in_tree_log_entries(temp.path(), 10, Some(LogLevel::Warn), None, Some("kimi-code"));
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].message, "kimi");
+    }
+
+    #[test]
+    fn read_in_tree_log_entries_synthesizes_unique_ids_per_row() {
+        let temp = TempDir::new().expect("tempdir");
+        let logger = fixture_logger(&temp);
+        logger.info("test", "msg-a").emit();
+        logger.info("test", "msg-b").emit();
+        let entries = read_in_tree_log_entries(temp.path(), 10, Some(LogLevel::Info), None, None);
+        assert_eq!(entries.len(), 2);
+        assert_ne!(entries[0].id, entries[1].id, "ids must disambiguate rows");
+    }
 }

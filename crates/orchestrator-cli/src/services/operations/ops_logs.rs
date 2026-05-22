@@ -8,12 +8,45 @@ use serde::Serialize;
 
 use crate::{print_value, LogsCommand, LogsTailArgs};
 
+/// JSON shape for one entry served by the daemon control wire.
+///
+/// We round-trip through this struct rather than reuse the in-tree
+/// [`LogEntry`] because the wire schema flattens the structured fields
+/// payload onto `fields`. Operators inspecting the JSON envelope expect
+/// the same field names regardless of which transport produced them, so
+/// the wire branch projects back into the same response shape the
+/// in-tree branch emits.
+#[derive(Debug, Serialize)]
+struct WireLogEntryView {
+    ts: String,
+    level: String,
+    cat: String,
+    msg: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 struct LogsTailResponse {
     backend: &'static str,
     plugin_name: Option<String>,
     project_root: String,
+    /// Transport that actually answered. `"local"` when the daemon socket
+    /// was missing and the CLI read events.jsonl directly; `"wire"` when
+    /// the request was routed through `ControlClient::daemon_logs`.
+    transport: &'static str,
     entries: Vec<LogEntry>,
+}
+
+#[derive(Debug, Serialize)]
+struct WireLogsTailResponse {
+    backend: &'static str,
+    plugin_name: Option<String>,
+    project_root: String,
+    transport: &'static str,
+    entries: Vec<WireLogEntryView>,
 }
 
 pub(crate) async fn handle_logs(command: LogsCommand, project_root: &str, json: bool) -> Result<()> {
@@ -25,11 +58,40 @@ pub(crate) async fn handle_logs(command: LogsCommand, project_root: &str, json: 
 async fn handle_logs_tail(args: LogsTailArgs, project_root: &str, json: bool) -> Result<()> {
     let level = parse_level(&args.level)?;
     let since_duration = parse_duration(&args.since)?;
-    let since_ts = (Utc::now() - since_duration).to_rfc3339();
+    let since_dt = Utc::now() - since_duration;
+    let since_ts = since_dt.to_rfc3339();
     let limit = args.limit.max(1);
 
     let resolution = resolve_log_storage_dispatch(Path::new(project_root))?;
+    let backend_label: &'static str = match resolution.selected.as_ref() {
+        LogStorageDispatch::InTree { .. } => "in_tree",
+        LogStorageDispatch::Plugin { .. } => "plugin",
+    };
+    let plugin_name = resolution.selected.plugin_name().map(|s| s.to_string());
+    let project_root_for_response = resolution.selected.project_root().display().to_string();
 
+    // Daemon-up: route through ControlClient::daemon_logs so a live
+    // log_storage_backend plugin can intercept (today the daemon still
+    // reads in-tree under the hood; the wire is the contract). Daemon-
+    // down: fall back to direct events.jsonl read so `animus logs tail`
+    // keeps working without a daemon process.
+    if let Some(entries) =
+        try_daemon_logs_via_control(project_root, level, &since_dt, args.plugin.as_deref(), limit).await?
+    {
+        return emit_wire_response(
+            WireLogsTailResponse {
+                backend: backend_label,
+                plugin_name,
+                project_root: project_root_for_response,
+                transport: "wire",
+                entries,
+            },
+            json,
+        );
+    }
+
+    // Daemon-down fallback: open events.jsonl directly through the
+    // resolved dispatch root.
     match resolution.selected.as_ref() {
         LogStorageDispatch::InTree { project_root: pr } => {
             let logger = Logger::for_project(pr);
@@ -39,25 +101,22 @@ async fn handle_logs_tail(args: LogsTailArgs, project_root: &str, json: bool) ->
                     backend: "in_tree",
                     plugin_name: None,
                     project_root: pr.display().to_string(),
+                    transport: "local",
                     entries,
                 },
                 json,
             )
         }
         LogStorageDispatch::Plugin { project_root: pr, plugin } => {
-            // v0.4.0 ships the discovery + dispatch wiring. Calling
-            // `log_storage/tail` against the live plugin is deferred to a
-            // v0.4.1+ commit (the runtime helper layer for streaming
-            // tail subscriptions is still being designed). Until then,
-            // surface the active backend identity and the in-tree
-            // fallback file so operators have a single CLI to drive the
-            // tail experience.
+            // Daemon down: we can't reach the plugin, so degrade to the
+            // in-tree fallback file and tell the operator what happened.
             let logger = Logger::for_project(pr);
             let entries = read_in_tree_entries(&logger, limit, level, since_ts.as_str(), args.plugin.as_deref());
             if !json {
                 eprintln!(
-                    "note: active backend is plugin '{}'; live tail via log_storage/tail lands in v0.4.1. \
-                     Falling back to in-tree events.jsonl reader for this command.",
+                    "note: active backend is plugin '{}' but daemon is not running; \
+                     reading in-tree events.jsonl. Start the daemon (`animus daemon start`) \
+                     to route through the plugin.",
                     plugin.name
                 );
             }
@@ -66,6 +125,7 @@ async fn handle_logs_tail(args: LogsTailArgs, project_root: &str, json: bool) ->
                     backend: "plugin",
                     plugin_name: Some(plugin.name.clone()),
                     project_root: pr.display().to_string(),
+                    transport: "local",
                     entries,
                 },
                 json,
@@ -74,7 +134,79 @@ async fn handle_logs_tail(args: LogsTailArgs, project_root: &str, json: bool) ->
     }
 }
 
+/// Try the daemon control wire for `daemon/logs`. Returns `Ok(None)`
+/// when the daemon socket is absent (so the caller falls back to the
+/// local file reader) or when the wire reports the method unavailable.
+async fn try_daemon_logs_via_control(
+    project_root: &str,
+    level: Level,
+    since: &chrono::DateTime<Utc>,
+    plugin_filter: Option<&str>,
+    limit: usize,
+) -> Result<Option<Vec<WireLogEntryView>>> {
+    use animus_control_protocol::types::DaemonLogsRequest;
+    use animus_log_storage_protocol::LogLevel as WireLogLevel;
+    use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
+
+    let project_root_path = Path::new(project_root);
+    let Some(client) = ControlClient::try_connect(project_root_path).await? else {
+        return Ok(None);
+    };
+    let wire_level = match level {
+        Level::Debug => WireLogLevel::Debug,
+        Level::Info => WireLogLevel::Info,
+        Level::Warn => WireLogLevel::Warn,
+        Level::Error => WireLogLevel::Error,
+    };
+    let request = DaemonLogsRequest {
+        since: Some(*since),
+        level: Some(wire_level),
+        plugin: plugin_filter.map(|s| s.to_string()),
+        follow: false,
+    };
+
+    match client.daemon_logs(request, limit).await {
+        Ok(entries) => {
+            let view: Vec<WireLogEntryView> = entries
+                .into_iter()
+                .map(|e| {
+                    let provider = match e.source {
+                        animus_log_storage_protocol::LogSource::Plugin => e.source_name.clone(),
+                        _ => None,
+                    };
+                    WireLogEntryView {
+                        ts: e.ts.to_rfc3339(),
+                        level: format!("{:?}", e.level).to_lowercase(),
+                        cat: e.target,
+                        msg: e.message,
+                        provider,
+                        source: Some(format!("{:?}", e.source).to_lowercase()),
+                    }
+                })
+                .collect();
+            Ok(Some(view))
+        }
+        Err(err) if is_method_unavailable(&err) => {
+            tracing::debug!(error = %err, "daemon/logs wire returned unavailable; falling back to local");
+            Ok(None)
+        }
+        Err(err) => Err(err),
+    }
+}
+
 fn emit_response(response: LogsTailResponse, json: bool) -> Result<()> {
+    if json {
+        print_value(response, true)
+    } else {
+        for entry in &response.entries {
+            let plugin_suffix = entry.provider.as_deref().map(|p| format!(" [{}]", p)).unwrap_or_default();
+            println!("{} {:>5} {}{} :: {}", entry.ts, entry.level, entry.cat, plugin_suffix, entry.msg);
+        }
+        Ok(())
+    }
+}
+
+fn emit_wire_response(response: WireLogsTailResponse, json: bool) -> Result<()> {
     if json {
         print_value(response, true)
     } else {

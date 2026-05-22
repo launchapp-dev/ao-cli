@@ -37,14 +37,14 @@ use animus_control_protocol::{
     method as method_names,
     types::{
         AgentCancelRequest, AgentRunRequest, AgentRunResult, AgentStatus, AgentStatusRequest, DaemonAgentsResponse,
-        DaemonHealthResponse, DaemonStatusResponse, PluginBrowseRequest, PluginCallRequest, PluginCallResponse,
-        PluginInfo, PluginInfoRequest, PluginInstallRequest, PluginInstallResponse, PluginListRequest,
-        PluginListResponse, PluginPingRequest, PluginPingResponse, PluginSearchRequest, PluginSearchResponse,
-        PluginUninstallRequest, PluginUpdateRequest, PluginUpdateResponse, QueueDropRequest, QueueEnqueueRequest,
-        QueueEntry, QueueHoldRequest, QueueListRequest, QueueListResponse, QueueReleaseRequest, QueueReorderRequest,
-        QueueStats, Unit, WorkflowCancelRequest, WorkflowExecuteRequest, WorkflowGetRequest, WorkflowListRequest,
-        WorkflowListResponse, WorkflowPauseRequest, WorkflowResumeRequest, WorkflowRun, WorkflowRunRequest,
-        WorkflowRunStart,
+        DaemonHealthResponse, DaemonLogEntry, DaemonLogsRequest, DaemonStatusResponse, PluginBrowseRequest,
+        PluginCallRequest, PluginCallResponse, PluginInfo, PluginInfoRequest, PluginInstallRequest,
+        PluginInstallResponse, PluginListRequest, PluginListResponse, PluginPingRequest, PluginPingResponse,
+        PluginSearchRequest, PluginSearchResponse, PluginUninstallRequest, PluginUpdateRequest, PluginUpdateResponse,
+        QueueDropRequest, QueueEnqueueRequest, QueueEntry, QueueHoldRequest, QueueListRequest, QueueListResponse,
+        QueueReleaseRequest, QueueReorderRequest, QueueStats, Unit, WorkflowCancelRequest, WorkflowExecuteRequest,
+        WorkflowGetRequest, WorkflowListRequest, WorkflowListResponse, WorkflowPauseRequest, WorkflowResumeRequest,
+        WorkflowRun, WorkflowRunRequest, WorkflowRunStart,
     },
 };
 use animus_plugin_protocol::{error_codes, RpcRequest, RpcResponse};
@@ -322,6 +322,83 @@ impl ControlClient {
     /// Call `agent/cancel`.
     pub async fn agent_cancel(&self, request: AgentCancelRequest) -> Result<Unit> {
         self.call(method_names::METHOD_AGENT_CANCEL, request).await
+    }
+
+    /// Stream the daemon's historical log tail and (optionally) live
+    /// follow-ups. v0.4.7: returns the historical batch the daemon
+    /// resolves via the active [`LogStorageDispatch`]; once `follow=true`
+    /// support against a long-lived log_storage plugin host lands, this
+    /// method will keep reading until the caller drops the future.
+    ///
+    /// Today the server emits the historical batch and closes the
+    /// connection (when `follow=false`). The client reads the ack frame,
+    /// then drains notification frames until the socket closes or `limit`
+    /// entries have been collected.
+    #[cfg(unix)]
+    pub async fn daemon_logs(&self, request: DaemonLogsRequest, limit: usize) -> Result<Vec<DaemonLogEntry>> {
+        use animus_plugin_protocol::{RpcRequest, RpcResponse};
+        use serde_json::Value;
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        use tokio::net::UnixStream;
+
+        let method = method_names::METHOD_DAEMON_LOGS;
+        let mut stream = UnixStream::connect(&self.socket_path)
+            .await
+            .with_context(|| format!("connect to {}", self.socket_path.display()))?;
+        let params = serde_json::to_value(&request).context("serialize daemon/logs params")?;
+        let rpc_request = RpcRequest::new(Value::from(1u64), method.to_string(), Some(params));
+        let mut bytes = serde_json::to_vec(&rpc_request).context("serialize daemon/logs request")?;
+        bytes.push(b'\n');
+        stream.write_all(&bytes).await.context("write daemon/logs request")?;
+        stream.flush().await.context("flush daemon/logs request")?;
+
+        let (read_half, _write_half) = stream.into_split();
+        let mut reader = BufReader::new(read_half);
+        let mut line = String::new();
+        let n = reader.read_line(&mut line).await.context("read daemon/logs ack")?;
+        if n == 0 {
+            return Err(anyhow!("control server closed connection without ack on {method}"));
+        }
+        let ack: RpcResponse =
+            serde_json::from_str(line.trim_end()).with_context(|| format!("parse {method} ack: {line}"))?;
+        if let Some(err) = ack.error {
+            return Err(rpc_error_to_anyhow(method, &err));
+        }
+
+        let mut entries: Vec<DaemonLogEntry> = Vec::new();
+        let mut buf = String::new();
+        loop {
+            buf.clear();
+            let n = reader.read_line(&mut buf).await.context("read daemon/logs frame")?;
+            if n == 0 {
+                // Server completed the stream and closed the connection.
+                break;
+            }
+            let trimmed = buf.trim_end();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let frame: Value =
+                serde_json::from_str(trimmed).with_context(|| format!("parse daemon/logs frame: {trimmed}"))?;
+            let Some(params) = frame.get("params") else {
+                continue;
+            };
+            let Some(data) = params.get("data") else {
+                continue;
+            };
+            let entry: DaemonLogEntry =
+                serde_json::from_value(data.clone()).with_context(|| format!("decode daemon/log entry: {data}"))?;
+            entries.push(entry);
+            if entries.len() >= limit {
+                break;
+            }
+        }
+        Ok(entries)
+    }
+
+    #[cfg(not(unix))]
+    pub async fn daemon_logs(&self, _request: DaemonLogsRequest, _limit: usize) -> Result<Vec<DaemonLogEntry>> {
+        Err(anyhow!("control client daemon/logs: control socket not supported on this platform"))
     }
 }
 
@@ -776,6 +853,139 @@ mod tests {
             .expect("timeout")
             .unwrap_err();
         assert!(is_method_unavailable(&err), "C6.7 pass-through should surface as method-unavailable: {err}");
+        let _ = std::fs::remove_file(socket_path);
+        server.abort();
+    }
+
+    /// Streaming fake server: writes the configured frames (ack +
+    /// notifications) then closes. Used by the `daemon/logs` streaming
+    /// tests.
+    async fn spawn_fake_stream_server(socket_path: PathBuf, frames: Vec<String>) -> tokio::task::JoinHandle<()> {
+        let listener = UnixListener::bind(&socket_path).expect("bind");
+        tokio::spawn(async move {
+            if let Ok((stream, _)) = listener.accept().await {
+                let (read_half, mut write_half) = stream.into_split();
+                let mut reader = BufReader::new(read_half);
+                let mut line = String::new();
+                if reader.read_line(&mut line).await.unwrap_or(0) == 0 {
+                    return;
+                }
+                for frame in frames {
+                    let mut bytes = frame.into_bytes();
+                    bytes.push(b'\n');
+                    if write_half.write_all(&bytes).await.is_err() {
+                        return;
+                    }
+                }
+                let _ = write_half.flush().await;
+                // Drop write_half so the client sees the stream end.
+            }
+        })
+    }
+
+    /// v0.4.7 Item 1: `daemon/logs` streams the historical tail through
+    /// the wire, the client collects entries until the socket closes or
+    /// the limit is reached, and the typed convenience method decodes
+    /// each notification payload into a [`DaemonLogEntry`].
+    #[tokio::test]
+    async fn daemon_logs_collects_historical_stream() {
+        let socket_path = short_sock_path();
+        let ack = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"watching": true},
+        })
+        .to_string();
+        let entry_one = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "daemon/log",
+            "params": {
+                "id": 1,
+                "data": {
+                    "id": "x-1",
+                    "ts": "2026-05-22T00:00:00Z",
+                    "level": "info",
+                    "source": "daemon",
+                    "target": "test",
+                    "message": "first",
+                },
+            },
+        })
+        .to_string();
+        let entry_two = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "daemon/log",
+            "params": {
+                "id": 1,
+                "data": {
+                    "id": "x-2",
+                    "ts": "2026-05-22T00:00:01Z",
+                    "level": "warn",
+                    "source": "plugin",
+                    "source_name": "kimi-code",
+                    "target": "tool",
+                    "message": "second",
+                },
+            },
+        })
+        .to_string();
+        let server = spawn_fake_stream_server(socket_path.clone(), vec![ack, entry_one, entry_two]).await;
+        let client = ControlClient::from_socket_path(socket_path.clone());
+
+        let request = animus_control_protocol::types::DaemonLogsRequest::default();
+        let entries = tokio::time::timeout(Duration::from_secs(5), client.daemon_logs(request, 10))
+            .await
+            .expect("timeout")
+            .expect("call");
+        assert_eq!(entries.len(), 2, "expected two streamed entries, got {:?}", entries);
+        assert_eq!(entries[0].message, "first");
+        assert_eq!(entries[1].message, "second");
+        assert_eq!(entries[1].source_name.as_deref(), Some("kimi-code"));
+        let _ = std::fs::remove_file(socket_path);
+        server.abort();
+    }
+
+    /// The `limit` argument caps how many notification frames the client
+    /// consumes; once reached it returns without waiting for the server
+    /// to close the stream. Necessary so a busy `--follow` doesn't
+    /// produce unbounded memory growth before the operator Ctrl-C's.
+    #[tokio::test]
+    async fn daemon_logs_respects_caller_limit() {
+        let socket_path = short_sock_path();
+        let ack = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"watching": true},
+        })
+        .to_string();
+        let make_frame = |i: usize| {
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": "daemon/log",
+                "params": {
+                    "id": 1,
+                    "data": {
+                        "id": format!("x-{i}"),
+                        "ts": "2026-05-22T00:00:00Z",
+                        "level": "info",
+                        "source": "daemon",
+                        "target": "test",
+                        "message": format!("entry-{i}"),
+                    },
+                },
+            })
+            .to_string()
+        };
+        let frames: Vec<String> = std::iter::once(ack).chain((0..5).map(make_frame)).collect();
+        let server = spawn_fake_stream_server(socket_path.clone(), frames).await;
+        let client = ControlClient::from_socket_path(socket_path.clone());
+
+        let request = animus_control_protocol::types::DaemonLogsRequest::default();
+        let entries = tokio::time::timeout(Duration::from_secs(5), client.daemon_logs(request, 3))
+            .await
+            .expect("timeout")
+            .expect("call");
+        assert_eq!(entries.len(), 3, "limit=3 should stop after three frames");
         let _ = std::fs::remove_file(socket_path);
         server.abort();
     }

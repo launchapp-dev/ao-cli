@@ -2647,6 +2647,7 @@ name = "orchestrator-cli"
 version = "0.4.6"
 dependencies = [
  "animus-control-protocol",
+ "animus-log-storage-protocol",
  "animus-plugin-protocol 0.1.0",
  "animus-subject-protocol 0.1.3",
  "anyhow",
@@ -2741,6 +2742,7 @@ name = "orchestrator-daemon-runtime"
 version = "0.1.0"
 dependencies = [
  "animus-control-protocol",
+ "animus-log-storage-protocol",
  "animus-plugin-protocol 0.1.0",
  "animus-subject-protocol 0.1.3",
  "anyhow",

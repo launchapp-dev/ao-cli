@@ -29,10 +29,11 @@ pub(crate) enum SubjectCommand {
 #[derive(Debug, Args)]
 pub(crate) struct SubjectListArgs {
     /// Subject kind to route through (e.g. `task`, `issue`, `linear`).
-    /// Resolved against the kind→plugin map populated at daemon startup
-    /// from each plugin's `subject_kinds` capability declaration.
+    /// Resolved against the kind→plugin map populated at daemon startup.
+    /// When omitted, falls back to `default_subject_kind` in
+    /// `.animus/config.json` (defaults to `task`).
     #[arg(long, value_name = "KIND")]
-    pub kind: String,
+    pub kind: Option<String>,
 
     /// Filter by normalized status (e.g. `ready`, `in_progress`,
     /// `blocked`, `done`). Backend-specific raw statuses can be queried
@@ -49,9 +50,11 @@ pub(crate) struct SubjectListArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct SubjectGetArgs {
-    /// Subject kind to route through.
+    /// Subject kind to route through. When omitted, falls back to
+    /// `default_subject_kind` in `.animus/config.json` (defaults to
+    /// `task`).
     #[arg(long, value_name = "KIND")]
-    pub kind: String,
+    pub kind: Option<String>,
     /// Backend-qualified subject id (e.g. `sqlite:01ABCD...`,
     /// `linear:ENG-123`).
     #[arg(long, value_name = "ID")]
@@ -60,9 +63,11 @@ pub(crate) struct SubjectGetArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct SubjectCreateArgs {
-    /// Subject kind to route through.
+    /// Subject kind to route through. When omitted, falls back to
+    /// `default_subject_kind` in `.animus/config.json` (defaults to
+    /// `task`).
     #[arg(long, value_name = "KIND")]
-    pub kind: String,
+    pub kind: Option<String>,
     /// Required title for the new subject.
     #[arg(long, value_name = "TITLE")]
     pub title: String,
@@ -82,9 +87,11 @@ pub(crate) struct SubjectCreateArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct SubjectUpdateArgs {
-    /// Subject kind to route through.
+    /// Subject kind to route through. When omitted, falls back to
+    /// `default_subject_kind` in `.animus/config.json` (defaults to
+    /// `task`).
     #[arg(long, value_name = "KIND")]
-    pub kind: String,
+    pub kind: Option<String>,
     /// Backend-qualified subject id.
     #[arg(long, value_name = "ID")]
     pub id: String,
@@ -101,16 +108,20 @@ pub(crate) struct SubjectUpdateArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct SubjectNextArgs {
-    /// Subject kind to route through.
+    /// Subject kind to route through. When omitted, falls back to
+    /// `default_subject_kind` in `.animus/config.json` (defaults to
+    /// `task`).
     #[arg(long, value_name = "KIND")]
-    pub kind: String,
+    pub kind: Option<String>,
 }
 
 #[derive(Debug, Args)]
 pub(crate) struct SubjectStatusArgs {
-    /// Subject kind to route through.
+    /// Subject kind to route through. When omitted, falls back to
+    /// `default_subject_kind` in `.animus/config.json` (defaults to
+    /// `task`).
     #[arg(long, value_name = "KIND")]
-    pub kind: String,
+    pub kind: Option<String>,
     /// Backend-qualified subject id.
     #[arg(long, value_name = "ID")]
     pub id: String,

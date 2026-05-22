@@ -36,6 +36,13 @@ pub struct Config {
     pub mcp_servers: BTreeMap<String, ProjectMcpServerEntry>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub claude_profiles: BTreeMap<String, ClaudeProfileEntry>,
+    /// Default subject kind for CLI commands that take `--kind`. When set,
+    /// `animus subject list` (and siblings) may be invoked without `--kind`
+    /// and the configured kind is used. Set this so the common case
+    /// (single-backend projects) doesn't need to pass `--kind task` every
+    /// invocation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_subject_kind: Option<String>,
 }
 
 impl Config {
@@ -89,8 +96,12 @@ impl Config {
             fs::create_dir_all(parent)?;
         }
 
-        let default_config =
-            Self { agent_runner_token: None, mcp_servers: BTreeMap::new(), claude_profiles: BTreeMap::new() };
+        let default_config = Self {
+            agent_runner_token: None,
+            mcp_servers: BTreeMap::new(),
+            claude_profiles: BTreeMap::new(),
+            default_subject_kind: Some("task".to_string()),
+        };
         let json = serde_json::to_string_pretty(&default_config)?;
         fs::write(config_path, json)?;
         Ok(default_config)
@@ -244,10 +255,15 @@ mod tests {
 
     #[test]
     fn config_serialization_omits_empty_mcp_servers() {
-        let config =
-            Config { agent_runner_token: None, mcp_servers: BTreeMap::new(), claude_profiles: BTreeMap::new() };
+        let config = Config {
+            agent_runner_token: None,
+            mcp_servers: BTreeMap::new(),
+            claude_profiles: BTreeMap::new(),
+            default_subject_kind: None,
+        };
         let json = serde_json::to_string_pretty(&config).unwrap();
         assert!(!json.contains("mcp_servers"));
         assert!(!json.contains("claude_profiles"));
+        assert!(!json.contains("default_subject_kind"));
     }
 }

@@ -208,6 +208,7 @@ fn test_config_get_token_returns_config_value() {
         agent_runner_token: Some("config-token".to_string()),
         mcp_servers: BTreeMap::new(),
         claude_profiles: BTreeMap::new(),
+        default_subject_kind: None,
     };
 
     let token = config.get_token().expect("config token should resolve");
@@ -220,6 +221,7 @@ fn test_config_get_token_rejects_blank_config_value() {
         agent_runner_token: Some("   ".to_string()),
         mcp_servers: BTreeMap::new(),
         claude_profiles: BTreeMap::new(),
+        default_subject_kind: None,
     };
 
     let error = config.get_token().expect_err("blank config token should fail closed");
@@ -228,7 +230,12 @@ fn test_config_get_token_rejects_blank_config_value() {
 
 #[test]
 fn test_config_get_token_rejects_missing_token() {
-    let config = Config { agent_runner_token: None, mcp_servers: BTreeMap::new(), claude_profiles: BTreeMap::new() };
+    let config = Config {
+        agent_runner_token: None,
+        mcp_servers: BTreeMap::new(),
+        claude_profiles: BTreeMap::new(),
+        default_subject_kind: None,
+    };
 
     let error = config.get_token().expect_err("missing token should fail closed");
     assert!(error.to_string().contains("agent_runner_token"), "error should mention missing config token");

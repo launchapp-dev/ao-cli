@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.8] - 2026-05-22
+
+Wire + UX patch. Picks up the v0.4.7-deferred web-api work that needed an animus-protocol bump, ships the plugin-runtime structured log macros, and polishes the `animus subject` CLI for the single-backend project case.
+
+### Features
+
+- **`feat(protocol)`: bump animus-protocol to v0.1.4.** `WorkflowResumeRequest` carries an optional `feedback` field so approval-gated workflows can pass reviewer comments through resume. `QueueReorderRequest` accepts a multi-entry form (`subject_ids: Vec<String>`) alongside the single-id shape. `animus-plugin-runtime` ships a new `log` module with crate-level `info!`/`warn!`/`error!`/`debug!`/`trace!` macros that emit `log/entry` JSON-RPC notifications via the existing stdout pipe; each `*_main` entrypoint installs the global emitter automatically.
+- **`feat(web-api)`: route `queue/reorder` and `workflow/resume` through the daemon control wire.** With the v0.1.4 wire surface in place, the web-api handlers prefer the daemon's control RPC, falling back to the local path only when the daemon isn't running. `workflow/resume` now carries the reviewer feedback string end-to-end.
+- **`feat(cli)`: `animus subject` honors `default_subject_kind` from `.animus/config.json`.** New `--kind` becomes optional; falls back to the config default (which seeds to `"task"` for new projects). Operators can now `animus subject list` without re-typing `--kind task` every invocation. A missing config default *and* missing flag prints a helpful error listing the lookup precedence.
+- **`feat(plugin-host)`: hierarchical kind matching in `SubjectRouter`.** Plugins may declare glob kinds like `task.*`; resolution does exact-match first, then longest matching glob prefix. Duplicate equal-prefix globs are rejected at registration time. Five new tests cover the precedence rules.
+- **`feat(llm-cli-wrapper)`: typed `Error::CapabilityNotSupported`.** Callers can pattern-match on the typed variant instead of grepping `ExecutionFailed` strings; the cancel-routing path now emits the typed error when a plugin's handshake `capabilities.cancellation` is `false`.
+
+### Removed
+
+- **`test(cli)`: delete the stale `json_success_envelope_contract_is_stable` test.** It still drove `animus task stats`, which was removed in v0.4.4 cleanup, so it had been red on every run since.
+
+### Deferred to v0.4.9
+
+- **`web-api workflows_list`** continues to return `ListPage<OrchestratorWorkflow>` instead of the leaner wire `WorkflowListResponse`. The two shapes differ on pagination model (offset/total vs cursor), status casing (snake_case vs kebab-case), and the wire summary lacks `phases`, `machine_state`, and several other fields the handler currently exposes. Migration is a contract change across `paginated_success_response`, ETag computation, the GraphQL surface, and downstream typed tests.
+- **`feat(daemon health)`: per-plugin health.** The brief asked for a `plugins:` section in `animus daemon health` that calls each installed plugin's `health/check` RPC. The plumbing change spans the daemon-runtime health snapshot, the control wire's `daemon/health` response, and CLI rendering — held back to keep the v0.4.8 surface bounded.
+- **Plugin repo cascade (10 plugins).** Each subject/provider/trigger/log-storage plugin still pins animus-protocol v0.1.3. The v0.1.4 protocol crate is wire-additive so existing plugins continue to work; per-plugin re-pinning + retagging ships in v0.4.9.
+
 ## [0.4.7] - 2026-05-22
 
 Wire-routing patch: the daemon's `daemon/logs` control method finally drives `animus logs tail`, and MCP gets the matching surface. Two of the three deferred web-api handlers stay deferred with v0.4.8-tagged notes; the cross-repo plugin runtime cascade ships in a separate window.

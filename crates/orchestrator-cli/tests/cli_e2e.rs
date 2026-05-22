@@ -375,4 +375,3 @@ fn e2e_git_repo_init_failure_is_reported_and_not_registered() -> Result<()> {
 
     Ok(())
 }
-

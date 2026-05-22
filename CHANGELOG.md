@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-05-22
+
+CI workflow cleanup. Two workflows have been failing on every commit since v0.4.1:
+
+- `ci(protocol-drift)`: bump `STANDALONE_TAG` `v0.1.1` → `v0.1.3` to match the in-tree consumer. The workflow was trying to check out a tag that exists on `animus-protocol` but predated the wire-format expansions the in-tree crate now consumes, so the structural-drift assertion fired on every run.
+- `ci(release)`: remove the `docker-publish` job. It pushed to `registry.fly.io/ao-daemon`, a registry slug that predates the `ao` → `animus` rename and no longer resolves. Can be re-added when there's a real registry target to point at; GitHub Release binary artifacts (the load-bearing publish path) are unaffected.
+
+No Rust or CLI changes. Pure CI hygiene.
+
 ## [0.4.5] - 2026-05-22
 
 Hotfix release. Two bugs in v0.4.4 + v0.4.3:

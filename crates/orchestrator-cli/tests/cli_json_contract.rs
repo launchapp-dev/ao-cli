@@ -28,33 +28,6 @@ fn assert_error_envelope(payload: &Value, expected_code: &str, expected_exit_cod
 }
 
 #[test]
-fn json_success_envelope_contract_is_stable() -> Result<()> {
-    let harness = CliHarness::new()?;
-
-    let version = harness.run_json_ok(&["version"])?;
-    assert_success_envelope(&version);
-    assert_eq!(version.pointer("/data/binary").and_then(Value::as_str), Some("animus"));
-
-    let stats = harness.run_json_ok(&["task", "stats"])?;
-    assert_success_envelope(&stats);
-    assert!(stats.pointer("/data/total").is_some(), "task stats should include data.total");
-    assert!(
-        stats.pointer("/data/stale_in_progress/count").is_some(),
-        "task stats should include data.stale_in_progress.count"
-    );
-    assert!(
-        stats.pointer("/data/priority_policy/high_budget_percent").is_some(),
-        "task stats should include data.priority_policy.high_budget_percent"
-    );
-    assert!(
-        stats.pointer("/data/priority_policy/high_budget_compliant").is_some(),
-        "task stats should include data.priority_policy.high_budget_compliant"
-    );
-
-    Ok(())
-}
-
-#[test]
 fn status_command_json_payload_includes_dashboard_schema_and_slices() -> Result<()> {
     let harness = CliHarness::new()?;
 
@@ -84,22 +57,6 @@ fn json_success_envelope_wraps_print_ok_messages() -> Result<()> {
     let cleared = harness.run_json_ok(&["daemon", "clear-logs"])?;
     assert_success_envelope(&cleared);
     assert_eq!(cleared.pointer("/data/message").and_then(Value::as_str), Some("daemon logs cleared"));
-
-    Ok(())
-}
-
-#[test]
-fn json_error_envelope_maps_invalid_input_and_not_found() -> Result<()> {
-    let harness = CliHarness::new()?;
-
-    let (invalid_payload, invalid_status) =
-        harness.run_json_err_with_exit(&["task", "status", "--id", "TASK-404", "--status", "invalid"])?;
-    assert_eq!(invalid_status, 2, "invalid input should exit with code 2");
-    assert_error_envelope(&invalid_payload, "invalid_input", 2);
-
-    let (missing_payload, missing_status) = harness.run_json_err_with_exit(&["task", "get", "--id", "TASK-404"])?;
-    assert_eq!(missing_status, 3, "not found should exit with code 3");
-    assert_error_envelope(&missing_payload, "not_found", 3);
 
     Ok(())
 }

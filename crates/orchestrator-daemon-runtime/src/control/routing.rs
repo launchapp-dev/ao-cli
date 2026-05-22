@@ -178,12 +178,12 @@ pub trait QueueRouting: Send + Sync {
 /// Wraps the CLI's existing agent-runner helpers
 /// (`handle_agent_run` / `handle_agent_status` / `handle_agent_control`)
 /// behind a transport-agnostic interface. C6.7 lands the wire surface as
-/// a pass-through: the daemon-side `AgentPool` still carries
-/// `allow(dead_code)` so the wire returns `NotSupported` in practice and
-/// CLI callers degrade to the local in-process path. The trait surface
+/// a pass-through: there is no daemon-side `AgentPool` struct in the
+/// current tree, so the wire returns `NotSupported` in practice and CLI
+/// callers degrade to the local in-process path. The trait surface
 /// exists so that MCP (C7) and the WebAPI (C8) can swap to a real
-/// implementation in a follow-up once `AgentPool` exposes a query
-/// surface — without changing the wire contract.
+/// implementation when agent supervision returns as a first-class
+/// daemon-owned subsystem — without changing the wire contract.
 #[async_trait]
 pub trait AgentRouting: Send + Sync {
     /// `agent/run` — start a new agent session.

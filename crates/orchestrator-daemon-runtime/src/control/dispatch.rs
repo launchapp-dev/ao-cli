@@ -53,7 +53,7 @@ use animus_control_protocol::{
         AgentCancelRequest, AgentRunRequest, AgentRunResult, AgentStatus, AgentStatusRequest, DaemonAgentsResponse,
         DaemonEventsRequest, DaemonHealthResponse, DaemonHealthStatus, DaemonLogEntry, DaemonLogsRequest,
         DaemonRunEvent as WireDaemonRunEvent, DaemonStatusResponse, PluginBrowseRequest, PluginCallRequest,
-        PluginCallResponse, PluginInfo, PluginInfoRequest, PluginInstallRequest, PluginInstallResponse,
+        PluginCallResponse, PluginHealth, PluginInfo, PluginInfoRequest, PluginInstallRequest, PluginInstallResponse,
         PluginListRequest, PluginListResponse, PluginPingRequest, PluginPingResponse, PluginSearchRequest,
         PluginSearchResponse, PluginUninstallRequest, PluginUpdateRequest, PluginUpdateResponse, ProjectInfo,
         ProjectInitRequest, ProjectSetupRequest, ProjectStatusResponse, QueueDropRequest, QueueEnqueueRequest,
@@ -513,7 +513,27 @@ impl ControlSurface for InProcessSurface {
         if let Some(routing) = &self.daemon_ops_routing {
             return routing.daemon_health().await;
         }
-        Ok(DaemonHealthResponse { status: DaemonHealthStatus::Healthy, plugins: Vec::new(), last_error: None })
+        // v0.4.9: enumerate installed plugins for the per-plugin section.
+        // Each plugin's status is reported as `Healthy` on the basis that
+        // it is discoverable / has a valid manifest. A live `health/check`
+        // RPC fan-out per plugin is deferred until the daemon owns a
+        // long-lived plugin host pool — without it, every health probe
+        // here would spawn a one-shot process per plugin, which is
+        // prohibitively expensive for a frequently-polled endpoint.
+        let plugins = match orchestrator_plugin_host::discover_plugins(&self.project_root) {
+            Ok(discovered) => discovered
+                .into_iter()
+                .map(|p| PluginHealth {
+                    name: p.name.clone(),
+                    kind: p.manifest.plugin_kind.clone(),
+                    status: DaemonHealthStatus::Healthy,
+                    uptime_ms: None,
+                    last_error: None,
+                })
+                .collect(),
+            Err(_) => Vec::new(),
+        };
+        Ok(DaemonHealthResponse { status: DaemonHealthStatus::Healthy, plugins, last_error: None })
     }
 
     async fn daemon_start(&self) -> Result<Unit, ControlError> {

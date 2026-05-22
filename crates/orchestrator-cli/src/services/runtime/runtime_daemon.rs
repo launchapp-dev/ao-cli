@@ -125,18 +125,19 @@ pub(crate) async fn handle_daemon_status_command(project_root: &str, json: bool)
 }
 
 pub(crate) async fn handle_daemon_health_command(project_root: &str, json: bool) -> Result<()> {
-    if json {
-        let project_root_path = Path::new(project_root);
-        if let Some(client) =
-            orchestrator_daemon_runtime::control::ControlClient::try_connect(project_root_path).await?
-        {
-            match client.daemon_health().await {
-                Ok(response) => return print_value(response, true),
-                Err(err) if orchestrator_daemon_runtime::control::is_method_unavailable(&err) => {
-                    tracing::debug!(error = %err, "daemon/health wire unavailable; falling back to local");
+    let project_root_path = Path::new(project_root);
+    if let Some(client) = orchestrator_daemon_runtime::control::ControlClient::try_connect(project_root_path).await? {
+        match client.daemon_health().await {
+            Ok(response) => {
+                if json {
+                    return print_value(response, true);
                 }
-                Err(err) => return Err(err),
+                return render_daemon_health_human(&response);
             }
+            Err(err) if orchestrator_daemon_runtime::control::is_method_unavailable(&err) => {
+                tracing::debug!(error = %err, "daemon/health wire unavailable; falling back to local");
+            }
+            Err(err) => return Err(err),
         }
     }
 
@@ -157,6 +158,25 @@ pub(crate) async fn handle_daemon_health_command(project_root: &str, json: bool)
         health.healthy = false;
     }
     print_value(health, json)
+}
+
+fn render_daemon_health_human(response: &animus_control_protocol::types::DaemonHealthResponse) -> Result<()> {
+    println!("daemon: {:?}", response.status);
+    if let Some(err) = response.last_error.as_ref() {
+        println!("last_error: {err}");
+    }
+    if response.plugins.is_empty() {
+        println!("plugins: (none installed)");
+    } else {
+        println!("plugins:");
+        let name_w = response.plugins.iter().map(|p| p.name.len()).max().unwrap_or(0).max(4);
+        let kind_w = response.plugins.iter().map(|p| p.kind.len()).max().unwrap_or(0).max(4);
+        println!("  {:<name_w$}  {:<kind_w$}  status", "name", "kind", name_w = name_w, kind_w = kind_w);
+        for p in &response.plugins {
+            println!("  {:<name_w$}  {:<kind_w$}  {:?}", p.name, p.kind, p.status, name_w = name_w, kind_w = kind_w);
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn autonomous_daemon_log_path(project_root: &str) -> PathBuf {

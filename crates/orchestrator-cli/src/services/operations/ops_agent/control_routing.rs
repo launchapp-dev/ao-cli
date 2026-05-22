@@ -9,15 +9,16 @@
 //!
 //! ## Path A — pass-through
 //!
-//! C5's report noted that the daemon-side `AgentPool` carries
-//! `#[allow(dead_code)]` and has no clean `Arc`-shared query surface yet.
-//! Rather than refactor `AgentPool` (out of scope for the controller
-//! migration), this adapter returns `NotSupported` for every method.
+//! v0.4.9 decision: there is no daemon-side `AgentPool` struct in the
+//! current tree (the original C5-era pool was removed before it was
+//! integrated into production). Without a live in-process agent
+//! registry, the wire surface returns `NotSupported` for every method.
 //! That preserves the historical pre-C6.7 behavior on the wire path —
 //! CLI callers degrade to the local in-process implementation under
 //! `runtime_agent::{run, status}` — while still mounting the routing
-//! trait on the control surface. MCP (C7) and WebAPI (C8) can swap in a
-//! real `AgentPool`-backed implementation without changing the wire
+//! trait on the control surface. When agent supervision returns as a
+//! first-class daemon-owned subsystem, MCP (C7) and WebAPI (C8) can
+//! swap in a real pool-backed implementation without changing the wire
 //! contract.
 //!
 //! See `docs/architecture/naming-contract.md` for the broader migration
@@ -49,9 +50,9 @@ use orchestrator_daemon_runtime::control::AgentRouting;
 /// returns [`ControlError::NotSupported`] so CLI callers fall back to
 /// the local in-process path under `runtime_agent`. The `project_root`
 /// argument is captured for symmetry with `build_queue_routing` /
-/// `build_workflow_routing` so future implementations (C7/C8) can swap
-/// in a real `AgentPool`-backed surface without changing the call site
-/// at daemon startup.
+/// `build_workflow_routing` so a future agent-supervision subsystem can
+/// swap in a real query-backed surface without changing the call site
+/// at daemon startup. v0.4.9: no in-tree `AgentPool` struct exists yet.
 pub fn build_agent_routing(project_root: PathBuf) -> Arc<dyn AgentRouting> {
     Arc::new(AgentRoutingImpl { _project_root: project_root })
 }
@@ -67,10 +68,10 @@ struct AgentRoutingImpl {
 #[async_trait]
 impl AgentRouting for AgentRoutingImpl {
     async fn agent_run(&self, _request: WireRunRequest) -> Result<WireRunResult, ControlError> {
-        // The daemon-side AgentPool is currently `allow(dead_code)` per
-        // the existing memory note; there is no clean Arc query surface
-        // to wire through yet. Return NotSupported so CLI callers
-        // degrade to the local in-process path under runtime_agent.
+        // v0.4.9: no in-tree `AgentPool` struct exists; the wire surface
+        // stays pass-through until agent supervision returns as a
+        // daemon-owned subsystem. CLI callers degrade to the local
+        // in-process path under runtime_agent.
         Err(ControlError::NotSupported(
             "agent/run wire surface is pass-through pending AgentPool query surface; CLI falls back to local"
                 .to_string(),

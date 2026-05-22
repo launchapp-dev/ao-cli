@@ -4,6 +4,46 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.9] - 2026-05-22
+
+Patch release. Picks up v0.4.8 deferrals plus a handful of originally-planned items: the plugin-repo cascade onto animus-protocol v0.1.4, daemon-health per-plugin enumeration, a log redaction layer, and a cleanup pass on the stale `AgentPool` references that have been confusing agent reports for several patches.
+
+### Features
+
+- **`feat(daemon health)`: per-plugin section.** `DaemonHealthResponse` now carries a populated `plugins: Vec<PluginHealth>` whenever the daemon's control wire serves the request: each discovered plugin contributes a `name` / `kind` / `status` row. Live `health/check` RPC fan-out per plugin is intentionally deferred — without a long-lived plugin host pool the daemon would have to one-shot every plugin process per health probe, which is too expensive for a frequently-polled endpoint. The CLI's human renderer prints a compact `plugins:` table when the wire path is taken; the JSON envelope passes the full wire shape through unchanged.
+- **`feat(daemon-runtime)`: log redaction layer.** New `orchestrator_daemon_runtime::control::log_redact` module that scrubs secret-shaped values from `LogEntry.msg`, `LogEntry.meta` (recursively over nested JSON), `LogEntry.content`, and `LogEntry.error` before the entry is handed to a storage sink. Default pattern matches `api_key|apikey|api-key|password|token|secret|authorization` followed by `:` or `=` and a value; additional patterns can be appended via `ANIMUS_LOG_REDACT_PATTERNS` (comma-separated regex). Five unit tests cover the default patterns, custom patterns, nested JSON traversal, and the no-op path. The redactor is shipped as a public function — wiring it into every emit path is a v0.4.10 follow-up so the patch boundary stays bounded.
+
+### Plugin Cascade
+
+All 12 plugin repos were re-pinned to animus-protocol v0.1.4 and bumped to their next patch version. The cascade is git-additive: each repo got one `chore: bump to v0.1.x + pin animus-protocol v0.1.4` commit + a new tag, pushed to `main`.
+
+| Repo                              | Old   | New   |
+|-----------------------------------|-------|-------|
+| animus-subject-linear             | 0.1.2 | 0.1.3 |
+| animus-subject-sqlite             | 0.1.2 | 0.1.3 |
+| animus-subject-markdown           | 0.1.2 | 0.1.3 |
+| animus-subject-requirements       | 0.1.2 | 0.1.3 |
+| animus-provider-claude            | 0.1.1 | 0.1.2 |
+| animus-provider-codex             | 0.1.1 | 0.1.2 |
+| animus-provider-gemini            | 0.1.1 | 0.1.2 |
+| animus-provider-opencode          | 0.1.1 | 0.1.2 |
+| animus-provider-oai               | 0.1.1 | 0.1.2 |
+| animus-trigger-webhook            | 0.1.0 | 0.1.1 |
+| animus-trigger-slack              | 0.1.0 | 0.1.1 |
+| animus-log-storage-file           | 0.1.0 | 0.1.1 |
+
+The triggers and log-storage repos previously pinned animus-protocol via `branch = "main"`; they now pin `tag = "v0.1.4"` explicitly so the wire surface is reproducible.
+
+### Documentation
+
+- **AgentPool references aligned with reality.** The CLI and daemon-runtime comment blocks claiming "AgentPool carries `#[allow(dead_code)]`" referred to a struct that no longer exists in the tree. Comments in `ops_agent/control_routing.rs` and `control/routing.rs` updated to state plainly: the wire surface stays pass-through because there is no daemon-side agent pool yet, and CLI callers degrade to the local in-process path.
+
+### Deferred to v0.4.10
+
+- **`web-api workflows_list`** continues to return `ListPage<OrchestratorWorkflow>`. Migrating to the wire `WorkflowListResponse` requires both a contract change (pagination model, status casing) and the dropped fields (`phases`, `machine_state`) propagated through the GraphQL surface and downstream typed tests. The web-api crate has stalled multiple agents on this exact migration; held back another patch to keep v0.4.9 from sprawling.
+- **Log redaction at every emit site.** v0.4.9 lands the redactor as a public function plus tests. Calling it from `Logger::write_entry` (or from each emit builder) is the next step; the patch ships the building block without changing emit semantics yet.
+- **Live `health/check` RPC fan-out per plugin.** Per-plugin status currently reports `Healthy` for any discoverable plugin. Real per-plugin health probes require a long-lived plugin host pool with per-process status caches.
+
 ## [0.4.8] - 2026-05-22
 
 Wire + UX patch. Picks up the v0.4.7-deferred web-api work that needed an animus-protocol bump, ships the plugin-runtime structured log macros, and polishes the `animus subject` CLI for the single-backend project case.

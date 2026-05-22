@@ -38,6 +38,7 @@ pub mod client;
 #[cfg(unix)]
 pub mod connection;
 pub mod dispatch;
+pub mod log_redact;
 pub mod routing;
 pub mod server;
 pub mod streaming;

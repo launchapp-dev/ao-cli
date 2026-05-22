@@ -527,9 +527,7 @@ impl ControlSurface for InProcessSurface {
             Ok(v) => v,
             Err(_) => Vec::new(),
         };
-        let probes = discovered.into_iter().map(|p| async move {
-            probe_plugin_health(&p).await
-        });
+        let probes = discovered.into_iter().map(|p| async move { probe_plugin_health(&p).await });
         let plugins: Vec<PluginHealth> = futures_util::future::join_all(probes).await;
         Ok(DaemonHealthResponse { status: DaemonHealthStatus::Healthy, plugins, last_error: None })
     }
@@ -949,13 +947,7 @@ async fn probe_plugin_health(plugin: &orchestrator_plugin_host::DiscoveredPlugin
                 animus_plugin_protocol::HealthStatus::Degraded => DaemonHealthStatus::Degraded,
                 animus_plugin_protocol::HealthStatus::Unhealthy => DaemonHealthStatus::Unhealthy,
             };
-            PluginHealth {
-                name,
-                kind,
-                status,
-                uptime_ms: result.uptime_ms,
-                last_error: result.last_error,
-            }
+            PluginHealth { name, kind, status, uptime_ms: result.uptime_ms, last_error: result.last_error }
         }
         Ok(Err(err)) => PluginHealth {
             name,

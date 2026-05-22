@@ -753,9 +753,7 @@ async fn try_workflow_cancel_via_control(project_root: &str, id: &str) -> Option
 // from an operator's standpoint. Local-only fields (phases, machine
 // state, decision history, current_phase) are intentionally dropped.
 
-fn workflow_to_run_summary(
-    w: OrchestratorWorkflow,
-) -> animus_control_protocol::types::WorkflowRunSummary {
+fn workflow_to_run_summary(w: OrchestratorWorkflow) -> animus_control_protocol::types::WorkflowRunSummary {
     use animus_control_protocol::types::{WorkflowRunSummary, WorkflowStatus as WireStatus};
     use animus_subject_protocol::SubjectId as WireSubjectId;
     use protocol::orchestrator::WorkflowStatus as LocalStatus;

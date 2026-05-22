@@ -51,7 +51,9 @@ use animus_plugin_protocol::{error_codes, RpcRequest, RpcResponse};
 use anyhow::{anyhow, Context, Result};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
+#[cfg(unix)]
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+#[cfg(unix)]
 use tokio::net::UnixStream;
 
 /// Handle to the daemon control socket for one CLI invocation.
@@ -70,6 +72,7 @@ impl ControlClient {
     ///
     /// Existence is checked via `std::fs::metadata` — symlinks are
     /// followed, broken or non-existent paths produce `Ok(None)`.
+    #[cfg(unix)]
     pub async fn try_connect(project_root: &Path) -> Result<Option<Self>> {
         let socket_path = control_socket_path(project_root);
         if !socket_path.exists() {
@@ -85,6 +88,14 @@ impl ControlClient {
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(err) => Err(anyhow!("failed to connect to control socket {}: {err}", socket_path.display())),
         }
+    }
+
+    /// Non-Unix stub: the control socket is Unix-domain-socket only,
+    /// so callers always fall through to the in-process service path
+    /// on Windows. A named-pipe equivalent is a future enhancement.
+    #[cfg(not(unix))]
+    pub async fn try_connect(_project_root: &Path) -> Result<Option<Self>> {
+        Ok(None)
     }
 
     /// Explicit constructor for tests that point a client at an
@@ -128,6 +139,7 @@ impl ControlClient {
     /// Issue one JSON-RPC request with raw params and return the full
     /// envelope. Lower-level than [`Self::call`]; used internally and
     /// by tests that need to inspect the error payload directly.
+    #[cfg(unix)]
     pub async fn call_raw(&self, method: &str, params: Option<Value>) -> Result<RpcResponse> {
         let mut stream = UnixStream::connect(&self.socket_path)
             .await
@@ -147,6 +159,14 @@ impl ControlClient {
         let response: RpcResponse =
             serde_json::from_str(line.trim_end()).with_context(|| format!("parse {method} RPC response: {line}"))?;
         Ok(response)
+    }
+
+    /// Non-Unix stub. [`Self::try_connect`] already returns `Ok(None)`
+    /// on Windows so this should be unreachable in practice; surface a
+    /// clear error if anything tries to call it directly.
+    #[cfg(not(unix))]
+    pub async fn call_raw(&self, method: &str, _params: Option<Value>) -> Result<RpcResponse> {
+        Err(anyhow!("control client {method}: control socket not supported on this platform"))
     }
 
     // ----- Plugin convenience methods --------------------------------
@@ -334,7 +354,7 @@ pub fn is_method_unavailable(err: &anyhow::Error) -> bool {
     s.contains("not found:") || s.contains("not supported:")
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use animus_plugin_protocol::RpcError;

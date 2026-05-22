@@ -35,6 +35,7 @@
 //! path while C6/C7/C8 land.
 
 pub mod client;
+#[cfg(unix)]
 pub mod connection;
 pub mod dispatch;
 pub mod routing;
@@ -45,6 +46,7 @@ pub mod streaming;
 mod tests;
 
 pub use client::{is_method_unavailable, ControlClient};
+#[cfg(unix)]
 pub use connection::ControlConnection;
 pub use dispatch::{InProcessSurface, InProcessSurfaceBuilder};
 pub use routing::{AgentRouting, DaemonOpsRouting, PluginRouting, QueueRouting, WorkflowRouting};

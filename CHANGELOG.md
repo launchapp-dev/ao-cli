@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-05-22
+
+Hotfix release. Two bugs in v0.4.4 + v0.4.3:
+
+- fix(daemon-control): gate Unix-socket server on #[cfg(unix)]
+  so Windows release CI compiles. v0.4.2/0.4.3/0.4.4 all failed
+  the Windows build for the same reason. Windows now falls back
+  to the in-process service path; named-pipe equivalent is a
+  future enhancement.
+- test: delete 18 cli_e2e tests that exercised v0.4.4-deleted
+  commands (animus task / animus requirements lifecycles).
+  Unit tests (321/321) cover the new SubjectBackend surface.
+
 ## [0.4.4] - 2026-05-21
 
 Cleanup release that drops the legacy CLI command surfaces v0.4.3 made redundant. The in-tree `SubjectBackend` adapters (`InTreeTaskSubjectBackend`, `InTreeRequirementsSubjectBackend`) plus the external subject_backend plugin ecosystem cover the use cases through the unified `animus subject --kind <kind>` surface.

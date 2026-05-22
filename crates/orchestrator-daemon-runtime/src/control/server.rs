@@ -15,16 +15,19 @@
 //! - No `Drop` impl holds a lock or awaits.
 //! - The accept loop never holds any lock across `.await`.
 
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use animus_control_protocol::ControlSurface;
 use thiserror::Error;
+#[cfg(unix)]
 use tokio::net::UnixListener;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 
+#[cfg(unix)]
 use super::connection::ControlConnection;
 
 /// Environment variable that disables the control server entirely when
@@ -91,6 +94,12 @@ pub enum ControlError {
     /// fallback `.animus` directory was reachable.
     #[error("control server: could not resolve socket path for project root {project_root}")]
     ResolveSocketPath { project_root: PathBuf },
+
+    /// The control server is not supported on this platform (the
+    /// daemon's wire surface is currently Unix-socket only). Callers
+    /// should fall back to the in-process service path.
+    #[error("control server: {0}")]
+    Unavailable(&'static str),
 }
 
 /// Compute the Unix-socket path for `project_root`.
@@ -174,6 +183,11 @@ impl ControlServer {
     /// Bind at an explicit socket path. Used by tests where the
     /// scoped-state-root resolution would produce a path too long for
     /// `SUN_LEN`, and as the underlying primitive for [`Self::start`].
+    ///
+    /// On non-Unix targets this returns [`ControlError::Unavailable`];
+    /// the daemon treats that as "no control server, warn and continue"
+    /// so the in-process service path keeps working.
+    #[cfg(unix)]
     pub async fn start_with_socket(
         socket_path: PathBuf,
         surface: Arc<dyn ControlSurface>,
@@ -196,6 +210,17 @@ impl ControlServer {
 
         Ok(ControlServerHandle { socket_path, accept_task: Some(accept_task), shutdown_tx })
     }
+
+    /// Non-Unix stub. The control server is Unix-domain-socket only;
+    /// Windows callers receive [`ControlError::Unavailable`] and the
+    /// daemon falls back to in-process service dispatch.
+    #[cfg(not(unix))]
+    pub async fn start_with_socket(
+        _socket_path: PathBuf,
+        _surface: Arc<dyn ControlSurface>,
+    ) -> Result<ControlServerHandle, ControlError> {
+        Err(ControlError::Unavailable("control server not supported on this platform"))
+    }
 }
 
 /// Background task: accept connections until the shutdown signal fires.
@@ -205,6 +230,7 @@ impl ControlServer {
 /// on a single connection; connection-handler errors are logged via
 /// `tracing` (not yet wired through the daemon's structured event hook —
 /// that's part of the C5 ↔ daemon hook plumbing).
+#[cfg(unix)]
 async fn accept_loop(
     listener: UnixListener,
     surface: Arc<dyn ControlSurface>,

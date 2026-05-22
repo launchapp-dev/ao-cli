@@ -1,11 +1,16 @@
 //! [`ControlConnection`] — per-client JSON-RPC dispatch loop.
 //!
-//! Owns a single [`tokio::net::UnixStream`]. Reads newline-delimited
+//! Unix-only. Owns a single [`tokio::net::UnixStream`]. Reads newline-delimited
 //! JSON-RPC 2.0 frames, dispatches each via the shared
 //! [`Arc<dyn ControlSurface>`], and writes the response back. Streaming
 //! methods (`subject/watch`, `daemon/events`, `daemon/logs`) emit an
 //! immediate `{"watching": true}` ack and then push subsequent items as
 //! JSON-RPC notifications on the same socket.
+//!
+//! Windows targets compile without this module — the daemon's control
+//! server reports `Unavailable` there and CLI/web-api callers fall back
+//! to the in-process service path.
+#![cfg(unix)]
 //!
 //! Per-connection state tracks active stream-driver tasks keyed by the
 //! originating request id. On client disconnect every driver task is

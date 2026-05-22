@@ -4,6 +4,37 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.10] - 2026-05-22
+
+Patch release. Picks up v0.4.9 deferrals plus the broader cleanup the user has been queuing — the long-deferred `workflows_list` wire migration (HTTP only), live per-plugin `health/check` RPC fan-out, log redaction wired into every emit site, the two pre-existing flaky tests fixed at the root cause, and a `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` sweep ahead of the 2026-06-02 GitHub Actions Node 20 cutover.
+
+### Breaking Changes
+
+- **`http(workflows_list)`: wire shape on `/api/v1/workflows`.** The HTTP endpoint now serves `WorkflowRunSummary` rows (`id`, `definition`, `status`, `subject_id`, `started_at`, `finished_at`) instead of the full `OrchestratorWorkflow`. Daemon-internal fields (`phases`, `machine_state`, `current_phase`, `checkpoint_metadata`, decision history) no longer leak through the public HTTP API. `status` is kebab-case (`in-progress`-style) on the wire; `Escalated` collapses to `Paused` because the wire status enum lacks the variant. GraphQL `workflows` and `workflowsPaginated` still serve the full `OrchestratorWorkflow` shape, so the embedded web UI is unaffected.
+
+### Features
+
+- **`feat(daemon health)`: live per-plugin `health/check` fan-out.** `daemon_health()` now spawns each discovered plugin one-shot, runs the `initialize` handshake, calls `health/check`, and shuts the plugin down — all under a 3s per-plugin deadline. Probes fire concurrently via `futures_util::future::join_all`, so the wall time is roughly one probe regardless of plugin count. Failures land as `Unhealthy` rows with the error string in `last_error`; the daemon's own status stays `Healthy` because plugin-side trouble is an observability concern, not a daemon-liveness one. A long-lived plugin host pool is still v0.5 work, but `daemon health` is not hot-path enough to need it.
+- **`feat(orchestrator-logging)`: redaction wired into `Logger::write_entry`.** The v0.4.9 `redact_log_entry` building block moved from `orchestrator_daemon_runtime::control::log_redact` into `orchestrator_logging::log_redact` and is invoked from `Logger::write_entry` immediately before serialization. Every emit site that goes through the logger picks up redaction automatically; the old module path remains as a re-export so external callers stay source-compatible. New regression test (`write_entry_redacts_msg_in_persisted_line`) reads the persisted `events.jsonl` line and asserts the secret never reached disk.
+- **`feat(workflows_list)`: `workflows_list_summary` API method.** New `WebApiService::workflows_list_summary(query)` returns `ListPage<WorkflowRunSummary>` — the projection helper `workflow_to_run_summary` maps local `OrchestratorWorkflow` rows onto the wire shape. The HTTP handler at `/api/v1/workflows` calls this method; the existing `workflows_list` is kept for GraphQL.
+
+### Fixes
+
+- **`fix(tests)`: `plugin_registry_path_falls_back_to_legacy_when_canonical_missing`.** The test was setting `ANIMUS_CONFIG_DIR` to a non-empty path while asserting that `default_config_path()` returns the legacy `~/.config/animus/plugins.yaml`. The `config_dir_overridden` guard in `default_config_path()` intentionally skips the legacy fallback when `ANIMUS_CONFIG_DIR` is set, so the test was actually deterministically failing — but ENV_GUARD poisoning and other tests interacting through the same mutex were masking it as a "flake". The fix explicitly clears `ANIMUS_CONFIG_DIR` for the duration of the test (using the existing `EnvVarGuard`) so the legacy-fallback branch is exercised.
+- **`fix(tests)`: `install_succeeds_after_org_added_to_trusted` + 4 siblings.** All five trusted-orgs tests in `ops_plugin` were calling `std::env::set_var("ANIMUS_TRUSTED_ORGS", …)` and `remove_var` bare, with no serialization. Concurrent test threads racing on the same process-global env var were the documented flake source. Fix: new `TRUSTED_ORGS_ENV_GUARD` process-level mutex plus a small `ScopedEnv` RAII helper that restores the prior value on drop (panic-safe). All five tests now serialize through the mutex.
+
+### Plugin Cascade
+
+No plugin-repo cascade in v0.4.10 — `animus-protocol` stays pinned at v0.1.4. The wire shape adopted by item A already lives in v0.1.4, so no protocol bump was required.
+
+### Ops / CI
+
+- **`chore(ci)`: `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` set across all in-tree workflows.** GitHub Actions runners deprecate Node 20 on 2026-06-02; the env var forces JS-based actions onto Node 24 ahead of the cutover. Patched into all 8 `.github/workflows/*.yml` files as a top-level `env:` block.
+
+### Carried Forward
+
+- **Release automation across the 15-repo ecosystem.** Scoping was completed (lighter path: a separate `launchapp-dev/animus-release-automation` repo with a CLI tool that runs the version-pin matrix check + cascade-PR generation), but the implementation work was deferred so the v0.4.10 budget could land items A through F. Filed as the v0.4.11 / v0.5 starting point.
+
 ## [0.4.9] - 2026-05-22
 
 Patch release. Picks up v0.4.8 deferrals plus a handful of originally-planned items: the plugin-repo cascade onto animus-protocol v0.1.4, daemon-health per-plugin enumeration, a log redaction layer, and a cleanup pass on the stale `AgentPool` references that have been confusing agent reports for several patches.

@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 mod tracing_init;
 pub use tracing_init::{init_agent_tracing, init_daemon_tracing, init_tracing, init_workflow_tracing};
 
+pub mod log_redact;
+pub use log_redact::{redact_log_entry, redact_string, REDACTED_PLACEHOLDER, REDACT_PATTERNS_ENV};
+
 const MAX_LOG_SIZE: u64 = 50 * 1024 * 1024; // 50MB — full LLM content, no truncation
 const ROTATED_SUFFIX: &str = ".1";
 
@@ -189,7 +192,13 @@ impl Logger {
         if !self.should_log(entry.level) {
             return;
         }
-        let line = match serde_json::to_string(entry) {
+        // v0.4.10: scrub secret-shaped values before they hit disk so every
+        // emit site picks up redaction automatically. The clone is cheap
+        // relative to JSON serialization + disk I/O on this path, and lets
+        // the public `&LogEntry` API stay immutable.
+        let mut owned = entry.clone();
+        log_redact::redact_log_entry(&mut owned);
+        let line = match serde_json::to_string(&owned) {
             Ok(l) => l,
             Err(_) => return,
         };

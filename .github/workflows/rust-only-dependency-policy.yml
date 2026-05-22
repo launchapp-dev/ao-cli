@@ -7,6 +7,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # GitHub Actions runner Node 20 -> Node 24 deprecation (effective 2026-06-02).
+  # Forces JS-based actions onto Node 24 ahead of the cutover.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   rust_only_dependency_guardrail:
     name: Rust-only dependency guardrail

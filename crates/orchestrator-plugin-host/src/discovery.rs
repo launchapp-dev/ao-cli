@@ -780,15 +780,21 @@ mod tests {
         let legacy_file = legacy_dir.join("plugins.yaml");
         fs::write(&legacy_file, "plugins: {}\n").expect("write legacy");
 
+        // Drive `animus_home()` purely via $HOME so the legacy-fallback
+        // branch in `default_config_path()` is exercised. `ANIMUS_CONFIG_DIR`
+        // *must not* be set during this test — when it's set, the
+        // `config_dir_overridden` guard intentionally skips the legacy
+        // fallback (this was the source of the v0.4.x "pre-existing flake":
+        // some prior test left `ANIMUS_CONFIG_DIR` populated, so the
+        // legacy fallback never ran). v0.4.10: explicitly unset both
+        // overrides for the duration of this test.
         let _home = EnvVarGuard::set("HOME", &fake_home);
-        let animus_home_dir = fake_home.join(".animus");
-        let _config = EnvVarGuard::set("ANIMUS_CONFIG_DIR", &animus_home_dir);
-
-        // Ensure ANIMUS_PLUGIN_DIR doesn't bleed through from other tests.
+        let _config_clear = EnvVarGuard::set("ANIMUS_CONFIG_DIR", "");
         let _plugin_dir_clear = EnvVarGuard::set("ANIMUS_PLUGIN_DIR", "");
 
+        // animus_home() falls back to $HOME/.animus when ANIMUS_CONFIG_DIR is empty.
         let canonical = plugins_registry_path();
-        assert_eq!(canonical, animus_home_dir.join("plugins.yaml"));
+        assert_eq!(canonical, fake_home.join(".animus/plugins.yaml"));
         assert!(!canonical.exists(), "canonical registry path should not exist yet in this test");
 
         let resolved = default_config_path();

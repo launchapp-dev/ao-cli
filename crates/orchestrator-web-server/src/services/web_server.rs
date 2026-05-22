@@ -651,7 +651,12 @@ async fn workflows_list_handler(State(state): State<AppState>, Query(query): Que
         Err(error) => return error_response(error),
     };
 
-    match state.api.workflows_list(query).await {
+    // v0.4.10: lossy-wire migration. `/api/v1/workflows` now serves
+    // `WorkflowRunSummary` rows (kebab-case status, no `phases` or
+    // `machine_state`). GraphQL still serves the full `OrchestratorWorkflow`
+    // shape for the embedded web UI; the HTTP surface is the public API
+    // that took the contract change.
+    match state.api.workflows_list_summary(query).await {
         Ok(data) => match paginated_success_response(data, None) {
             Ok(response) => response,
             Err(error) => error_response(error),

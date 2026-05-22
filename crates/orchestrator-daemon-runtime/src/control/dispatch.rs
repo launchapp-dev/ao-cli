@@ -513,26 +513,24 @@ impl ControlSurface for InProcessSurface {
         if let Some(routing) = &self.daemon_ops_routing {
             return routing.daemon_health().await;
         }
-        // v0.4.9: enumerate installed plugins for the per-plugin section.
-        // Each plugin's status is reported as `Healthy` on the basis that
-        // it is discoverable / has a valid manifest. A live `health/check`
-        // RPC fan-out per plugin is deferred until the daemon owns a
-        // long-lived plugin host pool — without it, every health probe
-        // here would spawn a one-shot process per plugin, which is
-        // prohibitively expensive for a frequently-polled endpoint.
-        let plugins = match orchestrator_plugin_host::discover_plugins(&self.project_root) {
-            Ok(discovered) => discovered
-                .into_iter()
-                .map(|p| PluginHealth {
-                    name: p.name.clone(),
-                    kind: p.manifest.plugin_kind.clone(),
-                    status: DaemonHealthStatus::Healthy,
-                    uptime_ms: None,
-                    last_error: None,
-                })
-                .collect(),
+        // v0.4.10: live `health/check` RPC fan-out per plugin. For each
+        // discovered plugin we spawn the binary, run the `initialize` +
+        // `health/check` handshake under a tight (3s) per-plugin deadline,
+        // then shut it down. The probe is per-call (no long-lived pool yet)
+        // but bounded — health is not a hot endpoint, and concurrent
+        // probes overlap so the wall time is roughly one probe regardless
+        // of plugin count. A probe failure reports the plugin as
+        // `Unhealthy` with the error string in `last_error`; the daemon's
+        // own status stays `Healthy` because plugin-side trouble is an
+        // observability concern, not a daemon-liveness one.
+        let discovered = match orchestrator_plugin_host::discover_plugins(&self.project_root) {
+            Ok(v) => v,
             Err(_) => Vec::new(),
         };
+        let probes = discovered.into_iter().map(|p| async move {
+            probe_plugin_health(&p).await
+        });
+        let plugins: Vec<PluginHealth> = futures_util::future::join_all(probes).await;
         Ok(DaemonHealthResponse { status: DaemonHealthStatus::Healthy, plugins, last_error: None })
     }
 
@@ -912,6 +910,68 @@ fn short_hash(msg: &str) -> String {
     let mut hasher = DefaultHasher::new();
     msg.hash(&mut hasher);
     format!("{:016x}", hasher.finish())
+}
+
+/// Per-plugin live `health/check` probe used by `daemon_health`.
+///
+/// Spawns the plugin one-shot, runs the `initialize` handshake, calls
+/// `health/check`, and shuts the plugin down. The whole probe is bounded
+/// by [`PLUGIN_HEALTH_PROBE_TIMEOUT`]; any timeout / spawn / RPC failure
+/// turns into an `Unhealthy` row with `last_error` set.
+///
+/// Probes are designed to be fired concurrently from `join_all`. The
+/// daemon's own status stays `Healthy` because plugin-side trouble is an
+/// observability concern, not a daemon-liveness one.
+async fn probe_plugin_health(plugin: &orchestrator_plugin_host::DiscoveredPlugin) -> PluginHealth {
+    use orchestrator_plugin_host::{PluginHost, PluginSpawnOptions};
+    use std::time::Duration;
+
+    const PLUGIN_HEALTH_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+
+    let name = plugin.name.clone();
+    let kind = plugin.manifest.plugin_kind.clone();
+    let path = plugin.path.clone();
+
+    let outcome = tokio::time::timeout(PLUGIN_HEALTH_PROBE_TIMEOUT, async move {
+        let host = PluginHost::spawn_with_options(&path, &[], PluginSpawnOptions::default()).await?;
+        host.handshake().await?;
+        let result = host.health_check().await?;
+        // Best-effort shutdown — we still report the probe result if shutdown trips.
+        let _ = host.shutdown().await;
+        Ok::<_, anyhow::Error>(result)
+    })
+    .await;
+
+    match outcome {
+        Ok(Ok(result)) => {
+            let status = match result.status {
+                animus_plugin_protocol::HealthStatus::Healthy => DaemonHealthStatus::Healthy,
+                animus_plugin_protocol::HealthStatus::Degraded => DaemonHealthStatus::Degraded,
+                animus_plugin_protocol::HealthStatus::Unhealthy => DaemonHealthStatus::Unhealthy,
+            };
+            PluginHealth {
+                name,
+                kind,
+                status,
+                uptime_ms: result.uptime_ms,
+                last_error: result.last_error,
+            }
+        }
+        Ok(Err(err)) => PluginHealth {
+            name,
+            kind,
+            status: DaemonHealthStatus::Unhealthy,
+            uptime_ms: None,
+            last_error: Some(format!("{err}")),
+        },
+        Err(_) => PluginHealth {
+            name,
+            kind,
+            status: DaemonHealthStatus::Unhealthy,
+            uptime_ms: None,
+            last_error: Some(format!("health/check timed out after {PLUGIN_HEALTH_PROBE_TIMEOUT:?}")),
+        },
+    }
 }
 
 #[cfg(test)]

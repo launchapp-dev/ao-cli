@@ -137,18 +137,40 @@ fn resolve_requirement_workflow_ref(project_root: &str) -> Result<String, String
 
 impl WebApiService {
     pub async fn workflows_list(&self, query: WorkflowQuery) -> Result<ListPage<OrchestratorWorkflow>, WebApiError> {
-        // workflows_list stays local: handler returns
-        // `ListPage<OrchestratorWorkflow>` (offset/total pagination,
-        // snake_case `WorkflowStatus`, full phase + machine-state shape)
-        // while the wire `WorkflowListResponse` is cursor-paginated and
-        // returns `WorkflowRunSummary` with kebab-case status and no
-        // `Escalated` variant. A faithful conversion requires either a
-        // lossy stub + Into impl that the web UI then has to ignore, or
-        // changing the handler's typed return contract through
-        // `paginated_success_response`, ETag computation, and a stack of
-        // typed tests. Deferred to v0.4.9 — wire is bumped to v0.1.4 in
-        // v0.4.8 but the migration of this handler is held back.
+        // Kept as the full-shape entrypoint for GraphQL callers. The HTTP
+        // handler at `/api/v1/workflows` no longer uses this — it routes
+        // through [`Self::workflows_list_summary`] which serves the wire
+        // [`WorkflowRunSummary`] shape (kebab-case status, no `phases` or
+        // `machine_state`). GraphQL continues to expose the full
+        // `OrchestratorWorkflow` because the existing GraphQL types and
+        // web-UI codegen depend on it; the HTTP contract is the public
+        // surface that gets the v0.4.10 lossy-wire migration.
         Ok(self.context.hub.workflows().query(query).await?)
+    }
+
+    /// v0.4.10: lossy-wire shape for the `/api/v1/workflows` HTTP handler.
+    ///
+    /// Returns a `ListPage<WorkflowRunSummary>` where each row mirrors the
+    /// control-protocol [`animus_control_protocol::types::WorkflowRunSummary`]
+    /// (id / definition / status / subject_id / started_at / finished_at).
+    /// Local-only fields — `phases`, `machine_state`, `current_phase`,
+    /// `checkpoint_metadata`, decision history — are dropped at this
+    /// boundary so the public HTTP API does not leak daemon internals.
+    ///
+    /// **Breaking change vs v0.4.9**: the response items are smaller and
+    /// the status enum is kebab-case (`in-progress`-style) rather than
+    /// snake_case. `Escalated` collapses to `Paused` because the wire
+    /// status enum lacks it. Callers that need the full shape should use
+    /// the GraphQL `workflows` query, which still serves
+    /// `OrchestratorWorkflow`.
+    pub async fn workflows_list_summary(
+        &self,
+        query: WorkflowQuery,
+    ) -> Result<ListPage<animus_control_protocol::types::WorkflowRunSummary>, WebApiError> {
+        let page = self.context.hub.workflows().query(query).await?;
+        let ListPage { items, returned, total, limit, offset, has_more, next_offset } = page;
+        let projected: Vec<_> = items.into_iter().map(workflow_to_run_summary).collect();
+        Ok(ListPage { items: projected, returned, total, limit, offset, has_more, next_offset })
     }
 
     pub async fn workflow_config(&self) -> Result<Value, WebApiError> {
@@ -719,6 +741,49 @@ async fn try_workflow_cancel_via_control(project_root: &str, id: &str) -> Option
             tracing::debug!(error = %err, "workflow/cancel wire error; falling back to local");
             None
         }
+    }
+}
+
+// ---- v0.4.10 wire projection ----
+//
+// Local `OrchestratorWorkflow` rows are projected to the wire
+// `WorkflowRunSummary` shape exposed on `/api/v1/workflows`. The wire
+// status enum is kebab-case and lacks `Escalated`; we map `Escalated` to
+// `Paused` because both states are "waiting on human / external action"
+// from an operator's standpoint. Local-only fields (phases, machine
+// state, decision history, current_phase) are intentionally dropped.
+
+fn workflow_to_run_summary(
+    w: OrchestratorWorkflow,
+) -> animus_control_protocol::types::WorkflowRunSummary {
+    use animus_control_protocol::types::{WorkflowRunSummary, WorkflowStatus as WireStatus};
+    use animus_subject_protocol::SubjectId as WireSubjectId;
+    use protocol::orchestrator::WorkflowStatus as LocalStatus;
+
+    let status = match w.status {
+        LocalStatus::Pending => WireStatus::Pending,
+        LocalStatus::Running => WireStatus::Running,
+        LocalStatus::Paused | LocalStatus::Escalated => WireStatus::Paused,
+        LocalStatus::Completed => WireStatus::Completed,
+        LocalStatus::Failed => WireStatus::Failed,
+        LocalStatus::Cancelled => WireStatus::Cancelled,
+    };
+
+    let subject_id = if !w.task_id.is_empty() {
+        Some(WireSubjectId::from(format!("task:{}", w.task_id)))
+    } else if !w.subject.id.is_empty() {
+        Some(WireSubjectId::from(format!("{}:{}", w.subject.kind, w.subject.id)))
+    } else {
+        None
+    };
+
+    WorkflowRunSummary {
+        id: w.id,
+        definition: w.workflow_ref.unwrap_or_default(),
+        status,
+        subject_id,
+        started_at: w.started_at,
+        finished_at: w.completed_at,
     }
 }
 

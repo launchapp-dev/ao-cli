@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 animus-control-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.4" }
+animus-subject-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.4" }
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
 orchestrator-config = { path = "../orchestrator-config" }

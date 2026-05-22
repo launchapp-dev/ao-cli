@@ -2253,59 +2253,93 @@ mod tests {
         assert!(BUILTIN_TRUSTED_ORGS.contains(&"launchapp-dev"));
     }
 
+    /// v0.4.10: serializes the trusted-orgs tests below that all mutate the
+    /// process-global `ANIMUS_TRUSTED_ORGS` env var. Cargo test runs in
+    /// parallel by default; concurrent `set_var`/`remove_var` calls were
+    /// the root cause of the documented `install_succeeds_after_org_added_to_trusted`
+    /// flake. Held alongside [`ScopedEnv`] so the env var is restored on
+    /// drop even when an assertion panics.
+    static TRUSTED_ORGS_ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// RAII wrapper around a single env var. On drop, restores the prior
+    /// value (or removes it if it wasn't set). Prevents tests that panic
+    /// mid-flow from leaking state into siblings.
+    struct ScopedEnv {
+        key: &'static str,
+        previous: Option<std::ffi::OsString>,
+    }
+
+    impl ScopedEnv {
+        fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+            let previous = std::env::var_os(key);
+            std::env::set_var(key, value);
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for ScopedEnv {
+        fn drop(&mut self) {
+            match self.previous.take() {
+                Some(prev) => std::env::set_var(self.key, prev),
+                None => std::env::remove_var(self.key),
+            }
+        }
+    }
+
     #[test]
     fn install_warns_on_untrusted_org_first_time() {
+        let _guard = TRUSTED_ORGS_ENV_GUARD.lock().unwrap_or_else(|p| p.into_inner());
         // Direct unit test of the trusted-org policy.
         let temp = tempfile::tempdir().unwrap();
         let trusted_orgs_yaml = temp.path().join("trusted-orgs.yaml");
-        std::env::set_var("ANIMUS_TRUSTED_ORGS", &trusted_orgs_yaml);
+        let _env = ScopedEnv::set("ANIMUS_TRUSTED_ORGS", &trusted_orgs_yaml);
         // Untrusted, non-interactive, no --yes -> must error.
         let req = PluginInstallRequest::default();
         let err = enforce_org_trust("evil-org", &req).expect_err("untrusted org without --yes must fail");
         assert!(format!("{err}").contains("untrusted org"), "unexpected: {err}");
-        std::env::remove_var("ANIMUS_TRUSTED_ORGS");
     }
 
     #[test]
     fn install_succeeds_after_org_added_to_trusted() {
+        let _guard = TRUSTED_ORGS_ENV_GUARD.lock().unwrap_or_else(|p| p.into_inner());
         let temp = tempfile::tempdir().unwrap();
         let trusted_orgs_yaml = temp.path().join("trusted-orgs.yaml");
-        std::env::set_var("ANIMUS_TRUSTED_ORGS", &trusted_orgs_yaml);
+        let _env = ScopedEnv::set("ANIMUS_TRUSTED_ORGS", &trusted_orgs_yaml);
         // Pre-populate with someone-elses-org.
         std::fs::write(&trusted_orgs_yaml, "trusted_orgs:\n  - someone-elses-org\n").unwrap();
         let req = PluginInstallRequest::default();
         let ok = enforce_org_trust("someone-elses-org", &req);
         assert!(ok.is_ok(), "previously-trusted org must skip the TOFU prompt");
-        std::env::remove_var("ANIMUS_TRUSTED_ORGS");
     }
 
     #[test]
     fn install_succeeds_when_org_passed_via_allow_org() {
+        let _guard = TRUSTED_ORGS_ENV_GUARD.lock().unwrap_or_else(|p| p.into_inner());
         let temp = tempfile::tempdir().unwrap();
         let trusted_orgs_yaml = temp.path().join("trusted-orgs.yaml");
-        std::env::set_var("ANIMUS_TRUSTED_ORGS", &trusted_orgs_yaml);
+        let _env = ScopedEnv::set("ANIMUS_TRUSTED_ORGS", &trusted_orgs_yaml);
         let req = PluginInstallRequest { allow_org: vec!["new-friend-org".to_string()], ..Default::default() };
         let ok = enforce_org_trust("new-friend-org", &req);
         assert!(ok.is_ok(), "--allow-org should pre-trust the org for this install");
-        std::env::remove_var("ANIMUS_TRUSTED_ORGS");
     }
 
     #[test]
     fn launchapp_dev_skips_tofu_prompt() {
+        let _guard = TRUSTED_ORGS_ENV_GUARD.lock().unwrap_or_else(|p| p.into_inner());
         let temp = tempfile::tempdir().unwrap();
         let trusted_orgs_yaml = temp.path().join("trusted-orgs.yaml");
-        std::env::set_var("ANIMUS_TRUSTED_ORGS", &trusted_orgs_yaml);
+        let _env = ScopedEnv::set("ANIMUS_TRUSTED_ORGS", &trusted_orgs_yaml);
         let req = PluginInstallRequest::default();
         let ok = enforce_org_trust("launchapp-dev", &req);
         assert!(ok.is_ok(), "launchapp-dev is pre-trusted and must never trip TOFU");
-        std::env::remove_var("ANIMUS_TRUSTED_ORGS");
     }
 
     #[test]
     fn add_trusted_org_persists_and_is_idempotent() {
+        let _guard = TRUSTED_ORGS_ENV_GUARD.lock().unwrap_or_else(|p| p.into_inner());
         let temp = tempfile::tempdir().unwrap();
         let trusted_orgs_yaml = temp.path().join("trusted-orgs.yaml");
-        std::env::set_var("ANIMUS_TRUSTED_ORGS", &trusted_orgs_yaml);
+        let _env = ScopedEnv::set("ANIMUS_TRUSTED_ORGS", &trusted_orgs_yaml);
         add_trusted_org("first-org").expect("add 1st");
         add_trusted_org("first-org").expect("idempotent 2nd");
         add_trusted_org("second-org").expect("add 2nd");
@@ -2317,7 +2351,6 @@ mod tests {
         add_trusted_org("launchapp-dev").expect("builtin add is no-op");
         let cfg2 = load_trusted_orgs().expect("reload");
         assert_eq!(cfg2.trusted_orgs.len(), 2, "launchapp-dev must not be appended to trusted-orgs.yaml");
-        std::env::remove_var("ANIMUS_TRUSTED_ORGS");
     }
 
     #[test]

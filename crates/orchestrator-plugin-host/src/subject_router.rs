@@ -24,17 +24,9 @@ struct KindPattern {
 impl KindPattern {
     fn parse(raw: &str) -> Self {
         if let Some(stem) = raw.strip_suffix(".*") {
-            KindPattern {
-                raw: raw.to_string(),
-                prefix: format!("{stem}."),
-                is_glob: true,
-            }
+            KindPattern { raw: raw.to_string(), prefix: format!("{stem}."), is_glob: true }
         } else {
-            KindPattern {
-                raw: raw.to_string(),
-                prefix: raw.to_string(),
-                is_glob: false,
-            }
+            KindPattern { raw: raw.to_string(), prefix: raw.to_string(), is_glob: false }
         }
     }
 
@@ -70,9 +62,8 @@ impl SubjectRouter {
                     // Reject duplicate glob registrations on the same prefix
                     // to keep precedence deterministic. Different prefix
                     // lengths are fine — longest wins at resolve time.
-                    if let Some((existing_pattern, existing_name)) = glob_kinds
-                        .iter()
-                        .find(|(p, _)| p.prefix == pattern.prefix && p.is_glob)
+                    if let Some((existing_pattern, existing_name)) =
+                        glob_kinds.iter().find(|(p, _)| p.prefix == pattern.prefix && p.is_glob)
                     {
                         return Err(anyhow!(
                             "duplicate subject kind glob '{}' claimed by '{}' and '{}'",
@@ -139,10 +130,7 @@ impl SubjectRouter {
     }
 
     pub fn is_subject_method(&self, method: &str) -> bool {
-        method
-            .split('/')
-            .next()
-            .is_some_and(|kind| self.plugin_for_kind(kind).is_some())
+        method.split('/').next().is_some_and(|kind| self.plugin_for_kind(kind).is_some())
     }
 
     pub async fn route_call(&self, method: &str, params: Option<Value>) -> Result<Value, RpcError> {
@@ -245,10 +233,7 @@ mod tests {
         // The glob does not match the bare prefix itself.
         assert_eq!(router.plugin_for_kind("task"), None);
         // And the route_call path also accepts the dotted method.
-        let result = router
-            .route_call("task.tracked/list", Some(serde_json::json!({})))
-            .await
-            .expect("route");
+        let result = router.route_call("task.tracked/list", Some(serde_json::json!({}))).await.expect("route");
         assert_eq!(result["method"], "task.tracked/list");
     }
 

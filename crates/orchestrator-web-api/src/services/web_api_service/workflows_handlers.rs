@@ -330,9 +330,7 @@ impl WebApiService {
         // `WorkflowResumeRequest`, so the wire path now carries reviewer
         // comments. Fall back to the local dispatcher only if the daemon
         // is unreachable.
-        if let Some(()) =
-            try_workflow_resume_via_control(&self.context.project_root, id, feedback.clone()).await
-        {
+        if let Some(()) = try_workflow_resume_via_control(&self.context.project_root, id, feedback.clone()).await {
             self.publish_event("workflow-resume", json!({ "workflow_id": id }));
             return Ok(json!({ "workflow_id": id, "status": "resumed" }));
         }
@@ -680,11 +678,7 @@ async fn try_workflow_pause_via_control(project_root: &str, id: &str) -> Option<
     }
 }
 
-async fn try_workflow_resume_via_control(
-    project_root: &str,
-    id: &str,
-    feedback: Option<String>,
-) -> Option<()> {
+async fn try_workflow_resume_via_control(project_root: &str, id: &str, feedback: Option<String>) -> Option<()> {
     use animus_control_protocol::types::WorkflowResumeRequest as WireRequest;
     use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
 
@@ -693,10 +687,7 @@ async fn try_workflow_resume_via_control(
         Ok(Some(c)) => c,
         _ => return None,
     };
-    match client
-        .workflow_resume(WireRequest { id: id.to_string(), feedback })
-        .await
-    {
+    match client.workflow_resume(WireRequest { id: id.to_string(), feedback }).await {
         Ok(_) => Some(()),
         Err(err) if is_method_unavailable(&err) => {
             tracing::debug!(error = %err, "workflow/resume wire unavailable; falling back to local");

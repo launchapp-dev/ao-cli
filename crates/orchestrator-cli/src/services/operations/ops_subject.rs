@@ -235,11 +235,8 @@ mod tests {
         let project_root = tmp.path();
         let animus_dir = project_root.join(".animus");
         fs::create_dir_all(&animus_dir).expect("create .animus");
-        fs::write(
-            animus_dir.join("config.json"),
-            serde_json::json!({ "agent_runner_token": null }).to_string(),
-        )
-        .expect("seed config");
+        fs::write(animus_dir.join("config.json"), serde_json::json!({ "agent_runner_token": null }).to_string())
+            .expect("seed config");
         let err = resolve_kind(None, project_root.to_str().expect("utf-8"))
             .expect_err("must error when no default and no flag");
         let message = err.to_string();

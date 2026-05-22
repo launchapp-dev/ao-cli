@@ -296,12 +296,7 @@ async fn try_queue_reorder_via_control(project_root: &str, subject_ids: Vec<Stri
         Ok(Some(c)) => c,
         _ => return None,
     };
-    let request = WireRequest {
-        id: None,
-        subject_ids,
-        anchor_id: None,
-        position: QueueReorderPosition::Back,
-    };
+    let request = WireRequest { id: None, subject_ids, anchor_id: None, position: QueueReorderPosition::Back };
     match client.queue_reorder(request).await {
         Ok(_) => Some(()),
         Err(err) if is_method_unavailable(&err) => {

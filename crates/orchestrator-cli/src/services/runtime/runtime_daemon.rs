@@ -15,8 +15,8 @@ use orchestrator_notifications::{
 };
 
 use crate::{
-    print_ok, print_value, DaemonCommand, DaemonConfigArgs, DaemonEventsArgs, DaemonRunArgs, DaemonStartArgs,
-    DaemonStopArgs, DaemonStreamArgs, RunnerScopeArg,
+    print_ok, print_value, DaemonCommand, DaemonConfigArgs, DaemonEventsArgs, DaemonPreflightArgs, DaemonRunArgs,
+    DaemonStartArgs, DaemonStopArgs, DaemonStreamArgs, RunnerScopeArg,
 };
 
 mod control_routing;
@@ -451,6 +451,36 @@ fn handle_daemon_config(args: DaemonConfigArgs, project_root: &str, json: bool) 
     )
 }
 
+async fn handle_daemon_preflight(args: DaemonPreflightArgs, project_root: &str, json: bool) -> Result<()> {
+    use orchestrator_core::{PluginPreflightRunner, PluginPreflightSpec};
+    use orchestrator_daemon_runtime::discover_installed_plugins;
+
+    let mut spec = PluginPreflightSpec::daemon_default();
+    spec.auto_install = args.auto_install;
+
+    let installed = discover_installed_plugins(project_root).unwrap_or_default();
+    let installer = if args.auto_install {
+        Some(daemon_run::CliPluginInstaller::new(project_root))
+    } else {
+        None
+    };
+    let installer_ref = installer.as_ref().map(|i| i as &dyn orchestrator_core::PluginInstaller);
+    let result = PluginPreflightRunner::run(&spec, installed, installer_ref).await?;
+
+    print_value(
+        serde_json::json!({
+            "schema": "animus.daemon.preflight.v1",
+            "auto_install": args.auto_install,
+            "satisfied": result.satisfied,
+            "missing": result.missing,
+            "auto_installed": result.auto_installed,
+            "ok": result.is_ok(),
+            "fix_message": if result.is_ok() { String::new() } else { result.render_missing_message() },
+        }),
+        json,
+    )
+}
+
 fn spawn_autonomous_daemon_run(project_root: &str, args: &DaemonStartArgs) -> Result<AutonomousDaemonSpawn> {
     let current_exe = std::env::current_exe().context("failed to resolve current ao binary")?;
     let log_path = autonomous_daemon_log_path(project_root);
@@ -523,6 +553,12 @@ fn spawn_autonomous_daemon_run(project_root: &str, args: &DaemonStartArgs) -> Re
     }
     if let Some(scope) = args.runner_scope.as_ref() {
         command.arg("--runner-scope").arg(runner_scope_value(scope));
+    }
+    if args.auto_install {
+        command.arg("--auto-install");
+    }
+    if args.skip_preflight {
+        command.arg("--skip-preflight");
     }
 
     command.env_remove("CLAUDECODE");
@@ -643,6 +679,8 @@ pub(crate) async fn handle_daemon(
                     skip_runner: args.skip_runner,
                     runner_scope: args.runner_scope,
                     once: false,
+                    auto_install: args.auto_install,
+                    skip_preflight: args.skip_preflight,
                 },
                 project_root,
                 json,
@@ -693,6 +731,7 @@ pub(crate) async fn handle_daemon(
             print_value(serde_json::json!({ "active_agents": active_agents }), json)
         }
         DaemonCommand::Config(args) => handle_daemon_config(args, project_root, json),
+        DaemonCommand::Preflight(args) => handle_daemon_preflight(args, project_root, json).await,
     }
 }
 

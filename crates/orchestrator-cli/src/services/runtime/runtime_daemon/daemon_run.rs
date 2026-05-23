@@ -1,19 +1,25 @@
 use crate::cli_types::DaemonRunArgs;
 use crate::services::operations::{
-    build_agent_routing, build_plugin_routing, build_queue_routing, build_workflow_routing,
+    build_agent_routing, build_plugin_routing, build_queue_routing, build_workflow_routing, run_plugin_install,
+    PluginInstallRequest,
 };
 use crate::services::runtime::runtime_daemon::build_daemon_ops_routing;
 use crate::services::runtime::runtime_daemon::daemon_reconciliation::recover_orphaned_running_workflows;
 use anyhow::Result;
+use async_trait::async_trait;
 use orchestrator_core::services::DaemonStartConfig;
 use orchestrator_core::DaemonStatus;
 use orchestrator_core::FileServiceHub;
 use orchestrator_core::ServiceHub;
-use orchestrator_core::{load_daemon_project_config, write_daemon_project_config};
+use orchestrator_core::{
+    load_daemon_project_config, write_daemon_project_config, InstalledPluginSummary, PluginInstaller,
+};
 use orchestrator_daemon_runtime::control::{
     AgentRouting, DaemonOpsRouting, PluginRouting, QueueRouting, WorkflowRouting,
 };
-use orchestrator_daemon_runtime::{run_daemon, DaemonRunEvent, DaemonRunHooks, ProcessManager};
+use orchestrator_daemon_runtime::{
+    discover_installed_plugins, run_daemon, DaemonRunEvent, DaemonRunHooks, ProcessManager,
+};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -23,9 +29,37 @@ use super::canonicalize_lossy;
 use super::daemon_run_host::DefaultDaemonRunHost;
 use super::daemon_scheduler::{runtime_options_from_cli, slim_project_tick_driver, SlimProjectTickDriver};
 
+pub(super) struct CliPluginInstaller {
+    project_root: String,
+}
+
+impl CliPluginInstaller {
+    pub(super) fn new(project_root: impl Into<String>) -> Self {
+        Self { project_root: project_root.into() }
+    }
+}
+
+#[async_trait(?Send)]
+impl PluginInstaller for CliPluginInstaller {
+    async fn install(&self, repo_spec: &str) -> Result<String> {
+        let req = PluginInstallRequest {
+            source: Some(repo_spec.to_string()),
+            yes: true,
+            ..Default::default()
+        };
+        let output = run_plugin_install(req).await?;
+        Ok(output.name)
+    }
+
+    async fn rediscover(&self) -> Result<Vec<InstalledPluginSummary>> {
+        discover_installed_plugins(&self.project_root)
+    }
+}
+
 struct CliDaemonRunHost {
     inner: DefaultDaemonRunHost,
     start_config: DaemonStartConfig,
+    installer: Arc<CliPluginInstaller>,
     plugin_routing: Arc<dyn PluginRouting>,
     daemon_ops_routing: Arc<dyn DaemonOpsRouting>,
     workflow_routing: Arc<dyn WorkflowRouting>,
@@ -41,9 +75,11 @@ impl CliDaemonRunHost {
         let workflow_routing = build_workflow_routing(project_root_path.clone());
         let queue_routing = build_queue_routing(project_root_path.clone());
         let agent_routing = build_agent_routing(project_root_path);
+        let installer = Arc::new(CliPluginInstaller::new(project_root));
         Self {
             inner: DefaultDaemonRunHost::new(project_root, json),
             start_config,
+            installer,
             plugin_routing,
             daemon_ops_routing,
             workflow_routing,
@@ -110,6 +146,10 @@ impl DaemonRunHooks for CliDaemonRunHost {
 
     fn agent_routing(&self) -> Option<Arc<dyn AgentRouting>> {
         Some(self.agent_routing.clone())
+    }
+
+    fn plugin_installer(&self) -> Option<Arc<dyn PluginInstaller>> {
+        Some(self.installer.clone())
     }
 }
 

@@ -35,6 +35,8 @@ pub(super) fn runtime_options_from_cli(args: &DaemonRunArgs, project_root: &str)
     options.phase_timeout_secs = args.scheduler.phase_timeout_secs;
     options.idle_timeout_secs = args.scheduler.idle_timeout_secs;
     options.once = args.once;
+    options.auto_install_plugins = args.auto_install;
+    options.skip_plugin_preflight = args.skip_preflight;
 
     if let Some(v) = args.scheduler.auto_run_ready {
         options.auto_run_ready = v;

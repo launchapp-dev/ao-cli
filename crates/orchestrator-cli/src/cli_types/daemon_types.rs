@@ -30,6 +30,9 @@ pub(crate) enum DaemonCommand {
     Agents,
     /// Update daemon automation configuration.
     Config(DaemonConfigArgs),
+    /// Report plugin preflight status (which required plugins are installed,
+    /// which are missing, and the fix commands).
+    Preflight(DaemonPreflightArgs),
 }
 
 #[derive(Debug, Args)]
@@ -140,6 +143,18 @@ pub(crate) struct DaemonStartArgs {
     pub(crate) runner_scope: Option<RunnerScopeArg>,
     #[arg(long, default_value_t = false, help = "Run daemon in detached/background mode.")]
     pub(crate) autonomous: bool,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Auto-install any plugins that preflight finds missing, using the daemon's recommended defaults."
+    )]
+    pub(crate) auto_install: bool,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Skip the daemon's startup plugin preflight entirely. Escape hatch for dev iteration."
+    )]
+    pub(crate) skip_preflight: bool,
 }
 
 #[derive(Debug, Args)]
@@ -152,6 +167,28 @@ pub(crate) struct DaemonRunArgs {
     pub(crate) runner_scope: Option<RunnerScopeArg>,
     #[arg(long, default_value_t = false, help = "Run one scheduler tick and exit.")]
     pub(crate) once: bool,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Auto-install any plugins that preflight finds missing, using the daemon's recommended defaults."
+    )]
+    pub(crate) auto_install: bool,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Skip the daemon's startup plugin preflight entirely. Escape hatch for dev iteration."
+    )]
+    pub(crate) skip_preflight: bool,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct DaemonPreflightArgs {
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Auto-install any plugins that preflight finds missing, using the daemon's recommended defaults."
+    )]
+    pub(crate) auto_install: bool,
 }
 
 #[derive(Debug, Args)]

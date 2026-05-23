@@ -184,6 +184,25 @@ impl DefaultDaemonRunHost {
                     self.logger.warn("control", warning.clone()).emit();
                 }
             }
+            DaemonRunEvent::PluginPreflight { satisfied, auto_installed, missing, skipped, auto_install, .. } => {
+                let summary = if *skipped {
+                    "plugin preflight skipped via --skip-preflight".to_string()
+                } else if missing.is_empty() {
+                    format!("plugin preflight satisfied ({} role(s))", satisfied.len())
+                } else {
+                    format!("plugin preflight FAILED: {} role(s) missing", missing.len())
+                };
+                self.logger
+                    .info("plugins", summary)
+                    .meta(json!({
+                        "satisfied": satisfied,
+                        "auto_installed": auto_installed,
+                        "missing": missing,
+                        "skipped": skipped,
+                        "auto_install": auto_install,
+                    }))
+                    .emit();
+            }
         }
     }
 
@@ -521,6 +540,24 @@ impl DaemonRunHooks for DefaultDaemonRunHost {
                         "warnings": warnings,
                     }),
                 ),
+            DaemonRunEvent::PluginPreflight {
+                project_root,
+                satisfied,
+                auto_installed,
+                missing,
+                skipped,
+                auto_install,
+            } => self.emit_daemon_event_with_notifications(
+                "plugin-preflight",
+                Some(project_root),
+                json!({
+                    "satisfied": satisfied,
+                    "auto_installed": auto_installed,
+                    "missing": missing,
+                    "skipped": skipped,
+                    "auto_install": auto_install,
+                }),
+            ),
         }
     }
 

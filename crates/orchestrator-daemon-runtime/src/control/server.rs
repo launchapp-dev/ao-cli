@@ -29,6 +29,7 @@ use tokio::task::JoinHandle;
 
 #[cfg(unix)]
 use super::connection::ControlConnection;
+use super::workflow_events::WorkflowEventBroadcaster;
 
 /// Environment variable that disables the control server entirely when
 /// set to a truthy value.
@@ -180,6 +181,19 @@ impl ControlServer {
         Self::start_with_socket(socket_path, surface).await
     }
 
+    /// Like [`Self::start`] but also wires a [`WorkflowEventBroadcaster`]
+    /// for the `workflow/events` subscription method. Without this hook
+    /// `workflow/events` returns `internal_error` on subscribe (the
+    /// in-tree v0.1.10 `ControlSurface` does not yet implement it).
+    pub async fn start_with_workflow_events(
+        project_root: &Path,
+        surface: Arc<dyn ControlSurface>,
+        broadcaster: Arc<WorkflowEventBroadcaster>,
+    ) -> Result<ControlServerHandle, ControlError> {
+        let socket_path = control_socket_path(project_root);
+        Self::start_with_socket_and_workflow_events(socket_path, surface, Some(broadcaster)).await
+    }
+
     /// Bind at an explicit socket path. Used by tests where the
     /// scoped-state-root resolution would produce a path too long for
     /// `SUN_LEN`, and as the underlying primitive for [`Self::start`].
@@ -191,6 +205,15 @@ impl ControlServer {
     pub async fn start_with_socket(
         socket_path: PathBuf,
         surface: Arc<dyn ControlSurface>,
+    ) -> Result<ControlServerHandle, ControlError> {
+        Self::start_with_socket_and_workflow_events(socket_path, surface, None).await
+    }
+
+    #[cfg(unix)]
+    pub async fn start_with_socket_and_workflow_events(
+        socket_path: PathBuf,
+        surface: Arc<dyn ControlSurface>,
+        broadcaster: Option<Arc<WorkflowEventBroadcaster>>,
     ) -> Result<ControlServerHandle, ControlError> {
         if let Some(parent) = socket_path.parent() {
             std::fs::create_dir_all(parent)
@@ -206,7 +229,8 @@ impl ControlServer {
             .map_err(|e| ControlError::Chmod { path: socket_path.clone(), source: e })?;
 
         let (shutdown_tx, _shutdown_rx) = broadcast::channel::<()>(8);
-        let accept_task = tokio::spawn(accept_loop(listener, surface, shutdown_tx.subscribe(), socket_path.clone()));
+        let accept_task =
+            tokio::spawn(accept_loop(listener, surface, shutdown_tx.subscribe(), socket_path.clone(), broadcaster));
 
         Ok(ControlServerHandle { socket_path, accept_task: Some(accept_task), shutdown_tx })
     }
@@ -218,6 +242,15 @@ impl ControlServer {
     pub async fn start_with_socket(
         _socket_path: PathBuf,
         _surface: Arc<dyn ControlSurface>,
+    ) -> Result<ControlServerHandle, ControlError> {
+        Err(ControlError::Unavailable("control server not supported on this platform"))
+    }
+
+    #[cfg(not(unix))]
+    pub async fn start_with_socket_and_workflow_events(
+        _socket_path: PathBuf,
+        _surface: Arc<dyn ControlSurface>,
+        _broadcaster: Option<Arc<WorkflowEventBroadcaster>>,
     ) -> Result<ControlServerHandle, ControlError> {
         Err(ControlError::Unavailable("control server not supported on this platform"))
     }
@@ -236,6 +269,7 @@ async fn accept_loop(
     surface: Arc<dyn ControlSurface>,
     mut shutdown_rx: broadcast::Receiver<()>,
     socket_path: PathBuf,
+    broadcaster: Option<Arc<WorkflowEventBroadcaster>>,
 ) {
     loop {
         tokio::select! {
@@ -251,8 +285,12 @@ async fn accept_loop(
                 match accept {
                     Ok((stream, _peer)) => {
                         let surface = Arc::clone(&surface);
+                        let broadcaster_clone = broadcaster.clone();
                         tokio::spawn(async move {
-                            let connection = ControlConnection::new(stream, surface);
+                            let mut connection = ControlConnection::new(stream, surface);
+                            if let Some(b) = broadcaster_clone {
+                                connection = connection.with_workflow_event_broadcaster(b);
+                            }
                             if let Err(err) = connection.serve().await {
                                 tracing::debug!(
                                     target: "animus.control.server",

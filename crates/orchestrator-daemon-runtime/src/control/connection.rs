@@ -38,11 +38,13 @@ use animus_control_protocol::{
         ProjectSetupRequest, QueueDropRequest, QueueEnqueueRequest, QueueHoldRequest, QueueListRequest,
         QueueReleaseRequest, QueueReorderRequest, SubjectCreateRequest, SubjectGetRequest, SubjectListRequest,
         SubjectNextRequest, SubjectStatusRequest, SubjectUpdateRequest, SubjectWatchRequest, WorkflowCancelRequest,
-        WorkflowExecuteRequest, WorkflowGetRequest, WorkflowListRequest, WorkflowPauseRequest, WorkflowResumeRequest,
-        WorkflowRunRequest,
+        WorkflowEventsRequest, WorkflowExecuteRequest, WorkflowGetRequest, WorkflowListRequest, WorkflowPauseRequest,
+        WorkflowResumeRequest, WorkflowRunRequest,
     },
     ControlError,
 };
+
+use super::workflow_events::{WorkflowEventBroadcaster, WorkflowEventFilter};
 use animus_plugin_protocol::{error_codes, RpcError, RpcRequest, RpcResponse};
 use futures_util::StreamExt;
 use serde_json::Value;
@@ -60,13 +62,23 @@ use tokio::task::JoinHandle;
 pub struct ControlConnection {
     stream: UnixStream,
     surface: Arc<dyn ControlSurface>,
+    workflow_event_broadcaster: Option<Arc<WorkflowEventBroadcaster>>,
 }
 
 impl ControlConnection {
     /// Build a new connection bound to `stream`, dispatching via
     /// `surface`.
     pub fn new(stream: UnixStream, surface: Arc<dyn ControlSurface>) -> Self {
-        Self { stream, surface }
+        Self { stream, surface, workflow_event_broadcaster: None }
+    }
+
+    /// Attach a [`WorkflowEventBroadcaster`] so `workflow/events`
+    /// subscriptions on this connection get wired through. Without one,
+    /// `workflow/events` falls through to the surface (which does not
+    /// implement it on the v0.1.10 trait) and surfaces `method_not_found`.
+    pub fn with_workflow_event_broadcaster(mut self, broadcaster: Arc<WorkflowEventBroadcaster>) -> Self {
+        self.workflow_event_broadcaster = Some(broadcaster);
+        self
     }
 
     /// Run the read-dispatch-write loop until the client disconnects or
@@ -83,13 +95,13 @@ impl ControlConnection {
         let (read_half, write_half) = self.stream.into_split();
         let mut reader = BufReader::new(read_half);
         let writer = Arc::new(ConnectionWriter::new(write_half));
+        let broadcaster = self.workflow_event_broadcaster.clone();
 
         let mut line = String::new();
         loop {
             line.clear();
             let n = reader.read_line(&mut line).await?;
             if n == 0 {
-                // Client closed the connection.
                 return Ok(());
             }
             let trimmed = line.trim();
@@ -111,12 +123,8 @@ impl ControlConnection {
 
             let surface = Arc::clone(&self.surface);
             let writer_clone = Arc::clone(&writer);
-            // Dispatch on the current task. Each method awaits its
-            // underlying service call serially — JSON-RPC clients are
-            // free to open multiple connections for concurrency.
-            // Streaming methods spawn detached driver tasks before
-            // returning their ack, so they don't block the loop.
-            dispatch_request(&surface, &writer_clone, frame).await?;
+            let broadcaster_clone = broadcaster.clone();
+            dispatch_request(&surface, &writer_clone, frame, broadcaster_clone.as_ref()).await?;
         }
     }
 }
@@ -175,19 +183,16 @@ async fn dispatch_request(
     surface: &Arc<dyn ControlSurface>,
     writer: &Arc<ConnectionWriter>,
     frame: RpcRequest,
+    broadcaster: Option<&Arc<WorkflowEventBroadcaster>>,
 ) -> std::io::Result<()> {
     let id = frame.id.clone();
-    let result = invoke_surface(surface, writer, &frame).await;
+    let result = invoke_surface(surface, writer, &frame, broadcaster).await;
     match result {
         Ok(Some(value)) => {
             let response = RpcResponse::ok(id, value);
             writer.write_frame(&response).await
         }
-        Ok(None) => {
-            // The handler already wrote its ack frame (streaming) — no
-            // additional response from this call.
-            Ok(())
-        }
+        Ok(None) => Ok(()),
         Err(err) => {
             let response = RpcResponse::err(id, err);
             writer.write_frame(&response).await
@@ -206,6 +211,7 @@ async fn invoke_surface(
     surface: &Arc<dyn ControlSurface>,
     writer: &Arc<ConnectionWriter>,
     frame: &RpcRequest,
+    broadcaster: Option<&Arc<WorkflowEventBroadcaster>>,
 ) -> Result<Option<Value>, RpcError> {
     let params = frame.params.clone().unwrap_or(Value::Null);
     match frame.method.as_str() {
@@ -340,6 +346,17 @@ async fn invoke_surface(
         method_names::METHOD_WORKFLOW_CANCEL => {
             let req: WorkflowCancelRequest = parse_params(params)?;
             surface.workflow_cancel(req).await.map(|r| Some(serialize_result(r))).map_err(rpc_from_control)
+        }
+        method_names::METHOD_WORKFLOW_EVENTS => {
+            let req: WorkflowEventsRequest = parse_params(params)?;
+            let bus = broadcaster.ok_or_else(|| RpcError {
+                code: error_codes::INTERNAL_ERROR,
+                message: "workflow event broadcaster not initialized".to_string(),
+                data: Some(serde_json::json!({ "category": "unavailable" })),
+            })?;
+            let filter = WorkflowEventFilter { workflow_id: req.workflow_id, kinds: req.kinds };
+            spawn_workflow_event_driver(writer, frame.id.clone(), Arc::clone(bus), filter).await?;
+            Ok(Some(ack_value()))
         }
 
         // ----- Agent -------------------------------------------------
@@ -532,6 +549,41 @@ where
                 Err(_) => break,
             }
         }
+    });
+    writer.register_driver(driver_key, handle).await;
+    Ok(())
+}
+
+/// Drain a per-subscriber [`tokio::sync::mpsc::Receiver`] of
+/// [`animus_control_protocol::types::WorkflowEvent`]s onto the wire as
+/// `workflow/event` notifications. On client disconnect (write failure)
+/// the subscription is unregistered from the broadcaster so it does not
+/// leak.
+async fn spawn_workflow_event_driver(
+    writer: &Arc<ConnectionWriter>,
+    request_id: Option<Value>,
+    broadcaster: Arc<WorkflowEventBroadcaster>,
+    filter: WorkflowEventFilter,
+) -> Result<(), RpcError> {
+    let driver_key = stringify_id(&request_id);
+    let (sub_id, mut rx) = broadcaster.subscribe(filter);
+    let writer_clone = Arc::clone(writer);
+    let broadcaster_for_task = Arc::clone(&broadcaster);
+    let handle = tokio::spawn(async move {
+        while let Some(event) = rx.recv().await {
+            let payload = serde_json::json!({
+                "id": request_id,
+                "data": event,
+            });
+            let notification = animus_plugin_protocol::RpcNotification::new(
+                animus_control_protocol::method::NOTIFICATION_WORKFLOW_EVENT.to_string(),
+                Some(payload),
+            );
+            if writer_clone.write_frame(&notification).await.is_err() {
+                break;
+            }
+        }
+        broadcaster_for_task.unsubscribe(sub_id);
     });
     writer.register_driver(driver_key, handle).await;
     Ok(())

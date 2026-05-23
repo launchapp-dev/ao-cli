@@ -79,6 +79,7 @@ pub(crate) async fn handle_workflow_execute(
         hub: Some(hub.clone()),
         phase_routing: None,
         mcp_config: None,
+        workflow_event_emitter: None,
     };
 
     let result = execute_workflow(params).await?;

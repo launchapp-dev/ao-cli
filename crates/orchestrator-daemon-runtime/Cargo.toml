@@ -44,6 +44,7 @@ workflow-runner-v2 = { path = "../workflow-runner-v2" }
 protocol = { workspace = true, features = ["test-utils"] }
 tempfile = "3"
 tokio = { version = "1", features = ["io-util", "macros", "process", "rt", "signal", "test-util", "time"] }
+animus-control-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.10", features = ["client"] }
 
 [lints]
 workspace = true

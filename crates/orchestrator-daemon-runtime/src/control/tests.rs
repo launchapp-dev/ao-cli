@@ -1388,3 +1388,229 @@ async fn agent_status_cancel_round_trip() {
     .await
     .expect("test timed out");
 }
+
+#[tokio::test]
+async fn workflow_events_subscription_returns_phase_started_phase_completed_for_one_workflow() {
+    use crate::control::workflow_events::WorkflowEventBroadcaster;
+    use animus_control_protocol::types::WorkflowEvent;
+
+    tokio::time::timeout(TEST_TIMEOUT, async {
+        let surface: Arc<dyn ControlSurface> = Arc::new(TestSurface::new());
+        let broadcaster = WorkflowEventBroadcaster::new();
+        let handle = ControlServer::start_with_socket_and_workflow_events(
+            short_test_socket(),
+            surface,
+            Some(Arc::clone(&broadcaster)),
+        )
+        .await
+        .unwrap();
+
+        let stream = UnixStream::connect(handle.socket_path()).await.unwrap();
+        let (read_half, mut write_half) = tokio::io::split(stream);
+        let mut reader = BufReader::new(read_half);
+
+        let request = RpcRequest::new(900, "workflow/events", Some(json!({})));
+        send_frame(&mut write_half, &request).await.unwrap();
+
+        let ack_value = read_frame_value(&mut reader).await.unwrap();
+        let ack: RpcResponse = serde_json::from_value(ack_value).unwrap();
+        assert!(ack.error.is_none(), "ack should succeed: {ack:?}");
+        assert_eq!(ack.result, Some(json!({"watching": true})));
+
+        // Wait until the broadcaster sees the subscription before emitting,
+        // so we don't race the per-connection driver task.
+        for _ in 0..50 {
+            if broadcaster.subscriber_count() > 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(broadcaster.subscriber_count(), 1);
+
+        broadcaster.emit(WorkflowEvent {
+            workflow_id: "wf-1".to_string(),
+            kind: "phase_started".to_string(),
+            payload: json!({"phase_id": "implement"}),
+            occurred_at: chrono::Utc::now(),
+        });
+        broadcaster.emit(WorkflowEvent {
+            workflow_id: "wf-1".to_string(),
+            kind: "phase_completed".to_string(),
+            payload: json!({"phase_id": "implement", "phase_status": "completed"}),
+            occurred_at: chrono::Utc::now(),
+        });
+
+        let first = read_frame_value(&mut reader).await.unwrap();
+        assert_eq!(first.get("method").and_then(|v| v.as_str()), Some("workflow/event"));
+        let first_data = first.get("params").and_then(|p| p.get("data")).expect("data");
+        assert_eq!(first_data.get("kind").and_then(|v| v.as_str()), Some("phase_started"));
+        assert_eq!(first_data.get("workflow_id").and_then(|v| v.as_str()), Some("wf-1"));
+
+        let second = read_frame_value(&mut reader).await.unwrap();
+        let second_data = second.get("params").and_then(|p| p.get("data")).expect("data");
+        assert_eq!(second_data.get("kind").and_then(|v| v.as_str()), Some("phase_completed"));
+
+        handle.shutdown().await.unwrap();
+    })
+    .await
+    .expect("test timed out");
+}
+
+#[tokio::test]
+async fn workflow_events_subscription_filters_by_workflow_id() {
+    use crate::control::workflow_events::WorkflowEventBroadcaster;
+    use animus_control_protocol::types::WorkflowEvent;
+
+    tokio::time::timeout(TEST_TIMEOUT, async {
+        let surface: Arc<dyn ControlSurface> = Arc::new(TestSurface::new());
+        let broadcaster = WorkflowEventBroadcaster::new();
+        let handle = ControlServer::start_with_socket_and_workflow_events(
+            short_test_socket(),
+            surface,
+            Some(Arc::clone(&broadcaster)),
+        )
+        .await
+        .unwrap();
+
+        let stream = UnixStream::connect(handle.socket_path()).await.unwrap();
+        let (read_half, mut write_half) = tokio::io::split(stream);
+        let mut reader = BufReader::new(read_half);
+
+        let request = RpcRequest::new(901, "workflow/events", Some(json!({"workflow_id": "wf-target"})));
+        send_frame(&mut write_half, &request).await.unwrap();
+
+        let _ack = read_frame_value(&mut reader).await.unwrap();
+        for _ in 0..50 {
+            if broadcaster.subscriber_count() > 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        broadcaster.emit(WorkflowEvent {
+            workflow_id: "wf-other".to_string(),
+            kind: "phase_started".to_string(),
+            payload: json!({}),
+            occurred_at: chrono::Utc::now(),
+        });
+        broadcaster.emit(WorkflowEvent {
+            workflow_id: "wf-target".to_string(),
+            kind: "phase_started".to_string(),
+            payload: json!({}),
+            occurred_at: chrono::Utc::now(),
+        });
+
+        let first = read_frame_value(&mut reader).await.unwrap();
+        let data = first.get("params").and_then(|p| p.get("data")).expect("data");
+        assert_eq!(data.get("workflow_id").and_then(|v| v.as_str()), Some("wf-target"));
+
+        handle.shutdown().await.unwrap();
+    })
+    .await
+    .expect("test timed out");
+}
+
+#[tokio::test]
+async fn workflow_events_subscription_filters_by_kinds() {
+    use crate::control::workflow_events::WorkflowEventBroadcaster;
+    use animus_control_protocol::types::WorkflowEvent;
+
+    tokio::time::timeout(TEST_TIMEOUT, async {
+        let surface: Arc<dyn ControlSurface> = Arc::new(TestSurface::new());
+        let broadcaster = WorkflowEventBroadcaster::new();
+        let handle = ControlServer::start_with_socket_and_workflow_events(
+            short_test_socket(),
+            surface,
+            Some(Arc::clone(&broadcaster)),
+        )
+        .await
+        .unwrap();
+
+        let stream = UnixStream::connect(handle.socket_path()).await.unwrap();
+        let (read_half, mut write_half) = tokio::io::split(stream);
+        let mut reader = BufReader::new(read_half);
+
+        let request = RpcRequest::new(902, "workflow/events", Some(json!({"kinds": ["workflow_completed"]})));
+        send_frame(&mut write_half, &request).await.unwrap();
+        let _ack = read_frame_value(&mut reader).await.unwrap();
+
+        for _ in 0..50 {
+            if broadcaster.subscriber_count() > 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        broadcaster.emit(WorkflowEvent {
+            workflow_id: "wf-1".to_string(),
+            kind: "phase_started".to_string(),
+            payload: json!({}),
+            occurred_at: chrono::Utc::now(),
+        });
+        broadcaster.emit(WorkflowEvent {
+            workflow_id: "wf-1".to_string(),
+            kind: "workflow_completed".to_string(),
+            payload: json!({"final_status": "completed"}),
+            occurred_at: chrono::Utc::now(),
+        });
+
+        let first = read_frame_value(&mut reader).await.unwrap();
+        let data = first.get("params").and_then(|p| p.get("data")).expect("data");
+        assert_eq!(data.get("kind").and_then(|v| v.as_str()), Some("workflow_completed"));
+
+        handle.shutdown().await.unwrap();
+    })
+    .await
+    .expect("test timed out");
+}
+
+#[tokio::test]
+async fn workflow_events_end_to_end_via_upstream_control_client() {
+    use crate::control::workflow_events::WorkflowEventBroadcaster;
+    use animus_control_protocol::client::ControlClient as UpstreamControlClient;
+    use animus_control_protocol::types::{WorkflowEvent, WorkflowEventsRequest};
+
+    tokio::time::timeout(TEST_TIMEOUT, async {
+        let surface: Arc<dyn ControlSurface> = Arc::new(TestSurface::new());
+        let broadcaster = WorkflowEventBroadcaster::new();
+        let handle = ControlServer::start_with_socket_and_workflow_events(
+            short_test_socket(),
+            surface,
+            Some(Arc::clone(&broadcaster)),
+        )
+        .await
+        .unwrap();
+
+        let client = UpstreamControlClient::connect(handle.socket_path()).await.unwrap();
+        let mut sub = client.workflow_events(WorkflowEventsRequest::default()).await.unwrap();
+
+        for _ in 0..50 {
+            if broadcaster.subscriber_count() > 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        let payload = WorkflowEvent {
+            workflow_id: "wf-e2e".to_string(),
+            kind: "phase_completed".to_string(),
+            payload: json!({"phase_id": "implement", "phase_status": "completed"}),
+            occurred_at: chrono::Utc::now(),
+        };
+        broadcaster.emit(payload.clone());
+
+        let received = tokio::time::timeout(Duration::from_secs(5), sub.recv())
+            .await
+            .expect("client recv timed out")
+            .expect("stream closed");
+        assert_eq!(received.workflow_id, "wf-e2e");
+        assert_eq!(received.kind, "phase_completed");
+        assert_eq!(received.payload.get("phase_status").and_then(|v| v.as_str()), Some("completed"));
+
+        drop(sub);
+        drop(client);
+        handle.shutdown().await.unwrap();
+    })
+    .await
+    .expect("test timed out");
+}

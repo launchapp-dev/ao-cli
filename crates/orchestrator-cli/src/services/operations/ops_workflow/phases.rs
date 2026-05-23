@@ -285,6 +285,7 @@ pub(crate) async fn approve_manual_phase(
             hub: Some(hub.clone()),
             phase_routing: None,
             mcp_config: None,
+            workflow_event_emitter: None,
         })
         .await
         {

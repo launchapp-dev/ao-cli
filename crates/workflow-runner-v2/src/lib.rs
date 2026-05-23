@@ -16,6 +16,7 @@ pub mod phase_targets;
 pub mod runtime_contract;
 pub mod runtime_support;
 pub mod skill_dispatch;
+pub mod workflow_event_emitter;
 pub mod workflow_execute;
 pub mod workflow_helpers;
 pub mod workflow_merge_recovery;
@@ -45,6 +46,10 @@ pub use phase_prompt::{
 };
 pub use phase_targets::PhaseTargetPlanner;
 pub use runtime_support::*;
+pub use workflow_event_emitter::{
+    NoopWorkflowEventEmitter, RuntimeWorkflowEvent, RuntimeWorkflowEventKind, SharedWorkflowEventEmitter,
+    WorkflowEventEmitter,
+};
 pub use workflow_execute::{execute_workflow, PhaseEvent, WorkflowExecuteParams, WorkflowExecuteResult};
 pub use workflow_helpers::{
     task_requires_research, workflow_has_active_research, workflow_has_completed_research, PhaseExecutionEvent,

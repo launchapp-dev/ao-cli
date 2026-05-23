@@ -25,6 +25,7 @@ use orchestrator_core::{
 use crate::ensure_execution_cwd::ensure_execution_cwd;
 use crate::phase_executor::{run_workflow_phase, PhaseExecuteOverrides, PhaseExecutionOutcome, PhaseRunParams};
 use crate::phase_output::{is_phase_completed, persist_phase_output};
+use crate::workflow_event_emitter::{RuntimeWorkflowEvent, RuntimeWorkflowEventKind, SharedWorkflowEventEmitter};
 
 pub enum PhaseEvent<'a> {
     Started {
@@ -66,6 +67,7 @@ pub struct WorkflowExecuteParams {
     pub hub: Option<Arc<dyn ServiceHub>>,
     pub phase_routing: Option<protocol::PhaseRoutingConfig>,
     pub mcp_config: Option<protocol::McpRuntimeConfig>,
+    pub workflow_event_emitter: Option<SharedWorkflowEventEmitter>,
 }
 
 pub struct WorkflowExecuteResult {
@@ -241,6 +243,18 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
         }
     };
 
+    let workflow_id_for_emitter = workflow.id.clone();
+    let emit_runtime = |kind: RuntimeWorkflowEventKind, payload: Value| {
+        if let Some(ref emitter) = params.workflow_event_emitter {
+            emitter.emit(RuntimeWorkflowEvent {
+                workflow_id: workflow_id_for_emitter.clone(),
+                kind,
+                payload,
+                occurred_at: chrono::Utc::now(),
+            });
+        }
+    };
+
     if let Some(phase_filter) = params.phase_filter.clone() {
         let phase_attempt = workflow
             .phases
@@ -250,6 +264,14 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
             .unwrap_or(0);
 
         emit(PhaseEvent::Started { phase_id: &phase_filter, phase_index: 0, total_phases: 1 });
+        emit_runtime(
+            RuntimeWorkflowEventKind::PhaseStarted,
+            serde_json::json!({
+                "phase_id": phase_filter,
+                "phase_index": 0usize,
+                "total_phases": 1usize,
+            }),
+        );
         let phase_start = Instant::now();
 
         let phase_overrides = PhaseExecuteOverrides {
@@ -296,6 +318,13 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
                     model: result.model.clone(),
                     tool: result.tool.clone(),
                 });
+                emit_runtime(
+                    RuntimeWorkflowEventKind::PhaseCompleted,
+                    serde_json::json!({
+                        "phase_id": phase_filter,
+                        "phase_status": phase_status,
+                    }),
+                );
                 results.push(serde_json::json!({
                     "phase_id": phase_filter,
                     "status": phase_status,
@@ -332,6 +361,14 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
                     model: None,
                     tool: None,
                 });
+                emit_runtime(
+                    RuntimeWorkflowEventKind::PhaseCompleted,
+                    serde_json::json!({
+                        "phase_id": phase_filter,
+                        "phase_status": "failed",
+                        "error": err.to_string(),
+                    }),
+                );
                 results.push(serde_json::json!({
                     "phase_id": phase_filter,
                     "status": "failed",
@@ -389,6 +426,14 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
         }
 
         emit(PhaseEvent::Started { phase_id: &phase_id, phase_index: phase_idx, total_phases: phases_to_run.len() });
+        emit_runtime(
+            RuntimeWorkflowEventKind::PhaseStarted,
+            serde_json::json!({
+                "phase_id": phase_id,
+                "phase_index": phase_idx,
+                "total_phases": phases_to_run.len(),
+            }),
+        );
         let phase_start = Instant::now();
 
         let phase_overrides = PhaseExecuteOverrides {
@@ -454,6 +499,13 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
                             model: result.model.clone(),
                             tool: result.tool.clone(),
                         });
+                        emit_runtime(
+                            RuntimeWorkflowEventKind::PhaseCompleted,
+                            serde_json::json!({
+                                "phase_id": phase_id,
+                                "phase_status": status,
+                            }),
+                        );
                         let mut result_value = serde_json::json!({
                             "phase_id": phase_id,
                             "status": status,
@@ -503,6 +555,13 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
                             model: None,
                             tool: None,
                         });
+                        emit_runtime(
+                            RuntimeWorkflowEventKind::PhaseCompleted,
+                            serde_json::json!({
+                                "phase_id": phase_id,
+                                "phase_status": "manual_pending",
+                            }),
+                        );
                         results.push(serde_json::json!({
                             "phase_id": phase_id,
                             "status": "manual_pending",
@@ -526,6 +585,14 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
                     model: None,
                     tool: None,
                 });
+                emit_runtime(
+                    RuntimeWorkflowEventKind::PhaseCompleted,
+                    serde_json::json!({
+                        "phase_id": phase_id,
+                        "phase_status": "failed",
+                        "error": err.to_string(),
+                    }),
+                );
                 results.push(serde_json::json!({
                     "phase_id": phase_id,
                     "status": "failed",
@@ -569,6 +636,20 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
             }
             _ => {}
         }
+    }
+
+    match reported_workflow_status {
+        WorkflowStatus::Completed => emit_runtime(
+            RuntimeWorkflowEventKind::WorkflowCompleted,
+            serde_json::json!({ "final_status": "completed" }),
+        ),
+        WorkflowStatus::Failed | WorkflowStatus::Escalated => emit_runtime(
+            RuntimeWorkflowEventKind::WorkflowFailed,
+            serde_json::json!({
+                "final_status": format!("{:?}", reported_workflow_status).to_ascii_lowercase(),
+            }),
+        ),
+        _ => {}
     }
 
     Ok(WorkflowExecuteResult {
@@ -1599,6 +1680,7 @@ mod requirement_workflow_tests {
             hub: Some(hub.clone()),
             phase_routing: None,
             mcp_config: None,
+            workflow_event_emitter: None,
         })
         .await
         .expect("workflow execution should succeed");
@@ -2117,6 +2199,7 @@ workflows:
             hub: None,
             phase_routing: None,
             mcp_config: None,
+            workflow_event_emitter: None,
         })
         .await
         .expect("node fixture workflow should execute");
@@ -2180,6 +2263,7 @@ workflows:
             hub: None,
             phase_routing: None,
             mcp_config: None,
+            workflow_event_emitter: None,
         })
         .await;
         let error = match result {
@@ -2253,6 +2337,7 @@ workflows:
             hub: None,
             phase_routing: None,
             mcp_config: None,
+            workflow_event_emitter: None,
         })
         .await;
         let error = match result {
@@ -2317,6 +2402,7 @@ workflows:
             hub: None,
             phase_routing: None,
             mcp_config: None,
+            workflow_event_emitter: None,
         })
         .await
         .expect("python fixture workflow should execute");

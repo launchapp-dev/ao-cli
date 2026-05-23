@@ -181,6 +181,7 @@ async fn run_execute(args: WorkflowExecuteArgs) -> anyhow::Result<u8> {
         hub: None,
         phase_routing,
         mcp_config,
+        workflow_event_emitter: None,
     };
 
     {

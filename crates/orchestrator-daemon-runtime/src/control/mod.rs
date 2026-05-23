@@ -42,6 +42,7 @@ pub mod log_redact;
 pub mod routing;
 pub mod server;
 pub mod streaming;
+pub mod workflow_events;
 
 #[cfg(test)]
 mod tests;
@@ -55,3 +56,4 @@ pub use server::{
     control_server_disable_env_set, control_socket_path, ControlServer, ControlServerHandle, CONTROL_SERVER_DISABLE_ENV,
 };
 pub use streaming::{DaemonEventBus, DaemonLogBus};
+pub use workflow_events::{SubscriptionId, WorkflowEventBroadcaster, WorkflowEventFilter};

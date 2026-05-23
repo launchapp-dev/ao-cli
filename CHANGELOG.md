@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Refactor
+
+- **`refactor(llm-cli-wrapper)`: delete dead `CliInterface` trait infrastructure, the
+  `llm-cli-wrapper` binary, the in-tree `tester`/`validator` modules, and the
+  TOML config loader (~1,290 LOC). Phase 1 of the `llm-cli-wrapper` retirement;
+  unblocks the Phase 3 session-core migration once `animus-session-backend
+  v0.1.8` ships upstream. The crate now exposes only the launch helpers, the
+  session backend layer, parser, and error types still consumed by
+  `agent-runner`, `orchestrator-core`, `orchestrator-cli`, the in-tree
+  `animus-provider-*` plugins, and `animus-plugin-runtime`.
+
 ## [0.4.11] - 2026-05-23
 
 Cleanup + automation hardening. Lands the v0.4.10 Node 24 sweep across the

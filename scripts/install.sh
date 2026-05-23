@@ -9,7 +9,7 @@ set -euo pipefail
 
 REPO="launchapp-dev/animus-cli"
 INSTALL_DIR="${ANIMUS_INSTALL_DIR:-${HOME}/.local/bin}"
-BINARIES=(animus agent-runner llm-cli-wrapper animus-oai-runner ao-workflow-runner)
+BINARIES=(animus agent-runner animus-oai-runner ao-workflow-runner)
 
 info()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn()  { printf '\033[1;33mwarn:\033[0m %s\n' "$*"; }

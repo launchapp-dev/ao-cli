@@ -422,7 +422,7 @@ Animus is a Rust workspace. The core crates:
 - `protocol` — shared types and routing
 - `workflow-runner-v2` — workflow execution runtime
 - `agent-runner` — LLM CLI process management
-- `llm-cli-wrapper` — CLI tool abstraction layer
+- `llm-cli-wrapper` — session backend layer (launch parsing + in-tree provider session backends)
 - `oai-runner` — OpenAI-compatible runner
 - `orchestrator-daemon-runtime` — daemon scheduler, cron, event triggers
 - `orchestrator-providers` — provider integrations
@@ -507,7 +507,6 @@ curl -fsSL https://raw.githubusercontent.com/launchapp-dev/animus-cli/main/scrip
 ```bash
 rm -f ~/.local/bin/animus \
   ~/.local/bin/agent-runner \
-  ~/.local/bin/llm-cli-wrapper \
   ~/.local/bin/animus-oai-runner \
   ~/.local/bin/animus-workflow-runner
 ```

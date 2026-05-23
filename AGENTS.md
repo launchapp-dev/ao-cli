@@ -29,7 +29,7 @@ Do not keep outdated counts or removed crates alive in docs.
 crates/
 ├── agent-runner/                # Runner process that launches and supervises AI CLIs
 ├── orchestrator-logging/        # Shared tracing and log file utilities
-├── llm-cli-wrapper/             # Claude/Codex/Gemini CLI integration layer
+├── llm-cli-wrapper/             # Session backend layer + launch parsing helpers
 ├── oai-runner/                  # OpenAI-compatible runner implementation
 ├── orchestrator-cli/            # Main `ao` binary
 ├── orchestrator-config/         # Workflow and agent-runtime config loading/compilation
@@ -50,7 +50,6 @@ Runtime-critical binaries and supporting crates must stay healthy:
 
 - `orchestrator-cli`
 - `agent-runner`
-- `llm-cli-wrapper`
 - `oai-runner`
 - `orchestrator-logging`
 - `workflow-runner-v2`

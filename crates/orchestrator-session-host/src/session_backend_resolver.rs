@@ -2,13 +2,14 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use super::plugin_backend::{discover_provider_plugins, PluginSessionBackend};
-use super::{
+use cli_wrapper::error::Result;
+use cli_wrapper::session::{
     claude::ClaudeSessionBackend, codex::CodexSessionBackend, gemini::GeminiSessionBackend,
     oai_runner::OaiRunnerSessionBackend, opencode::OpenCodeSessionBackend, session_backend::SessionBackend,
     session_request::SessionRequest, session_run::SessionRun, subprocess_session_backend::SubprocessSessionBackend,
 };
-use crate::error::Result;
+
+use crate::plugin_backend::{discover_provider_plugins, PluginSessionBackend};
 
 /// Provider tool names that map to in-tree (built-in) backends. A
 /// third-party plugin whose `provider_tool` matches one of these silently
@@ -163,8 +164,9 @@ mod tests {
     use serde_json::json;
     use std::path::PathBuf;
 
+    use cli_wrapper::session::{SessionEvent, SessionRequest};
+
     use super::SessionBackendResolver;
-    use crate::session::{SessionEvent, SessionRequest};
 
     #[test]
     fn resolver_reports_subprocess_fallback_reason() {
@@ -368,7 +370,7 @@ mod tests {
         let mut resolver = SessionBackendResolver::new();
         resolver.plugin_providers.insert(
             "claude".to_string(),
-            std::sync::Arc::new(super::super::plugin_backend::PluginSessionBackend::new(
+            std::sync::Arc::new(crate::plugin_backend::PluginSessionBackend::new(
                 "animus-provider-claude-shadow",
                 PathBuf::from("/tmp/animus-provider-claude-shadow"),
                 "claude",
@@ -409,7 +411,7 @@ mod tests {
         // Seed a fake provider so we can confirm refresh clears it under disable.
         resolver.plugin_providers.insert(
             "phantom".to_string(),
-            std::sync::Arc::new(super::super::plugin_backend::PluginSessionBackend::new(
+            std::sync::Arc::new(crate::plugin_backend::PluginSessionBackend::new(
                 "phantom-plugin",
                 PathBuf::from("/does/not/exist"),
                 "phantom",

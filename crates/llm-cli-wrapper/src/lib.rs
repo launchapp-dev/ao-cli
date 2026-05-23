@@ -50,9 +50,9 @@ pub use config::Config;
 pub use error::{Error, Result};
 pub use parser::{extract_text_from_line, NormalizedTextEvent};
 pub use session::{
-    is_reserved_provider_tool, ClaudeSessionBackend, CodexSessionBackend, GeminiSessionBackend, SessionBackend,
-    SessionBackendInfo, SessionBackendKind, SessionBackendResolver, SessionCapabilities, SessionEvent, SessionRequest,
-    SessionRun, SessionStability, SubprocessSessionBackend, RESERVED_PROVIDER_TOOLS,
+    ClaudeSessionBackend, CodexSessionBackend, GeminiSessionBackend, SessionBackend, SessionBackendInfo,
+    SessionBackendKind, SessionCapabilities, SessionEvent, SessionRequest, SessionRun, SessionStability,
+    SubprocessSessionBackend,
 };
 pub use tester::{CliTester, TestResult, TestSuite};
 pub use validator::{CliValidator, ValidationResult};

@@ -13,7 +13,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use cli_wrapper::session::{SessionBackendResolver, SessionEvent, SessionRequest};
+use cli_wrapper::session::{SessionEvent, SessionRequest};
+use orchestrator_session_host::SessionBackendResolver;
 use serde_json::json;
 use tokio::time::timeout;
 

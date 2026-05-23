@@ -24,6 +24,7 @@ dependencies = [
  "fs2",
  "llm-cli-wrapper",
  "once_cell",
+ "orchestrator-session-host",
  "protocol",
  "serde",
  "serde_json",
@@ -2208,14 +2209,12 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 name = "llm-cli-wrapper"
 version = "0.1.0"
 dependencies = [
- "animus-plugin-protocol 0.1.0",
  "anyhow",
  "async-trait",
  "chrono",
  "clap",
  "colored",
  "orchestrator-logging",
- "orchestrator-plugin-host",
  "protocol",
  "regex",
  "serde",
@@ -2626,6 +2625,7 @@ dependencies = [
  "orchestrator-logging",
  "orchestrator-notifications",
  "orchestrator-plugin-host",
+ "orchestrator-session-host",
  "orchestrator-web-api",
  "orchestrator-web-server",
  "protocol",
@@ -2805,6 +2805,24 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "orchestrator-session-host"
+version = "0.1.0"
+dependencies = [
+ "animus-plugin-protocol 0.1.0",
+ "anyhow",
+ "async-trait",
+ "llm-cli-wrapper",
+ "orchestrator-logging",
+ "orchestrator-plugin-host",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

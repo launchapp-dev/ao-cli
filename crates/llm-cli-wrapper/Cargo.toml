@@ -17,9 +17,6 @@ anyhow = "1.0"
 thiserror = "2.0"
 tokio = { version = "1.35", features = ["rt-multi-thread", "macros", "sync", "io-util", "process", "time"] }
 async-trait = "0.1"
-orchestrator-logging = { workspace = true }
-orchestrator-plugin-host = { workspace = true }
-animus-plugin-protocol = { workspace = true }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }

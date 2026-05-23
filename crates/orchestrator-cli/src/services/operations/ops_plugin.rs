@@ -21,12 +21,12 @@ use std::process::Stdio;
 
 use animus_plugin_protocol::PluginManifest;
 use anyhow::{anyhow, Context, Result};
-use cli_wrapper::is_reserved_provider_tool;
 use orchestrator_plugin_host::{
     discover_plugins, legacy_plugins_registry_path, plugin_install_dir, plugins_registry_path,
     registered_skip_manifest_check_at_install, DiscoveredPlugin, DiscoverySource, DiscoveryWarning, PluginDiscovery,
     PluginHost,
 };
+use orchestrator_session_host::is_reserved_provider_tool;
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};

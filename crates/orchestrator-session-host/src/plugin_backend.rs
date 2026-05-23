@@ -28,12 +28,12 @@ const DEFAULT_PLUGIN_CANCEL_TIMEOUT_SECS: u64 = 10;
 /// drop its connection.
 const PLUGIN_SHUTDOWN_TIMEOUT_SECS: u64 = 5;
 
-use super::{
+use cli_wrapper::error::{Error, Result};
+use cli_wrapper::session::{
     session_backend::SessionBackend, session_backend_info::SessionBackendInfo,
     session_backend_kind::SessionBackendKind, session_capabilities::SessionCapabilities, session_event::SessionEvent,
     session_request::SessionRequest, session_run::SessionRun, session_stability::SessionStability,
 };
-use crate::error::{Error, Result};
 
 /// In-memory record of a live `agent/run`-initiated session whose plugin host
 /// must be reused for subsequent control-plane calls (currently just

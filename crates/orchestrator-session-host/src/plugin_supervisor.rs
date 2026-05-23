@@ -2,6 +2,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use orchestrator_plugin_host::HostError;
+
 #[derive(Debug, Clone)]
 pub struct SupervisorConfig {
     pub max_restarts_per_window: u32,
@@ -150,13 +152,56 @@ pub fn is_structured_jsonrpc_error(code: i32) -> bool {
     (-32700..=-32600).contains(&code)
 }
 
-/// True when an `RpcError` from the plugin host looks like the plugin process
-/// died or the transport broke mid-call. Pairs with
-/// `is_structured_jsonrpc_error`: the wrapping host returns `INTERNAL_ERROR`
-/// for both genuine plugin-side internal errors AND for our own
-/// `HostError::ConnectionLost`/`HostError::Timeout`, so we have to inspect
-/// the message to tell them apart. Used by the dispatcher to decide whether
-/// a retry-once is safe.
+/// What the dispatcher should do about a failed plugin request.
+///
+/// Returned by [`classify`]; replaces the brittle string-substring matching
+/// the legacy [`is_death_like_error`] used to perform on `RpcError.message`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetryDecision {
+    /// The plugin process is presumed dead (connection lost, timeout,
+    /// process-exited, or any other unclassified host-level failure). A
+    /// fresh spawn could succeed; the dispatcher's retry-once policy
+    /// applies.
+    DeathLike,
+    /// The plugin returned a structured JSON-RPC error frame. The process
+    /// is still alive; retrying would re-elicit the same error. The
+    /// dispatcher must surface this to the caller without consuming any
+    /// of the supervisor's restart budget.
+    StructuredError,
+}
+
+/// Typed-classifier replacement for [`is_death_like_error`]. Pattern-matches
+/// on the structural [`HostError`] enum instead of parsing error-message
+/// substrings — so upstream phrasing changes (e.g. tokio renaming "broken
+/// pipe" to something else, or `serde_json` reformatting an I/O message)
+/// can't silently regress the retry policy.
+///
+/// - `HostError::ConnectionLost` / `HostError::Timeout` /
+///   `HostError::ProcessExited` are unambiguously death-like.
+/// - `HostError::Rpc(_)` is a structured plugin-side error.
+/// - Other variants (`IncompatibleProtocol`, `CapabilityNotSupported`)
+///   would never reach the retry path in production — they fire before a
+///   request is sent — so the conservative default is `DeathLike` (the
+///   dispatcher will burn a restart slot rather than silently dropping
+///   the failure).
+pub fn classify(err: &HostError) -> RetryDecision {
+    match err {
+        HostError::Rpc(rpc_err) if is_structured_jsonrpc_error(rpc_err.code) => RetryDecision::StructuredError,
+        HostError::Rpc(_) => RetryDecision::DeathLike,
+        HostError::ConnectionLost | HostError::Timeout(_) | HostError::ProcessExited(_) => RetryDecision::DeathLike,
+        HostError::IncompatibleProtocol(_) | HostError::CapabilityNotSupported(_) => RetryDecision::DeathLike,
+    }
+}
+
+/// Legacy string-based classifier preserved for the in-flight transition
+/// (the `PluginSessionBackend` dispatch path still constructs `RpcError`
+/// values from the `request()` API and inspects them here). New callers
+/// should use [`classify`] against a [`HostError`] directly — that path
+/// eliminates the substring matching this function relies on, and is the
+/// architectural fix shipped alongside this function.
+///
+/// Returns `true` when an `RpcError` from the plugin host looks like the
+/// plugin process died or the transport broke mid-call.
 pub fn is_death_like_error(code: i32, message: &str) -> bool {
     if !is_structured_jsonrpc_error(code) {
         return true;
@@ -219,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    fn classify_death_like_errors() {
+    fn legacy_classify_death_like_errors() {
         // Internal error code with a connection-lost message => death-like.
         assert!(is_death_like_error(-32603, "plugin connection lost"));
         assert!(is_death_like_error(-32603, "broken pipe writing to plugin"));
@@ -239,5 +284,55 @@ mod tests {
         assert!(!is_structured_jsonrpc_error(-32003));
         assert!(!is_structured_jsonrpc_error(-32000));
         assert!(!is_structured_jsonrpc_error(0));
+    }
+
+    #[test]
+    fn typed_classify_treats_connection_lost_as_death_like() {
+        assert_eq!(classify(&HostError::ConnectionLost), RetryDecision::DeathLike);
+    }
+
+    #[test]
+    fn typed_classify_treats_timeout_as_death_like() {
+        assert_eq!(classify(&HostError::Timeout(Duration::from_secs(5))), RetryDecision::DeathLike);
+    }
+
+    #[test]
+    fn typed_classify_treats_process_exited_as_death_like() {
+        assert_eq!(classify(&HostError::ProcessExited("status=99".into())), RetryDecision::DeathLike);
+    }
+
+    #[test]
+    fn typed_classify_treats_structured_rpc_error_as_no_retry() {
+        let err =
+            HostError::Rpc(animus_plugin_protocol::RpcError { code: -32602, message: "bad params".into(), data: None });
+        assert_eq!(classify(&err), RetryDecision::StructuredError);
+    }
+
+    #[test]
+    fn typed_classify_treats_internal_error_inside_well_known_range_as_no_retry() {
+        // -32603 is the JSON-RPC "internal error" code; once the host has
+        // already constructed a HostError::Rpc(_) variant, that means the
+        // plugin actually returned a structured error frame (vs the host
+        // synthesizing one from a transport failure — which would surface
+        // as HostError::ConnectionLost). So this counts as structured.
+        let err = HostError::Rpc(animus_plugin_protocol::RpcError {
+            code: -32603,
+            message: "plugin handler raised: KeyError".into(),
+            data: None,
+        });
+        assert_eq!(classify(&err), RetryDecision::StructuredError);
+    }
+
+    #[test]
+    fn typed_classify_treats_out_of_range_rpc_code_as_death_like() {
+        // Application-specific error codes outside the well-known JSON-RPC
+        // range fall through to DeathLike — the dispatcher's retry-once
+        // logic gets a chance to discover whether a fresh spawn helps.
+        let err = HostError::Rpc(animus_plugin_protocol::RpcError {
+            code: -1,
+            message: "custom plugin failure".into(),
+            data: None,
+        });
+        assert_eq!(classify(&err), RetryDecision::DeathLike);
     }
 }

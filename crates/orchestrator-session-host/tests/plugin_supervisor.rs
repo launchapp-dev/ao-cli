@@ -2,10 +2,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use animus_plugin_protocol::RpcError;
 use animus_session_backend::session::session_event::SessionEvent;
 use animus_session_backend::session::session_request::SessionRequest;
+use orchestrator_plugin_host::HostError;
 use orchestrator_session_host::plugin_supervisor::{
-    is_structured_jsonrpc_error, PluginSupervisor, SupervisorConfig, SupervisorError,
+    classify, is_structured_jsonrpc_error, PluginSupervisor, RetryDecision, SupervisorConfig, SupervisorError,
 };
 use orchestrator_session_host::PluginSessionBackend;
 use serde_json::json;
@@ -266,4 +268,43 @@ async fn dispatch_propagates_when_retry_also_dies() {
     let finished_failure =
         events.iter().any(|e| matches!(e, SessionEvent::Finished { exit_code } if exit_code.unwrap_or(0) != 0));
     assert!(finished_failure, "two consecutive deaths must propagate failure; events={events:?}");
+}
+
+#[test]
+fn typed_classifier_treats_connection_lost_as_death_like() {
+    assert_eq!(classify(&HostError::ConnectionLost), RetryDecision::DeathLike);
+}
+
+#[test]
+fn typed_classifier_treats_timeout_as_death_like() {
+    assert_eq!(classify(&HostError::Timeout(Duration::from_millis(50))), RetryDecision::DeathLike);
+}
+
+#[test]
+fn typed_classifier_treats_process_exited_as_death_like() {
+    assert_eq!(classify(&HostError::ProcessExited("status=137".into())), RetryDecision::DeathLike);
+}
+
+#[test]
+fn typed_classifier_treats_rpc_well_known_codes_as_structured() {
+    let err = HostError::Rpc(RpcError { code: -32602, message: "bad params from plugin".into(), data: None });
+    assert_eq!(classify(&err), RetryDecision::StructuredError);
+}
+
+#[test]
+fn typed_classifier_treats_rpc_internal_error_inside_well_known_range_as_structured() {
+    // INTERNAL_ERROR (-32603) is in the well-known JSON-RPC range. Once a
+    // HostError::Rpc(_) has been constructed, that means the plugin actually
+    // returned an error frame — process-death cases would have surfaced as
+    // HostError::ConnectionLost instead. So the typed classifier treats this
+    // as structured, eliminating the legacy "search the message for
+    // 'connection lost' / 'broken pipe'" heuristic.
+    let err = HostError::Rpc(RpcError { code: -32603, message: "plugin handler raised: KeyError".into(), data: None });
+    assert_eq!(classify(&err), RetryDecision::StructuredError);
+}
+
+#[test]
+fn typed_classifier_treats_out_of_range_rpc_code_as_death_like() {
+    let err = HostError::Rpc(RpcError { code: -1, message: "custom plugin failure".into(), data: None });
+    assert_eq!(classify(&err), RetryDecision::DeathLike);
 }

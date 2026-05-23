@@ -50,9 +50,12 @@ pub const NOTIFICATION_BROADCAST_CAPACITY_ENV: &str = "ANIMUS_PLUGIN_BROADCAST_C
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 
 /// Structured plugin-host errors that benefit from being matched on by
-/// callers. Most internal failures still flow through `anyhow::Error`; this
-/// enum is reserved for conditions the daemon needs to react to (e.g. log a
-/// plugin as incompatible and skip it instead of crashing the supervisor).
+/// callers. The supervisor pattern-matches on this enum to decide whether a
+/// failure is death-like (retry-once safe) or a structured plugin-side error
+/// (retry would just re-elicit). Constructing one of these at the point of
+/// failure (vs coercing everything to `RpcError { code: INTERNAL_ERROR, ... }`
+/// and parsing message substrings later) is the architectural fix shipped in
+/// the typed-classifier refactor.
 #[derive(Debug, Error)]
 pub enum HostError {
     /// The plugin advertised a `protocol_version` that the host cannot speak.
@@ -76,6 +79,19 @@ pub enum HostError {
     /// response from the plugin is silently discarded.
     #[error("plugin request timed out after {0:?}")]
     Timeout(Duration),
+    /// The plugin child process exited mid-request with a non-zero (or
+    /// known-fatal) status. Reserved for future use by callers that watch the
+    /// child's wait status directly; the in-tree dispatch path currently
+    /// observes process death indirectly via [`Self::ConnectionLost`] when
+    /// stdout closes.
+    #[error("plugin process exited: {0}")]
+    ProcessExited(String),
+    /// The plugin returned a structured JSON-RPC error frame in response to
+    /// a request. The plugin process is still alive; retrying would just
+    /// re-elicit the same error. The supervisor uses this distinction to
+    /// avoid wasting a restart budget on plugin-author bugs.
+    #[error("plugin returned RPC error {}: {}", .0.code, .0.message)]
+    Rpc(RpcError),
     /// The plugin did not advertise the capability the host is trying to
     /// invoke. Returned by higher-level callers (e.g. the session backend's
     /// cancel routing) when the plugin's handshake-reported
@@ -86,6 +102,18 @@ pub enum HostError {
     /// (e.g. "plugin 'foo' does not advertise capability 'cancellation'").
     #[error("plugin does not advertise capability: {0}")]
     CapabilityNotSupported(String),
+}
+
+impl From<HostError> for RpcError {
+    fn from(err: HostError) -> Self {
+        match err {
+            HostError::Rpc(inner) => inner,
+            HostError::Timeout(duration) => {
+                RpcError { code: error_codes::TIMEOUT, message: HostError::Timeout(duration).to_string(), data: None }
+            }
+            other => RpcError { code: error_codes::INTERNAL_ERROR, message: other.to_string(), data: None },
+        }
+    }
 }
 
 /// Validate that a plugin's advertised `protocol_version` is wire-compatible
@@ -434,14 +462,28 @@ impl PluginHost {
     ///
     /// Multiple concurrent calls share the transport but each gets its own
     /// pending-map entry; they multiplex independently.
+    ///
+    /// This is the legacy-shape API (`Result<Value, RpcError>`) preserved for
+    /// callers that don't care about the structural distinction between
+    /// process-death and a plugin-side error. New callers should prefer
+    /// [`PluginHost::request_typed`], which returns the typed [`HostError`]
+    /// enum so the supervisor can pattern-match instead of parsing message
+    /// substrings.
     pub async fn request(&self, method: impl Into<String>, params: Option<Value>) -> Result<Value, RpcError> {
+        self.request_typed(method, params).await.map_err(RpcError::from)
+    }
+
+    /// Typed variant of [`PluginHost::request`]: surfaces process-death
+    /// (`HostError::ConnectionLost`) and plugin-side RPC errors
+    /// (`HostError::Rpc(_)`) as distinct enum variants. The dispatcher
+    /// classifier in `orchestrator-session-host` matches on this enum to
+    /// decide whether a retry-once is safe.
+    pub async fn request_typed(&self, method: impl Into<String>, params: Option<Value>) -> Result<Value, HostError> {
         let method = method.into();
-        match self.request_raw(&method, params).await {
-            Ok(response) => match response.error {
-                Some(error) => Err(error),
-                None => Ok(response.result.unwrap_or(Value::Null)),
-            },
-            Err(error) => Err(RpcError { code: error_codes::INTERNAL_ERROR, message: error.to_string(), data: None }),
+        let response = self.request_raw(&method, params).await?;
+        match response.error {
+            Some(error) => Err(HostError::Rpc(error)),
+            None => Ok(response.result.unwrap_or(Value::Null)),
         }
     }
 
@@ -455,48 +497,23 @@ impl PluginHost {
         params: Option<Value>,
         timeout: Duration,
     ) -> Result<Value, RpcError> {
+        self.request_typed_with_timeout(method, params, timeout).await.map_err(RpcError::from)
+    }
+
+    /// Typed variant of [`PluginHost::request_with_timeout`]. See
+    /// [`PluginHost::request_typed`] for the distinction between
+    /// process-death and plugin-side errors.
+    pub async fn request_typed_with_timeout(
+        &self,
+        method: impl Into<String>,
+        params: Option<Value>,
+        timeout: Duration,
+    ) -> Result<Value, HostError> {
         let method = method.into();
-        if !self.inner.alive.load(Ordering::Acquire) {
-            return Err(RpcError {
-                code: error_codes::INTERNAL_ERROR,
-                message: HostError::ConnectionLost.to_string(),
-                data: None,
-            });
-        }
-        let id = self.inner.next_id.fetch_add(1, Ordering::Relaxed);
-        let (tx, rx) = oneshot::channel();
-        self.inner.pending.lock().await.insert(id, tx);
-
-        if let Err(error) = self.write_frame(&RpcRequest::new(id, &method, params)).await {
-            self.inner.pending.lock().await.remove(&id);
-            return Err(RpcError { code: error_codes::INTERNAL_ERROR, message: error.to_string(), data: None });
-        }
-
-        match tokio::time::timeout(timeout, rx).await {
-            Ok(Ok(response)) => match response.error {
-                Some(error) => Err(error),
-                None => Ok(response.result.unwrap_or(Value::Null)),
-            },
-            Ok(Err(_)) => {
-                // Reader task dropped the sender — the plugin closed.
-                self.inner.pending.lock().await.remove(&id);
-                Err(RpcError {
-                    code: error_codes::INTERNAL_ERROR,
-                    message: HostError::ConnectionLost.to_string(),
-                    data: None,
-                })
-            }
-            Err(_) => {
-                // Caller-supplied deadline elapsed. Drop the awaiter and
-                // surface Timeout. Late responses will be logged + dropped
-                // by the reader task.
-                self.inner.pending.lock().await.remove(&id);
-                Err(RpcError {
-                    code: error_codes::TIMEOUT,
-                    message: HostError::Timeout(timeout).to_string(),
-                    data: None,
-                })
-            }
+        let response = self.request_raw_with_timeout(&method, params, timeout).await?;
+        match response.error {
+            Some(error) => Err(HostError::Rpc(error)),
+            None => Ok(response.result.unwrap_or(Value::Null)),
         }
     }
 

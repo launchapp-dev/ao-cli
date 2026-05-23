@@ -144,4 +144,12 @@ pub enum DaemonRunEvent {
         project_root: String,
         daemon_pid: u32,
     },
+    PluginPreflight {
+        project_root: String,
+        satisfied: Vec<String>,
+        auto_installed: Vec<String>,
+        missing: Vec<String>,
+        skipped: bool,
+        auto_install: bool,
+    },
 }

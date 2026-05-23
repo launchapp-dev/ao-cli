@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use orchestrator_core::DaemonStatus;
+use orchestrator_core::{DaemonStatus, PluginInstaller, PluginPreflightSpec};
 
 use crate::control::{AgentRouting, DaemonOpsRouting, PluginRouting, QueueRouting, WorkflowRouting};
 use crate::DaemonRunEvent;
@@ -78,6 +78,14 @@ pub trait DaemonRunHooks {
     /// and WebAPI (C8) can mount a real implementation without changing
     /// the control contract.
     fn agent_routing(&self) -> Option<Arc<dyn AgentRouting>> {
+        None
+    }
+
+    fn plugin_preflight_spec(&self) -> PluginPreflightSpec {
+        PluginPreflightSpec::daemon_default()
+    }
+
+    fn plugin_installer(&self) -> Option<Arc<dyn PluginInstaller>> {
         None
     }
 }

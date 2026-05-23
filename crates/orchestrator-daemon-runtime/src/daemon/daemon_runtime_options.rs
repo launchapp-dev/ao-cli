@@ -13,6 +13,8 @@ pub struct DaemonRuntimeOptions {
     pub phase_timeout_secs: Option<u64>,
     pub idle_timeout_secs: Option<u64>,
     pub once: bool,
+    pub auto_install_plugins: bool,
+    pub skip_plugin_preflight: bool,
 }
 
 impl Default for DaemonRuntimeOptions {
@@ -29,6 +31,8 @@ impl Default for DaemonRuntimeOptions {
             phase_timeout_secs: Some(1800),
             idle_timeout_secs: None,
             once: false,
+            auto_install_plugins: false,
+            skip_plugin_preflight: false,
         }
     }
 }

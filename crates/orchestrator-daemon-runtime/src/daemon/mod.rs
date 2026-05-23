@@ -5,6 +5,7 @@ mod daemon_run_guard;
 mod daemon_run_hooks;
 mod daemon_runtime_options;
 mod daemon_runtime_state;
+mod plugin_preflight_wiring;
 mod run_daemon;
 
 pub use daemon_event_log::DaemonEventLog;
@@ -14,4 +15,5 @@ pub use daemon_run_guard::DaemonRunGuard;
 pub use daemon_run_hooks::DaemonRunHooks;
 pub use daemon_runtime_options::DaemonRuntimeOptions;
 pub use daemon_runtime_state::DaemonRuntimeState;
+pub use plugin_preflight_wiring::{discover_installed_plugins, run_plugin_preflight, PreflightOutcome};
 pub use run_daemon::run_daemon;

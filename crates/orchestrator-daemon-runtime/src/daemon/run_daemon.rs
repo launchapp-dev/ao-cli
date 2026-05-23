@@ -9,6 +9,7 @@ use anyhow::Result;
 use orchestrator_core::DaemonStatus;
 use tokio::time::sleep;
 
+use crate::run_plugin_preflight;
 use crate::run_project_tick;
 use crate::DaemonRunEvent;
 use crate::DaemonRunGuard;
@@ -59,6 +60,25 @@ where
                 orphaned_workflows_recovered: startup_orphans,
             })?;
         }
+    }
+
+    let mut preflight_spec = hooks.plugin_preflight_spec();
+    if options.auto_install_plugins {
+        preflight_spec.auto_install = true;
+    }
+    let installer = hooks.plugin_installer();
+    let preflight_outcome = run_plugin_preflight(
+        project_root,
+        &primary_root,
+        preflight_spec,
+        installer.as_deref(),
+        options.skip_plugin_preflight,
+        hooks,
+    )
+    .await?;
+    if preflight_outcome.should_abort_startup() {
+        let message = preflight_outcome.result.render_missing_message();
+        return Err(anyhow::anyhow!("{message}"));
     }
 
     discover_plugins_for_daemon(project_root, &primary_root, hooks)?;

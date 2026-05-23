@@ -177,6 +177,7 @@ animus
 │   ├── call                 Send a JSON-RPC request to a plugin and print its response
 │   ├── ping                 Health-check a plugin by spawning, handshaking, and pinging
 │   ├── install              Install a plugin from a public GitHub repo (owner/repo[@tag]), a local --path, or an https --url --sha256
+│   ├── install-defaults     Bulk-install the standard provider plugins (claude, codex, gemini, opencode, oai). --include-oai-agent and --include-subjects pull in optional groups
 │   ├── uninstall            Remove a previously installed plugin from ~/.animus/plugins/
 │   └── new                  Scaffold a new plugin project from launchapp-dev/animus-plugin-template
 │
@@ -306,6 +307,37 @@ trusted_signers:
 ```
 
 `identity` is a glob (`*` / `?`) matched against `<owner>/<repo>`. When the file is absent, the default is "any signer is acceptable, but the cosign cert must claim an identity rooted at the repo we downloaded from."
+
+### `animus plugin install-defaults`
+
+Bulk-install the standard provider plugin set in one shot. Each repo runs through
+the same install pipeline as `animus plugin install`, so signature checks,
+manifest probes, and the `launchapp-dev` org allowlist are preserved.
+
+```bash
+# Install all 5 default providers (claude, codex, gemini, opencode, oai)
+animus plugin install-defaults
+
+# Add the OAI-agent plugin
+animus plugin install-defaults --include-oai-agent
+
+# Add the default subject_backend plugins (default, requirements, linear, sqlite, markdown)
+animus plugin install-defaults --include-subjects
+```
+
+| Flag | Description |
+|---|---|
+| `--plugin-dir <PATH>` | Override the plugin install directory. Same semantics as `animus plugin install --plugin-dir` |
+| `--force` | Reinstall plugins that are already present (default: skip with a warning) |
+| `--yes` | Auto-confirm the trust-on-first-use prompt for the `launchapp-dev` org |
+| `--include-oai-agent` | Also install `animus-provider-oai-agent` v0.1.1 |
+| `--include-subjects` | Also install the default subject_backend plugins (`subject-default`, `subject-requirements`, `subject-linear`, `subject-sqlite`, `subject-markdown`) |
+| `--json` | Emit per-plugin results + summary as JSON |
+
+The command pins each install to a specific release tag (currently `v0.2.1` for
+providers, `v0.1.1` for `oai-agent`, `v0.1.0` for subjects). Plugins that fail
+to install do not abort the run — the per-repo failure is recorded in the
+summary's `failed` count and the rest of the install continues.
 
 ### `animus plugin list` / `info` / `call` / `ping`
 

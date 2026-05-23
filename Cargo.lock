@@ -2619,6 +2619,7 @@ dependencies = [
 name = "orchestrator-core"
 version = "0.1.0"
 dependencies = [
+ "animus-plugin-protocol 0.1.0",
  "anyhow",
  "async-trait",
  "chrono",
@@ -2627,6 +2628,7 @@ dependencies = [
  "libc",
  "orchestrator-config",
  "orchestrator-logging",
+ "orchestrator-plugin-host",
  "orchestrator-providers",
  "orchestrator-store",
  "protocol",
@@ -2763,6 +2765,7 @@ dependencies = [
  "animus-session-backend",
  "anyhow",
  "async-trait",
+ "llm-cli-wrapper",
  "orchestrator-logging",
  "orchestrator-plugin-host",
  "serde",

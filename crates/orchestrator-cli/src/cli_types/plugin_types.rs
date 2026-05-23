@@ -27,6 +27,10 @@ pub(crate) enum PluginCommand {
     Browse(PluginBrowseArgs),
     /// Update one or all installed release-source plugins to the latest tag.
     Update(PluginUpdateArgs),
+    /// Install the standard set of provider plugins from public GitHub releases
+    /// (claude, codex, gemini, opencode, oai). Skips plugins that are already
+    /// installed. Optional flags pull in additional default plugins.
+    InstallDefaults(PluginInstallDefaultsArgs),
 }
 
 /// Default URL for the public Animus plugin registry index.
@@ -100,6 +104,30 @@ pub(crate) struct PluginUpdateArgs {
     /// Force reinstall even if the installed tag matches the target tag.
     #[arg(long, default_value_t = false)]
     pub(crate) force: bool,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct PluginInstallDefaultsArgs {
+    /// Override the plugin install directory. Takes precedence over
+    /// `$ANIMUS_PLUGIN_DIR`. Defaults to `~/.animus/plugins/`.
+    #[arg(long, value_name = "PATH")]
+    pub(crate) plugin_dir: Option<String>,
+    /// Reinstall plugins even if they are already present.
+    #[arg(long, default_value_t = false)]
+    pub(crate) force: bool,
+    /// Auto-confirm the trust-on-first-use prompt for the launchapp-dev org.
+    #[arg(long, default_value_t = false)]
+    pub(crate) yes: bool,
+    /// Also install `animus-provider-oai-agent` v0.1.1.
+    #[arg(long, default_value_t = false)]
+    pub(crate) include_oai_agent: bool,
+    /// Also install the default subject_backend plugins (subject-default,
+    /// subject-requirements, subject-linear, subject-sqlite, subject-markdown).
+    #[arg(long, default_value_t = false)]
+    pub(crate) include_subjects: bool,
+    /// Emit results as JSON.
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
 }
 
 #[derive(Debug, Args)]

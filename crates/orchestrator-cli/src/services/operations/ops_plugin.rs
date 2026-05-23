@@ -33,7 +33,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     invalid_input_error, not_found_error, print_value, PluginCallArgs, PluginCommand, PluginInfoArgs,
-    PluginInstallArgs, PluginListArgs, PluginPingArgs, PluginUninstallArgs,
+    PluginInstallArgs, PluginInstallDefaultsArgs, PluginListArgs, PluginPingArgs, PluginUninstallArgs,
 };
 
 #[derive(Debug, Serialize)]
@@ -218,7 +218,139 @@ pub(crate) async fn handle_plugin(command: PluginCommand, project_root: &str, js
         PluginCommand::Search(args) => marketplace::handle_plugin_search(args).await,
         PluginCommand::Browse(args) => marketplace::handle_plugin_browse(args).await,
         PluginCommand::Update(args) => marketplace::handle_plugin_update(args).await,
+        PluginCommand::InstallDefaults(args) => handle_plugin_install_defaults(args).await,
     }
+}
+
+/// Hardcoded set of default plugins installed by `animus plugin install-defaults`.
+/// Each entry is `(owner/repo, tag)`. Provider plugins listed here ship without
+/// pre-existing aliases — `--include-oai-agent` and `--include-subjects`
+/// flip in the optional groups below.
+const DEFAULT_PROVIDER_PLUGINS: &[(&str, &str)] = &[
+    ("launchapp-dev/animus-provider-claude", "v0.2.1"),
+    ("launchapp-dev/animus-provider-codex", "v0.2.1"),
+    ("launchapp-dev/animus-provider-gemini", "v0.2.1"),
+    ("launchapp-dev/animus-provider-opencode", "v0.2.1"),
+    ("launchapp-dev/animus-provider-oai", "v0.2.1"),
+];
+
+const DEFAULT_OAI_AGENT_PLUGIN: &[(&str, &str)] = &[("launchapp-dev/animus-provider-oai-agent", "v0.1.1")];
+
+const DEFAULT_SUBJECT_PLUGINS: &[(&str, &str)] = &[
+    ("launchapp-dev/animus-subject-default", "v0.1.0"),
+    ("launchapp-dev/animus-subject-requirements", "v0.1.0"),
+    ("launchapp-dev/animus-subject-linear", "v0.1.0"),
+    ("launchapp-dev/animus-subject-sqlite", "v0.1.0"),
+    ("launchapp-dev/animus-subject-markdown", "v0.1.0"),
+];
+
+#[derive(Debug, Serialize)]
+struct InstallDefaultsEntry {
+    repo: String,
+    tag: String,
+    status: &'static str,
+    installed_path: Option<String>,
+    message: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct InstallDefaultsSummary {
+    installed: usize,
+    skipped: usize,
+    failed: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct InstallDefaultsOutput {
+    results: Vec<InstallDefaultsEntry>,
+    summary: InstallDefaultsSummary,
+}
+
+async fn handle_plugin_install_defaults(args: PluginInstallDefaultsArgs) -> Result<()> {
+    let mut targets: Vec<(&str, &str)> = DEFAULT_PROVIDER_PLUGINS.to_vec();
+    if args.include_oai_agent {
+        targets.extend_from_slice(DEFAULT_OAI_AGENT_PLUGIN);
+    }
+    if args.include_subjects {
+        targets.extend_from_slice(DEFAULT_SUBJECT_PLUGINS);
+    }
+
+    let install_dir = install_root(args.plugin_dir.as_deref())?;
+    let mut results: Vec<InstallDefaultsEntry> = Vec::with_capacity(targets.len());
+    let mut installed = 0_usize;
+    let mut skipped = 0_usize;
+    let mut failed = 0_usize;
+
+    for (slug, tag) in targets {
+        let repo_basename = slug.rsplit('/').next().unwrap_or(slug);
+        let pre_existing = install_dir.join(repo_basename);
+        if pre_existing.exists() && !args.force {
+            if !args.json {
+                eprintln!("[skip] {slug}@{tag} (already installed at {})", pre_existing.display());
+            }
+            skipped += 1;
+            results.push(InstallDefaultsEntry {
+                repo: slug.to_string(),
+                tag: tag.to_string(),
+                status: "skipped",
+                installed_path: Some(pre_existing.display().to_string()),
+                message: Some("already installed".to_string()),
+            });
+            continue;
+        }
+
+        if !args.json {
+            eprintln!("[install] {slug}@{tag} ...");
+        }
+
+        let req = PluginInstallRequest {
+            source: Some(slug.to_string()),
+            tag: Some(tag.to_string()),
+            force: args.force,
+            plugin_dir: args.plugin_dir.clone(),
+            allow_org: vec!["launchapp-dev".to_string()],
+            yes: args.yes,
+            ..Default::default()
+        };
+
+        match run_plugin_install(req).await {
+            Ok(output) => {
+                if !args.json {
+                    eprintln!("[ok]   {slug}@{tag} -> {}", output.installed_path);
+                }
+                installed += 1;
+                results.push(InstallDefaultsEntry {
+                    repo: slug.to_string(),
+                    tag: tag.to_string(),
+                    status: "installed",
+                    installed_path: Some(output.installed_path),
+                    message: None,
+                });
+            }
+            Err(err) => {
+                if !args.json {
+                    eprintln!("[fail] {slug}@{tag}: {err}");
+                }
+                failed += 1;
+                results.push(InstallDefaultsEntry {
+                    repo: slug.to_string(),
+                    tag: tag.to_string(),
+                    status: "failed",
+                    installed_path: None,
+                    message: Some(err.to_string()),
+                });
+            }
+        }
+    }
+
+    if !args.json {
+        eprintln!("[summary] installed={installed} skipped={skipped} failed={failed}");
+    }
+
+    print_value(
+        InstallDefaultsOutput { results, summary: InstallDefaultsSummary { installed, skipped, failed } },
+        args.json,
+    )
 }
 
 // ===== Reusable typed entry points (shared between CLI and MCP) =====

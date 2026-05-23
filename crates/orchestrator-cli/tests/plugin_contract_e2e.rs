@@ -1,18 +1,17 @@
 //! End-to-end contract tests for the AO STDIO plugin surface.
 //!
-//! Drives the real `animus` binary against the bundled `animus-plugin-smoke`,
-//! `animus-provider-claude`, and `animus-provider-codex` plugin binaries via the
-//! `ao plugin {list,info,call,ping}` CLI. Locks in:
+//! Drives the real `animus` binary against the bundled `animus-plugin-smoke`
+//! plugin binary via the `ao plugin {list,info,call,ping}` CLI. Locks in:
 //!
 //! - Discovery via `ANIMUS_PLUGIN_PATH`
 //! - Manifest contract (name, version, plugin_kind, capabilities)
 //! - Plugin lifecycle (initialize handshake, $/ping)
 //! - JSON-RPC dispatch through `ao plugin call`
 //!
-//! Provider plugin `agent/run` is intentionally NOT exercised here because that
-//! would require a real Claude/Codex CLI install. The contract that matters at
-//! this layer is that the plugin discovers, initializes, and accepts the
-//! request frame; the wrapped session backend is unit-tested in llm-cli-wrapper.
+//! Provider plugin contracts (claude/codex/gemini/opencode/oai) are exercised
+//! out-of-tree in their standalone repositories under launchapp-dev/ — those
+//! crates ship as release-installed plugins via
+//! `animus plugin install-defaults` rather than as in-tree workspace members.
 
 #[path = "support/test_harness.rs"]
 pub mod test_harness;
@@ -56,10 +55,8 @@ fn run_plugin_command(args: &[&str]) -> Result<Value> {
 }
 
 #[test]
-fn plugin_list_discovers_smoke_and_provider_plugins() -> Result<()> {
+fn plugin_list_discovers_smoke_plugin() -> Result<()> {
     ensure_plugin_binary("animus-plugin-smoke")?;
-    ensure_plugin_binary("animus-provider-claude")?;
-    ensure_plugin_binary("animus-provider-codex")?;
 
     let response = run_plugin_command(&["plugin", "list"])?;
     let plugins = response
@@ -68,9 +65,7 @@ fn plugin_list_discovers_smoke_and_provider_plugins() -> Result<()> {
         .ok_or_else(|| anyhow!("data.plugins should be an array: {response}"))?;
     let names: Vec<&str> = plugins.iter().filter_map(|p| p.get("name").and_then(Value::as_str)).collect();
 
-    for required in ["animus-plugin-smoke", "animus-provider-claude", "animus-provider-codex"] {
-        assert!(names.contains(&required), "{required} should be discovered; got {names:?}");
-    }
+    assert!(names.contains(&"animus-plugin-smoke"), "animus-plugin-smoke should be discovered; got {names:?}");
 
     for plugin in plugins {
         for required in ["name", "version", "plugin_kind", "description", "source", "path"] {
@@ -101,40 +96,6 @@ fn plugin_info_completes_handshake_for_smoke() -> Result<()> {
             .and_then(Value::as_array)
             .is_some_and(|arr| arr.iter().any(|v| v.as_str() == Some("smoke"))),
         "smoke plugin should advertise subject_kinds=[smoke]: {init}"
-    );
-    Ok(())
-}
-
-#[test]
-fn plugin_info_completes_handshake_for_claude_provider() -> Result<()> {
-    ensure_plugin_binary("animus-provider-claude")?;
-    let response = run_plugin_command(&["plugin", "info", "--name", "animus-provider-claude"])?;
-    let init = response.pointer("/data/initialize").context("initialize block missing")?;
-    assert_eq!(
-        init.pointer("/plugin_info/plugin_kind").and_then(Value::as_str),
-        Some("provider"),
-        "claude provider should advertise provider kind"
-    );
-    let methods = init
-        .pointer("/capabilities/methods")
-        .and_then(Value::as_array)
-        .ok_or_else(|| anyhow!("capabilities.methods missing"))?;
-    let method_names: Vec<&str> = methods.iter().filter_map(Value::as_str).collect();
-    for required in ["agent/run", "agent/cancel", "agent/resume"] {
-        assert!(method_names.contains(&required), "claude provider should advertise {required}");
-    }
-    Ok(())
-}
-
-#[test]
-fn plugin_info_completes_handshake_for_codex_provider() -> Result<()> {
-    ensure_plugin_binary("animus-provider-codex")?;
-    let response = run_plugin_command(&["plugin", "info", "--name", "animus-provider-codex"])?;
-    let init = response.pointer("/data/initialize").context("initialize block missing")?;
-    assert_eq!(
-        init.pointer("/plugin_info/plugin_kind").and_then(Value::as_str),
-        Some("provider"),
-        "codex provider should advertise provider kind"
     );
     Ok(())
 }

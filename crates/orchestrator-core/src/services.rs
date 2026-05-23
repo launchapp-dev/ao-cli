@@ -18,8 +18,9 @@ use uuid::Uuid;
 
 use crate::providers::{BuiltinGitProvider, GitProvider};
 use crate::providers::{
-    BuiltinProjectAdapter, BuiltinRequirementsProvider, BuiltinSubjectResolver, BuiltinTaskProvider, ProjectAdapter,
-    RequirementsProvider, SubjectResolver, TaskProvider,
+    BuiltinProjectAdapter, BuiltinRequirementsPlanningService, BuiltinRequirementsProvider, BuiltinSubjectResolver,
+    BuiltinTaskProvider, ProjectAdapter, RequirementsPlanningService, RequirementsProvider, SubjectResolver,
+    TaskProvider,
 };
 use crate::types::{
     AgentHandoffRequestInput, AgentHandoffResult, ArchitectureGraph, Assignee, ChecklistItem, CheckpointReason,
@@ -217,6 +218,7 @@ pub trait ServiceHub: Send + Sync {
     fn workflows(&self) -> Arc<dyn WorkflowServiceApi>;
     fn planning(&self) -> Arc<dyn PlanningServiceApi>;
     fn requirements_provider(&self) -> Arc<dyn RequirementsProvider>;
+    fn requirements_planning(&self) -> Arc<dyn RequirementsPlanningService>;
     fn project_adapter(&self) -> Arc<dyn ProjectAdapter>;
     fn review(&self) -> Arc<dyn ReviewServiceApi>;
 }
@@ -656,6 +658,10 @@ impl ServiceHub for InMemoryServiceHub {
         Arc::new(BuiltinRequirementsProvider::new(Arc::new(self.clone())))
     }
 
+    fn requirements_planning(&self) -> Arc<dyn RequirementsPlanningService> {
+        Arc::new(BuiltinRequirementsPlanningService::new(Arc::new(self.clone())))
+    }
+
     fn project_adapter(&self) -> Arc<dyn ProjectAdapter> {
         Arc::new(BuiltinProjectAdapter::new(Arc::new(self.clone())))
     }
@@ -696,6 +702,10 @@ impl ServiceHub for FileServiceHub {
 
     fn requirements_provider(&self) -> Arc<dyn RequirementsProvider> {
         Arc::new(BuiltinRequirementsProvider::new(Arc::new(self.clone())))
+    }
+
+    fn requirements_planning(&self) -> Arc<dyn RequirementsPlanningService> {
+        Arc::new(BuiltinRequirementsPlanningService::new(Arc::new(self.clone())))
     }
 
     fn project_adapter(&self) -> Arc<dyn ProjectAdapter> {

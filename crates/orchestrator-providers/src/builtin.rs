@@ -7,7 +7,7 @@ use protocol::orchestrator::{
     TaskStatistics, TaskStatus, TaskUpdateInput,
 };
 
-use crate::{PlanningServiceApi, RequirementsProvider, TaskProvider, TaskServiceApi};
+use crate::{PlanningServiceApi, RequirementsPlanningService, RequirementsProvider, TaskProvider, TaskServiceApi};
 
 #[derive(Clone)]
 pub struct BuiltinTaskProvider<T> {
@@ -126,10 +126,6 @@ impl<T> RequirementsProvider for BuiltinRequirementsProvider<T>
 where
     T: PlanningServiceApi,
 {
-    async fn draft_requirements(&self, input: RequirementsDraftInput) -> Result<RequirementsDraftResult> {
-        self.hub.draft_requirements(input).await
-    }
-
     async fn list_requirements(&self) -> Result<Vec<RequirementItem>> {
         self.hub.list_requirements().await
     }
@@ -138,16 +134,41 @@ where
         self.hub.get_requirement(id).await
     }
 
-    async fn refine_requirements(&self, input: RequirementsRefineInput) -> Result<Vec<RequirementItem>> {
-        self.hub.refine_requirements(input).await
-    }
-
     async fn upsert_requirement(&self, requirement: RequirementItem) -> Result<RequirementItem> {
         self.hub.upsert_requirement(requirement).await
     }
 
     async fn delete_requirement(&self, id: &str) -> Result<()> {
         self.hub.delete_requirement(id).await
+    }
+}
+
+#[derive(Clone)]
+pub struct BuiltinRequirementsPlanningService<T> {
+    hub: Arc<T>,
+}
+
+impl<T> BuiltinRequirementsPlanningService<T>
+where
+    T: PlanningServiceApi,
+{
+    #[must_use]
+    pub fn new(hub: Arc<T>) -> Self {
+        Self { hub }
+    }
+}
+
+#[async_trait::async_trait]
+impl<T> RequirementsPlanningService for BuiltinRequirementsPlanningService<T>
+where
+    T: PlanningServiceApi,
+{
+    async fn draft_requirements(&self, input: RequirementsDraftInput) -> Result<RequirementsDraftResult> {
+        self.hub.draft_requirements(input).await
+    }
+
+    async fn refine_requirements(&self, input: RequirementsRefineInput) -> Result<Vec<RequirementItem>> {
+        self.hub.refine_requirements(input).await
     }
 
     async fn execute_requirements(&self, input: RequirementsExecutionInput) -> Result<RequirementsExecutionResult> {

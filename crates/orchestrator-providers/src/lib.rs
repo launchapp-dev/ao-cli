@@ -41,12 +41,20 @@ pub trait TaskProvider: Send + Sync {
 
 #[async_trait]
 pub trait RequirementsProvider: Send + Sync {
-    async fn draft_requirements(&self, input: RequirementsDraftInput) -> Result<RequirementsDraftResult>;
     async fn list_requirements(&self) -> Result<Vec<RequirementItem>>;
     async fn get_requirement(&self, id: &str) -> Result<RequirementItem>;
-    async fn refine_requirements(&self, input: RequirementsRefineInput) -> Result<Vec<RequirementItem>>;
     async fn upsert_requirement(&self, requirement: RequirementItem) -> Result<RequirementItem>;
     async fn delete_requirement(&self, id: &str) -> Result<()>;
+}
+
+// Planning verbs (draft/refine/execute) live on a separate service trait
+// because they are LLM-driven orchestrators that need agent runtime, the
+// model registry, and cross-cutting tool access — not a fit for the
+// subject_backend dispatch surface that `RequirementsProvider` feeds.
+#[async_trait]
+pub trait RequirementsPlanningService: Send + Sync {
+    async fn draft_requirements(&self, input: RequirementsDraftInput) -> Result<RequirementsDraftResult>;
+    async fn refine_requirements(&self, input: RequirementsRefineInput) -> Result<Vec<RequirementItem>>;
     async fn execute_requirements(&self, input: RequirementsExecutionInput) -> Result<RequirementsExecutionResult>;
 }
 
@@ -134,7 +142,7 @@ pub mod plugins {
 }
 pub mod subject_adapter;
 
-pub use builtin::{BuiltinRequirementsProvider, BuiltinTaskProvider};
+pub use builtin::{BuiltinRequirementsPlanningService, BuiltinRequirementsProvider, BuiltinTaskProvider};
 pub use git::{BuiltinGitProvider, CreatePrInput, GitProvider, MergeResult, PullRequestInfo, WorktreeInfo};
 pub use subject_adapter::{
     builtin_subject_adapter_registry, BuiltinCustomSubjectAdapter, BuiltinProjectAdapter,

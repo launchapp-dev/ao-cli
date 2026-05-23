@@ -29,7 +29,8 @@ animus
 │   ├── stream               Stream structured log events in real-time across daemon, workflows, and runs
 │   ├── clear-logs           Clear daemon logs
 │   ├── agents               List daemon-managed agents
-│   └── config               Update daemon automation configuration
+│   ├── config               Update daemon automation configuration
+│   └── preflight            Report plugin preflight status (required plugins installed / missing + fix commands)
 │
 ├── agent                    Run and inspect agent executions
 │   ├── list                 List configured agent profiles
@@ -232,6 +233,31 @@ animus
 The full flag set lives in `crates/orchestrator-cli/src/cli_types/`. This section
 documents flags that were added or hardened in v0.4.0 and that callers most often
 need to script against.
+
+### `animus daemon start` / `animus daemon run` (plugin preflight)
+
+The daemon runs a plugin preflight on every startup. Default posture is
+**default-deny**: if a required role is unsatisfied (no provider plugin, or no
+subject backend claiming `task` / `requirement`) the daemon refuses to start and
+prints the exact `animus plugin install ...` command to remediate.
+
+| Flag | Description |
+|---|---|
+| `--auto-install` | When preflight finds a missing role, install the daemon's recommended default plugin (pinned `owner/repo@tag`) before continuing. Avoids surprise network fetches when omitted. |
+| `--skip-preflight` | Bypass preflight entirely. Escape hatch for dev iteration when in-tree adapters are still active and you don't want preflight enforcement. |
+
+### `animus daemon preflight`
+
+Standalone preflight report. Runs the same checks as daemon startup but never
+starts the daemon. Useful for CI and onboarding to confirm a project's plugin
+prerequisites are in place.
+
+| Flag | Description |
+|---|---|
+| `--auto-install` | Install missing required plugins from the daemon's recommended defaults instead of just reporting them. |
+
+JSON envelope: `animus.daemon.preflight.v1` with fields `satisfied`, `missing`,
+`auto_installed`, `ok`, `fix_message`.
 
 ### `animus init`
 

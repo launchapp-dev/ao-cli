@@ -112,12 +112,33 @@ impl DaemonRunHooks for CliDaemonRunHost {
 
     async fn recover_startup_orphans(&mut self, project_root: &str) -> Result<usize> {
         let startup_hub = Arc::new(FileServiceHub::new(project_root)?);
-        Ok(recover_orphaned_running_workflows(
+        let orphans = recover_orphaned_running_workflows(
             startup_hub as Arc<dyn ServiceHub>,
             project_root,
             &std::collections::HashSet::new(),
         )
-        .await)
+        .await;
+
+        // v0.4.x scope: surface running CLI session checkpoints by marking them
+        // blocked with an actionable reason. Auto-resume via provider.resume_agent
+        // is deferred to v0.5; the checkpoint file + notification log provide the
+        // durable evidence operators need to resolve manually with `--force`.
+        if let Some(scoped_root) =
+            protocol::repository_scope::scoped_state_root(std::path::Path::new(project_root))
+        {
+            if let Ok(running) = workflow_runner_v2::phase_session::list_running_checkpoints(&scoped_root) {
+                for (_, checkpoint) in running {
+                    let _ = workflow_runner_v2::phase_session::update_session_blocked(
+                        &scoped_root,
+                        &checkpoint.workflow_id,
+                        &checkpoint.phase_id,
+                        "daemon restarted with phase mid-execution; review notifications.jsonl and resume with `animus workflow resume <id> --force` if the phase is idempotent",
+                    );
+                }
+            }
+        }
+
+        Ok(orphans)
     }
 
     async fn flush_notifications(&mut self, project_root: &str) -> Result<()> {

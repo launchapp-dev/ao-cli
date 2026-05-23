@@ -524,7 +524,7 @@ mod tests {
     async fn spawn_session_process_bridges_claude_events() {
         let run_id = RunId("run-claude".to_string());
         let claude_fixture =
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../llm-cli-wrapper/tests/fixtures/claude_real.jsonl");
+            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/claude_real.jsonl");
         let runtime_contract = json!({
             "cli": {
                 "name": "claude",
@@ -579,7 +579,7 @@ mod tests {
         fs::create_dir_all(&temp_dir).expect("temp dir should be created");
         let args_capture = temp_dir.join("claude.args");
         let env_capture = temp_dir.join("claude.env");
-        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/../llm-cli-wrapper/tests/fixtures/claude_real.jsonl");
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/claude_real.jsonl");
         write_capture_cli_shim(&temp_dir, "claude", fixture).expect("claude shim should exist");
 
         let run_id = RunId("run-claude-mcp".to_string());
@@ -678,19 +678,19 @@ mod tests {
         for (tool, fixture, expect_metadata, expect_thinking) in [
             (
                 "codex",
-                concat!(env!("CARGO_MANIFEST_DIR"), "/../llm-cli-wrapper/tests/fixtures/codex_real.jsonl"),
+                concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/codex_real.jsonl"),
                 true,
                 true,
             ),
             (
                 "gemini",
-                concat!(env!("CARGO_MANIFEST_DIR"), "/../llm-cli-wrapper/tests/fixtures/gemini_real.jsonl"),
+                concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/gemini_real.jsonl"),
                 true,
                 false,
             ),
             (
                 "oai-runner",
-                concat!(env!("CARGO_MANIFEST_DIR"), "/../llm-cli-wrapper/tests/fixtures/oai_runner_real.jsonl"),
+                concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/oai_runner_real.jsonl"),
                 false,
                 false,
             ),
@@ -801,7 +801,7 @@ mod tests {
         fs::create_dir_all(&temp_dir).expect("temp dir should be created");
         let args_capture = temp_dir.join("gemini.args");
         let env_capture = temp_dir.join("gemini.env");
-        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/../llm-cli-wrapper/tests/fixtures/gemini_real.jsonl");
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/gemini_real.jsonl");
         write_capture_cli_shim(&temp_dir, "gemini", fixture).expect("gemini shim should exist");
 
         let run_id = RunId("run-gemini-mcp".to_string());
@@ -887,7 +887,7 @@ mod tests {
         fs::create_dir_all(&temp_dir).expect("temp dir should be created");
         let args_capture = temp_dir.join("oai-runner.args");
         let env_capture = temp_dir.join("oai-runner.env");
-        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/../llm-cli-wrapper/tests/fixtures/oai_runner_real.jsonl");
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/oai_runner_real.jsonl");
         write_capture_cli_shim(&temp_dir, "animus-oai-runner", fixture).expect("oai-runner shim should exist");
 
         let run_id = RunId("run-oai-runner-mcp".to_string());
@@ -958,7 +958,7 @@ mod tests {
     #[cfg(unix)]
     async fn spawn_session_process_resume_session_id_routes_to_backend_resume() {
         let run_id = RunId("run-resume-codex".to_string());
-        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/../llm-cli-wrapper/tests/fixtures/codex_real.jsonl");
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/codex_real.jsonl");
         let runtime_contract = json!({
             "cli": {
                 "name": "codex",

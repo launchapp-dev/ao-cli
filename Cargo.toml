@@ -41,8 +41,8 @@ categories = ["command-line-utilities", "development-tools"]
 
 [workspace.dependencies]
 animus-plugin-protocol = { path = "crates/animus-plugin-protocol" }
-animus-provider-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.9" }
-animus-session-backend = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.9" }
+animus-provider-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.10" }
+animus-session-backend = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.10" }
 animus-subject-protocol = { path = "crates/animus-subject-protocol" }
 protocol = { path = "crates/protocol" }
 orchestrator-daemon-runtime = { path = "crates/orchestrator-daemon-runtime" }

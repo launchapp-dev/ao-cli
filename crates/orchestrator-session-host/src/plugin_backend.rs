@@ -373,6 +373,7 @@ impl PluginSessionBackend {
                 }
                 ResponseOutcome::Err(error) => {
                     let already_forwarded = notifications_forwarded.load(AtomicOrdering::SeqCst);
+                    // TODO(v0.5): rewire to typed HostError once dispatch returns HostError
                     let can_retry = is_death_like_error(error.code, &error.message) && !already_forwarded;
 
                     if can_retry {

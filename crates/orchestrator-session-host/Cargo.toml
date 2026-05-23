@@ -33,5 +33,9 @@ tracing = "0.1"
 # Utilities
 uuid = { version = "1.6", features = ["v4", "serde"] }
 
+[dev-dependencies]
+tempfile = "3"
+animus-session-backend = { workspace = true }
+
 [lints]
 workspace = true

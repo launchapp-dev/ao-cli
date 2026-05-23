@@ -7,16 +7,19 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
-use animus_plugin_protocol::{EnvRequirement, RpcNotification};
+use animus_plugin_protocol::{EnvRequirement, RpcError, RpcNotification};
 use async_trait::async_trait;
 use orchestrator_logging::Logger;
 use orchestrator_plugin_host::{PluginHost, PluginSpawnOptions, PluginStderrSink};
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 use uuid::Uuid;
+
+use crate::plugin_supervisor::{is_death_like_error, PluginSupervisor, SupervisorError};
 
 /// Default cap on how long the plugin host will wait for a single `agent/run`
 /// or `agent/resume` reply before giving up. Caller-supplied `timeout_secs` on
@@ -72,6 +75,7 @@ pub struct PluginSessionBackend {
     pub(crate) project_root: Option<PathBuf>,
     pub(crate) env_required: Vec<EnvRequirement>,
     pub(crate) sessions: SessionMap,
+    pub(crate) supervisor: Arc<PluginSupervisor>,
 }
 
 impl PluginSessionBackend {
@@ -79,6 +83,7 @@ impl PluginSessionBackend {
         let plugin_name = plugin_name.into();
         let provider_tool = provider_tool.into();
         let display_name = format!("Plugin Provider ({plugin_name})");
+        let supervisor = Arc::new(PluginSupervisor::with_defaults(plugin_name.clone()));
         Self {
             plugin_name,
             binary_path,
@@ -87,7 +92,18 @@ impl PluginSessionBackend {
             project_root: None,
             env_required: Vec::new(),
             sessions: Arc::new(StdMutex::new(HashMap::new())),
+            supervisor,
         }
+    }
+
+    #[must_use]
+    pub fn with_supervisor(mut self, supervisor: Arc<PluginSupervisor>) -> Self {
+        self.supervisor = supervisor;
+        self
+    }
+
+    pub fn supervisor(&self) -> Arc<PluginSupervisor> {
+        self.supervisor.clone()
     }
 
     /// Test-only: insert a `SessionHandle` directly into the session map so a
@@ -176,33 +192,11 @@ impl PluginSessionBackend {
         params
     }
 
-    async fn dispatch(
+    async fn spawn_and_handshake(
         &self,
-        method: &str,
-        request: SessionRequest,
-        resume_session: Option<String>,
-    ) -> Result<SessionRun> {
-        let params = self.build_run_params(&request, resume_session.as_deref());
-        let backend_label = format!("plugin:{}", self.plugin_name);
-        let control_session_id = Uuid::new_v4().to_string();
-        let run_timeout = Duration::from_secs(request.timeout_secs.unwrap_or(DEFAULT_PLUGIN_RUN_TIMEOUT_SECS));
-        let started_at = Instant::now();
-
-        if let Some(logger) = self.project_logger() {
-            logger
-                .info("plugin.dispatch.start", format!("{} → {}", self.plugin_name, method))
-                .meta(json!({
-                    "plugin": self.plugin_name,
-                    "method": method,
-                    "tool": request.tool,
-                    "model": request.model,
-                    "control_session_id": control_session_id,
-                    "resume_session": resume_session,
-                }))
-                .emit();
-        }
-
-        let spawn_options = self.spawn_options(&request.env_vars);
+        request_env_vars: &[(String, String)],
+    ) -> Result<(PluginHost, animus_plugin_protocol::InitializeResult)> {
+        let spawn_options = self.spawn_options(request_env_vars);
         let host = match PluginHost::spawn_with_options(&self.binary_path, &[], spawn_options).await {
             Ok(host) => host,
             Err(error) => {
@@ -213,9 +207,6 @@ impl PluginSessionBackend {
                 return Err(Error::execution_failed(message));
             }
         };
-
-        // Subscribe before handshake so even handshake-time notifications are visible.
-        let mut notifications = host.subscribe_notifications();
 
         let init_result = match host.handshake().await {
             Ok(result) => result,
@@ -231,6 +222,56 @@ impl PluginSessionBackend {
                 return Err(Error::execution_failed(message));
             }
         };
+        Ok((host, init_result))
+    }
+
+    async fn dispatch(
+        &self,
+        method: &str,
+        request: SessionRequest,
+        resume_session: Option<String>,
+    ) -> Result<SessionRun> {
+        let params = self.build_run_params(&request, resume_session.as_deref());
+        let backend_label = format!("plugin:{}", self.plugin_name);
+        let control_session_id = Uuid::new_v4().to_string();
+        let run_timeout = Duration::from_secs(request.timeout_secs.unwrap_or(DEFAULT_PLUGIN_RUN_TIMEOUT_SECS));
+        let started_at = Instant::now();
+
+        if self.supervisor.is_disabled() {
+            let retry_after = self.supervisor.disabled_remaining().unwrap_or_default();
+            let message = format!(
+                "plugin '{}' is currently disabled by supervisor (retry after {}s)",
+                self.plugin_name,
+                retry_after.as_secs()
+            );
+            if let Some(logger) = self.project_logger() {
+                logger
+                    .warn("plugin.dispatch.disabled", &message)
+                    .meta(json!({
+                        "plugin": self.plugin_name,
+                        "retry_after_secs": retry_after.as_secs(),
+                    }))
+                    .emit();
+            }
+            return Err(Error::execution_failed(message));
+        }
+
+        if let Some(logger) = self.project_logger() {
+            logger
+                .info("plugin.dispatch.start", format!("{} → {}", self.plugin_name, method))
+                .meta(json!({
+                    "plugin": self.plugin_name,
+                    "method": method,
+                    "tool": request.tool,
+                    "model": request.model,
+                    "control_session_id": control_session_id,
+                    "resume_session": resume_session,
+                }))
+                .emit();
+        }
+
+        let (host, init_result) = self.spawn_and_handshake(&request.env_vars).await?;
+        let notifications = host.subscribe_notifications();
 
         // Register the session-keyed host so dispatch_cancel can route through
         // the SAME transport instead of spawning a brand-new plugin process
@@ -268,86 +309,42 @@ impl PluginSessionBackend {
         let project_root_for_task = self.project_root.clone();
         let method_string = method.to_string();
         let stream_tx = tx.clone();
+        let supervisor_for_task = self.supervisor.clone();
+        let backend_for_retry = self.clone();
+        let request_env_for_retry = request.env_vars.clone();
+        let sessions_for_retry = self.sessions.clone();
         tokio::spawn(async move {
-            // Forward notifications until the request future completes. Scope the
-            // borrow of `host` so we can call shutdown on it after the request
-            // future resolves.
-            let response = {
-                let mut request_future = Box::pin(host.request(method_string.clone(), Some(params)));
-                let timeout_future = tokio::time::sleep(run_timeout);
-                tokio::pin!(timeout_future);
-                loop {
-                    tokio::select! {
-                        biased;
-                        notification = notifications.recv() => {
-                            match notification {
-                                Ok(notification) => {
-                                    forward_plugin_notification(&plugin_name_for_task, notification, &stream_tx).await;
-                                }
-                                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                                    tracing::warn!(
-                                        plugin = %plugin_name_for_task,
-                                        skipped,
-                                        "plugin notification subscriber lagged; some events were dropped"
-                                    );
-                                }
-                                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                                    // Reader task exited (plugin closed). Keep awaiting the
-                                    // request future; it'll resolve with ConnectionLost soon.
-                                }
-                            }
-                        }
-                        result = &mut request_future => {
-                            break Some(result);
-                        }
-                        _ = &mut timeout_future => {
-                            break None;
-                        }
-                    }
-                }
-            };
+            let notifications_forwarded = Arc::new(AtomicBool::new(false));
 
-            // Drain any straggling notifications before producing the final frames.
-            loop {
-                match notifications.try_recv() {
-                    Ok(notification) => {
-                        forward_plugin_notification(&plugin_name_for_task, notification, &stream_tx).await;
-                    }
-                    Err(tokio::sync::broadcast::error::TryRecvError::Lagged(skipped)) => {
-                        tracing::warn!(
-                            plugin = %plugin_name_for_task,
-                            skipped,
-                            "plugin notification subscriber lagged during drain; some events were dropped"
-                        );
-                    }
-                    Err(_) => break,
-                }
-            }
+            let response = run_request_with_notifications(
+                host.clone(),
+                notifications,
+                method_string.clone(),
+                params.clone(),
+                run_timeout,
+                stream_tx.clone(),
+                plugin_name_for_task.clone(),
+                notifications_forwarded.clone(),
+            )
+            .await;
 
             let logger = project_root_for_task.as_ref().map(|root| Logger::for_project(root));
             let duration_ms = started_at.elapsed().as_millis() as u64;
 
-            let outcome = match response {
-                Some(Ok(value)) => Some(value),
-                Some(Err(error)) => {
-                    let message = format!(
-                        "plugin '{}' {method_string} failed ({}): {}",
-                        plugin_name_for_task, error.code, error.message
-                    );
-                    let _ = stream_tx.send(SessionEvent::Error { message: message.clone(), recoverable: false }).await;
-                    if let Some(logger) = logger.as_ref() {
-                        logger
-                            .error("plugin.dispatch.error", &message)
-                            .duration(duration_ms)
-                            .meta(json!({ "plugin": plugin_name_for_task, "method": method_string }))
-                            .emit();
-                    }
-                    let _ = stream_tx.send(SessionEvent::Finished { exit_code: Some(1) }).await;
-                    remove_session(&sessions_for_cleanup, &control_session_id_for_cleanup);
-                    graceful_shutdown(host).await;
-                    return;
-                }
-                None => {
+            // Retry-once on death-like errors only when:
+            //   (a) the error is NOT a structured JSON-RPC error from the plugin
+            //   (b) no notifications were forwarded yet (otherwise retry would
+            //       double-emit deltas to the caller)
+            //   (c) the supervisor's restart budget has not been exhausted
+            //
+            // Best-effort idempotency: if the plugin's first request had already
+            // executed side effects before crashing (e.g. it spawned a sub-tool
+            // that mutated state but died before writing the JSON-RPC response),
+            // the retry could re-execute those side effects. Plugin authors must
+            // make their request handlers idempotent or accept the duplicate.
+            let (outcome, host_to_shutdown) = match response {
+                ResponseOutcome::Ok(value) => (Some(value), Some(host)),
+                ResponseOutcome::Timeout => {
                     let message = format!(
                         "plugin '{}' {method_string} timed out after {}s",
                         plugin_name_for_task,
@@ -366,10 +363,167 @@ impl PluginSessionBackend {
                     graceful_shutdown(host).await;
                     return;
                 }
+                ResponseOutcome::Err(error) => {
+                    let already_forwarded = notifications_forwarded.load(AtomicOrdering::SeqCst);
+                    let can_retry = is_death_like_error(error.code, &error.message) && !already_forwarded;
+
+                    if can_retry {
+                        if let Some(logger) = logger.as_ref() {
+                            logger
+                                .warn(
+                                    "plugin.dispatch.retry",
+                                    format!(
+                                        "plugin '{}' died mid-call ({}); attempting retry-once",
+                                        plugin_name_for_task, error.message
+                                    ),
+                                )
+                                .meta(json!({
+                                    "plugin": plugin_name_for_task,
+                                    "method": method_string,
+                                    "code": error.code,
+                                }))
+                                .emit();
+                        }
+                        let _ = graceful_shutdown(host).await;
+
+                        match supervisor_for_task.record_restart() {
+                            Ok(()) => {}
+                            Err(SupervisorError::TooManyRestarts { plugin, count, window }) => {
+                                let message = format!(
+                                    "plugin '{plugin}' exhausted restart budget ({count} restarts in {}s); marked disabled",
+                                    window.as_secs()
+                                );
+                                let _ = stream_tx
+                                    .send(SessionEvent::Error { message: message.clone(), recoverable: false })
+                                    .await;
+                                if let Some(logger) = logger.as_ref() {
+                                    logger
+                                        .error("plugin.dispatch.disabled", &message)
+                                        .duration(duration_ms)
+                                        .meta(json!({ "plugin": plugin, "method": method_string, "restart_count": count }))
+                                        .emit();
+                                }
+                                let _ = stream_tx.send(SessionEvent::Finished { exit_code: Some(1) }).await;
+                                remove_session(&sessions_for_cleanup, &control_session_id_for_cleanup);
+                                return;
+                            }
+                            Err(SupervisorError::PluginDisabled { plugin, retry_after }) => {
+                                let message = format!(
+                                    "plugin '{plugin}' disabled by supervisor (retry after {}s)",
+                                    retry_after.as_secs()
+                                );
+                                let _ = stream_tx
+                                    .send(SessionEvent::Error { message: message.clone(), recoverable: false })
+                                    .await;
+                                let _ = stream_tx.send(SessionEvent::Finished { exit_code: Some(1) }).await;
+                                remove_session(&sessions_for_cleanup, &control_session_id_for_cleanup);
+                                return;
+                            }
+                        }
+
+                        match backend_for_retry.spawn_and_handshake(&request_env_for_retry).await {
+                            Ok((new_host, new_init)) => {
+                                {
+                                    let mut guard = sessions_for_retry.lock().expect("session map mutex poisoned");
+                                    guard.insert(
+                                        control_session_id_for_cleanup.clone(),
+                                        SessionHandle {
+                                            host: new_host.clone(),
+                                            started_at: Instant::now(),
+                                            cancellation: new_init.capabilities.cancellation,
+                                        },
+                                    );
+                                }
+                                let new_notifications = new_host.subscribe_notifications();
+                                let retry_response = run_request_with_notifications(
+                                    new_host.clone(),
+                                    new_notifications,
+                                    method_string.clone(),
+                                    params.clone(),
+                                    run_timeout,
+                                    stream_tx.clone(),
+                                    plugin_name_for_task.clone(),
+                                    notifications_forwarded.clone(),
+                                )
+                                .await;
+                                match retry_response {
+                                    ResponseOutcome::Ok(value) => (Some(value), Some(new_host)),
+                                    ResponseOutcome::Timeout => {
+                                        let message = format!(
+                                            "plugin '{}' {method_string} timed out after retry",
+                                            plugin_name_for_task
+                                        );
+                                        let _ = stream_tx
+                                            .send(SessionEvent::Error { message: message.clone(), recoverable: false })
+                                            .await;
+                                        let _ = stream_tx.send(SessionEvent::Finished { exit_code: Some(124) }).await;
+                                        remove_session(&sessions_for_cleanup, &control_session_id_for_cleanup);
+                                        graceful_shutdown(new_host).await;
+                                        return;
+                                    }
+                                    ResponseOutcome::Err(retry_error) => {
+                                        let message = format!(
+                                            "plugin '{}' {method_string} failed after retry ({}): {}",
+                                            plugin_name_for_task, retry_error.code, retry_error.message
+                                        );
+                                        let _ = stream_tx
+                                            .send(SessionEvent::Error { message: message.clone(), recoverable: false })
+                                            .await;
+                                        if let Some(logger) = logger.as_ref() {
+                                            logger
+                                                .error("plugin.dispatch.retry_failed", &message)
+                                                .duration(duration_ms)
+                                                .meta(json!({
+                                                    "plugin": plugin_name_for_task,
+                                                    "method": method_string,
+                                                    "code": retry_error.code,
+                                                }))
+                                                .emit();
+                                        }
+                                        let _ = stream_tx.send(SessionEvent::Finished { exit_code: Some(1) }).await;
+                                        remove_session(&sessions_for_cleanup, &control_session_id_for_cleanup);
+                                        graceful_shutdown(new_host).await;
+                                        return;
+                                    }
+                                }
+                            }
+                            Err(spawn_error) => {
+                                let message =
+                                    format!("plugin '{}' retry spawn failed: {spawn_error}", plugin_name_for_task);
+                                let _ = stream_tx
+                                    .send(SessionEvent::Error { message: message.clone(), recoverable: false })
+                                    .await;
+                                let _ = stream_tx.send(SessionEvent::Finished { exit_code: Some(1) }).await;
+                                remove_session(&sessions_for_cleanup, &control_session_id_for_cleanup);
+                                return;
+                            }
+                        }
+                    } else {
+                        let message = format!(
+                            "plugin '{}' {method_string} failed ({}): {}",
+                            plugin_name_for_task, error.code, error.message
+                        );
+                        let _ =
+                            stream_tx.send(SessionEvent::Error { message: message.clone(), recoverable: false }).await;
+                        if let Some(logger) = logger.as_ref() {
+                            logger
+                                .error("plugin.dispatch.error", &message)
+                                .duration(duration_ms)
+                                .meta(json!({ "plugin": plugin_name_for_task, "method": method_string }))
+                                .emit();
+                        }
+                        let _ = stream_tx.send(SessionEvent::Finished { exit_code: Some(1) }).await;
+                        remove_session(&sessions_for_cleanup, &control_session_id_for_cleanup);
+                        graceful_shutdown(host).await;
+                        return;
+                    }
+                }
             };
 
             remove_session(&sessions_for_cleanup, &control_session_id_for_cleanup);
-            graceful_shutdown(host).await;
+            if let Some(host) = host_to_shutdown {
+                graceful_shutdown(host).await;
+            }
 
             if let Some(response) = outcome {
                 let exit_code = response.get("exit_code").and_then(Value::as_i64).map(|n| n as i32);
@@ -516,6 +670,83 @@ impl SessionBackend for PluginSessionBackend {
 
 async fn graceful_shutdown(host: PluginHost) {
     let _ = tokio::time::timeout(Duration::from_secs(PLUGIN_SHUTDOWN_TIMEOUT_SECS), host.shutdown()).await;
+}
+
+enum ResponseOutcome {
+    Ok(Value),
+    Err(RpcError),
+    Timeout,
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_request_with_notifications(
+    host: PluginHost,
+    mut notifications: tokio::sync::broadcast::Receiver<RpcNotification>,
+    method: String,
+    params: Value,
+    run_timeout: Duration,
+    stream_tx: mpsc::Sender<SessionEvent>,
+    plugin_name: String,
+    notifications_forwarded: Arc<AtomicBool>,
+) -> ResponseOutcome {
+    let outcome = {
+        let mut request_future = Box::pin(host.request(method.clone(), Some(params)));
+        let timeout_future = tokio::time::sleep(run_timeout);
+        tokio::pin!(timeout_future);
+        loop {
+            tokio::select! {
+                biased;
+                notification = notifications.recv() => {
+                    match notification {
+                        Ok(notification) => {
+                            forward_plugin_notification(&plugin_name, notification, &stream_tx).await;
+                            notifications_forwarded.store(true, AtomicOrdering::SeqCst);
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                            tracing::warn!(
+                                plugin = %plugin_name,
+                                skipped,
+                                "plugin notification subscriber lagged; some events were dropped"
+                            );
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            // Reader task exited (plugin closed). Keep awaiting the
+                            // request future; it'll resolve with ConnectionLost soon.
+                        }
+                    }
+                }
+                result = &mut request_future => {
+                    break Some(result);
+                }
+                _ = &mut timeout_future => {
+                    break None;
+                }
+            }
+        }
+    };
+
+    loop {
+        match notifications.try_recv() {
+            Ok(notification) => {
+                forward_plugin_notification(&plugin_name, notification, &stream_tx).await;
+                notifications_forwarded.store(true, AtomicOrdering::SeqCst);
+            }
+            Err(tokio::sync::broadcast::error::TryRecvError::Lagged(skipped)) => {
+                tracing::warn!(
+                    plugin = %plugin_name,
+                    skipped,
+                    "plugin notification subscriber lagged during drain; some events were dropped"
+                );
+            }
+            Err(_) => break,
+        }
+    }
+
+    match outcome {
+        Some(Ok(value)) => ResponseOutcome::Ok(value),
+        Some(Err(error)) => ResponseOutcome::Err(error),
+        None => ResponseOutcome::Timeout,
+    }
 }
 
 /// Translate a JSON-RPC notification emitted by a provider plugin into the

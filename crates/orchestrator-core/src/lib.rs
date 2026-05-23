@@ -7,6 +7,7 @@ pub mod doctor;
 pub mod domain_state;
 pub mod execution_projection;
 pub mod model_quality;
+pub mod plugin_preflight;
 pub mod providers;
 pub mod runtime_contract;
 pub mod services;
@@ -47,6 +48,11 @@ pub use execution_projection::{
 pub use model_quality::{
     is_model_suppressed_for_phase, load_model_quality_ledger, model_quality_ledger_path, record_model_phase_outcome,
     ModelQualityLedger, ModelQualityRecord, MODEL_QUALITY_LEDGER_FILE_NAME,
+};
+pub use plugin_preflight::{
+    summarize_discovered_plugins, AutoInstalledPlugin, InstalledPluginSummary, MissingPlugin, PluginInstaller,
+    PluginPreflightRunner, PluginPreflightSpec, PreflightResult, RequiredRole, DEFAULT_PROVIDER_REPO,
+    DEFAULT_REQUIREMENT_BACKEND_REPO, DEFAULT_TASK_BACKEND_REPO,
 };
 pub use orchestrator_config::{
     activate_pack_mcp_overlay, apply_pack_mcp_overlay, check_pack_runtime_requirements,

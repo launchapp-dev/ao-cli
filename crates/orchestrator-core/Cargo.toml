@@ -19,6 +19,8 @@ sha2 = "0.10"
 rusqlite = { version = "0.31", features = ["bundled", "blob"] }
 zstd = "0.13"
 protocol = { path = "../protocol" }
+animus-plugin-protocol = { workspace = true }
+orchestrator-plugin-host = { workspace = true }
 orchestrator-providers = { workspace = true }
 orchestrator-store = { workspace = true }
 orchestrator-config = { workspace = true }

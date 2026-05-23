@@ -29,6 +29,31 @@ fn truncate_for_log(text: &str, max_chars: usize) -> String {
     format!("{truncated}…")
 }
 
+fn persist_run_session_sidecar(run_id: &RunId, session_id: &str, tool: &str) -> anyhow::Result<()> {
+    let runs_root = std::env::var_os("ANIMUS_RUNNER_SESSION_DIR")
+        .map(std::path::PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|home| home.join(".animus").join("runner-sessions")));
+    let Some(runs_root) = runs_root else {
+        return Ok(());
+    };
+    std::fs::create_dir_all(&runs_root).context("create runner sessions dir")?;
+    let path = runs_root.join(format!("{}.session.json", sanitize_run_id(run_id.0.as_str())));
+    let payload = json!({
+        "run_id": run_id.0,
+        "session_id": session_id,
+        "tool": tool,
+        "recorded_at": chrono::Utc::now().to_rfc3339(),
+    });
+    let tmp = path.with_extension("session.json.tmp");
+    std::fs::write(&tmp, serde_json::to_vec_pretty(&payload)?).context("write sidecar")?;
+    std::fs::rename(&tmp, &path).context("rename sidecar")?;
+    Ok(())
+}
+
+fn sanitize_run_id(value: &str) -> String {
+    value.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' { c } else { '_' }).collect()
+}
+
 pub(super) fn use_native_session_backend(tool: &str, _runtime_contract: Option<&Value>) -> bool {
     matches!(
         tool.to_ascii_lowercase().as_str(),
@@ -112,6 +137,15 @@ pub(super) async fn spawn_session_process(
     }
 
     let run_session_id = run.session_id.clone();
+    if let Some(ref session_id) = run_session_id {
+        if let Err(err) = persist_run_session_sidecar(run_id, session_id, tool) {
+            warn!(
+                run_id = %run_id.0.as_str(),
+                %err,
+                "Failed to persist native session sidecar"
+            );
+        }
+    }
     let run_started_at = Instant::now();
     let mut last_activity_at = run_started_at;
     let mut heartbeat = tokio::time::interval(Duration::from_secs(30));

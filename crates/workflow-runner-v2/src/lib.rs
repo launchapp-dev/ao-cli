@@ -3,6 +3,7 @@ pub mod config_context;
 pub mod direct_exec;
 pub mod ensure_execution_cwd;
 pub mod ipc;
+pub mod notification_log;
 pub mod payload_traversal;
 pub mod phase_command;
 pub mod phase_executor;
@@ -10,6 +11,7 @@ pub mod phase_failover;
 pub mod phase_git;
 pub mod phase_output;
 pub mod phase_prompt;
+pub mod phase_session;
 pub mod phase_targets;
 pub mod runtime_contract;
 pub mod runtime_support;
@@ -33,7 +35,10 @@ pub use phase_executor::{
 };
 pub use phase_failover::{classify_phase_failure, PhaseFailureClassifier, PhaseFailureKind};
 pub use phase_git::{commit_implementation_changes, ensure_git_identity, git_has_pending_changes, is_git_repo};
-pub use phase_output::{persist_phase_output, phase_output_dir, PersistedPhaseOutput};
+pub use phase_output::{
+    is_phase_completed, persist_phase_output, phase_completion_marker_path, phase_output_dir,
+    write_phase_completion_marker, PersistedPhaseOutput, PhaseCompletionMarker,
+};
 pub use phase_prompt::{
     build_phase_prompt, phase_requires_commit_message, phase_requires_commit_message_with_config, render_phase_prompt,
     PhasePromptInputs, PhasePromptParams, PhaseRenderParams, RenderedPhasePrompt,
@@ -44,7 +49,10 @@ pub use workflow_execute::{execute_workflow, PhaseEvent, WorkflowExecuteParams, 
 pub use workflow_helpers::{
     task_requires_research, workflow_has_active_research, workflow_has_completed_research, PhaseExecutionEvent,
 };
-pub use workflow_merge_recovery::MergeConflictContext;
+pub use workflow_merge_recovery::{
+    block_reason_sideeffecting, block_reason_unknown, classify_phase_recovery, phase_idempotency_for,
+    MergeConflictContext, PhaseRecoveryAction,
+};
 
 #[cfg(test)]
 pub(crate) mod test_env {

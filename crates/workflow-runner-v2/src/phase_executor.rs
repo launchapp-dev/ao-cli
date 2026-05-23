@@ -417,6 +417,44 @@ pub async fn run_workflow_phase_attempt(
     let ctx = RuntimeConfigContext::load(project_root);
     let parse_commit_message = phase_requires_commit_message_with_ctx(&ctx, phase_id);
     let config_dir = runner_config_dir(Path::new(project_root));
+
+    let scoped_state_root =
+        protocol::scoped_state_root(Path::new(project_root)).unwrap_or_else(|| Path::new(project_root).join(".animus"));
+    let provider_hint = request
+        .context
+        .pointer("/tool")
+        .or_else(|| request.context.pointer("/runtime_contract/cli/name"))
+        .and_then(Value::as_str)
+        .unwrap_or("unknown")
+        .to_string();
+    if let Err(err) = crate::phase_session::write_session_pending(
+        &scoped_state_root,
+        workflow_id,
+        phase_id,
+        &provider_hint,
+        request.run_id.0.as_str(),
+        Some(serde_json::to_value(request).unwrap_or(Value::Null)),
+    ) {
+        warn!(
+            workflow_id = %workflow_id,
+            phase_id = %phase_id,
+            run_id = %request.run_id.0,
+            %err,
+            "failed to write pending session checkpoint"
+        );
+    }
+    let notification_log = match crate::notification_log::NotificationLog::open(&scoped_state_root, workflow_id) {
+        Ok(log) => Some(std::sync::Arc::new(log)),
+        Err(err) => {
+            warn!(
+                workflow_id = %workflow_id,
+                phase_id = %phase_id,
+                %err,
+                "failed to open notification log; continuing without durability"
+            );
+            None
+        }
+    };
     let request_mcp_stdio_command = request
         .context
         .pointer("/runtime_contract/mcp/stdio/command")
@@ -458,11 +496,25 @@ pub async fn run_workflow_phase_attempt(
     let (read_half, mut write_half) = tokio::io::split(stream);
     write_json_line(&mut write_half, request).await?;
 
+    if let Err(err) = crate::phase_session::update_session_running(
+        &scoped_state_root,
+        workflow_id,
+        phase_id,
+        request.run_id.0.as_str(),
+    ) {
+        warn!(
+            workflow_id = %workflow_id,
+            phase_id = %phase_id,
+            %err,
+            "failed to mark session checkpoint as running"
+        );
+    }
+
     let parse_phase_decision = ctx.phase_decision_contract(phase_id).is_some();
     let expected_result_kind = phase_result_kind_for_ctx(&ctx, phase_id);
     let event_run_dir = ipc_run_dir(project_root, &request.run_id, None);
 
-    process_phase_event_stream(
+    let outcome = process_phase_event_stream(
         tokio::io::BufReader::new(read_half).lines(),
         &request.run_id,
         workflow_id,
@@ -472,8 +524,21 @@ pub async fn run_workflow_phase_attempt(
         &expected_result_kind,
         Some(&event_run_dir),
         Some(project_root),
+        notification_log.clone(),
     )
-    .await
+    .await;
+
+    if outcome.is_ok() {
+        if let Err(err) = crate::phase_session::update_session_completed(&scoped_state_root, workflow_id, phase_id) {
+            warn!(
+                workflow_id = %workflow_id,
+                phase_id = %phase_id,
+                %err,
+                "failed to mark session checkpoint as completed"
+            );
+        }
+    }
+    outcome
 }
 
 async fn process_phase_event_stream<R: AsyncBufRead + Unpin>(
@@ -486,6 +551,7 @@ async fn process_phase_event_stream<R: AsyncBufRead + Unpin>(
     expected_result_kind: &str,
     event_run_dir: Option<&std::path::Path>,
     project_root: Option<&str>,
+    notification_log: Option<std::sync::Arc<crate::notification_log::NotificationLog>>,
 ) -> Result<PhaseExecutionOutcome> {
     let run_logger =
         project_root.map(|root| orchestrator_logging::Logger::for_run(std::path::Path::new(root), &run_id.0));
@@ -530,6 +596,28 @@ async fn process_phase_event_stream<R: AsyncBufRead + Unpin>(
         }
         if !event_matches_run(&event, run_id) {
             continue;
+        }
+
+        if let Some(log) = notification_log.as_ref() {
+            if let Ok(payload) = serde_json::to_value(&event) {
+                if let Err(err) = log.append(phase_id, &payload) {
+                    tracing::warn!(
+                        run_id = %run_id.0,
+                        phase_id,
+                        workflow_id,
+                        %err,
+                        "failed to append notification log line"
+                    );
+                }
+                if let Err(err) = log.rotate_if_needed() {
+                    tracing::warn!(
+                        workflow_id,
+                        phase_id,
+                        %err,
+                        "failed to rotate notification log"
+                    );
+                }
+            }
         }
 
         if let Some(ref logger) = run_logger {
@@ -1921,7 +2009,8 @@ mod tests {
     ) -> anyhow::Result<PhaseExecutionOutcome> {
         let bytes = make_event_stream(events);
         let reader = tokio::io::BufReader::new(bytes.as_slice());
-        process_phase_event_stream(reader.lines(), run_id, "wf-test", "impl", false, false, "", run_dir, None).await
+        process_phase_event_stream(reader.lines(), run_id, "wf-test", "impl", false, false, "", run_dir, None, None)
+            .await
     }
 
     #[tokio::test]
@@ -2140,6 +2229,7 @@ mod tests {
             false,
             "",
             None::<&std::path::Path>,
+            None,
             None,
         )
         .await

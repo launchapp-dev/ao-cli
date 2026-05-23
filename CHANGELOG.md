@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.11] - 2026-05-23
+
+Cleanup + automation hardening. Lands the v0.4.10 Node 24 sweep across the
+plugin matrix and promotes the release-automation tooling from "future
+work" to "shipped".
+
+### CI
+
+- **`ci`: merged Node 24 PRs across 15 plugin repos (deadline 2026-06-02).**
+  Each plugin repo's `chore/force-node24-actions` PR (PR #1, opened in
+  v0.4.10) is now landed on `main`. 14 merged clean; `animus-protocol`
+  was held back because the existing `cargo fmt` job is failing on a
+  pre-existing drift in `animus-plugin-runtime/src/log.rs:241` unrelated
+  to the Node 24 env-var change — flagged for v0.4.12.
+- **`ci(release-automation)`: add compat-test / validate-manifests /
+  check-signatures scripts.** The `launchapp-dev/animus-release-automation`
+  repo (shipped in v0.4.10 as v0.1.0 with `matrix.sh` + `cascade.sh`)
+  now ships three additional scripts: `compat-test.sh` runs the in-tree
+  `orchestrator-plugin-host` `protocol_drift` contract test against each
+  plugin's pinned `animus-plugin-protocol` tag; `validate-manifests.sh`
+  validates every plugin's `plugin.toml` against `animus.plugin.v1`;
+  `check-signatures.sh` audits cosign bundles on each plugin's latest
+  release against the `trusted-signers.yaml` defaults. README updated to
+  v0.1.1 with usage + dependency notes.
+
 ## [0.4.10] - 2026-05-22
 
 Patch release. Picks up v0.4.9 deferrals plus the broader cleanup the user has been queuing — the long-deferred `workflows_list` wire migration (HTTP only), live per-plugin `health/check` RPC fan-out, log redaction wired into every emit site, the two pre-existing flaky tests fixed at the root cause, and a `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` sweep ahead of the 2026-06-02 GitHub Actions Node 20 cutover.

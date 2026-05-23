@@ -160,8 +160,7 @@ fn e2e_daemon_preflight_subcommand_reports_missing_plugins() -> Result<()> {
     assert_eq!(report.pointer("/data/ok").and_then(Value::as_bool), Some(false));
     let missing = report.pointer("/data/missing").and_then(Value::as_array).context("missing array")?;
     assert!(!missing.is_empty(), "fresh project should have missing required plugins");
-    let fix_message =
-        report.pointer("/data/fix_message").and_then(Value::as_str).context("fix_message present")?;
+    let fix_message = report.pointer("/data/fix_message").and_then(Value::as_str).context("fix_message present")?;
     assert!(fix_message.contains("plugin preflight failed"));
     assert!(fix_message.contains("animus plugin install"));
     Ok(())

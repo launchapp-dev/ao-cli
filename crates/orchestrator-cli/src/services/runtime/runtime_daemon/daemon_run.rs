@@ -42,11 +42,7 @@ impl CliPluginInstaller {
 #[async_trait(?Send)]
 impl PluginInstaller for CliPluginInstaller {
     async fn install(&self, repo_spec: &str) -> Result<String> {
-        let req = PluginInstallRequest {
-            source: Some(repo_spec.to_string()),
-            yes: true,
-            ..Default::default()
-        };
+        let req = PluginInstallRequest { source: Some(repo_spec.to_string()), yes: true, ..Default::default() };
         let output = run_plugin_install(req).await?;
         Ok(output.name)
     }
@@ -305,7 +301,7 @@ mod tests {
             runner_scope: None,
             once: true,
             auto_install: false,
-            skip_preflight: false,
+            skip_preflight: true,
         };
         handle_daemon_run(args, &primary_root, true).await.expect("daemon run should succeed");
 
@@ -410,7 +406,7 @@ mod tests {
             runner_scope: None,
             once: true,
             auto_install: false,
-            skip_preflight: false,
+            skip_preflight: true,
         };
         handle_daemon_run(args, &primary_root, true).await.expect("daemon run should emit transition event");
 
@@ -509,7 +505,7 @@ mod tests {
             runner_scope: None,
             once: true,
             auto_install: false,
-            skip_preflight: false,
+            skip_preflight: true,
         };
         handle_daemon_run(args, &primary_root, true).await.expect("daemon run should emit selection source transition");
 
@@ -607,7 +603,7 @@ mod tests {
             runner_scope: None,
             once: true,
             auto_install: false,
-            skip_preflight: false,
+            skip_preflight: true,
         };
         handle_daemon_run(args, &primary_root, true)
             .await
@@ -665,7 +661,7 @@ mod tests {
             runner_scope: None,
             once: true,
             auto_install: false,
-            skip_preflight: false,
+            skip_preflight: true,
         };
 
         apply_scheduler_overrides_to_pm_config(&args, project_root.path().to_string_lossy().as_ref());

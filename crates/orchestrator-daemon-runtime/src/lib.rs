@@ -10,8 +10,8 @@ mod tick;
 
 pub use daemon::{
     discover_installed_plugins, run_daemon, run_plugin_preflight, DaemonEventLog, DaemonEventsPollResponse,
-    DaemonRunEvent, DaemonRunGuard, DaemonRunHooks, DaemonRuntimeOptions, DaemonRuntimeState,
-    DiscoveredPluginSummary, PreflightOutcome,
+    DaemonRunEvent, DaemonRunGuard, DaemonRunHooks, DaemonRuntimeOptions, DaemonRuntimeState, DiscoveredPluginSummary,
+    PreflightOutcome,
 };
 pub use dispatch::{
     active_workflow_subject_ids, active_workflow_task_ids, build_completion_reconciliation_plan, build_runner_command,

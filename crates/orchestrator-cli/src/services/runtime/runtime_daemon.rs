@@ -459,11 +459,7 @@ async fn handle_daemon_preflight(args: DaemonPreflightArgs, project_root: &str, 
     spec.auto_install = args.auto_install;
 
     let installed = discover_installed_plugins(project_root).unwrap_or_default();
-    let installer = if args.auto_install {
-        Some(daemon_run::CliPluginInstaller::new(project_root))
-    } else {
-        None
-    };
+    let installer = if args.auto_install { Some(daemon_run::CliPluginInstaller::new(project_root)) } else { None };
     let installer_ref = installer.as_ref().map(|i| i as &dyn orchestrator_core::PluginInstaller);
     let result = PluginPreflightRunner::run(&spec, installed, installer_ref).await?;
 

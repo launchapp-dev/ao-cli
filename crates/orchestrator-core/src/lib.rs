@@ -49,11 +49,6 @@ pub use model_quality::{
     is_model_suppressed_for_phase, load_model_quality_ledger, model_quality_ledger_path, record_model_phase_outcome,
     ModelQualityLedger, ModelQualityRecord, MODEL_QUALITY_LEDGER_FILE_NAME,
 };
-pub use plugin_preflight::{
-    summarize_discovered_plugins, AutoInstalledPlugin, InstalledPluginSummary, MissingPlugin, PluginInstaller,
-    PluginPreflightRunner, PluginPreflightSpec, PreflightResult, RequiredRole, DEFAULT_PROVIDER_REPO,
-    DEFAULT_REQUIREMENT_BACKEND_REPO, DEFAULT_TASK_BACKEND_REPO,
-};
 pub use orchestrator_config::{
     activate_pack_mcp_overlay, apply_pack_mcp_overlay, check_pack_runtime_requirements,
     ensure_pack_runtime_requirements, load_pack_agent_runtime_overlay, load_pack_manifest,
@@ -65,6 +60,11 @@ pub use orchestrator_config::{
     PackRuntimeRequirement, PackSchedules, PackSecrets, PackSubjects, PackWorkflows, ResolvedPackRegistry,
     ResolvedPackRegistryEntry, MACHINE_PACKS_DIR_NAME, PACK_MANIFEST_FILE_NAME, PACK_MANIFEST_SCHEMA_ID,
     PROJECT_PACKS_DIR_NAME,
+};
+pub use plugin_preflight::{
+    summarize_discovered_plugins, AutoInstalledPlugin, InstalledPluginSummary, MissingPlugin, PluginInstaller,
+    PluginPreflightRunner, PluginPreflightSpec, PreflightResult, RequiredRole, DEFAULT_PROVIDER_REPO,
+    DEFAULT_REQUIREMENT_BACKEND_REPO, DEFAULT_TASK_BACKEND_REPO,
 };
 pub use runtime_contract::{
     build_cli_launch_contract, build_runtime_contract, cli_capabilities_for_tool, cli_capabilities_from_config,

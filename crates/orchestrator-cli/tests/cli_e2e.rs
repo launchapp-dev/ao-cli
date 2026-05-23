@@ -63,6 +63,7 @@ fn e2e_daemon_autonomous_start_idempotent_then_stop() -> Result<()> {
         "false",
         "--max-tasks-per-tick",
         "1",
+        "--skip-preflight",
     ])?;
     let daemon_pid = started
         .pointer("/data/daemon_pid")
@@ -87,6 +88,7 @@ fn e2e_daemon_autonomous_start_idempotent_then_stop() -> Result<()> {
         "false",
         "--max-tasks-per-tick",
         "1",
+        "--skip-preflight",
     ])?;
     assert_eq!(
         already_running.pointer("/data/daemon_pid").and_then(Value::as_u64),
@@ -145,6 +147,57 @@ fn e2e_daemon_autonomous_start_reports_early_exit_failure() -> Result<()> {
     assert!(message.contains("startup log tail"), "daemon start failure should include startup log tail diagnostics");
 
     drop(lock_file);
+    Ok(())
+}
+
+#[test]
+fn e2e_daemon_preflight_subcommand_reports_missing_plugins() -> Result<()> {
+    let harness = CliHarness::new()?;
+
+    let report = harness.run_json_ok(&["daemon", "preflight"])?;
+
+    assert_eq!(report.pointer("/data/schema").and_then(Value::as_str), Some("animus.daemon.preflight.v1"));
+    assert_eq!(report.pointer("/data/ok").and_then(Value::as_bool), Some(false));
+    let missing = report.pointer("/data/missing").and_then(Value::as_array).context("missing array")?;
+    assert!(!missing.is_empty(), "fresh project should have missing required plugins");
+    let fix_message =
+        report.pointer("/data/fix_message").and_then(Value::as_str).context("fix_message present")?;
+    assert!(fix_message.contains("plugin preflight failed"));
+    assert!(fix_message.contains("animus plugin install"));
+    Ok(())
+}
+
+#[test]
+fn e2e_daemon_start_without_preflight_refuses_when_no_plugins() -> Result<()> {
+    let harness = CliHarness::new()?;
+
+    let (failure, exit_code) = harness.run_json_err_with_exit(&[
+        "daemon",
+        "start",
+        "--autonomous",
+        "--skip-runner",
+        "--interval-secs",
+        "1",
+        "--auto-run-ready",
+        "false",
+        "--startup-cleanup",
+        "false",
+        "--resume-interrupted",
+        "false",
+        "--reconcile-stale",
+        "false",
+        "--max-tasks-per-tick",
+        "1",
+    ])?;
+    assert_ne!(exit_code, 0, "daemon start should fail without --skip-preflight when no plugins installed");
+    let message = failure
+        .pointer("/error/message")
+        .and_then(Value::as_str)
+        .context("daemon start error should include /error/message")?;
+    assert!(
+        message.contains("plugin preflight failed") || message.contains("at_least_one_provider"),
+        "daemon start failure should mention preflight result; got: {message}"
+    );
     Ok(())
 }
 

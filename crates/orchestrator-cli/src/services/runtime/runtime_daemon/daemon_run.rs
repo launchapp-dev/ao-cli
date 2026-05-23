@@ -304,6 +304,8 @@ mod tests {
             skip_runner: true,
             runner_scope: None,
             once: true,
+            auto_install: false,
+            skip_preflight: false,
         };
         handle_daemon_run(args, &primary_root, true).await.expect("daemon run should succeed");
 
@@ -407,6 +409,8 @@ mod tests {
             skip_runner: true,
             runner_scope: None,
             once: true,
+            auto_install: false,
+            skip_preflight: false,
         };
         handle_daemon_run(args, &primary_root, true).await.expect("daemon run should emit transition event");
 
@@ -504,6 +508,8 @@ mod tests {
             skip_runner: true,
             runner_scope: None,
             once: true,
+            auto_install: false,
+            skip_preflight: false,
         };
         handle_daemon_run(args, &primary_root, true).await.expect("daemon run should emit selection source transition");
 
@@ -600,6 +606,8 @@ mod tests {
             skip_runner: true,
             runner_scope: None,
             once: true,
+            auto_install: false,
+            skip_preflight: false,
         };
         handle_daemon_run(args, &primary_root, true)
             .await
@@ -656,6 +664,8 @@ mod tests {
             skip_runner: true,
             runner_scope: None,
             once: true,
+            auto_install: false,
+            skip_preflight: false,
         };
 
         apply_scheduler_overrides_to_pm_config(&args, project_root.path().to_string_lossy().as_ref());

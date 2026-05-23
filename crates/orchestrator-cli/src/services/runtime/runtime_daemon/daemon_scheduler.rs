@@ -103,6 +103,8 @@ mod tests {
             skip_runner: true,
             runner_scope: None,
             once: false,
+            auto_install: false,
+            skip_preflight: false,
         };
 
         let options = runtime_options_from_cli(&args, project_root.path().to_string_lossy().as_ref());
@@ -158,6 +160,8 @@ mod tests {
             skip_runner: true,
             runner_scope: None,
             once: false,
+            auto_install: false,
+            skip_preflight: false,
         };
 
         let options = runtime_options_from_cli(&args, project_root.path().to_string_lossy().as_ref());

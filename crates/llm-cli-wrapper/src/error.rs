@@ -70,3 +70,23 @@ impl From<toml::ser::Error> for Error {
         Error::TomlError(e.to_string())
     }
 }
+
+// Bridges in-tree Error to upstream animus_session_backend::Error so trait
+// impls returning the upstream Result can transparently propagate cli-wrapper
+// errors via `?` / `.into()`. The upstream enum has a narrower variant set, so
+// we collapse onto the closest semantic match and preserve the in-tree message
+// via Display.
+impl From<Error> for animus_session_backend::error::Error {
+    fn from(err: Error) -> Self {
+        use animus_session_backend::error::Error as UpstreamError;
+        match err {
+            Error::CliNotFound(msg) => UpstreamError::CliNotFound(msg),
+            Error::ExecutionFailed(msg) => UpstreamError::ExecutionFailed(msg),
+            Error::ValidationFailed(msg) => UpstreamError::ValidationFailed(msg),
+            Error::IoError(e) => UpstreamError::IoError(e),
+            Error::SerializationError(msg) => UpstreamError::SerializationError(msg),
+            Error::Other(e) => UpstreamError::Other(e),
+            other => UpstreamError::ExecutionFailed(other.to_string()),
+        }
+    }
+}

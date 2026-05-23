@@ -1,14 +1,14 @@
 //! AO STDIO provider plugin for Claude Code.
 //!
-//! Wraps `cli_wrapper::session::ClaudeSessionBackend` via the shared
+//! Wraps `animus_session_backend::session::ClaudeSessionBackend` via the shared
 //! `animus_plugin_runtime` so every provider gets identical lifecycle,
 //! streaming, and result-aggregation behavior.
 
 use std::sync::Arc;
 
 use animus_plugin_runtime::{run_provider, ProviderInfo, SessionBackendProvider};
+use animus_session_backend::session::ClaudeSessionBackend;
 use anyhow::Result;
-use cli_wrapper::session::ClaudeSessionBackend;
 
 const INFO: ProviderInfo = ProviderInfo {
     plugin_name: "animus-provider-claude",

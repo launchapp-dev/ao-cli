@@ -1,5 +1,6 @@
+use animus_session_backend::session::{SessionEvent, SessionRequest};
 use anyhow::{anyhow, bail, Context, Result};
-use cli_wrapper::{is_ai_cli_tool, LaunchInvocation, SessionEvent, SessionRequest};
+use cli_wrapper::{is_ai_cli_tool, LaunchInvocation};
 use orchestrator_session_host::SessionBackendResolver;
 use protocol::{
     AgentRunEvent, ArtifactInfo, ArtifactType, OutputStreamType, RunId, Timestamp, TokenUsage, ToolCallInfo,

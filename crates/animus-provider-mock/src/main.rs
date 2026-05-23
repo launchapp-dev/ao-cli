@@ -4,12 +4,12 @@
 //! plugin runtime's notification path is exercised end-to-end.
 
 use animus_plugin_runtime::{run_provider, ProviderBackend, ProviderInfo};
+use animus_session_backend::error::Result as CliResult;
+use animus_session_backend::session::session_event::SessionEvent;
+use animus_session_backend::session::session_request::SessionRequest;
+use animus_session_backend::session::session_run::SessionRun;
 use anyhow::Result;
 use async_trait::async_trait;
-use cli_wrapper::error::Result as CliResult;
-use cli_wrapper::session::session_event::SessionEvent;
-use cli_wrapper::session::session_request::SessionRequest;
-use cli_wrapper::session::session_run::SessionRun;
 use serde_json::json;
 use tokio::sync::mpsc;
 use uuid::Uuid;

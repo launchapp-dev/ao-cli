@@ -10,7 +10,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1"
 animus-plugin-runtime = { path = "../animus-plugin-runtime" }
-cli-wrapper = { path = "../llm-cli-wrapper", package = "llm-cli-wrapper" }
+animus-session-backend = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "io-util", "sync"] }
 
 [lints]

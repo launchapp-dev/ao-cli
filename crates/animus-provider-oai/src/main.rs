@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use animus_plugin_runtime::{run_provider, ProviderInfo, SessionBackendProvider};
+use animus_session_backend::session::OaiRunnerSessionBackend;
 use anyhow::Result;
-use cli_wrapper::session::OaiRunnerSessionBackend;
 
 const INFO: ProviderInfo = ProviderInfo {
     plugin_name: "animus-provider-oai",

@@ -21,12 +21,13 @@ orchestrator-core = { path = "../orchestrator-core" }
 orchestrator-logging = { path = "../orchestrator-logging" }
 orchestrator-plugin-host = { workspace = true }
 animus-plugin-protocol = { workspace = true }
-animus-control-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.7" }
-animus-log-storage-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.7" }
-animus-subject-protocol-wire = { package = "animus-subject-protocol", git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.7" }
+animus-control-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.8" }
+animus-log-storage-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.8" }
+animus-subject-protocol-wire = { package = "animus-subject-protocol", git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.8" }
 orchestrator-web-api = { path = "../orchestrator-web-api" }
 orchestrator-web-server = { path = "../orchestrator-web-server" }
 protocol = { path = "../protocol" }
+animus-session-backend = { workspace = true }
 cli-wrapper = { path = "../llm-cli-wrapper", package = "llm-cli-wrapper" }
 orchestrator-session-host = { workspace = true }
 orchestrator-daemon-runtime = { workspace = true }

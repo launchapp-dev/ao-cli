@@ -1,4 +1,4 @@
-use cli_wrapper::{extract_text_from_line, NormalizedTextEvent};
+use animus_session_backend::parser::{extract_text_from_line, NormalizedTextEvent};
 use serde_json::json;
 
 use super::artifacts::extract_artifact;

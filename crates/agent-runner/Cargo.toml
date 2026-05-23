@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 protocol = { path = "../protocol" }
+animus-session-backend = { workspace = true }
 cli-wrapper = { path = "../llm-cli-wrapper", package = "llm-cli-wrapper" }
 orchestrator-session-host = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "io-util", "process", "time", "net"] }

@@ -1,3 +1,4 @@
+use animus_session_backend::parser::{extract_text_from_line, NormalizedTextEvent};
 /// End-to-end test for session continuation via `animus agent run`.
 ///
 /// Tests that an agent can be invoked, then re-invoked with the same session ID
@@ -18,7 +19,6 @@
 ///   ANIMUS_E2E_PROJECT_ROOT=<path>     — project root (default: current directory)
 ///   ANIMUS_E2E_TIMEOUT=120             — agent timeout in seconds (default: 120)
 use anyhow::{Context, Result};
-use cli_wrapper::{extract_text_from_line, NormalizedTextEvent};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::process::Command;

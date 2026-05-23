@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use animus_plugin_runtime::{run_provider, ProviderInfo, SessionBackendProvider};
+use animus_session_backend::session::OpenCodeSessionBackend;
 use anyhow::Result;
-use cli_wrapper::session::OpenCodeSessionBackend;
 
 const INFO: ProviderInfo = ProviderInfo {
     plugin_name: "animus-provider-opencode",

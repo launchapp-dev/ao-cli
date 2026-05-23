@@ -18,6 +18,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 name = "agent-runner"
 version = "0.1.0"
 dependencies = [
+ "animus-session-backend",
  "anyhow",
  "chrono",
  "dirs",
@@ -90,12 +91,12 @@ dependencies = [
 
 [[package]]
 name = "animus-control-protocol"
-version = "0.1.7"
-source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.7#803ef4c09fa68f35ec6b3e0a9eccc598957472e8"
+version = "0.1.8"
+source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.8#0761ff53ec42309ba1fae9453a266b61b21249a0"
 dependencies = [
  "animus-log-storage-protocol",
- "animus-plugin-protocol 0.1.7",
- "animus-subject-protocol 0.1.7",
+ "animus-plugin-protocol 0.1.8",
+ "animus-subject-protocol 0.1.8",
  "animus-trigger-protocol",
  "async-trait",
  "chrono",
@@ -107,10 +108,10 @@ dependencies = [
 
 [[package]]
 name = "animus-log-storage-protocol"
-version = "0.1.7"
-source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.7#803ef4c09fa68f35ec6b3e0a9eccc598957472e8"
+version = "0.1.8"
+source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.8#0761ff53ec42309ba1fae9453a266b61b21249a0"
 dependencies = [
- "animus-plugin-protocol 0.1.7",
+ "animus-plugin-protocol 0.1.8",
  "anyhow",
  "async-trait",
  "chrono",
@@ -130,8 +131,8 @@ dependencies = [
 
 [[package]]
 name = "animus-plugin-protocol"
-version = "0.1.7"
-source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.7#803ef4c09fa68f35ec6b3e0a9eccc598957472e8"
+version = "0.1.8"
+source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.8#0761ff53ec42309ba1fae9453a266b61b21249a0"
 dependencies = [
  "serde",
  "serde_json",
@@ -142,9 +143,9 @@ name = "animus-plugin-runtime"
 version = "0.1.0"
 dependencies = [
  "animus-plugin-protocol 0.1.0",
+ "animus-session-backend",
  "anyhow",
  "async-trait",
- "llm-cli-wrapper",
  "serde",
  "serde_json",
  "tokio",
@@ -166,8 +167,8 @@ name = "animus-provider-claude"
 version = "0.1.0"
 dependencies = [
  "animus-plugin-runtime",
+ "animus-session-backend",
  "anyhow",
- "llm-cli-wrapper",
  "tokio",
 ]
 
@@ -176,8 +177,8 @@ name = "animus-provider-codex"
 version = "0.1.0"
 dependencies = [
  "animus-plugin-runtime",
+ "animus-session-backend",
  "anyhow",
- "llm-cli-wrapper",
  "tokio",
 ]
 
@@ -186,8 +187,8 @@ name = "animus-provider-gemini"
 version = "0.1.0"
 dependencies = [
  "animus-plugin-runtime",
+ "animus-session-backend",
  "anyhow",
- "llm-cli-wrapper",
  "tokio",
 ]
 
@@ -196,9 +197,9 @@ name = "animus-provider-mock"
 version = "0.1.0"
 dependencies = [
  "animus-plugin-runtime",
+ "animus-session-backend",
  "anyhow",
  "async-trait",
- "llm-cli-wrapper",
  "serde_json",
  "tokio",
  "uuid",
@@ -209,8 +210,8 @@ name = "animus-provider-oai"
 version = "0.1.0"
 dependencies = [
  "animus-plugin-runtime",
+ "animus-session-backend",
  "anyhow",
- "llm-cli-wrapper",
  "tokio",
 ]
 
@@ -219,8 +220,8 @@ name = "animus-provider-opencode"
 version = "0.1.0"
 dependencies = [
  "animus-plugin-runtime",
+ "animus-session-backend",
  "anyhow",
- "llm-cli-wrapper",
  "tokio",
 ]
 
@@ -237,6 +238,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "animus-session-backend"
+version = "0.1.8"
+source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.8#0761ff53ec42309ba1fae9453a266b61b21249a0"
+dependencies = [
+ "animus-plugin-protocol 0.1.8",
+ "anyhow",
+ "async-trait",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "animus-subject-protocol"
 version = "0.1.0"
 dependencies = [
@@ -252,10 +269,10 @@ dependencies = [
 
 [[package]]
 name = "animus-subject-protocol"
-version = "0.1.7"
-source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.7#803ef4c09fa68f35ec6b3e0a9eccc598957472e8"
+version = "0.1.8"
+source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.8#0761ff53ec42309ba1fae9453a266b61b21249a0"
 dependencies = [
- "animus-plugin-protocol 0.1.7",
+ "animus-plugin-protocol 0.1.8",
  "anyhow",
  "async-trait",
  "chrono",
@@ -267,10 +284,10 @@ dependencies = [
 
 [[package]]
 name = "animus-trigger-protocol"
-version = "0.1.7"
-source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.7#803ef4c09fa68f35ec6b3e0a9eccc598957472e8"
+version = "0.1.8"
+source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.8#0761ff53ec42309ba1fae9453a266b61b21249a0"
 dependencies = [
- "animus-plugin-protocol 0.1.7",
+ "animus-plugin-protocol 0.1.8",
  "anyhow",
  "async-trait",
  "chrono",
@@ -2209,8 +2226,8 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 name = "llm-cli-wrapper"
 version = "0.1.0"
 dependencies = [
+ "animus-session-backend",
  "anyhow",
- "async-trait",
  "chrono",
  "orchestrator-logging",
  "protocol",
@@ -2218,10 +2235,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",
- "tokio",
  "toml",
- "tracing",
- "uuid",
 ]
 
 [[package]]
@@ -2600,7 +2614,8 @@ dependencies = [
  "animus-control-protocol",
  "animus-log-storage-protocol",
  "animus-plugin-protocol 0.1.0",
- "animus-subject-protocol 0.1.7",
+ "animus-session-backend",
+ "animus-subject-protocol 0.1.8",
  "anyhow",
  "assert_cmd",
  "async-trait",
@@ -2696,7 +2711,7 @@ dependencies = [
  "animus-control-protocol",
  "animus-log-storage-protocol",
  "animus-plugin-protocol 0.1.0",
- "animus-subject-protocol 0.1.7",
+ "animus-subject-protocol 0.1.8",
  "anyhow",
  "async-trait",
  "chrono",
@@ -2807,6 +2822,7 @@ name = "orchestrator-session-host"
 version = "0.1.0"
 dependencies = [
  "animus-plugin-protocol 0.1.0",
+ "animus-session-backend",
  "anyhow",
  "async-trait",
  "llm-cli-wrapper",
@@ -2836,7 +2852,7 @@ name = "orchestrator-web-api"
 version = "0.1.0"
 dependencies = [
  "animus-control-protocol",
- "animus-subject-protocol 0.1.7",
+ "animus-subject-protocol 0.1.8",
  "anyhow",
  "chrono",
  "orchestrator-config",

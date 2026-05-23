@@ -6,7 +6,7 @@ use protocol::RunId;
 use protocol::{AgentRunEvent, OutputStreamType};
 use serde_json::Value;
 
-use cli_wrapper::{extract_text_from_line, NormalizedTextEvent};
+use animus_session_backend::parser::{extract_text_from_line, NormalizedTextEvent};
 
 use crate::{invalid_input_error, AgentControlActionArg, AgentRunArgs};
 use protocol::AgentControlAction;

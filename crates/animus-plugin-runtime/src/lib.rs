@@ -27,11 +27,11 @@ use animus_plugin_protocol::{
     error_codes, HealthCheckResult, HealthStatus, InitializeResult, PluginCapabilities, PluginInfo, PluginManifest,
     RpcError, RpcNotification, RpcRequest, RpcResponse, PROTOCOL_VERSION,
 };
-use anyhow::Result;
-use async_trait::async_trait;
-use cli_wrapper::session::{
+use animus_session_backend::session::{
     session_backend::SessionBackend, session_event::SessionEvent, session_request::SessionRequest,
 };
+use anyhow::Result;
+use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -138,9 +138,9 @@ pub trait ProviderBackend: Send + Sync + 'static {
         &self,
         request: SessionRequest,
         resume_session: Option<&str>,
-    ) -> cli_wrapper::error::Result<cli_wrapper::session::session_run::SessionRun>;
+    ) -> animus_session_backend::error::Result<animus_session_backend::session::session_run::SessionRun>;
 
-    async fn cancel(&self, session_id: &str) -> cli_wrapper::error::Result<()>;
+    async fn cancel(&self, session_id: &str) -> animus_session_backend::error::Result<()>;
 }
 
 /// Adapter that wraps any `Arc<dyn SessionBackend>` so the runtime can drive it.
@@ -160,14 +160,14 @@ impl ProviderBackend for SessionBackendProvider {
         &self,
         request: SessionRequest,
         resume_session: Option<&str>,
-    ) -> cli_wrapper::error::Result<cli_wrapper::session::session_run::SessionRun> {
+    ) -> animus_session_backend::error::Result<animus_session_backend::session::session_run::SessionRun> {
         match resume_session {
             Some(sid) => self.backend.resume_session(request, sid).await,
             None => self.backend.start_session(request).await,
         }
     }
 
-    async fn cancel(&self, session_id: &str) -> cli_wrapper::error::Result<()> {
+    async fn cancel(&self, session_id: &str) -> animus_session_backend::error::Result<()> {
         self.backend.terminate_session(session_id).await
     }
 }

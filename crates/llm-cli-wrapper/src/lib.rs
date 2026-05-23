@@ -1,13 +1,12 @@
-//! llm-cli-wrapper — session backend layer for Animus CLI-backed agents.
+//! llm-cli-wrapper — launch-invocation helpers and in-tree error variants
+//! consumed by `agent-runner`, `orchestrator-cli`, and the daemon-side
+//! plugin backend adapter.
 //!
-//! This crate hosts the canonical session backend contract, the in-tree
-//! subprocess session backends used by `animus-provider-*` plugins, and the
-//! launch-invocation helpers consumed by `agent-runner` and `orchestrator-cli`.
+//! Session DTOs, the `SessionBackend` trait, and the native CLI session
+//! backends now live in the upstream `animus-session-backend` crate.
 
 pub mod cli;
 pub mod error;
-pub mod parser;
-pub mod session;
 
 pub use cli::{
     codex_exec_insert_index_json, ensure_codex_config_override, ensure_codex_config_override_json, ensure_flag,
@@ -16,9 +15,3 @@ pub use cli::{
     CliCapability, CliStatus, CliType, LaunchInvocation,
 };
 pub use error::{Error, Result};
-pub use parser::{extract_text_from_line, NormalizedTextEvent};
-pub use session::{
-    ClaudeSessionBackend, CodexSessionBackend, GeminiSessionBackend, SessionBackend, SessionBackendInfo,
-    SessionBackendKind, SessionCapabilities, SessionEvent, SessionRequest, SessionRun, SessionStability,
-    SubprocessSessionBackend,
-};

@@ -28,12 +28,12 @@ const DEFAULT_PLUGIN_CANCEL_TIMEOUT_SECS: u64 = 10;
 /// drop its connection.
 const PLUGIN_SHUTDOWN_TIMEOUT_SECS: u64 = 5;
 
-use cli_wrapper::error::{Error, Result};
-use cli_wrapper::session::{
+use animus_session_backend::session::{
     session_backend::SessionBackend, session_backend_info::SessionBackendInfo,
     session_backend_kind::SessionBackendKind, session_capabilities::SessionCapabilities, session_event::SessionEvent,
     session_request::SessionRequest, session_run::SessionRun, session_stability::SessionStability,
 };
+use cli_wrapper::error::{Error, Result};
 
 /// In-memory record of a live `agent/run`-initiated session whose plugin host
 /// must be reused for subsequent control-plane calls (currently just
@@ -497,16 +497,20 @@ impl SessionBackend for PluginSessionBackend {
         }
     }
 
-    async fn start_session(&self, request: SessionRequest) -> Result<SessionRun> {
-        self.dispatch("agent/run", request, None).await
+    async fn start_session(&self, request: SessionRequest) -> animus_session_backend::error::Result<SessionRun> {
+        self.dispatch("agent/run", request, None).await.map_err(Into::into)
     }
 
-    async fn resume_session(&self, request: SessionRequest, session_id: &str) -> Result<SessionRun> {
-        self.dispatch("agent/resume", request, Some(session_id.to_string())).await
+    async fn resume_session(
+        &self,
+        request: SessionRequest,
+        session_id: &str,
+    ) -> animus_session_backend::error::Result<SessionRun> {
+        self.dispatch("agent/resume", request, Some(session_id.to_string())).await.map_err(Into::into)
     }
 
-    async fn terminate_session(&self, session_id: &str) -> Result<()> {
-        self.dispatch_cancel(session_id).await
+    async fn terminate_session(&self, session_id: &str) -> animus_session_backend::error::Result<()> {
+        self.dispatch_cancel(session_id).await.map_err(Into::into)
     }
 }
 

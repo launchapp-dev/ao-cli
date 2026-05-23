@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use cli_wrapper::error::Result;
-use cli_wrapper::session::{
+use animus_session_backend::error::Result;
+use animus_session_backend::session::{
     claude::ClaudeSessionBackend, codex::CodexSessionBackend, gemini::GeminiSessionBackend,
     oai_runner::OaiRunnerSessionBackend, opencode::OpenCodeSessionBackend, session_backend::SessionBackend,
     session_request::SessionRequest, session_run::SessionRun, subprocess_session_backend::SubprocessSessionBackend,
@@ -164,7 +164,7 @@ mod tests {
     use serde_json::json;
     use std::path::PathBuf;
 
-    use cli_wrapper::session::{SessionEvent, SessionRequest};
+    use animus_session_backend::session::{SessionEvent, SessionRequest};
 
     use super::SessionBackendResolver;
 

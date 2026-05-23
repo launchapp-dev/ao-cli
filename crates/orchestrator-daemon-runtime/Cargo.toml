@@ -21,14 +21,14 @@ orchestrator-logging = { workspace = true }
 orchestrator-plugin-host = { workspace = true }
 orchestrator-providers = { workspace = true }
 animus-plugin-protocol = { workspace = true }
-animus-control-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.4" }
-animus-log-storage-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.4" }
-# We use Subject / SubjectChangedEvent from the same v0.1.3 surface the
+animus-control-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.6" }
+animus-log-storage-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.6" }
+# We use Subject / SubjectChangedEvent from the same v0.1.6 surface the
 # control-protocol references. Pulled from the same git tag so the
 # protocol versions stay in lockstep; the in-tree
 # `animus-subject-protocol` 0.1.0 remains the version subject backends /
 # inproc adapters use, and the daemon translates at the boundary.
-animus-subject-protocol-wire = { package = "animus-subject-protocol", git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.4" }
+animus-subject-protocol-wire = { package = "animus-subject-protocol", git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.6" }
 protocol = { workspace = true }
 regex = "1"
 serde = { version = "1.0", features = ["derive"] }

@@ -16,11 +16,8 @@ tokio = { version = "1.35", features = ["rt-multi-thread", "macros", "sync", "io
 async-trait = "0.1"
 
 # Session trait + types + native backends are sourced from the upstream
-# `animus-session-backend` crate. `llm-cli-wrapper` is still pulled in for its
-# in-tree Error variants (notably `CapabilityNotSupported`) that the plugin
-# adapter exposes on its inherent dispatch methods.
+# `animus-session-backend` crate.
 animus-session-backend = { workspace = true }
-llm-cli-wrapper = { workspace = true }
 
 orchestrator-logging = { workspace = true }
 orchestrator-plugin-host = { workspace = true }

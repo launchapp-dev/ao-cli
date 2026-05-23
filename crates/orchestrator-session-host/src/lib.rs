@@ -13,8 +13,10 @@
 //! the trait itself live in upstream `animus-session-backend`; this crate
 //! just re-routes through them via a richer resolver.
 
+pub mod error;
 pub mod plugin_backend;
 pub mod session_backend_resolver;
 
+pub use error::{Error, Result};
 pub use plugin_backend::{discover_provider_plugins, DiscoveredProviderPlugin, PluginSessionBackend};
 pub use session_backend_resolver::{is_reserved_provider_tool, SessionBackendResolver, RESERVED_PROVIDER_TOOLS};

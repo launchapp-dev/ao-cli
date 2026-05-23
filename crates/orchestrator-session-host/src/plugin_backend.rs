@@ -28,12 +28,12 @@ const DEFAULT_PLUGIN_CANCEL_TIMEOUT_SECS: u64 = 10;
 /// drop its connection.
 const PLUGIN_SHUTDOWN_TIMEOUT_SECS: u64 = 5;
 
+use crate::error::{Error, Result};
 use animus_session_backend::session::{
     session_backend::SessionBackend, session_backend_info::SessionBackendInfo,
     session_backend_kind::SessionBackendKind, session_capabilities::SessionCapabilities, session_event::SessionEvent,
     session_request::SessionRequest, session_run::SessionRun, session_stability::SessionStability,
 };
-use cli_wrapper::error::{Error, Result};
 
 /// In-memory record of a live `agent/run`-initiated session whose plugin host
 /// must be reused for subsequent control-plane calls (currently just
@@ -210,7 +210,7 @@ impl PluginSessionBackend {
                 if let Some(logger) = self.project_logger() {
                     logger.error("plugin.dispatch.spawn", &message).err(error.to_string()).emit();
                 }
-                return Err(Error::ExecutionFailed(message));
+                return Err(Error::execution_failed(message));
             }
         };
 
@@ -228,7 +228,7 @@ impl PluginSessionBackend {
                 if let Some(logger) = self.project_logger() {
                     logger.error("plugin.dispatch.handshake", &message).err(error.to_string()).emit();
                 }
-                return Err(Error::ExecutionFailed(message));
+                return Err(Error::execution_failed(message));
             }
         };
 
@@ -427,7 +427,7 @@ impl PluginSessionBackend {
             match guard.get(session_id) {
                 Some(handle) => (handle.host.clone(), handle.cancellation),
                 None => {
-                    return Err(Error::ExecutionFailed(format!(
+                    return Err(Error::execution_failed(format!(
                         "no active session '{session_id}' for plugin '{}'; nothing to cancel",
                         self.plugin_name
                     )));
@@ -449,11 +449,11 @@ impl PluginSessionBackend {
                 remove_session(&self.sessions, session_id);
                 Ok(())
             }
-            Ok(Err(error)) => Err(Error::ExecutionFailed(format!(
+            Ok(Err(error)) => Err(Error::execution_failed(format!(
                 "plugin '{}' agent/cancel failed: {}",
                 self.plugin_name, error.message
             ))),
-            Err(_) => Err(Error::ExecutionFailed(format!(
+            Err(_) => Err(Error::execution_failed(format!(
                 "plugin '{}' agent/cancel timed out after {}s",
                 self.plugin_name,
                 cancel_timeout.as_secs()
@@ -750,14 +750,11 @@ mod tests {
             Error::CapabilityNotSupported { capability, .. } => {
                 assert_eq!(capability, "cancellation");
             }
-            other => panic!("expected CapabilityNotSupported, got: {other:?}"),
+            Error::Upstream(other) => panic!("expected CapabilityNotSupported, got upstream: {other:?}"),
         }
         // And the Display impl is still descriptive for human-readable logs.
         let message = format!("{err}");
-        assert!(
-            message.contains("does not advertise capability 'cancellation'"),
-            "unexpected error message: {message}"
-        );
+        assert!(message.contains("does not support capability 'cancellation'"), "unexpected error message: {message}");
         // The fake plugin must NOT have been called at all.
         assert_eq!(
             request_counter.load(AtomicOrdering::SeqCst),

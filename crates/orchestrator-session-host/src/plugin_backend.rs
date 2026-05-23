@@ -38,6 +38,14 @@ use animus_session_backend::session::{
     session_request::SessionRequest, session_run::SessionRun, session_stability::SessionStability,
 };
 
+/// Terminal outcome reported by `resume_agent_for_restart` after the daemon
+/// drains a resumed session to completion or surfaces a failure.
+#[derive(Debug)]
+pub enum ResumeAgentOutcome {
+    Resumed { session_id: Option<String> },
+    Failed { reason: String },
+}
+
 /// In-memory record of a live `agent/run`-initiated session whose plugin host
 /// must be reused for subsequent control-plane calls (currently just
 /// `agent/cancel`).
@@ -562,6 +570,47 @@ impl PluginSessionBackend {
         })
     }
 
+    /// Daemon-restart helper: rebuild a minimal `SessionRequest` from the
+    /// `AgentRunRequest` JSON captured in the phase session checkpoint and
+    /// dispatch `agent/resume` against the live plugin. Drains the resulting
+    /// event stream synchronously until a terminal `Finished` / `Error` event
+    /// arrives, then returns a [`ResumeAgentOutcome`] describing the result.
+    ///
+    /// Returns `ResumeAgentOutcome::Failed { reason }` on every error path
+    /// (malformed checkpoint, spawn/handshake failure, RPC error, timeout) so
+    /// the caller can record the reason verbatim in the blocked-state message.
+    pub async fn resume_agent_for_restart(&self, session_id: &str, agent_run_request: &Value) -> ResumeAgentOutcome {
+        let session_request = match session_request_from_agent_run_request(&self.provider_tool, agent_run_request) {
+            Ok(req) => req,
+            Err(reason) => return ResumeAgentOutcome::Failed { reason },
+        };
+        let mut run = match self.dispatch("agent/resume", session_request, Some(session_id.to_string())).await {
+            Ok(run) => run,
+            Err(err) => return ResumeAgentOutcome::Failed { reason: format!("resume_agent failed: {err}") },
+        };
+        let resumed_session_id = run.session_id.clone();
+        while let Some(event) = run.events.recv().await {
+            match event {
+                SessionEvent::Finished { exit_code } => {
+                    if exit_code.unwrap_or(0) == 0 {
+                        return ResumeAgentOutcome::Resumed { session_id: resumed_session_id };
+                    }
+                    return ResumeAgentOutcome::Failed {
+                        reason: format!(
+                            "resume_agent failed: plugin exited with code {}",
+                            exit_code.map(|c| c.to_string()).unwrap_or_else(|| "unknown".to_string())
+                        ),
+                    };
+                }
+                SessionEvent::Error { message, recoverable: false } => {
+                    return ResumeAgentOutcome::Failed { reason: format!("resume_agent failed: {message}") };
+                }
+                _ => {}
+            }
+        }
+        ResumeAgentOutcome::Failed { reason: "resume_agent failed: stream closed before Finished".to_string() }
+    }
+
     async fn dispatch_cancel(&self, session_id: &str) -> Result<()> {
         let cancel_timeout = Duration::from_secs(DEFAULT_PLUGIN_CANCEL_TIMEOUT_SECS);
         if let Some(logger) = self.project_logger() {
@@ -666,6 +715,49 @@ impl SessionBackend for PluginSessionBackend {
     async fn terminate_session(&self, session_id: &str) -> animus_session_backend::error::Result<()> {
         self.dispatch_cancel(session_id).await.map_err(Into::into)
     }
+}
+
+fn session_request_from_agent_run_request(
+    fallback_tool: &str,
+    agent_run_request: &Value,
+) -> std::result::Result<SessionRequest, String> {
+    let context = agent_run_request.get("context").cloned().unwrap_or(Value::Null);
+    let model = agent_run_request.get("model").and_then(Value::as_str).unwrap_or_default().to_string();
+    let timeout_secs = agent_run_request.get("timeout_secs").and_then(Value::as_u64);
+
+    let tool = context
+        .get("tool")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+        .or_else(|| context.pointer("/runtime_contract/cli/name").and_then(Value::as_str).map(ToOwned::to_owned))
+        .unwrap_or_else(|| fallback_tool.to_string());
+    let prompt = context.get("prompt").and_then(Value::as_str).unwrap_or_default().to_string();
+    let cwd = context
+        .get("cwd")
+        .and_then(Value::as_str)
+        .map(PathBuf::from)
+        .ok_or_else(|| "resume_agent failed: checkpoint missing context.cwd".to_string())?;
+    let project_root = context.get("project_root").and_then(Value::as_str).map(PathBuf::from);
+
+    let mut extras = serde_json::Map::new();
+    for key in ["runtime_contract", "agent_id", "phase_id", "workflow_id", "subject_id", "phase_capabilities"] {
+        if let Some(value) = context.get(key) {
+            extras.insert(key.to_string(), value.clone());
+        }
+    }
+
+    Ok(SessionRequest {
+        tool,
+        model,
+        prompt,
+        cwd,
+        project_root,
+        mcp_endpoint: None,
+        permission_mode: None,
+        timeout_secs,
+        env_vars: Vec::new(),
+        extras: Value::Object(extras),
+    })
 }
 
 async fn graceful_shutdown(host: PluginHost) {

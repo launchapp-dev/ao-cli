@@ -83,6 +83,22 @@ pub fn update_session_running(
     })
 }
 
+pub fn update_session_running_after_resume(
+    scoped_root: &Path,
+    workflow_id: &str,
+    phase_id: &str,
+    new_session_id: Option<&str>,
+) -> io::Result<()> {
+    mutate(scoped_root, workflow_id, phase_id, |checkpoint| {
+        if let Some(sid) = new_session_id {
+            checkpoint.session_id = Some(sid.to_string());
+        }
+        checkpoint.status = SessionCheckpointStatus::Running;
+        checkpoint.blocked_reason = None;
+        checkpoint.started_at = Utc::now().to_rfc3339();
+    })
+}
+
 pub fn update_session_completed(scoped_root: &Path, workflow_id: &str, phase_id: &str) -> io::Result<()> {
     mutate(scoped_root, workflow_id, phase_id, |checkpoint| {
         checkpoint.status = SessionCheckpointStatus::Completed;

@@ -28,6 +28,100 @@ use std::time::SystemTime;
 use super::canonicalize_lossy;
 use super::daemon_run_host::DefaultDaemonRunHost;
 use super::daemon_scheduler::{runtime_options_from_cli, slim_project_tick_driver, SlimProjectTickDriver};
+use orchestrator_session_host::{discover_provider_plugins, PluginSessionBackend, ResumeAgentOutcome};
+use std::collections::HashMap;
+use std::path::Path;
+use workflow_runner_v2::phase_session::{
+    list_running_checkpoints, update_session_blocked, update_session_running_after_resume, SessionCheckpoint,
+};
+
+pub(super) enum ResumeLookup {
+    NotInstalled,
+    Outcome(ResumeAgentOutcome),
+}
+
+#[async_trait::async_trait(?Send)]
+pub(super) trait ResumeProviderRegistry {
+    async fn try_resume(&self, checkpoint: &SessionCheckpoint) -> ResumeLookup;
+}
+
+struct ProductionResumeProviderRegistry {
+    providers: HashMap<String, Arc<PluginSessionBackend>>,
+}
+
+impl ProductionResumeProviderRegistry {
+    fn discover(project_root: &Path) -> Self {
+        let providers = discover_provider_plugins(project_root)
+            .into_iter()
+            .map(|plugin| (plugin.provider_tool.to_ascii_lowercase(), plugin.into_backend()))
+            .collect();
+        Self { providers }
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl ResumeProviderRegistry for ProductionResumeProviderRegistry {
+    async fn try_resume(&self, checkpoint: &SessionCheckpoint) -> ResumeLookup {
+        let Some(backend) = self.providers.get(&checkpoint.provider.to_ascii_lowercase()).cloned() else {
+            return ResumeLookup::NotInstalled;
+        };
+        let Some(session_id) = checkpoint.session_id.as_deref() else {
+            return ResumeLookup::Outcome(ResumeAgentOutcome::Failed {
+                reason: "resume_agent failed: checkpoint missing session_id".to_string(),
+            });
+        };
+        let Some(request) = checkpoint.request.as_ref() else {
+            return ResumeLookup::Outcome(ResumeAgentOutcome::Failed {
+                reason: "resume_agent failed: checkpoint missing original request snapshot".to_string(),
+            });
+        };
+        ResumeLookup::Outcome(backend.resume_agent_for_restart(session_id, request).await)
+    }
+}
+
+pub(super) async fn auto_resume_running_checkpoints<R: ResumeProviderRegistry + ?Sized>(
+    scoped_root: &Path,
+    registry: &R,
+) -> AutoResumeReport {
+    let mut report = AutoResumeReport::default();
+    let running = match list_running_checkpoints(scoped_root) {
+        Ok(items) => items,
+        Err(_) => return report,
+    };
+    for (_path, checkpoint) in running {
+        match registry.try_resume(&checkpoint).await {
+            ResumeLookup::Outcome(ResumeAgentOutcome::Resumed { session_id }) => {
+                let _ = update_session_running_after_resume(
+                    scoped_root,
+                    &checkpoint.workflow_id,
+                    &checkpoint.phase_id,
+                    session_id.as_deref(),
+                );
+                report.resumed += 1;
+            }
+            ResumeLookup::Outcome(ResumeAgentOutcome::Failed { reason }) => {
+                let _ = update_session_blocked(scoped_root, &checkpoint.workflow_id, &checkpoint.phase_id, &reason);
+                report.blocked_on_failure += 1;
+            }
+            ResumeLookup::NotInstalled => {
+                let reason = format!(
+                    "provider '{}' not installed; reinstall with `animus plugin install launchapp-dev/animus-provider-{}` then resume with --force",
+                    checkpoint.provider, checkpoint.provider
+                );
+                let _ = update_session_blocked(scoped_root, &checkpoint.workflow_id, &checkpoint.phase_id, &reason);
+                report.blocked_uninstalled += 1;
+            }
+        }
+    }
+    report
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(super) struct AutoResumeReport {
+    pub resumed: usize,
+    pub blocked_on_failure: usize,
+    pub blocked_uninstalled: usize,
+}
 
 pub(super) struct CliPluginInstaller {
     project_root: String,
@@ -119,23 +213,9 @@ impl DaemonRunHooks for CliDaemonRunHost {
         )
         .await;
 
-        // v0.4.x scope: surface running CLI session checkpoints by marking them
-        // blocked with an actionable reason. Auto-resume via provider.resume_agent
-        // is deferred to v0.5; the checkpoint file + notification log provide the
-        // durable evidence operators need to resolve manually with `--force`.
-        if let Some(scoped_root) =
-            protocol::repository_scope::scoped_state_root(std::path::Path::new(project_root))
-        {
-            if let Ok(running) = workflow_runner_v2::phase_session::list_running_checkpoints(&scoped_root) {
-                for (_, checkpoint) in running {
-                    let _ = workflow_runner_v2::phase_session::update_session_blocked(
-                        &scoped_root,
-                        &checkpoint.workflow_id,
-                        &checkpoint.phase_id,
-                        "daemon restarted with phase mid-execution; review notifications.jsonl and resume with `animus workflow resume <id> --force` if the phase is idempotent",
-                    );
-                }
-            }
+        if let Some(scoped_root) = protocol::repository_scope::scoped_state_root(std::path::Path::new(project_root)) {
+            let registry = ProductionResumeProviderRegistry::discover(std::path::Path::new(project_root));
+            auto_resume_running_checkpoints(&scoped_root, &registry).await;
         }
 
         Ok(orphans)
@@ -692,5 +772,138 @@ mod tests {
         assert_eq!(loaded.interval_secs, Some(11));
         assert_eq!(loaded.max_tasks_per_tick, Some(7));
         assert_eq!(loaded.stale_threshold_hours, Some(42));
+    }
+
+    mod auto_resume {
+        use super::super::{auto_resume_running_checkpoints, ResumeLookup, ResumeProviderRegistry};
+        use async_trait::async_trait;
+        use orchestrator_session_host::ResumeAgentOutcome;
+        use serde_json::json;
+        use std::collections::HashMap;
+        use std::sync::Mutex;
+        use tempfile::TempDir;
+        use workflow_runner_v2::phase_session::{
+            read_checkpoint, update_session_running, write_session_pending, SessionCheckpoint, SessionCheckpointStatus,
+        };
+
+        enum Script {
+            Resumed { new_session_id: Option<String> },
+            Failed { reason: String },
+        }
+
+        struct ScriptedRegistry {
+            scripts: Mutex<HashMap<String, Script>>,
+        }
+
+        impl ScriptedRegistry {
+            fn new(entries: Vec<(&str, Script)>) -> Self {
+                let scripts = entries.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+                Self { scripts: Mutex::new(scripts) }
+            }
+        }
+
+        #[async_trait(?Send)]
+        impl ResumeProviderRegistry for ScriptedRegistry {
+            async fn try_resume(&self, checkpoint: &SessionCheckpoint) -> ResumeLookup {
+                let mut guard = self.scripts.lock().expect("scripts mutex");
+                match guard.remove(&checkpoint.provider) {
+                    Some(Script::Resumed { new_session_id }) => {
+                        ResumeLookup::Outcome(ResumeAgentOutcome::Resumed { session_id: new_session_id })
+                    }
+                    Some(Script::Failed { reason }) => ResumeLookup::Outcome(ResumeAgentOutcome::Failed { reason }),
+                    None => ResumeLookup::NotInstalled,
+                }
+            }
+        }
+
+        fn seed_running_checkpoint(scoped: &std::path::Path, workflow_id: &str, phase_id: &str, provider: &str) {
+            write_session_pending(
+                scoped,
+                workflow_id,
+                phase_id,
+                provider,
+                "run-1",
+                Some(json!({
+                    "protocol_version": "1",
+                    "run_id": "run-1",
+                    "model": "claude-sonnet-4-6",
+                    "context": {
+                        "tool": provider,
+                        "prompt": "continue",
+                        "cwd": "/tmp",
+                        "project_root": "/tmp"
+                    }
+                })),
+            )
+            .expect("seed pending");
+            update_session_running(scoped, workflow_id, phase_id, "sess-original").expect("seed running");
+        }
+
+        #[tokio::test]
+        async fn auto_resume_succeeds_when_provider_returns_resumed_session() {
+            let temp = TempDir::new().expect("tempdir");
+            let scoped = temp.path();
+            seed_running_checkpoint(scoped, "wf-ok", "impl", "claude");
+            let registry = ScriptedRegistry::new(vec![(
+                "claude",
+                Script::Resumed { new_session_id: Some("sess-new".to_string()) },
+            )]);
+
+            let report = auto_resume_running_checkpoints(scoped, &registry).await;
+            assert_eq!(report.resumed, 1);
+            assert_eq!(report.blocked_on_failure, 0);
+            assert_eq!(report.blocked_uninstalled, 0);
+
+            let after = read_checkpoint(scoped, "wf-ok", "impl").expect("read").expect("present");
+            assert_eq!(after.status, SessionCheckpointStatus::Running);
+            assert_eq!(after.session_id.as_deref(), Some("sess-new"));
+            assert!(after.blocked_reason.is_none());
+        }
+
+        #[tokio::test]
+        async fn auto_resume_marks_blocked_with_specific_error_when_provider_returns_session_expired() {
+            let temp = TempDir::new().expect("tempdir");
+            let scoped = temp.path();
+            seed_running_checkpoint(scoped, "wf-expired", "review", "codex");
+            let registry = ScriptedRegistry::new(vec![(
+                "codex",
+                Script::Failed { reason: "resume_agent failed: session expired".to_string() },
+            )]);
+
+            let report = auto_resume_running_checkpoints(scoped, &registry).await;
+            assert_eq!(report.resumed, 0);
+            assert_eq!(report.blocked_on_failure, 1);
+            assert_eq!(report.blocked_uninstalled, 0);
+
+            let after = read_checkpoint(scoped, "wf-expired", "review").expect("read").expect("present");
+            assert_eq!(after.status, SessionCheckpointStatus::Blocked);
+            let reason = after.blocked_reason.unwrap_or_default();
+            assert!(
+                reason.contains("session expired") && reason.contains("resume_agent failed"),
+                "expected specific resume failure reason, got: {reason}"
+            );
+        }
+
+        #[tokio::test]
+        async fn auto_resume_marks_blocked_with_reinstall_hint_when_provider_uninstalled() {
+            let temp = TempDir::new().expect("tempdir");
+            let scoped = temp.path();
+            seed_running_checkpoint(scoped, "wf-gone", "design", "gemini");
+            let registry = ScriptedRegistry::new(vec![]);
+
+            let report = auto_resume_running_checkpoints(scoped, &registry).await;
+            assert_eq!(report.resumed, 0);
+            assert_eq!(report.blocked_on_failure, 0);
+            assert_eq!(report.blocked_uninstalled, 1);
+
+            let after = read_checkpoint(scoped, "wf-gone", "design").expect("read").expect("present");
+            assert_eq!(after.status, SessionCheckpointStatus::Blocked);
+            let reason = after.blocked_reason.unwrap_or_default();
+            assert!(
+                reason.contains("provider 'gemini' not installed")
+                    && reason.contains("animus plugin install launchapp-dev/animus-provider-gemini"),
+                "expected reinstall hint, got: {reason}"
+            );
+        }
     }
 }

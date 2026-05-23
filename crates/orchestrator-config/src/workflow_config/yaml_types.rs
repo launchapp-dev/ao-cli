@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::agent_runtime_config::{AgentProfile, PhaseExecutionMode};
+use crate::agent_runtime_config::{AgentProfile, Idempotency, PhaseExecutionMode};
 
 use super::types::*;
 
@@ -162,6 +162,8 @@ pub(super) struct YamlPhaseDefinition {
     pub(super) retry: Option<crate::agent_runtime_config::PhaseRetryConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) default_tool: Option<String>,
+    #[serde(default)]
+    pub(super) idempotency: Idempotency,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

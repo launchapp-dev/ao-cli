@@ -765,7 +765,7 @@ mod tests {
     }
 
     fn workflow_config_with_phase_agent(phase_id: &str, agent_id: &str) -> LoadedWorkflowConfig {
-        use orchestrator_config::agent_runtime_config::{PhaseExecutionDefinition, PhaseExecutionMode};
+        use orchestrator_config::agent_runtime_config::{Idempotency, PhaseExecutionDefinition, PhaseExecutionMode};
         let mut workflow_config = builtin_workflow_config();
         let phase_definition = PhaseExecutionDefinition {
             mode: PhaseExecutionMode::Agent,
@@ -782,6 +782,7 @@ mod tests {
             command: None,
             manual: None,
             default_tool: None,
+            idempotency: Idempotency::Unknown,
         };
         workflow_config.phase_definitions.insert(phase_id.to_string(), phase_definition);
         LoadedWorkflowConfig {

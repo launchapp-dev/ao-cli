@@ -7,6 +7,43 @@ use crate::phase_executor::PhaseExecutionOutcome;
 const MAX_PRIOR_CONTEXT_CHARS: usize = 8000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PhaseCompletionMarker {
+    pub completed_at: String,
+    pub output_path: String,
+    pub phase_id: String,
+}
+
+pub fn phase_completion_marker_path(project_root: &str, workflow_id: &str, phase_id: &str) -> PathBuf {
+    phase_output_dir(project_root, workflow_id).join(format!("{phase_id}.completed"))
+}
+
+pub fn write_phase_completion_marker(project_root: &str, workflow_id: &str, phase_id: &str) -> std::io::Result<()> {
+    let dir = phase_output_dir(project_root, workflow_id);
+    std::fs::create_dir_all(&dir)?;
+    let marker = PhaseCompletionMarker {
+        completed_at: chrono::Utc::now().to_rfc3339(),
+        output_path: format!("{phase_id}.json"),
+        phase_id: phase_id.to_string(),
+    };
+    let payload = serde_json::to_vec_pretty(&marker)
+        .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))?;
+    let final_path = dir.join(format!("{phase_id}.completed"));
+    let tmp_path = dir.join(format!("{phase_id}.completed.{}.tmp", Uuid::new_v4()));
+    {
+        use std::io::Write;
+        let mut file = std::fs::File::create(&tmp_path)?;
+        file.write_all(&payload)?;
+        file.sync_all()?;
+    }
+    std::fs::rename(&tmp_path, &final_path)?;
+    Ok(())
+}
+
+pub fn is_phase_completed(project_root: &str, workflow_id: &str, phase_id: &str) -> bool {
+    phase_completion_marker_path(project_root, workflow_id, phase_id).exists()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedPhaseOutput {
     pub phase_id: String,
     pub completed_at: String,
@@ -78,8 +115,14 @@ pub fn persist_phase_output(
     let payload = serde_json::to_string_pretty(&output)?;
     let file_path = dir.join(format!("{phase_id}.json"));
     let tmp_path = file_path.with_file_name(format!("{phase_id}.{}.tmp", Uuid::new_v4()));
-    std::fs::write(&tmp_path, &payload)?;
+    {
+        use std::io::Write;
+        let mut file = std::fs::File::create(&tmp_path)?;
+        file.write_all(payload.as_bytes())?;
+        file.sync_all()?;
+    }
     std::fs::rename(&tmp_path, &file_path)?;
+    write_phase_completion_marker(project_root, workflow_id, phase_id)?;
     Ok(())
 }
 

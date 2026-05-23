@@ -416,6 +416,18 @@ pub(crate) async fn handle_workflow(
             }
         },
         WorkflowCommand::Resume(args) => {
+            if !args.force {
+                let existing = workflows.get(&args.id).await?;
+                if let Some(reason) = existing.failure_reason.as_deref() {
+                    if reason.contains("idempotency annotation") || reason.contains("sideeffecting") {
+                        return Err(anyhow!(
+                            "workflow '{}' is blocked: {} — rerun with --force to override",
+                            args.id,
+                            reason
+                        ));
+                    }
+                }
+            }
             if json {
                 if let Some(()) = try_workflow_resume_via_control(project_root, &args.id).await? {
                     let workflow = workflows.get(&args.id).await?;

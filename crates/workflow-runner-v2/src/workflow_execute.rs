@@ -24,7 +24,7 @@ use orchestrator_core::{
 
 use crate::ensure_execution_cwd::ensure_execution_cwd;
 use crate::phase_executor::{run_workflow_phase, PhaseExecuteOverrides, PhaseExecutionOutcome, PhaseRunParams};
-use crate::phase_output::persist_phase_output;
+use crate::phase_output::{is_phase_completed, persist_phase_output};
 
 pub enum PhaseEvent<'a> {
     Started {
@@ -370,6 +370,23 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
     while phase_idx < phases_to_run.len() && !is_terminal_workflow_status(workflow.status) {
         let phase_id = phases_to_run[phase_idx].clone();
         let phase_attempt = workflow.phases.iter().find(|p| p.phase_id == phase_id).map(|p| p.attempt).unwrap_or(0);
+
+        if is_phase_completed(&params.project_root, &workflow.id, &phase_id) {
+            let updated = hub.workflows().complete_current_phase(&workflow.id).await?;
+            let next_status = updated.status;
+            let next_phase_index = updated.current_phase_index;
+            workflow = updated;
+            reported_workflow_status = next_status;
+            phases_to_run = workflow.phases.iter().map(|phase| phase.phase_id.clone()).collect();
+            results.push(serde_json::json!({
+                "phase_id": phase_id,
+                "status": "skipped_completion_marker",
+                "duration_secs": 0,
+                "workflow_status": format!("{:?}", next_status).to_ascii_lowercase(),
+            }));
+            phase_idx = next_phase_index;
+            continue;
+        }
 
         emit(PhaseEvent::Started { phase_id: &phase_id, phase_index: phase_idx, total_phases: phases_to_run.len() });
         let phase_start = Instant::now();

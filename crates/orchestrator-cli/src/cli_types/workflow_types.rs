@@ -18,7 +18,7 @@ pub(crate) enum WorkflowCommand {
     /// Run a workflow. Enqueues to daemon by default; use --sync to run in terminal.
     Run(WorkflowRunArgs),
     /// Resume a paused workflow.
-    Resume(IdArgs),
+    Resume(WorkflowResumeArgs),
     /// Check whether a workflow can be resumed.
     ResumeStatus(IdArgs),
     /// Pause an active workflow (confirmation required).
@@ -284,6 +284,18 @@ pub(crate) struct WorkflowPromptRenderArgs {
         help = "Workflow variable in KEY=VALUE format. Repeat for multiple variables."
     )]
     pub(crate) vars: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct WorkflowResumeArgs {
+    #[arg(long, value_name = "WORKFLOW_ID", help = "Workflow identifier.")]
+    pub(crate) id: String,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Bypass idempotency block produced during crash recovery and auto-retry the phase."
+    )]
+    pub(crate) force: bool,
 }
 
 #[derive(Debug, Args)]

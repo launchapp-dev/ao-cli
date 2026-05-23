@@ -490,6 +490,15 @@ pub struct PhaseManualDefinition {
     pub timeout_secs: Option<u64>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Idempotency {
+    Idempotent,
+    Sideeffecting,
+    #[default]
+    Unknown,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PhaseExecutionDefinition {
     pub mode: PhaseExecutionMode,
@@ -519,6 +528,8 @@ pub struct PhaseExecutionDefinition {
     pub manual: Option<PhaseManualDefinition>,
     #[serde(default)]
     pub default_tool: Option<String>,
+    #[serde(default)]
+    pub idempotency: Idempotency,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1184,6 +1195,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     command: None,
                     manual: None,
                     default_tool: None,
+                    idempotency: Idempotency::Unknown,
                 },
             ),
             (
@@ -1210,6 +1222,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     command: None,
                     manual: None,
                     default_tool: None,
+                    idempotency: Idempotency::Unknown,
                 },
             ),
             (
@@ -1236,6 +1249,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     command: None,
                     manual: None,
                     default_tool: None,
+                    idempotency: Idempotency::Unknown,
                 },
             ),
             (
@@ -1255,6 +1269,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     command: None,
                     manual: None,
                     default_tool: None,
+                    idempotency: Idempotency::Unknown,
                 },
             ),
             (
@@ -1274,6 +1289,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     command: None,
                     manual: None,
                     default_tool: None,
+                    idempotency: Idempotency::Unknown,
                 },
             ),
             (
@@ -1293,6 +1309,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     command: None,
                     manual: None,
                     default_tool: None,
+                    idempotency: Idempotency::Unknown,
                 },
             ),
             (
@@ -1330,6 +1347,7 @@ fn hardcoded_builtin_agent_runtime_config() -> AgentRuntimeConfig {
                     command: None,
                     manual: None,
                     default_tool: None,
+                    idempotency: Idempotency::Unknown,
                 },
             ),
         ]),
@@ -2177,6 +2195,7 @@ cli_tools:
                 command: None,
                 manual: None,
                 default_tool: None,
+                idempotency: Idempotency::Unknown,
             },
         );
         workflow.tools.insert(
@@ -2276,6 +2295,7 @@ cli_tools:
                 command: None,
                 manual: None,
                 default_tool: None,
+                idempotency: Idempotency::Unknown,
             },
         );
         workflow.workflows.push(crate::workflow_config::WorkflowDefinition {
@@ -2508,6 +2528,7 @@ cli_tools:
             }),
             manual: None,
             default_tool: None,
+            idempotency: Idempotency::Unknown,
         };
 
         let json = serde_json::to_string(&definition).expect("serialize");
@@ -2560,6 +2581,7 @@ cli_tools:
                 }),
                 manual: None,
                 default_tool: None,
+                idempotency: Idempotency::Unknown,
             },
         );
         validate_agent_runtime_config(&config).expect("valid command-mode config");
@@ -2584,6 +2606,7 @@ cli_tools:
                 command: None,
                 manual: None,
                 default_tool: None,
+                idempotency: Idempotency::Unknown,
             },
         );
         let err = validate_agent_runtime_config(&config).unwrap_err();
@@ -2627,6 +2650,7 @@ cli_tools:
                 }),
                 manual: None,
                 default_tool: None,
+                idempotency: Idempotency::Unknown,
             },
         );
         let err = validate_agent_runtime_config(&config).unwrap_err();
@@ -2670,6 +2694,7 @@ cli_tools:
                 }),
                 manual: None,
                 default_tool: None,
+                idempotency: Idempotency::Unknown,
             },
         );
         let err = validate_agent_runtime_config(&config).unwrap_err();
@@ -2713,6 +2738,7 @@ cli_tools:
                 }),
                 manual: None,
                 default_tool: None,
+                idempotency: Idempotency::Unknown,
             },
         );
         let err = validate_agent_runtime_config(&config).unwrap_err();
@@ -2756,6 +2782,7 @@ cli_tools:
                 }),
                 manual: None,
                 default_tool: None,
+                idempotency: Idempotency::Unknown,
             },
         );
         let err = validate_agent_runtime_config(&config).unwrap_err();
@@ -2803,6 +2830,7 @@ cli_tools:
                     timeout_secs: None,
                 }),
                 default_tool: None,
+                idempotency: Idempotency::Unknown,
             },
         );
         let err = validate_agent_runtime_config(&config).unwrap_err();
@@ -2846,6 +2874,7 @@ cli_tools:
                 }),
                 manual: None,
                 default_tool: None,
+                idempotency: Idempotency::Unknown,
             },
         );
         assert_eq!(config.phase_mode("lint"), Some(PhaseExecutionMode::Command));
@@ -2896,6 +2925,7 @@ cli_tools:
             }),
             manual: None,
             default_tool: None,
+            idempotency: Idempotency::Unknown,
         };
 
         let json = serde_json::to_string_pretty(&definition).expect("serialize");
@@ -2976,6 +3006,7 @@ cli_tools:
                 }),
                 manual: None,
                 default_tool: None,
+                idempotency: Idempotency::Unknown,
             },
         );
         let err = validate_agent_runtime_config(&config).unwrap_err();
@@ -3019,6 +3050,7 @@ cli_tools:
                 }),
                 manual: None,
                 default_tool: None,
+                idempotency: Idempotency::Unknown,
             },
         );
         let err = validate_agent_runtime_config(&config).unwrap_err();
@@ -3326,6 +3358,7 @@ cli_tools:
                 command: None,
                 manual: None,
                 default_tool: None,
+                idempotency: Idempotency::Unknown,
             },
         );
         assert_eq!(config.phase_system_prompt("custom-phase"), Some("Phase-level prompt override"));
@@ -3352,6 +3385,7 @@ cli_tools:
                 command: None,
                 manual: None,
                 default_tool: None,
+                idempotency: Idempotency::Unknown,
             },
         );
         assert_eq!(config.phase_system_prompt("custom-phase"), Some("Agent profile prompt"));
@@ -3378,6 +3412,7 @@ cli_tools:
                 command: None,
                 manual: None,
                 default_tool: None,
+                idempotency: Idempotency::Unknown,
             },
         );
         assert_eq!(config.phase_system_prompt("custom-phase"), Some("Agent profile prompt"));
@@ -3422,6 +3457,7 @@ cli_tools:
             command: None,
             manual: None,
             default_tool: None,
+            idempotency: Idempotency::Unknown,
         };
         let json = serde_json::to_string(&definition).expect("serialize");
         assert!(!json.contains("system_prompt"));
@@ -3459,6 +3495,7 @@ cli_tools:
                 command: None,
                 manual: None,
                 default_tool: None,
+                idempotency: Idempotency::Unknown,
             },
         );
         let err = validate_agent_runtime_config(&config).unwrap_err();
@@ -3491,6 +3528,7 @@ cli_tools:
                 command: None,
                 manual: None,
                 default_tool: None,
+                idempotency: Idempotency::Unknown,
             },
         );
         let err = validate_agent_runtime_config(&config).unwrap_err();
@@ -3523,6 +3561,7 @@ cli_tools:
                 command: None,
                 manual: None,
                 default_tool: None,
+                idempotency: Idempotency::Unknown,
             },
         );
         let err = validate_agent_runtime_config(&config).unwrap_err();
@@ -3567,6 +3606,7 @@ cli_tools:
                 command: None,
                 manual: None,
                 default_tool: None,
+                idempotency: Idempotency::Unknown,
             },
         );
         let err = validate_agent_runtime_config(&config).unwrap_err();
@@ -3611,6 +3651,7 @@ cli_tools:
                 command: None,
                 manual: None,
                 default_tool: None,
+                idempotency: Idempotency::Unknown,
             },
         );
         validate_agent_runtime_config(&config).expect("valid decision contract should pass validation");

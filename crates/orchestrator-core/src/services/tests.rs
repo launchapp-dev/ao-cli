@@ -886,6 +886,7 @@ async fn file_hub_uses_custom_pipeline_from_workflow_config_v2() {
                 command: None,
                 manual: None,
                 default_tool: None,
+                idempotency: crate::Idempotency::Unknown,
             },
         );
     }
@@ -910,6 +911,7 @@ async fn file_hub_uses_custom_pipeline_from_workflow_config_v2() {
                 timeout_secs: None,
             }),
             default_tool: None,
+            idempotency: crate::Idempotency::Unknown,
         },
     );
     crate::write_agent_runtime_config(temp.path(), &runtime_config).expect("agent runtime config should be written");

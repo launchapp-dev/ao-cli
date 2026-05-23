@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 
-use crate::agent_runtime_config::{CommandCwdMode, PhaseCommandDefinition, PhaseExecutionMode};
+use crate::agent_runtime_config::{CommandCwdMode, Idempotency, PhaseCommandDefinition, PhaseExecutionMode};
 use crate::test_support::{env_lock, EnvVarGuard};
 use crate::PhaseExecutionDefinition;
 
@@ -1931,6 +1931,7 @@ fn validate_rejects_command_program_not_in_allowlist() {
             manual: None,
             system_prompt: None,
             default_tool: None,
+            idempotency: Idempotency::Unknown,
         },
     );
     let err = validate_workflow_config(&config).expect_err("should reject program not in allowlist");

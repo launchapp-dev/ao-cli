@@ -4,16 +4,9 @@ members = [
   "crates/animus-plugin-protocol",
   "crates/animus-plugin-runtime",
   "crates/animus-plugin-smoke",
-  "crates/animus-provider-claude",
-  "crates/animus-provider-codex",
-  "crates/animus-provider-gemini",
-  "crates/animus-provider-opencode",
-  "crates/animus-provider-oai",
   "crates/animus-provider-mock",
-  "crates/animus-provider-protocol",
   "crates/animus-subject-protocol",
   "crates/protocol",
-  "crates/llm-cli-wrapper",
   "crates/orchestrator-daemon-runtime",
   "crates/orchestrator-notifications",
   "crates/orchestrator-git-ops",
@@ -49,7 +42,7 @@ categories = ["command-line-utilities", "development-tools"]
 
 [workspace.dependencies]
 animus-plugin-protocol = { path = "crates/animus-plugin-protocol" }
-animus-provider-protocol = { path = "crates/animus-provider-protocol" }
+animus-provider-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.9" }
 animus-session-backend = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.9" }
 animus-subject-protocol = { path = "crates/animus-subject-protocol" }
 protocol = { path = "crates/protocol" }

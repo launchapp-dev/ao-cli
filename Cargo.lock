@@ -23,7 +23,6 @@ dependencies = [
  "chrono",
  "dirs",
  "fs2",
- "llm-cli-wrapper",
  "once_cell",
  "orchestrator-session-host",
  "protocol",
@@ -34,6 +33,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "which",
 ]
 
 [[package]]
@@ -91,12 +91,12 @@ dependencies = [
 
 [[package]]
 name = "animus-control-protocol"
-version = "0.1.8"
-source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.8#0761ff53ec42309ba1fae9453a266b61b21249a0"
+version = "0.1.9"
+source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.9#766e6173f4b95ad399eb2177a722cd75a61405c9"
 dependencies = [
  "animus-log-storage-protocol",
- "animus-plugin-protocol 0.1.8",
- "animus-subject-protocol 0.1.8",
+ "animus-plugin-protocol 0.1.9",
+ "animus-subject-protocol 0.1.9",
  "animus-trigger-protocol",
  "async-trait",
  "chrono",
@@ -108,10 +108,10 @@ dependencies = [
 
 [[package]]
 name = "animus-log-storage-protocol"
-version = "0.1.8"
-source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.8#0761ff53ec42309ba1fae9453a266b61b21249a0"
+version = "0.1.9"
+source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.9#766e6173f4b95ad399eb2177a722cd75a61405c9"
 dependencies = [
- "animus-plugin-protocol 0.1.8",
+ "animus-plugin-protocol 0.1.9",
  "anyhow",
  "async-trait",
  "chrono",
@@ -131,8 +131,8 @@ dependencies = [
 
 [[package]]
 name = "animus-plugin-protocol"
-version = "0.1.8"
-source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.8#0761ff53ec42309ba1fae9453a266b61b21249a0"
+version = "0.1.9"
+source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.9#766e6173f4b95ad399eb2177a722cd75a61405c9"
 dependencies = [
  "serde",
  "serde_json",
@@ -239,10 +239,10 @@ dependencies = [
 
 [[package]]
 name = "animus-session-backend"
-version = "0.1.8"
-source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.8#0761ff53ec42309ba1fae9453a266b61b21249a0"
+version = "0.1.9"
+source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.9#766e6173f4b95ad399eb2177a722cd75a61405c9"
 dependencies = [
- "animus-plugin-protocol 0.1.8",
+ "animus-plugin-protocol 0.1.9",
  "anyhow",
  "async-trait",
  "serde",
@@ -269,10 +269,10 @@ dependencies = [
 
 [[package]]
 name = "animus-subject-protocol"
-version = "0.1.8"
-source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.8#0761ff53ec42309ba1fae9453a266b61b21249a0"
+version = "0.1.9"
+source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.9#766e6173f4b95ad399eb2177a722cd75a61405c9"
 dependencies = [
- "animus-plugin-protocol 0.1.8",
+ "animus-plugin-protocol 0.1.9",
  "anyhow",
  "async-trait",
  "chrono",
@@ -284,10 +284,10 @@ dependencies = [
 
 [[package]]
 name = "animus-trigger-protocol"
-version = "0.1.8"
-source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.8#0761ff53ec42309ba1fae9453a266b61b21249a0"
+version = "0.1.9"
+source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.9#766e6173f4b95ad399eb2177a722cd75a61405c9"
 dependencies = [
- "animus-plugin-protocol 0.1.8",
+ "animus-plugin-protocol 0.1.9",
  "anyhow",
  "async-trait",
  "chrono",
@@ -333,7 +333,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -344,7 +344,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -848,7 +848,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1243,7 +1243,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -1309,7 +1309,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2401,7 +2401,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -2615,7 +2615,7 @@ dependencies = [
  "animus-log-storage-protocol",
  "animus-plugin-protocol 0.1.0",
  "animus-session-backend",
- "animus-subject-protocol 0.1.8",
+ "animus-subject-protocol 0.1.9",
  "anyhow",
  "assert_cmd",
  "async-trait",
@@ -2628,7 +2628,6 @@ dependencies = [
  "flate2",
  "fs2",
  "libc",
- "llm-cli-wrapper",
  "orchestrator-config",
  "orchestrator-core",
  "orchestrator-daemon-runtime",
@@ -2656,6 +2655,7 @@ dependencies = [
  "urlencoding",
  "uuid",
  "webbrowser",
+ "which",
  "workflow-runner-v2",
 ]
 
@@ -2687,7 +2687,6 @@ dependencies = [
  "dirs",
  "fs2",
  "libc",
- "llm-cli-wrapper",
  "orchestrator-config",
  "orchestrator-logging",
  "orchestrator-providers",
@@ -2701,6 +2700,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "which",
  "zstd",
 ]
 
@@ -2711,7 +2711,7 @@ dependencies = [
  "animus-control-protocol",
  "animus-log-storage-protocol",
  "animus-plugin-protocol 0.1.0",
- "animus-subject-protocol 0.1.8",
+ "animus-subject-protocol 0.1.9",
  "anyhow",
  "async-trait",
  "chrono",
@@ -2852,7 +2852,7 @@ name = "orchestrator-web-api"
 version = "0.1.0"
 dependencies = [
  "animus-control-protocol",
- "animus-subject-protocol 0.1.8",
+ "animus-subject-protocol 0.1.9",
  "anyhow",
  "chrono",
  "orchestrator-config",
@@ -3537,7 +3537,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3595,7 +3595,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3951,7 +3951,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -4097,7 +4097,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4845,6 +4845,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "which"
+version = "8.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81995fafaaaf6ae47a7d0cc83c67caf92aeb7e5331650ae6ff856f7c0c60c459"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "winapi"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4866,7 +4875,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

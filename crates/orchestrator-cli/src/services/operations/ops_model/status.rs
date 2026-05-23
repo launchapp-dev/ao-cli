@@ -50,7 +50,7 @@ fn required_api_keys_for_tool(cli_tool: &str) -> Vec<&'static str> {
 }
 
 pub(super) fn evaluate_model_status(model_id: &str, cli_tool: &str) -> ModelStatusDtoCli {
-    if cli_wrapper::lookup_binary_in_path(cli_tool).is_none() {
+    if which::which(cli_tool).is_err() {
         return ModelStatusDtoCli {
             model_id: model_id.to_string(),
             cli_tool: cli_tool.to_string(),

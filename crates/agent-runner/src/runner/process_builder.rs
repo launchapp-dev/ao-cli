@@ -1,5 +1,5 @@
+use super::launch::{is_ai_cli_tool, parse_launch_from_runtime_contract, LaunchInvocation};
 use anyhow::{bail, Result};
-use cli_wrapper::{is_ai_cli_tool, parse_launch_from_runtime_contract, LaunchInvocation};
 use std::collections::HashMap;
 use tracing::{debug, warn};
 
@@ -43,7 +43,7 @@ fn parse_prompt_as_args(prompt: &str) -> Vec<String> {
 }
 
 fn is_command_on_path(command: &str) -> bool {
-    cli_wrapper::is_binary_on_path(command)
+    which::which(command).is_ok()
 }
 
 pub(super) fn merge_launch_env(env: &mut HashMap<String, String>, invocation: &LaunchInvocation) {

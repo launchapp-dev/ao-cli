@@ -14,7 +14,6 @@ path = "src/main.rs"
 [dependencies]
 protocol = { path = "../protocol" }
 animus-session-backend = { workspace = true }
-cli-wrapper = { path = "../llm-cli-wrapper", package = "llm-cli-wrapper" }
 orchestrator-session-host = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "io-util", "process", "time", "net"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -27,6 +26,7 @@ dirs = "6.0"
 chrono = "0.4"
 uuid = { version = "1.7", features = ["v4"] }
 tempfile = "3"
+which = "8"
 
 [dev-dependencies]
 protocol = { path = "../protocol", features = ["test-utils"] }

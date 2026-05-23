@@ -1,4 +1,5 @@
 mod event_persistence;
+mod launch;
 mod lifecycle;
 mod mcp_policy;
 mod process;

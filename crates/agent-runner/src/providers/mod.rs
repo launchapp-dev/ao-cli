@@ -25,7 +25,7 @@ fn check_single_model(model: ModelId) -> ModelStatus {
     let cli_name = tool_for_model_id(&canonical);
     let api_key_envs = required_api_keys_for_tool(cli_name);
 
-    if !cli_wrapper::is_binary_on_path(cli_name) {
+    if which::which(cli_name).is_err() {
         return ModelStatus {
             model,
             availability: ModelAvailability::MissingCli,

@@ -304,7 +304,7 @@ fn should_defer_runner_refresh(status: &RunnerStatusResponse, expected_build_id:
 }
 
 pub(super) fn lookup_binary_in_path(binary_name: &str) -> Option<PathBuf> {
-    cli_wrapper::lookup_binary_in_path(binary_name)
+    which::which(binary_name).ok()
 }
 
 pub(super) fn find_agent_runner_binary() -> Result<PathBuf> {

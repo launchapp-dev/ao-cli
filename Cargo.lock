@@ -89,12 +89,12 @@ dependencies = [
 
 [[package]]
 name = "animus-control-protocol"
-version = "0.1.6"
-source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.6#21bb30a77e725eb5c287395a893b02cb6bee4849"
+version = "0.1.7"
+source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.7#803ef4c09fa68f35ec6b3e0a9eccc598957472e8"
 dependencies = [
  "animus-log-storage-protocol",
- "animus-plugin-protocol 0.1.6",
- "animus-subject-protocol 0.1.6",
+ "animus-plugin-protocol 0.1.7",
+ "animus-subject-protocol 0.1.7",
  "animus-trigger-protocol",
  "async-trait",
  "chrono",
@@ -106,10 +106,10 @@ dependencies = [
 
 [[package]]
 name = "animus-log-storage-protocol"
-version = "0.1.6"
-source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.6#21bb30a77e725eb5c287395a893b02cb6bee4849"
+version = "0.1.7"
+source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.7#803ef4c09fa68f35ec6b3e0a9eccc598957472e8"
 dependencies = [
- "animus-plugin-protocol 0.1.6",
+ "animus-plugin-protocol 0.1.7",
  "anyhow",
  "async-trait",
  "chrono",
@@ -129,8 +129,8 @@ dependencies = [
 
 [[package]]
 name = "animus-plugin-protocol"
-version = "0.1.6"
-source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.6#21bb30a77e725eb5c287395a893b02cb6bee4849"
+version = "0.1.7"
+source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.7#803ef4c09fa68f35ec6b3e0a9eccc598957472e8"
 dependencies = [
  "serde",
  "serde_json",
@@ -251,10 +251,10 @@ dependencies = [
 
 [[package]]
 name = "animus-subject-protocol"
-version = "0.1.6"
-source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.6#21bb30a77e725eb5c287395a893b02cb6bee4849"
+version = "0.1.7"
+source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.7#803ef4c09fa68f35ec6b3e0a9eccc598957472e8"
 dependencies = [
- "animus-plugin-protocol 0.1.6",
+ "animus-plugin-protocol 0.1.7",
  "anyhow",
  "async-trait",
  "chrono",
@@ -266,10 +266,10 @@ dependencies = [
 
 [[package]]
 name = "animus-trigger-protocol"
-version = "0.1.6"
-source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.6#21bb30a77e725eb5c287395a893b02cb6bee4849"
+version = "0.1.7"
+source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.7#803ef4c09fa68f35ec6b3e0a9eccc598957472e8"
 dependencies = [
- "animus-plugin-protocol 0.1.6",
+ "animus-plugin-protocol 0.1.7",
  "anyhow",
  "async-trait",
  "chrono",
@@ -2606,7 +2606,7 @@ dependencies = [
  "animus-control-protocol",
  "animus-log-storage-protocol",
  "animus-plugin-protocol 0.1.0",
- "animus-subject-protocol 0.1.6",
+ "animus-subject-protocol 0.1.7",
  "anyhow",
  "assert_cmd",
  "async-trait",
@@ -2701,7 +2701,7 @@ dependencies = [
  "animus-control-protocol",
  "animus-log-storage-protocol",
  "animus-plugin-protocol 0.1.0",
- "animus-subject-protocol 0.1.6",
+ "animus-subject-protocol 0.1.7",
  "anyhow",
  "async-trait",
  "chrono",
@@ -2823,7 +2823,7 @@ name = "orchestrator-web-api"
 version = "0.1.0"
 dependencies = [
  "animus-control-protocol",
- "animus-subject-protocol 0.1.6",
+ "animus-subject-protocol 0.1.7",
  "anyhow",
  "chrono",
  "orchestrator-config",

@@ -18,31 +18,30 @@ architecture, command counts, routes, or state paths:
 - `crates/orchestrator-core/src/services.rs`
 - `crates/protocol/src/config.rs`
 - `crates/protocol/src/repository_scope.rs`
-- `crates/orchestrator-web-server/web-ui/package.json`
-- `crates/orchestrator-web-server/web-ui/src/app/router.tsx`
 
 ## Current Baseline
 
 Animus is a Rust-only agent orchestrator with:
 
-- a Cargo workspace of around 22 first-class crates (`crates/` currently lists ~30 directory entries; the extra entries are nested test fixtures and helper crates such as `animus-plugin-smoke` and `animus-provider-mock`)
+- a Cargo workspace of around 12 first-class crates (`crates/` currently lists 21 directory entries; the extras are protocol shims, the in-tree plugin runtime, and test-fixture plugins such as `animus-plugin-smoke` and `animus-provider-mock`)
 - the CLI binary named `animus`
 - a visible CLI surface that includes `project` and `queue`
-- hidden `review` and `qa` command trees
 - scoped runtime state under `~/.animus/<repo-scope>/`
 - project-local workflow YAML overlays under `.animus/workflows.yaml` or `.animus/workflows/*.yaml`
-- a React 18 web UI in `crates/orchestrator-web-server/web-ui`
-- a stdio plugin host (`orchestrator-plugin-host`) for subject and provider plugins
-- the v0.4.0 plugin extraction **complete**: 8 standalone repositories live at <https://github.com/launchapp-dev> (`animus-protocol`, `animus-plugin-template`, `animus-subject-linear`, plus `animus-provider-{claude,codex,gemini,opencode,oai}`), each tagged `v0.1.0` with green CI. Only `animus-provider-mock` and `animus-plugin-smoke` remain in-tree, as test fixtures.
+- the web UI now ships as the standalone `launchapp-dev/animus-web-ui` plugin (paired with `animus-transport-http` + `animus-transport-graphql`); the in-tree `orchestrator-web-server` / `orchestrator-web-api` / `orchestrator-web-contracts` crates were removed in v0.4.12
+- a stdio plugin host (`orchestrator-plugin-host`) for subject, provider, transport, and trigger plugins, plus a typed `HostError::ConnectionLost` + `classify(&HostError) -> RetryDecision` API for supervised restart decisions
+- a daemon-side workflow event broadcaster that emits `phase_started` / `phase_completed` / `workflow_completed` / `workflow_failed` on the `workflow/events` ControlClient subscription (animus-protocol v0.1.10)
+- the v0.4.x plugin extraction **complete**: 18 standalone repositories live at <https://github.com/launchapp-dev> covering protocol, providers (claude / codex / gemini / opencode / oai), subject backends (default / requirements / linear / sqlite / markdown), transports (http / graphql), web UI, triggers (webhook / slack), log storage, the conformance testkit, the release-automation scripts, and the plugin template. Only `animus-provider-mock` and `animus-plugin-smoke` remain in-tree, as test fixtures.
 
 Do not reintroduce stale claims such as:
 
-- 9-crate or 10-crate workspace summaries
-- "plugin extraction in flux" or "in progress" framing — v0.4.0 plugin extraction is shipped
+- 9-, 10-, or 22-crate workspace summaries (the post-deletion baseline is ~12)
+- "plugin extraction in flux" or "in progress" framing — extraction is complete as of v0.4.12
 - `PROJECT_ROOT` or "last-project-root registry" resolution rules
-- removed crates like `llm-mcp-server`
+- removed crates like `llm-mcp-server`, `llm-cli-wrapper`, `orchestrator-web-server`, `orchestrator-web-api`, `orchestrator-web-contracts`, or in-tree `animus-provider-{claude,codex,gemini,opencode,oai}`
 - outdated CLI groups such as a top-level `planning` facade
-- React 19, `urql`, or other old web UI stack descriptions
+- in-tree `inproc_subject_backend.rs` or the `InTreeTaskSubjectBackend` / `InTreeRequirementsSubjectBackend` adapters — all subject ops route through the `SubjectRouter` to installed plugins
+- claims that `animus web serve` boots an in-process axum server — it now spawns installed transport + web_ui plugins
 
 ## Workspace Map
 
@@ -57,19 +56,30 @@ Core orchestration:
 Runtime and provider layer:
 
 - `crates/agent-runner`
-- `crates/llm-cli-wrapper`
 - `crates/oai-runner`
 - `crates/workflow-runner-v2`
 - `crates/orchestrator-daemon-runtime`
 - `crates/orchestrator-providers`
 - `crates/orchestrator-git-ops`
 - `crates/orchestrator-notifications`
+- `crates/orchestrator-session-host`
+- `crates/orchestrator-logging`
 
-Web surface:
+Plugin host + protocol:
 
-- `crates/orchestrator-web-contracts`
-- `crates/orchestrator-web-api`
-- `crates/orchestrator-web-server`
+- `crates/orchestrator-plugin-host`
+- `crates/animus-plugin-protocol`
+- `crates/animus-plugin-runtime`
+- `crates/animus-subject-protocol`
+
+Test fixtures (not shipped):
+
+- `crates/animus-plugin-smoke`
+- `crates/animus-provider-mock`
+
+Web surface ships out-of-tree as the `launchapp-dev/animus-web-ui` plugin together
+with `animus-transport-http` and `animus-transport-graphql`. Install with
+`animus plugin install-defaults --include-transports`.
 
 ## Root Resolution And State
 
@@ -112,7 +122,8 @@ but write new features against the scoped runtime root.
 - If you change MCP tools, update `docs/reference/mcp-tools.md` and `docs/guides/agents.md`.
 - Everything is `animus`. New MCP tools are named `animus.<group>.<verb>`, env vars are `ANIMUS_*`, state paths are `.animus/` or `~/.animus/<repo-scope>/`, pack ids are `animus.*`. The CLI is invoked via `animus`. The legacy `ao.*` surfaces were dropped in v0.4.0 (no aliases). See [docs/architecture/naming-contract.md](docs/architecture/naming-contract.md).
 - Workflow YAML supports `${VAR}` env-var interpolation for non-secret config (URLs, team IDs, feature flags), with `${VAR:-default}` and `${VAR:?error}` fallback shapes; substitution happens before YAML parsing, and unset required vars fail with file path + line number. API keys and other credentials do NOT belong in workflow YAML — each plugin reads its own secrets from the daemon's process environment (e.g. `LINEAR_API_TOKEN`, `OPENAI_API_KEY`). See `docs/reference/configuration.md#workflow-yaml-interpolation-non-secret-config`.
-- Plugin kill-switches: `ANIMUS_DAEMON_DISABLE_TRIGGERS=1` skips the trigger plugin supervisor on daemon start (and interrupts in-progress restart backoff); `ANIMUS_PROVIDER_DISABLE_PLUGIN=1` forces `SessionBackendResolver` to bypass installed provider plugins and dispatch through in-tree backends only. Both require a daemon restart to take effect and to re-enable. Documented in `docs/reference/configuration.md#plugin-kill-switches`.
+- Plugin kill-switches: `ANIMUS_DAEMON_DISABLE_TRIGGERS=1` skips the trigger plugin supervisor on daemon start (and interrupts in-progress restart backoff); `ANIMUS_DAEMON_DISABLE_SUBJECT_PLUGINS=1` skips subject plugin discovery entirely. The legacy `ANIMUS_PROVIDER_DISABLE_PLUGIN`, `ANIMUS_DAEMON_DISABLE_BUILTIN_TASK_ADAPTER`, and `ANIMUS_DAEMON_DISABLE_BUILTIN_REQUIREMENTS_ADAPTER` env vars are no-ops as of v0.4.12 — the in-tree adapters were deleted. Both active kill-switches require a daemon restart to take effect. Documented in `docs/reference/configuration.md#plugin-kill-switches`.
+- Plugin preflight: as of v0.4.12 the daemon refuses to start when required-role plugins are missing. Use `animus plugin install-defaults` ahead of time or pass `animus daemon start --auto-install` to install recommended defaults on the fly. `--skip-preflight` is the dev escape hatch. Run `animus daemon preflight` for a standalone report.
 - Prefer narrow verification over full-workspace rebuilds while iterating.
 
 ## Implementation Landmarks
@@ -137,22 +148,42 @@ Workflow and runtime config:
 - `crates/orchestrator-config/src/agent_runtime_config.rs`
 - `crates/workflow-runner-v2/src/`
 
+Plugin host + preflight:
+
+- `crates/orchestrator-plugin-host/src/`
+- `crates/orchestrator-core/src/services/plugin_preflight.rs`
+- `crates/orchestrator-cli/src/services/operations/ops_plugin.rs`
+- `crates/orchestrator-daemon-runtime/src/control/`
+
 Web UI:
 
-- `crates/orchestrator-web-server/web-ui/src/app/router.tsx`
-- `crates/orchestrator-web-server/web-ui/src/app/`
-- `crates/orchestrator-web-server/web-ui/src/lib/graphql/`
+- Out-of-tree at `launchapp-dev/animus-web-ui` (plus `animus-transport-http` / `animus-transport-graphql`). The in-tree `orchestrator-web-server` crate was deleted in v0.4.12.
 
 ## CLI Reality Check
 
 Visible top-level command groups currently include:
 
-- `daemon`, `agent`, `project`, `queue`, `workflow`, `subject`
+- `daemon` (with `start`, `run`, `stop`, `status`, `preflight`, ...)
+- `agent`, `project`, `queue`, `workflow`, `subject`
 - `history`, `git`, `skill`, `model`, `runner`
 - `status`, `output`, `mcp`, `web`, `init`, `doctor`
-- `pack`, `plugin`, `trigger`, `logs`
+- `pack`, `plugin` (with `install`, `install-defaults`, `list`, `info`, ...), `trigger`, `logs`
 
 Hidden but implemented: none currently.
+
+`animus web serve` does not boot an in-process HTTP server as of v0.4.12.
+It discovers installed `transport_backend` + `web_ui` plugins, spawns
+them, then opens the browser. Run
+`animus plugin install-defaults --include-transports` to install the
+standard set (`launchapp-dev/animus-transport-http`,
+`animus-transport-graphql`, `animus-web-ui`).
+
+`animus daemon start` and `animus daemon run` perform a plugin preflight
+before booting. Default posture is refuse-to-start when any required role
+is unsatisfied; the error surfaces the exact `animus plugin install ...`
+command to fix it. Flags: `--auto-install` installs recommended defaults
+from `launchapp-dev` releases, `--skip-preflight` bypasses the check.
+`animus daemon preflight` runs the same check as a standalone report.
 
 Tasks and requirements live exclusively under the unified
 `animus subject --kind <kind>` surface as of v0.4.4. The legacy
@@ -214,53 +245,27 @@ cargo test -p orchestrator-cli
 cargo test --workspace
 ```
 
-Web UI:
-
-```bash
-cd crates/orchestrator-web-server/web-ui
-npm test
-npm run typecheck
-npm run build
-```
-
 Prefer targeted crate or package tests while iterating. Use workspace-wide checks when the change
 crosses crate boundaries or touches shared contracts.
 
-## Web UI Notes
-
-The embedded UI currently uses:
-
-- React 18
-- React Router 7
-- `@tanstack/react-query`
-- `graphql-request`
-- Tailwind CSS 4
-- `next-themes`
-- Base UI and local UI components under `src/components/ui/`
-
-If GraphQL contracts change, verify the Rust schema export path and regenerate client types.
+Web UI sources moved out-of-tree to
+`launchapp-dev/animus-web-ui` in v0.4.12 — run the web build commands
+in that repo, not here. If GraphQL contracts change, propagate to the
+upstream `animus-transport-graphql` plugin repo and bump its pin.
 
 ## Animus-Managed Workflow
 
 Animus is meant to self-host its planning and execution state.
 
-Common flow (legacy task surface; both `animus task` and `animus subject
---kind task` operate on the same in-tree state):
-
-```bash
-animus task next
-animus task status --id TASK-XXX --status in-progress
-animus workflow run --task-id TASK-XXX
-animus queue list
-animus daemon health
-```
-
-Equivalent via the unified subject surface:
+Common flow via the unified subject surface (the only surface as of
+v0.4.4 — `animus task` and `animus requirements` are gone):
 
 ```bash
 animus subject next --kind task
 animus subject status --kind task --id task:TASK-XXX --status in-progress
 animus workflow run --task-id TASK-XXX
+animus queue list
+animus daemon health
 ```
 
 If a task is specifically about persistence or migrations, it can justify direct state-file work.

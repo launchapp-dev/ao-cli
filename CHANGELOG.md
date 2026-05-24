@@ -4,16 +4,144 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Refactor
+## [0.4.12] - 2026-05-24
 
-- **`refactor(llm-cli-wrapper)`: delete dead `CliInterface` trait infrastructure, the
-  `llm-cli-wrapper` binary, the in-tree `tester`/`validator` modules, and the
-  TOML config loader (~1,290 LOC). Phase 1 of the `llm-cli-wrapper` retirement;
-  unblocks the Phase 3 session-core migration once `animus-session-backend
-  v0.1.8` ships upstream. The crate now exposes only the launch helpers, the
-  session backend layer, parser, and error types still consumed by
-  `agent-runner`, `orchestrator-core`, `orchestrator-cli`, the in-tree
-  `animus-provider-*` plugins, and `animus-plugin-runtime`.
+Closes the v0.4 arc. Finishes plugin extraction (web stack, subject adapters,
+all in-tree provider mirrors, and `llm-cli-wrapper` are gone), ships the
+durability items that were carrying `// TODO: v0.5` notes, and turns the
+plugin host into a first-class component of daemon startup with preflight +
+auto-install. Approximately 11.5K lines of code removed from this repo; the
+replacement code lives in 18 standalone plugin repositories under
+`launchapp-dev/`.
+
+### Features
+
+- **`feat(daemon preflight + auto-install)`: plugin presence check on
+  startup.** New `animus daemon preflight` standalone subcommand prints the
+  current installed-vs-required matrix; `animus daemon start` /
+  `animus daemon run` now run the same check before booting. Default posture
+  is refuse-to-start when any required role is unsatisfied — the error
+  surfaces the exact `animus plugin install ...` command to remediate.
+  `--auto-install` installs the daemon's recommended default plugin for any
+  missing role from `launchapp-dev` releases before continuing.
+  `--skip-preflight` is the escape hatch for dev iteration. JSON envelope
+  is `animus.daemon.preflight.v1`.
+- **`feat(plugin install-defaults)`: bulk install for the standard 5
+  providers.** New `animus plugin install-defaults` installs the
+  claude / codex / gemini / opencode / oai provider plugins at v0.2.1.
+  Flags: `--include-oai-agent` (oai-agent v0.1.1),
+  `--include-subjects` (default / requirements / linear / sqlite / markdown
+  subject backends), `--include-transports` (transport-http +
+  transport-graphql + web-ui). Uses the same install pipeline as
+  `animus plugin install`, so signature verification and integrity checks
+  apply uniformly.
+- **`feat(daemon workflow events)`: workflow/events ControlClient
+  subscription.** Daemon-side broadcaster now emits `phase_started` /
+  `phase_completed` / `workflow_completed` / `workflow_failed`
+  notifications on `workflow/events`. Subscribers can filter by
+  `workflow_id` or by kinds. Closes the matching v0.5 deferral.
+
+### Durability
+
+- **`feat(notifications log)`: per-run JSONL.** Each run now writes
+  `~/.animus/<scope>/runs/<id>/notifications.jsonl` with
+  `{ seq, ts, phase, ... }` rows. 100 MB rotation; partial trailing
+  lines are dropped on replay. UI clients can reconnect and replay from any
+  `seq`.
+- **`feat(session checkpointing + auto-resume)`: per-phase
+  `<phase>.session.json` holds `{ provider, session_id, status }`. On
+  daemon restart, the scheduler attempts `provider.resume_agent` through
+  the plugin that originally ran the phase. Failures land as `Blocked`
+  with an explicit reason rather than silently re-running.
+- **`feat(idempotency markers)`: new `idempotency: idempotent |
+  sideeffecting | unknown` field on phases (default `unknown`). Crash
+  recovery auto-retries `idempotent` phases; everything else lands as
+  `Blocked` with an actionable hint. `animus workflow resume <id>
+  --force` is the manual override.
+- **`feat(atomic completion markers)`: `<phase>.completed` is now written
+  via tmp → fsync → rename after `persist_phase_output`. Closes the
+  "output exists, daemon crashed before state transition" race.
+- **`feat(plugin supervisor)`: per-plugin restart budget of 3 in 60s with
+  a 5-minute `Disabled` cooldown when exhausted. Death-like errors
+  auto-retry once before propagating; structured JSON-RPC errors
+  propagate immediately.
+- **`refactor(plugin-host)`: typed `HostError::ConnectionLost` plus
+  `classify(&HostError) -> RetryDecision` API replaces the previous
+  string-substring death-like classifier.
+
+### Refactor / Deletions
+
+- **`refactor(web)`: delete in-tree web stack
+  (`orchestrator-web-server` + `orchestrator-web-api` +
+  `orchestrator-web-contracts`, ~9K LOC).** `animus web serve` and
+  `animus web open` now discover installed `transport_backend` + `web_ui`
+  plugins, spawn them, and open the browser. The standalone
+  `launchapp-dev/animus-transport-{http,graphql}` v0.2.x and
+  `launchapp-dev/animus-web-ui` v0.1.0 replace the in-tree
+  implementation. `animus plugin install-defaults --include-transports`
+  installs the standard set.
+- **`refactor(subject backends)`: delete `inproc_subject_backend.rs`
+  (~1000 LOC).** All subject operations route through the
+  `SubjectRouter` to an installed plugin —
+  `launchapp-dev/animus-subject-default` v0.1.1 for `kind=task`,
+  `launchapp-dev/animus-subject-requirements` v0.1.6 for
+  `kind=requirement` (with legacy JSON state compat), plus
+  `launchapp-dev/animus-subject-{linear,sqlite,markdown}` v0.1.4 for
+  the other kinds. The env vars
+  `ANIMUS_DAEMON_DISABLE_BUILTIN_TASK_ADAPTER` and
+  `ANIMUS_DAEMON_DISABLE_BUILTIN_REQUIREMENTS_ADAPTER` are now no-ops.
+  Use `ANIMUS_DAEMON_DISABLE_SUBJECT_PLUGINS=1` to skip subject
+  discovery entirely.
+- **`refactor(llm-cli-wrapper)`: crate deleted (~5,882 LOC across the
+  multi-phase retirement).** Session DTOs, native backends, the parser,
+  and the error types now live in upstream `animus-session-backend`
+  v0.1.10. The `cli/launch.rs` symbols moved into
+  `agent-runner::runner::launch`. `lookup_binary_in_path` was inlined
+  as `which::which` at the few remaining call sites.
+  `CapabilityNotSupported` moved into `orchestrator-session-host::error`.
+- **`refactor(providers)`: delete the 5 in-tree provider mirrors
+  (`animus-provider-{claude,codex,gemini,opencode,oai}`).** The
+  standalone `launchapp-dev/animus-provider-*` v0.2.1 repos are now the
+  canonical implementations and ship streaming notifications.
+- **`refactor(protocol mirror)`: delete in-tree
+  `animus-provider-protocol` mirror (-408 LOC).** Now consumed from
+  upstream via `animus-protocol` v0.1.10.
+
+### Protocol
+
+- `animus-protocol` pins bumped to v0.1.10. Path through v0.1.6
+  (`animus-transport-protocol` crate +
+  `transport_backend_main` entrypoint) → v0.1.7 (`AgentNotification` +
+  `NotificationSink` + `ProviderBackend::run_agent_streaming`) →
+  v0.1.8 (subject/delete wire verb + `ControlClient` for cross-process
+  control) → v0.1.9 (subscription API: `subject_watch` /
+  `daemon_events` / `daemon_logs_follow`) → v0.1.10
+  (`ControlClient::workflow_events`).
+
+### Tests
+
+- All 14 pre-existing baseline test failures resolved: 4 rewritten
+  against the current surface, 8 deleted (they referenced commands
+  removed in v0.4.4), 1 marked `#[ignore]` because of a pre-existing
+  race that is not in this release's scope, 1 already passes after the
+  surrounding refactors.
+- **New: `launchapp-dev/animus-plugin-testkit` v0.1.0** — conformance
+  harness with 8 baseline scenarios validated end-to-end against
+  `animus-provider-claude`.
+
+### Breaking Changes
+
+- **`animus web serve` no longer boots an in-process axum server.**
+  Requires the transport + UI plugins installed first; run
+  `animus plugin install-defaults --include-transports` or
+  `animus daemon preflight` for the exact remediation command.
+- **Daemon requires at least one provider plugin installed at start.**
+  Use `animus daemon start --auto-install` or `animus plugin
+  install-defaults` first. `--skip-preflight` is the dev escape hatch.
+- **`ANIMUS_DAEMON_DISABLE_BUILTIN_TASK_ADAPTER` and
+  `ANIMUS_DAEMON_DISABLE_BUILTIN_REQUIREMENTS_ADAPTER` are no-ops.**
+  The in-tree subject adapters are gone; install the corresponding
+  subject_backend plugin (see `--include-subjects`).
 
 ## [0.4.11] - 2026-05-23
 

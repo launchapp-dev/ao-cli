@@ -209,7 +209,7 @@ animus
 ├── init                     Initialize an Animus project from a template
 │   (no subcommands)         Supports registry-backed or local copy templates, plan mode, and daemon defaults
 │
-├── subject                  List/get/create/update subjects via in-tree adapters or installed subject_backend plugins
+├── subject                  List/get/create/update subjects via installed subject_backend plugins (in-tree adapters removed in v0.4.12)
 │   ├── list                 List subjects for a given kind (`--kind task|requirement|<external>`)
 │   ├── get                  Fetch one subject by wire id (`<kind>:<native_id>`)
 │   ├── create               Create a subject (`--title` required)

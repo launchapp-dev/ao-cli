@@ -4,8 +4,15 @@ set -euo pipefail
 # Animus CLI Installer for macOS
 # Usage: curl -fsSL https://raw.githubusercontent.com/launchapp-dev/animus-cli/main/scripts/install.sh | bash
 #
-# Pin a specific version: ANIMUS_VERSION=v0.4.4 curl ... | bash
-# Latest tested release:  v0.4.4 (2026-05-21)
+# Pin a specific version: ANIMUS_VERSION=v0.4.12 curl ... | bash
+# Latest tested release:  v0.4.12 (2026-05-24)
+#
+# v0.4.12 note: after installing the binary you must install at least one
+# provider plugin before the daemon will start. Set ANIMUS_SKIP_PLUGIN_INSTALL=1
+# to skip the post-install plugin step (e.g. on CI). Set ANIMUS_INSTALL_PLUGINS=1
+# to run `animus plugin install-defaults --include-subjects --include-transports`
+# automatically. When neither is set, the installer prints the command for the
+# operator to run manually.
 
 REPO="launchapp-dev/animus-cli"
 INSTALL_DIR="${ANIMUS_INSTALL_DIR:-${HOME}/.local/bin}"
@@ -134,8 +141,6 @@ main() {
     echo ""
     info "Run 'animus doctor' in a git repo to check prerequisites"
     info "Run 'animus init' to initialize a project"
-    info "Then install a provider plugin, e.g.:"
-    info "  animus plugin install launchapp-dev/animus-provider-claude"
     info "'ao' is also available as an alias"
   elif command -v ao &>/dev/null; then
     info "Verifying installation..."
@@ -153,6 +158,24 @@ main() {
   echo "  claude  — npm install -g @anthropic-ai/claude-code"
   echo "  codex   — npm install -g @openai/codex"
   echo "  gemini  — npm install -g @google/gemini-cli"
+
+  echo ""
+  info "v0.4.12 plugin install (required before 'animus daemon start'):"
+  if [[ "${ANIMUS_SKIP_PLUGIN_INSTALL:-0}" == "1" ]]; then
+    info "  Skipped (ANIMUS_SKIP_PLUGIN_INSTALL=1). Run later with:"
+    echo "    animus plugin install-defaults --include-subjects --include-transports"
+  elif [[ "${ANIMUS_INSTALL_PLUGINS:-0}" == "1" ]] && command -v animus &>/dev/null; then
+    info "Installing default plugin set..."
+    animus plugin install-defaults --include-subjects --include-transports --yes || \
+      warn "Plugin install failed — re-run manually with 'animus plugin install-defaults --include-subjects --include-transports'"
+  else
+    info "Run this once before starting the daemon:"
+    echo ""
+    echo "    animus plugin install-defaults --include-subjects --include-transports"
+    echo ""
+    info "Then verify with: animus daemon preflight"
+    info "(Set ANIMUS_INSTALL_PLUGINS=1 on next install to run this automatically.)"
+  fi
 }
 
 main "$@"

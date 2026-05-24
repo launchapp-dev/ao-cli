@@ -1,7 +1,15 @@
 # Installation
 
-Current release: **v0.4.4** (2026-05-21). See [CHANGELOG.md](../../CHANGELOG.md)
-for the full v0.4.x shipped state.
+Current release: **v0.4.12** (2026-05-24). See [CHANGELOG.md](../../CHANGELOG.md)
+for the full v0.4.x shipped state and
+[`docs/migration/v0.4.11-to-v0.4.12.md`](../migration/v0.4.11-to-v0.4.12.md)
+if you are upgrading from an earlier v0.4.x.
+
+> **v0.4.12 changed the first-run flow.** The daemon no longer ships with
+> bundled providers or subject backends. After installing the `animus`
+> binary you must run `animus plugin install-defaults --include-subjects --include-transports`
+> once before `animus daemon start` will boot. The command is idempotent and
+> the plugins live in `~/.animus/plugins/` (shared across projects).
 
 ## Fast Path: Upstream Installer
 
@@ -9,16 +17,23 @@ Use the installer published from `launchapp-dev/animus-cli`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/launchapp-dev/animus-cli/main/scripts/install.sh | bash
+animus plugin install-defaults --include-subjects --include-transports
 ```
 
 Options:
 
 ```bash
 # Install a specific release
-ANIMUS_VERSION=v0.4.4 curl -fsSL https://raw.githubusercontent.com/launchapp-dev/animus-cli/main/scripts/install.sh | bash
+ANIMUS_VERSION=v0.4.12 curl -fsSL https://raw.githubusercontent.com/launchapp-dev/animus-cli/main/scripts/install.sh | bash
 
 # Install into a custom directory
 ANIMUS_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/launchapp-dev/animus-cli/main/scripts/install.sh | bash
+
+# Run install-defaults automatically at the end of the installer
+ANIMUS_INSTALL_PLUGINS=1 curl -fsSL https://raw.githubusercontent.com/launchapp-dev/animus-cli/main/scripts/install.sh | bash
+
+# Skip the post-install plugin step (CI / Docker builds that install plugins separately)
+ANIMUS_SKIP_PLUGIN_INSTALL=1 curl -fsSL https://raw.githubusercontent.com/launchapp-dev/animus-cli/main/scripts/install.sh | bash
 ```
 
 The upstream installer currently targets macOS. On Linux and Windows, use a release archive or build from source.
@@ -33,9 +48,12 @@ Download the archive for your platform, extract it, and place these binaries on 
 
 - `animus`
 - `agent-runner`
-- `llm-cli-wrapper`
 - `animus-oai-runner`
 - `ao-workflow-runner`
+
+(The v0.4.11 `llm-cli-wrapper` binary was removed in v0.4.12 — the crate
+was deleted and its functionality folded into `agent-runner` and the
+upstream `animus-session-backend` crate.)
 
 Supported release targets:
 
@@ -74,34 +92,61 @@ cargo run -p orchestrator-cli -- --help
 ```bash
 animus --version
 animus doctor
+animus daemon preflight     # v0.4.12: checks that required plugins are installed
 ```
 
-Run `animus doctor` inside a git repository to verify the local environment and Animus prerequisites.
+Run `animus doctor` inside a git repository to verify the local environment
+and Animus prerequisites. Run `animus daemon preflight` from anywhere — it
+reports the installed-vs-required plugin matrix and exits non-zero with the
+exact `animus plugin install ...` fix command for each gap.
 
 ## Install Plugins
 
-Animus v0.4.x ships a slim core; providers, subject backends, triggers, and log
-sinks all install as out-of-tree plugins from public GitHub repos:
+Animus v0.4.12 ships a slim core; providers, subject backends, triggers, and
+log sinks all install as out-of-tree plugins from public GitHub repos.
+
+**Recommended (one command):**
 
 ```bash
-# Provider (one is required for autonomous runs)
+animus plugin install-defaults --include-subjects --include-transports
+```
+
+This installs:
+
+- 5 providers (`animus-provider-{claude,codex,gemini,opencode,oai}` v0.2.1) — daemon requires at least one
+- 5 subject backends (`animus-subject-{default,requirements,linear,sqlite,markdown}` v0.1.0) — daemon requires `default` for `kind=task` and `requirements` for `kind=requirement`
+- 3 transport + UI plugins (`animus-transport-{http,graphql}` + `animus-web-ui`) — required for `animus web serve`
+
+Add `--include-oai-agent` to also install `animus-provider-oai-agent@v0.1.1`
+(OpenAI Responses API agent loop, separate from the chat completions provider).
+
+**Or install individually:**
+
+```bash
+# Providers (at least one required)
 animus plugin install launchapp-dev/animus-provider-claude
 animus plugin install launchapp-dev/animus-provider-codex
 animus plugin install launchapp-dev/animus-provider-gemini
 animus plugin install launchapp-dev/animus-provider-opencode
 animus plugin install launchapp-dev/animus-provider-oai
 
-# Subject backends (optional — in-tree task and requirement adapters work out of the box)
+# Subject backends (required: default for kind=task, requirements for kind=requirement)
+animus plugin install launchapp-dev/animus-subject-default
+animus plugin install launchapp-dev/animus-subject-requirements
 animus plugin install launchapp-dev/animus-subject-linear
 animus plugin install launchapp-dev/animus-subject-sqlite
 animus plugin install launchapp-dev/animus-subject-markdown
-animus plugin install launchapp-dev/animus-subject-requirements
 
-# Triggers
+# Transport + web UI (required for `animus web serve`)
+animus plugin install launchapp-dev/animus-transport-http
+animus plugin install launchapp-dev/animus-transport-graphql
+animus plugin install launchapp-dev/animus-web-ui
+
+# Triggers (optional)
 animus plugin install launchapp-dev/animus-trigger-webhook
 animus plugin install launchapp-dev/animus-trigger-slack
 
-# Log storage
+# Log storage (optional)
 animus plugin install launchapp-dev/animus-log-storage-file
 
 # List installed plugins (with cosign signature column)
@@ -147,6 +192,14 @@ Common runtime overrides:
 | `ANIMUS_INSTALL_DIR` | Pin install dir for the installer script | `~/.local/bin` |
 | `ANIMUS_DAEMON_DISABLE_CONTROL_SERVER` | Opt out of the daemon Unix-socket control server | unset (server enabled) |
 | `ANIMUS_DAEMON_DISABLE_LOG_STORAGE_PLUGIN` | Force the in-tree `events.jsonl` logger even if a log-storage plugin is installed | unset |
+| `ANIMUS_DAEMON_DISABLE_SUBJECT_PLUGINS` | Skip subject plugin discovery entirely. Daemon will refuse most subject operations | unset |
+| `ANIMUS_INSTALL_PLUGINS` | When set to `1`, the installer script runs `animus plugin install-defaults --include-subjects --include-transports` at the end | unset |
+| `ANIMUS_SKIP_PLUGIN_INSTALL` | When set to `1`, the installer script skips the post-install plugin step entirely | unset |
+
+The v0.4.11 env vars `ANIMUS_DAEMON_DISABLE_BUILTIN_TASK_ADAPTER` and
+`ANIMUS_DAEMON_DISABLE_BUILTIN_REQUIREMENTS_ADAPTER` are **no-ops** in v0.4.12
+— the in-tree adapters are gone. Install or uninstall the corresponding
+subject_backend plugin instead.
 
 State paths:
 

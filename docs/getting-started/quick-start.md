@@ -2,7 +2,22 @@
 
 This guide takes you from a fresh repository to autonomous AI workflows. Animus is built to run continuously with a background daemon that executes work automatically.
 
-## 1. Prepare the Repository
+## 1. Install Plugins (one-time, v0.4.12+)
+
+If you've already installed the default plugin set on this machine for another
+project, skip to step 2 — plugins live in `~/.animus/plugins/` and are
+shared across projects.
+
+```bash
+animus plugin install-defaults --include-subjects --include-transports
+animus daemon preflight     # verify everything is in place
+```
+
+This installs the 5 standard providers, the 5 subject backends, and the
+transport + web UI plugins. The daemon will refuse to start until at least
+one provider and the required subject backends are present.
+
+## 2. Prepare the Repository
 
 ```bash
 cd /path/to/your/project
@@ -18,31 +33,50 @@ If you are running in a real terminal and want the guided picker instead of an e
 - `conductor` for planning-heavy requirement intake and queue execution
 - `direct-workflow` for human-driven workflow runs with conservative automation
 
-## 2. Create Your First Task
+## 3. Create Your First Task
 
 ```bash
-animus task create \
+animus subject create --kind task \
   --title "Add rate limiting" \
   --description "Throttle API requests before they hit the upstream provider" \
   --task-type feature \
   --priority high
 ```
 
-The first task in a repository is typically `TASK-001`.
+The first task in a repository is typically `TASK-001`. This routes through
+the `animus-subject-default` plugin you installed in step 1.
 
-## 3. Mark the Task Ready and Start the Daemon
+## 4. Mark the Task Ready and Start the Daemon
 
 ```bash
-animus task status --id TASK-001 --status ready
+animus subject status --kind task --id task:TASK-001 --status ready
 animus daemon start --autonomous
+```
+
+The daemon runs `animus daemon preflight` before booting. If preflight
+already passed in step 1, no plugins will be downloaded here — it just
+starts.
+
+If you want the daemon to install missing plugins on its own (useful for
+one-shot dev boxes):
+
+```bash
+animus daemon start --autonomous --auto-install
+```
+
+Escape hatch for dev iteration when knowingly running without the required
+plugins:
+
+```bash
+animus daemon start --autonomous --skip-preflight
 ```
 
 The daemon now polls for ready tasks and starts workflows automatically. You can let it run in the background.
 
-## 4. Inspect Progress
+## 5. Inspect Progress
 
 ```bash
-animus task stats
+animus subject list --kind task
 animus workflow list
 animus daemon status
 animus output tail
@@ -57,25 +91,25 @@ If you want to test a workflow definition before running the daemon, use the `--
 animus workflow run --task-id TASK-001 --sync
 ```
 
-This is useful for debugging workflow definitions, agent prompts, or MCP tools. Once you're satisfied, follow steps 3–4 above to enable autonomous execution.
+This is useful for debugging workflow definitions, agent prompts, or MCP tools. Once you're satisfied, follow steps 4–5 above to enable autonomous execution.
 
 ## Requirement-First Flow
 
 If you want to start from product requirements instead of a direct task:
 
 ```bash
-animus requirements create \
+animus subject create --kind requirement \
   --title "Rate limiting" \
   --priority must \
   --acceptance-criterion "Requests above the threshold are delayed or rejected"
-
-animus requirements execute --id REQ-001
 ```
 
-This materializes implementation tasks and queues them for the daemon to execute.
+This routes through the `animus-subject-requirements` plugin and materializes
+implementation tasks for the daemon to execute.
 
 ## Next Steps
 
 - [Project Setup](project-setup.md)
 - [A Typical Day](typical-day.md)
+- [Upgrading Animus](../guides/upgrading.md)
 - [Workflows](../concepts/workflows.md)

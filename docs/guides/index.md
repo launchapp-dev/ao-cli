@@ -25,4 +25,5 @@ Practical walkthroughs for day-to-day Animus operations.
 ## Infrastructure
 
 - **[CI/CD](ci-cd.md)** -- CI workflows, release pipelines, build commands, and test targets.
+- **[Upgrading Animus](upgrading.md)** -- General upgrade procedure, plugin updates, and rollback. Links to per-version migration guides.
 - **[Troubleshooting](troubleshooting.md)** -- Common issues, diagnostics, and fixes.

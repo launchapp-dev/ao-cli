@@ -22,9 +22,9 @@ use std::process::Stdio;
 use animus_plugin_protocol::PluginManifest;
 use anyhow::{anyhow, Context, Result};
 use orchestrator_plugin_host::{
-    discover_plugins, legacy_plugins_registry_path, plugin_install_dir, plugins_registry_path,
-    registered_skip_manifest_check_at_install, DiscoveredPlugin, DiscoverySource, DiscoveryWarning, PluginDiscovery,
-    PluginHost,
+    default_trusted_keys_dir, discover_plugins, legacy_plugins_registry_path, plugin_install_dir,
+    plugins_registry_path, registered_skip_manifest_check_at_install, seed_launchapp_dev_trusted_key, DiscoveredPlugin,
+    DiscoverySource, DiscoveryWarning, PluginDiscovery, PluginHost, PolicyMode as PluginPolicyMode,
 };
 use orchestrator_session_host::is_reserved_provider_tool;
 use serde::Serialize;
@@ -174,6 +174,16 @@ pub(crate) struct PluginInstallRequest {
     /// Override the plugin install directory. Takes precedence over
     /// `$ANIMUS_PLUGIN_DIR`. When `None`, falls back to env / default.
     pub(crate) plugin_dir: Option<String>,
+    /// Explicit signature policy. When `Some`, takes precedence over the
+    /// legacy `require_signature` / `skip_signature` booleans. When `None`,
+    /// the legacy booleans are interpreted: `skip_signature` -> `Disabled`,
+    /// `require_signature` -> `Strict`, neither -> caller's default (the
+    /// CLI defaults to `Strict`; some unit tests and the verify-if-present
+    /// legacy default fall through to `Warn`).
+    pub(crate) signature_policy: Option<PluginPolicyMode>,
+    /// Per-install override for the cosign public-key file. When `Some`,
+    /// replaces the trusted-keys-directory lookup for this install only.
+    pub(crate) trust_key: Option<PathBuf>,
     /// Refuse install when no cosign bundle is present or when verification
     /// fails. Default `false` — verify-if-present.
     pub(crate) require_signature: bool,
@@ -496,6 +506,16 @@ pub(crate) async fn run_plugin_install(req: PluginInstallRequest) -> Result<Plug
     if req.require_signature && req.skip_signature {
         return Err(invalid_input_error("--require-signature and --skip-signature are mutually exclusive"));
     }
+    if let Some(policy) = req.signature_policy {
+        if matches!(policy, PluginPolicyMode::Strict) && req.skip_signature {
+            return Err(invalid_input_error("--signature-policy strict and --skip-signature are mutually exclusive"));
+        }
+        if matches!(policy, PluginPolicyMode::Disabled) && req.require_signature {
+            return Err(invalid_input_error(
+                "--signature-policy disabled and --require-signature are mutually exclusive",
+            ));
+        }
+    }
 
     // `_install_temp` keeps the install-staging directory alive for the
     // remainder of this function. It drops at the end (RAII) so the
@@ -586,6 +606,7 @@ pub(crate) async fn run_plugin_install(req: PluginInstallRequest) -> Result<Plug
     }
 
     let signature_detail = resolve_signature_status(&req, &provenance)?;
+    let policy_mode = effective_policy_mode(&req);
     match &signature_detail {
         SignatureStatus::Invalid { message, .. } => {
             return Err(invalid_input_error(format!(
@@ -597,10 +618,17 @@ pub(crate) async fn run_plugin_install(req: PluginInstallRequest) -> Result<Plug
                 "signature is valid but the signer is not in trusted-signers.yaml (identity pattern: {identity_pattern})"
             )));
         }
-        SignatureStatus::Unsigned { reason } if req.require_signature => {
+        SignatureStatus::Unsigned { reason }
+            if matches!(policy_mode, PluginPolicyMode::Strict) || req.require_signature =>
+        {
             return Err(invalid_input_error(format!(
-                "--require-signature is set but no cosign signature could be verified: {reason}"
+                "signature policy is strict but no cosign signature could be verified: {reason}\n\
+                 To proceed anyway, pass --allow-unsigned (warn) or --signature-policy disabled."
             )));
+        }
+        SignatureStatus::Unsigned { reason } if matches!(policy_mode, PluginPolicyMode::Warn) => {
+            tracing::warn!(reason = %reason, "plugin install proceeding without verified signature (policy=warn)");
+            eprintln!("warning: plugin install proceeding without verified signature ({reason})");
         }
         _ => {}
     }
@@ -1604,12 +1632,57 @@ fn find_bundle_sidecar<'a>(assets: &'a [GithubReleaseAsset], asset_name: &str) -
     assets.iter().find(|a| a.name.eq_ignore_ascii_case(&bundle_name))
 }
 
+/// Bridge between [`orchestrator_plugin_host::VerificationResult`] (the
+/// policy-aware result type) and the CLI-internal [`SignatureStatus`]
+/// that's persisted in `plugins.yaml` and the install envelope. Used when
+/// `--trust-key` routes verification through the plugin-host helper.
+fn map_host_result_to_status(
+    result: orchestrator_plugin_host::VerificationResult,
+    bundle_path: &Path,
+) -> SignatureStatus {
+    use orchestrator_plugin_host::VerificationResult as VR;
+    match result {
+        VR::Verified { identity, bundle_path: _ } => {
+            SignatureStatus::Verified { identity, bundle_path: bundle_path.display().to_string() }
+        }
+        VR::Unsigned { reason } => SignatureStatus::Unsigned { reason },
+        VR::Invalid { identity_pattern, message } => SignatureStatus::Invalid { identity_pattern, message },
+        VR::UntrustedSigner { identity_pattern } => SignatureStatus::UntrustedSigner { identity_pattern },
+        VR::Skipped => SignatureStatus::Skipped,
+    }
+}
+
+/// Compute the effective [`PluginPolicyMode`] for an install request.
+///
+/// Precedence:
+/// 1. `req.signature_policy` (the new `--signature-policy` flag).
+/// 2. `--skip-signature` -> `Disabled`.
+/// 3. `--require-signature` -> `Strict`.
+/// 4. Fallback: `Warn` (verify-if-present). The CLI handler explicitly
+///    sets `signature_policy = Strict` when neither legacy flag is passed,
+///    so this fallback only fires for callers (unit tests, MCP wire) that
+///    build a `PluginInstallRequest` directly with all-default fields.
+fn effective_policy_mode(req: &PluginInstallRequest) -> PluginPolicyMode {
+    if let Some(mode) = req.signature_policy {
+        return mode;
+    }
+    if req.skip_signature {
+        return PluginPolicyMode::Disabled;
+    }
+    if req.require_signature {
+        return PluginPolicyMode::Strict;
+    }
+    PluginPolicyMode::Warn
+}
+
 /// Verify the cosign signature for the install source (if any), apply the
 /// trusted-signers policy, and return the resulting [`SignatureStatus`]. The
 /// caller is responsible for turning hard-fail statuses (`Invalid`,
-/// `UntrustedSigner`, `Unsigned` under `--require-signature`) into install
-/// errors.
+/// `UntrustedSigner`, `Unsigned` under `Strict`) into install errors.
 fn resolve_signature_status(req: &PluginInstallRequest, provenance: &InstallProvenance) -> Result<SignatureStatus> {
+    if matches!(effective_policy_mode(req), PluginPolicyMode::Disabled) {
+        return Ok(SignatureStatus::Skipped);
+    }
     if req.skip_signature {
         return Ok(SignatureStatus::Skipped);
     }
@@ -1637,9 +1710,25 @@ fn resolve_signature_status(req: &PluginInstallRequest, provenance: &InstallProv
     };
 
     if !cosign_available() {
+        let mode = effective_policy_mode(req);
+        let suffix = if matches!(mode, PluginPolicyMode::Strict) {
+            " (signature policy is strict; install cosign or rerun with --signature-policy warn/disabled)"
+        } else {
+            ""
+        };
         return Ok(SignatureStatus::Unsigned {
-            reason: "cosign binary not found on PATH; install cosign from https://github.com/sigstore/cosign to enable signature verification".to_string(),
+            reason: format!(
+                "cosign binary not found on PATH; install cosign from https://github.com/sigstore/cosign to enable signature verification{suffix}"
+            ),
         });
+    }
+
+    if let Some(override_key) = req.trust_key.as_deref() {
+        if !override_key.exists() {
+            return Err(invalid_input_error(format!("--trust-key path does not exist: {}", override_key.display())));
+        }
+        let host_result = orchestrator_plugin_host::verify_plugin_binary(asset_archive, bundle_path, override_key)?;
+        return Ok(map_host_result_to_status(host_result, bundle_path));
     }
 
     let status = verify_with_cosign(asset_archive, bundle_path, identity_regex.as_deref(), GITHUB_OIDC_ISSUER)?;
@@ -1876,6 +1965,22 @@ async fn handle_plugin_install(args: PluginInstallArgs, json: bool) -> Result<()
             "--tag and --latest only apply when installing from a public repo (positional OWNER/REPO[@TAG])",
         ));
     }
+
+    let signature_policy = resolve_cli_signature_policy(&args)?;
+    if matches!(signature_policy, PluginPolicyMode::Strict) {
+        let trusted_keys_dir = default_trusted_keys_dir();
+        match seed_launchapp_dev_trusted_key(&trusted_keys_dir) {
+            Ok(Some(path)) => {
+                if !json {
+                    eprintln!("info: seeded built-in launchapp-dev cosign public key at {}", path.display());
+                }
+            }
+            Ok(None) => {}
+            Err(error) => {
+                tracing::warn!(%error, "failed to seed launchapp-dev trusted key");
+            }
+        }
+    }
     let output = run_plugin_install(PluginInstallRequest {
         source: args.source,
         path: args.path,
@@ -1886,6 +1991,8 @@ async fn handle_plugin_install(args: PluginInstallArgs, json: bool) -> Result<()
         force: args.force,
         skip_manifest_check: args.skip_manifest_check,
         plugin_dir: args.plugin_dir,
+        signature_policy: Some(signature_policy),
+        trust_key: args.trust_key,
         require_signature: args.require_signature,
         skip_signature: args.skip_signature,
         trusted_signers: args.trusted_signers,
@@ -1895,6 +2002,36 @@ async fn handle_plugin_install(args: PluginInstallArgs, json: bool) -> Result<()
     })
     .await?;
     print_value(output, json)
+}
+
+/// Translate CLI flag combinations into the canonical [`PluginPolicyMode`].
+///
+/// Precedence:
+/// 1. `--signature-policy <strict|warn|disabled>` if set.
+/// 2. `--allow-unsigned` -> `Warn`.
+/// 3. `--skip-signature` -> `Disabled` (legacy).
+/// 4. `--require-signature` -> `Strict` (legacy alias for the new default).
+/// 5. Fallback: `Strict`.
+///
+/// The default must remain `Strict` (fail-closed) per v0.4.12 security
+/// hardening. Loosening this default is a security regression and should
+/// only be done with an explicit operator opt-in flag.
+fn resolve_cli_signature_policy(args: &PluginInstallArgs) -> Result<PluginPolicyMode> {
+    if let Some(raw) = args.signature_policy.as_deref() {
+        return raw
+            .parse::<PluginPolicyMode>()
+            .map_err(|msg| invalid_input_error(format!("invalid --signature-policy: {msg}")));
+    }
+    if args.allow_unsigned {
+        return Ok(PluginPolicyMode::Warn);
+    }
+    if args.skip_signature {
+        return Ok(PluginPolicyMode::Disabled);
+    }
+    if args.require_signature {
+        return Ok(PluginPolicyMode::Strict);
+    }
+    Ok(PluginPolicyMode::default_for_install())
 }
 
 fn handle_plugin_uninstall(args: PluginUninstallArgs, json: bool) -> Result<()> {
@@ -2650,5 +2787,103 @@ trusted_signers:
             flag.is_none() || flag == Some(false),
             "skip_manifest_check_at_install must be absent (or `false`) when the flag is not set; got {flag:?}"
         );
+    }
+
+    // =================== SignaturePolicy / effective_policy_mode tests ===================
+
+    #[test]
+    fn effective_policy_uses_explicit_signature_policy_first() {
+        let req = PluginInstallRequest {
+            signature_policy: Some(PluginPolicyMode::Strict),
+            require_signature: false,
+            skip_signature: true,
+            ..Default::default()
+        };
+        assert_eq!(effective_policy_mode(&req), PluginPolicyMode::Strict);
+    }
+
+    #[test]
+    fn effective_policy_maps_skip_signature_to_disabled() {
+        let req = PluginInstallRequest { skip_signature: true, ..Default::default() };
+        assert_eq!(effective_policy_mode(&req), PluginPolicyMode::Disabled);
+    }
+
+    #[test]
+    fn effective_policy_maps_require_signature_to_strict() {
+        let req = PluginInstallRequest { require_signature: true, ..Default::default() };
+        assert_eq!(effective_policy_mode(&req), PluginPolicyMode::Strict);
+    }
+
+    #[test]
+    fn effective_policy_default_is_warn_for_legacy_callers() {
+        let req = PluginInstallRequest::default();
+        assert_eq!(
+            effective_policy_mode(&req),
+            PluginPolicyMode::Warn,
+            "callers that build PluginInstallRequest without setting signature_policy get the legacy verify-if-present behavior; the CLI handler is responsible for upgrading the default to Strict"
+        );
+    }
+
+    #[test]
+    fn resolve_signature_status_returns_skipped_under_disabled_policy() {
+        let req = PluginInstallRequest { signature_policy: Some(PluginPolicyMode::Disabled), ..Default::default() };
+        let prov = release_provenance_with_bundle(Some(std::path::PathBuf::from("/tmp/x.bundle")));
+        let status = resolve_signature_status(&req, &prov).expect("resolves");
+        assert_eq!(status, SignatureStatus::Skipped);
+    }
+
+    #[test]
+    fn strict_policy_rejects_install_when_no_bundle() {
+        let req = PluginInstallRequest { signature_policy: Some(PluginPolicyMode::Strict), ..Default::default() };
+        let prov = release_provenance_with_bundle(None);
+        let status = resolve_signature_status(&req, &prov).expect("resolves");
+        assert!(matches!(&status, SignatureStatus::Unsigned { .. }));
+        let policy = effective_policy_mode(&req);
+        assert_eq!(policy, PluginPolicyMode::Strict);
+    }
+
+    #[test]
+    fn warn_policy_yields_unsigned_when_no_bundle() {
+        let req = PluginInstallRequest { signature_policy: Some(PluginPolicyMode::Warn), ..Default::default() };
+        let prov = release_provenance_with_bundle(None);
+        let status = resolve_signature_status(&req, &prov).expect("resolves");
+        assert!(matches!(&status, SignatureStatus::Unsigned { .. }));
+    }
+
+    #[test]
+    fn trust_key_path_validation_rejects_nonexistent() {
+        let req = PluginInstallRequest {
+            signature_policy: Some(PluginPolicyMode::Strict),
+            trust_key: Some(PathBuf::from("/definitely/does/not/exist.pem")),
+            ..Default::default()
+        };
+        let tmp = tempfile::tempdir().unwrap();
+        let bundle = tmp.path().join("x.bundle");
+        std::fs::write(&bundle, b"bundle").unwrap();
+        let prov = release_provenance_with_bundle(Some(bundle));
+        if !orchestrator_plugin_host::cosign_available() {
+            return;
+        }
+        let err = resolve_signature_status(&req, &prov).expect_err("missing --trust-key path must error");
+        assert!(format!("{err}").contains("--trust-key path does not exist"));
+    }
+
+    #[test]
+    fn map_host_result_to_status_preserves_variants() {
+        use orchestrator_plugin_host::VerificationResult as VR;
+        let bundle = std::path::PathBuf::from("/tmp/b.bundle");
+        assert!(matches!(map_host_result_to_status(VR::Skipped, &bundle), SignatureStatus::Skipped));
+        assert!(matches!(
+            map_host_result_to_status(VR::Unsigned { reason: "x".into() }, &bundle),
+            SignatureStatus::Unsigned { .. }
+        ));
+        assert!(matches!(
+            map_host_result_to_status(VR::Invalid { identity_pattern: "x".into(), message: "y".into() }, &bundle),
+            SignatureStatus::Invalid { .. }
+        ));
+        assert!(matches!(
+            map_host_result_to_status(VR::Verified { identity: "x".into(), bundle_path: "z".into() }, &bundle),
+            SignatureStatus::Verified { .. }
+        ));
     }
 }

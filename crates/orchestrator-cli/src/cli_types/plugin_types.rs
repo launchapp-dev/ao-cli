@@ -175,11 +175,28 @@ pub(crate) struct PluginInstallArgs {
     /// `$ANIMUS_PLUGIN_DIR`. Defaults to `~/.animus/plugins/`.
     #[arg(long, value_name = "PATH")]
     pub(crate) plugin_dir: Option<String>,
-    /// Refuse to install when no cosign signature bundle is present or when
-    /// signature verification fails. Defaults to false (verify-if-present).
+    /// Signature enforcement mode. `strict` (the default) refuses installs
+    /// whose cosign bundle is missing, invalid, or signed by an untrusted
+    /// key. `warn` logs the failure and proceeds. `disabled` skips
+    /// verification entirely (escape hatch). See `docs/reference/security.md`.
+    #[arg(long, value_name = "MODE", value_parser = ["strict", "warn", "disabled"])]
+    pub(crate) signature_policy: Option<String>,
+    /// Path to a PEM-encoded cosign public key used to verify this install
+    /// only. Overrides the trusted-keys-directory lookup
+    /// (`~/.animus/trusted-keys/<owner>.pem`).
+    #[arg(long, value_name = "PATH")]
+    pub(crate) trust_key: Option<PathBuf>,
+    /// Convenience flag: equivalent to `--signature-policy warn`.
+    /// Mutually exclusive with `--signature-policy` and `--require-signature`.
+    #[arg(long, default_value_t = false, conflicts_with_all = ["signature_policy", "require_signature"])]
+    pub(crate) allow_unsigned: bool,
+    /// Legacy: refuse install when no cosign bundle is present or when
+    /// verification fails. Equivalent to `--signature-policy strict` (the
+    /// new default). Retained for backward compatibility.
     #[arg(long, default_value_t = false, conflicts_with = "skip_signature")]
     pub(crate) require_signature: bool,
-    /// Skip cosign signature verification entirely (escape hatch).
+    /// Legacy: skip cosign signature verification entirely. Equivalent to
+    /// `--signature-policy disabled`. Retained for backward compatibility.
     #[arg(long, default_value_t = false)]
     pub(crate) skip_signature: bool,
     /// Path to a `trusted-signers.yaml` allowlist. Defaults to

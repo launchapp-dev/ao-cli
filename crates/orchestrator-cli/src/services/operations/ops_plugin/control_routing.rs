@@ -142,6 +142,8 @@ impl PluginRouting for PluginRoutingImpl {
             force: false,
             skip_manifest_check: false,
             plugin_dir: None,
+            signature_policy: None,
+            trust_key: None,
             require_signature: !request.allow_unsigned,
             skip_signature: request.allow_unsigned,
             trusted_signers: None,

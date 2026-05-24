@@ -276,6 +276,8 @@ impl AoMcpServer {
             force: force.unwrap_or(false),
             skip_manifest_check: skip_manifest_check.unwrap_or(false),
             plugin_dir,
+            signature_policy: None,
+            trust_key: None,
             require_signature: require_signature.unwrap_or(false),
             skip_signature: skip_signature.unwrap_or(false),
             trusted_signers: trusted_signers.map(std::path::PathBuf::from),

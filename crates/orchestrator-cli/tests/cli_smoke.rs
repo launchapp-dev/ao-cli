@@ -21,8 +21,8 @@ fn help_surfaces_command_descriptions_for_core_groups() -> Result<(), Box<dyn st
     assert!(top_level_help.status.success(), "top-level help should succeed");
     let top_level_stdout = String::from_utf8(top_level_help.stdout)?;
     assert!(
-        top_level_stdout.contains("Draft and manage project requirements"),
-        "top-level help should describe requirements command"
+        top_level_stdout.contains("List, get, create, and update subjects"),
+        "top-level help should describe subject command"
     );
     assert!(
         top_level_stdout.contains("Run and control workflow execution"),
@@ -70,15 +70,6 @@ fn help_surfaces_command_descriptions_for_core_groups() -> Result<(), Box<dyn st
         "workflow checkpoints prune help should explain age-based retention"
     );
 
-    let web_serve_help = Command::new(&binary).args(["web", "serve", "--help"]).output()?;
-    assert!(web_serve_help.status.success(), "web serve help should succeed");
-    let web_serve_stdout = String::from_utf8(web_serve_help.stdout)?;
-    assert!(web_serve_stdout.contains("Host interface to bind the web server"), "web serve help should explain --host");
-    assert!(
-        web_serve_stdout.contains("Serve API endpoints only without static assets"),
-        "web serve help should explain --api-only"
-    );
-
     let skill_help = Command::new(&binary).args(["skill", "--help"]).output()?;
     assert!(skill_help.status.success(), "skill help should succeed");
     let skill_stdout = String::from_utf8(skill_help.stdout)?;
@@ -101,40 +92,6 @@ fn help_surfaces_command_descriptions_for_core_groups() -> Result<(), Box<dyn st
 fn help_surfaces_accepted_values_and_confirmation_guidance() -> Result<(), Box<dyn std::error::Error>> {
     let binary = assert_cmd::cargo::cargo_bin!("animus");
 
-    let task_help = Command::new(&binary).args(["task", "list", "--help"]).output()?;
-    assert!(task_help.status.success(), "task list help should succeed");
-    let task_stdout = String::from_utf8(task_help.stdout)?;
-    assert!(
-        task_stdout.contains("feature|bugfix|hotfix|refactor|docs|test|chore|experiment"),
-        "task list help should enumerate task type values"
-    );
-    assert!(
-        task_stdout.contains("backlog|todo|ready|in-progress|in_progress|blocked|on-hold|on_hold|done|cancelled"),
-        "task list help should enumerate status values"
-    );
-    assert!(task_stdout.contains("critical|high|medium|low"), "task list help should enumerate priority values");
-
-    let requirements_update_help = Command::new(&binary).args(["requirements", "update", "--help"]).output()?;
-    assert!(requirements_update_help.status.success(), "requirements update help should succeed");
-    let requirements_update_stdout = String::from_utf8(requirements_update_help.stdout)?;
-    assert!(
-        requirements_update_stdout.contains("must|should|could|wont|won't"),
-        "requirements update help should enumerate priority values"
-    );
-    assert!(
-        requirements_update_stdout.contains("draft|refined|planned|in-progress|in_progress|done"),
-        "requirements update help should enumerate status values"
-    );
-    assert!(
-        requirements_update_stdout.contains("documentation|usability|runtime|integration|quality|release|security"),
-        "requirements update help should enumerate category values"
-    );
-    assert!(
-        requirements_update_stdout
-            .contains("product|functional|non-functional|nonfunctional|non_functional|technical|other"),
-        "requirements update help should enumerate type values"
-    );
-
     let workflow_cancel_help = Command::new(&binary).args(["workflow", "cancel", "--help"]).output()?;
     assert!(workflow_cancel_help.status.success(), "workflow cancel help should succeed");
     let workflow_cancel_stdout = String::from_utf8(workflow_cancel_help.stdout)?;
@@ -145,14 +102,6 @@ fn help_surfaces_accepted_values_and_confirmation_guidance() -> Result<(), Box<d
     assert!(
         workflow_cancel_stdout.contains("Preview cancellation payload without mutating workflow state."),
         "workflow cancel help should explain dry-run mode"
-    );
-
-    let task_create_help = Command::new(&binary).args(["task", "create", "--help"]).output()?;
-    assert!(task_create_help.status.success(), "task create help should succeed");
-    let task_create_stdout = String::from_utf8(task_create_help.stdout)?;
-    assert!(
-        task_create_stdout.contains("When provided, values in this payload override individual CLI flags."),
-        "task create help should explain --input-json precedence"
     );
 
     let git_push_help = Command::new(&binary).args(["git", "push", "--help"]).output()?;
@@ -199,33 +148,6 @@ fn help_surfaces_accepted_values_and_confirmation_guidance() -> Result<(), Box<d
 fn help_uses_explicit_value_names_and_repeatable_flag_guidance() -> Result<(), Box<dyn std::error::Error>> {
     let binary = assert_cmd::cargo::cargo_bin!("animus");
 
-    let task_update_help = Command::new(&binary).args(["task", "update", "--help"]).output()?;
-    assert!(task_update_help.status.success(), "task update help should succeed");
-    let task_update_stdout = String::from_utf8(task_update_help.stdout)?;
-    assert!(task_update_stdout.contains("--id <TASK_ID>"), "task update help should use explicit TASK_ID value names");
-    assert!(
-        task_update_stdout.contains("--linked-architecture-entity <ENTITY_ID>"),
-        "task update help should expose ENTITY_ID value names"
-    );
-    assert!(
-        task_update_stdout.contains(
-            "Replace all linked architecture entities with the provided --linked-architecture-entity values."
-        ),
-        "task update help should explain replace behavior"
-    );
-
-    let requirements_create_help = Command::new(&binary).args(["requirements", "create", "--help"]).output()?;
-    assert!(requirements_create_help.status.success(), "requirements create help should succeed");
-    let requirements_create_stdout = String::from_utf8(requirements_create_help.stdout)?;
-    assert!(
-        requirements_create_stdout.contains("--acceptance-criterion <TEXT>"),
-        "requirements create help should expose repeatable criterion value names"
-    );
-    assert!(
-        requirements_create_stdout.contains("Optional source describing where this requirement originated."),
-        "requirements create help should explain source"
-    );
-
     let workflow_run_help = Command::new(&binary).args(["workflow", "run", "--help"]).output()?;
     assert!(workflow_run_help.status.success(), "workflow run help should succeed");
     let workflow_run_stdout = String::from_utf8(workflow_run_help.stdout)?;
@@ -233,17 +155,13 @@ fn help_uses_explicit_value_names_and_repeatable_flag_guidance() -> Result<(), B
         workflow_run_stdout.contains("[PIPELINE]"),
         "workflow run help should expose the pipeline positional argument"
     );
-
-    let task_list_help = Command::new(&binary).args(["task", "list", "--help"]).output()?;
-    assert!(task_list_help.status.success(), "task list help should succeed");
-    let task_list_stdout = String::from_utf8(task_list_help.stdout)?;
     assert!(
-        task_list_stdout.contains("--assignee-type <ASSIGNEE_TYPE>"),
-        "task list help should expose assignee type value names"
+        workflow_run_stdout.contains("--task-id <TASK_ID>"),
+        "workflow run help should expose the explicit TASK_ID value name"
     );
     assert!(
-        task_list_stdout.contains("Match tasks that include all provided tags. Repeat to require multiple tags."),
-        "task list help should explain repeatable tags"
+        workflow_run_stdout.contains("When provided, values in this payload override individual CLI flags."),
+        "workflow run help should explain --input-json precedence"
     );
 
     Ok(())
@@ -268,12 +186,12 @@ fn version_subcommand_supports_json_output() -> Result<(), Box<dyn std::error::E
 #[test]
 fn invalid_arguments_include_usage_and_help_hint() -> Result<(), Box<dyn std::error::Error>> {
     let binary = assert_cmd::cargo::cargo_bin!("animus");
-    let output = Command::new(binary).args(["task", "list", "--bogus"]).output()?;
+    let output = Command::new(binary).args(["queue", "list", "--bogus"]).output()?;
 
     assert!(!output.status.success(), "unknown argument should produce a failing exit code");
     let stderr = String::from_utf8(output.stderr)?;
     assert!(stderr.contains("unexpected argument '--bogus' found"), "stderr should identify the unexpected argument");
-    assert!(stderr.contains("Usage: animus task list [OPTIONS]"), "stderr should include command usage");
+    assert!(stderr.contains("Usage: animus queue list [OPTIONS]"), "stderr should include command usage");
     assert!(stderr.contains("For more information, try '--help'."), "stderr should include a hint to use --help");
 
     Ok(())

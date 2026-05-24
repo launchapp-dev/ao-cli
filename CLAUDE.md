@@ -156,16 +156,20 @@ Hidden but implemented: none currently.
 
 Tasks and requirements live exclusively under the unified
 `animus subject --kind <kind>` surface as of v0.4.4. The legacy
-`animus task` and `animus requirements` command trees were removed;
-the in-tree `InTreeTaskSubjectBackend` and
-`InTreeRequirementsSubjectBackend` adapters keep the underlying
-`orchestrator-core` task and requirements services backing
-`~/.animus/<repo-scope>/` state. Set
-`ANIMUS_DAEMON_DISABLE_BUILTIN_TASK_ADAPTER=1` or
-`ANIMUS_DAEMON_DISABLE_BUILTIN_REQUIREMENTS_ADAPTER=1` to opt out of
-either in-tree adapter. External subject_backend plugins claiming
-`kind=task` or `kind=requirement` automatically displace the in-tree
-adapter (the `SubjectRouter` rejects duplicate kinds at startup).
+`animus task` and `animus requirements` command trees were removed.
+As of v0.4.12 the in-tree `InTreeTaskSubjectBackend` and
+`InTreeRequirementsSubjectBackend` adapters were deleted as well —
+all subject ops route through the `SubjectRouter` to installed
+`subject_backend` plugins. Install
+`launchapp-dev/animus-subject-default` (kind=task) and
+`launchapp-dev/animus-subject-requirements` (kind=requirement) via
+`animus plugin install-defaults --include-subjects` to keep the
+`kind=task` and `kind=requirement` surfaces routable. The
+`ANIMUS_DAEMON_DISABLE_BUILTIN_TASK_ADAPTER` and
+`ANIMUS_DAEMON_DISABLE_BUILTIN_REQUIREMENTS_ADAPTER` env vars are
+deprecated and now no-ops; use
+`ANIMUS_DAEMON_DISABLE_SUBJECT_PLUGINS=1` to skip subject discovery
+entirely.
 
 Also removed in v0.4.4: `animus cloud`, `animus setup`, `animus now`,
 and `animus errors`. Use `animus init` (onboarding), `animus status`

@@ -244,7 +244,7 @@ const DEFAULT_PROVIDER_PLUGINS: &[(&str, &str)] = &[
     ("launchapp-dev/animus-provider-oai", "v0.2.1"),
 ];
 
-const DEFAULT_OAI_AGENT_PLUGIN: &[(&str, &str)] = &[("launchapp-dev/animus-provider-oai-agent", "v0.1.1")];
+const DEFAULT_OAI_AGENT_PLUGIN: &[(&str, &str)] = &[("launchapp-dev/animus-provider-oai-agent", "v0.1.2")];
 
 const DEFAULT_SUBJECT_PLUGINS: &[(&str, &str)] = &[
     ("launchapp-dev/animus-subject-default", "v0.1.0"),

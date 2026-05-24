@@ -78,3 +78,6 @@ TEST_RESULTS*.md
 # Test-time scoped state (created when integration tests resolve project_root inside this crate)
 /crates/orchestrator-cli/.ao/
 /crates/orchestrator-cli/.animus/
+
+# Runtime state from subject plugins
+.animus/subjects/

@@ -8,7 +8,7 @@ Animus uses GitHub Actions for continuous integration and release automation. Th
 
 Runs on every push and pull request. Checks and tests each crate in the workspace independently:
 
-- `cargo check` for each crate: `protocol`, `orchestrator-cli`, `orchestrator-core`, `agent-runner`, `llm-cli-wrapper`, `orchestrator-web-contracts`, `orchestrator-web-api`, `orchestrator-web-server`
+- `cargo check` for each crate: `protocol`, `orchestrator-cli`, `orchestrator-core`, `agent-runner`, `llm-cli-wrapper`
 - `cargo test --workspace` for the full test suite
 - Concurrency grouping cancels superseded runs on the same branch
 
@@ -16,9 +16,11 @@ Runs on every push and pull request. Checks and tests each crate in the workspac
 
 Enforces the project rule that Animus is Rust-only -- no desktop shell frameworks (Tauri, Wry, Tao, GTK, WebKit). This workflow rejects PRs that introduce prohibited dependencies.
 
-### Web UI CI (`web-ui-ci.yml`)
+### Web UI CI
 
-Runs the web dashboard's npm test suite and build from `crates/orchestrator-web-server/web-ui/`.
+The web UI now lives in the external `launchapp-dev/animus-web-ui` repository
+and ships its own CI. The Animus monorepo no longer builds or tests the
+web bundle.
 
 ### Release Rollback Validation (`release-rollback-validation.yml`)
 

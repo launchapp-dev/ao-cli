@@ -2,46 +2,27 @@ use clap::{Args, Subcommand};
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum WebCommand {
-    /// Start the AO web server.
+    /// Spawn installed transport_backend + web_ui plugins and report bound URLs.
+    /// Requires plugins from `animus plugin install-defaults --include-transports`.
     Serve(WebServeArgs),
-    /// Open the AO web UI URL in a browser.
+    /// Open the Animus web UI URL in a browser. Resolves the URL from an
+    /// installed web_ui or transport_backend plugin unless --url is supplied.
     Open(WebOpenArgs),
 }
 
 #[derive(Debug, Args)]
 pub(crate) struct WebServeArgs {
-    #[arg(long, value_name = "HOST", default_value = "127.0.0.1", help = "Host interface to bind the web server.")]
-    pub(crate) host: String,
-    #[arg(long, value_name = "PORT", default_value_t = 4173, help = "Port to bind the web server.")]
-    pub(crate) port: u16,
-    #[arg(long, default_value_t = false, help = "Open the web UI in a browser after startup.")]
+    /// Open the resolved web UI URL in a browser after the transport plugins start.
+    #[arg(long, default_value_t = false)]
     pub(crate) open: bool,
-    #[arg(long, value_name = "PATH", help = "Override static assets directory.")]
-    pub(crate) assets_dir: Option<String>,
-    #[arg(long, default_value_t = false, help = "Serve API endpoints only without static assets.")]
-    pub(crate) api_only: bool,
-    #[arg(
-        long,
-        value_name = "COUNT",
-        default_value_t = 50,
-        help = "Default page size for paginated list API endpoints."
-    )]
-    pub(crate) page_size_default: usize,
-    #[arg(
-        long,
-        value_name = "COUNT",
-        default_value_t = 200,
-        help = "Maximum allowed page size for paginated list API endpoints."
-    )]
-    pub(crate) page_size_max: usize,
 }
 
 #[derive(Debug, Args)]
 pub(crate) struct WebOpenArgs {
-    #[arg(long, value_name = "HOST", default_value = "127.0.0.1", help = "Host name for the web URL.")]
-    pub(crate) host: String,
-    #[arg(long, value_name = "PORT", default_value_t = 4173, help = "Port for the web URL.")]
-    pub(crate) port: u16,
-    #[arg(long, value_name = "PATH", default_value = "/", help = "Path to open, such as / or /runs.")]
+    /// Override the resolved URL. When set, the installed plugins are not consulted.
+    #[arg(long, value_name = "URL")]
+    pub(crate) url: Option<String>,
+    /// Sub-path appended to the resolved URL, such as `/runs`. Ignored when `--url` is set.
+    #[arg(long, value_name = "PATH", default_value = "/")]
     pub(crate) path: String,
 }

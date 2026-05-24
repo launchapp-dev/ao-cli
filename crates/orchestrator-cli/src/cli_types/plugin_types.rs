@@ -125,6 +125,10 @@ pub(crate) struct PluginInstallDefaultsArgs {
     /// subject-requirements, subject-linear, subject-sqlite, subject-markdown).
     #[arg(long, default_value_t = false)]
     pub(crate) include_subjects: bool,
+    /// Also install the default transport_backend + web_ui plugins
+    /// (transport-http, transport-graphql, web-ui) that back `animus web`.
+    #[arg(long, default_value_t = false)]
+    pub(crate) include_transports: bool,
     /// Emit results as JSON.
     #[arg(long, default_value_t = false)]
     pub(crate) json: bool,

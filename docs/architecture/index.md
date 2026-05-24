@@ -18,9 +18,6 @@ graph TD
     AR[agent-runner]
     LLM[llm-cli-wrapper]
     OAI[oai-runner]
-    WAPI[orchestrator-web-api]
-    WCON[orchestrator-web-contracts]
-    WSRV[orchestrator-web-server]
     PROV[orchestrator-providers]
     NOTIF[orchestrator-notifications]
     GIT[orchestrator-git-ops]
@@ -29,20 +26,10 @@ graph TD
     CLI --> CORE
     CLI --> DAEMON
     CLI --> WR
-    CLI --> WAPI
-    CLI --> WCON
-    CLI --> WSRV
     CLI --> GIT
     CLI --> NOTIF
     CLI --> LLM
     CLI --> PROTO
-
-    WSRV --> WAPI
-    WSRV --> WCON
-    WAPI --> CORE
-    WAPI --> DAEMON
-    WAPI --> WCON
-    WAPI --> PROTO
 
     DAEMON --> CORE
     DAEMON --> WR

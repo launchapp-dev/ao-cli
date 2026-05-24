@@ -244,6 +244,12 @@ const DEFAULT_SUBJECT_PLUGINS: &[(&str, &str)] = &[
     ("launchapp-dev/animus-subject-markdown", "v0.1.0"),
 ];
 
+const DEFAULT_TRANSPORT_PLUGINS: &[(&str, &str)] = &[
+    ("launchapp-dev/animus-transport-http", "v0.2.0"),
+    ("launchapp-dev/animus-transport-graphql", "v0.2.3"),
+    ("launchapp-dev/animus-web-ui", "v0.1.0"),
+];
+
 #[derive(Debug, Serialize)]
 struct InstallDefaultsEntry {
     repo: String,
@@ -273,6 +279,9 @@ async fn handle_plugin_install_defaults(args: PluginInstallDefaultsArgs) -> Resu
     }
     if args.include_subjects {
         targets.extend_from_slice(DEFAULT_SUBJECT_PLUGINS);
+    }
+    if args.include_transports {
+        targets.extend_from_slice(DEFAULT_TRANSPORT_PLUGINS);
     }
 
     let install_dir = install_root(args.plugin_dir.as_deref())?;

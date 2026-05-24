@@ -1,90 +1,61 @@
 # Web Dashboard Guide
 
-Animus includes an embedded web dashboard for visual project management. It provides a browser-based interface for monitoring workflows, managing tasks, and viewing requirements.
+The Animus web dashboard ships as a set of standalone plugins. The CLI no
+longer bundles an in-process HTTP server. Instead, `animus web` discovers and
+spawns installed `transport_backend` and `web_ui` plugins.
 
-## Starting the Web Server
+## Installing the Web Stack
 
-Launch the web server (default port 3000):
+Install the default transport + UI plugins in one shot:
+
+```bash
+animus plugin install-defaults --include-transports
+```
+
+Or install them individually:
+
+```bash
+animus plugin install launchapp-dev/animus-transport-http@v0.2.0
+animus plugin install launchapp-dev/animus-transport-graphql@v0.2.3
+animus plugin install launchapp-dev/animus-web-ui@v0.1.0
+```
+
+## Starting the Web UI
+
+Spawn the installed transport plugins and report their bound URLs:
 
 ```bash
 animus web serve
 ```
 
-Specify a custom port:
-
-```bash
-animus web serve --port 8080
-```
-
-Open the dashboard in your default browser:
+Open the resolved UI URL in a browser:
 
 ```bash
 animus web open
 ```
 
-## Features
+`animus web serve --open` does both at once. If no transport plugins are
+installed, the command exits non-zero and prints the install commands above.
 
-The web dashboard provides:
+## URL Override
 
-- **Project overview** -- Summary of project health, active workflows, and task statistics.
-- **Requirements board** -- Visual board for requirements with status columns (Draft, Refined, Planned, In-Progress, Done).
-- **Task management** -- List and filter tasks by status, priority, and type. Update task status directly from the UI.
-- **Workflow monitor** -- Real-time view of running workflows with phase progress indicators.
-
-## REST API
-
-The web server exposes a REST API at `/api/v1/`. All responses follow the standard `animus.cli.v1` JSON envelope format:
-
-```json
-{
-  "schema": "animus.cli.v1",
-  "ok": true,
-  "data": { ... }
-}
-```
-
-### Key Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/v1/tasks` | GET | List tasks |
-| `/api/v1/tasks/:id` | GET | Get task by ID |
-| `/api/v1/tasks` | POST | Create task |
-| `/api/v1/tasks/:id` | PATCH | Update task |
-| `/api/v1/workflows` | GET | List workflows |
-| `/api/v1/workflows/:id` | GET | Get workflow by ID |
-| `/api/v1/daemon/status` | GET | Daemon status |
-| `/api/v1/daemon/health` | GET | Daemon health |
-| `/api/v1/requirements` | GET | List requirements |
-| `/api/v1/requirements/:id` | GET | Get requirement by ID |
-
-### Filtering
-
-List endpoints support query parameters for filtering:
-
-```
-GET /api/v1/tasks?status=in-progress&priority=high
-GET /api/v1/requirements?status=refined
-```
-
-## SSE Events
-
-The web server supports Server-Sent Events (SSE) for real-time updates. Connect to the SSE endpoint to receive live workflow and task state changes:
-
-```
-GET /api/v1/events
-```
-
-Events are pushed as workflows progress through phases, tasks change status, and agents produce output. This powers the real-time workflow monitor in the dashboard.
+`animus web open --url https://my-tunnel.example` skips plugin discovery and
+opens the supplied URL directly. Use `--path /runs` to append a sub-path to
+the resolved URL.
 
 ## Architecture
 
-The web stack is split across three crates:
+The web stack lives in three external repositories under the
+[`launchapp-dev`](https://github.com/launchapp-dev) org:
 
-| Crate | Role |
+| Repository | Role |
 |-------|------|
-| `orchestrator-web-contracts` | Shared request/response types |
-| `orchestrator-web-api` | Business logic (`WebApiService`) |
-| `orchestrator-web-server` | Axum HTTP server with embedded static assets |
+| `animus-transport-http` | REST + SSE HTTP transport plugin |
+| `animus-transport-graphql` | GraphQL transport plugin |
+| `animus-web-ui` | React dashboard bundled by a wrapper plugin |
 
-Static assets for the dashboard UI are built from `crates/orchestrator-web-server/web-ui/` (a Node.js / npm project) and embedded into the binary at compile time.
+The CLI discovers them through the standard plugin host
+(`~/.animus/plugins/` and `$ANIMUS_PLUGIN_PATH`) and spawns them via
+`PluginHost::spawn`. Plugins return their bound URL via the JSON-RPC
+`initialize` handshake or the optional `transport/info` call. See
+[`crates/orchestrator-cli/src/services/operations/ops_web.rs`](../../crates/orchestrator-cli/src/services/operations/ops_web.rs).

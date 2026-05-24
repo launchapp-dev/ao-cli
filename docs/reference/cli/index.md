@@ -202,9 +202,9 @@ animus
 ├── mcp                      Run the Animus MCP service endpoint
 │   └── serve                Start the MCP server in the current process
 │
-├── web                      Serve and open the Animus web UI
-│   ├── serve                 Start the Animus web server
-│   └── open                  Open the Animus web UI URL in a browser
+├── web                      Spawn installed transport plugins and open the Animus web UI
+│   ├── serve                 Spawn installed transport_backend + web_ui plugins (no in-tree server)
+│   └── open                  Open the resolved web UI URL in a browser (resolves via installed plugins)
 │
 ├── init                     Initialize an Animus project from a template
 │   (no subcommands)         Supports registry-backed or local copy templates, plan mode, and daemon defaults

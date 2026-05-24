@@ -144,7 +144,7 @@ flowchart LR
 flowchart LR
   subgraph Surface["Surface Crates"]
     CLI["orchestrator-cli"]
-    WEB["orchestrator-web-api / web-server"]
+    WEB["external transport plugins (animus-transport-http / -graphql / -web-ui)"]
     MCP["MCP surface"]
   end
 

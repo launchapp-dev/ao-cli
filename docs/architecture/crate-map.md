@@ -33,11 +33,13 @@ The Animus workspace is a Cargo workspace of around 20 crates organized by respo
 
 ## Web
 
-| Crate | Description | Key Responsibility |
-|-------|-------------|-------------------|
-| [orchestrator-web-api](../../crates/orchestrator-web-api/README.md) | Web API business logic | HTTP-facing orchestration services |
-| [orchestrator-web-contracts](../../crates/orchestrator-web-contracts/README.md) | Shared web contracts | Request and response types shared between web layers |
-| [orchestrator-web-server](../../crates/orchestrator-web-server/README.md) | Axum web server | HTTP routing, embedded UI delivery, browser entrypoint |
+The web stack is no longer in-tree. `animus web` discovers and spawns three
+standalone plugins from
+[`launchapp-dev`](https://github.com/launchapp-dev): `animus-transport-http`
+(REST + SSE), `animus-transport-graphql` (GraphQL), and `animus-web-ui` (React
+dashboard wrapped as a `web_ui` plugin). Install them with
+`animus plugin install-defaults --include-transports`. See
+[docs/guides/web-dashboard.md](../guides/web-dashboard.md).
 
 ## Integration
 

@@ -24,8 +24,6 @@ animus-plugin-protocol = { workspace = true }
 animus-control-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.10" }
 animus-log-storage-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.10" }
 animus-subject-protocol-wire = { package = "animus-subject-protocol", git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.10" }
-orchestrator-web-api = { path = "../orchestrator-web-api" }
-orchestrator-web-server = { path = "../orchestrator-web-server" }
 protocol = { path = "../protocol" }
 animus-session-backend = { workspace = true }
 which = "8"
@@ -43,7 +41,6 @@ sha2 = "0.10"
 semver = "1"
 webbrowser = "1"
 termimad = "0.34"
-axum = { workspace = true }
 libc = "0.2"
 fs2 = "0.4"
 reqwest = { version = "0.12", features = ["json"] }

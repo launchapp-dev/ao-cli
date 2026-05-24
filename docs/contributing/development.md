@@ -46,9 +46,6 @@ crates/
 ├── orchestrator-notifications/
 ├── orchestrator-providers/
 ├── orchestrator-store/
-├── orchestrator-web-api/
-├── orchestrator-web-contracts/
-├── orchestrator-web-server/
 ├── protocol/
 └── workflow-runner-v2/
 ```

@@ -40,12 +40,11 @@ Three transports today:
    registers tools that adapt typed `*Input` structs (with `schemars`-generated
    JSON Schema) into the same library functions the CLI calls. Documented in
    `docs/reference/mcp-tools.md`.
-3. **GraphQL** — schema + resolvers in `crates/orchestrator-web-api`, types
-   shared via `crates/orchestrator-web-contracts`. Today this is a parallel
-   codepath: handlers in `services/web_api_service/*_handlers.rs` take an
-   `&dyn ServiceHub` (the same `orchestrator-core::services::ServiceHub`
-   trait the CLI eventually hits) and call core service methods directly,
-   without going through `ops_*`.
+3. **GraphQL / HTTP / Web UI** — externalized as standalone plugins under
+   [`launchapp-dev`](https://github.com/launchapp-dev):
+   `animus-transport-http`, `animus-transport-graphql`, and `animus-web-ui`.
+   They consume the daemon's control RPC and surface it via their own
+   transports. The in-tree CLI no longer ships an axum stack.
 
 The operations exposed across these three transports overlap heavily:
 workflow management (run/list/get/pause/resume/cancel/phase-approve/decisions/
@@ -56,10 +55,9 @@ search/browse/update), queue (enqueue/list/hold/release/drop/reorder/stats),
 daemon control (start/stop/pause/resume/status/health/logs/events/config),
 plus project / requirements / vision / git / model / runner / output / history.
 
-CLI and MCP cover the full surface; GraphQL covers a subset focused on what the
-web UI in `crates/orchestrator-web-server/web-ui` consumes (projects, workflows,
-tasks, queue, requirements, skills, daemon, triggers, vision, reviews, event
-stream).
+CLI and MCP cover the full surface; the external GraphQL plugin covers a
+subset focused on what the web UI consumes (projects, workflows, tasks, queue,
+requirements, skills, daemon, triggers, vision, reviews, event stream).
 
 ## Target Phase 1 architecture
 
@@ -137,8 +135,8 @@ revisiting — e.g. derive the MCP tool + GraphQL field from a single
 
 ## Phase 2 (v0.5.x, out of scope here)
 
-- Extract the React UI in `crates/orchestrator-web-server/web-ui` to its own
-  repo, consuming the GraphQL surface as an external client.
+- React UI extracted to `launchapp-dev/animus-web-ui` (shipped in v0.4.12),
+  consuming the GraphQL surface as an external client.
 - Ship a versioned client SDK in TypeScript and Python, generated from the
   GraphQL schema (or from the `Request`/`Output` structs if we move to a
   schema-first approach like Smithy).

@@ -15,8 +15,8 @@ use orchestrator_notifications::{
 };
 
 use crate::{
-    print_ok, print_value, DaemonCommand, DaemonConfigArgs, DaemonEventsArgs, DaemonPreflightArgs, DaemonRunArgs,
-    DaemonStartArgs, DaemonStopArgs, DaemonStreamArgs, RunnerScopeArg,
+    print_ok, print_value, DaemonCommand, DaemonConfigArgs, DaemonEventsArgs, DaemonMetricsArgs, DaemonPreflightArgs,
+    DaemonRunArgs, DaemonStartArgs, DaemonStopArgs, DaemonStreamArgs, RunnerScopeArg,
 };
 
 mod control_routing;
@@ -728,7 +728,81 @@ pub(crate) async fn handle_daemon(
         }
         DaemonCommand::Config(args) => handle_daemon_config(args, project_root, json),
         DaemonCommand::Preflight(args) => handle_daemon_preflight(args, project_root, json).await,
+        DaemonCommand::Metrics(args) => handle_daemon_metrics(args, project_root, json).await,
     }
+}
+
+async fn handle_daemon_metrics(args: DaemonMetricsArgs, project_root: &str, json: bool) -> Result<()> {
+    let project_root_path = Path::new(project_root);
+    let interval = std::time::Duration::from_secs(args.interval_secs.max(1));
+    loop {
+        let snapshot = fetch_daemon_metrics_snapshot(project_root_path).await?;
+        render_daemon_metrics_snapshot(&snapshot, json, args.pretty)?;
+        if !args.watch {
+            return Ok(());
+        }
+        tokio::time::sleep(interval).await;
+        if args.pretty {
+            // Cheap clear-screen for a watchable dashboard. Operators piping
+            // to a file will pass --json without --pretty so this never runs.
+            print!("\x1B[2J\x1B[H");
+        }
+    }
+}
+
+async fn fetch_daemon_metrics_snapshot(
+    project_root: &Path,
+) -> Result<orchestrator_daemon_runtime::metrics::MetricsSnapshot> {
+    let client = orchestrator_daemon_runtime::control::ControlClient::try_connect(project_root)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("daemon is not running; metrics are only available while the daemon is up"))?;
+    client.daemon_metrics().await
+}
+
+fn render_daemon_metrics_snapshot(
+    snapshot: &orchestrator_daemon_runtime::metrics::MetricsSnapshot,
+    json: bool,
+    pretty_table: bool,
+) -> Result<()> {
+    if pretty_table {
+        println!("captured_at: {}", snapshot.captured_at);
+        println!("uptime_seconds: {}", snapshot.uptime_seconds);
+        if snapshot.counters.is_empty() {
+            println!("counters: (none)");
+        } else {
+            println!("counters:");
+            let mut rows: Vec<(&String, &u64)> = snapshot.counters.iter().collect();
+            rows.sort_by(|a, b| a.0.cmp(b.0));
+            let name_w = rows.iter().map(|(k, _)| k.len()).max().unwrap_or(4);
+            for (name, value) in rows {
+                println!("  {:<name_w$}  {}", name, value, name_w = name_w);
+            }
+        }
+        if snapshot.gauges.is_empty() {
+            println!("gauges: (none)");
+        } else {
+            println!("gauges:");
+            let mut rows: Vec<(&String, &f64)> = snapshot.gauges.iter().collect();
+            rows.sort_by(|a, b| a.0.cmp(b.0));
+            let name_w = rows.iter().map(|(k, _)| k.len()).max().unwrap_or(4);
+            for (name, value) in rows {
+                println!("  {:<name_w$}  {}", name, value, name_w = name_w);
+            }
+        }
+        if snapshot.histograms.is_empty() {
+            println!("histograms: (none)");
+        } else {
+            println!("histograms:");
+            let mut rows: Vec<(&String, &orchestrator_daemon_runtime::metrics::HistogramSummary)> =
+                snapshot.histograms.iter().collect();
+            rows.sort_by(|a, b| a.0.cmp(b.0));
+            for (name, h) in rows {
+                println!("  {}: count={} sum_seconds={:.6}", name, h.count, h.sum_seconds);
+            }
+        }
+        return Ok(());
+    }
+    print_value(snapshot, json)
 }
 
 async fn handle_daemon_stream(args: DaemonStreamArgs, project_root: &str) -> Result<()> {

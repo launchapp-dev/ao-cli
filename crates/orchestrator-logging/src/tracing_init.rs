@@ -7,7 +7,9 @@ use tracing_subscriber::{EnvFilter, Layer};
 /// Initialize tracing subscriber with unified configuration.
 ///
 /// # Configuration
-/// - `ANIMUS_LOG_JSON=1` enables JSON output format for machine-parseable logging
+/// - `ANIMUS_LOG_FORMAT=json` (or legacy `ANIMUS_LOG_JSON=1`) enables JSON
+///   output format for machine-parseable logging suitable for shipping to
+///   log aggregators (Vector, Loki, Splunk, etc.)
 /// - `RUST_LOG` env var controls log levels (defaults to provided default_filter)
 ///
 /// # Log Level Discipline
@@ -19,8 +21,8 @@ use tracing_subscriber::{EnvFilter, Layer};
 pub fn init_tracing(default_filter: &str) {
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter));
 
-    let json_format =
-        std::env::var("ANIMUS_LOG_JSON").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
+    let json_format = std::env::var("ANIMUS_LOG_FORMAT").map(|v| v.eq_ignore_ascii_case("json")).unwrap_or(false)
+        || std::env::var("ANIMUS_LOG_JSON").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
 
     if json_format {
         let json_layer = tracing_subscriber::fmt::layer()

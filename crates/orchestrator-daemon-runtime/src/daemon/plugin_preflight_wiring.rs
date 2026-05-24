@@ -44,6 +44,7 @@ pub async fn run_plugin_preflight<H: DaemonRunHooks>(
     }
 
     let installed = discover_installed_plugins(project_root).unwrap_or_default();
+    record_plugins_installed_gauge(&installed);
     let result = PluginPreflightRunner::run(&spec, installed, installer).await?;
 
     let _ = hooks.handle_event(DaemonRunEvent::PluginPreflight {
@@ -61,4 +62,16 @@ pub async fn run_plugin_preflight<H: DaemonRunHooks>(
 pub fn discover_installed_plugins(project_root: &str) -> Result<Vec<InstalledPluginSummary>> {
     let plugins = discover_plugins(Path::new(project_root))?;
     Ok(summarize_discovered_plugins(&plugins))
+}
+
+fn record_plugins_installed_gauge(installed: &[InstalledPluginSummary]) {
+    use std::collections::HashMap;
+    let mut by_kind: HashMap<&str, u64> = HashMap::new();
+    for p in installed {
+        *by_kind.entry(p.plugin_kind.as_str()).or_insert(0) += 1;
+    }
+    crate::metrics::set_gauge("plugins_installed_total", installed.len() as f64);
+    for (kind, count) in by_kind {
+        crate::metrics::set_gauge(&crate::metrics::labeled("plugins_installed", &[("kind", kind)]), count as f64);
+    }
 }

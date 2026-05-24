@@ -114,6 +114,22 @@ impl WorkflowEventBroadcaster {
     /// `tracing::warn!` recorded; the broadcaster continues to fan out
     /// to the remaining subscribers.
     pub fn emit(&self, event: WorkflowEvent) -> usize {
+        crate::metrics::incr(&crate::metrics::labeled("subscription_events_total", &[("kind", event.kind.as_str())]));
+        match event.kind.as_str() {
+            "workflow_completed" => {
+                crate::metrics::incr(&crate::metrics::labeled("workflow_runs_total", &[("status", "completed")]));
+            }
+            "workflow_failed" => {
+                crate::metrics::incr(&crate::metrics::labeled("workflow_runs_total", &[("status", "failed")]));
+            }
+            "phase_completed" => {
+                crate::metrics::incr(&crate::metrics::labeled("phase_executions_total", &[("status", "completed")]));
+            }
+            "phase_failed" => {
+                crate::metrics::incr(&crate::metrics::labeled("phase_executions_total", &[("status", "failed")]));
+            }
+            _ => {}
+        }
         let mut delivered = 0usize;
         let mut closed_ids: Vec<SubscriptionId> = Vec::new();
         {
@@ -221,6 +237,31 @@ mod tests {
         let b = rx.recv().await.unwrap();
         assert_eq!(a.kind, "phase_started");
         assert_eq!(b.kind, "phase_completed");
+    }
+
+    #[tokio::test]
+    async fn broadcaster_emit_records_metrics() {
+        let before_completed =
+            crate::metrics::snapshot().counters.get("workflow_runs_total{status=completed}").copied().unwrap_or(0);
+        let before_subscription = crate::metrics::snapshot()
+            .counters
+            .get("subscription_events_total{kind=workflow_completed}")
+            .copied()
+            .unwrap_or(0);
+
+        let bus = WorkflowEventBroadcaster::new();
+        bus.emit(evt("wf-metric", "workflow_completed"));
+
+        let after = crate::metrics::snapshot();
+        assert!(
+            after.counters.get("workflow_runs_total{status=completed}").copied().unwrap_or(0) > before_completed,
+            "workflow_runs_total{{status=completed}} must increment"
+        );
+        assert!(
+            after.counters.get("subscription_events_total{kind=workflow_completed}").copied().unwrap_or(0)
+                > before_subscription,
+            "subscription_events_total{{kind=workflow_completed}} must increment"
+        );
     }
 
     #[tokio::test]

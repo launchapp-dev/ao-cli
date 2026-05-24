@@ -2,6 +2,7 @@ pub mod control;
 mod daemon;
 mod dispatch;
 mod log_storage;
+pub mod metrics;
 mod queue;
 mod schedule;
 mod subject_dispatch;

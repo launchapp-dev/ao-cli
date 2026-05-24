@@ -389,6 +389,48 @@ async fn daemon_status_round_trip() {
 }
 
 #[tokio::test]
+async fn daemon_metrics_round_trip_emits_snapshot() {
+    tokio::time::timeout(TEST_TIMEOUT, async {
+        crate::metrics::global().incr_counter("workflow_runs_total{status=completed}");
+        crate::metrics::global().incr_counter_by("phase_executions_total{status=completed}", 4);
+        crate::metrics::global().set_gauge("workflow_in_flight", 2.0);
+
+        let test_surface = Arc::new(TestSurface::new());
+        let surface: Arc<dyn ControlSurface> = test_surface.clone();
+        let handle = ControlServer::start_with_socket(short_test_socket(), surface).await.unwrap();
+
+        let stream = UnixStream::connect(handle.socket_path()).await.unwrap();
+        let (read_half, mut write_half) = tokio::io::split(stream);
+        let mut reader = BufReader::new(read_half);
+
+        let request = RpcRequest::new(42, "daemon/metrics", None);
+        send_frame(&mut write_half, &request).await.unwrap();
+
+        let value = read_frame_value(&mut reader).await.unwrap();
+        let response: RpcResponse = serde_json::from_value(value).unwrap();
+        assert_eq!(response.id, Some(json!(42)));
+        assert!(response.error.is_none(), "expected ok, got {:?}", response.error);
+        let result = response.result.expect("metrics result present");
+        let snapshot: crate::metrics::MetricsSnapshot = serde_json::from_value(result).unwrap();
+        assert!(
+            snapshot.counters.get("workflow_runs_total{status=completed}").copied().unwrap_or(0) >= 1,
+            "counter must be at least 1, got {:?}",
+            snapshot.counters.get("workflow_runs_total{status=completed}")
+        );
+        assert!(
+            snapshot.counters.get("phase_executions_total{status=completed}").copied().unwrap_or(0) >= 4,
+            "phase counter must be at least 4, got {:?}",
+            snapshot.counters.get("phase_executions_total{status=completed}")
+        );
+        assert!(snapshot.gauges.contains_key("daemon_uptime_seconds"));
+
+        handle.shutdown().await.unwrap();
+    })
+    .await
+    .expect("test timed out");
+}
+
+#[tokio::test]
 async fn subject_list_routes_to_surface() {
     tokio::time::timeout(TEST_TIMEOUT, async {
         let canned = SubjectListResponse { subjects: Vec::new(), next_cursor: None, fetched_at: chrono::Utc::now() };

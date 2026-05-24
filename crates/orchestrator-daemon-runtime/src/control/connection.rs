@@ -415,6 +415,16 @@ async fn invoke_surface(
             surface.project_status().await.map(|r| Some(serialize_result(r))).map_err(rpc_from_control)
         }
 
+        // ----- Daemon metrics (in-tree only; v0.4.12 observability) ---
+        // Not part of the upstream animus-control-protocol v0.1.10 surface;
+        // adding it as a wire string keeps the lift to "ship today" without
+        // requiring a v0.1.11 protocol cascade. CLI clients use the raw
+        // call surface; external operators can `printf` a JSON-RPC frame.
+        "daemon/metrics" => {
+            let snapshot = crate::metrics::snapshot();
+            Ok(Some(serialize_result(snapshot)))
+        }
+
         unknown => Err(RpcError {
             code: error_codes::METHOD_NOT_FOUND,
             message: format!("unknown control method: {unknown}"),

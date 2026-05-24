@@ -33,6 +33,8 @@ pub(crate) enum DaemonCommand {
     /// Report plugin preflight status (which required plugins are installed,
     /// which are missing, and the fix commands).
     Preflight(DaemonPreflightArgs),
+    /// Print daemon observability metrics (counters, gauges, histograms).
+    Metrics(DaemonMetricsArgs),
 }
 
 #[derive(Debug, Args)]
@@ -301,6 +303,22 @@ pub(crate) struct DaemonStreamArgs {
     #[arg(long, action = ArgAction::SetTrue, help = "Print recent entries and exit without streaming.")]
     pub(crate) no_follow: bool,
     #[arg(long, action = ArgAction::SetTrue, help = "Pretty-print with colors and formatting instead of raw JSON.")]
+    pub(crate) pretty: bool,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct DaemonMetricsArgs {
+    #[arg(long, action = ArgAction::SetTrue, help = "Continuously refresh and reprint the snapshot.")]
+    pub(crate) watch: bool,
+    #[arg(
+        long,
+        value_name = "SECONDS",
+        default_value_t = 5,
+        value_parser = parse_positive_u64,
+        help = "Refresh interval in seconds when --watch is set."
+    )]
+    pub(crate) interval_secs: u64,
+    #[arg(long, action = ArgAction::SetTrue, help = "Render a human-readable table instead of raw JSON.")]
     pub(crate) pretty: bool,
 }
 

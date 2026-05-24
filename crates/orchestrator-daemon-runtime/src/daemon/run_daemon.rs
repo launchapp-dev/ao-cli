@@ -254,9 +254,17 @@ fn drain_trigger_events<H: DaemonRunHooks>(
                 DaemonRunEvent::TriggerPluginsStarted { project_root: primary_root.to_string(), plugin_count }
             }
             TriggerSupervisorEvent::StartFailed { plugin_name, error } => {
+                crate::metrics::incr(&crate::metrics::labeled(
+                    "plugin_start_failures_total",
+                    &[("plugin", plugin_name.as_str())],
+                ));
                 DaemonRunEvent::TriggerPluginStartFailed { project_root: primary_root.to_string(), plugin_name, error }
             }
             TriggerSupervisorEvent::Event { plugin_name, event_id, trigger_id, routed } => {
+                crate::metrics::incr(&crate::metrics::labeled(
+                    "trigger_events_total",
+                    &[("plugin", plugin_name.as_str()), ("routed", if routed { "true" } else { "false" })],
+                ));
                 DaemonRunEvent::TriggerPluginEvent {
                     project_root: primary_root.to_string(),
                     plugin_name,
@@ -266,6 +274,10 @@ fn drain_trigger_events<H: DaemonRunHooks>(
                 }
             }
             TriggerSupervisorEvent::Restart { plugin_name, attempt, delay_ms } => {
+                crate::metrics::incr(&crate::metrics::labeled(
+                    "plugin_restarts_total",
+                    &[("plugin", plugin_name.as_str())],
+                ));
                 DaemonRunEvent::TriggerPluginRestart {
                     project_root: primary_root.to_string(),
                     plugin_name,
@@ -273,12 +285,18 @@ fn drain_trigger_events<H: DaemonRunHooks>(
                     delay_ms,
                 }
             }
-            TriggerSupervisorEvent::Crashed { plugin_name, attempts, error } => DaemonRunEvent::TriggerPluginCrashed {
-                project_root: primary_root.to_string(),
-                plugin_name,
-                attempts,
-                error,
-            },
+            TriggerSupervisorEvent::Crashed { plugin_name, attempts, error } => {
+                crate::metrics::incr(&crate::metrics::labeled(
+                    "plugin_disabled_total",
+                    &[("plugin", plugin_name.as_str())],
+                ));
+                DaemonRunEvent::TriggerPluginCrashed {
+                    project_root: primary_root.to_string(),
+                    plugin_name,
+                    attempts,
+                    error,
+                }
+            }
         };
         hooks.handle_event(daemon_event)?;
     }

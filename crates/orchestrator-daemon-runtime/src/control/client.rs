@@ -233,6 +233,14 @@ impl ControlClient {
         self.call::<Value, _>(method_names::METHOD_DAEMON_AGENTS, Value::Null).await
     }
 
+    /// Call `daemon/metrics` — in-tree only RPC method (not part of the
+    /// upstream control protocol v0.1.10 surface). Returns the metrics
+    /// snapshot as raw JSON so the CLI can render it without depending
+    /// on the metrics struct shape directly.
+    pub async fn daemon_metrics(&self) -> Result<crate::metrics::MetricsSnapshot> {
+        self.call::<Value, _>("daemon/metrics", Value::Null).await
+    }
+
     // ----- Workflow convenience methods ------------------------------
 
     /// Call `workflow/list`.

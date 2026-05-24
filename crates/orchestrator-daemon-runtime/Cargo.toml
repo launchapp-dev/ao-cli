@@ -20,14 +20,14 @@ orchestrator-core = { workspace = true }
 orchestrator-logging = { workspace = true }
 orchestrator-plugin-host = { workspace = true }
 animus-plugin-protocol = { workspace = true }
-animus-control-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.10" }
-animus-log-storage-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.10" }
+animus-control-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.11" }
+animus-log-storage-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.11" }
 # We use Subject / SubjectChangedEvent from the same v0.1.10 surface the
 # control-protocol references. Pulled from the same git tag so the
 # protocol versions stay in lockstep; the in-tree
 # `animus-subject-protocol` 0.1.0 remains the version subject backends /
 # inproc adapters use, and the daemon translates at the boundary.
-animus-subject-protocol-wire = { package = "animus-subject-protocol", git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.10" }
+animus-subject-protocol-wire = { package = "animus-subject-protocol", git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.11" }
 protocol = { workspace = true }
 regex = "1"
 serde = { version = "1.0", features = ["derive"] }
@@ -43,7 +43,7 @@ workflow-runner-v2 = { path = "../workflow-runner-v2" }
 protocol = { workspace = true, features = ["test-utils"] }
 tempfile = "3"
 tokio = { version = "1", features = ["io-util", "macros", "process", "rt", "signal", "test-util", "time"] }
-animus-control-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.10", features = ["client"] }
+animus-control-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.11", features = ["client"] }
 
 [lints]
 workspace = true

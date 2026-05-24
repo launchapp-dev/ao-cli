@@ -238,9 +238,9 @@ pub(crate) async fn handle_plugin(command: PluginCommand, project_root: &str, js
 /// flip in the optional groups below.
 const DEFAULT_PROVIDER_PLUGINS: &[(&str, &str)] = &[
     ("launchapp-dev/animus-provider-claude", "v0.2.1"),
-    ("launchapp-dev/animus-provider-codex", "v0.2.1"),
-    ("launchapp-dev/animus-provider-gemini", "v0.2.1"),
-    ("launchapp-dev/animus-provider-opencode", "v0.2.1"),
+    ("launchapp-dev/animus-provider-codex", "v0.2.2"),
+    ("launchapp-dev/animus-provider-gemini", "v0.2.2"),
+    ("launchapp-dev/animus-provider-opencode", "v0.2.2"),
     ("launchapp-dev/animus-provider-oai", "v0.2.1"),
 ];
 

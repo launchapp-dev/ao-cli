@@ -523,8 +523,7 @@ mod tests {
     #[cfg(unix)]
     async fn spawn_session_process_bridges_claude_events() {
         let run_id = RunId("run-claude".to_string());
-        let claude_fixture =
-            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/claude_real.jsonl");
+        let claude_fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/claude_real.jsonl");
         let runtime_contract = json!({
             "cli": {
                 "name": "claude",
@@ -676,24 +675,9 @@ mod tests {
     #[cfg(unix)]
     async fn spawn_session_process_bridges_codex_gemini_and_oai_runner_events() {
         for (tool, fixture, expect_metadata, expect_thinking) in [
-            (
-                "codex",
-                concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/codex_real.jsonl"),
-                true,
-                true,
-            ),
-            (
-                "gemini",
-                concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/gemini_real.jsonl"),
-                true,
-                false,
-            ),
-            (
-                "oai-runner",
-                concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/oai_runner_real.jsonl"),
-                false,
-                false,
-            ),
+            ("codex", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/codex_real.jsonl"), true, true),
+            ("gemini", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/gemini_real.jsonl"), true, false),
+            ("oai-runner", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/oai_runner_real.jsonl"), false, false),
         ] {
             let run_id = RunId(format!("run-{tool}"));
             let runtime_contract = json!({

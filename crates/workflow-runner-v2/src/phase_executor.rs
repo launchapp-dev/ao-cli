@@ -539,14 +539,30 @@ pub async fn run_workflow_phase_attempt(
         }
     }
 
-    if outcome.is_ok() {
-        if let Err(err) = crate::phase_session::update_session_completed(&scoped_state_root, workflow_id, phase_id) {
-            warn!(
-                workflow_id = %workflow_id,
-                phase_id = %phase_id,
-                %err,
-                "failed to mark session checkpoint as completed"
-            );
+    match &outcome {
+        Ok(_) => {
+            if let Err(err) = crate::phase_session::update_session_completed(&scoped_state_root, workflow_id, phase_id)
+            {
+                warn!(
+                    workflow_id = %workflow_id,
+                    phase_id = %phase_id,
+                    %err,
+                    "failed to mark session checkpoint as completed"
+                );
+            }
+        }
+        Err(stream_err) => {
+            let reason = format!("phase event stream failed: {stream_err}");
+            if let Err(err) =
+                crate::phase_session::update_session_failed(&scoped_state_root, workflow_id, phase_id, &reason)
+            {
+                warn!(
+                    workflow_id = %workflow_id,
+                    phase_id = %phase_id,
+                    %err,
+                    "failed to mark session checkpoint as failed"
+                );
+            }
         }
     }
     outcome

@@ -136,7 +136,7 @@ pub(super) async fn spawn_session_process(
         }
     }
 
-    let run_session_id = run.session_id.clone();
+    let mut run_session_id = run.session_id.clone();
     if let Some(ref session_id) = run_session_id {
         if let Err(err) = persist_run_session_sidecar(run_id, session_id, tool) {
             warn!(
@@ -171,6 +171,29 @@ pub(super) async fn spawn_session_process(
 
                 if !matches!(event, SessionEvent::Started { .. }) {
                     last_activity_at = Instant::now();
+                }
+
+                // Plugin-backed providers initially expose a host-local
+                // control_session_id via `SessionRun.session_id`, then emit a
+                // second `Started` event carrying the plugin's REAL
+                // session_id once the agent/run response arrives. Re-persist
+                // the sidecar (and update the local cache used for cancel /
+                // idle-terminate) so downstream resume reads the provider's
+                // real id instead of the host's control id.
+                if let SessionEvent::Started { session_id: Some(emitted_sid), .. } = &event {
+                    let emitted_trimmed = emitted_sid.trim();
+                    if !emitted_trimmed.is_empty()
+                        && run_session_id.as_deref().map(str::trim) != Some(emitted_trimmed)
+                    {
+                        if let Err(err) = persist_run_session_sidecar(run_id, emitted_trimmed, tool) {
+                            warn!(
+                                run_id = %run_id.0.as_str(),
+                                %err,
+                                "Failed to refresh native session sidecar with provider id"
+                            );
+                        }
+                        run_session_id = Some(emitted_trimmed.to_string());
+                    }
                 }
 
                 if let Some(exit_code) = forward_session_event(run_id, &event, &event_tx).await {

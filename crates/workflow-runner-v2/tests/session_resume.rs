@@ -4,8 +4,8 @@ use serde_json::json;
 use tempfile::TempDir;
 use workflow_runner_v2::phase_session::{
     list_running_checkpoints, lookup_runner_session_sidecar, phase_session_path, read_checkpoint,
-    update_provider_session_id, update_session_blocked, update_session_completed, update_session_running,
-    write_session_pending, SessionCheckpointStatus,
+    update_provider_session_id, update_session_blocked, update_session_completed, update_session_failed,
+    update_session_running, write_session_pending, SessionCheckpointStatus,
 };
 
 fn sidecar_env_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -162,6 +162,40 @@ fn lookup_runner_session_sidecar_returns_none_for_missing_or_empty() {
     let sid = lookup_runner_session_sidecar("run-empty");
     std::env::remove_var("ANIMUS_RUNNER_SESSION_DIR");
     assert!(sid.is_none(), "empty/whitespace session_id is treated as missing");
+}
+
+#[test]
+fn failed_phase_checkpoint_does_not_get_auto_resumed_on_restart() {
+    let temp = TempDir::new().expect("tempdir");
+    let scoped = temp.path();
+    let workflow_id = "wf-failed";
+    let phase_id = "impl";
+
+    // Seed Running -> Failed (mirrors phase_executor's new Err path: the
+    // agent stream returned an error, so we mark the checkpoint Failed
+    // with the upstream reason).
+    write_session_pending(scoped, workflow_id, phase_id, "claude", "run-failed", None).expect("pending");
+    update_session_running(scoped, workflow_id, phase_id).expect("running");
+    update_provider_session_id(scoped, workflow_id, phase_id, "sess-real").expect("provider sid");
+    update_session_failed(scoped, workflow_id, phase_id, "agent exited 137").expect("mark failed");
+
+    let after = read_checkpoint(scoped, workflow_id, phase_id).expect("read").expect("present");
+    assert_eq!(
+        after.status,
+        SessionCheckpointStatus::Failed,
+        "Err from process_phase_event_stream must transition the checkpoint to terminal Failed"
+    );
+    assert!(after.blocked_reason.as_deref().unwrap_or("").contains("agent exited 137"));
+    assert!(after.completed_at.is_some(), "Failed is terminal; completed_at must be set");
+
+    // The daemon's auto-resume scan only enumerates Running checkpoints —
+    // Failed phases stay out so the daemon does not try to resume a dead
+    // run on restart.
+    let running = list_running_checkpoints(scoped).expect("list running");
+    assert!(
+        running.iter().all(|(_, cp)| cp.workflow_id != workflow_id || cp.phase_id != phase_id),
+        "Failed checkpoint must NOT appear in list_running_checkpoints (auto-resume MUST skip it)"
+    );
 }
 
 #[tokio::test]

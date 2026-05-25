@@ -84,6 +84,28 @@ where
 
     hooks.handle_event(DaemonRunEvent::Startup { project_root: primary_root.clone(), daemon_pid })?;
 
+    // Preflight BEFORE flipping persisted daemon status to Running. A first-time
+    // `animus daemon start` whose preflight fails must not leave behind a stale
+    // "running" record that future `daemon status` calls report as live.
+    let mut preflight_spec = hooks.plugin_preflight_spec();
+    if options.auto_install_plugins {
+        preflight_spec.auto_install = true;
+    }
+    let installer = hooks.plugin_installer();
+    let preflight_outcome = run_plugin_preflight(
+        project_root,
+        &primary_root,
+        preflight_spec,
+        installer.as_deref(),
+        options.skip_plugin_preflight,
+        hooks,
+    )
+    .await?;
+    if preflight_outcome.should_abort_startup() {
+        let message = preflight_outcome.result.render_missing_message();
+        return Err(anyhow::anyhow!("{message}"));
+    }
+
     let initial_status = hooks.daemon_status(&primary_root).await?;
     let mut stop_daemon_on_exit = false;
     if !matches!(initial_status, DaemonStatus::Running | DaemonStatus::Paused) {
@@ -104,25 +126,6 @@ where
                 orphaned_workflows_recovered: startup_orphans,
             })?;
         }
-    }
-
-    let mut preflight_spec = hooks.plugin_preflight_spec();
-    if options.auto_install_plugins {
-        preflight_spec.auto_install = true;
-    }
-    let installer = hooks.plugin_installer();
-    let preflight_outcome = run_plugin_preflight(
-        project_root,
-        &primary_root,
-        preflight_spec,
-        installer.as_deref(),
-        options.skip_plugin_preflight,
-        hooks,
-    )
-    .await?;
-    if preflight_outcome.should_abort_startup() {
-        let message = preflight_outcome.result.render_missing_message();
-        return Err(anyhow::anyhow!("{message}"));
     }
 
     discover_plugins_for_daemon(project_root, &primary_root, hooks)?;

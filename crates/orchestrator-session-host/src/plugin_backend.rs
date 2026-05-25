@@ -557,6 +557,16 @@ impl PluginSessionBackend {
                 let output = response.get("output").and_then(Value::as_str).unwrap_or_default().to_string();
                 let metadata = response.get("metadata").cloned().unwrap_or(Value::Null);
 
+                if let Some(provider_sid) = extract_provider_session_id(&response) {
+                    let _ = stream_tx
+                        .send(SessionEvent::Started {
+                            backend: backend_label_for_task.clone(),
+                            session_id: Some(provider_sid),
+                            pid: None,
+                        })
+                        .await;
+                }
+
                 if !output.is_empty() {
                     let _ = stream_tx.send(SessionEvent::FinalText { text: output }).await;
                 }
@@ -867,6 +877,17 @@ async fn run_request_with_notifications(
         Some(Err(error)) => ResponseOutcome::Err(error),
         None => ResponseOutcome::Timeout,
     }
+}
+
+/// Extract the provider plugin's own `session_id` from an `agent/run`
+/// response payload. The plugin runtime serializes it under the top-level
+/// `session_id` key (see animus_plugin_runtime::handle_agent_run). The
+/// caller surfaces this value into a follow-up `SessionEvent::Started` so
+/// the agent-runner sidecar replaces its initial control_session_id with
+/// the plugin's real id — daemon-restart resume then dispatches a session
+/// id the plugin process actually issued.
+fn extract_provider_session_id(response: &Value) -> Option<String> {
+    response.get("session_id").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(ToOwned::to_owned)
 }
 
 /// Translate a JSON-RPC notification emitted by a provider plugin into the
@@ -1187,5 +1208,47 @@ mod tests {
             data: None,
         });
         assert_eq!(classify(&plugin_side), RetryDecision::StructuredError);
+    }
+
+    /// The plugin runtime serializes the provider's own session_id under the
+    /// top-level `session_id` key of every agent/run response (see
+    /// animus_plugin_runtime::handle_agent_run). The session-host MUST
+    /// surface that value verbatim into the follow-up `Started` event so the
+    /// agent-runner persists the plugin's real id — never the host-local
+    /// control_session_id. Regression test for the codex round-3 P2 finding.
+    #[test]
+    fn plugin_backed_provider_returns_provider_session_id_not_control_id() {
+        let plugin_response = json!({
+            "session_id": "sess-plugin-real",
+            "output": "ok",
+            "exit_code": 0,
+        });
+        let extracted = extract_provider_session_id(&plugin_response);
+        assert_eq!(
+            extracted.as_deref(),
+            Some("sess-plugin-real"),
+            "extractor must return the plugin's session_id from the response payload"
+        );
+
+        let control_session_id = Uuid::new_v4().to_string();
+        assert_ne!(
+            extracted.as_deref(),
+            Some(control_session_id.as_str()),
+            "extractor must NOT return a freshly-minted control_session_id"
+        );
+
+        // Whitespace / empty / missing all degrade to None so the dispatch
+        // path skips the follow-up Started emission rather than persisting
+        // an unusable id.
+        assert!(extract_provider_session_id(&json!({})).is_none(), "missing session_id => None");
+        assert!(extract_provider_session_id(&json!({"session_id": ""})).is_none(), "empty session_id => None");
+        assert!(
+            extract_provider_session_id(&json!({"session_id": "   "})).is_none(),
+            "whitespace-only session_id => None"
+        );
+        assert!(
+            extract_provider_session_id(&json!({"session_id": 42})).is_none(),
+            "non-string session_id => None (would otherwise leak a junk id into the sidecar)"
+        );
     }
 }

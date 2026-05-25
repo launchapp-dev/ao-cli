@@ -140,6 +140,18 @@ pub fn update_session_blocked(scoped_root: &Path, workflow_id: &str, phase_id: &
     })
 }
 
+// Marks a checkpoint terminally Failed after the phase event stream returned
+// an Err (agent crash, non-zero exit, transport disconnect). Distinct from
+// Blocked so `list_running_checkpoints` does not surface it for daemon-restart
+// auto-resume — the run is over, not paused waiting for input.
+pub fn update_session_failed(scoped_root: &Path, workflow_id: &str, phase_id: &str, reason: &str) -> io::Result<()> {
+    mutate(scoped_root, workflow_id, phase_id, |checkpoint| {
+        checkpoint.status = SessionCheckpointStatus::Failed;
+        checkpoint.blocked_reason = Some(reason.to_string());
+        checkpoint.completed_at = Some(Utc::now().to_rfc3339());
+    })
+}
+
 // Best-effort lookup of the provider plugin's external session id from the
 // runner-sessions sidecar the agent-runner writes when a native session
 // backend produces a `Started { session_id }` event. Returns None when the

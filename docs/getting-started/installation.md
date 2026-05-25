@@ -113,7 +113,7 @@ animus plugin install-defaults --include-subjects --include-transports
 
 This installs:
 
-- 5 providers (`animus-provider-{claude,codex,gemini,opencode,oai}` v0.2.1) — daemon requires at least one
+- 5 providers (`animus-provider-claude` v0.2.1, `animus-provider-{codex,gemini,opencode}` v0.2.2, `animus-provider-oai` v0.2.1) — daemon requires at least one
 - 5 subject backends (`animus-subject-{default,requirements,linear,sqlite,markdown}` v0.1.0) — daemon requires `default` for `kind=task` and `requirements` for `kind=requirement`
 - 3 transport + UI plugins (`animus-transport-{http,graphql}` + `animus-web-ui`) — required for `animus web serve`
 

@@ -362,7 +362,8 @@ animus plugin install-defaults --include-subjects
 | `--json` | Emit per-plugin results + summary as JSON |
 
 The command pins each install to a specific release tag (currently `v0.2.1` for
-providers, `v0.1.2` for `oai-agent`, `v0.1.1`/`v0.1.4`/`v0.1.6` for subjects,
+`claude`/`oai` providers, `v0.2.2` for `codex`/`gemini`/`opencode` providers,
+`v0.1.2` for `oai-agent`, `v0.1.1`/`v0.1.4`/`v0.1.6` for subjects,
 `v0.2.0`/`v0.2.3`/`v0.1.0` for transports). Versions live in
 [`crates/orchestrator-core/src/plugin_registry.rs`](../../../crates/orchestrator-core/src/plugin_registry.rs)
 and are shared with the daemon preflight, so bumping the registry rolls both

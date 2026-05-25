@@ -127,6 +127,62 @@ async fn preflight_satisfied_when_subject_backend_covers_all_required_kinds() {
     assert_eq!(result.satisfied.len(), 3);
 }
 
+// Codex round-4 P2: curated provider repos (launchapp-dev/animus-provider-*)
+// claim reserved tool names (claude / codex / ...). The bare install command
+// is rejected by enforce_provider_tool_policy. The preflight fix string MUST
+// include --allow-shadow-builtin so following the printed advice actually
+// succeeds.
+#[tokio::test]
+async fn provider_missing_preflight_suggests_command_that_actually_works() {
+    let spec = PluginPreflightSpec::daemon_default();
+    let result = PluginPreflightRunner::run(&spec, Vec::new(), None).await.expect("preflight run");
+
+    let provider_missing =
+        result.missing.iter().find(|m| m.role == "at_least_one_provider").expect("provider role missing");
+    assert!(
+        provider_missing.fix_command.contains("--allow-shadow-builtin"),
+        "fix command MUST include --allow-shadow-builtin (curated provider repos shadow built-in tools), \
+         got: {}",
+        provider_missing.fix_command
+    );
+    assert!(
+        provider_missing.fix_command.contains("animus plugin install"),
+        "fix command must still be an install invocation: {}",
+        provider_missing.fix_command
+    );
+
+    let subject_missing =
+        result.missing.iter().find(|m| m.role.starts_with("subject_kind:")).expect("subject role missing");
+    assert!(
+        subject_missing.fix_command.contains("--allow-shadow-builtin"),
+        "subject fix command also includes --allow-shadow-builtin so a curated subject backend install \
+         that shadows a built-in adapter is accepted: {}",
+        subject_missing.fix_command
+    );
+}
+
+#[tokio::test]
+async fn auto_install_failure_fix_command_includes_allow_shadow_builtin() {
+    let spec = PluginPreflightSpec {
+        required_roles: vec![RequiredRole::SubjectKind("task".to_string())],
+        auto_install: true,
+        auto_install_defaults: vec![(
+            "subject_kind:task".to_string(),
+            "launchapp-dev/animus-subject-broken@v0.1.0".to_string(),
+        )],
+    };
+    let installer = FakeInstaller::new(vec![subject_plugin("animus-subject-broken", &["unrelated"])]);
+
+    let result = PluginPreflightRunner::run(&spec, Vec::new(), Some(&installer)).await.expect("preflight run");
+
+    assert_eq!(result.missing.len(), 1);
+    assert!(
+        result.missing[0].fix_command.contains("--allow-shadow-builtin"),
+        "post-auto-install fix command MUST also advertise --allow-shadow-builtin: {}",
+        result.missing[0].fix_command
+    );
+}
+
 #[test]
 fn install_target_for_resolves_role_labels_to_repo_specs() {
     let spec = PluginPreflightSpec::daemon_default();

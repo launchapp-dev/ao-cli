@@ -80,6 +80,35 @@ impl ResumeProviderRegistry for ProductionResumeProviderRegistry {
     }
 }
 
+// Returns the set of workflow_ids that have a Running session checkpoint
+// with a captured provider_session_id — i.e. workflows that
+// auto_resume_running_checkpoints can actually attempt to resume. These
+// must be excluded from orphan recovery at daemon startup; otherwise
+// recover_orphaned_running_workflows would cancel them before the resume
+// pass ever runs. Returns an empty set when the scoped state root is
+// missing or the checkpoint listing fails — safer than over-shielding.
+pub(super) fn resumable_workflow_ids_for_project(project_root: &str) -> std::collections::HashSet<String> {
+    let scoped_root = match protocol::repository_scope::scoped_state_root(std::path::Path::new(project_root)) {
+        Some(root) => root,
+        None => return std::collections::HashSet::new(),
+    };
+    let items = match list_running_checkpoints(&scoped_root) {
+        Ok(items) => items,
+        Err(_) => return std::collections::HashSet::new(),
+    };
+    items
+        .into_iter()
+        .filter_map(|(_, checkpoint)| {
+            let has_sid = checkpoint.provider_session_id.as_deref().map(str::trim).filter(|s| !s.is_empty()).is_some();
+            if has_sid {
+                Some(checkpoint.workflow_id)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 pub(super) async fn auto_resume_running_checkpoints<R: ResumeProviderRegistry + ?Sized>(
     scoped_root: &Path,
     registry: &R,
@@ -234,10 +263,18 @@ impl DaemonRunHooks for CliDaemonRunHost {
 
     async fn recover_startup_orphans(&mut self, project_root: &str) -> Result<usize> {
         let startup_hub = Arc::new(FileServiceHub::new(project_root)?);
+
+        // Resume-before-orphan-cancel: shield workflows that hold a
+        // resumable Running session checkpoint from the orphan sweep.
+        // Otherwise recover_orphaned_running_workflows cancels every
+        // persisted Running workflow before the auto-resume pass runs,
+        // and resume has nothing left to recover. See codex round-4 P2.
+        let resumable_workflow_ids = resumable_workflow_ids_for_project(project_root);
+
         let orphans = recover_orphaned_running_workflows(
             startup_hub as Arc<dyn ServiceHub>,
             project_root,
-            &std::collections::HashSet::new(),
+            &resumable_workflow_ids,
         )
         .await;
 
@@ -828,6 +865,87 @@ mod tests {
             let req = PluginInstallRequest::default();
             assert!(!req.allow_shadow_builtin, "default user request MUST keep the reserved-name guard active");
             assert!(!req.yes, "default user request MUST keep TOFU prompts on");
+        }
+    }
+
+    mod resumable_orphan_shielding {
+        use super::super::resumable_workflow_ids_for_project;
+        use super::*;
+        use serde_json::json;
+        use workflow_runner_v2::phase_session::{
+            update_provider_session_id, update_session_running, write_session_pending,
+        };
+
+        // Codex round-4 P2: daemon restart MUST shield workflows with a
+        // resumable provider session id from the orphan-recovery sweep.
+        // Otherwise recover_orphaned_running_workflows cancels them before
+        // auto_resume_running_checkpoints runs, and resume has nothing to
+        // recover.
+        #[tokio::test]
+        async fn daemon_restart_resumes_workflow_with_provider_session_id_instead_of_cancelling() {
+            let _lock = lock_env();
+            let home_root = TempDir::new().expect("home temp dir");
+            let config_root = TempDir::new().expect("config temp dir");
+            let _config_guard =
+                EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
+            let _home_guard = EnvVarGuard::set("HOME", Some(home_root.path().to_string_lossy().as_ref()));
+            let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
+
+            let project = TempDir::new().expect("project temp dir");
+            let project_root = project.path().to_string_lossy().to_string();
+
+            let scoped_root =
+                protocol::repository_scope::scoped_state_root(project.path()).expect("scoped state root for project");
+
+            // Seed two checkpoints: one with a provider_session_id (resumable),
+            // one without (un-resumable). Only the first should appear in the
+            // shield set.
+            write_session_pending(
+                &scoped_root,
+                "wf-resumable",
+                "impl",
+                "claude",
+                "run-resumable",
+                Some(json!({"protocol_version": "1", "run_id": "run-resumable"})),
+            )
+            .expect("seed resumable pending");
+            update_session_running(&scoped_root, "wf-resumable", "impl").expect("seed resumable running");
+            update_provider_session_id(&scoped_root, "wf-resumable", "impl", "sess-real").expect("seed provider sid");
+
+            write_session_pending(
+                &scoped_root,
+                "wf-noid",
+                "impl",
+                "claude",
+                "run-noid",
+                Some(json!({"protocol_version": "1", "run_id": "run-noid"})),
+            )
+            .expect("seed noid pending");
+            update_session_running(&scoped_root, "wf-noid", "impl").expect("seed noid running");
+
+            let shielded = resumable_workflow_ids_for_project(&project_root);
+            assert!(
+                shielded.contains("wf-resumable"),
+                "workflow with provider_session_id MUST be shielded from orphan cancellation"
+            );
+            assert!(
+                !shielded.contains("wf-noid"),
+                "workflow without provider_session_id MUST NOT be shielded (nothing to resume)"
+            );
+            assert_eq!(shielded.len(), 1, "shield set contains exactly the resumable workflows");
+        }
+
+        #[test]
+        fn resumable_set_is_empty_when_no_checkpoints_exist() {
+            let _lock = lock_env();
+            let home_root = TempDir::new().expect("home temp dir");
+            let _home_guard = EnvVarGuard::set("HOME", Some(home_root.path().to_string_lossy().as_ref()));
+
+            let project = TempDir::new().expect("project temp dir");
+            let project_root = project.path().to_string_lossy().to_string();
+
+            let shielded = resumable_workflow_ids_for_project(&project_root);
+            assert!(shielded.is_empty(), "no checkpoints => empty shield set => orphan recovery proceeds normally");
         }
     }
 

@@ -1871,7 +1871,7 @@ async fn run_workflow_phase_inner(params: &PhaseRunParams<'_>) -> Result<PhaseRu
                     result_payload: Some(result_payload),
                 };
 
-                persist_phase_output(project_root, workflow_id, phase_id, &outcome)?;
+                persist_phase_output(project_root, workflow_id, phase_id, phase_attempt, &outcome)?;
 
                 return Ok(PhaseRunResult { model: None, tool: None, outcome, metadata, signals });
             }

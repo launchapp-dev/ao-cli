@@ -14,11 +14,22 @@ pub struct PhaseCompletionMarker {
     pub phase_id: String,
 }
 
-pub fn phase_completion_marker_path(project_root: &str, workflow_id: &str, phase_id: &str) -> PathBuf {
-    phase_output_dir(project_root, workflow_id).join(format!("{phase_id}.completed"))
+// Completion markers are keyed by phase attempt to prevent a Rework retry
+// from finding the previous attempt's marker and replaying its decision.
+// Pre-v0.4.7 markers (`<phase>.completed`, no attempt suffix) are
+// deliberately NOT honoured: on first daemon start after upgrade, in-flight
+// phases re-run once rather than risk replaying a stale Advance/Rework
+// decision against the wrong attempt counter. See codex round-4 P1.
+pub fn phase_completion_marker_path(project_root: &str, workflow_id: &str, phase_id: &str, attempt: u32) -> PathBuf {
+    phase_output_dir(project_root, workflow_id).join(format!("{phase_id}.attempt-{attempt}.completed"))
 }
 
-pub fn write_phase_completion_marker(project_root: &str, workflow_id: &str, phase_id: &str) -> std::io::Result<()> {
+pub fn write_phase_completion_marker(
+    project_root: &str,
+    workflow_id: &str,
+    phase_id: &str,
+    attempt: u32,
+) -> std::io::Result<()> {
     let dir = phase_output_dir(project_root, workflow_id);
     std::fs::create_dir_all(&dir)?;
     let marker = PhaseCompletionMarker {
@@ -28,8 +39,8 @@ pub fn write_phase_completion_marker(project_root: &str, workflow_id: &str, phas
     };
     let payload = serde_json::to_vec_pretty(&marker)
         .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))?;
-    let final_path = dir.join(format!("{phase_id}.completed"));
-    let tmp_path = dir.join(format!("{phase_id}.completed.{}.tmp", Uuid::new_v4()));
+    let final_path = dir.join(format!("{phase_id}.attempt-{attempt}.completed"));
+    let tmp_path = dir.join(format!("{phase_id}.attempt-{attempt}.completed.{}.tmp", Uuid::new_v4()));
     {
         use std::io::Write;
         let mut file = std::fs::File::create(&tmp_path)?;
@@ -40,8 +51,8 @@ pub fn write_phase_completion_marker(project_root: &str, workflow_id: &str, phas
     Ok(())
 }
 
-pub fn is_phase_completed(project_root: &str, workflow_id: &str, phase_id: &str) -> bool {
-    phase_completion_marker_path(project_root, workflow_id, phase_id).exists()
+pub fn is_phase_completed(project_root: &str, workflow_id: &str, phase_id: &str, attempt: u32) -> bool {
+    phase_completion_marker_path(project_root, workflow_id, phase_id, attempt).exists()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -140,6 +151,7 @@ pub fn persist_phase_output(
     project_root: &str,
     workflow_id: &str,
     phase_id: &str,
+    attempt: u32,
     outcome: &PhaseExecutionOutcome,
 ) -> anyhow::Result<()> {
     let dir = phase_output_dir(project_root, workflow_id);
@@ -186,7 +198,7 @@ pub fn persist_phase_output(
         file.sync_all()?;
     }
     std::fs::rename(&tmp_path, &file_path)?;
-    write_phase_completion_marker(project_root, workflow_id, phase_id)?;
+    write_phase_completion_marker(project_root, workflow_id, phase_id, attempt)?;
     Ok(())
 }
 
@@ -373,7 +385,7 @@ mod tests {
             result_payload: None,
         };
 
-        persist_phase_output(project_root, workflow_id, "research", &outcome).unwrap();
+        persist_phase_output(project_root, workflow_id, "research", 1, &outcome).unwrap();
 
         let output_file = phase_output_dir(project_root, workflow_id).join("research.json");
         assert!(output_file.exists());
@@ -414,7 +426,7 @@ mod tests {
             }),
             result_payload: None,
         };
-        persist_phase_output(project_root, workflow_id, "research", &research_outcome).unwrap();
+        persist_phase_output(project_root, workflow_id, "research", 1, &research_outcome).unwrap();
 
         let impl_outcome = PhaseExecutionOutcome::Completed {
             commit_message: Some("feat: implement feature".to_string()),
@@ -432,7 +444,7 @@ mod tests {
             }),
             result_payload: None,
         };
-        persist_phase_output(project_root, workflow_id, "implementation", &impl_outcome).unwrap();
+        persist_phase_output(project_root, workflow_id, "implementation", 1, &impl_outcome).unwrap();
 
         let pipeline_order = vec!["research".to_string(), "implementation".to_string(), "review".to_string()];
 
@@ -584,7 +596,7 @@ mod tests {
             }),
             result_payload: Some(serde_json::json!({"findings": ["pattern A"]})),
         };
-        persist_phase_output(project_root, workflow_id, "research", &research_outcome).unwrap();
+        persist_phase_output(project_root, workflow_id, "research", 1, &research_outcome).unwrap();
 
         let (json_str, phase_order) = build_workflow_pipeline_context(project_root, workflow_id, "code-review");
 

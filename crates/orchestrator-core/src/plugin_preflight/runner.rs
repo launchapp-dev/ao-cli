@@ -45,7 +45,7 @@ impl PluginPreflightRunner {
                     missing.push(MissingPlugin {
                         role: role_label,
                         fix_command: format!(
-                            "animus plugin install {repo_spec}  # auto-install ran but role still unsatisfied",
+                            "animus plugin install {repo_spec} --allow-shadow-builtin  # auto-install ran but role still unsatisfied",
                         ),
                     });
                     continue;
@@ -72,11 +72,20 @@ fn role_is_satisfied(role: &RequiredRole, installed: &[InstalledPluginSummary]) 
 
 fn fix_command_for(role: &RequiredRole, default_repo: Option<&str>) -> String {
     let target = default_repo.unwrap_or("<owner>/<repo>@<tag>");
+    // Curated provider repos (launchapp-dev/animus-provider-*) legitimately
+    // claim reserved in-tree provider tool names (claude, codex, ...). The
+    // bare `animus plugin install` form is rejected by
+    // enforce_provider_tool_policy, so the suggested fix must include
+    // --allow-shadow-builtin to actually succeed. Codex round-4 P2.
     match role {
-        RequiredRole::AtLeastOneProvider => format!("animus plugin install {target}  # any provider plugin"),
-        RequiredRole::SubjectKind(kind) => {
-            format!("animus plugin install {target}  # must claim subject_kind:{kind}")
+        RequiredRole::AtLeastOneProvider => {
+            format!("animus plugin install {target} --allow-shadow-builtin  # any provider plugin")
         }
-        RequiredRole::TransportEnabled => format!("animus plugin install {target}  # transport backend"),
+        RequiredRole::SubjectKind(kind) => {
+            format!("animus plugin install {target} --allow-shadow-builtin  # must claim subject_kind:{kind}")
+        }
+        RequiredRole::TransportEnabled => {
+            format!("animus plugin install {target} --allow-shadow-builtin  # transport backend")
+        }
     }
 }

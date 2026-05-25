@@ -309,7 +309,13 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
                 }
 
                 let phase_status = phase_result_status(&result.outcome);
-                let _ = persist_phase_output(&params.project_root, &workflow.id, &phase_filter, &result.outcome);
+                let _ = persist_phase_output(
+                    &params.project_root,
+                    &workflow.id,
+                    &phase_filter,
+                    phase_attempt,
+                    &result.outcome,
+                );
                 emit(PhaseEvent::Completed {
                     phase_id: &phase_filter,
                     duration: phase_elapsed,
@@ -408,7 +414,7 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
         let phase_id = phases_to_run[phase_idx].clone();
         let phase_attempt = workflow.phases.iter().find(|p| p.phase_id == phase_id).map(|p| p.attempt).unwrap_or(0);
 
-        if is_phase_completed(&params.project_root, &workflow.id, &phase_id) {
+        if is_phase_completed(&params.project_root, &workflow.id, &phase_id, phase_attempt) {
             match read_persisted_decision(&params.project_root, &workflow.id, &phase_id) {
                 Ok(decision) => {
                     let updated =
@@ -508,7 +514,13 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
                 // manual gate. The pause is itself durable via the task
                 // status update issued in the ManualPending arm below.
                 if !matches!(&result.outcome, PhaseExecutionOutcome::ManualPending { .. }) {
-                    let _ = persist_phase_output(&params.project_root, &workflow.id, &phase_id, &result.outcome);
+                    let _ = persist_phase_output(
+                        &params.project_root,
+                        &workflow.id,
+                        &phase_id,
+                        phase_attempt,
+                        &result.outcome,
+                    );
                 }
 
                 match &result.outcome {

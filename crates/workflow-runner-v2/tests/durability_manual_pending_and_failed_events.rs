@@ -63,12 +63,12 @@ fn marker_not_written_for_manual_pending_outcome() {
     };
     let manual_pending = matches!(outcome, PhaseExecutionOutcome::ManualPending { .. });
     if !manual_pending {
-        persist_phase_output(&project_root, workflow_id, phase_id, &outcome).expect("persist");
+        persist_phase_output(&project_root, workflow_id, phase_id, 1, &outcome).expect("persist");
     }
 
-    let marker = phase_completion_marker_path(&project_root, workflow_id, phase_id);
+    let marker = phase_completion_marker_path(&project_root, workflow_id, phase_id, 1);
     assert!(!marker.exists(), "ManualPending must NOT write a .completed marker");
-    assert!(!is_phase_completed(&project_root, workflow_id, phase_id));
+    assert!(!is_phase_completed(&project_root, workflow_id, phase_id, 1));
 }
 
 #[test]
@@ -84,7 +84,7 @@ fn replay_handles_missing_marker_for_manual_pending_phase_correctly() {
     // Manual-pending crash: no marker, no <phase>.json. Replay must
     // treat the phase as un-run and re-enter it (the pause state in
     // the workflow itself will re-pause), NOT silently advance.
-    assert!(!is_phase_completed(&project_root, workflow_id, phase_id));
+    assert!(!is_phase_completed(&project_root, workflow_id, phase_id, 1));
 
     // Sanity: had we written the legacy marker, the replay path would
     // be tricked into treating the manual gate as completed — which is
@@ -93,9 +93,9 @@ fn replay_handles_missing_marker_for_manual_pending_phase_correctly() {
         instructions: "buggy persist".to_string(),
         approval_note_required: false,
     };
-    persist_phase_output(&project_root, workflow_id, phase_id, &bad_outcome).expect("simulate legacy bug");
+    persist_phase_output(&project_root, workflow_id, phase_id, 1, &bad_outcome).expect("simulate legacy bug");
     assert!(
-        is_phase_completed(&project_root, workflow_id, phase_id),
+        is_phase_completed(&project_root, workflow_id, phase_id, 1),
         "shows why legacy behavior was unsafe: marker advertises completion for a manual gate"
     );
 }

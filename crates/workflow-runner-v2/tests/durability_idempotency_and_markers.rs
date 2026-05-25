@@ -155,9 +155,9 @@ fn phase_completion_marker_atomic_rename_from_tmp() {
     let workflow_id = "wf-marker-001";
     let phase_id = "research";
 
-    write_phase_completion_marker(&project_root, workflow_id, phase_id).expect("write marker");
+    write_phase_completion_marker(&project_root, workflow_id, phase_id, 1).expect("write marker");
 
-    let marker_path = phase_completion_marker_path(&project_root, workflow_id, phase_id);
+    let marker_path = phase_completion_marker_path(&project_root, workflow_id, phase_id, 1);
     assert!(marker_path.exists(), "marker file exists at {marker_path:?}");
     let contents = std::fs::read_to_string(&marker_path).expect("read marker");
     let parsed: PhaseCompletionMarker = serde_json::from_str(&contents).expect("parse marker JSON");
@@ -184,9 +184,9 @@ fn executor_skips_phase_when_completion_marker_present() {
     let workflow_id = "wf-skip-001";
     let phase_id = "research";
 
-    assert!(!is_phase_completed(&project_root, workflow_id, phase_id));
-    write_phase_completion_marker(&project_root, workflow_id, phase_id).expect("write marker");
-    assert!(is_phase_completed(&project_root, workflow_id, phase_id));
+    assert!(!is_phase_completed(&project_root, workflow_id, phase_id, 1));
+    write_phase_completion_marker(&project_root, workflow_id, phase_id, 1).expect("write marker");
+    assert!(is_phase_completed(&project_root, workflow_id, phase_id, 1));
 }
 
 #[test]
@@ -199,13 +199,13 @@ fn executor_does_not_skip_when_only_output_exists_without_marker() {
     let workflow_id = "wf-no-marker-001";
     let phase_id = "research";
 
-    let marker_path = phase_completion_marker_path(&project_root, workflow_id, phase_id);
+    let marker_path = phase_completion_marker_path(&project_root, workflow_id, phase_id, 1);
     let dir = marker_path.parent().unwrap();
     std::fs::create_dir_all(dir).unwrap();
     let output_path = dir.join(format!("{phase_id}.json"));
     std::fs::write(&output_path, r#"{"phase_id":"research","completed_at":"2026-05-23T00:00:00Z"}"#).unwrap();
 
-    assert!(!is_phase_completed(&project_root, workflow_id, phase_id), "marker absence => not skipped");
+    assert!(!is_phase_completed(&project_root, workflow_id, phase_id, 1), "marker absence => not skipped");
 }
 
 fn make_decision(phase_id: &str, verdict: PhaseDecisionVerdict, reason: &str) -> PhaseDecision {
@@ -233,7 +233,7 @@ fn persist_and_read(
     let decision = make_decision(phase_id, verdict, reason);
     let outcome =
         PhaseExecutionOutcome::Completed { commit_message: None, phase_decision: Some(decision), result_payload: None };
-    persist_phase_output(project_root, workflow_id, phase_id, &outcome).expect("persist phase output");
+    persist_phase_output(project_root, workflow_id, phase_id, 1, &outcome).expect("persist phase output");
     read_persisted_decision(project_root, workflow_id, phase_id).expect("read persisted decision")
 }
 
@@ -253,7 +253,7 @@ fn crash_recovery_replays_rework_decision_from_persisted_output() {
     assert_eq!(replayed.verdict, PhaseDecisionVerdict::Rework);
     assert_eq!(replayed.phase_id, phase_id);
     assert_eq!(replayed.reason, "needs another pass");
-    assert!(is_phase_completed(&project_root, workflow_id, phase_id), "marker was written alongside output");
+    assert!(is_phase_completed(&project_root, workflow_id, phase_id, 1), "marker was written alongside output");
 }
 
 #[test]
@@ -311,6 +311,77 @@ fn crash_recovery_replays_completed_decision_from_persisted_output() {
     assert_eq!(replayed.reason, "all good");
 }
 
+// Codex round-4 P1: Rework must not replay the previous attempt's marker.
+// Each completion marker is keyed by phase attempt — `<phase>.attempt-<N>.completed` —
+// so a fresh attempt cannot trip the early-replay branch in workflow_execute.
+#[test]
+fn completion_marker_path_includes_attempt_number() {
+    let _guard = home_lock();
+    let tmp = TempDir::new().expect("tempdir");
+    pin_home(&tmp);
+    let project = TempDir::new().expect("project tempdir");
+    let project_root = project.path().to_string_lossy().to_string();
+    let workflow_id = "wf-marker-attempt";
+    let phase_id = "code-review";
+
+    let path_attempt_1 = phase_completion_marker_path(&project_root, workflow_id, phase_id, 1);
+    let path_attempt_2 = phase_completion_marker_path(&project_root, workflow_id, phase_id, 2);
+    assert_ne!(path_attempt_1, path_attempt_2);
+    assert!(path_attempt_1.to_string_lossy().ends_with("code-review.attempt-1.completed"));
+    assert!(path_attempt_2.to_string_lossy().ends_with("code-review.attempt-2.completed"));
+}
+
+#[test]
+fn is_phase_completed_returns_false_for_new_attempt_with_old_marker() {
+    let _guard = home_lock();
+    let tmp = TempDir::new().expect("tempdir");
+    pin_home(&tmp);
+    let project = TempDir::new().expect("project tempdir");
+    let project_root = project.path().to_string_lossy().to_string();
+    let workflow_id = "wf-rework-attempt";
+    let phase_id = "code-review";
+
+    write_phase_completion_marker(&project_root, workflow_id, phase_id, 1).expect("write attempt-1 marker");
+    assert!(is_phase_completed(&project_root, workflow_id, phase_id, 1));
+    assert!(
+        !is_phase_completed(&project_root, workflow_id, phase_id, 2),
+        "attempt-2 must NOT see attempt-1's marker as completed (would replay stale decision on rework)"
+    );
+    assert!(
+        !is_phase_completed(&project_root, workflow_id, phase_id, 0),
+        "attempt-0 (legacy unset) must NOT see attempt-1's marker either"
+    );
+}
+
+#[test]
+fn rework_phase_does_not_replay_previous_attempt_marker() {
+    let _guard = home_lock();
+    let tmp = TempDir::new().expect("tempdir");
+    pin_home(&tmp);
+    let project = TempDir::new().expect("project tempdir");
+    let project_root = project.path().to_string_lossy().to_string();
+    let workflow_id = "wf-rework-no-replay";
+    let phase_id = "implementation";
+
+    let outcome_attempt_1 = PhaseExecutionOutcome::Completed {
+        commit_message: None,
+        phase_decision: Some(make_decision(phase_id, PhaseDecisionVerdict::Rework, "needs rework")),
+        result_payload: None,
+    };
+    persist_phase_output(&project_root, workflow_id, phase_id, 1, &outcome_attempt_1).expect("persist attempt 1");
+
+    assert!(is_phase_completed(&project_root, workflow_id, phase_id, 1));
+    assert!(
+        !is_phase_completed(&project_root, workflow_id, phase_id, 2),
+        "rework re-entering phase as attempt 2 MUST re-execute (no replay of attempt-1's Rework decision)"
+    );
+
+    let attempt_1_marker = phase_completion_marker_path(&project_root, workflow_id, phase_id, 1);
+    let attempt_2_marker = phase_completion_marker_path(&project_root, workflow_id, phase_id, 2);
+    assert!(attempt_1_marker.exists(), "attempt-1 marker is preserved (audit trail)");
+    assert!(!attempt_2_marker.exists(), "attempt-2 marker not yet written");
+}
+
 #[test]
 fn crash_recovery_blocks_workflow_when_marker_exists_but_decision_unreadable() {
     let _guard = home_lock();
@@ -321,8 +392,8 @@ fn crash_recovery_blocks_workflow_when_marker_exists_but_decision_unreadable() {
     let workflow_id = "wf-replay-blocked";
     let phase_id = "research";
 
-    write_phase_completion_marker(&project_root, workflow_id, phase_id).expect("write marker");
-    assert!(is_phase_completed(&project_root, workflow_id, phase_id));
+    write_phase_completion_marker(&project_root, workflow_id, phase_id, 1).expect("write marker");
+    assert!(is_phase_completed(&project_root, workflow_id, phase_id, 1));
     let missing_err = read_persisted_decision(&project_root, workflow_id, phase_id).unwrap_err();
     assert_eq!(missing_err, PersistedDecisionReadError::OutputMissing);
 

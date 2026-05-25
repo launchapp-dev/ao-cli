@@ -24,7 +24,7 @@ use orchestrator_core::{
 
 use crate::ensure_execution_cwd::ensure_execution_cwd;
 use crate::phase_executor::{run_workflow_phase, PhaseExecuteOverrides, PhaseExecutionOutcome, PhaseRunParams};
-use crate::phase_output::{is_phase_completed, persist_phase_output};
+use crate::phase_output::{is_phase_completed, persist_phase_output, read_persisted_decision};
 use crate::workflow_event_emitter::{RuntimeWorkflowEvent, RuntimeWorkflowEventKind, SharedWorkflowEventEmitter};
 
 pub enum PhaseEvent<'a> {
@@ -409,20 +409,49 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
         let phase_attempt = workflow.phases.iter().find(|p| p.phase_id == phase_id).map(|p| p.attempt).unwrap_or(0);
 
         if is_phase_completed(&params.project_root, &workflow.id, &phase_id) {
-            let updated = hub.workflows().complete_current_phase(&workflow.id).await?;
-            let next_status = updated.status;
-            let next_phase_index = updated.current_phase_index;
-            workflow = updated;
-            reported_workflow_status = next_status;
-            phases_to_run = workflow.phases.iter().map(|phase| phase.phase_id.clone()).collect();
-            results.push(serde_json::json!({
-                "phase_id": phase_id,
-                "status": "skipped_completion_marker",
-                "duration_secs": 0,
-                "workflow_status": format!("{:?}", next_status).to_ascii_lowercase(),
-            }));
-            phase_idx = next_phase_index;
-            continue;
+            match read_persisted_decision(&params.project_root, &workflow.id, &phase_id) {
+                Ok(decision) => {
+                    let updated =
+                        hub.workflows().complete_current_phase_with_decision(&workflow.id, Some(decision)).await?;
+                    let next_status = updated.status;
+                    let next_phase_index = updated.current_phase_index;
+                    workflow = updated;
+                    reported_workflow_status = next_status;
+                    phases_to_run = workflow.phases.iter().map(|phase| phase.phase_id.clone()).collect();
+                    results.push(serde_json::json!({
+                        "phase_id": phase_id,
+                        "status": "replayed_completion_marker",
+                        "duration_secs": 0,
+                        "workflow_status": format!("{:?}", next_status).to_ascii_lowercase(),
+                    }));
+                    if matches!(
+                        workflow.status,
+                        WorkflowStatus::Failed | WorkflowStatus::Escalated | WorkflowStatus::Cancelled
+                    ) {
+                        break;
+                    }
+                    phase_idx = next_phase_index;
+                    continue;
+                }
+                Err(err) => {
+                    let reason = format!(
+                        "phase '{phase_id}' marker exists but decision could not be replayed ({err}); run `animus workflow resume {workflow_id} --force` after manual investigation",
+                        workflow_id = workflow.id,
+                    );
+                    eprintln!("warning: {reason}");
+                    workflow = hub.workflows().fail_current_phase(&workflow.id, reason.clone()).await?;
+                    reported_workflow_status = workflow.status;
+                    phases_to_run = workflow.phases.iter().map(|phase| phase.phase_id.clone()).collect();
+                    results.push(serde_json::json!({
+                        "phase_id": phase_id,
+                        "status": "blocked_unreplayable_marker",
+                        "duration_secs": 0,
+                        "workflow_status": format!("{:?}", workflow.status).to_ascii_lowercase(),
+                        "error": reason,
+                    }));
+                    break;
+                }
+            }
         }
 
         emit(PhaseEvent::Started { phase_id: &phase_id, phase_index: phase_idx, total_phases: phases_to_run.len() });

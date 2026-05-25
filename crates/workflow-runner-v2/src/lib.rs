@@ -38,8 +38,8 @@ pub use phase_executor::{
 pub use phase_failover::{classify_phase_failure, PhaseFailureClassifier, PhaseFailureKind};
 pub use phase_git::{commit_implementation_changes, ensure_git_identity, git_has_pending_changes, is_git_repo};
 pub use phase_output::{
-    is_phase_completed, persist_phase_output, phase_completion_marker_path, phase_output_dir,
-    write_phase_completion_marker, PersistedPhaseOutput, PhaseCompletionMarker,
+    is_phase_completed, persist_phase_output, phase_completion_marker_path, phase_output_dir, read_persisted_decision,
+    write_phase_completion_marker, PersistedDecisionReadError, PersistedPhaseOutput, PhaseCompletionMarker,
 };
 pub use phase_prompt::{
     build_phase_prompt, phase_requires_commit_message, phase_requires_commit_message_with_config, render_phase_prompt,

@@ -1,3 +1,4 @@
+use orchestrator_core::{PhaseDecision, PhaseDecisionVerdict};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -41,6 +42,69 @@ pub fn write_phase_completion_marker(project_root: &str, workflow_id: &str, phas
 
 pub fn is_phase_completed(project_root: &str, workflow_id: &str, phase_id: &str) -> bool {
     phase_completion_marker_path(project_root, workflow_id, phase_id).exists()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PersistedDecisionReadError {
+    OutputMissing,
+    Unreadable(String),
+    Malformed(String),
+    VerdictMissing,
+    UnknownVerdict(String),
+}
+
+impl std::fmt::Display for PersistedDecisionReadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::OutputMissing => write!(f, "sibling <phase>.json output is missing"),
+            Self::Unreadable(err) => write!(f, "failed to read persisted output: {err}"),
+            Self::Malformed(err) => write!(f, "persisted output is malformed: {err}"),
+            Self::VerdictMissing => write!(f, "persisted output has no `verdict` field"),
+            Self::UnknownVerdict(v) => write!(f, "persisted output has unrecognized verdict '{v}'"),
+        }
+    }
+}
+
+// The completion marker is intentionally minimal — it only attests "this phase ran";
+// the verdict/decision lives in the sibling <phase>.json so crash-recovery can replay
+// the exact outcome. Keeping the marker payload narrow preserves backward-compat with
+// markers written by v0.4.x daemons.
+pub fn read_persisted_decision(
+    project_root: &str,
+    workflow_id: &str,
+    phase_id: &str,
+) -> Result<PhaseDecision, PersistedDecisionReadError> {
+    let dir = phase_output_dir(project_root, workflow_id);
+    let file_path = dir.join(format!("{phase_id}.json"));
+    if !file_path.exists() {
+        return Err(PersistedDecisionReadError::OutputMissing);
+    }
+    let contents =
+        std::fs::read_to_string(&file_path).map_err(|err| PersistedDecisionReadError::Unreadable(err.to_string()))?;
+    let output: PersistedPhaseOutput =
+        serde_json::from_str(&contents).map_err(|err| PersistedDecisionReadError::Malformed(err.to_string()))?;
+
+    let verdict_str = output.verdict.as_deref().ok_or(PersistedDecisionReadError::VerdictMissing)?;
+    let verdict = match verdict_str.to_ascii_lowercase().as_str() {
+        "advance" => PhaseDecisionVerdict::Advance,
+        "rework" => PhaseDecisionVerdict::Rework,
+        "fail" => PhaseDecisionVerdict::Fail,
+        "skip" => PhaseDecisionVerdict::Skip,
+        other => return Err(PersistedDecisionReadError::UnknownVerdict(other.to_string())),
+    };
+
+    Ok(PhaseDecision {
+        kind: "phase_decision".to_string(),
+        phase_id: output.phase_id,
+        verdict,
+        confidence: output.confidence.unwrap_or(1.0),
+        risk: orchestrator_core::WorkflowDecisionRisk::Low,
+        reason: output.reason.unwrap_or_default(),
+        evidence: output.evidence,
+        guardrail_violations: output.guardrail_violations,
+        commit_message: output.commit_message,
+        target_phase: None,
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

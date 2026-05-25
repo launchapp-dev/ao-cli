@@ -5,10 +5,13 @@ use orchestrator_config::agent_runtime_config::{
     AgentProfile, AgentRuntimeConfig, Idempotency, PhaseExecutionDefinition, PhaseExecutionMode,
 };
 use orchestrator_config::parse_yaml_workflow_config;
+use orchestrator_core::{PhaseDecision, PhaseDecisionVerdict, WorkflowDecisionRisk};
 use tempfile::TempDir;
+use workflow_runner_v2::phase_executor::PhaseExecutionOutcome;
 use workflow_runner_v2::{
     block_reason_sideeffecting, block_reason_unknown, classify_phase_recovery, is_phase_completed,
-    phase_completion_marker_path, write_phase_completion_marker, PhaseCompletionMarker, PhaseRecoveryAction,
+    persist_phase_output, phase_completion_marker_path, phase_output_dir, read_persisted_decision,
+    write_phase_completion_marker, PersistedDecisionReadError, PhaseCompletionMarker, PhaseRecoveryAction,
 };
 
 fn home_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -203,4 +206,142 @@ fn executor_does_not_skip_when_only_output_exists_without_marker() {
     std::fs::write(&output_path, r#"{"phase_id":"research","completed_at":"2026-05-23T00:00:00Z"}"#).unwrap();
 
     assert!(!is_phase_completed(&project_root, workflow_id, phase_id), "marker absence => not skipped");
+}
+
+fn make_decision(phase_id: &str, verdict: PhaseDecisionVerdict, reason: &str) -> PhaseDecision {
+    PhaseDecision {
+        kind: "phase_decision".to_string(),
+        phase_id: phase_id.to_string(),
+        verdict,
+        confidence: 0.9,
+        risk: WorkflowDecisionRisk::Low,
+        reason: reason.to_string(),
+        evidence: Vec::new(),
+        guardrail_violations: Vec::new(),
+        commit_message: None,
+        target_phase: None,
+    }
+}
+
+fn persist_and_read(
+    project_root: &str,
+    workflow_id: &str,
+    phase_id: &str,
+    verdict: PhaseDecisionVerdict,
+    reason: &str,
+) -> PhaseDecision {
+    let decision = make_decision(phase_id, verdict, reason);
+    let outcome =
+        PhaseExecutionOutcome::Completed { commit_message: None, phase_decision: Some(decision), result_payload: None };
+    persist_phase_output(project_root, workflow_id, phase_id, &outcome).expect("persist phase output");
+    read_persisted_decision(project_root, workflow_id, phase_id).expect("read persisted decision")
+}
+
+#[test]
+fn crash_recovery_replays_rework_decision_from_persisted_output() {
+    let _guard = home_lock();
+    let tmp = TempDir::new().expect("tempdir");
+    pin_home(&tmp);
+    let project = TempDir::new().expect("project tempdir");
+    let project_root = project.path().to_string_lossy().to_string();
+    let workflow_id = "wf-replay-rework";
+    let phase_id = "code-review";
+
+    let replayed =
+        persist_and_read(&project_root, workflow_id, phase_id, PhaseDecisionVerdict::Rework, "needs another pass");
+
+    assert_eq!(replayed.verdict, PhaseDecisionVerdict::Rework);
+    assert_eq!(replayed.phase_id, phase_id);
+    assert_eq!(replayed.reason, "needs another pass");
+    assert!(is_phase_completed(&project_root, workflow_id, phase_id), "marker was written alongside output");
+}
+
+#[test]
+fn crash_recovery_replays_fail_decision_from_persisted_output() {
+    let _guard = home_lock();
+    let tmp = TempDir::new().expect("tempdir");
+    pin_home(&tmp);
+    let project = TempDir::new().expect("project tempdir");
+    let project_root = project.path().to_string_lossy().to_string();
+    let workflow_id = "wf-replay-fail";
+    let phase_id = "testing";
+
+    let replayed = persist_and_read(
+        &project_root,
+        workflow_id,
+        phase_id,
+        PhaseDecisionVerdict::Fail,
+        "tests broke catastrophically",
+    );
+
+    assert_eq!(replayed.verdict, PhaseDecisionVerdict::Fail);
+    assert_eq!(replayed.reason, "tests broke catastrophically");
+}
+
+#[test]
+fn crash_recovery_replays_skip_decision_from_persisted_output() {
+    let _guard = home_lock();
+    let tmp = TempDir::new().expect("tempdir");
+    pin_home(&tmp);
+    let project = TempDir::new().expect("project tempdir");
+    let project_root = project.path().to_string_lossy().to_string();
+    let workflow_id = "wf-replay-skip";
+    let phase_id = "deploy";
+
+    let replayed =
+        persist_and_read(&project_root, workflow_id, phase_id, PhaseDecisionVerdict::Skip, "nothing to deploy");
+
+    assert_eq!(replayed.verdict, PhaseDecisionVerdict::Skip);
+    assert_eq!(replayed.reason, "nothing to deploy");
+}
+
+#[test]
+fn crash_recovery_replays_completed_decision_from_persisted_output() {
+    let _guard = home_lock();
+    let tmp = TempDir::new().expect("tempdir");
+    pin_home(&tmp);
+    let project = TempDir::new().expect("project tempdir");
+    let project_root = project.path().to_string_lossy().to_string();
+    let workflow_id = "wf-replay-advance";
+    let phase_id = "implementation";
+
+    let replayed = persist_and_read(&project_root, workflow_id, phase_id, PhaseDecisionVerdict::Advance, "all good");
+
+    assert_eq!(replayed.verdict, PhaseDecisionVerdict::Advance);
+    assert_eq!(replayed.reason, "all good");
+}
+
+#[test]
+fn crash_recovery_blocks_workflow_when_marker_exists_but_decision_unreadable() {
+    let _guard = home_lock();
+    let tmp = TempDir::new().expect("tempdir");
+    pin_home(&tmp);
+    let project = TempDir::new().expect("project tempdir");
+    let project_root = project.path().to_string_lossy().to_string();
+    let workflow_id = "wf-replay-blocked";
+    let phase_id = "research";
+
+    write_phase_completion_marker(&project_root, workflow_id, phase_id).expect("write marker");
+    assert!(is_phase_completed(&project_root, workflow_id, phase_id));
+    let missing_err = read_persisted_decision(&project_root, workflow_id, phase_id).unwrap_err();
+    assert_eq!(missing_err, PersistedDecisionReadError::OutputMissing);
+
+    let dir = phase_output_dir(&project_root, workflow_id);
+    std::fs::create_dir_all(&dir).unwrap();
+    let output_file = dir.join(format!("{phase_id}.json"));
+    std::fs::write(&output_file, "{ not json }").unwrap();
+    let malformed_err = read_persisted_decision(&project_root, workflow_id, phase_id).unwrap_err();
+    assert!(matches!(malformed_err, PersistedDecisionReadError::Malformed(_)), "malformed JSON: {malformed_err:?}");
+
+    std::fs::write(&output_file, r#"{"phase_id":"research","completed_at":"2026-05-25T00:00:00Z"}"#).unwrap();
+    let missing_verdict = read_persisted_decision(&project_root, workflow_id, phase_id).unwrap_err();
+    assert_eq!(missing_verdict, PersistedDecisionReadError::VerdictMissing);
+
+    std::fs::write(&output_file, r#"{"phase_id":"research","completed_at":"2026-05-25T00:00:00Z","verdict":"bogus"}"#)
+        .unwrap();
+    let unknown_verdict = read_persisted_decision(&project_root, workflow_id, phase_id).unwrap_err();
+    assert!(
+        matches!(unknown_verdict, PersistedDecisionReadError::UnknownVerdict(ref v) if v == "bogus"),
+        "unknown verdict: {unknown_verdict:?}"
+    );
 }

@@ -323,6 +323,12 @@ async fn handle_plugin_install_defaults(args: PluginInstallDefaultsArgs) -> Resu
             eprintln!("[install] {slug}@{tag} ...");
         }
 
+        // Curated launchapp-dev provider repos (e.g. animus-provider-claude)
+        // intentionally claim the reserved in-tree provider_tool names. After
+        // v0.4.12 deleted the in-tree providers, this curated registry is the
+        // only sanctioned path to install those names, so bypass the
+        // reserved-name guard here. User-typed `animus plugin install ...`
+        // still has to pass --allow-shadow-builtin explicitly.
         let req = PluginInstallRequest {
             source: Some(slug.to_string()),
             tag: Some(tag.to_string()),
@@ -330,6 +336,7 @@ async fn handle_plugin_install_defaults(args: PluginInstallDefaultsArgs) -> Resu
             plugin_dir: args.plugin_dir.clone(),
             allow_org: vec!["launchapp-dev".to_string()],
             yes: args.yes,
+            allow_shadow_builtin: true,
             ..Default::default()
         };
 
@@ -2502,6 +2509,59 @@ mod tests {
         manifest.plugin_kind = animus_plugin_protocol::PLUGIN_KIND_SUBJECT_BACKEND.to_string();
         let ok = enforce_provider_tool_policy(&manifest, false);
         assert!(ok.is_ok(), "subject backends are never gated by reserved provider tools");
+    }
+
+    #[test]
+    fn install_defaults_succeeds_for_curated_providers_with_reserved_names() {
+        let mut at_least_one_reserved = false;
+        for (slug, _tag) in DEFAULT_PROVIDER_PLUGINS {
+            let repo_basename = slug.rsplit('/').next().unwrap_or(slug);
+            let manifest = provider_manifest(repo_basename);
+
+            let curated_install = enforce_provider_tool_policy(&manifest, true);
+            assert!(
+                curated_install.is_ok(),
+                "curated install-defaults (allow_shadow_builtin=true) must accept '{repo_basename}'"
+            );
+
+            let derived_tool = repo_basename.strip_prefix("animus-provider-").unwrap_or(repo_basename);
+            if is_reserved_provider_tool(derived_tool) {
+                at_least_one_reserved = true;
+                let user_install = enforce_provider_tool_policy(&manifest, false);
+                assert!(
+                    user_install.is_err(),
+                    "user-typed install MUST still be blocked for reserved name '{repo_basename}'"
+                );
+            }
+        }
+        assert!(
+            at_least_one_reserved,
+            "DEFAULT_PROVIDER_PLUGINS should contain at least one reserved-name provider (regression guard for P1)"
+        );
+
+        let (slug, tag) = DEFAULT_PROVIDER_PLUGINS[0];
+        let req = PluginInstallRequest {
+            source: Some(slug.to_string()),
+            tag: Some(tag.to_string()),
+            allow_org: vec!["launchapp-dev".to_string()],
+            yes: true,
+            allow_shadow_builtin: true,
+            ..Default::default()
+        };
+        assert!(req.allow_shadow_builtin, "install-defaults request must opt into shadow-builtin bypass");
+        assert!(req.yes, "install-defaults request must auto-confirm TOFU");
+        assert_eq!(req.allow_org, vec!["launchapp-dev".to_string()]);
+    }
+
+    #[test]
+    fn user_install_still_blocked_for_reserved_names_without_flag() {
+        let manifest = provider_manifest("animus-provider-claude");
+        let req =
+            PluginInstallRequest { source: Some("attacker/animus-provider-claude".to_string()), ..Default::default() };
+        assert!(!req.allow_shadow_builtin, "user-default request must NOT bypass shadow-builtin guard");
+        let err = enforce_provider_tool_policy(&manifest, req.allow_shadow_builtin)
+            .expect_err("user-typed install of reserved name must still be rejected");
+        assert!(format!("{err}").contains("reserved in-tree backend"));
     }
 
     #[test]

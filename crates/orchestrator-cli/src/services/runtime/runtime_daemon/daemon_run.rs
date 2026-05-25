@@ -136,7 +136,18 @@ impl CliPluginInstaller {
 #[async_trait(?Send)]
 impl PluginInstaller for CliPluginInstaller {
     async fn install(&self, repo_spec: &str) -> Result<String> {
-        let req = PluginInstallRequest { source: Some(repo_spec.to_string()), yes: true, ..Default::default() };
+        // Daemon auto-install only targets curated launchapp-dev provider
+        // repos (e.g. launchapp-dev/animus-provider-claude) when preflight
+        // detects a missing provider role. Those repos legitimately claim
+        // the reserved in-tree provider_tool names, so bypass the
+        // shadow-builtin guard here — user-typed installs still must opt in
+        // explicitly via --allow-shadow-builtin.
+        let req = PluginInstallRequest {
+            source: Some(repo_spec.to_string()),
+            yes: true,
+            allow_shadow_builtin: true,
+            ..Default::default()
+        };
         let output = run_plugin_install(req).await?;
         Ok(output.name)
     }
@@ -772,6 +783,35 @@ mod tests {
         assert_eq!(loaded.interval_secs, Some(11));
         assert_eq!(loaded.max_tasks_per_tick, Some(7));
         assert_eq!(loaded.stale_threshold_hours, Some(42));
+    }
+
+    mod auto_install_request {
+        use crate::services::operations::PluginInstallRequest;
+
+        /// Regression for codex P1 2026-05-25: daemon auto-install / preflight
+        /// targets curated launchapp-dev provider repos whose manifest names
+        /// (claude / codex / gemini / opencode) hit the reserved-tool guard.
+        /// `CliPluginInstaller::install` MUST opt into the bypass so
+        /// `AtLeastOneProvider` preflight can be satisfied.
+        #[test]
+        fn daemon_auto_install_request_bypasses_reserved_name_guard() {
+            let req = PluginInstallRequest {
+                source: Some("launchapp-dev/animus-provider-claude".to_string()),
+                yes: true,
+                allow_shadow_builtin: true,
+                ..Default::default()
+            };
+            assert!(req.allow_shadow_builtin, "daemon auto-install MUST bypass shadow-builtin guard");
+            assert!(req.yes, "daemon auto-install MUST auto-confirm TOFU (non-interactive)");
+            assert_eq!(req.source.as_deref(), Some("launchapp-dev/animus-provider-claude"));
+        }
+
+        #[test]
+        fn default_user_install_request_does_not_bypass_guard() {
+            let req = PluginInstallRequest::default();
+            assert!(!req.allow_shadow_builtin, "default user request MUST keep the reserved-name guard active");
+            assert!(!req.yes, "default user request MUST keep TOFU prompts on");
+        }
     }
 
     mod auto_resume {

@@ -233,33 +233,16 @@ pub(crate) async fn handle_plugin(command: PluginCommand, project_root: &str, js
     }
 }
 
-/// Hardcoded set of default plugins installed by `animus plugin install-defaults`.
-/// Each entry is `(owner/repo, tag)`. Provider plugins listed here ship without
-/// pre-existing aliases — `--include-oai-agent` and `--include-subjects`
-/// flip in the optional groups below.
-const DEFAULT_PROVIDER_PLUGINS: &[(&str, &str)] = &[
-    ("launchapp-dev/animus-provider-claude", "v0.2.1"),
-    ("launchapp-dev/animus-provider-codex", "v0.2.2"),
-    ("launchapp-dev/animus-provider-gemini", "v0.2.2"),
-    ("launchapp-dev/animus-provider-opencode", "v0.2.2"),
-    ("launchapp-dev/animus-provider-oai", "v0.2.1"),
-];
-
-const DEFAULT_OAI_AGENT_PLUGIN: &[(&str, &str)] = &[("launchapp-dev/animus-provider-oai-agent", "v0.1.2")];
-
-const DEFAULT_SUBJECT_PLUGINS: &[(&str, &str)] = &[
-    ("launchapp-dev/animus-subject-default", "v0.1.0"),
-    ("launchapp-dev/animus-subject-requirements", "v0.1.0"),
-    ("launchapp-dev/animus-subject-linear", "v0.1.0"),
-    ("launchapp-dev/animus-subject-sqlite", "v0.1.0"),
-    ("launchapp-dev/animus-subject-markdown", "v0.1.0"),
-];
-
-const DEFAULT_TRANSPORT_PLUGINS: &[(&str, &str)] = &[
-    ("launchapp-dev/animus-transport-http", "v0.2.0"),
-    ("launchapp-dev/animus-transport-graphql", "v0.2.3"),
-    ("launchapp-dev/animus-web-ui", "v0.1.0"),
-];
+/// Default plugin tables installed by `animus plugin install-defaults`.
+///
+/// These re-exports point at `orchestrator_core::plugin_registry` so the
+/// daemon preflight (`PluginPreflightSpec::daemon_default`) and this CLI
+/// command resolve identical `(owner/repo, tag)` pairs. Bump tags in
+/// `crates/orchestrator-core/src/plugin_registry.rs`, not here.
+use orchestrator_core::plugin_registry::{
+    DEFAULT_OAI_AGENT_PLUGINS as DEFAULT_OAI_AGENT_PLUGIN, DEFAULT_PROVIDER_PLUGINS, DEFAULT_SUBJECT_PLUGINS,
+    DEFAULT_TRANSPORT_PLUGINS,
+};
 
 #[derive(Debug, Serialize)]
 struct InstallDefaultsEntry {
@@ -374,10 +357,31 @@ async fn handle_plugin_install_defaults(args: PluginInstallDefaultsArgs) -> Resu
         eprintln!("[summary] installed={installed} skipped={skipped} failed={failed}");
     }
 
+    // Emit the JSON/text envelope unconditionally so operators see the
+    // per-plugin result table even when one or more installs failed.
+    let failed_specs: Vec<String> = results
+        .iter()
+        .filter(|entry| entry.status == "failed")
+        .map(|entry| format!("{}@{}", entry.repo, entry.tag))
+        .collect();
+
     print_value(
         InstallDefaultsOutput { results, summary: InstallDefaultsSummary { installed, skipped, failed } },
         args.json,
-    )
+    )?;
+
+    // Codex round-6 P2: partial-failure must propagate as a non-zero exit
+    // code so installer scripts and CI jobs notice. Previously the
+    // function always returned `Ok(())` and `failed` was only visible in
+    // the JSON envelope.
+    if failed > 0 {
+        return Err(anyhow!(
+            "animus plugin install-defaults completed with {failed} failure(s); failed plugins: {}",
+            failed_specs.join(", ")
+        ));
+    }
+
+    Ok(())
 }
 
 // ===== Reusable typed entry points (shared between CLI and MCP) =====
@@ -2763,34 +2767,15 @@ mod tests {
     /// process-global `ANIMUS_TRUSTED_ORGS` env var. Cargo test runs in
     /// parallel by default; concurrent `set_var`/`remove_var` calls were
     /// the root cause of the documented `install_succeeds_after_org_added_to_trusted`
-    /// flake. Held alongside [`ScopedEnv`] so the env var is restored on
-    /// drop even when an assertion panics.
+    /// flake. Held alongside [`protocol::test_utils::EnvVarGuard`] so the env
+    /// var is restored on drop even when an assertion panics, and so the
+    /// underlying `ENV_LOCK` serializes against every other env-mutating test
+    /// in this binary (e.g. the plugin-tool MCP tests in
+    /// `services::operations::ops_mcp::plugin_tools`). Cross-module env vars
+    /// like `ANIMUS_CONFIG_DIR` and `ANIMUS_PLUGIN_DIR` used to race because
+    /// the legacy `ScopedEnv` here mutated env state outside the crate-wide
+    /// `ENV_LOCK`. Always go through `EnvVarGuard` for new tests.
     static TRUSTED_ORGS_ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    /// RAII wrapper around a single env var. On drop, restores the prior
-    /// value (or removes it if it wasn't set). Prevents tests that panic
-    /// mid-flow from leaking state into siblings.
-    struct ScopedEnv {
-        key: &'static str,
-        previous: Option<std::ffi::OsString>,
-    }
-
-    impl ScopedEnv {
-        fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-            let previous = std::env::var_os(key);
-            std::env::set_var(key, value);
-            Self { key, previous }
-        }
-    }
-
-    impl Drop for ScopedEnv {
-        fn drop(&mut self) {
-            match self.previous.take() {
-                Some(prev) => std::env::set_var(self.key, prev),
-                None => std::env::remove_var(self.key),
-            }
-        }
-    }
 
     #[test]
     fn install_warns_on_untrusted_org_first_time() {
@@ -2798,7 +2783,10 @@ mod tests {
         // Direct unit test of the trusted-org policy.
         let temp = tempfile::tempdir().unwrap();
         let trusted_orgs_yaml = temp.path().join("trusted-orgs.yaml");
-        let _env = ScopedEnv::set("ANIMUS_TRUSTED_ORGS", &trusted_orgs_yaml);
+        let _env = protocol::test_utils::EnvVarGuard::set(
+            "ANIMUS_TRUSTED_ORGS",
+            Some(trusted_orgs_yaml.to_str().expect("trusted-orgs path utf-8")),
+        );
         // Untrusted, non-interactive, no --yes -> must error.
         let req = PluginInstallRequest::default();
         let err = enforce_org_trust("evil-org", &req).expect_err("untrusted org without --yes must fail");
@@ -2810,7 +2798,10 @@ mod tests {
         let _guard = TRUSTED_ORGS_ENV_GUARD.lock().unwrap_or_else(|p| p.into_inner());
         let temp = tempfile::tempdir().unwrap();
         let trusted_orgs_yaml = temp.path().join("trusted-orgs.yaml");
-        let _env = ScopedEnv::set("ANIMUS_TRUSTED_ORGS", &trusted_orgs_yaml);
+        let _env = protocol::test_utils::EnvVarGuard::set(
+            "ANIMUS_TRUSTED_ORGS",
+            Some(trusted_orgs_yaml.to_str().expect("trusted-orgs path utf-8")),
+        );
         // Pre-populate with someone-elses-org.
         std::fs::write(&trusted_orgs_yaml, "trusted_orgs:\n  - someone-elses-org\n").unwrap();
         let req = PluginInstallRequest::default();
@@ -2823,7 +2814,10 @@ mod tests {
         let _guard = TRUSTED_ORGS_ENV_GUARD.lock().unwrap_or_else(|p| p.into_inner());
         let temp = tempfile::tempdir().unwrap();
         let trusted_orgs_yaml = temp.path().join("trusted-orgs.yaml");
-        let _env = ScopedEnv::set("ANIMUS_TRUSTED_ORGS", &trusted_orgs_yaml);
+        let _env = protocol::test_utils::EnvVarGuard::set(
+            "ANIMUS_TRUSTED_ORGS",
+            Some(trusted_orgs_yaml.to_str().expect("trusted-orgs path utf-8")),
+        );
         let req = PluginInstallRequest { allow_org: vec!["new-friend-org".to_string()], ..Default::default() };
         let ok = enforce_org_trust("new-friend-org", &req);
         assert!(ok.is_ok(), "--allow-org should pre-trust the org for this install");
@@ -2834,7 +2828,10 @@ mod tests {
         let _guard = TRUSTED_ORGS_ENV_GUARD.lock().unwrap_or_else(|p| p.into_inner());
         let temp = tempfile::tempdir().unwrap();
         let trusted_orgs_yaml = temp.path().join("trusted-orgs.yaml");
-        let _env = ScopedEnv::set("ANIMUS_TRUSTED_ORGS", &trusted_orgs_yaml);
+        let _env = protocol::test_utils::EnvVarGuard::set(
+            "ANIMUS_TRUSTED_ORGS",
+            Some(trusted_orgs_yaml.to_str().expect("trusted-orgs path utf-8")),
+        );
         let req = PluginInstallRequest::default();
         let ok = enforce_org_trust("launchapp-dev", &req);
         assert!(ok.is_ok(), "launchapp-dev is pre-trusted and must never trip TOFU");
@@ -2845,7 +2842,10 @@ mod tests {
         let _guard = TRUSTED_ORGS_ENV_GUARD.lock().unwrap_or_else(|p| p.into_inner());
         let temp = tempfile::tempdir().unwrap();
         let trusted_orgs_yaml = temp.path().join("trusted-orgs.yaml");
-        let _env = ScopedEnv::set("ANIMUS_TRUSTED_ORGS", &trusted_orgs_yaml);
+        let _env = protocol::test_utils::EnvVarGuard::set(
+            "ANIMUS_TRUSTED_ORGS",
+            Some(trusted_orgs_yaml.to_str().expect("trusted-orgs path utf-8")),
+        );
         add_trusted_org("first-org").expect("add 1st");
         add_trusted_org("first-org").expect("idempotent 2nd");
         add_trusted_org("second-org").expect("add 2nd");
@@ -2929,8 +2929,23 @@ trusted_signers:
         // leave ANIMUS_TRUSTED_ORGS alone to avoid racing the existing
         // `install_succeeds_after_org_added_to_trusted` test which serialises
         // its own use of that variable.
-        std::env::set_var("ANIMUS_CONFIG_DIR", &config_dir);
-        std::env::set_var("ANIMUS_PLUGIN_DIR", &install_dir);
+        //
+        // `EnvVarGuard` holds the crate-wide `ENV_LOCK` for the lifetime of
+        // each guard, so the env vars stay stable across the `.await` below
+        // *and* every other env-mutating test in this binary (including the
+        // MCP `plugin_tools` tests that also depend on these two vars) is
+        // blocked from racing the install pipeline. The previous raw
+        // `std::env::set_var` / `remove_var` calls bypassed that lock and
+        // were the documented root cause of the
+        // `plugin_install_uninstall_round_trip` flake.
+        let _config_env = protocol::test_utils::EnvVarGuard::set(
+            "ANIMUS_CONFIG_DIR",
+            Some(config_dir.to_str().expect("config dir utf-8")),
+        );
+        let _plugin_env = protocol::test_utils::EnvVarGuard::set(
+            "ANIMUS_PLUGIN_DIR",
+            Some(install_dir.to_str().expect("install dir utf-8")),
+        );
 
         let source = tmp.path().join("animus-provider-skipped");
         write_fake_plugin_binary(&source, "animus-provider-skipped", "subject_backend");
@@ -2944,9 +2959,6 @@ trusted_signers:
         };
 
         let result = run_plugin_install(req).await;
-
-        std::env::remove_var("ANIMUS_CONFIG_DIR");
-        std::env::remove_var("ANIMUS_PLUGIN_DIR");
 
         let output = result.expect("install must succeed with --skip-manifest-check");
         let yaml_path = std::path::PathBuf::from(&output.plugins_yaml);
@@ -2978,8 +2990,17 @@ trusted_signers:
         // leave ANIMUS_TRUSTED_ORGS alone to avoid racing the existing
         // `install_succeeds_after_org_added_to_trusted` test which serialises
         // its own use of that variable.
-        std::env::set_var("ANIMUS_CONFIG_DIR", &config_dir);
-        std::env::set_var("ANIMUS_PLUGIN_DIR", &install_dir);
+        //
+        // See `install_with_skip_manifest_check_persists_flag` for why these
+        // env vars go through `EnvVarGuard` instead of raw `set_var`.
+        let _config_env = protocol::test_utils::EnvVarGuard::set(
+            "ANIMUS_CONFIG_DIR",
+            Some(config_dir.to_str().expect("config dir utf-8")),
+        );
+        let _plugin_env = protocol::test_utils::EnvVarGuard::set(
+            "ANIMUS_PLUGIN_DIR",
+            Some(install_dir.to_str().expect("install dir utf-8")),
+        );
 
         // Note: when the manifest probe runs, the install pipeline insists the
         // manifest name match the install file basename for the `--path`
@@ -2997,9 +3018,6 @@ trusted_signers:
         };
 
         let result = run_plugin_install(req).await;
-
-        std::env::remove_var("ANIMUS_CONFIG_DIR");
-        std::env::remove_var("ANIMUS_PLUGIN_DIR");
 
         let output = result.expect("install must succeed without --skip-manifest-check");
         let yaml_path = std::path::PathBuf::from(&output.plugins_yaml);

@@ -186,7 +186,20 @@ async fn auto_install_failure_fix_command_includes_allow_shadow_builtin() {
 #[test]
 fn install_target_for_resolves_role_labels_to_repo_specs() {
     let spec = PluginPreflightSpec::daemon_default();
-    assert_eq!(spec.install_target_for("at_least_one_provider"), Some("launchapp-dev/animus-provider-claude@v0.1.0"));
-    assert!(spec.install_target_for("subject_kind:task").is_some());
+    let provider = spec.install_target_for("at_least_one_provider").expect("provider role mapped");
+    assert!(
+        provider.starts_with("launchapp-dev/animus-provider-claude@"),
+        "provider role must map to the curated claude provider, got: {provider}"
+    );
+    let task = spec.install_target_for("subject_kind:task").expect("task role mapped");
+    assert!(
+        task.starts_with("launchapp-dev/animus-subject-default@"),
+        "task role must map to animus-subject-default (NOT animus-subject-linear), got: {task}"
+    );
+    let requirement = spec.install_target_for("subject_kind:requirement").expect("requirement role mapped");
+    assert!(
+        requirement.starts_with("launchapp-dev/animus-subject-requirements@"),
+        "requirement role must map to animus-subject-requirements (NOT animus-subject-linear), got: {requirement}"
+    );
     assert_eq!(spec.install_target_for("nonexistent_role"), None);
 }

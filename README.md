@@ -335,8 +335,12 @@ Every task gets its own git worktree. Agents work in parallel on separate branch
 ## Plugin Ecosystem
 
 The full v0.4.x ecosystem — 14 standalone GitHub repos under
-[launchapp-dev](https://github.com/launchapp-dev), each tagged `v0.1.x`
-with green CI:
+[launchapp-dev](https://github.com/launchapp-dev), each tagged `v0.1.x` or
+`v0.2.x` with green CI. The exact `(repo, tag)` set installed by
+`animus plugin install-defaults` lives in a single source of truth at
+[`crates/orchestrator-core/src/plugin_registry.rs`](crates/orchestrator-core/src/plugin_registry.rs)
+so the CLI installer and the daemon preflight always agree on which tag is
+"the default":
 
 | Kind | Repos |
 |---|---|
@@ -471,7 +475,7 @@ The web dashboard is no longer bundled in-tree. Install it as plugins via
 
 ### Plugin ecosystem
 
-Provider, subject, trigger, and log-storage backends live in their own GitHub repositories under [launchapp-dev](https://github.com/launchapp-dev) and are installed via `animus plugin install <owner/repo>`. 14 repos live today, each tagged `v0.1.x` with green CI:
+Provider, subject, trigger, and log-storage backends live in their own GitHub repositories under [launchapp-dev](https://github.com/launchapp-dev) and are installed via `animus plugin install <owner/repo>`. 14 repos live today, each tagged `v0.1.x` or `v0.2.x` with green CI. The exact tags pinned by `animus plugin install-defaults` and used by the daemon preflight are kept in [`crates/orchestrator-core/src/plugin_registry.rs`](crates/orchestrator-core/src/plugin_registry.rs):
 
 | Repository | Purpose |
 |---|---|

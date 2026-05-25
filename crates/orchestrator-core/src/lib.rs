@@ -8,6 +8,7 @@ pub mod domain_state;
 pub mod execution_projection;
 pub mod model_quality;
 pub mod plugin_preflight;
+pub mod plugin_registry;
 pub mod providers;
 pub mod runtime_contract;
 pub mod services;
@@ -66,6 +67,10 @@ pub use plugin_preflight::{
     summarize_discovered_plugins, AutoInstalledPlugin, InstalledPluginSummary, MissingPlugin, PluginInstaller,
     PluginPreflightRunner, PluginPreflightSpec, PreflightResult, RequiredRole, DEFAULT_PROVIDER_REPO,
     DEFAULT_REQUIREMENT_BACKEND_REPO, DEFAULT_TASK_BACKEND_REPO,
+};
+pub use plugin_registry::{
+    default_provider_repo_spec, default_subject_repo_for_kind, format_repo_spec, DEFAULT_OAI_AGENT_PLUGINS,
+    DEFAULT_PROVIDER_PLUGINS, DEFAULT_SUBJECT_PLUGINS, DEFAULT_TRANSPORT_PLUGINS,
 };
 pub use runtime_contract::{
     build_cli_launch_contract, build_runtime_contract, cli_capabilities_for_tool, cli_capabilities_from_config,

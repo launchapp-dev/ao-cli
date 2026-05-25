@@ -89,14 +89,96 @@ async fn handle_serve(args: crate::WebServeArgs, project_root: &str, json: bool)
 }
 
 async fn handle_open(args: crate::WebOpenArgs, project_root: &str, json: bool) -> Result<()> {
-    let url = resolve_open_url(&args, project_root).await?;
-    open_resolved_url(&url, json)
-}
-
-async fn resolve_open_url(args: &crate::WebOpenArgs, project_root: &str) -> Result<String> {
     // --url short-circuits plugin discovery entirely: the help text promises
     // "installed plugins are not consulted", so a machine with zero web plugins
-    // installed must still be able to open an arbitrary URL.
+    // installed must still be able to open an arbitrary URL. This is also the
+    // recommended path when an externally-managed plugin or daemon is already
+    // serving the UI, since the CLI then has no lifetime to manage.
+    if let Some(explicit) = args.url.as_deref() {
+        return open_resolved_url(explicit, json);
+    }
+
+    // Default path before this fix: spawn plugin, ask it for URL, immediately
+    // shut it down, then open the browser at an already-dead server. Codex
+    // round-6 P2. Fix: keep the plugin alive in the foreground (same lifecycle
+    // as `web serve`) so the URL stays reachable. A `--detach` flag was
+    // explored but rejected — STDIO plugins die at CLI exit because the OS
+    // closes the inherited stdin pipe, so we cannot honestly promise a
+    // detached lifecycle without a separate supervisor (which is the job
+    // of `animus daemon start` once daemon-managed web plugins land).
+    let (transports, web_ui_plugins) = collect_transport_plugins(project_root)?;
+    if transports.is_empty() && web_ui_plugins.is_empty() {
+        bail_with_install_help();
+    }
+
+    handle_open_foreground(&args, transports, web_ui_plugins, json).await
+}
+
+async fn handle_open_foreground(
+    args: &crate::WebOpenArgs,
+    transports: Vec<DiscoveredPlugin>,
+    web_ui_plugins: Vec<DiscoveredPlugin>,
+    json: bool,
+) -> Result<()> {
+    let mut running: Vec<RunningTransport> = Vec::new();
+    for plugin in web_ui_plugins.iter().chain(transports.iter()) {
+        match spawn_and_keep_alive(plugin).await {
+            Ok(rt) => running.push(rt),
+            Err(err) => {
+                shutdown_running_transports(running).await;
+                return Err(err);
+            }
+        }
+    }
+
+    let primary_url = running
+        .iter()
+        .find(|s| s.info.kind == WEB_UI_PLUGIN_KIND)
+        .or_else(|| running.first())
+        .and_then(|s| s.info.url.clone())
+        .map(|u| append_path(&u, &args.path));
+
+    let url = match primary_url {
+        Some(url) => url,
+        None => {
+            shutdown_running_transports(running).await;
+            return Err(anyhow!(
+                "no transport plugin advertised a URL. Pass --url explicitly or install \
+                 launchapp-dev/animus-web-ui via `animus plugin install-defaults --include-transports`."
+            ));
+        }
+    };
+
+    if let Err(err) = open_in_browser(&url) {
+        shutdown_running_transports(running).await;
+        return Err(err);
+    }
+
+    if json {
+        print_value(json!({"message": "browser opened", "url": url, "mode": "foreground"}), true)?;
+    } else {
+        print_ok(&format!("opened {url}"), false);
+        eprintln!(
+            "[open] transport plugin running in foreground so {url} stays reachable. \
+             Press Ctrl-C to stop. For an externally-managed server, pass --url <URL> \
+             so this command returns immediately without spawning a plugin."
+        );
+    }
+
+    wait_for_shutdown_signal().await;
+    if !json {
+        eprintln!("[open] shutdown signal received, stopping transport plugin...");
+    }
+    shutdown_running_transports(running).await;
+    Ok(())
+}
+
+#[cfg(test)]
+async fn resolve_open_url(args: &crate::WebOpenArgs, project_root: &str) -> Result<String> {
+    // Test-only helper exercising the --url short-circuit + the
+    // describe-and-shutdown URL resolution. Production paths now go
+    // through `handle_open_foreground` so the plugin handle survives past
+    // URL resolution (the round-6 P2 fix).
     if let Some(explicit) = args.url.as_deref() {
         return Ok(explicit.to_string());
     }
@@ -161,13 +243,14 @@ async fn describe_host(plugin: &DiscoveredPlugin, host: &PluginHost) -> Result<S
     Ok(SpawnedTransport { name: plugin.name.clone(), kind: plugin.manifest.plugin_kind.clone(), url, info: init_value })
 }
 
+#[cfg(test)]
 async fn spawn_and_describe(plugin: &DiscoveredPlugin) -> Result<SpawnedTransport> {
     let host = PluginHost::spawn(&plugin.path, &[])
         .await
         .map_err(|err| anyhow!("failed to spawn transport plugin {}: {err}", plugin.name))?;
     let described = describe_host(plugin, &host).await;
-    // The open/discovery path only needs the URL; the plugin must be stopped
-    // here or it would leak as an orphaned child of the short-lived CLI.
+    // Test-only describe-and-shutdown helper. Production paths use
+    // `spawn_and_keep_alive` so the plugin survives URL resolution.
     let _ = host.shutdown().await;
     described
 }

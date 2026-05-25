@@ -8,9 +8,42 @@ pub use runner::{PluginInstaller, PluginPreflightRunner};
 use animus_plugin_protocol::{PLUGIN_KIND_PROVIDER, PLUGIN_KIND_SUBJECT_BACKEND};
 use serde::{Deserialize, Serialize};
 
-pub const DEFAULT_PROVIDER_REPO: &str = "launchapp-dev/animus-provider-claude@v0.1.0";
-pub const DEFAULT_TASK_BACKEND_REPO: &str = "launchapp-dev/animus-subject-linear@v0.1.0";
-pub const DEFAULT_REQUIREMENT_BACKEND_REPO: &str = "launchapp-dev/animus-subject-linear@v0.1.0";
+use crate::plugin_registry::{default_provider_repo_spec, default_subject_repo_for_kind};
+
+/// Default provider repo spec preflight should auto-install when
+/// `at_least_one_provider` is unsatisfied. Resolved at call time from the
+/// shared `plugin_registry` constants so version bumps land in one place.
+pub fn default_provider_repo() -> String {
+    default_provider_repo_spec()
+}
+
+/// Default backend repo spec for the `task` subject kind. Points at
+/// `animus-subject-default`, NOT `animus-subject-linear` (Linear is a
+/// third-party mirror that happens to claim `subject_kind:task`).
+pub fn default_task_backend_repo() -> String {
+    default_subject_repo_for_kind("task")
+        .expect("task subject kind must have a curated default backend (animus-subject-default)")
+}
+
+/// Default backend repo spec for the `requirement` subject kind. Points at
+/// `animus-subject-requirements`, the dedicated requirements backend.
+pub fn default_requirement_backend_repo() -> String {
+    default_subject_repo_for_kind("requirement")
+        .expect("requirement subject kind must have a curated default backend (animus-subject-requirements)")
+}
+
+/// Compatibility shim: legacy string-typed export still pinned at the
+/// historical Claude provider tag for any out-of-tree code that imported
+/// `DEFAULT_PROVIDER_REPO` directly. New code should call
+/// `default_provider_repo()` so version bumps to the curated registry
+/// flow through automatically.
+pub const DEFAULT_PROVIDER_REPO: &str = "launchapp-dev/animus-provider-claude@v0.2.1";
+/// Compatibility shim — see `DEFAULT_PROVIDER_REPO`. Points at the
+/// curated `animus-subject-default` backend (NOT the Linear mirror).
+pub const DEFAULT_TASK_BACKEND_REPO: &str = "launchapp-dev/animus-subject-default@v0.1.1";
+/// Compatibility shim — see `DEFAULT_PROVIDER_REPO`. Points at the
+/// curated `animus-subject-requirements` backend.
+pub const DEFAULT_REQUIREMENT_BACKEND_REPO: &str = "launchapp-dev/animus-subject-requirements@v0.1.6";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "role", rename_all = "snake_case")]
@@ -47,9 +80,9 @@ impl PluginPreflightSpec {
             ],
             auto_install: false,
             auto_install_defaults: vec![
-                ("at_least_one_provider".to_string(), DEFAULT_PROVIDER_REPO.to_string()),
-                ("subject_kind:task".to_string(), DEFAULT_TASK_BACKEND_REPO.to_string()),
-                ("subject_kind:requirement".to_string(), DEFAULT_REQUIREMENT_BACKEND_REPO.to_string()),
+                ("at_least_one_provider".to_string(), default_provider_repo()),
+                ("subject_kind:task".to_string(), default_task_backend_repo()),
+                ("subject_kind:requirement".to_string(), default_requirement_backend_repo()),
             ],
         }
     }

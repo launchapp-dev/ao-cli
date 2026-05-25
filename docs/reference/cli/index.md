@@ -356,14 +356,20 @@ animus plugin install-defaults --include-subjects
 | `--plugin-dir <PATH>` | Override the plugin install directory. Same semantics as `animus plugin install --plugin-dir` |
 | `--force` | Reinstall plugins that are already present (default: skip with a warning) |
 | `--yes` | Auto-confirm the trust-on-first-use prompt for the `launchapp-dev` org |
-| `--include-oai-agent` | Also install `animus-provider-oai-agent` v0.1.1 |
-| `--include-subjects` | Also install the default subject_backend plugins (`subject-default`, `subject-requirements`, `subject-linear`, `subject-sqlite`, `subject-markdown`) |
+| `--include-oai-agent` | Also install `animus-provider-oai-agent` v0.1.2 |
+| `--include-subjects` | Also install the default subject_backend plugins (`subject-default` v0.1.1, `subject-requirements` v0.1.6, `subject-linear` v0.1.4, `subject-sqlite` v0.1.4, `subject-markdown` v0.1.4) |
+| `--include-transports` | Also install transport + UI plugins (`transport-http` v0.2.0, `transport-graphql` v0.2.3, `web-ui` v0.1.0) |
 | `--json` | Emit per-plugin results + summary as JSON |
 
 The command pins each install to a specific release tag (currently `v0.2.1` for
-providers, `v0.1.1` for `oai-agent`, `v0.1.0` for subjects). Plugins that fail
-to install do not abort the run — the per-repo failure is recorded in the
-summary's `failed` count and the rest of the install continues.
+providers, `v0.1.2` for `oai-agent`, `v0.1.1`/`v0.1.4`/`v0.1.6` for subjects,
+`v0.2.0`/`v0.2.3`/`v0.1.0` for transports). Versions live in
+[`crates/orchestrator-core/src/plugin_registry.rs`](../../../crates/orchestrator-core/src/plugin_registry.rs)
+and are shared with the daemon preflight, so bumping the registry rolls both
+surfaces at once. Plugins that fail to install are recorded in the summary's
+`failed` count, the per-repo failure is emitted in the JSON envelope, and the
+process exits non-zero so installer scripts can detect partial failure
+(codex round-6 P2).
 
 ### `animus plugin list` / `info` / `call` / `ping`
 

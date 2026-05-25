@@ -19,7 +19,10 @@ pub(crate) struct WebServeArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct WebOpenArgs {
-    /// Override the resolved URL. When set, the installed plugins are not consulted.
+    /// Override the resolved URL. When set, the installed plugins are not consulted
+    /// (no plugin process is spawned and `animus web open` exits as soon as the
+    /// browser is launched). Use this when an externally-managed transport plugin
+    /// or daemon is already serving the UI.
     #[arg(long, value_name = "URL")]
     pub(crate) url: Option<String>,
     /// Sub-path appended to the resolved URL, such as `/runs`. Ignored when `--url` is set.

@@ -17,13 +17,13 @@ When prose and code disagree, trust the code and generated references:
 - `crates/orchestrator-cli/src/cli_types/root_types.rs` for visible and hidden top-level commands
 - `crates/orchestrator-core/src/config.rs` for project-root resolution
 - `crates/orchestrator-core/src/services.rs` for bootstrap and state persistence
-- `crates/orchestrator-web-server/web-ui/package.json` and `web-ui/src/app/router.tsx` for web UI stack and routes
+- `crates/orchestrator-cli/src/services/operations/ops_web.rs` for how `animus web` resolves the external transport plugins
 
 Do not keep outdated counts or removed crates alive in docs.
 
 ## Workspace
 
-17-crate Rust workspace. Main binary: `ao` (`crates/orchestrator-cli`).
+Around 20-crate Rust workspace. Main binary: `animus` (`crates/orchestrator-cli`). The web stack (transport + UI) lives in external plugins under [`launchapp-dev`](https://github.com/launchapp-dev).
 
 ```text
 crates/
@@ -39,9 +39,6 @@ crates/
 ├── orchestrator-notifications/  # Notification/runtime integration support
 ├── orchestrator-providers/      # Built-in provider integrations and routing
 ├── orchestrator-store/          # Shared state/storage path helpers
-├── orchestrator-web-api/        # Web API business logic
-├── orchestrator-web-contracts/  # Shared web/API contract types
-├── orchestrator-web-server/     # Axum server + embedded web UI
 ├── protocol/                    # Shared protocol/config/runtime types
 └── workflow-runner-v2/          # Workflow execution runtime and phase output persistence
 ```

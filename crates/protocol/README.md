@@ -71,14 +71,12 @@ graph BT
     CORE["orchestrator-core"]
     RUN["agent-runner"]
     OAI["oai-runner"]
-    WEB["orchestrator-web-api"]
     WFR["workflow-runner"]
 
     CLI --> PROTO
     CORE --> PROTO
     RUN --> PROTO
     OAI --> PROTO
-    WEB --> PROTO
     WFR --> PROTO
 ```
 

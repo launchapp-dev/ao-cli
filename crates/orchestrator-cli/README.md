@@ -130,22 +130,16 @@ graph LR
     DRT["orchestrator-daemon-runtime"]
     GIT["orchestrator-git-ops"]
     NOTIF["orchestrator-notifications"]
-    WEBAPI["orchestrator-web-api"]
-    WEBSRV["orchestrator-web-server"]
-    WEBCON["orchestrator-web-contracts"]
     PROTO["protocol"]
-    WRAP["llm-cli-wrapper"]
+    HOST["orchestrator-plugin-host"]
 
     CLI --> CORE
     CLI --> WFR
     CLI --> DRT
     CLI --> GIT
     CLI --> NOTIF
-    CLI --> WEBAPI
-    CLI --> WEBSRV
-    CLI --> WEBCON
     CLI --> PROTO
-    CLI --> WRAP
+    CLI --> HOST
 ```
 
 ## Notes

@@ -22,57 +22,9 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  web-ui-gates:
-    name: Web UI Gates
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22.x"
-          cache: npm
-          cache-dependency-path: crates/orchestrator-web-server/web-ui/package-lock.json
-
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install web-ui dependencies
-        working-directory: crates/orchestrator-web-server/web-ui
-        run: npm ci
-
-      - name: Run web-ui tests
-        working-directory: crates/orchestrator-web-server/web-ui
-        run: npm run test
-
-      - name: Build web-ui bundle
-        working-directory: crates/orchestrator-web-server/web-ui
-        run: npm run build
-
-      - name: Run web-ui smoke E2E
-        id: smoke
-        working-directory: crates/orchestrator-web-server/web-ui
-        env:
-          SMOKE_ARTIFACT_DIR: ${{ github.workspace }}/crates/orchestrator-web-server/web-ui/.smoke-artifacts
-        run: npm run test:e2e:smoke
-
-      - name: Upload smoke diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-web-ui-smoke-failure-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ github.workspace }}/crates/orchestrator-web-server/web-ui/.smoke-artifacts
-          if-no-files-found: ignore
-          retention-days: 7
-
   build:
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
-    needs: web-ui-gates
     strategy:
       fail-fast: false
       matrix:

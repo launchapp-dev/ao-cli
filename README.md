@@ -464,7 +464,10 @@ Animus is a Rust workspace. The core crates:
 - `orchestrator-logging` — shared logging utilities
 - `orchestrator-plugin-host` / `animus-plugin-protocol` — stdio plugin foundation
 - `animus-provider-mock` / `animus-plugin-smoke` — in-tree contract test fixtures for the plugin protocol
-- `orchestrator-web-contracts` / `orchestrator-web-api` / `orchestrator-web-server` — embedded React 18 dashboard
+
+The web dashboard is no longer bundled in-tree. Install it as plugins via
+`animus plugin install-defaults --include-transports`
+(`animus-transport-http` + `animus-transport-graphql` + `animus-web-ui`).
 
 ### Plugin ecosystem
 

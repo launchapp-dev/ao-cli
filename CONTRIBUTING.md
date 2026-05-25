@@ -55,9 +55,10 @@ cargo clippy
 The workspace is organized into functional crates:
 
 - **Core orchestration**: `orchestrator-cli`, `orchestrator-core`, `orchestrator-config`, `orchestrator-store`
-- **Runtime & agents**: `agent-runner`, `llm-cli-wrapper`, `workflow-runner-v2`, `orchestrator-daemon-runtime`
-- **Web & API**: `orchestrator-web-server`, `orchestrator-web-api`
+- **Runtime & agents**: `agent-runner`, `workflow-runner-v2`, `orchestrator-daemon-runtime`, `orchestrator-session-host`
+- **Plugin host**: `orchestrator-plugin-host`, `animus-plugin-protocol`, `animus-subject-protocol`
 - **Utilities**: `orchestrator-providers`, `orchestrator-git-ops`, `orchestrator-notifications`, `protocol`
+- **Web stack**: shipped as external plugins (`launchapp-dev/animus-transport-http`, `animus-transport-graphql`, `animus-web-ui`). Install with `animus plugin install-defaults --include-transports`.
 
 ### Running Tests
 
@@ -67,10 +68,6 @@ cargo test -p crate-name
 
 # Run all tests
 cargo test --workspace
-
-# Run web UI tests
-cd crates/orchestrator-web-server/web-ui
-npm test
 ```
 
 ### Verifying Your Changes
@@ -86,11 +83,6 @@ cargo clippy --all-targets
 
 # Test all crates
 cargo test --workspace
-
-# Web UI checks (if relevant)
-cd crates/orchestrator-web-server/web-ui
-npm run typecheck
-npm run build
 ```
 
 ## Submitting Changes

@@ -65,9 +65,6 @@ jobs:
           - orchestrator-cli
           - orchestrator-core
           - agent-runner
-          - orchestrator-web-contracts
-          - orchestrator-web-api
-          - orchestrator-web-server
     env:
       CARGO_TERM_COLOR: always
 

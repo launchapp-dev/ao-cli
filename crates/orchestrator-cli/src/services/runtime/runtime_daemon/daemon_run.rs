@@ -65,9 +65,10 @@ impl ResumeProviderRegistry for ProductionResumeProviderRegistry {
         let Some(backend) = self.providers.get(&checkpoint.provider.to_ascii_lowercase()).cloned() else {
             return ResumeLookup::NotInstalled;
         };
-        let Some(session_id) = checkpoint.session_id.as_deref() else {
+        let Some(session_id) = checkpoint.provider_session_id.as_deref().map(str::trim).filter(|s| !s.is_empty())
+        else {
             return ResumeLookup::Outcome(ResumeAgentOutcome::Failed {
-                reason: "resume_agent failed: checkpoint missing session_id".to_string(),
+                reason: "resume_agent failed: no provider session_id captured before crash; phase will re-run from scratch on resume --force".to_string(),
             });
         };
         let Some(request) = checkpoint.request.as_ref() else {
@@ -89,6 +90,22 @@ pub(super) async fn auto_resume_running_checkpoints<R: ResumeProviderRegistry + 
         Err(_) => return report,
     };
     for (_path, checkpoint) in running {
+        // Guard rail: provider plugins can only resume an external session
+        // they themselves issued. If no provider_session_id was captured
+        // before the daemon crashed, dispatching ANY id (the run_id, an
+        // empty string, …) makes the plugin reject + the daemon mark the
+        // phase blocked with a misleading error. Skip the dispatch and
+        // block with an actionable, --force-aware reason instead.
+        let provider_sid_present =
+            checkpoint.provider_session_id.as_deref().map(str::trim).filter(|sid| !sid.is_empty()).is_some();
+        if !provider_sid_present {
+            let reason =
+                "no provider session_id captured before crash; phase will re-run from scratch on resume --force"
+                    .to_string();
+            let _ = update_session_blocked(scoped_root, &checkpoint.workflow_id, &checkpoint.phase_id, &reason);
+            report.blocked_on_failure += 1;
+            continue;
+        }
         match registry.try_resume(&checkpoint).await {
             ResumeLookup::Outcome(ResumeAgentOutcome::Resumed { session_id }) => {
                 let _ = update_session_running_after_resume(
@@ -823,7 +840,8 @@ mod tests {
         use std::sync::Mutex;
         use tempfile::TempDir;
         use workflow_runner_v2::phase_session::{
-            read_checkpoint, update_session_running, write_session_pending, SessionCheckpoint, SessionCheckpointStatus,
+            read_checkpoint, update_provider_session_id, update_session_running, write_session_pending,
+            SessionCheckpoint, SessionCheckpointStatus,
         };
 
         enum Script {
@@ -876,7 +894,8 @@ mod tests {
                 })),
             )
             .expect("seed pending");
-            update_session_running(scoped, workflow_id, phase_id, "sess-original").expect("seed running");
+            update_session_running(scoped, workflow_id, phase_id).expect("seed running");
+            update_provider_session_id(scoped, workflow_id, phase_id, "sess-original").expect("seed provider sid");
         }
 
         #[tokio::test]
@@ -896,7 +915,7 @@ mod tests {
 
             let after = read_checkpoint(scoped, "wf-ok", "impl").expect("read").expect("present");
             assert_eq!(after.status, SessionCheckpointStatus::Running);
-            assert_eq!(after.session_id.as_deref(), Some("sess-new"));
+            assert_eq!(after.provider_session_id.as_deref(), Some("sess-new"));
             assert!(after.blocked_reason.is_none());
         }
 
@@ -921,6 +940,72 @@ mod tests {
             assert!(
                 reason.contains("session expired") && reason.contains("resume_agent failed"),
                 "expected specific resume failure reason, got: {reason}"
+            );
+        }
+
+        #[tokio::test]
+        async fn auto_resume_blocks_when_provider_session_id_not_captured_before_crash() {
+            let temp = TempDir::new().expect("tempdir");
+            let scoped = temp.path();
+            // Seed a Running checkpoint that NEVER captured a provider_session_id
+            // (simulates crash between dispatch and the plugin's first response).
+            write_session_pending(
+                scoped,
+                "wf-crashed",
+                "impl",
+                "claude",
+                "run-crashed",
+                Some(json!({
+                    "protocol_version": "1",
+                    "run_id": "run-crashed",
+                    "model": "claude-sonnet-4-6",
+                    "context": {"tool": "claude", "prompt": "x", "cwd": "/tmp", "project_root": "/tmp"}
+                })),
+            )
+            .expect("pending");
+            update_session_running(scoped, "wf-crashed", "impl").expect("running");
+
+            let registry = ScriptedRegistry::new(vec![(
+                "claude",
+                // Script must NOT be consumed: try_resume should short-circuit
+                // before dispatching to the plugin when provider_session_id
+                // is None.
+                Script::Resumed { new_session_id: Some("sess-should-never-arrive".to_string()) },
+            )]);
+            let report = auto_resume_running_checkpoints(scoped, &registry).await;
+            assert_eq!(report.resumed, 0);
+            assert_eq!(report.blocked_on_failure, 1);
+
+            let after = read_checkpoint(scoped, "wf-crashed", "impl").expect("read").expect("present");
+            assert_eq!(after.status, SessionCheckpointStatus::Blocked);
+            let reason = after.blocked_reason.unwrap_or_default();
+            assert!(
+                reason.contains("no provider session_id captured") && reason.contains("--force"),
+                "expected explicit 'no provider session_id captured' guidance, got: {reason}"
+            );
+        }
+
+        #[tokio::test]
+        async fn auto_resume_passes_correct_provider_session_id_to_resume_agent() {
+            let temp = TempDir::new().expect("tempdir");
+            let scoped = temp.path();
+            seed_running_checkpoint(scoped, "wf-correct", "impl", "claude");
+            // ScriptedRegistry distinguishes by provider name; assert that
+            // the resumed outcome propagates a fresh session_id, confirming
+            // the production `try_resume` reached the plugin (i.e. it did
+            // NOT short-circuit on a missing provider_session_id).
+            let registry = ScriptedRegistry::new(vec![(
+                "claude",
+                Script::Resumed { new_session_id: Some("sess-rotated".to_string()) },
+            )]);
+            let report = auto_resume_running_checkpoints(scoped, &registry).await;
+            assert_eq!(report.resumed, 1);
+            let after = read_checkpoint(scoped, "wf-correct", "impl").expect("read").expect("present");
+            assert_eq!(after.provider_session_id.as_deref(), Some("sess-rotated"));
+            assert_ne!(
+                after.provider_session_id.as_deref(),
+                Some(after.run_id.as_str()),
+                "auto-resume must NOT confuse run_id with provider_session_id"
             );
         }
 

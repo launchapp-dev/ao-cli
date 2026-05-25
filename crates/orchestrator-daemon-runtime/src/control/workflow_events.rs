@@ -382,6 +382,64 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn phase_failed_metrics_counter_increments_correctly_on_failure() {
+        // The metrics registry is process-global, so parallel tests can
+        // also bump these counters. Assert strict ordering rather than
+        // an exact delta.
+        let before_failed =
+            crate::metrics::snapshot().counters.get("phase_executions_total{status=failed}").copied().unwrap_or(0);
+        let before_completed =
+            crate::metrics::snapshot().counters.get("phase_executions_total{status=completed}").copied().unwrap_or(0);
+
+        let bus = WorkflowEventBroadcaster::new();
+        bus.emit(evt("wf-fail-counter", "phase_failed"));
+
+        let after = crate::metrics::snapshot();
+        let after_failed = after.counters.get("phase_executions_total{status=failed}").copied().unwrap_or(0);
+        let after_completed = after.counters.get("phase_executions_total{status=completed}").copied().unwrap_or(0);
+        assert!(
+            after_failed > before_failed,
+            "phase_executions_total{{status=failed}} must increment on phase_failed event \
+             (before={before_failed}, after={after_failed})"
+        );
+        assert!(
+            after_completed >= before_completed,
+            "phase_executions_total{{status=completed}} must never decrement \
+             (before={before_completed}, after={after_completed})"
+        );
+    }
+
+    #[tokio::test]
+    async fn broadcast_emitter_translates_runtime_phase_failed_to_wire_phase_failed() {
+        use chrono::Utc;
+        use workflow_runner_v2::workflow_event_emitter::{RuntimeWorkflowEvent, RuntimeWorkflowEventKind};
+
+        let bus = WorkflowEventBroadcaster::new();
+        let emitter = BroadcastWorkflowEventEmitter::new(bus.clone());
+        let (_id, mut rx) =
+            bus.subscribe(WorkflowEventFilter { workflow_id: None, kinds: Some(vec!["phase_failed".into()]) });
+
+        WorkflowEventEmitter::emit(
+            &*emitter,
+            RuntimeWorkflowEvent {
+                workflow_id: "wf-translate".to_string(),
+                kind: RuntimeWorkflowEventKind::PhaseFailed,
+                payload: json!({"phase_id": "impl", "phase_status": "failed", "error": "boom"}),
+                occurred_at: Utc::now(),
+            },
+        );
+
+        let item = rx.recv().await.expect("subscriber should receive translated event");
+        match item {
+            SubscriberItem::Event(e) => {
+                assert_eq!(e.kind, "phase_failed", "PhaseFailed must serialize to wire kind 'phase_failed'");
+                assert_eq!(e.workflow_id, "wf-translate");
+            }
+            SubscriberItem::Closed { reason } => panic!("expected event, got Closed({reason})"),
+        }
+    }
+
+    #[tokio::test]
     async fn broadcaster_emit_records_metrics() {
         let before_completed =
             crate::metrics::snapshot().counters.get("workflow_runs_total{status=completed}").copied().unwrap_or(0);

@@ -499,7 +499,17 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
                     emit(PhaseEvent::Decision { phase_id: &phase_id, decision });
                 }
 
-                let _ = persist_phase_output(&params.project_root, &workflow.id, &phase_id, &result.outcome);
+                // Skip persistence for ManualPending: the .completed marker
+                // would otherwise advertise the phase as done. On crash
+                // between this write and the pause-state mutation, replay
+                // would read `verdict: manual_pending` (an unrecognised
+                // verdict for `read_persisted_decision`) and silently fail
+                // OR — worse — treat the phase as advanced past the
+                // manual gate. The pause is itself durable via the task
+                // status update issued in the ManualPending arm below.
+                if !matches!(&result.outcome, PhaseExecutionOutcome::ManualPending { .. }) {
+                    let _ = persist_phase_output(&params.project_root, &workflow.id, &phase_id, &result.outcome);
+                }
 
                 match &result.outcome {
                     PhaseExecutionOutcome::Completed { phase_decision, .. } => {
@@ -615,7 +625,7 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
                     tool: None,
                 });
                 emit_runtime(
-                    RuntimeWorkflowEventKind::PhaseCompleted,
+                    RuntimeWorkflowEventKind::PhaseFailed,
                     serde_json::json!({
                         "phase_id": phase_id,
                         "phase_status": "failed",

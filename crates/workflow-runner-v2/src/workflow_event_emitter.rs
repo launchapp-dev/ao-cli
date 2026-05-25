@@ -20,6 +20,7 @@ use std::sync::Arc;
 pub enum RuntimeWorkflowEventKind {
     PhaseStarted,
     PhaseCompleted,
+    PhaseFailed,
     WorkflowCompleted,
     WorkflowFailed,
 }
@@ -29,6 +30,7 @@ impl RuntimeWorkflowEventKind {
         match self {
             Self::PhaseStarted => "phase_started",
             Self::PhaseCompleted => "phase_completed",
+            Self::PhaseFailed => "phase_failed",
             Self::WorkflowCompleted => "workflow_completed",
             Self::WorkflowFailed => "workflow_failed",
         }

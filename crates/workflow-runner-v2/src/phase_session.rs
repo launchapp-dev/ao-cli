@@ -22,7 +22,21 @@ pub struct SessionCheckpoint {
     pub phase_id: String,
     pub provider: String,
     pub run_id: String,
-    pub session_id: Option<String>,
+    // `provider_session_id` is the provider plugin's external session id
+    // (what `resume_agent` accepts). It is None until the plugin has
+    // reported one back. Pre-v0.4.6 checkpoints incorrectly stored
+    // `run_id` in a `session_id` slot; that legacy field is consumed by
+    // `legacy_session_id` below and deliberately NOT promoted to
+    // `provider_session_id` (the bytes are not a real provider id), so
+    // auto-resume safely skips legacy checkpoints rather than dispatching
+    // an unknown id to the plugin.
+    #[serde(default)]
+    pub provider_session_id: Option<String>,
+    // Captured purely to drain stale on-disk values written before the
+    // v0.4.6 fix split run_id from provider_session_id. Never read by the
+    // runtime; never serialized back out.
+    #[serde(default, rename = "session_id", skip_serializing)]
+    pub legacy_session_id: Option<String>,
     pub status: SessionCheckpointStatus,
     pub started_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -58,7 +72,8 @@ pub fn write_session_pending(
         phase_id: phase_id.to_string(),
         provider: provider.to_string(),
         run_id: run_id.to_string(),
-        session_id: None,
+        provider_session_id: None,
+        legacy_session_id: None,
         status: SessionCheckpointStatus::Pending,
         started_at: Utc::now().to_rfc3339(),
         completed_at: None,
@@ -69,17 +84,29 @@ pub fn write_session_pending(
     Ok(checkpoint)
 }
 
-pub fn update_session_running(
+// Marks a checkpoint Running WITHOUT setting provider_session_id. The
+// provider's external id arrives asynchronously (e.g. via a sidecar the
+// runner persists after the plugin's first response); callers should
+// invoke `update_provider_session_id` separately once it is known.
+pub fn update_session_running(scoped_root: &Path, workflow_id: &str, phase_id: &str) -> io::Result<()> {
+    mutate(scoped_root, workflow_id, phase_id, |checkpoint| {
+        checkpoint.status = SessionCheckpointStatus::Running;
+    })
+}
+
+// Records the provider plugin's external session id (the one resume_agent
+// will accept). Called after the plugin reports its session id back to the
+// runner — never with the internal run_id.
+pub fn update_provider_session_id(
     scoped_root: &Path,
     workflow_id: &str,
     phase_id: &str,
-    session_id: &str,
+    provider_session_id: &str,
 ) -> io::Result<()> {
     mutate(scoped_root, workflow_id, phase_id, |checkpoint| {
-        if checkpoint.session_id.as_deref() != Some(session_id) {
-            checkpoint.session_id = Some(session_id.to_string());
+        if checkpoint.provider_session_id.as_deref() != Some(provider_session_id) {
+            checkpoint.provider_session_id = Some(provider_session_id.to_string());
         }
-        checkpoint.status = SessionCheckpointStatus::Running;
     })
 }
 
@@ -87,11 +114,11 @@ pub fn update_session_running_after_resume(
     scoped_root: &Path,
     workflow_id: &str,
     phase_id: &str,
-    new_session_id: Option<&str>,
+    new_provider_session_id: Option<&str>,
 ) -> io::Result<()> {
     mutate(scoped_root, workflow_id, phase_id, |checkpoint| {
-        if let Some(sid) = new_session_id {
-            checkpoint.session_id = Some(sid.to_string());
+        if let Some(sid) = new_provider_session_id {
+            checkpoint.provider_session_id = Some(sid.to_string());
         }
         checkpoint.status = SessionCheckpointStatus::Running;
         checkpoint.blocked_reason = None;
@@ -111,6 +138,26 @@ pub fn update_session_blocked(scoped_root: &Path, workflow_id: &str, phase_id: &
         checkpoint.status = SessionCheckpointStatus::Blocked;
         checkpoint.blocked_reason = Some(reason.to_string());
     })
+}
+
+// Best-effort lookup of the provider plugin's external session id from the
+// runner-sessions sidecar the agent-runner writes when a native session
+// backend produces a `Started { session_id }` event. Returns None when the
+// sidecar is missing, malformed, or the plugin never reported an id (e.g.
+// CLI-only providers without a resumable session).
+pub fn lookup_runner_session_sidecar(run_id: &str) -> Option<String> {
+    let runs_root = std::env::var_os("ANIMUS_RUNNER_SESSION_DIR")
+        .map(PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|home| home.join(".animus").join("runner-sessions")))?;
+    let path = runs_root.join(format!("{}.session.json", sanitize(run_id)));
+    let contents = fs::read_to_string(&path).ok()?;
+    let parsed: Value = serde_json::from_str(&contents).ok()?;
+    let sid = parsed.get("session_id").and_then(Value::as_str)?.trim();
+    if sid.is_empty() {
+        None
+    } else {
+        Some(sid.to_string())
+    }
 }
 
 pub fn read_checkpoint(scoped_root: &Path, workflow_id: &str, phase_id: &str) -> io::Result<Option<SessionCheckpoint>> {

@@ -4649,6 +4649,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "clap",
+ "dirs 5.0.1",
  "jsonschema",
  "orchestrator-config",
  "orchestrator-core",

@@ -496,12 +496,7 @@ pub async fn run_workflow_phase_attempt(
     let (read_half, mut write_half) = tokio::io::split(stream);
     write_json_line(&mut write_half, request).await?;
 
-    if let Err(err) = crate::phase_session::update_session_running(
-        &scoped_state_root,
-        workflow_id,
-        phase_id,
-        request.run_id.0.as_str(),
-    ) {
+    if let Err(err) = crate::phase_session::update_session_running(&scoped_state_root, workflow_id, phase_id) {
         warn!(
             workflow_id = %workflow_id,
             phase_id = %phase_id,
@@ -527,6 +522,22 @@ pub async fn run_workflow_phase_attempt(
         notification_log.clone(),
     )
     .await;
+
+    if let Some(provider_session_id) = crate::phase_session::lookup_runner_session_sidecar(request.run_id.0.as_str()) {
+        if let Err(err) = crate::phase_session::update_provider_session_id(
+            &scoped_state_root,
+            workflow_id,
+            phase_id,
+            &provider_session_id,
+        ) {
+            warn!(
+                workflow_id = %workflow_id,
+                phase_id = %phase_id,
+                %err,
+                "failed to record provider session id on checkpoint"
+            );
+        }
+    }
 
     if outcome.is_ok() {
         if let Err(err) = crate::phase_session::update_session_completed(&scoped_state_root, workflow_id, phase_id) {

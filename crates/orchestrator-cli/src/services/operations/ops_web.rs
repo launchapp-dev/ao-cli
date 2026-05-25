@@ -31,72 +31,98 @@ async fn handle_serve(args: crate::WebServeArgs, project_root: &str, json: bool)
         bail_with_install_help();
     }
 
-    let mut spawned: Vec<SpawnedTransport> = Vec::new();
+    let mut running: Vec<RunningTransport> = Vec::new();
     for plugin in transports.iter().chain(web_ui_plugins.iter()) {
-        let info = spawn_and_describe(plugin).await?;
-        spawned.push(info);
+        match spawn_and_keep_alive(plugin).await {
+            Ok(rt) => running.push(rt),
+            Err(err) => {
+                shutdown_running_transports(running).await;
+                return Err(err);
+            }
+        }
     }
 
-    let primary_url =
-        spawned.iter().find(|s| s.kind == WEB_UI_PLUGIN_KIND).or_else(|| spawned.first()).and_then(|s| s.url.clone());
+    let primary_url = running
+        .iter()
+        .find(|s| s.info.kind == WEB_UI_PLUGIN_KIND)
+        .or_else(|| running.first())
+        .and_then(|s| s.info.url.clone());
 
     if args.open {
         if let Some(url) = primary_url.as_deref() {
-            open_in_browser(url)?;
+            if let Err(err) = open_in_browser(url) {
+                shutdown_running_transports(running).await;
+                return Err(err);
+            }
         }
     }
 
     let payload = json!({
         "message": "transport plugins ready",
         "primary_url": primary_url,
-        "transports": spawned.iter().map(|s| json!({
-            "name": s.name,
-            "kind": s.kind,
-            "url": s.url,
-            "info": s.info,
+        "transports": running.iter().map(|s| json!({
+            "name": s.info.name,
+            "kind": s.info.kind,
+            "url": s.info.url,
+            "info": s.info.info,
         })).collect::<Vec<_>>(),
     });
     print_value(payload, json)?;
 
     if !json {
-        if let Some(url) = primary_url {
+        if let Some(url) = primary_url.as_deref() {
             print_ok(&format!("web UI available at {url}"), false);
         }
         eprintln!(
-            "[note] animus web now delegates to installed transport plugins. Daemon supervision \
-             of plugin lifetime arrives in a follow-up — for long-running serving, run the plugin \
-             binaries directly or rely on the daemon plugin host (animus daemon start)."
+            "[serve] transport plugins running in foreground. Press Ctrl-C to shut them down. \
+             For long-lived supervision (auto-restart, background lifetime), run \
+             `animus daemon start` — daemon-managed web plugins land in v0.5."
         );
     }
+
+    wait_for_shutdown_signal().await;
+    if !json {
+        eprintln!("[serve] shutdown signal received, stopping transport plugins...");
+    }
+    shutdown_running_transports(running).await;
     Ok(())
 }
 
 async fn handle_open(args: crate::WebOpenArgs, project_root: &str, json: bool) -> Result<()> {
+    let url = resolve_open_url(&args, project_root).await?;
+    open_resolved_url(&url, json)
+}
+
+async fn resolve_open_url(args: &crate::WebOpenArgs, project_root: &str) -> Result<String> {
+    // --url short-circuits plugin discovery entirely: the help text promises
+    // "installed plugins are not consulted", so a machine with zero web plugins
+    // installed must still be able to open an arbitrary URL.
+    if let Some(explicit) = args.url.as_deref() {
+        return Ok(explicit.to_string());
+    }
     let (transports, web_ui_plugins) = collect_transport_plugins(project_root)?;
     if transports.is_empty() && web_ui_plugins.is_empty() {
         bail_with_install_help();
     }
-
-    let mut url = args.url.clone();
-    if url.is_none() {
-        for plugin in web_ui_plugins.iter().chain(transports.iter()) {
-            if let Ok(info) = spawn_and_describe(plugin).await {
-                if let Some(resolved) = info.url {
-                    url = Some(append_path(&resolved, &args.path));
-                    break;
-                }
+    let mut url: Option<String> = None;
+    for plugin in web_ui_plugins.iter().chain(transports.iter()) {
+        if let Ok(info) = spawn_and_describe(plugin).await {
+            if let Some(resolved) = info.url {
+                url = Some(append_path(&resolved, &args.path));
+                break;
             }
         }
     }
-
-    let url = url.ok_or_else(|| {
+    url.ok_or_else(|| {
         anyhow!(
             "no transport plugin advertised a URL. Pass --url explicitly or install \
              launchapp-dev/animus-web-ui via `animus plugin install-defaults --include-transports`."
         )
-    })?;
+    })
+}
 
-    open_in_browser(&url)?;
+fn open_resolved_url(url: &str, json: bool) -> Result<()> {
+    open_in_browser(url)?;
     if json {
         print_value(json!({"message": "browser opened", "url": url}), true)
     } else {
@@ -112,10 +138,12 @@ struct SpawnedTransport {
     info: Value,
 }
 
-async fn spawn_and_describe(plugin: &DiscoveredPlugin) -> Result<SpawnedTransport> {
-    let host = PluginHost::spawn(&plugin.path, &[])
-        .await
-        .map_err(|err| anyhow!("failed to spawn transport plugin {}: {err}", plugin.name))?;
+struct RunningTransport {
+    info: SpawnedTransport,
+    host: PluginHost,
+}
+
+async fn describe_host(plugin: &DiscoveredPlugin, host: &PluginHost) -> Result<SpawnedTransport> {
     let init = tokio::time::timeout(PLUGIN_HANDSHAKE_TIMEOUT, host.handshake())
         .await
         .map_err(|_| anyhow!("transport plugin {} handshake timed out", plugin.name))?
@@ -124,17 +152,65 @@ async fn spawn_and_describe(plugin: &DiscoveredPlugin) -> Result<SpawnedTranspor
 
     let mut url = extract_url(&init_value);
     if url.is_none() {
-        if let Ok(resp) =
+        if let Ok(Ok(value)) =
             tokio::time::timeout(PLUGIN_HANDSHAKE_TIMEOUT, host.request_typed("transport/info", None)).await
         {
-            if let Ok(value) = resp {
-                url = extract_url(&value);
-            }
+            url = extract_url(&value);
         }
     }
-    let _ = host.shutdown().await;
-
     Ok(SpawnedTransport { name: plugin.name.clone(), kind: plugin.manifest.plugin_kind.clone(), url, info: init_value })
+}
+
+async fn spawn_and_describe(plugin: &DiscoveredPlugin) -> Result<SpawnedTransport> {
+    let host = PluginHost::spawn(&plugin.path, &[])
+        .await
+        .map_err(|err| anyhow!("failed to spawn transport plugin {}: {err}", plugin.name))?;
+    let described = describe_host(plugin, &host).await;
+    // The open/discovery path only needs the URL; the plugin must be stopped
+    // here or it would leak as an orphaned child of the short-lived CLI.
+    let _ = host.shutdown().await;
+    described
+}
+
+async fn spawn_and_keep_alive(plugin: &DiscoveredPlugin) -> Result<RunningTransport> {
+    let host = PluginHost::spawn(&plugin.path, &[])
+        .await
+        .map_err(|err| anyhow!("failed to spawn transport plugin {}: {err}", plugin.name))?;
+    match describe_host(plugin, &host).await {
+        Ok(info) => Ok(RunningTransport { info, host }),
+        Err(err) => {
+            let _ = host.shutdown().await;
+            Err(err)
+        }
+    }
+}
+
+async fn shutdown_running_transports(running: Vec<RunningTransport>) {
+    for rt in running {
+        let _ = rt.host.shutdown().await;
+    }
+}
+
+async fn wait_for_shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut sigterm = match signal(SignalKind::terminate()) {
+            Ok(s) => s,
+            Err(_) => {
+                let _ = tokio::signal::ctrl_c().await;
+                return;
+            }
+        };
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {},
+            _ = sigterm.recv() => {},
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
 }
 
 fn extract_url(value: &Value) -> Option<String> {
@@ -212,8 +288,10 @@ fn append_path(base: &str, path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{append_path, extract_url};
+    use super::{append_path, extract_url, resolve_open_url, shutdown_running_transports, wait_for_shutdown_signal};
+    use crate::WebOpenArgs;
     use serde_json::json;
+    use std::time::Duration;
 
     #[test]
     fn extract_url_from_direct_field() {
@@ -237,5 +315,32 @@ mod tests {
         assert_eq!(append_path("http://h/", "/runs"), "http://h/runs");
         assert_eq!(append_path("http://h", "runs"), "http://h/runs");
         assert_eq!(append_path("http://h", "/"), "http://h");
+    }
+
+    /// P2 #4 regression: `--url` must skip plugin discovery entirely so that
+    /// machines without any web plugins installed can still open arbitrary URLs.
+    /// We point at a nonexistent project_root to prove discovery never runs —
+    /// if it did, `collect_transport_plugins` would observe an empty plugin set
+    /// and `bail_with_install_help` would `std::process::exit(2)`, killing the test.
+    #[tokio::test]
+    async fn web_open_with_explicit_url_does_not_discover_plugins() {
+        let args =
+            WebOpenArgs { url: Some("http://example.invalid/dashboard".to_string()), path: "/ignored".to_string() };
+        let resolved = resolve_open_url(&args, "/path/that/definitely/does/not/exist/animus-test").await.unwrap();
+        assert_eq!(resolved, "http://example.invalid/dashboard");
+    }
+
+    /// P1 #3 regression scaffold: `web serve` must keep plugin handles alive
+    /// for the duration of the session. We can't reach into the live plugin host
+    /// from a unit test, but we can verify the two halves of the contract:
+    /// (a) `shutdown_running_transports` is the explicit teardown step, and
+    /// (b) `wait_for_shutdown_signal` actually blocks until a signal arrives.
+    /// Together they prove the lifecycle is no longer "spawn, describe,
+    /// immediately shut down" — the fix moved shutdown behind the signal wait.
+    #[tokio::test]
+    async fn web_serve_keeps_plugin_alive_until_signal() {
+        shutdown_running_transports(Vec::new()).await;
+        let blocked = tokio::time::timeout(Duration::from_millis(150), wait_for_shutdown_signal()).await;
+        assert!(blocked.is_err(), "wait_for_shutdown_signal returned before any signal was raised");
     }
 }

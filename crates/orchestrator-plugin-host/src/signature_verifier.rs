@@ -27,15 +27,12 @@ pub const GITHUB_OIDC_ISSUER: &str = "https://token.actions.githubusercontent.co
 /// the legacy public-key path for repos that publish a `.sig` + `.pub` pair
 /// instead of a keyless `.bundle`.
 ///
-/// TODO(release-eng): replace this placeholder with the real launchapp-dev
-/// cosign public key (PEM-encoded). The placeholder allows the install
-/// pipeline to compile + ship; users who add their own keys to
-/// `~/.animus/trusted-keys/` are unaffected. See
-/// `docs/reference/security.md` for instructions on rotating the baked-in
-/// key when the real one is provisioned.
-pub const LAUNCHAPP_DEV_COSIGN_PUBLIC_KEY_PEM: &str = "-----BEGIN PUBLIC KEY-----\n\
-PLACEHOLDER_REPLACE_WITH_LAUNCHAPP_DEV_COSIGN_PUBKEY_BEFORE_RELEASE\n\
------END PUBLIC KEY-----\n";
+/// Loaded at compile time from `trusted-keys/launchapp-dev.pub`. Rotation:
+/// update the .pub file (e.g. via `scripts/bootstrap-cosign-key.sh --force`),
+/// rebuild the binary, ship a new release. Procedure documented in
+/// `docs/reference/security.md`.
+pub const LAUNCHAPP_DEV_COSIGN_PUBLIC_KEY_PEM: &str =
+    include_str!("../trusted-keys/launchapp-dev.pub");
 
 /// Filename written under `~/.animus/trusted-keys/` when seeding the
 /// built-in launchapp-dev key.

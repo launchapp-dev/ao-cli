@@ -86,6 +86,7 @@ graph TD
 
 ## Deep Dives
 
+- [Runtime Topology Diagram](diagram.md) -- High-level Mermaid diagram of operators, daemon, plugins, and external systems with design rationale
 - [Crate Map](crate-map.md) -- All workspace crates grouped by responsibility with descriptions
 - [ServiceHub Pattern](service-hub.md) -- Dependency injection via the `ServiceHub` trait
 - [llm-cli-wrapper Session Backends](llm-cli-wrapper-session-backends.md) -- Planned unified session facade for SDK-backed CLI integrations

@@ -613,31 +613,11 @@ impl PluginSessionBackend {
             Ok(req) => req,
             Err(reason) => return ResumeAgentOutcome::Failed { reason },
         };
-        let mut run = match self.dispatch("agent/resume", session_request, Some(session_id.to_string())).await {
+        let run = match self.dispatch("agent/resume", session_request, Some(session_id.to_string())).await {
             Ok(run) => run,
             Err(err) => return ResumeAgentOutcome::Failed { reason: format!("resume_agent failed: {err}") },
         };
-        let resumed_session_id = run.session_id.clone();
-        while let Some(event) = run.events.recv().await {
-            match event {
-                SessionEvent::Finished { exit_code } => {
-                    if exit_code.unwrap_or(0) == 0 {
-                        return ResumeAgentOutcome::Resumed { session_id: resumed_session_id };
-                    }
-                    return ResumeAgentOutcome::Failed {
-                        reason: format!(
-                            "resume_agent failed: plugin exited with code {}",
-                            exit_code.map(|c| c.to_string()).unwrap_or_else(|| "unknown".to_string())
-                        ),
-                    };
-                }
-                SessionEvent::Error { message, recoverable: false } => {
-                    return ResumeAgentOutcome::Failed { reason: format!("resume_agent failed: {message}") };
-                }
-                _ => {}
-            }
-        }
-        ResumeAgentOutcome::Failed { reason: "resume_agent failed: stream closed before Finished".to_string() }
+        drain_resume_events(run.session_id, run.events).await
     }
 
     async fn dispatch_cancel(&self, session_id: &str) -> Result<()> {
@@ -888,6 +868,43 @@ async fn run_request_with_notifications(
 /// id the plugin process actually issued.
 fn extract_provider_session_id(response: &Value) -> Option<String> {
     response.get("session_id").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(ToOwned::to_owned)
+}
+
+/// Drain a resumed `agent/resume` event stream to terminal state. Mirrors the
+/// run-path logic in `dispatch`: when the plugin emits a late
+/// `SessionEvent::Started` with its own real `session_id`, we replace the
+/// initial control id with that provider id so the daemon persists an id the
+/// plugin process actually issued — never the host-local UUID. Without this
+/// the next daemon restart resumes with an id the provider never minted and
+/// the workflow blocks.
+async fn drain_resume_events(
+    initial_session_id: Option<String>,
+    mut events: mpsc::Receiver<SessionEvent>,
+) -> ResumeAgentOutcome {
+    let mut resumed_session_id = initial_session_id;
+    while let Some(event) = events.recv().await {
+        match event {
+            SessionEvent::Started { session_id: Some(real_sid), .. } if !real_sid.trim().is_empty() => {
+                resumed_session_id = Some(real_sid);
+            }
+            SessionEvent::Finished { exit_code } => {
+                if exit_code.unwrap_or(0) == 0 {
+                    return ResumeAgentOutcome::Resumed { session_id: resumed_session_id };
+                }
+                return ResumeAgentOutcome::Failed {
+                    reason: format!(
+                        "resume_agent failed: plugin exited with code {}",
+                        exit_code.map(|c| c.to_string()).unwrap_or_else(|| "unknown".to_string())
+                    ),
+                };
+            }
+            SessionEvent::Error { message, recoverable: false } => {
+                return ResumeAgentOutcome::Failed { reason: format!("resume_agent failed: {message}") };
+            }
+            _ => {}
+        }
+    }
+    ResumeAgentOutcome::Failed { reason: "resume_agent failed: stream closed before Finished".to_string() }
 }
 
 /// Translate a JSON-RPC notification emitted by a provider plugin into the
@@ -1250,5 +1267,82 @@ mod tests {
             extract_provider_session_id(&json!({"session_id": 42})).is_none(),
             "non-string session_id => None (would otherwise leak a junk id into the sidecar)"
         );
+    }
+
+    /// Resume path mirror of the run-path session-id fix: when the resumed
+    /// stream emits a late `Started` event carrying the plugin's REAL session
+    /// id, `drain_resume_events` must replace the initial control id with
+    /// that provider id. Otherwise `auto_resume_running_checkpoints` persists
+    /// the host-local control UUID as `provider_session_id`, and the next
+    /// daemon restart resumes against an id the provider never issued —
+    /// blocking the workflow. Regression test for the codex round-5 P2.
+    #[tokio::test]
+    async fn resume_agent_for_restart_returns_provider_session_id_not_control_id() {
+        let control_session_id = Uuid::new_v4().to_string();
+        let provider_session_id = "sess-plugin-real-resumed".to_string();
+
+        let (tx, rx) = mpsc::channel::<SessionEvent>(8);
+        tx.send(SessionEvent::Started {
+            backend: "plugin:test".to_string(),
+            session_id: Some(provider_session_id.clone()),
+            pid: None,
+        })
+        .await
+        .unwrap();
+        tx.send(SessionEvent::Finished { exit_code: Some(0) }).await.unwrap();
+        drop(tx);
+
+        let outcome = drain_resume_events(Some(control_session_id.clone()), rx).await;
+        match outcome {
+            ResumeAgentOutcome::Resumed { session_id } => {
+                assert_eq!(
+                    session_id.as_deref(),
+                    Some(provider_session_id.as_str()),
+                    "resume must surface the provider's real session_id, not the control id"
+                );
+                assert_ne!(
+                    session_id.as_deref(),
+                    Some(control_session_id.as_str()),
+                    "resume must NOT return the host-local control_session_id"
+                );
+            }
+            other @ ResumeAgentOutcome::Failed { .. } => panic!("expected Resumed, got: {other:?}"),
+        }
+
+        // Whitespace / empty Started session_ids must be ignored — fall back
+        // to the original control id rather than overwriting it with junk.
+        let (tx2, rx2) = mpsc::channel::<SessionEvent>(8);
+        tx2.send(SessionEvent::Started {
+            backend: "plugin:test".to_string(),
+            session_id: Some("   ".to_string()),
+            pid: None,
+        })
+        .await
+        .unwrap();
+        tx2.send(SessionEvent::Finished { exit_code: Some(0) }).await.unwrap();
+        drop(tx2);
+        let outcome2 = drain_resume_events(Some(control_session_id.clone()), rx2).await;
+        match outcome2 {
+            ResumeAgentOutcome::Resumed { session_id } => {
+                assert_eq!(
+                    session_id.as_deref(),
+                    Some(control_session_id.as_str()),
+                    "whitespace-only provider id must not displace the control id"
+                );
+            }
+            other @ ResumeAgentOutcome::Failed { .. } => panic!("expected Resumed, got: {other:?}"),
+        }
+
+        // No Started event at all → fall back to the initial control id.
+        let (tx3, rx3) = mpsc::channel::<SessionEvent>(8);
+        tx3.send(SessionEvent::Finished { exit_code: Some(0) }).await.unwrap();
+        drop(tx3);
+        let outcome3 = drain_resume_events(Some(control_session_id.clone()), rx3).await;
+        match outcome3 {
+            ResumeAgentOutcome::Resumed { session_id } => {
+                assert_eq!(session_id.as_deref(), Some(control_session_id.as_str()));
+            }
+            other @ ResumeAgentOutcome::Failed { .. } => panic!("expected Resumed, got: {other:?}"),
+        }
     }
 }

@@ -160,6 +160,33 @@ mod tests {
         assert_eq!(error.kind(), ErrorKind::InvalidSubcommand);
     }
 
+    /// Codex round-5 P3 regression: replacing `IdArgs` with
+    /// `WorkflowResumeArgs` dropped the `-i` short alias and broke
+    /// `animus workflow resume -i <id>` scripts. The short flag must keep
+    /// parsing alongside the canonical long form.
+    #[test]
+    fn workflow_resume_accepts_short_i_flag() {
+        let cli = Cli::try_parse_from(["animus", "workflow", "resume", "-i", "wf-abc-123"])
+            .expect("workflow resume -i must parse");
+        match cli.command {
+            Command::Workflow { command: WorkflowCommand::Resume(args) } => {
+                assert_eq!(args.id, "wf-abc-123");
+                assert!(!args.force, "force should default to false");
+            }
+            _ => panic!("expected workflow resume command"),
+        }
+
+        // Long form must still work in parallel.
+        let cli_long = Cli::try_parse_from(["animus", "workflow", "resume", "--id", "wf-xyz"])
+            .expect("workflow resume --id must continue to parse");
+        match cli_long.command {
+            Command::Workflow { command: WorkflowCommand::Resume(args) } => {
+                assert_eq!(args.id, "wf-xyz");
+            }
+            _ => panic!("expected workflow resume command"),
+        }
+    }
+
     #[test]
     fn rejects_removed_task_command_tree() {
         let error = Cli::try_parse_from(["animus", "task", "list"]).expect_err("legacy task tree should be removed");

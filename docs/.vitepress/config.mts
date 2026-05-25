@@ -5,15 +5,20 @@ export default withMermaid(
   defineConfig({
     title: 'Animus',
     description: 'Agent Orchestrator — orchestrate AI agent workflows from the command line',
-    base: '/ao-cli/',
+    // Empty for Vercel (root). Set VITEPRESS_BASE=/ao-cli/ for GitHub Pages legacy path.
+    base: process.env.VITEPRESS_BASE || '/',
 
     head: [
-      ['link', { rel: 'icon', type: 'image/svg+xml', href: '/ao-cli/logo.svg' }],
+      ['link', { rel: 'icon', type: 'image/svg+xml', href: '/logo.svg' }],
     ],
 
     lastUpdated: true,
     ignoreDeadLinks: [
       /\.\.\/\.\.\/crates\//,
+      // CHANGELOG lives at repo root (../../CHANGELOG from docs subpages).
+      /\.\.\/.*CHANGELOG/,
+      // Migration index does not exist yet (per-version migration pages are self-contained).
+      /\.\.\/migration\/index/,
     ],
 
     themeConfig: {

@@ -1,0 +1,18 @@
+# Rust build artifacts (stale symlinks break Vercel upload)
+target/
+**/target/
+
+# Build outputs
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+
+# Worktrees (agent isolation)
+.claude/worktrees/
+
+# Local state
+.animus/
+.ao/
+
+# Misc
+*.log
+.DS_Store

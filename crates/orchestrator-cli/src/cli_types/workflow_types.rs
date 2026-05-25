@@ -288,7 +288,7 @@ pub(crate) struct WorkflowPromptRenderArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct WorkflowResumeArgs {
-    #[arg(long, value_name = "WORKFLOW_ID", help = "Workflow identifier.")]
+    #[arg(short = 'i', long, value_name = "WORKFLOW_ID", help = "Workflow identifier.")]
     pub(crate) id: String,
     #[arg(
         long,

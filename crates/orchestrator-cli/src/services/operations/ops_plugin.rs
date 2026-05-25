@@ -615,30 +615,13 @@ pub(crate) async fn run_plugin_install(req: PluginInstallRequest) -> Result<Plug
 
     let signature_detail = resolve_signature_status(&req, &provenance)?;
     let policy_mode = effective_policy_mode(&req);
-    match &signature_detail {
-        SignatureStatus::Invalid { message, .. } => {
-            return Err(invalid_input_error(format!(
-                "cosign signature verification FAILED; refusing install: {message}"
-            )));
+    match evaluate_signature_policy(&signature_detail, policy_mode, req.require_signature) {
+        SignaturePolicyOutcome::Block { reason } => return Err(invalid_input_error(reason)),
+        SignaturePolicyOutcome::ProceedWithWarning { reason } => {
+            tracing::warn!(reason = %reason, "plugin install proceeding under warn policy");
+            eprintln!("warning: {reason}");
         }
-        SignatureStatus::UntrustedSigner { identity_pattern } => {
-            return Err(invalid_input_error(format!(
-                "signature is valid but the signer is not in trusted-signers.yaml (identity pattern: {identity_pattern})"
-            )));
-        }
-        SignatureStatus::Unsigned { reason }
-            if matches!(policy_mode, PluginPolicyMode::Strict) || req.require_signature =>
-        {
-            return Err(invalid_input_error(format!(
-                "signature policy is strict but no cosign signature could be verified: {reason}\n\
-                 To proceed anyway, pass --allow-unsigned (warn) or --signature-policy disabled."
-            )));
-        }
-        SignatureStatus::Unsigned { reason } if matches!(policy_mode, PluginPolicyMode::Warn) => {
-            tracing::warn!(reason = %reason, "plugin install proceeding without verified signature (policy=warn)");
-            eprintln!("warning: plugin install proceeding without verified signature ({reason})");
-        }
-        _ => {}
+        SignaturePolicyOutcome::Proceed => {}
     }
 
     let plugin_name = match req.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
@@ -1684,6 +1667,70 @@ fn effective_policy_mode(req: &PluginInstallRequest) -> PluginPolicyMode {
     PluginPolicyMode::Warn
 }
 
+/// Outcome of applying the signature policy gate to a resolved
+/// `SignatureStatus`. The install pipeline maps `Block` -> install error,
+/// `ProceedWithWarning` -> tracing warn + stderr line, and `Proceed` -> no-op.
+#[derive(Debug, PartialEq, Eq)]
+enum SignaturePolicyOutcome {
+    Proceed,
+    ProceedWithWarning { reason: String },
+    Block { reason: String },
+}
+
+/// Apply the signature policy to a resolved [`SignatureStatus`].
+///
+/// The policy gate is centralized here so every failure mode (`Invalid`,
+/// `UntrustedSigner`, `Unsigned`) routes through the SAME strict/warn/disabled
+/// matrix. Prior to v0.4.12 codex round 5, `Invalid` and `UntrustedSigner`
+/// bypassed `policy_mode` entirely — even `--signature-policy warn` failed
+/// the install. With the launchapp-dev cosign key still a placeholder, that
+/// turned every signed-but-unverifiable release into a hard block.
+///
+/// Strict (or legacy `require_signature=true`): every non-verified status
+/// blocks.
+/// Warn: log and proceed. Disabled / Skipped / Verified: silently proceed.
+fn evaluate_signature_policy(
+    status: &SignatureStatus,
+    policy_mode: PluginPolicyMode,
+    require_signature: bool,
+) -> SignaturePolicyOutcome {
+    let strict = matches!(policy_mode, PluginPolicyMode::Strict) || require_signature;
+    match status {
+        SignatureStatus::Invalid { message, .. } if strict => SignaturePolicyOutcome::Block {
+            reason: format!("cosign signature verification FAILED; refusing install: {message}"),
+        },
+        SignatureStatus::Invalid { message, .. } if matches!(policy_mode, PluginPolicyMode::Warn) => {
+            SignaturePolicyOutcome::ProceedWithWarning {
+                reason: format!("plugin install proceeding with INVALID cosign signature ({message})"),
+            }
+        }
+        SignatureStatus::UntrustedSigner { identity_pattern } if strict => SignaturePolicyOutcome::Block {
+            reason: format!(
+                "signature is valid but the signer is not in trusted-signers.yaml (identity pattern: {identity_pattern})"
+            ),
+        },
+        SignatureStatus::UntrustedSigner { identity_pattern } if matches!(policy_mode, PluginPolicyMode::Warn) => {
+            SignaturePolicyOutcome::ProceedWithWarning {
+                reason: format!(
+                    "plugin install proceeding with untrusted signer (identity pattern: {identity_pattern})"
+                ),
+            }
+        }
+        SignatureStatus::Unsigned { reason } if strict => SignaturePolicyOutcome::Block {
+            reason: format!(
+                "signature policy is strict but no cosign signature could be verified: {reason}\n\
+                 To proceed anyway, pass --allow-unsigned (warn) or --signature-policy disabled."
+            ),
+        },
+        SignatureStatus::Unsigned { reason } if matches!(policy_mode, PluginPolicyMode::Warn) => {
+            SignaturePolicyOutcome::ProceedWithWarning {
+                reason: format!("plugin install proceeding without verified signature ({reason})"),
+            }
+        }
+        _ => SignaturePolicyOutcome::Proceed,
+    }
+}
+
 /// Verify the cosign signature for the install source (if any), apply the
 /// trusted-signers policy, and return the resulting [`SignatureStatus`]. The
 /// caller is responsible for turning hard-fail statuses (`Invalid`,
@@ -2467,6 +2514,125 @@ mod tests {
         assert_eq!(verified.label(), "verified");
         let blocked = matches!(&verified, SignatureStatus::Unsigned { .. }) && true;
         assert!(!blocked, "Verified must never refuse install");
+    }
+
+    /// Codex round-5 P2 regression: `--signature-policy warn` (the v0.4.12
+    /// default while the launchapp-dev cosign key is a placeholder) must NOT
+    /// hard-fail a release whose cosign bundle reports `Invalid`. It should
+    /// log a warning and proceed, matching the documented warn semantics and
+    /// the existing `Unsigned` arm. Strict mode must still block.
+    #[test]
+    fn signature_invalid_with_warn_policy_proceeds_with_warning() {
+        let status = SignatureStatus::Invalid {
+            identity_pattern: "^https://github\\.com/launchapp-dev/animus-provider-claude/.+".to_string(),
+            message: "no matching signatures found".to_string(),
+        };
+
+        let outcome = evaluate_signature_policy(&status, PluginPolicyMode::Warn, false);
+        match outcome {
+            SignaturePolicyOutcome::ProceedWithWarning { reason } => {
+                assert!(
+                    reason.contains("INVALID cosign signature"),
+                    "warn message must call out invalid signature, got: {reason}"
+                );
+                assert!(reason.contains("no matching signatures found"), "warn message must include cosign reason");
+            }
+            other => panic!("warn policy must proceed with warning on Invalid, got: {other:?}"),
+        }
+
+        // Strict must still block — the warn-relaxation is scoped to warn mode.
+        let strict_outcome = evaluate_signature_policy(&status, PluginPolicyMode::Strict, false);
+        assert!(
+            matches!(strict_outcome, SignaturePolicyOutcome::Block { .. }),
+            "strict policy must block Invalid signatures"
+        );
+
+        // Legacy --require-signature must also block, regardless of mode.
+        let legacy_outcome = evaluate_signature_policy(&status, PluginPolicyMode::Warn, true);
+        assert!(
+            matches!(legacy_outcome, SignaturePolicyOutcome::Block { .. }),
+            "require_signature=true must override warn mode and block"
+        );
+
+        // Disabled mode silently proceeds (defense-in-depth: the resolver
+        // returns Skipped under Disabled, but if some path leaks an Invalid
+        // through, Disabled must NOT escalate it to a block).
+        let disabled_outcome = evaluate_signature_policy(&status, PluginPolicyMode::Disabled, false);
+        assert_eq!(disabled_outcome, SignaturePolicyOutcome::Proceed);
+    }
+
+    /// Codex round-5 P2 regression: `--signature-policy warn` must NOT
+    /// hard-fail a release whose cosign signature is valid but signed by a
+    /// signer not in `trusted-signers.yaml`. Warn mode logs and proceeds;
+    /// strict mode blocks.
+    #[test]
+    fn untrusted_signer_with_warn_policy_proceeds_with_warning() {
+        let status = SignatureStatus::UntrustedSigner {
+            identity_pattern: "^https://github\\.com/unknown-org/animus-provider-foo/.+".to_string(),
+        };
+
+        let outcome = evaluate_signature_policy(&status, PluginPolicyMode::Warn, false);
+        match outcome {
+            SignaturePolicyOutcome::ProceedWithWarning { reason } => {
+                assert!(
+                    reason.contains("untrusted signer"),
+                    "warn message must mention untrusted signer, got: {reason}"
+                );
+                assert!(reason.contains("unknown-org"), "warn message must include identity pattern");
+            }
+            other => panic!("warn policy must proceed with warning on UntrustedSigner, got: {other:?}"),
+        }
+
+        let strict_outcome = evaluate_signature_policy(&status, PluginPolicyMode::Strict, false);
+        assert!(
+            matches!(strict_outcome, SignaturePolicyOutcome::Block { .. }),
+            "strict policy must block UntrustedSigner"
+        );
+
+        let legacy_outcome = evaluate_signature_policy(&status, PluginPolicyMode::Warn, true);
+        assert!(
+            matches!(legacy_outcome, SignaturePolicyOutcome::Block { .. }),
+            "require_signature=true must override warn mode and block"
+        );
+
+        let disabled_outcome = evaluate_signature_policy(&status, PluginPolicyMode::Disabled, false);
+        assert_eq!(disabled_outcome, SignaturePolicyOutcome::Proceed);
+    }
+
+    /// The Unsigned arm continues to honor the same policy matrix.
+    #[test]
+    fn unsigned_policy_matrix_unchanged() {
+        let status =
+            SignatureStatus::Unsigned { reason: "no cosign signature bundle published in release".to_string() };
+        assert!(matches!(
+            evaluate_signature_policy(&status, PluginPolicyMode::Warn, false),
+            SignaturePolicyOutcome::ProceedWithWarning { .. }
+        ));
+        assert!(matches!(
+            evaluate_signature_policy(&status, PluginPolicyMode::Strict, false),
+            SignaturePolicyOutcome::Block { .. }
+        ));
+        assert_eq!(
+            evaluate_signature_policy(&status, PluginPolicyMode::Disabled, false),
+            SignaturePolicyOutcome::Proceed
+        );
+    }
+
+    #[test]
+    fn verified_and_skipped_always_proceed() {
+        let verified = SignatureStatus::Verified {
+            identity: "^https://github\\.com/launchapp-dev/animus-provider-claude/.+".to_string(),
+            bundle_path: "/tmp/x.bundle".to_string(),
+        };
+        for mode in [PluginPolicyMode::Strict, PluginPolicyMode::Warn, PluginPolicyMode::Disabled] {
+            assert_eq!(evaluate_signature_policy(&verified, mode, true), SignaturePolicyOutcome::Proceed);
+        }
+        for mode in [PluginPolicyMode::Strict, PluginPolicyMode::Warn, PluginPolicyMode::Disabled] {
+            assert_eq!(
+                evaluate_signature_policy(&SignatureStatus::Skipped, mode, true),
+                SignaturePolicyOutcome::Proceed
+            );
+        }
     }
 
     fn provider_manifest(name: &str) -> PluginManifest {

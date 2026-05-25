@@ -44,7 +44,7 @@ use animus_control_protocol::{
     ControlError,
 };
 
-use super::workflow_events::{WorkflowEventBroadcaster, WorkflowEventFilter};
+use super::workflow_events::{SubscriberItem, WorkflowEventBroadcaster, WorkflowEventFilter};
 use animus_plugin_protocol::{error_codes, RpcError, RpcRequest, RpcResponse};
 use futures_util::StreamExt;
 use serde_json::Value;
@@ -160,6 +160,19 @@ impl ConnectionWriter {
             previous.abort();
         }
     }
+
+    /// Abort the driver task registered under `id` if present. Used by
+    /// `$/cancelRequest` to stop in-flight stream emission without
+    /// closing the underlying socket.
+    async fn cancel_driver(&self, id: &str) -> bool {
+        let mut guard = self.drivers.lock().await;
+        if let Some(handle) = guard.remove(id) {
+            handle.abort();
+            true
+        } else {
+            false
+        }
+    }
 }
 
 impl Drop for ConnectionWriter {
@@ -215,6 +228,19 @@ async fn invoke_surface(
 ) -> Result<Option<Value>, RpcError> {
     let params = frame.params.clone().unwrap_or(Value::Null);
     match frame.method.as_str() {
+        // ----- JSON-RPC meta: cancellation ---------------------------
+        // `$/cancelRequest` is a JSON-RPC notification (no response).
+        // We look up the active driver task by stringified request id
+        // and abort it. Authoritative cancellation also happens on
+        // socket close via `ConnectionWriter::drop`, but explicit
+        // cancel-while-keeping-socket-open requires this path.
+        "$/cancelRequest" => {
+            let target = params.get("id").cloned().unwrap_or(Value::Null);
+            let driver_key = stringify_id(&Some(target));
+            let _ = writer.cancel_driver(&driver_key).await;
+            Ok(None)
+        }
+
         // ----- Subject -----------------------------------------------
         method_names::METHOD_SUBJECT_LIST => {
             let req: SubjectListRequest = parse_params(params)?;
@@ -578,25 +604,52 @@ async fn spawn_workflow_event_driver(
     let driver_key = stringify_id(&request_id);
     let (sub_id, mut rx) = broadcaster.subscribe(filter);
     let writer_clone = Arc::clone(writer);
-    let broadcaster_for_task = Arc::clone(&broadcaster);
+    let guard = SubscriptionGuard { broadcaster: Arc::clone(&broadcaster), sub_id };
     let handle = tokio::spawn(async move {
-        while let Some(event) = rx.recv().await {
-            let payload = serde_json::json!({
-                "id": request_id,
-                "data": event,
-            });
-            let notification = animus_plugin_protocol::RpcNotification::new(
-                animus_control_protocol::method::NOTIFICATION_WORKFLOW_EVENT.to_string(),
-                Some(payload),
-            );
-            if writer_clone.write_frame(&notification).await.is_err() {
-                break;
+        // Drop on task end (including `abort()` from `$/cancelRequest`)
+        // unwires the broadcaster slot, not just the receiver end.
+        let _guard = guard;
+        while let Some(item) = rx.recv().await {
+            match item {
+                SubscriberItem::Event(event) => {
+                    let payload = serde_json::json!({
+                        "id": request_id,
+                        "data": event,
+                    });
+                    let notification = animus_plugin_protocol::RpcNotification::new(
+                        animus_control_protocol::method::NOTIFICATION_WORKFLOW_EVENT.to_string(),
+                        Some(payload),
+                    );
+                    if writer_clone.write_frame(&notification).await.is_err() {
+                        break;
+                    }
+                }
+                SubscriberItem::Closed { reason } => {
+                    let payload = serde_json::json!({
+                        "id": request_id,
+                        "reason": reason,
+                    });
+                    let notification =
+                        animus_plugin_protocol::RpcNotification::new("subscription/closed".to_string(), Some(payload));
+                    let _ = writer_clone.write_frame(&notification).await;
+                    break;
+                }
             }
         }
-        broadcaster_for_task.unsubscribe(sub_id);
     });
     writer.register_driver(driver_key, handle).await;
     Ok(())
+}
+
+struct SubscriptionGuard {
+    broadcaster: Arc<WorkflowEventBroadcaster>,
+    sub_id: super::workflow_events::SubscriptionId,
+}
+
+impl Drop for SubscriptionGuard {
+    fn drop(&mut self) {
+        self.broadcaster.unsubscribe(self.sub_id);
+    }
 }
 
 /// Convert a JSON-RPC id into a stable string for the driver-task map key.

@@ -1656,3 +1656,187 @@ async fn workflow_events_end_to_end_via_upstream_control_client() {
     .await
     .expect("test timed out");
 }
+
+#[tokio::test]
+async fn cancel_request_terminates_subscription_without_closing_socket() {
+    use crate::control::workflow_events::WorkflowEventBroadcaster;
+    use animus_control_protocol::types::WorkflowEvent;
+
+    tokio::time::timeout(TEST_TIMEOUT, async {
+        let surface: Arc<dyn ControlSurface> = Arc::new(TestSurface::new());
+        let broadcaster = WorkflowEventBroadcaster::new();
+        let handle = ControlServer::start_with_socket_and_workflow_events(
+            short_test_socket(),
+            surface,
+            Some(Arc::clone(&broadcaster)),
+        )
+        .await
+        .unwrap();
+
+        let stream = UnixStream::connect(handle.socket_path()).await.unwrap();
+        let (read_half, mut write_half) = tokio::io::split(stream);
+        let mut reader = BufReader::new(read_half);
+
+        let request = RpcRequest::new(710, "workflow/events", Some(json!({})));
+        send_frame(&mut write_half, &request).await.unwrap();
+        let _ack = read_frame_value(&mut reader).await.unwrap();
+
+        for _ in 0..50 {
+            if broadcaster.subscriber_count() > 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(broadcaster.subscriber_count(), 1);
+
+        broadcaster.emit(WorkflowEvent {
+            workflow_id: "wf-cancel".to_string(),
+            kind: "phase_started".to_string(),
+            payload: json!({}),
+            occurred_at: chrono::Utc::now(),
+        });
+        let first = read_frame_value(&mut reader).await.unwrap();
+        assert_eq!(first.get("method").and_then(|v| v.as_str()), Some("workflow/event"));
+
+        let cancel = RpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: None,
+            method: "$/cancelRequest".to_string(),
+            params: Some(json!({"id": 710})),
+        };
+        send_frame(&mut write_half, &cancel).await.unwrap();
+
+        for _ in 0..50 {
+            if broadcaster.subscriber_count() == 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(broadcaster.subscriber_count(), 0, "subscription must be torn down after $/cancelRequest");
+
+        // Socket stays open: a follow-up unary request still works.
+        let ping = RpcRequest::new(711, "daemon/status", None);
+        send_frame(&mut write_half, &ping).await.unwrap();
+        let ping_resp_value = tokio::time::timeout(Duration::from_secs(5), read_frame_value(&mut reader))
+            .await
+            .expect("daemon/status reply timed out after cancel")
+            .unwrap();
+        let ping_resp: RpcResponse = serde_json::from_value(ping_resp_value).unwrap();
+        assert_eq!(ping_resp.id, Some(json!(711)));
+        assert!(ping_resp.error.is_none(), "socket should still serve unary requests");
+
+        handle.shutdown().await.unwrap();
+    })
+    .await
+    .expect("test timed out");
+}
+
+#[tokio::test]
+async fn subscription_closed_notification_fires_on_workflow_completion() {
+    use crate::control::workflow_events::WorkflowEventBroadcaster;
+    use animus_control_protocol::types::WorkflowEvent;
+
+    tokio::time::timeout(TEST_TIMEOUT, async {
+        let surface: Arc<dyn ControlSurface> = Arc::new(TestSurface::new());
+        let broadcaster = WorkflowEventBroadcaster::new();
+        let handle = ControlServer::start_with_socket_and_workflow_events(
+            short_test_socket(),
+            surface,
+            Some(Arc::clone(&broadcaster)),
+        )
+        .await
+        .unwrap();
+
+        let stream = UnixStream::connect(handle.socket_path()).await.unwrap();
+        let (read_half, mut write_half) = tokio::io::split(stream);
+        let mut reader = BufReader::new(read_half);
+
+        let request = RpcRequest::new(720, "workflow/events", Some(json!({"workflow_id": "wf-done"})));
+        send_frame(&mut write_half, &request).await.unwrap();
+        let _ack = read_frame_value(&mut reader).await.unwrap();
+
+        for _ in 0..50 {
+            if broadcaster.subscriber_count() > 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        broadcaster.emit(WorkflowEvent {
+            workflow_id: "wf-done".to_string(),
+            kind: "workflow_completed".to_string(),
+            payload: json!({"final_status": "completed"}),
+            occurred_at: chrono::Utc::now(),
+        });
+
+        let first = read_frame_value(&mut reader).await.unwrap();
+        assert_eq!(first.get("method").and_then(|v| v.as_str()), Some("workflow/event"));
+        let first_data = first.get("params").and_then(|p| p.get("data")).expect("data");
+        assert_eq!(first_data.get("kind").and_then(|v| v.as_str()), Some("workflow_completed"));
+
+        let second = read_frame_value(&mut reader).await.unwrap();
+        assert_eq!(
+            second.get("method").and_then(|v| v.as_str()),
+            Some("subscription/closed"),
+            "terminal notification must follow workflow_completed"
+        );
+        let close_params = second.get("params").expect("close params");
+        assert_eq!(close_params.get("id"), Some(&json!(720)));
+
+        handle.shutdown().await.unwrap();
+    })
+    .await
+    .expect("test timed out");
+}
+
+#[tokio::test]
+async fn subscription_closed_notification_includes_reason_string() {
+    use crate::control::workflow_events::WorkflowEventBroadcaster;
+    use animus_control_protocol::types::WorkflowEvent;
+
+    tokio::time::timeout(TEST_TIMEOUT, async {
+        let surface: Arc<dyn ControlSurface> = Arc::new(TestSurface::new());
+        let broadcaster = WorkflowEventBroadcaster::new();
+        let handle = ControlServer::start_with_socket_and_workflow_events(
+            short_test_socket(),
+            surface,
+            Some(Arc::clone(&broadcaster)),
+        )
+        .await
+        .unwrap();
+
+        let stream = UnixStream::connect(handle.socket_path()).await.unwrap();
+        let (read_half, mut write_half) = tokio::io::split(stream);
+        let mut reader = BufReader::new(read_half);
+
+        let request = RpcRequest::new(730, "workflow/events", Some(json!({"workflow_id": "wf-fail"})));
+        send_frame(&mut write_half, &request).await.unwrap();
+        let _ack = read_frame_value(&mut reader).await.unwrap();
+
+        for _ in 0..50 {
+            if broadcaster.subscriber_count() > 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        broadcaster.emit(WorkflowEvent {
+            workflow_id: "wf-fail".to_string(),
+            kind: "workflow_failed".to_string(),
+            payload: json!({"final_status": "failed", "error": "boom"}),
+            occurred_at: chrono::Utc::now(),
+        });
+
+        let _event_frame = read_frame_value(&mut reader).await.unwrap();
+        let close_frame = read_frame_value(&mut reader).await.unwrap();
+        assert_eq!(close_frame.get("method").and_then(|v| v.as_str()), Some("subscription/closed"));
+        let params = close_frame.get("params").expect("params");
+        let reason = params.get("reason").and_then(|v| v.as_str()).expect("reason string");
+        assert!(reason.contains("wf-fail"), "reason should mention workflow id, got {reason}");
+        assert!(reason.contains("workflow_failed"), "reason should mention terminal kind, got {reason}");
+
+        handle.shutdown().await.unwrap();
+    })
+    .await
+    .expect("test timed out");
+}

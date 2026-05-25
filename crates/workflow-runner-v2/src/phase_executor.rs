@@ -1536,6 +1536,14 @@ pub struct PhaseRunParams<'a> {
 }
 
 pub async fn run_workflow_phase(params: &PhaseRunParams<'_>) -> Result<PhaseRunResult> {
+    let start = std::time::Instant::now();
+    let phase_id_for_metric = params.phase_id.to_string();
+    let result = run_workflow_phase_inner(params).await;
+    crate::metrics_hook::observe_phase_duration(&phase_id_for_metric, start.elapsed());
+    result
+}
+
+async fn run_workflow_phase_inner(params: &PhaseRunParams<'_>) -> Result<PhaseRunResult> {
     let project_root = params.project_root;
     let execution_cwd = params.execution_cwd;
     let workflow_id = params.workflow_id;

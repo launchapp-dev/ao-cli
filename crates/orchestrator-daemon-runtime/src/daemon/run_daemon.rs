@@ -38,6 +38,8 @@ where
     let daemon_pid = std::process::id();
     let primary_root = canonicalize_lossy(project_root);
 
+    crate::metrics::install_workflow_runner_metrics_bridge();
+
     hooks.handle_event(DaemonRunEvent::Startup { project_root: primary_root.clone(), daemon_pid })?;
 
     let initial_status = hooks.daemon_status(&primary_root).await?;

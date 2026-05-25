@@ -243,8 +243,23 @@ pub fn observe(name: &str, duration: Duration) {
     global().observe_histogram(name, duration);
 }
 
+pub fn observe_labeled(name: &str, labels: &[(&str, &str)], duration: Duration) {
+    global().observe_histogram(&labeled(name, labels), duration);
+}
+
 pub fn snapshot() -> MetricsSnapshot {
     global().snapshot()
+}
+
+/// Bridge: route histogram observations emitted from workflow-runner-v2
+/// (or any other crate that depends on it) into the daemon's global
+/// metrics registry. Called once at daemon startup. Idempotent — a second
+/// install is a no-op because the underlying registry uses `OnceLock`.
+pub fn install_workflow_runner_metrics_bridge() {
+    fn observer(name: &str, labels: &[(&str, &str)], duration: Duration) {
+        observe_labeled(name, labels, duration);
+    }
+    let _ = workflow_runner_v2::metrics_hook::install_histogram_observer(observer);
 }
 
 /// Build a label-formatted metric key, e.g.

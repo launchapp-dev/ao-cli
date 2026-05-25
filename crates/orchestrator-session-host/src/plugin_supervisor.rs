@@ -155,7 +155,8 @@ pub fn is_structured_jsonrpc_error(code: i32) -> bool {
 /// What the dispatcher should do about a failed plugin request.
 ///
 /// Returned by [`classify`]; replaces the brittle string-substring matching
-/// the legacy [`is_death_like_error`] used to perform on `RpcError.message`.
+/// that the now-removed `is_death_like_error` helper used to perform on
+/// `RpcError.message`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RetryDecision {
     /// The plugin process is presumed dead (connection lost, timeout,
@@ -170,8 +171,8 @@ pub enum RetryDecision {
     StructuredError,
 }
 
-/// Typed-classifier replacement for [`is_death_like_error`]. Pattern-matches
-/// on the structural [`HostError`] enum instead of parsing error-message
+/// Typed classifier for plugin host failures. Pattern-matches on the
+/// structural [`HostError`] enum instead of parsing error-message
 /// substrings — so upstream phrasing changes (e.g. tokio renaming "broken
 /// pipe" to something else, or `serde_json` reformatting an I/O message)
 /// can't silently regress the retry policy.
@@ -193,21 +194,27 @@ pub fn classify(err: &HostError) -> RetryDecision {
     }
 }
 
-/// Legacy string-based classifier preserved for the in-flight transition
-/// (the `PluginSessionBackend` dispatch path still constructs `RpcError`
-/// values from the `request()` API and inspects them here). New callers
-/// should use [`classify`] against a [`HostError`] directly — that path
-/// eliminates the substring matching this function relies on, and is the
-/// architectural fix shipped alongside this function.
+/// Receives a duration sample for every plugin dispatch round-trip. The
+/// dispatch path calls [`DispatchObserver::observe_duration`] after every
+/// `request_typed` returns (success OR failure) so out-of-tree consumers
+/// (e.g. the daemon-runtime metrics layer) can wire a
+/// `plugin_request_duration_seconds` histogram without
+/// `orchestrator-session-host` having to depend on the daemon runtime
+/// directly.
 ///
-/// Returns `true` when an `RpcError` from the plugin host looks like the
-/// plugin process died or the transport broke mid-call.
-pub fn is_death_like_error(code: i32, message: &str) -> bool {
-    if !is_structured_jsonrpc_error(code) {
-        return true;
-    }
-    let lower = message.to_ascii_lowercase();
-    lower.contains("connection lost") || lower.contains("connection closed") || lower.contains("broken pipe")
+/// The default [`NoopDispatchObserver`] is a no-op so callers that don't
+/// care about observability pay zero overhead.
+pub trait DispatchObserver: Send + Sync {
+    fn observe_duration(&self, plugin: &str, method: &str, elapsed: Duration);
+}
+
+/// Default observer that discards every sample. Used when the dispatcher
+/// has not been wired to a real metrics sink.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct NoopDispatchObserver;
+
+impl DispatchObserver for NoopDispatchObserver {
+    fn observe_duration(&self, _plugin: &str, _method: &str, _elapsed: Duration) {}
 }
 
 #[cfg(test)]
@@ -261,19 +268,6 @@ mod tests {
         assert!(!sup.is_disabled(), "cooldown should clear the disabled flag");
         assert_eq!(sup.restart_count_for_test(), 0, "counter resets on re-enable");
         sup.record_restart().expect("first restart in new window ok");
-    }
-
-    #[test]
-    fn legacy_classify_death_like_errors() {
-        // Internal error code with a connection-lost message => death-like.
-        assert!(is_death_like_error(-32603, "plugin connection lost"));
-        assert!(is_death_like_error(-32603, "broken pipe writing to plugin"));
-        // Internal error code with a real plugin internal error => structured (no retry).
-        assert!(!is_death_like_error(-32603, "plugin handler raised: KeyError"));
-        // Codes outside well-known range => always death-like.
-        assert!(is_death_like_error(-1, "anything"));
-        // Other JSON-RPC well-known codes with plugin-side messages => structured.
-        assert!(!is_death_like_error(-32602, "bad params"));
     }
 
     #[test]
@@ -334,5 +328,13 @@ mod tests {
             data: None,
         });
         assert_eq!(classify(&err), RetryDecision::DeathLike);
+    }
+
+    #[test]
+    fn noop_dispatch_observer_swallows_samples() {
+        let observer = NoopDispatchObserver;
+        // Smoke test: the no-op observer must accept calls without panicking
+        // or affecting any global state.
+        observer.observe_duration("any-plugin", "any/method", Duration::from_millis(1));
     }
 }

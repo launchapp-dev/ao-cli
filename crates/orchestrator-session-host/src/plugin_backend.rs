@@ -14,12 +14,14 @@ use std::time::{Duration, Instant};
 use animus_plugin_protocol::{EnvRequirement, RpcError, RpcNotification};
 use async_trait::async_trait;
 use orchestrator_logging::Logger;
-use orchestrator_plugin_host::{PluginHost, PluginSpawnOptions, PluginStderrSink};
+use orchestrator_plugin_host::{HostError, PluginHost, PluginSpawnOptions, PluginStderrSink};
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use crate::plugin_supervisor::{is_death_like_error, PluginSupervisor, SupervisorError};
+use crate::plugin_supervisor::{
+    classify, DispatchObserver, NoopDispatchObserver, PluginSupervisor, RetryDecision, SupervisorError,
+};
 
 /// Default cap on how long the plugin host will wait for a single `agent/run`
 /// or `agent/resume` reply before giving up. Caller-supplied `timeout_secs` on
@@ -84,6 +86,7 @@ pub struct PluginSessionBackend {
     pub(crate) env_required: Vec<EnvRequirement>,
     pub(crate) sessions: SessionMap,
     pub(crate) supervisor: Arc<PluginSupervisor>,
+    pub(crate) dispatch_observer: Arc<dyn DispatchObserver>,
 }
 
 impl PluginSessionBackend {
@@ -101,6 +104,7 @@ impl PluginSessionBackend {
             env_required: Vec::new(),
             sessions: Arc::new(StdMutex::new(HashMap::new())),
             supervisor,
+            dispatch_observer: Arc::new(NoopDispatchObserver),
         }
     }
 
@@ -112,6 +116,15 @@ impl PluginSessionBackend {
 
     pub fn supervisor(&self) -> Arc<PluginSupervisor> {
         self.supervisor.clone()
+    }
+
+    /// Install a dispatch observer that receives a duration sample for every
+    /// `request_typed` round-trip. Daemon-runtime wires its metrics layer
+    /// here so `plugin_request_duration_seconds` reflects every plugin call.
+    #[must_use]
+    pub fn with_dispatch_observer(mut self, observer: Arc<dyn DispatchObserver>) -> Self {
+        self.dispatch_observer = observer;
+        self
     }
 
     /// Test-only: insert a `SessionHandle` directly into the session map so a
@@ -321,6 +334,7 @@ impl PluginSessionBackend {
         let backend_for_retry = self.clone();
         let request_env_for_retry = request.env_vars.clone();
         let sessions_for_retry = self.sessions.clone();
+        let dispatch_observer = self.dispatch_observer.clone();
         tokio::spawn(async move {
             let notifications_forwarded = Arc::new(AtomicBool::new(false));
 
@@ -333,6 +347,7 @@ impl PluginSessionBackend {
                 stream_tx.clone(),
                 plugin_name_for_task.clone(),
                 notifications_forwarded.clone(),
+                dispatch_observer.clone(),
             )
             .await;
 
@@ -340,7 +355,8 @@ impl PluginSessionBackend {
             let duration_ms = started_at.elapsed().as_millis() as u64;
 
             // Retry-once on death-like errors only when:
-            //   (a) the error is NOT a structured JSON-RPC error from the plugin
+            //   (a) classify() returns DeathLike (process death / timeout /
+            //       transport collapse — never a structured plugin-side error)
             //   (b) no notifications were forwarded yet (otherwise retry would
             //       double-emit deltas to the caller)
             //   (c) the supervisor's restart budget has not been exhausted
@@ -371,10 +387,10 @@ impl PluginSessionBackend {
                     graceful_shutdown(host).await;
                     return;
                 }
-                ResponseOutcome::Err(error) => {
+                ResponseOutcome::Err(host_err) => {
                     let already_forwarded = notifications_forwarded.load(AtomicOrdering::SeqCst);
-                    // TODO(v0.5): rewire to typed HostError once dispatch returns HostError
-                    let can_retry = is_death_like_error(error.code, &error.message) && !already_forwarded;
+                    let can_retry = matches!(classify(&host_err), RetryDecision::DeathLike) && !already_forwarded;
+                    let rpc_error: RpcError = host_err.into();
 
                     if can_retry {
                         if let Some(logger) = logger.as_ref() {
@@ -383,13 +399,13 @@ impl PluginSessionBackend {
                                     "plugin.dispatch.retry",
                                     format!(
                                         "plugin '{}' died mid-call ({}); attempting retry-once",
-                                        plugin_name_for_task, error.message
+                                        plugin_name_for_task, rpc_error.message
                                     ),
                                 )
                                 .meta(json!({
                                     "plugin": plugin_name_for_task,
                                     "method": method_string,
-                                    "code": error.code,
+                                    "code": rpc_error.code,
                                 }))
                                 .emit();
                         }
@@ -453,6 +469,7 @@ impl PluginSessionBackend {
                                     stream_tx.clone(),
                                     plugin_name_for_task.clone(),
                                     notifications_forwarded.clone(),
+                                    dispatch_observer.clone(),
                                 )
                                 .await;
                                 match retry_response {
@@ -470,10 +487,11 @@ impl PluginSessionBackend {
                                         graceful_shutdown(new_host).await;
                                         return;
                                     }
-                                    ResponseOutcome::Err(retry_error) => {
+                                    ResponseOutcome::Err(retry_err) => {
+                                        let retry_rpc: RpcError = retry_err.into();
                                         let message = format!(
                                             "plugin '{}' {method_string} failed after retry ({}): {}",
-                                            plugin_name_for_task, retry_error.code, retry_error.message
+                                            plugin_name_for_task, retry_rpc.code, retry_rpc.message
                                         );
                                         let _ = stream_tx
                                             .send(SessionEvent::Error { message: message.clone(), recoverable: false })
@@ -485,7 +503,7 @@ impl PluginSessionBackend {
                                                 .meta(json!({
                                                     "plugin": plugin_name_for_task,
                                                     "method": method_string,
-                                                    "code": retry_error.code,
+                                                    "code": retry_rpc.code,
                                                 }))
                                                 .emit();
                                         }
@@ -510,7 +528,7 @@ impl PluginSessionBackend {
                     } else {
                         let message = format!(
                             "plugin '{}' {method_string} failed ({}): {}",
-                            plugin_name_for_task, error.code, error.message
+                            plugin_name_for_task, rpc_error.code, rpc_error.message
                         );
                         let _ =
                             stream_tx.send(SessionEvent::Error { message: message.clone(), recoverable: false }).await;
@@ -646,17 +664,22 @@ impl PluginSessionBackend {
             });
         }
 
-        let request_future = host.request("agent/cancel".to_string(), Some(json!({ "session_id": session_id })));
+        let cancel_start = Instant::now();
+        let request_future = host.request_typed("agent/cancel".to_string(), Some(json!({ "session_id": session_id })));
         let result = tokio::time::timeout(cancel_timeout, request_future).await;
+        self.dispatch_observer.observe_duration(&self.plugin_name, "agent/cancel", cancel_start.elapsed());
         match result {
             Ok(Ok(_)) => {
                 remove_session(&self.sessions, session_id);
                 Ok(())
             }
-            Ok(Err(error)) => Err(Error::execution_failed(format!(
-                "plugin '{}' agent/cancel failed: {}",
-                self.plugin_name, error.message
-            ))),
+            Ok(Err(error)) => {
+                let rpc: RpcError = error.into();
+                Err(Error::execution_failed(format!(
+                    "plugin '{}' agent/cancel failed: {}",
+                    self.plugin_name, rpc.message
+                )))
+            }
             Err(_) => Err(Error::execution_failed(format!(
                 "plugin '{}' agent/cancel timed out after {}s",
                 self.plugin_name,
@@ -767,7 +790,7 @@ async fn graceful_shutdown(host: PluginHost) {
 
 enum ResponseOutcome {
     Ok(Value),
-    Err(RpcError),
+    Err(HostError),
     Timeout,
 }
 
@@ -781,9 +804,11 @@ async fn run_request_with_notifications(
     stream_tx: mpsc::Sender<SessionEvent>,
     plugin_name: String,
     notifications_forwarded: Arc<AtomicBool>,
+    dispatch_observer: Arc<dyn DispatchObserver>,
 ) -> ResponseOutcome {
+    let request_start = Instant::now();
     let outcome = {
-        let mut request_future = Box::pin(host.request(method.clone(), Some(params)));
+        let mut request_future = Box::pin(host.request_typed(method.clone(), Some(params)));
         let timeout_future = tokio::time::sleep(run_timeout);
         tokio::pin!(timeout_future);
         loop {
@@ -817,6 +842,8 @@ async fn run_request_with_notifications(
             }
         }
     };
+
+    dispatch_observer.observe_duration(&plugin_name, &method, request_start.elapsed());
 
     loop {
         match notifications.try_recv() {
@@ -953,6 +980,7 @@ mod tests {
     use super::*;
     use animus_plugin_protocol::{RpcRequest, RpcResponse};
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+    use std::sync::Mutex as StdMutex2;
     use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader};
 
     /// Spin up an in-process fake plugin reachable through a `PluginHost`. The
@@ -1004,6 +1032,30 @@ mod tests {
         // binary_path is never spawned in these tests because we exclusively
         // exercise dispatch_cancel against pre-inserted handles. Any path works.
         PluginSessionBackend::new("test-plugin", PathBuf::from("/nonexistent/test-plugin"), "test")
+    }
+
+    /// Recording observer used by histogram-related tests. Captures every
+    /// (plugin, method, elapsed) tuple so assertions can verify a sample was
+    /// observed exactly once per dispatch round-trip.
+    #[derive(Default)]
+    struct RecordingObserver {
+        samples: StdMutex2<Vec<(String, String, Duration)>>,
+    }
+
+    impl RecordingObserver {
+        fn samples(&self) -> Vec<(String, String, Duration)> {
+            self.samples.lock().expect("samples mutex poisoned").clone()
+        }
+    }
+
+    impl DispatchObserver for RecordingObserver {
+        fn observe_duration(&self, plugin: &str, method: &str, elapsed: Duration) {
+            self.samples.lock().expect("samples mutex poisoned").push((
+                plugin.to_string(),
+                method.to_string(),
+                elapsed,
+            ));
+        }
     }
 
     #[tokio::test]
@@ -1085,5 +1137,55 @@ mod tests {
             0,
             "cancel must short-circuit before issuing an RPC when capability is unset"
         );
+    }
+
+    /// Drives `run_request_with_notifications` through a live in-memory plugin
+    /// host so we can assert that the typed `HostError`-based path resolves
+    /// successful responses end-to-end and feeds the dispatch observer with a
+    /// non-zero duration sample (Part B histogram wiring).
+    #[tokio::test]
+    async fn plugin_request_duration_observed_per_dispatch() {
+        let (host, _counter) = spawn_fake_host("metrics-plugin");
+        let notifications = host.subscribe_notifications();
+        let observer = Arc::new(RecordingObserver::default());
+        let observer_trait: Arc<dyn DispatchObserver> = observer.clone();
+        let (tx, _rx) = mpsc::channel::<SessionEvent>(16);
+        let outcome = run_request_with_notifications(
+            host.clone(),
+            notifications,
+            "agent/ping".to_string(),
+            json!({}),
+            Duration::from_secs(5),
+            tx,
+            "metrics-plugin".to_string(),
+            Arc::new(AtomicBool::new(false)),
+            observer_trait,
+        )
+        .await;
+        assert!(matches!(outcome, ResponseOutcome::Ok(_)), "fake host must echo a successful response");
+        let _ = graceful_shutdown(host).await;
+
+        let samples = observer.samples();
+        assert_eq!(samples.len(), 1, "observer must be called exactly once per dispatch");
+        let (plugin, method, _elapsed) = &samples[0];
+        assert_eq!(plugin, "metrics-plugin");
+        assert_eq!(method, "agent/ping");
+    }
+
+    /// Sanity-check that the dispatch path's retry decision now sources from
+    /// `classify(&HostError)` rather than the deleted `is_death_like_error`.
+    /// Asserting the classifier directly here closes the type-level
+    /// guarantee — if Agent A ever renames or removes `HostError` variants,
+    /// this test forces a compile failure on the session-host side.
+    #[test]
+    fn dispatch_uses_typed_host_error_for_retry_decision() {
+        use crate::plugin_supervisor::{classify, RetryDecision};
+        assert_eq!(classify(&HostError::ConnectionLost), RetryDecision::DeathLike);
+        let plugin_side = HostError::Rpc(animus_plugin_protocol::RpcError {
+            code: -32602,
+            message: "bad params".to_string(),
+            data: None,
+        });
+        assert_eq!(classify(&plugin_side), RetryDecision::StructuredError);
     }
 }

@@ -23,7 +23,7 @@ pub use plugin_backend::{
     discover_provider_plugins, DiscoveredProviderPlugin, PluginSessionBackend, ResumeAgentOutcome,
 };
 pub use plugin_supervisor::{
-    classify, is_death_like_error, is_structured_jsonrpc_error, PluginSupervisor, RetryDecision, SupervisorConfig,
-    SupervisorError,
+    classify, is_structured_jsonrpc_error, DispatchObserver, NoopDispatchObserver, PluginSupervisor, RetryDecision,
+    SupervisorConfig, SupervisorError,
 };
 pub use session_backend_resolver::{is_reserved_provider_tool, SessionBackendResolver, RESERVED_PROVIDER_TOOLS};

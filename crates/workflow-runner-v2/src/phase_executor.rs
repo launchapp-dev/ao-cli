@@ -36,8 +36,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, VecDeque};
-use std::path::Path;
-use std::time::Duration;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt};
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
@@ -509,6 +509,20 @@ pub async fn run_workflow_phase_attempt(
     let expected_result_kind = phase_result_kind_for_ctx(&ctx, phase_id);
     let event_run_dir = ipc_run_dir(project_root, &request.run_id, None);
 
+    // SidecarPollContext lets process_phase_event_stream poll the runner
+    // sidecar mid-stream and copy the provider_session_id into the durable
+    // checkpoint as soon as the plugin reports it — instead of waiting until
+    // the phase completes. This closes a crash window where the daemon died
+    // after the agent wrote its sidecar but before the phase finished:
+    // without the mid-stream copy the checkpoint never learned the
+    // provider_session_id and auto-resume blocked the workflow as
+    // unrecoverable.
+    let poll_ctx = SidecarPollContext {
+        scoped_state_root: scoped_state_root.clone(),
+        workflow_id: workflow_id.to_string(),
+        phase_id: phase_id.to_string(),
+        run_id: request.run_id.0.clone(),
+    };
     let outcome = process_phase_event_stream(
         tokio::io::BufReader::new(read_half).lines(),
         &request.run_id,
@@ -520,9 +534,13 @@ pub async fn run_workflow_phase_attempt(
         Some(&event_run_dir),
         Some(project_root),
         notification_log.clone(),
+        Some(poll_ctx),
     )
     .await;
 
+    // Final post-stream sidecar sweep is still worthwhile: handles the case
+    // where the sidecar was only written immediately before the agent's
+    // Finished event, after the loop's last polling tick.
     if let Some(provider_session_id) = crate::phase_session::lookup_runner_session_sidecar(request.run_id.0.as_str()) {
         if let Err(err) = crate::phase_session::update_provider_session_id(
             &scoped_state_root,
@@ -568,6 +586,96 @@ pub async fn run_workflow_phase_attempt(
     outcome
 }
 
+/// Bundle of state `process_phase_event_stream` needs to copy a
+/// provider_session_id from the runner sidecar into the durable checkpoint
+/// as soon as it appears — instead of only after the phase finishes.
+///
+/// Mid-stream copying matters because the agent-runner writes the
+/// `~/.animus/runner-sessions/<run_id>.session.json` sidecar shortly after
+/// the provider plugin reports its session id, which can be hundreds of
+/// seconds before `Finished` arrives. If the daemon crashes in that window
+/// the checkpoint stayed at `provider_session_id = None`, auto-resume
+/// excluded the workflow from the resumable shield, and the user saw the
+/// run marked "unrecoverable".
+#[derive(Debug, Clone)]
+pub struct SidecarPollContext {
+    pub scoped_state_root: PathBuf,
+    pub workflow_id: String,
+    pub phase_id: String,
+    pub run_id: String,
+}
+
+/// Maximum interval between sidecar polls inside the event stream loop.
+/// 500 ms is fast enough that even a daemon crash 1–2 seconds after the
+/// sidecar appears will already have the checkpoint updated, and slow
+/// enough that an idle (no-event) loop wakes at most twice a second to
+/// stat a single file on disk.
+const SIDECAR_POLL_INTERVAL: Duration = Duration::from_millis(500);
+
+/// Stat the runner sidecar at most once per [`SIDECAR_POLL_INTERVAL`]. If
+/// the sidecar has materialized and the checkpoint does not yet carry the
+/// provider session id, copy it over and flip `captured` so subsequent
+/// loop iterations short-circuit to a plain `next_line().await`.
+fn maybe_poll_sidecar(
+    ctx: Option<&SidecarPollContext>,
+    captured: &mut bool,
+    last_poll: &mut Instant,
+    workflow_id: &str,
+    phase_id: &str,
+) {
+    let Some(ctx) = ctx else {
+        *captured = true;
+        return;
+    };
+    if *captured {
+        return;
+    }
+    if last_poll.elapsed() < SIDECAR_POLL_INTERVAL {
+        return;
+    }
+    *last_poll = Instant::now();
+    let Some(provider_session_id) = crate::phase_session::lookup_runner_session_sidecar(ctx.run_id.as_str()) else {
+        return;
+    };
+    match crate::phase_session::read_checkpoint(&ctx.scoped_state_root, &ctx.workflow_id, &ctx.phase_id) {
+        Ok(Some(checkpoint)) => {
+            if checkpoint.provider_session_id.as_deref() == Some(provider_session_id.as_str()) {
+                *captured = true;
+                return;
+            }
+        }
+        Ok(None) => {
+            // Checkpoint hasn't been written yet (race with
+            // write_session_pending); skip this poll, try again next tick.
+            return;
+        }
+        Err(err) => {
+            warn!(
+                workflow_id = %workflow_id,
+                phase_id = %phase_id,
+                %err,
+                "failed to read session checkpoint while polling sidecar"
+            );
+            return;
+        }
+    }
+    if let Err(err) = crate::phase_session::update_provider_session_id(
+        &ctx.scoped_state_root,
+        &ctx.workflow_id,
+        &ctx.phase_id,
+        &provider_session_id,
+    ) {
+        warn!(
+            workflow_id = %workflow_id,
+            phase_id = %phase_id,
+            %err,
+            "failed to persist provider session id mid-stream"
+        );
+        return;
+    }
+    *captured = true;
+}
+
 async fn process_phase_event_stream<R: AsyncBufRead + Unpin>(
     mut lines: tokio::io::Lines<R>,
     run_id: &RunId,
@@ -579,6 +687,7 @@ async fn process_phase_event_stream<R: AsyncBufRead + Unpin>(
     event_run_dir: Option<&std::path::Path>,
     project_root: Option<&str>,
     notification_log: Option<std::sync::Arc<crate::notification_log::NotificationLog>>,
+    sidecar_poll: Option<SidecarPollContext>,
 ) -> Result<PhaseExecutionOutcome> {
     let run_logger =
         project_root.map(|root| orchestrator_logging::Logger::for_run(std::path::Path::new(root), &run_id.0));
@@ -599,7 +708,43 @@ async fn process_phase_event_stream<R: AsyncBufRead + Unpin>(
     let mut pending_result_payload: Option<Value> = None;
     let mut provider_exhaustion_reason: Option<String> = None;
     let mut diagnostics = VecDeque::new();
-    while let Some(line) = lines.next_line().await? {
+    // Once the sidecar has yielded a session id (or the caller didn't ask
+    // us to poll), short-circuit further filesystem stats.
+    let mut sidecar_captured = sidecar_poll.is_none();
+    let mut last_sidecar_poll = Instant::now().checked_sub(SIDECAR_POLL_INTERVAL).unwrap_or_else(Instant::now);
+    loop {
+        // tokio::select! between the next line and a 500ms tick so the
+        // sidecar poll fires even when the agent goes quiet between events.
+        let next = if sidecar_captured {
+            lines.next_line().await?
+        } else {
+            tokio::select! {
+                biased;
+                line = lines.next_line() => line?,
+                _ = tokio::time::sleep(SIDECAR_POLL_INTERVAL) => {
+                    maybe_poll_sidecar(
+                        sidecar_poll.as_ref(),
+                        &mut sidecar_captured,
+                        &mut last_sidecar_poll,
+                        workflow_id,
+                        phase_id,
+                    );
+                    continue;
+                }
+            }
+        };
+        if !sidecar_captured {
+            maybe_poll_sidecar(
+                sidecar_poll.as_ref(),
+                &mut sidecar_captured,
+                &mut last_sidecar_poll,
+                workflow_id,
+                phase_id,
+            );
+        }
+        let Some(line) = next else {
+            break;
+        };
         let line = line.trim();
         if line.is_empty() {
             continue;
@@ -1947,7 +2092,7 @@ async fn run_workflow_phase_inner(params: &PhaseRunParams<'_>) -> Result<PhaseRu
 mod tests {
     use super::{
         phase_outcome_is_complete, phase_session_resume_plan, process_phase_event_stream, resolve_claude_profile_env,
-        PhaseExecutionOutcome,
+        PhaseExecutionOutcome, SidecarPollContext,
     };
     use crate::runtime_support::{inject_cli_launch_env, WorkflowPhaseRuntimeSettings};
 
@@ -2044,8 +2189,20 @@ mod tests {
     ) -> anyhow::Result<PhaseExecutionOutcome> {
         let bytes = make_event_stream(events);
         let reader = tokio::io::BufReader::new(bytes.as_slice());
-        process_phase_event_stream(reader.lines(), run_id, "wf-test", "impl", false, false, "", run_dir, None, None)
-            .await
+        process_phase_event_stream(
+            reader.lines(),
+            run_id,
+            "wf-test",
+            "impl",
+            false,
+            false,
+            "",
+            run_dir,
+            None,
+            None,
+            None,
+        )
+        .await
     }
 
     #[tokio::test]
@@ -2266,10 +2423,169 @@ mod tests {
             None::<&std::path::Path>,
             None,
             None,
+            None,
         )
         .await
         .expect("malformed lines should be skipped, not cause failure");
         assert!(matches!(outcome, PhaseExecutionOutcome::Completed { .. }));
+    }
+
+    /// Repro for the daemon-crash window before the fix: when the agent
+    /// writes its sidecar mid-run but `process_phase_event_stream` only
+    /// copied the provider session id into the checkpoint AFTER the loop
+    /// exited, a daemon crash before `Finished` left the checkpoint with
+    /// `provider_session_id = None` and auto-resume gave up. The mid-stream
+    /// sidecar poller must now copy the id over within ~500 ms of the
+    /// sidecar appearing, well before the phase finishes.
+    #[tokio::test]
+    // The MutexGuard intentionally lives across .await: it serializes
+    // ANIMUS_RUNNER_SESSION_DIR mutation across all sidecar tests in this
+    // crate. A std Mutex is sufficient because the test runs single-threaded
+    // and the guard is uncontended for the duration of one test.
+    #[allow(clippy::await_holding_lock)]
+    async fn provider_session_id_persisted_within_500ms_of_arrival() {
+        use crate::phase_session::{read_checkpoint, write_session_pending, SessionCheckpointStatus};
+        use std::time::{Duration, Instant};
+        use tokio::io::{duplex, AsyncWriteExt};
+
+        // Serialize ANIMUS_RUNNER_SESSION_DIR mutation with the other
+        // sidecar tests in this crate (they tweak the same env var).
+        let _guard = sidecar_env_lock();
+
+        let scoped = tempfile::tempdir().expect("scoped tempdir");
+        let sidecar_dir = tempfile::tempdir().expect("sidecar tempdir");
+        std::env::set_var("ANIMUS_RUNNER_SESSION_DIR", sidecar_dir.path());
+
+        let run_id = RunId(format!("run-sidecar-poll-{}", Uuid::new_v4()));
+        let workflow_id = "wf-sidecar-poll";
+        let phase_id = "impl";
+        let expected_sid = "sess-from-plugin-mid-stream";
+
+        write_session_pending(scoped.path(), workflow_id, phase_id, "claude", run_id.0.as_str(), None)
+            .expect("seed pending checkpoint");
+
+        // Feed events through a pipe so we can interleave "agent ran for a
+        // while, wrote the sidecar, kept streaming". 8 KiB buffer is plenty
+        // for the JSON we emit.
+        let (reader, mut writer) = duplex(8192);
+        let lines = tokio::io::BufReader::new(reader).lines();
+
+        // First event: the run begins. Sleep > 500 ms so the poller has at
+        // least one tick to observe an empty sidecar. Then write the
+        // sidecar and emit a chunk. Sleep again so the poller can observe
+        // the populated sidecar BEFORE `Finished` arrives, then finish.
+        let sidecar_dir_path = sidecar_dir.path().to_path_buf();
+        let sidecar_run_id = run_id.0.clone();
+        let writer_run_id = run_id.clone();
+        let _writer_task = tokio::spawn(async move {
+            let started = serde_json::to_string(&protocol::AgentRunEvent::Started {
+                run_id: writer_run_id.clone(),
+                timestamp: Timestamp::now(),
+            })
+            .unwrap();
+            writer.write_all(started.as_bytes()).await.unwrap();
+            writer.write_all(b"\n").await.unwrap();
+
+            tokio::time::sleep(Duration::from_millis(800)).await;
+            let payload = serde_json::json!({
+                "run_id": sidecar_run_id,
+                "session_id": expected_sid,
+                "tool": "claude",
+            });
+            std::fs::write(
+                sidecar_dir_path.join(format!("{}.session.json", sidecar_run_id)),
+                serde_json::to_vec_pretty(&payload).unwrap(),
+            )
+            .expect("write sidecar mid-stream");
+
+            tokio::time::sleep(Duration::from_millis(1200)).await;
+            let chunk = serde_json::to_string(&protocol::AgentRunEvent::OutputChunk {
+                run_id: writer_run_id.clone(),
+                stream_type: OutputStreamType::Stdout,
+                text: "still working\n".to_string(),
+            })
+            .unwrap();
+            writer.write_all(chunk.as_bytes()).await.unwrap();
+            writer.write_all(b"\n").await.unwrap();
+
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            let finished = serde_json::to_string(&protocol::AgentRunEvent::Finished {
+                run_id: writer_run_id,
+                exit_code: Some(0),
+                duration_ms: 100,
+            })
+            .unwrap();
+            writer.write_all(finished.as_bytes()).await.unwrap();
+            writer.write_all(b"\n").await.unwrap();
+            // Drop writer so reader EOFs cleanly after Finished is consumed.
+        });
+
+        // Watcher task: poll the checkpoint at the same cadence the
+        // production poller runs. As soon as it sees the provider session
+        // id, record the elapsed time since the sidecar was created.
+        let scoped_watcher = scoped.path().to_path_buf();
+        let sidecar_file = sidecar_dir.path().join(format!("{}.session.json", run_id.0));
+        let watcher = tokio::spawn(async move {
+            // Wait for the sidecar to exist (the writer task creates it
+            // ~800ms in). After that, time how long until the checkpoint
+            // catches up.
+            while !sidecar_file.exists() {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+            let sidecar_at = Instant::now();
+            loop {
+                if let Ok(Some(cp)) = read_checkpoint(&scoped_watcher, workflow_id, phase_id) {
+                    if cp.provider_session_id.as_deref() == Some(expected_sid) {
+                        return Some(sidecar_at.elapsed());
+                    }
+                }
+                if sidecar_at.elapsed() > Duration::from_secs(3) {
+                    return None;
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        });
+
+        let poll_ctx = SidecarPollContext {
+            scoped_state_root: scoped.path().to_path_buf(),
+            workflow_id: workflow_id.to_string(),
+            phase_id: phase_id.to_string(),
+            run_id: run_id.0.clone(),
+        };
+        let outcome = process_phase_event_stream(
+            lines,
+            &run_id,
+            workflow_id,
+            phase_id,
+            false,
+            false,
+            "",
+            None::<&std::path::Path>,
+            None,
+            None,
+            Some(poll_ctx),
+        )
+        .await
+        .expect("stream should finish cleanly");
+        assert!(matches!(outcome, PhaseExecutionOutcome::Completed { .. }));
+
+        let elapsed = watcher.await.expect("watcher task").expect("checkpoint must catch up");
+        assert!(
+            elapsed <= Duration::from_millis(1500),
+            "checkpoint should reflect sidecar within ~1 polling tick; elapsed = {elapsed:?}"
+        );
+
+        let final_checkpoint = read_checkpoint(scoped.path(), workflow_id, phase_id).expect("read").expect("present");
+        assert_eq!(final_checkpoint.provider_session_id.as_deref(), Some(expected_sid));
+        assert!(matches!(final_checkpoint.status, SessionCheckpointStatus::Running | SessionCheckpointStatus::Pending));
+
+        std::env::remove_var("ANIMUS_RUNNER_SESSION_DIR");
+    }
+
+    fn sidecar_env_lock() -> std::sync::MutexGuard<'static, ()> {
+        use std::sync::{Mutex, OnceLock};
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|p| p.into_inner())
     }
 
     // ── validate_basic_json_schema tests ──────────────────────────────────

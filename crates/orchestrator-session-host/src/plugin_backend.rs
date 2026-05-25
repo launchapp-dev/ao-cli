@@ -87,6 +87,15 @@ pub struct PluginSessionBackend {
     pub(crate) sessions: SessionMap,
     pub(crate) supervisor: Arc<PluginSupervisor>,
     pub(crate) dispatch_observer: Arc<dyn DispatchObserver>,
+    /// Method names the plugin's manifest claims to implement (e.g.
+    /// `"agent/run"`, `"agent/resume"`, `"agent/cancel"`). Drives the honest
+    /// reporting in [`PluginSessionBackend::capabilities`]: a plugin that
+    /// does not list `agent/resume` here reports `supports_resume: false`,
+    /// so higher-level runtime code does not blindly take a resume path the
+    /// plugin will reject. Empty means "no manifest data plumbed; fall
+    /// back to all-false for plugin-specific capabilities" (the most
+    /// conservative posture — never overclaim).
+    pub(crate) declared_methods: Vec<String>,
 }
 
 impl PluginSessionBackend {
@@ -105,7 +114,32 @@ impl PluginSessionBackend {
             sessions: Arc::new(StdMutex::new(HashMap::new())),
             supervisor,
             dispatch_observer: Arc::new(NoopDispatchObserver),
+            declared_methods: Vec::new(),
         }
+    }
+
+    /// Plumb the plugin manifest's declared method list so
+    /// [`PluginSessionBackend::capabilities`] reports honestly. When this
+    /// is not set the backend reports `supports_resume = false` and
+    /// `supports_terminate = false`, matching the documented "no manifest
+    /// data, refuse to overclaim" posture.
+    #[must_use]
+    pub fn with_declared_methods(mut self, methods: Vec<String>) -> Self {
+        self.declared_methods = methods;
+        self
+    }
+
+    /// True iff the plugin's manifest declared `agent/resume` among its
+    /// implemented methods.
+    pub(crate) fn manifest_supports_resume(&self) -> bool {
+        self.declared_methods.iter().any(|m| m == "agent/resume")
+    }
+
+    /// True iff the plugin's manifest declared `agent/cancel` among its
+    /// implemented methods. The session backend trait's `supports_terminate`
+    /// maps to the plugin protocol's `agent/cancel`.
+    pub(crate) fn manifest_supports_terminate(&self) -> bool {
+        self.declared_methods.iter().any(|m| m == "agent/cancel")
     }
 
     #[must_use]
@@ -702,9 +736,15 @@ impl SessionBackend for PluginSessionBackend {
     }
 
     fn capabilities(&self) -> SessionCapabilities {
+        // Plugin-specific capabilities reflect what the manifest actually
+        // claims. Defaulting to true (the pre-fix behaviour) made the
+        // runtime take resume / terminate paths against plugins that
+        // returned `MethodNotFound`, surfacing as opaque dispatch errors
+        // instead of clean "feature unsupported" branches. See
+        // PluginSessionBackend::with_declared_methods for the plumbing.
         SessionCapabilities {
-            supports_resume: true,
-            supports_terminate: true,
+            supports_resume: self.manifest_supports_resume(),
+            supports_terminate: self.manifest_supports_terminate(),
             supports_permissions: true,
             supports_mcp: true,
             supports_tool_events: false,
@@ -969,12 +1009,17 @@ pub struct DiscoveredProviderPlugin {
     pub binary_path: PathBuf,
     pub project_root: Option<PathBuf>,
     pub env_required: Vec<EnvRequirement>,
+    /// Method names from the plugin's manifest (`PluginManifest::capabilities`).
+    /// Forwarded into `PluginSessionBackend::declared_methods` so the
+    /// backend reports honest `SessionCapabilities`.
+    pub declared_methods: Vec<String>,
 }
 
 impl DiscoveredProviderPlugin {
     pub fn into_backend(self) -> Arc<PluginSessionBackend> {
         let mut backend = PluginSessionBackend::new(self.plugin_name, self.binary_path, self.provider_tool)
-            .with_env_required(self.env_required);
+            .with_env_required(self.env_required)
+            .with_declared_methods(self.declared_methods);
         if let Some(root) = self.project_root {
             backend = backend.with_project_root(root);
         }
@@ -999,12 +1044,14 @@ pub fn discover_provider_plugins(project_root: &std::path::Path) -> Vec<Discover
                 .map(ToOwned::to_owned)
                 .unwrap_or_else(|| plugin.name.clone());
             let env_required = plugin.manifest.env_required.clone();
+            let declared_methods = plugin.manifest.capabilities.clone();
             DiscoveredProviderPlugin {
                 plugin_name: plugin.name,
                 provider_tool,
                 binary_path: plugin.path,
                 project_root: Some(project_root.clone()),
                 env_required,
+                declared_methods,
             }
         })
         .collect()
@@ -1344,5 +1391,52 @@ mod tests {
             }
             other @ ResumeAgentOutcome::Failed { .. } => panic!("expected Resumed, got: {other:?}"),
         }
+    }
+
+    /// `PluginSessionBackend::capabilities()` previously hardcoded
+    /// `supports_resume = true` and `supports_terminate = true`, which made
+    /// the runtime take resume/cancel paths against plugins that returned
+    /// `MethodNotFound`. The honest reporting now reads the manifest's
+    /// `capabilities` (the method list) plumbed through
+    /// `with_declared_methods`, so plugins that do not declare
+    /// `agent/resume` / `agent/cancel` advertise the corresponding flag as
+    /// `false`.
+    #[test]
+    fn capabilities_reflect_plugin_manifest_not_hardcoded_true() {
+        use animus_session_backend::session::session_backend::SessionBackend;
+
+        // Manifest claims neither agent/resume nor agent/cancel.
+        let backend_silent = PluginSessionBackend::new("silent-plugin", PathBuf::from("/nonexistent/silent"), "silent")
+            .with_declared_methods(vec!["agent/run".to_string()]);
+        let caps_silent = backend_silent.capabilities();
+        assert!(!caps_silent.supports_resume, "plugin without agent/resume must report supports_resume=false");
+        assert!(!caps_silent.supports_terminate, "plugin without agent/cancel must report supports_terminate=false");
+
+        // Manifest only claims agent/resume.
+        let backend_resume_only =
+            PluginSessionBackend::new("resume-only-plugin", PathBuf::from("/nonexistent/resume-only"), "resume-only")
+                .with_declared_methods(vec!["agent/run".to_string(), "agent/resume".to_string()]);
+        let caps_resume_only = backend_resume_only.capabilities();
+        assert!(caps_resume_only.supports_resume, "plugin with agent/resume must report supports_resume=true");
+        assert!(!caps_resume_only.supports_terminate, "manifest without agent/cancel must NOT advertise terminate");
+
+        // Manifest claims both.
+        let backend_full =
+            PluginSessionBackend::new("full-plugin", PathBuf::from("/nonexistent/full"), "full").with_declared_methods(
+                vec!["agent/run".to_string(), "agent/resume".to_string(), "agent/cancel".to_string()],
+            );
+        let caps_full = backend_full.capabilities();
+        assert!(caps_full.supports_resume);
+        assert!(caps_full.supports_terminate);
+
+        // Empty manifest plumbing (back-compat / direct constructor) defaults
+        // to the conservative posture — never overclaim.
+        let backend_default =
+            PluginSessionBackend::new("default-plugin", PathBuf::from("/nonexistent/default"), "default");
+        let caps_default = backend_default.capabilities();
+        assert!(
+            !caps_default.supports_resume && !caps_default.supports_terminate,
+            "no declared_methods plumbed → must default to false, not the legacy hardcoded true"
+        );
     }
 }

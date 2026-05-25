@@ -288,11 +288,23 @@ dispatch after you clear the variable.
 | Variable | Description |
 |---|---|
 | `ANIMUS_DAEMON_DISABLE_TRIGGERS` | Truthy (`1`, `true`, `yes`, `on`) — skips the trigger plugin supervisor on daemon start AND interrupts any in-progress backoff sleeps so a flapping plugin stops respawning immediately. Useful when a trigger plugin is panicking, flooding events, or wedging the daemon's startup. Daemon restart needed to re-enable. |
-| `ANIMUS_PROVIDER_DISABLE_PLUGIN` | Truthy (`1`, `true`, `yes`, `on`) — forces the `SessionBackendResolver` to skip installed provider plugins and dispatch through the in-tree (claude/codex/gemini/opencode/oai-runner) backends only. Useful when a freshly-installed provider plugin is misbehaving and you need to fall back to the bundled implementation while keeping running workflows alive. Daemon restart needed to re-enable. |
+| ~~`ANIMUS_PROVIDER_DISABLE_PLUGIN`~~ | **Removed in v0.4.12.** Previously forced the `SessionBackendResolver` to fall back to in-tree provider backends. The in-tree backends were extracted to standalone `launchapp-dev/animus-provider-*` plugins in v0.4.12, so there is nothing left to fall back to. Setting this variable has no effect. If a provider plugin is misbehaving, uninstall it with `animus plugin uninstall <name>` or quarantine it with `animus plugin disable <name>`. |
 
 Error surfaces emit a hint pointing at the right kill-switch when a plugin
 fails its handshake or exhausts its restart budget, so operators don't have
 to read the source to find these during an incident.
+
+When a provider plugin is not installed for the tool a workflow phase asks
+for, the resolver surfaces a hard error like:
+
+```
+Provider plugin 'claude' not installed. Install with:
+  animus plugin install launchapp-dev/animus-provider-claude --allow-shadow-builtin
+Or run: animus plugin install-defaults
+```
+
+This is intentional — silent fallback to a removed in-tree backend would
+hide broken or missing plugins during daemon startup.
 
 ## Notes
 

@@ -250,12 +250,15 @@ in-tree backend.
 
 ## Kill switches
 
-Two environment variables disable plugin-system features at daemon start
+One environment variable disables a plugin-system feature at daemon start
 for emergency rollback:
 
 - `ANIMUS_DAEMON_DISABLE_TRIGGERS=1` — skip the trigger plugin supervisor.
-- `ANIMUS_PROVIDER_DISABLE_PLUGIN=1` — force `SessionBackendResolver` to
-  bypass installed provider plugins and use in-tree backends only.
 
-Both require a daemon restart to take effect and to re-enable. See
+Requires a daemon restart to take effect and to re-enable. See
 [`docs/reference/configuration.md`](configuration.md#plugin-kill-switches).
+
+`ANIMUS_PROVIDER_DISABLE_PLUGIN` was removed in v0.4.12 when the in-tree
+provider backends were extracted to standalone plugins. There is no longer
+a runtime escape hatch for provider dispatch — uninstall or disable the
+offending plugin instead.

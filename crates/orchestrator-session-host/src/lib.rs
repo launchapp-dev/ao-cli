@@ -9,9 +9,11 @@
 //! the published session-backend surface that provider plugins themselves
 //! consume.
 //!
-//! The native CLI backends (Claude, Codex, Gemini, OpenCode, OAI-runner) and
-//! the trait itself live in upstream `animus-session-backend`; this crate
-//! just re-routes through them via a richer resolver.
+//! As of v0.4.12 there are no in-tree provider backends — every provider
+//! (Claude, Codex, Gemini, OpenCode, OAI-runner, plus any third-party) ships
+//! as a standalone `launchapp-dev/animus-provider-*` STDIO plugin. The
+//! resolver here discovers and dispatches to those plugins only; a missing
+//! plugin is a hard error, not a silent fallback.
 
 pub mod error;
 pub mod plugin_backend;

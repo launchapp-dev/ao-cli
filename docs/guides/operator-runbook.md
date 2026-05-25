@@ -410,16 +410,19 @@ because they're project-local, not scoped-runtime state.
 
 ### Provider plugin returns garbage
 
-Quarantine a single plugin without uninstalling:
+`ANIMUS_PROVIDER_DISABLE_PLUGIN` was removed in v0.4.12 — there is no
+in-tree fallback to switch to, so the kill-switch had nothing left to
+do. To quarantine a specific provider plugin without uninstalling, use:
 
 ```bash
-ANIMUS_PROVIDER_DISABLE_PLUGIN=1 animus daemon start --autonomous
+animus plugin disable <plugin-name>
+animus daemon restart --autonomous
 ```
 
-This kill-switch bypasses installed provider plugins entirely. As of
-v0.4.12 there is no in-tree fallback, so any phase needing an agent
-run will Block — but the daemon stays up so you can inspect state and
-queue.
+The daemon stays up while the plugin is disabled. Any phase that targets
+the disabled provider will Block with a hard error pointing at the
+install/disable surface, instead of silently routing to a missing
+in-tree implementation.
 
 To disable subject discovery entirely:
 

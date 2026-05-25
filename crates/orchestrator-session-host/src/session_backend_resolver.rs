@@ -2,58 +2,69 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use animus_session_backend::error::Result;
+use animus_session_backend::error::{Error, Result};
 use animus_session_backend::session::{
-    claude::ClaudeSessionBackend, codex::CodexSessionBackend, gemini::GeminiSessionBackend,
-    oai_runner::OaiRunnerSessionBackend, opencode::OpenCodeSessionBackend, session_backend::SessionBackend,
-    session_request::SessionRequest, session_run::SessionRun, subprocess_session_backend::SubprocessSessionBackend,
+    session_backend::SessionBackend, session_request::SessionRequest, session_run::SessionRun,
 };
 
 use crate::plugin_backend::{discover_provider_plugins, PluginSessionBackend};
 
-/// Provider tool names that map to in-tree (built-in) backends. A
-/// third-party plugin whose `provider_tool` matches one of these silently
-/// hijacks the entire dispatch path for that tool, which is a supply-chain
-/// risk; the install pipeline refuses such installs unless the operator
-/// passes `--allow-shadow-builtin`. See
-/// [`SessionBackendResolver::resolve`] for the runtime warning emitted when
-/// a non-reserved plugin nevertheless overrides a built-in.
-pub const RESERVED_PROVIDER_TOOLS: &[&str] = &["claude", "codex", "gemini", "opencode", "oai-runner"];
+/// Provider tool names that historically mapped to in-tree (built-in) backends.
+///
+/// The in-tree backends were removed in v0.4.12 in favor of the standalone
+/// `launchapp-dev/animus-provider-*` plugins. These names are still considered
+/// "reserved" by the install pipeline: a third-party plugin whose
+/// `provider_tool` matches one of them silently hijacks the entire dispatch
+/// path for that tool — a supply-chain risk — so installs refuse such plugins
+/// unless the operator passes `--allow-shadow-builtin`. The resolver no
+/// longer emits a runtime warning because there is no longer a built-in to
+/// shadow; the install-time gate is the sole defense.
+pub const RESERVED_PROVIDER_TOOLS: &[&str] = &["claude", "codex", "gemini", "opencode", "oai", "oai-runner"];
 
-/// Returns `true` when the supplied provider tool name collides with an
-/// in-tree built-in backend (case-insensitive).
+/// Returns `true` when the supplied provider tool name collides with the
+/// canonical name of one of the externally-shipped first-party provider
+/// plugins (case-insensitive).
 pub fn is_reserved_provider_tool(tool: &str) -> bool {
     let lower = tool.trim().to_ascii_lowercase();
     RESERVED_PROVIDER_TOOLS.iter().any(|reserved| reserved.eq_ignore_ascii_case(&lower))
 }
 
+/// Workflows historically named the OAI runner backend `oai-runner` or
+/// `animus-oai-runner`, but the published `launchapp-dev/animus-provider-oai`
+/// plugin registers under `provider_tool = "oai"` (plugin name minus the
+/// `animus-provider-` prefix). Normalize legacy aliases to the canonical
+/// plugin tool name before lookup so existing workflows keep resolving the
+/// first-party plugin without YAML rewrites.
+fn canonical_tool_alias(tool: &str) -> String {
+    let lower = tool.trim().to_ascii_lowercase();
+    match lower.as_str() {
+        "oai-runner" | "animus-oai-runner" => "oai".to_string(),
+        _ => lower,
+    }
+}
+
+/// Dispatch resolver that routes session requests to the matching provider
+/// plugin discovered on disk.
+///
+/// As of v0.4.12 there are no in-tree provider backends — every provider
+/// (claude, codex, gemini, opencode, oai-runner, plus any third-party) is a
+/// standalone plugin discovered through `orchestrator-plugin-host`. If a
+/// request targets a tool whose plugin is not installed, the resolver
+/// surfaces a hard error with an actionable install command. There is no
+/// silent fallback path.
 pub struct SessionBackendResolver {
-    claude: Arc<ClaudeSessionBackend>,
-    codex: Arc<CodexSessionBackend>,
-    gemini: Arc<GeminiSessionBackend>,
-    opencode: Arc<OpenCodeSessionBackend>,
-    oai_runner: Arc<OaiRunnerSessionBackend>,
-    subprocess: Arc<SubprocessSessionBackend>,
     plugin_providers: HashMap<String, Arc<PluginSessionBackend>>,
 }
 
 impl SessionBackendResolver {
+    /// Construct an empty resolver. Useful for tests that wire plugins in
+    /// manually; production callers should use [`Self::with_plugin_discovery`].
     pub fn new() -> Self {
-        Self {
-            claude: Arc::new(ClaudeSessionBackend::new()),
-            codex: Arc::new(CodexSessionBackend::new()),
-            gemini: Arc::new(GeminiSessionBackend::new()),
-            opencode: Arc::new(OpenCodeSessionBackend::new()),
-            oai_runner: Arc::new(OaiRunnerSessionBackend::new()),
-            subprocess: Arc::new(SubprocessSessionBackend::new()),
-            plugin_providers: HashMap::new(),
-        }
+        Self { plugin_providers: HashMap::new() }
     }
 
-    /// Construct a resolver that prefers discovered AO STDIO provider plugins for any tool
-    /// whose name matches a discovered plugin's `provider_tool` (default: plugin name minus
-    /// the `animus-provider-` prefix). In-tree backends remain as fallback for tools without
-    /// a discovered plugin.
+    /// Construct a resolver populated from AO STDIO provider plugin discovery
+    /// against the supplied project root.
     pub fn with_plugin_discovery(project_root: &Path) -> Self {
         let mut resolver = Self::new();
         resolver.refresh_plugin_providers(project_root);
@@ -61,83 +72,30 @@ impl SessionBackendResolver {
     }
 
     /// Re-scan plugin discovery sources and replace the cached provider map.
-    ///
-    /// When `ANIMUS_PROVIDER_DISABLE_PLUGIN` is set to a truthy value (`1`, `true`,
-    /// `yes`, case-insensitive) the cached provider map is cleared and discovery is
-    /// skipped entirely. This is the documented escape hatch for forcing all
-    /// dispatch through the in-tree backends — useful when an installed plugin is
-    /// misbehaving and the daemon needs to keep running.
     pub fn refresh_plugin_providers(&mut self, project_root: &Path) {
-        if plugin_discovery_disabled() {
-            self.plugin_providers.clear();
-            return;
-        }
         self.plugin_providers = discover_provider_plugins(project_root)
             .into_iter()
             .map(|plugin| (plugin.provider_tool.to_ascii_lowercase(), plugin.into_backend()))
             .collect();
     }
 
-    pub fn fallback_reason(&self, request: &SessionRequest) -> Option<String> {
-        if self.plugin_providers.contains_key(&request.tool.to_ascii_lowercase()) {
-            return None;
-        }
-        if request.tool.eq_ignore_ascii_case("claude")
-            || request.tool.eq_ignore_ascii_case("codex")
-            || request.tool.eq_ignore_ascii_case("gemini")
-            || request.tool.eq_ignore_ascii_case("opencode")
-            || request.tool.eq_ignore_ascii_case("oai-runner")
-            || request.tool.eq_ignore_ascii_case("animus-oai-runner")
-        {
-            return None;
+    /// Resolve the backend for `request.tool`, or surface a hard error
+    /// pointing at the right install command when no plugin is installed
+    /// for the requested tool.
+    pub fn resolve(&self, request: &SessionRequest) -> Result<Arc<dyn SessionBackend>> {
+        let lookup_tool = canonical_tool_alias(&request.tool);
+        if let Some(plugin) = self.plugin_providers.get(&lookup_tool) {
+            return Ok(plugin.clone());
         }
 
-        Some(format!("native backend not implemented for tool '{}'; using subprocess backend", request.tool))
+        Err(Error::ExecutionFailed(missing_provider_message(&request.tool)))
     }
 
-    pub fn resolve(&self, request: &SessionRequest) -> Arc<dyn SessionBackend> {
-        let tool_lower = request.tool.to_ascii_lowercase();
-        if let Some(plugin) = self.plugin_providers.get(&tool_lower) {
-            if is_reserved_provider_tool(&tool_lower) {
-                tracing::warn!(
-                    plugin = %plugin.plugin_name,
-                    tool = %tool_lower,
-                    plugin_path = %plugin.binary_path.display(),
-                    "plugin '{}' shadowing built-in {} backend at {}",
-                    plugin.plugin_name,
-                    tool_lower,
-                    plugin.binary_path.display(),
-                );
-            }
-            return plugin.clone();
-        }
-        if request.tool.eq_ignore_ascii_case("claude") {
-            return self.claude.clone();
-        }
-        if request.tool.eq_ignore_ascii_case("codex") {
-            return self.codex.clone();
-        }
-        if request.tool.eq_ignore_ascii_case("gemini") {
-            return self.gemini.clone();
-        }
-        if request.tool.eq_ignore_ascii_case("opencode") {
-            return self.opencode.clone();
-        }
-        if request.tool.eq_ignore_ascii_case("oai-runner") || request.tool.eq_ignore_ascii_case("animus-oai-runner") {
-            return self.oai_runner.clone();
-        }
-
-        self.subprocess.clone()
-    }
-
-    pub async fn start_session(&self, mut request: SessionRequest) -> Result<SessionRun> {
-        if let Some(reason) = self.fallback_reason(&request) {
-            if let Some(extras) = request.extras.as_object_mut() {
-                extras.insert("fallback_reason".to_string(), serde_json::Value::String(reason));
-            }
-        }
-
-        self.resolve(&request).start_session(request).await
+    /// Start a session through the resolved backend, or surface the
+    /// "plugin not installed" error.
+    pub async fn start_session(&self, request: SessionRequest) -> Result<SessionRun> {
+        let backend = self.resolve(&request)?;
+        backend.start_session(request).await
     }
 }
 
@@ -147,16 +105,18 @@ impl Default for SessionBackendResolver {
     }
 }
 
-/// Returns `true` when the operator has opted out of installed-plugin dispatch
-/// via `ANIMUS_PROVIDER_DISABLE_PLUGIN`.
-///
-/// Honors `1`, `true`, `yes`, `on` (case-insensitive) as the disable signal.
-/// Anything else — including unset — leaves plugin discovery enabled.
-fn plugin_discovery_disabled() -> bool {
-    match std::env::var("ANIMUS_PROVIDER_DISABLE_PLUGIN") {
-        Ok(raw) => matches!(raw.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"),
-        Err(_) => false,
-    }
+/// Build the actionable error message returned when a provider plugin is not
+/// installed for the requested tool.
+fn missing_provider_message(tool: &str) -> String {
+    let canonical = canonical_tool_alias(tool);
+    let install_target = if is_reserved_provider_tool(&canonical) {
+        format!("launchapp-dev/animus-provider-{canonical}")
+    } else {
+        format!("<publisher>/animus-provider-{canonical}")
+    };
+    format!(
+        "Provider plugin '{tool}' not installed. Install with:\n  animus plugin install {install_target} --allow-shadow-builtin\nOr run: animus plugin install-defaults"
+    )
 }
 
 #[cfg(test)]
@@ -164,15 +124,13 @@ mod tests {
     use serde_json::json;
     use std::path::PathBuf;
 
-    use animus_session_backend::session::{SessionEvent, SessionRequest};
+    use animus_session_backend::session::SessionRequest;
 
     use super::SessionBackendResolver;
 
-    #[test]
-    fn resolver_reports_subprocess_fallback_reason() {
-        let resolver = SessionBackendResolver::new();
-        let request = SessionRequest {
-            tool: "sh".to_string(),
+    fn request_for(tool: &str) -> SessionRequest {
+        SessionRequest {
+            tool: tool.to_string(),
             model: String::new(),
             prompt: "hello".to_string(),
             cwd: PathBuf::from("."),
@@ -182,180 +140,96 @@ mod tests {
             timeout_secs: None,
             env_vars: Vec::new(),
             extras: json!({}),
-        };
+        }
+    }
 
-        let reason = resolver.fallback_reason(&request).expect("fallback reason should exist");
-        assert!(reason.contains("using subprocess backend"));
+    fn expect_resolve_err(resolver: &SessionBackendResolver, tool: &str) -> String {
+        match resolver.resolve(&request_for(tool)) {
+            Ok(_) => panic!("missing plugin must error for tool '{tool}'"),
+            Err(err) => err.to_string(),
+        }
+    }
+
+    fn expect_resolve_ok(
+        resolver: &SessionBackendResolver,
+        tool: &str,
+    ) -> std::sync::Arc<dyn animus_session_backend::session::session_backend::SessionBackend> {
+        match resolver.resolve(&request_for(tool)) {
+            Ok(backend) => backend,
+            Err(err) => panic!("plugin should resolve for tool '{tool}': {err}"),
+        }
     }
 
     #[test]
-    fn resolver_selects_claude_backend_without_fallback() {
+    fn resolver_errors_when_no_plugin_for_reserved_tool() {
         let resolver = SessionBackendResolver::new();
-        let request = SessionRequest {
-            tool: "claude".to_string(),
-            model: "claude-sonnet".to_string(),
-            prompt: "hello".to_string(),
-            cwd: PathBuf::from("."),
-            project_root: None,
-            mcp_endpoint: None,
-            permission_mode: None,
-            timeout_secs: None,
-            env_vars: Vec::new(),
-            extras: json!({}),
-        };
-
-        assert!(resolver.fallback_reason(&request).is_none());
-        assert_eq!(resolver.resolve(&request).info().provider_tool, "claude");
+        let msg = expect_resolve_err(&resolver, "claude");
+        assert!(msg.contains("Provider plugin 'claude' not installed"), "actual: {msg}");
+        assert!(msg.contains("animus plugin install launchapp-dev/animus-provider-claude"), "actual: {msg}");
+        assert!(msg.contains("install-defaults"), "actual: {msg}");
     }
 
     #[test]
-    fn resolver_selects_codex_backend_without_fallback() {
+    fn resolver_errors_when_no_plugin_for_unknown_tool() {
         let resolver = SessionBackendResolver::new();
-        let request = SessionRequest {
-            tool: "codex".to_string(),
-            model: "gpt-5".to_string(),
-            prompt: "hello".to_string(),
-            cwd: PathBuf::from("."),
-            project_root: None,
-            mcp_endpoint: None,
-            permission_mode: None,
-            timeout_secs: None,
-            env_vars: Vec::new(),
-            extras: json!({}),
-        };
-
-        assert!(resolver.fallback_reason(&request).is_none());
-        assert_eq!(resolver.resolve(&request).info().provider_tool, "codex");
-    }
-
-    #[test]
-    fn resolver_selects_gemini_backend_without_fallback() {
-        let resolver = SessionBackendResolver::new();
-        let request = SessionRequest {
-            tool: "gemini".to_string(),
-            model: "gemini-2.5-pro".to_string(),
-            prompt: "hello".to_string(),
-            cwd: PathBuf::from("."),
-            project_root: None,
-            mcp_endpoint: None,
-            permission_mode: None,
-            timeout_secs: None,
-            env_vars: Vec::new(),
-            extras: json!({}),
-        };
-
-        assert!(resolver.fallback_reason(&request).is_none());
-        assert_eq!(resolver.resolve(&request).info().provider_tool, "gemini");
-    }
-
-    #[test]
-    fn resolver_selects_opencode_backend_without_fallback() {
-        let resolver = SessionBackendResolver::new();
-        let request = SessionRequest {
-            tool: "opencode".to_string(),
-            model: "glm-5".to_string(),
-            prompt: "hello".to_string(),
-            cwd: PathBuf::from("."),
-            project_root: None,
-            mcp_endpoint: None,
-            permission_mode: None,
-            timeout_secs: None,
-            env_vars: Vec::new(),
-            extras: json!({}),
-        };
-
-        assert!(resolver.fallback_reason(&request).is_none());
-        assert_eq!(resolver.resolve(&request).info().provider_tool, "opencode");
-    }
-
-    #[test]
-    fn resolver_selects_oai_runner_backend_without_fallback() {
-        let resolver = SessionBackendResolver::new();
-        let request = SessionRequest {
-            tool: "oai-runner".to_string(),
-            model: "deepseek/deepseek-chat".to_string(),
-            prompt: "hello".to_string(),
-            cwd: PathBuf::from("."),
-            project_root: None,
-            mcp_endpoint: None,
-            permission_mode: None,
-            timeout_secs: None,
-            env_vars: Vec::new(),
-            extras: json!({}),
-        };
-
-        assert!(resolver.fallback_reason(&request).is_none());
-        assert_eq!(resolver.resolve(&request).info().provider_tool, "oai-runner");
+        let msg = expect_resolve_err(&resolver, "custom-tool");
+        assert!(msg.contains("Provider plugin 'custom-tool' not installed"), "actual: {msg}");
+        assert!(msg.contains("<publisher>/animus-provider-custom-tool"), "actual: {msg}");
     }
 
     #[tokio::test]
-    #[cfg(unix)]
-    async fn resolver_starts_session_with_fallback_reason() {
+    async fn start_session_propagates_missing_plugin_error() {
         let resolver = SessionBackendResolver::new();
-        let request = SessionRequest {
-            tool: "sh".to_string(),
-            model: String::new(),
-            prompt: String::new(),
-            cwd: PathBuf::from("."),
-            project_root: None,
-            mcp_endpoint: None,
-            permission_mode: None,
-            timeout_secs: None,
-            env_vars: Vec::new(),
-            extras: json!({
-                "runtime_contract": {
-                    "cli": {
-                        "launch": {
-                            "command": "sh",
-                            "args": ["-c", "printf 'resolver\\n'"],
-                            "prompt_via_stdin": false
-                        }
-                    }
-                }
-            }),
+        let msg = match resolver.start_session(request_for("codex")).await {
+            Ok(_) => panic!("start should fail without plugin"),
+            Err(err) => err.to_string(),
         };
-
-        let mut run = resolver.start_session(request).await.expect("session should start");
-
-        assert_eq!(run.selected_backend, "subprocess");
-        assert!(run.fallback_reason.as_deref().is_some_and(|reason| reason.contains("using subprocess backend")));
-
-        let _ = run.events.recv().await.expect("started event");
-        let text = run.events.recv().await.expect("text event");
-        assert_eq!(text, SessionEvent::TextDelta { text: "resolver".to_string() });
+        assert!(msg.contains("Provider plugin 'codex' not installed"), "actual: {msg}");
     }
 
     #[test]
-    fn resolver_falls_back_to_in_tree_when_no_plugin_for_claude() {
-        // No discovery surface configured — claude tool should land on the in-tree backend.
-        let resolver = SessionBackendResolver::new();
-        let request = SessionRequest {
-            tool: "claude".to_string(),
-            model: "claude-sonnet-4-6".to_string(),
-            prompt: "hello".to_string(),
-            cwd: PathBuf::from("."),
-            project_root: None,
-            mcp_endpoint: None,
-            permission_mode: None,
-            timeout_secs: None,
-            env_vars: Vec::new(),
-            extras: json!({}),
-        };
+    fn resolver_dispatches_to_installed_plugin() {
+        let mut resolver = SessionBackendResolver::new();
+        resolver.plugin_providers.insert(
+            "mock".to_string(),
+            std::sync::Arc::new(crate::plugin_backend::PluginSessionBackend::new(
+                "animus-provider-mock",
+                PathBuf::from("/tmp/animus-provider-mock"),
+                "mock",
+            )),
+        );
+        let backend = expect_resolve_ok(&resolver, "mock");
+        assert_eq!(backend.info().provider_tool, "mock");
+    }
 
-        let backend = resolver.resolve(&request);
+    #[test]
+    fn resolver_dispatches_to_plugin_even_for_reserved_tool() {
+        // When a plugin claims a reserved tool (e.g. claude) the resolver hands
+        // off to that plugin — the install gate decides whether the plugin
+        // was allowed onto disk in the first place.
+        let mut resolver = SessionBackendResolver::new();
+        resolver.plugin_providers.insert(
+            "claude".to_string(),
+            std::sync::Arc::new(crate::plugin_backend::PluginSessionBackend::new(
+                "animus-provider-claude",
+                PathBuf::from("/tmp/animus-provider-claude"),
+                "claude",
+            )),
+        );
+        let backend = expect_resolve_ok(&resolver, "claude");
         let info = backend.info();
         assert_eq!(info.provider_tool, "claude");
         assert!(
-            !info.display_name.to_ascii_lowercase().contains("plugin"),
-            "expected in-tree backend, got display_name={}",
+            info.display_name.to_ascii_lowercase().contains("plugin"),
+            "expected plugin display name, got {}",
             info.display_name
         );
     }
 
     #[test]
-    fn reserved_provider_tools_includes_all_in_tree_backends() {
-        for tool in ["claude", "codex", "gemini", "opencode", "oai-runner"] {
-            assert!(super::is_reserved_provider_tool(tool), "{tool} should be considered reserved (built-in)");
+    fn reserved_provider_tools_includes_all_first_party_providers() {
+        for tool in ["claude", "codex", "gemini", "opencode", "oai", "oai-runner"] {
+            assert!(super::is_reserved_provider_tool(tool), "{tool} should be reserved");
             assert!(super::is_reserved_provider_tool(&tool.to_ascii_uppercase()));
         }
         assert!(!super::is_reserved_provider_tool("linear"));
@@ -363,62 +237,35 @@ mod tests {
     }
 
     #[test]
-    fn resolver_emits_warning_when_plugin_shadows_builtin() {
-        // The actual warn! is emitted through tracing; we verify the code path runs
-        // (resolve picks the plugin) and the plugin path differs from the in-tree
-        // backend's display name.
+    fn resolver_resolves_oai_runner_aliases_against_installed_oai_plugin() {
+        // The first-party plugin `launchapp-dev/animus-provider-oai` registers
+        // under provider_tool "oai", but historical workflows ask for tool
+        // "oai-runner" / "animus-oai-runner". The resolver must normalize.
         let mut resolver = SessionBackendResolver::new();
         resolver.plugin_providers.insert(
-            "claude".to_string(),
+            "oai".to_string(),
             std::sync::Arc::new(crate::plugin_backend::PluginSessionBackend::new(
-                "animus-provider-claude-shadow",
-                PathBuf::from("/tmp/animus-provider-claude-shadow"),
-                "claude",
+                "animus-provider-oai",
+                PathBuf::from("/tmp/animus-provider-oai"),
+                "oai",
             )),
         );
-        let request = SessionRequest {
-            tool: "claude".to_string(),
-            model: "claude-sonnet".to_string(),
-            prompt: "hi".to_string(),
-            cwd: PathBuf::from("."),
-            project_root: None,
-            mcp_endpoint: None,
-            permission_mode: None,
-            timeout_secs: None,
-            env_vars: Vec::new(),
-            extras: json!({}),
-        };
-        let backend = resolver.resolve(&request);
-        let info = backend.info();
-        // The plugin we registered claimed provider_tool="claude" and its display
-        // name comes from the plugin path, not the in-tree label.
-        assert_eq!(info.provider_tool, "claude");
-        assert!(
-            info.display_name.to_ascii_lowercase().contains("plugin"),
-            "expected plugin backend to win over built-in; got display={}",
-            info.display_name
-        );
+
+        for alias in ["oai-runner", "animus-oai-runner", "OAI-Runner", "ANIMUS-OAI-RUNNER", "oai"] {
+            let backend = expect_resolve_ok(&resolver, alias);
+            assert_eq!(backend.info().provider_tool, "oai", "alias {alias} should resolve to oai plugin");
+        }
     }
 
     #[test]
-    fn refresh_plugin_providers_skips_discovery_when_disabled() {
-        let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        // Sanity: with the env unset, the discovery hook can populate (or leave
-        // empty if no plugins are installed). We're not asserting on the populated
-        // state — only that the disable knob is honored when set.
-        std::env::set_var("ANIMUS_PROVIDER_DISABLE_PLUGIN", "1");
-        let mut resolver = SessionBackendResolver::new();
-        // Seed a fake provider so we can confirm refresh clears it under disable.
-        resolver.plugin_providers.insert(
-            "phantom".to_string(),
-            std::sync::Arc::new(crate::plugin_backend::PluginSessionBackend::new(
-                "phantom-plugin",
-                PathBuf::from("/does/not/exist"),
-                "phantom",
-            )),
-        );
-        resolver.refresh_plugin_providers(&project_root);
-        assert!(resolver.plugin_providers.is_empty(), "disable knob must clear plugin providers");
-        std::env::remove_var("ANIMUS_PROVIDER_DISABLE_PLUGIN");
+    fn missing_oai_runner_alias_hints_at_animus_provider_oai_install() {
+        let resolver = SessionBackendResolver::new();
+        for alias in ["oai-runner", "animus-oai-runner"] {
+            let msg = expect_resolve_err(&resolver, alias);
+            assert!(
+                msg.contains("animus plugin install launchapp-dev/animus-provider-oai"),
+                "alias {alias} should hint at the canonical animus-provider-oai install; got: {msg}"
+            );
+        }
     }
 }

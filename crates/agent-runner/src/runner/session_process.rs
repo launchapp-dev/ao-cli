@@ -116,7 +116,7 @@ pub(super) async fn spawn_session_process(
         build_session_request(tool, model, prompt, runtime_contract, cwd, env, timeout_secs, invocation)?;
     let idle_timeout_secs = resolve_idle_timeout_secs(tool, timeout_secs, runtime_contract);
     let resolver = SessionBackendResolver::with_plugin_discovery(std::path::Path::new(cwd));
-    let backend = resolver.resolve(&session_request);
+    let backend = resolver.resolve(&session_request).context("failed to resolve provider plugin")?;
     let mut run = match resume_session_id.map(str::trim).filter(|s| !s.is_empty()) {
         Some(session_id) => backend
             .resume_session(session_request, session_id)
@@ -544,6 +544,7 @@ mod tests {
 
     #[tokio::test]
     #[cfg(unix)]
+    #[ignore = "validated the removed in-tree Claude session backend; the v0.4.12 plugin-first resolver requires a real animus-provider-claude plugin on disk"]
     async fn spawn_session_process_bridges_claude_events() {
         let run_id = RunId("run-claude".to_string());
         let claude_fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/claude_real.jsonl");
@@ -596,6 +597,7 @@ mod tests {
 
     #[tokio::test]
     #[cfg(unix)]
+    #[ignore = "validated the removed in-tree Claude session backend; the v0.4.12 plugin-first resolver requires a real animus-provider-claude plugin on disk"]
     async fn spawn_session_process_passes_claude_mcp_launch_args_and_preserves_primary_server() {
         let temp_dir = unique_test_dir("claude-mcp");
         fs::create_dir_all(&temp_dir).expect("temp dir should be created");
@@ -696,6 +698,7 @@ mod tests {
 
     #[tokio::test]
     #[cfg(unix)]
+    #[ignore = "validated the removed in-tree codex/gemini/oai-runner session backends; the v0.4.12 plugin-first resolver requires real animus-provider-* plugins on disk"]
     async fn spawn_session_process_bridges_codex_gemini_and_oai_runner_events() {
         for (tool, fixture, expect_metadata, expect_thinking) in [
             ("codex", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/codex_real.jsonl"), true, true),
@@ -756,6 +759,7 @@ mod tests {
 
     #[tokio::test]
     #[cfg(unix)]
+    #[ignore = "validated the removed in-tree OpenCode session backend; the v0.4.12 plugin-first resolver requires a real animus-provider-opencode plugin on disk"]
     async fn spawn_session_process_bridges_opencode_events() {
         let run_id = RunId("run-opencode".to_string());
         let runtime_contract = json!({
@@ -803,6 +807,7 @@ mod tests {
 
     #[tokio::test]
     #[cfg(unix)]
+    #[ignore = "validated the removed in-tree Gemini session backend; the v0.4.12 plugin-first resolver requires a real animus-provider-gemini plugin on disk"]
     async fn spawn_session_process_passes_gemini_mcp_launch_env_and_args() {
         let temp_dir = unique_test_dir("gemini-mcp");
         fs::create_dir_all(&temp_dir).expect("temp dir should be created");
@@ -889,6 +894,7 @@ mod tests {
 
     #[tokio::test]
     #[cfg(unix)]
+    #[ignore = "validated the removed in-tree OAI-runner session backend; the v0.4.12 plugin-first resolver requires a real animus-provider-oai plugin on disk"]
     async fn spawn_session_process_passes_oai_runner_mcp_flag_after_run_subcommand() {
         let temp_dir = unique_test_dir("oai-runner-mcp");
         fs::create_dir_all(&temp_dir).expect("temp dir should be created");
@@ -963,6 +969,7 @@ mod tests {
 
     #[tokio::test]
     #[cfg(unix)]
+    #[ignore = "validated resume-session routing through the removed in-tree Codex session backend; the v0.4.12 plugin-first resolver requires a real animus-provider-codex plugin on disk"]
     async fn spawn_session_process_resume_session_id_routes_to_backend_resume() {
         let run_id = RunId("run-resume-codex".to_string());
         let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/codex_real.jsonl");

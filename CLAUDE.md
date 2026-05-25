@@ -233,6 +233,40 @@ Keep these patterns intact:
 - workflow YAML overlays compile into generated runtime config under scoped state
 - git/worktree behavior is repo-scope aware
 
+## Sub-agent Codex Self-Vet (required before commit)
+
+Every sub-agent dispatched to write or modify code in this repo MUST run
+`codex review --uncommitted` on its staged changes BEFORE committing. This
+catches issues at the sub-agent layer instead of waiting for main-session
+review iterations.
+
+Procedure inside the sub-agent:
+
+1. Pass all standard gates (cargo check, tests, fmt, clippy).
+2. `git add -A` to stage changes.
+3. Run:
+
+   ```bash
+   source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null
+   timeout 540 codex review --uncommitted \
+     -c 'model_reasoning_effort="high"' \
+     --enable web_search_cached \
+     < /dev/null
+   ```
+
+4. If codex returns any `[P1]` findings: fix them, re-verify, re-run codex.
+   Repeat until codex returns no `[P1]`.
+5. If codex returns `[P2]` findings:
+   - Trivially fixable (~10 LOC): fix inline.
+   - Larger: leave `// TODO(codex-p2):` comment + flag in final report.
+6. Commit only after `[P1]` clear.
+7. Document in the agent's final report: rounds run, findings per round,
+   what was fixed inline vs deferred.
+
+Reason: independent cross-model review catches blind spots a single
+model misses. Time cost (~3-5 min per round) is paid back many times
+over by reducing main-session review iterations.
+
 ## Build And Test Commands
 
 Rust:

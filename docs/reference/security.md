@@ -13,15 +13,50 @@ signed by a trusted publisher before it is copied into
 bundle (`<asset>.bundle`) published next to the asset on the GitHub
 Release.
 
+### v0.4.12 temporary default: `warn`
+
+For v0.4.12 only, the install-time default policy is `warn` rather than
+the long-term `strict` setting documented below. The reason is narrow
+and operational: the built-in `LAUNCHAPP_DEV_COSIGN_PUBLIC_KEY_PEM` in
+`crates/orchestrator-plugin-host/src/signature_verifier.rs` is still a
+`TODO(release-eng)` placeholder, so a `strict` default would reject
+every signature produced by the real `launchapp-dev/animus-*` release
+pipeline on first install. Shipping `strict` against a placeholder key
+would make `animus plugin install launchapp-dev/...` fail closed for
+every user out of the box, which is not the security posture we want to
+ship.
+
+Under `warn`:
+
+- Verification still runs and `signature_status` is still recorded in
+  `~/.animus/plugins.yaml`, so the audit trail stays intact.
+- Unsigned / invalid / untrusted-signer results log a warning to stderr
+  and the install proceeds.
+
+Operators who have already added the real launchapp-dev cosign public
+key (or any other publisher key) to `~/.animus/trusted-keys/` can opt
+back into fail-closed enforcement today:
+
+```bash
+animus plugin install --signature-policy strict <owner>/<repo>
+```
+
+Roadmap: **v0.4.13 flips the default back to `strict`** as soon as the
+release-eng team bakes the real launchapp-dev cosign public key into
+`LAUNCHAPP_DEV_COSIGN_PUBLIC_KEY_PEM`. No CLI surface change — only the
+default flips.
+
 ### Policy modes
 
 `animus plugin install` exposes three enforcement modes via the
-`--signature-policy <MODE>` flag. The default is `strict`.
+`--signature-policy <MODE>` flag. The default is `warn` in v0.4.12 (see
+[above](#v0412-temporary-default-warn)); v0.4.13 restores the long-term
+`strict` default.
 
 | Mode       | Behavior                                                                                          | When to use                                                                |
 | ---------- | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `strict`   | Refuse install if signature is missing, invalid, or signed by an untrusted key. **DEFAULT.**      | All production environments.                                               |
-| `warn`     | Verify when possible; log a warning to stderr and proceed on any failure.                         | Temporary: integrating a publisher that hasn't enabled cosign signing yet. |
+| `strict`   | Refuse install if signature is missing, invalid, or signed by an untrusted key.                   | All production environments. Default again in v0.4.13.                     |
+| `warn`     | Verify when possible; log a warning to stderr and proceed on any failure. **DEFAULT in v0.4.12.** | Temporary v0.4.12 default; integrating a publisher that hasn't enabled cosign signing yet. |
 | `disabled` | Skip verification entirely.                                                                       | Air-gapped or local-build flows where signing is not feasible.             |
 
 The legacy `--require-signature` and `--skip-signature` flags are
@@ -30,12 +65,11 @@ strict` and `--signature-policy disabled` respectively.
 
 `--allow-unsigned` is a convenience alias for `--signature-policy warn`.
 
-#### Strict mode (default)
+#### Strict mode (opt-in for v0.4.12, default again in v0.4.13)
 
 ```bash
-animus plugin install launchapp-dev/animus-provider-claude
-# equivalent to:
 animus plugin install --signature-policy strict launchapp-dev/animus-provider-claude
+# v0.4.13+: the explicit flag is no longer required to get strict behavior.
 ```
 
 When strict mode rejects an install you'll see one of:
@@ -110,13 +144,21 @@ animus plugin install --trust-key /tmp/publisher.pem <owner>/<repo>
 
 The Animus binary ships with the canonical `launchapp-dev` cosign public
 key embedded as a constant. The first time you run `animus plugin
-install` under the default `strict` policy, the binary writes that key
-to `~/.animus/trusted-keys/launchapp-dev.pem` if no file is already
-there. This makes the out-of-the-box install of `launchapp-dev/animus-*`
-plugins work without any manual key setup.
+install` under `strict`, the binary writes that key to
+`~/.animus/trusted-keys/launchapp-dev.pem` if no file is already there.
+This is what makes the out-of-the-box install of `launchapp-dev/animus-*`
+plugins under `strict` work without any manual key setup.
+
+In v0.4.12 the embedded value is still the `TODO(release-eng)`
+placeholder (see
+[v0.4.12 temporary default](#v0412-temporary-default-warn)), so seeding
+is a no-op for `warn`-mode installs and would actively reject real
+signatures under `strict`. v0.4.13 ships the real key and re-enables
+the seed-on-first-strict-install behavior end-to-end.
 
 The seed step is a strict no-op if you have already created
-`launchapp-dev.pem` yourself — your pinned key is never stomped.
+`launchapp-dev.pem` yourself — your pinned key is never stomped, which
+is the recommended escape hatch for operators who want `strict` today.
 
 To rotate the embedded key, see
 `crates/orchestrator-plugin-host/src/signature_verifier.rs` —
@@ -187,16 +229,24 @@ in-tree backend.
 
 ## Recommended posture for production
 
-1. Leave the default `--signature-policy strict` in place.
+1. Pass `--signature-policy strict` explicitly on v0.4.12 (the default
+   is `warn` while the built-in launchapp-dev cosign key is still a
+   placeholder; v0.4.13 makes `strict` the default again).
 2. Pre-populate `~/.animus/trusted-keys/` with the cosign public keys of
-   every publisher you plan to install from.
+   every publisher you plan to install from. For launchapp-dev plugins
+   on v0.4.12, drop the real public key in
+   `~/.animus/trusted-keys/launchapp-dev.pem` so `--signature-policy
+   strict` succeeds end-to-end.
 3. Pre-populate `~/.animus/trusted-orgs.yaml` so non-interactive installs
    never block on a TOFU prompt.
 4. Install `cosign` on every machine that runs `animus plugin install`.
    Strict mode fails closed without it.
 5. Audit `signature_status` in `~/.animus/plugins.yaml` periodically.
    Anything other than `verified` or `skipped` for a `--path`/`--url`
-   install is a policy violation worth investigating.
+   install is a policy violation worth investigating. On v0.4.12 the
+   default `warn` posture means `unsigned` rows for release installs are
+   expected; treat them as a reminder to migrate to explicit `strict`
+   once your trusted-keys directory is populated.
 
 ## Kill switches
 

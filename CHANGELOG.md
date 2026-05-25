@@ -143,6 +143,25 @@ replacement code lives in 18 standalone plugin repositories under
   The in-tree subject adapters are gone; install the corresponding
   subject_backend plugin (see `--include-subjects`).
 
+### Security
+
+- **`security(plugin install)`: install-time signature policy defaults to
+  `warn` for v0.4.12 only.** The built-in `LAUNCHAPP_DEV_COSIGN_PUBLIC_KEY_PEM`
+  in `orchestrator-plugin-host` is still a `TODO(release-eng)` placeholder, so
+  shipping `strict` as the default would fail-closed against every real
+  `launchapp-dev/animus-*` release signature on first install. Defaulting to
+  `warn` keeps `signature_status` recorded in `~/.animus/plugins.yaml` and
+  logs every verification failure to stderr without blocking the install
+  pipeline. Operators who already trust their own keys can opt back into
+  fail-closed enforcement today via
+  `animus plugin install --signature-policy strict <repo>`. **v0.4.13 flips
+  the default back to `strict`** once the real launchapp-dev cosign public
+  key replaces the placeholder; no CLI surface change. This is an honest
+  acknowledgement of the placeholder-key state, not a regression — strict
+  enforcement against an unusable trust anchor would be worse for end users
+  than warn-mode telemetry. See
+  [`docs/reference/security.md`](docs/reference/security.md#v0412-temporary-default-warn).
+
 ## [0.4.11] - 2026-05-23
 
 Cleanup + automation hardening. Lands the v0.4.10 Node 24 sweep across the

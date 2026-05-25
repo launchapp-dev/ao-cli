@@ -177,9 +177,10 @@ pub(crate) struct PluginInstallRequest {
     /// Explicit signature policy. When `Some`, takes precedence over the
     /// legacy `require_signature` / `skip_signature` booleans. When `None`,
     /// the legacy booleans are interpreted: `skip_signature` -> `Disabled`,
-    /// `require_signature` -> `Strict`, neither -> caller's default (the
-    /// CLI defaults to `Strict`; some unit tests and the verify-if-present
-    /// legacy default fall through to `Warn`).
+    /// `require_signature` -> `Strict`, neither -> the lib default
+    /// (`PluginPolicyMode::default_for_install()`, which is `Warn` in
+    /// v0.4.12 while the built-in launchapp-dev cosign key is a placeholder
+    /// and `Strict` again starting v0.4.13).
     pub(crate) signature_policy: Option<PluginPolicyMode>,
     /// Per-install override for the cosign public-key file. When `Some`,
     /// replaces the trusted-keys-directory lookup for this install only.
@@ -1655,13 +1656,14 @@ fn map_host_result_to_status(
 /// Compute the effective [`PluginPolicyMode`] for an install request.
 ///
 /// Precedence:
-/// 1. `req.signature_policy` (the new `--signature-policy` flag).
+/// 1. `req.signature_policy` (the `--signature-policy` flag).
 /// 2. `--skip-signature` -> `Disabled`.
 /// 3. `--require-signature` -> `Strict`.
-/// 4. Fallback: `Warn` (verify-if-present). The CLI handler explicitly
-///    sets `signature_policy = Strict` when neither legacy flag is passed,
-///    so this fallback only fires for callers (unit tests, MCP wire) that
-///    build a `PluginInstallRequest` directly with all-default fields.
+/// 4. Fallback: `Warn` (verify-if-present). Matches the v0.4.12
+///    [`PluginPolicyMode::default_for_install`] while the built-in
+///    launchapp-dev cosign key is still a placeholder; the CLI handler
+///    flows through the same lib default so direct callers (unit tests,
+///    MCP wire) and CLI users agree.
 fn effective_policy_mode(req: &PluginInstallRequest) -> PluginPolicyMode {
     if let Some(mode) = req.signature_policy {
         return mode;
@@ -2010,12 +2012,12 @@ async fn handle_plugin_install(args: PluginInstallArgs, json: bool) -> Result<()
 /// 1. `--signature-policy <strict|warn|disabled>` if set.
 /// 2. `--allow-unsigned` -> `Warn`.
 /// 3. `--skip-signature` -> `Disabled` (legacy).
-/// 4. `--require-signature` -> `Strict` (legacy alias for the new default).
-/// 5. Fallback: `Strict`.
-///
-/// The default must remain `Strict` (fail-closed) per v0.4.12 security
-/// hardening. Loosening this default is a security regression and should
-/// only be done with an explicit operator opt-in flag.
+/// 4. `--require-signature` -> `Strict` (legacy alias; explicit opt-in).
+/// 5. Fallback: [`PluginPolicyMode::default_for_install`], which is
+///    `Warn` in v0.4.12 because the built-in launchapp-dev cosign public
+///    key is still a placeholder. v0.4.13 flips that lib default back to
+///    `Strict` once release-eng bakes in the real key. See
+///    `docs/reference/security.md`.
 fn resolve_cli_signature_policy(args: &PluginInstallArgs) -> Result<PluginPolicyMode> {
     if let Some(raw) = args.signature_policy.as_deref() {
         return raw
@@ -2820,7 +2822,7 @@ trusted_signers:
         assert_eq!(
             effective_policy_mode(&req),
             PluginPolicyMode::Warn,
-            "callers that build PluginInstallRequest without setting signature_policy get the legacy verify-if-present behavior; the CLI handler is responsible for upgrading the default to Strict"
+            "callers that build PluginInstallRequest without setting signature_policy get the verify-if-present default; this matches the v0.4.12 lib default while the built-in launchapp-dev cosign key is still a placeholder"
         );
     }
 

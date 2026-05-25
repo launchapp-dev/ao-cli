@@ -175,10 +175,12 @@ pub(crate) struct PluginInstallArgs {
     /// `$ANIMUS_PLUGIN_DIR`. Defaults to `~/.animus/plugins/`.
     #[arg(long, value_name = "PATH")]
     pub(crate) plugin_dir: Option<String>,
-    /// Signature enforcement mode. `strict` (the default) refuses installs
-    /// whose cosign bundle is missing, invalid, or signed by an untrusted
-    /// key. `warn` logs the failure and proceeds. `disabled` skips
-    /// verification entirely (escape hatch). See `docs/reference/security.md`.
+    /// Signature enforcement mode. `strict` refuses installs whose cosign
+    /// bundle is missing, invalid, or signed by an untrusted key. `warn`
+    /// (the v0.4.12 default while the built-in launchapp-dev cosign key
+    /// is a placeholder) logs the failure and proceeds. `disabled` skips
+    /// verification entirely (escape hatch). v0.4.13 flips the default
+    /// back to `strict`. See `docs/reference/security.md`.
     #[arg(long, value_name = "MODE", value_parser = ["strict", "warn", "disabled"])]
     pub(crate) signature_policy: Option<String>,
     /// Path to a PEM-encoded cosign public key used to verify this install
@@ -191,8 +193,9 @@ pub(crate) struct PluginInstallArgs {
     #[arg(long, default_value_t = false, conflicts_with_all = ["signature_policy", "require_signature"])]
     pub(crate) allow_unsigned: bool,
     /// Legacy: refuse install when no cosign bundle is present or when
-    /// verification fails. Equivalent to `--signature-policy strict` (the
-    /// new default). Retained for backward compatibility.
+    /// verification fails. Equivalent to `--signature-policy strict`.
+    /// Retained for backward compatibility; also the recommended opt-in
+    /// while the v0.4.12 default is `warn`.
     #[arg(long, default_value_t = false, conflicts_with = "skip_signature")]
     pub(crate) require_signature: bool,
     /// Legacy: skip cosign signature verification entirely. Equivalent to

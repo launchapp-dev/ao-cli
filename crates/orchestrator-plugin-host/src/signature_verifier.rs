@@ -43,9 +43,12 @@ pub const LAUNCHAPP_DEV_TRUSTED_KEY_FILENAME: &str = "launchapp-dev.pem";
 
 /// Signature enforcement mode selected by the operator.
 ///
-/// `Strict` is the default for `animus plugin install` so the install
-/// boundary fails closed: an unsigned, invalid, or untrusted-signer asset
-/// aborts the install before the binary is copied to `~/.animus/plugins/`.
+/// The default for `animus plugin install` is `Warn` in v0.4.12 because
+/// `LAUNCHAPP_DEV_COSIGN_PUBLIC_KEY_PEM` is still the placeholder; a
+/// `Strict` default would reject every real release signature. v0.4.13
+/// flips this back to `Strict` once release-eng bakes in the real key.
+/// Operators who manage their own trusted keys can opt back in today via
+/// `--signature-policy strict`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PolicyMode {
@@ -60,10 +63,15 @@ pub enum PolicyMode {
 }
 
 impl PolicyMode {
-    /// Default policy for `animus plugin install`. Fail-closed.
+    /// Default policy for `animus plugin install`.
+    ///
+    /// Temporarily `Warn` for v0.4.12 because the built-in launchapp-dev
+    /// cosign key is a placeholder; flipping back to `Strict` is tracked
+    /// for v0.4.13 once release-eng ships the real key. See
+    /// `docs/reference/security.md` for the rationale and opt-in path.
     #[must_use]
     pub fn default_for_install() -> Self {
-        PolicyMode::Strict
+        PolicyMode::Warn
     }
 
     #[must_use]
@@ -339,8 +347,10 @@ mod tests {
     use std::str::FromStr;
 
     #[test]
-    fn policy_mode_defaults_to_strict() {
-        assert_eq!(PolicyMode::default_for_install(), PolicyMode::Strict);
+    fn policy_mode_defaults_to_warn_for_v0_4_12() {
+        // v0.4.12 temporary default while LAUNCHAPP_DEV_COSIGN_PUBLIC_KEY_PEM
+        // is still a placeholder. v0.4.13 flips this back to Strict.
+        assert_eq!(PolicyMode::default_for_install(), PolicyMode::Warn);
     }
 
     #[test]
@@ -365,7 +375,7 @@ mod tests {
     fn allow_unsigned_for_is_empty_by_default() {
         let p = SignaturePolicy::default_install();
         assert!(p.allow_unsigned_for.is_empty(), "default policy must NOT exempt any repos");
-        assert_eq!(p.mode, PolicyMode::Strict);
+        assert_eq!(p.mode, PolicyMode::default_for_install());
     }
 
     #[test]

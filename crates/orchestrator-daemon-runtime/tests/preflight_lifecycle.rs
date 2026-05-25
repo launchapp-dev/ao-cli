@@ -10,10 +10,10 @@ use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use orchestrator_core::{DaemonStatus, PluginPreflightSpec, RequiredRole};
+use orchestrator_core::{DaemonStatus, PluginPreflightSpec, PreflightResult, RequiredRole};
 use orchestrator_daemon_runtime::{
-    run_daemon, DaemonRunEvent, DaemonRunHooks, DaemonRuntimeOptions, DispatchWorkflowStartSummary, ProjectTickHooks,
-    ProjectTickSnapshot, ProjectTickSummary, ProjectTickSummaryInput,
+    run_daemon, DaemonRunEvent, DaemonRunHooks, DaemonRuntimeOptions, DispatchWorkflowStartSummary, PreflightOutcome,
+    ProjectTickHooks, ProjectTickSnapshot, ProjectTickSummary, ProjectTickSummaryInput,
 };
 use serde_json::Value;
 use tempfile::TempDir;
@@ -184,4 +184,65 @@ async fn daemon_start_with_preflight_failure_does_not_leave_running_state() {
         matches!(counts.status(), DaemonStatus::Stopped),
         "persisted daemon status must remain stopped after a preflight abort"
     );
+}
+
+/// Regression guard for the user-reported P2: when plugin discovery
+/// itself fails (registry permission denied, manifest parse error, etc),
+/// the abort message must surface the *actual* error -- not the generic
+/// "install plugins" advice that masked the real problem.
+///
+/// Previously `plugin_preflight_wiring.rs:46` called
+/// `discover_installed_plugins(...).unwrap_or_default()`, collapsing every
+/// failure into "no plugins installed" and steering operators toward
+/// install hints for plugins they may already have. The fix:
+///   - On Err, set `PreflightOutcome.discovery_error = Some(error)`
+///   - `should_abort_startup()` returns true
+///   - `render_abort_message()` reports the specific I/O error and points
+///     the operator at the plugins dir, not at `plugin install`.
+#[test]
+fn discovery_io_error_surfaces_specific_message_not_install_hint() {
+    let outcome = PreflightOutcome {
+        result: PreflightResult::default(),
+        skipped: false,
+        auto_install: false,
+        discovery_error: Some("permission denied: ~/.animus/plugins/manifest.json".to_string()),
+    };
+
+    assert!(
+        outcome.should_abort_startup(),
+        "a discovery error must abort startup -- otherwise the daemon comes up unable to dispatch any plugin-backed work"
+    );
+
+    let message = outcome.render_abort_message();
+    assert!(
+        message.contains("could not read installed plugins"),
+        "abort message must name the actual failure mode (discovery, not missing plugins). got: {message}"
+    );
+    assert!(
+        message.contains("permission denied: ~/.animus/plugins/manifest.json"),
+        "abort message must include the underlying error so operators can act. got: {message}"
+    );
+    assert!(
+        message.contains("animus plugin list") || message.contains("~/.animus/plugins/"),
+        "abort message must point operators at the diagnostic surface (plugin list or plugins dir). got: {message}"
+    );
+    assert!(
+        !message.contains("Re-run with `--auto-install`"),
+        "abort message must NOT recommend install advice -- that was the bug. got: {message}"
+    );
+    assert!(
+        !message.contains("the daemon requires plugins that are not installed"),
+        "abort message must NOT use the missing-plugins template -- that mislabels the failure. got: {message}"
+    );
+
+    // And the inverse: a normal missing-plugins outcome must still use
+    // the existing install-advice template (i.e. we did not regress the
+    // happy path).
+    let missing_outcome = PreflightOutcome {
+        result: PreflightResult::default(),
+        skipped: false,
+        auto_install: false,
+        discovery_error: None,
+    };
+    assert!(!missing_outcome.should_abort_startup(), "an empty PreflightResult with no missing plugins is healthy");
 }

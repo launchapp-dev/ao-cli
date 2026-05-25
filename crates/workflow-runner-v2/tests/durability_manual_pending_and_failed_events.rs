@@ -137,3 +137,64 @@ fn phase_failed_kind_has_distinct_wire_string_for_metrics_routing() {
         "wire strings must differ so the broadcaster's metrics counter splits completed vs failed"
     );
 }
+
+/// Regression guard for codex round-6 P2 (workflow_execute.rs:370-372):
+/// the single-phase (`--phase` flag) error branch must emit
+/// `RuntimeWorkflowEventKind::PhaseFailed` -- the twin of the multi-phase
+/// fix landed earlier. Previously it emitted `PhaseCompleted` with
+/// `phase_status: "failed"`, so subscribers and metrics keyed on
+/// `phase_failed` silently missed every failed single-phase run.
+///
+/// We assert against the source text rather than spinning up a full
+/// workflow because the single-phase path requires a compiled workflow
+/// config, a service hub, and an executable phase backend -- overkill
+/// when the regression is a one-line enum swap.
+#[test]
+fn single_phase_error_emits_phase_failed_event_kind() {
+    let src = include_str!("../src/workflow_execute.rs");
+
+    // The single-phase block has two early returns -- one for the Ok arm
+    // (phase ran, may have succeeded or marked-failed via outcome) and one
+    // for the Err arm (phase panicked / unrecoverable error). Both end
+    // with the "post-success actions are not run for single-phase execution"
+    // sentinel. We want the Err arm, which is the SECOND occurrence.
+    let single_phase_branch_marker = "post-success actions are not run for single-phase execution";
+    let first = src
+        .find(single_phase_branch_marker)
+        .expect("single-phase block sentinel string missing -- update test if refactored");
+    let after_first = first + single_phase_branch_marker.len();
+    let second_rel = src[after_first..]
+        .find(single_phase_branch_marker)
+        .expect("expected TWO occurrences of single-phase sentinel (Ok arm + Err arm) -- structure changed");
+    let err_arm_marker_pos = after_first + second_rel;
+
+    // The Err arm starts somewhere between the Ok arm's marker and the Err
+    // arm's marker. Scan that region for the event-kind emission.
+    let window = &src[after_first..err_arm_marker_pos];
+
+    assert!(
+        window.contains("RuntimeWorkflowEventKind::PhaseFailed"),
+        "single-phase Err arm must emit PhaseFailed (codex round-6 P2). \
+         Window scanned (between Ok-arm marker and Err-arm marker):\n{window}",
+    );
+
+    // Inspect the kind argument actually passed to emit_runtime in this
+    // window -- it must be PhaseFailed, not PhaseCompleted.
+    if let Some(kind_pos) = window.find("emit_runtime(") {
+        let after_emit = &window[kind_pos..];
+        let kind_line_end = after_emit.find(',').unwrap_or(after_emit.len());
+        let kind_line = &after_emit[..kind_line_end];
+        assert!(
+            !kind_line.contains("PhaseCompleted"),
+            "single-phase Err arm must NOT pass PhaseCompleted to emit_runtime \
+             (that was the regression). Kind line: {kind_line}",
+        );
+        assert!(
+            kind_line.contains("PhaseFailed"),
+            "single-phase Err arm must pass PhaseFailed to emit_runtime. \
+             Kind line: {kind_line}",
+        );
+    } else {
+        panic!("expected emit_runtime call in single-phase Err arm window:\n{window}");
+    }
+}

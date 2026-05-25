@@ -368,7 +368,7 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
                     tool: None,
                 });
                 emit_runtime(
-                    RuntimeWorkflowEventKind::PhaseCompleted,
+                    RuntimeWorkflowEventKind::PhaseFailed,
                     serde_json::json!({
                         "phase_id": phase_filter,
                         "phase_status": "failed",

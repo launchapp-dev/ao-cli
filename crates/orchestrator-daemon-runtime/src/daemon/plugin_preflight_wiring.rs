@@ -14,11 +14,33 @@ pub struct PreflightOutcome {
     pub result: PreflightResult,
     pub skipped: bool,
     pub auto_install: bool,
+    /// Set when plugin discovery itself failed (e.g. registry permission
+    /// denied, manifest parse error). Distinct from "no plugins installed":
+    /// here, we could not even read the plugin set, so an operator must fix
+    /// the underlying filesystem / manifest issue before install advice is
+    /// meaningful.
+    pub discovery_error: Option<String>,
 }
 
 impl PreflightOutcome {
     pub fn should_abort_startup(&self) -> bool {
+        if self.discovery_error.is_some() {
+            return true;
+        }
         !self.skipped && !self.result.is_ok()
+    }
+
+    /// Renders the operator-facing abort message. When discovery failed,
+    /// surfaces the actual error plus a diagnostic hint rather than the
+    /// generic "install plugins" advice that masked the real fault.
+    pub fn render_abort_message(&self) -> String {
+        if let Some(err) = &self.discovery_error {
+            return format!(
+                "plugin preflight failed: could not read installed plugins: {err}\n\
+                 Check `~/.animus/plugins/` permissions or run `animus plugin list` to inspect.\n",
+            );
+        }
+        self.result.render_missing_message()
     }
 }
 
@@ -40,10 +62,38 @@ pub async fn run_plugin_preflight<H: DaemonRunHooks>(
             skipped: true,
             auto_install,
         });
-        return Ok(PreflightOutcome { result: PreflightResult::default(), skipped: true, auto_install });
+        return Ok(PreflightOutcome {
+            result: PreflightResult::default(),
+            skipped: true,
+            auto_install,
+            discovery_error: None,
+        });
     }
 
-    let installed = discover_installed_plugins(project_root).unwrap_or_default();
+    let installed = match discover_installed_plugins(project_root) {
+        Ok(plugins) => plugins,
+        Err(e) => {
+            let error_msg = format!("{e:#}");
+            let _ = hooks.handle_event(DaemonRunEvent::PluginsDiscoveryFailed {
+                project_root: primary_root.to_string(),
+                error: error_msg.clone(),
+            });
+            let _ = hooks.handle_event(DaemonRunEvent::PluginPreflight {
+                project_root: primary_root.to_string(),
+                satisfied: Vec::new(),
+                auto_installed: Vec::new(),
+                missing: Vec::new(),
+                skipped: false,
+                auto_install,
+            });
+            return Ok(PreflightOutcome {
+                result: PreflightResult::default(),
+                skipped: false,
+                auto_install,
+                discovery_error: Some(error_msg),
+            });
+        }
+    };
     record_plugins_installed_gauge(&installed);
     let result = PluginPreflightRunner::run(&spec, installed, installer).await?;
 
@@ -56,7 +106,7 @@ pub async fn run_plugin_preflight<H: DaemonRunHooks>(
         auto_install,
     });
 
-    Ok(PreflightOutcome { result, skipped: false, auto_install })
+    Ok(PreflightOutcome { result, skipped: false, auto_install, discovery_error: None })
 }
 
 pub fn discover_installed_plugins(project_root: &str) -> Result<Vec<InstalledPluginSummary>> {

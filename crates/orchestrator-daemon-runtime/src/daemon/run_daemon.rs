@@ -102,7 +102,7 @@ where
     )
     .await?;
     if preflight_outcome.should_abort_startup() {
-        let message = preflight_outcome.result.render_missing_message();
+        let message = preflight_outcome.render_abort_message();
         return Err(anyhow::anyhow!("{message}"));
     }
 

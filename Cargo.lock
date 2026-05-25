@@ -2244,6 +2244,7 @@ dependencies = [
  "orchestrator-core",
  "orchestrator-logging",
  "orchestrator-plugin-host",
+ "orchestrator-session-host",
  "protocol",
  "regex",
  "serde",

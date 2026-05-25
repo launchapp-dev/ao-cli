@@ -16,4 +16,4 @@ pub use daemon_run_hooks::DaemonRunHooks;
 pub use daemon_runtime_options::DaemonRuntimeOptions;
 pub use daemon_runtime_state::DaemonRuntimeState;
 pub use plugin_preflight_wiring::{discover_installed_plugins, run_plugin_preflight, PreflightOutcome};
-pub use run_daemon::run_daemon;
+pub use run_daemon::{current_workflow_event_emitter, run_daemon};

@@ -19,6 +19,7 @@ glob = "0.3"
 orchestrator-core = { workspace = true }
 orchestrator-logging = { workspace = true }
 orchestrator-plugin-host = { workspace = true }
+orchestrator-session-host = { workspace = true }
 animus-plugin-protocol = { workspace = true }
 animus-control-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.11" }
 animus-log-storage-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.11" }
@@ -44,6 +45,14 @@ protocol = { workspace = true, features = ["test-utils"] }
 tempfile = "3"
 tokio = { version = "1", features = ["io-util", "macros", "process", "rt", "signal", "test-util", "time"] }
 animus-control-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.11", features = ["client"] }
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+futures-core = "0.3"
+futures-util = "0.3"
+serde_json = "1.0"
+uuid = { version = "1", features = ["v4"] }
+animus-subject-protocol-wire = { package = "animus-subject-protocol", git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.11" }
+workflow-runner-v2 = { path = "../workflow-runner-v2" }
 
 [lints]
 workspace = true

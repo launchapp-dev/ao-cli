@@ -25,9 +25,10 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{OnceLock, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
+use orchestrator_session_host::DispatchObserver;
 use serde::{Deserialize, Serialize};
 
 /// Fixed bucket upper bounds in seconds, log-distributed from 1ms to 10s.
@@ -251,6 +252,30 @@ pub fn snapshot() -> MetricsSnapshot {
     global().snapshot()
 }
 
+/// Implements [`DispatchObserver`] by routing per-call duration samples
+/// emitted by [`orchestrator_session_host::PluginSessionBackend`] into the
+/// daemon-runtime global metrics registry as
+/// `plugin_request_duration_seconds{plugin=...,method=...}` histogram
+/// observations. The session-host crate cannot depend on daemon-runtime
+/// directly, so the observer trait lives there and the metrics-aware
+/// implementation is wired here.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct MetricsObserver;
+
+impl DispatchObserver for MetricsObserver {
+    fn observe_duration(&self, plugin: &str, method: &str, elapsed: Duration) {
+        observe_labeled("plugin_request_duration_seconds", &[("plugin", plugin), ("method", method)], elapsed);
+    }
+}
+
+/// Shared metrics-recording observer. Use this at every
+/// `PluginSessionBackend::with_dispatch_observer(...)` site so all
+/// `agent/run`, `agent/cancel`, etc. plugin round-trips land in the
+/// `plugin_request_duration_seconds` histogram.
+pub fn metrics_dispatch_observer() -> Arc<dyn DispatchObserver> {
+    Arc::new(MetricsObserver)
+}
+
 /// Bridge: route histogram observations emitted from workflow-runner-v2
 /// (or any other crate that depends on it) into the daemon's global
 /// metrics registry. Called once at daemon startup. Idempotent — a second
@@ -310,6 +335,19 @@ mod tests {
         assert!(h.sum_seconds > 20.0);
         let overflow = h.buckets.iter().find(|b| b.le_seconds.is_infinite()).expect("overflow bucket");
         assert_eq!(overflow.count, 1);
+    }
+
+    #[test]
+    fn metrics_observer_increments_global_histogram() {
+        let label = labeled("plugin_request_duration_seconds", &[("plugin", "test-plugin"), ("method", "agent/run")]);
+        let before = global().snapshot().histograms.get(&label).map(|h| h.count).unwrap_or(0);
+
+        let observer = MetricsObserver;
+        observer.observe_duration("test-plugin", "agent/run", Duration::from_millis(7));
+        observer.observe_duration("test-plugin", "agent/run", Duration::from_millis(42));
+
+        let after = global().snapshot().histograms.get(&label).map(|h| h.count).unwrap_or(0);
+        assert_eq!(after, before + 2);
     }
 
     #[test]

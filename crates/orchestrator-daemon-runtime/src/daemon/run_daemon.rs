@@ -2,13 +2,17 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::OnceLock;
+use std::sync::RwLock;
 use std::time::Duration;
 
 use anyhow::Context;
 use anyhow::Result;
 use orchestrator_core::DaemonStatus;
 use tokio::time::sleep;
+use workflow_runner_v2::workflow_event_emitter::SharedWorkflowEventEmitter;
 
+use crate::control::{BroadcastWorkflowEventEmitter, WorkflowEventBroadcaster};
 use crate::run_plugin_preflight;
 use crate::run_project_tick;
 use crate::DaemonRunEvent;
@@ -22,6 +26,44 @@ use crate::ProjectTickRunMode;
 use crate::TriggerSupervisor;
 use crate::TriggerSupervisorEvent;
 use crate::TriggerSupervisorSink;
+
+/// Process-global holder for the daemon's broadcast-backed
+/// [`SharedWorkflowEventEmitter`]. Installed by [`run_daemon`] at startup
+/// (after [`WorkflowEventBroadcaster`] construction) and consumed by any
+/// in-process call site that builds [`workflow_runner_v2::WorkflowExecuteParams`]
+/// inside the daemon process.
+///
+/// SUBPROCESS GAP: workflow runs launched via `ao-workflow-runner` (the
+/// scheduler's normal path) live in a separate process and cannot see this
+/// holder. They emit no workflow_events. A subprocess back-channel
+/// (per-run pipe / event log tail) is required for full coverage and is
+/// scheduled for v0.5.
+static DAEMON_WORKFLOW_EVENT_EMITTER: OnceLock<RwLock<Option<SharedWorkflowEventEmitter>>> = OnceLock::new();
+
+fn emitter_slot() -> &'static RwLock<Option<SharedWorkflowEventEmitter>> {
+    DAEMON_WORKFLOW_EVENT_EMITTER.get_or_init(|| RwLock::new(None))
+}
+
+/// Returns the process-global daemon workflow event emitter when one has
+/// been installed by [`run_daemon`]. Returns `None` when called from a
+/// process that hasn't started the daemon (CLI one-shot commands,
+/// `ao-workflow-runner` subprocess, etc.) — callers should default to a
+/// noop emitter in that case.
+pub fn current_workflow_event_emitter() -> Option<SharedWorkflowEventEmitter> {
+    emitter_slot().read().ok().and_then(|guard| guard.clone())
+}
+
+fn install_workflow_event_emitter(emitter: SharedWorkflowEventEmitter) {
+    if let Ok(mut guard) = emitter_slot().write() {
+        *guard = Some(emitter);
+    }
+}
+
+fn clear_workflow_event_emitter() {
+    if let Ok(mut guard) = emitter_slot().write() {
+        *guard = None;
+    }
+}
 
 pub async fn run_daemon<D, H>(
     project_root: &str,
@@ -89,7 +131,11 @@ where
 
     resolve_subject_dispatch_for_daemon(project_root, &primary_root, hooks).await;
 
-    let control_server_handle = start_control_server_for_daemon(project_root, &primary_root, hooks).await;
+    let workflow_event_broadcaster = WorkflowEventBroadcaster::new();
+    install_workflow_event_emitter(BroadcastWorkflowEventEmitter::new(workflow_event_broadcaster.clone()));
+
+    let control_server_handle =
+        start_control_server_for_daemon(project_root, &primary_root, hooks, workflow_event_broadcaster.clone()).await;
 
     // Trigger backend plugins. Off by default behind an env flag mirroring
     // the provider-plugin opt-out shape.
@@ -224,6 +270,8 @@ where
     if let Some(server) = control_server_handle {
         let _ = server.shutdown().await;
     }
+
+    clear_workflow_event_emitter();
 
     if stop_daemon_on_exit {
         let _ = hooks.stop_daemon(&primary_root).await;
@@ -387,6 +435,7 @@ async fn start_control_server_for_daemon<H: DaemonRunHooks>(
     project_root: &str,
     primary_root: &str,
     hooks: &mut H,
+    workflow_event_broadcaster: Arc<WorkflowEventBroadcaster>,
 ) -> Option<crate::control::ControlServerHandle> {
     let project_root_path = Path::new(project_root);
     let socket_path = crate::control::control_socket_path(project_root_path);
@@ -425,7 +474,13 @@ async fn start_control_server_for_daemon<H: DaemonRunHooks>(
     let surface = surface_builder.build();
     let surface_arc: Arc<dyn animus_control_protocol::ControlSurface> = Arc::new(surface);
 
-    match crate::control::ControlServer::start(project_root_path, surface_arc).await {
+    match crate::control::ControlServer::start_with_workflow_events(
+        project_root_path,
+        surface_arc,
+        workflow_event_broadcaster,
+    )
+    .await
+    {
         Ok(handle) => {
             let _ = hooks.handle_event(DaemonRunEvent::ControlServerResolved {
                 project_root: primary_root.to_string(),

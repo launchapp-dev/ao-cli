@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use tokio::sync::mpsc;
+use workflow_runner_v2::workflow_event_emitter::{RuntimeWorkflowEvent, WorkflowEventEmitter};
 
 const DEFAULT_SUBSCRIBER_BUFFER: usize = 256;
 
@@ -221,6 +222,36 @@ impl WorkflowEventBroadcaster {
             self.close_subscription(sub_id, format!("workflow {} ended ({})", event.workflow_id, event.kind));
         }
         delivered
+    }
+}
+
+/// Adapter that implements [`workflow_runner_v2::WorkflowEventEmitter`] by
+/// translating each [`RuntimeWorkflowEvent`] into a wire-shape
+/// [`WorkflowEvent`] and fanning it out through a
+/// [`WorkflowEventBroadcaster`]. The daemon constructs one at startup and
+/// installs it as the process-global emitter so any in-process
+/// `execute_workflow` call running inside the daemon process automatically
+/// publishes phase / workflow lifecycle events to control-socket
+/// subscribers.
+pub struct BroadcastWorkflowEventEmitter {
+    broadcaster: Arc<WorkflowEventBroadcaster>,
+}
+
+impl BroadcastWorkflowEventEmitter {
+    pub fn new(broadcaster: Arc<WorkflowEventBroadcaster>) -> Arc<Self> {
+        Arc::new(Self { broadcaster })
+    }
+}
+
+impl WorkflowEventEmitter for BroadcastWorkflowEventEmitter {
+    fn emit(&self, event: RuntimeWorkflowEvent) {
+        let wire = WorkflowEvent {
+            workflow_id: event.workflow_id,
+            kind: event.kind.as_wire_str().to_string(),
+            payload: event.payload,
+            occurred_at: event.occurred_at,
+        };
+        self.broadcaster.emit(wire);
     }
 }
 

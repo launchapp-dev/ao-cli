@@ -145,21 +145,51 @@ replacement code lives in 18 standalone plugin repositories under
 
 ### Security
 
+- **`refactor(security): cosign keyless OIDC verification replaces the
+  key-based PEM trust path.`** Every `launchapp-dev/animus-*` release
+  pipeline (`animus-transport-{graphql,http}`, `animus-web-ui`, and the
+  six `animus-provider-*` repos) signs through GitHub Actions OIDC +
+  Sigstore Fulcio + Rekor, never against a static signing key. The
+  pre-v0.4.12 verifier in `crates/orchestrator-plugin-host/src/signature_verifier.rs`
+  shelled out to `cosign verify-blob --key <PEM>` against a baked
+  `LAUNCHAPP_DEV_COSIGN_PUBLIC_KEY_PEM` placeholder, which could never
+  match a real keyless bundle. v0.4.12 rewrites the verifier to keyless:
+  trust is now anchored on the per-publisher `identity_regex` + OIDC
+  issuer combination held in `TrustedPublisher`. The built-in
+  `TrustedPublisher::launchapp_dev()` matches
+  `^https://github\.com/launchapp-dev/[^/]+/\.github/workflows/release\.yml@refs/tags/v.*`
+  against issuer `https://token.actions.githubusercontent.com`, which is
+  exactly the cert SAN that GitHub Actions OIDC bakes into the
+  Fulcio-issued cert for every standardized release. Manual
+  verification: `cosign verify-blob --certificate-identity-regexp <regex>
+  --certificate-oidc-issuer <issuer> --bundle <.bundle> <artifact>` —
+  see [`docs/reference/security.md`](docs/reference/security.md#manual-cosign-verification).
+- **Removed:** the baked PEM constant `LAUNCHAPP_DEV_COSIGN_PUBLIC_KEY_PEM`,
+  the seed-on-first-strict-install helper `seed_launchapp_dev_trusted_key`,
+  the `~/.animus/trusted-keys/` lookup (`default_trusted_keys_dir`,
+  `resolve_trusted_key_for`), and the `crates/orchestrator-plugin-host/trusted-keys/launchapp-dev.pub`
+  file. The `dirs` crate dependency drops out of `orchestrator-plugin-host`
+  alongside. **Operators can also delete** their local
+  `~/.animus/trusted-keys/` directory, the GH org
+  `COSIGN_PRIVATE_KEY` / `COSIGN_PASSWORD` secrets, and any
+  `~/.animus/keys/launchapp-dev.{key,pub,password}` files — none of them
+  are read by v0.4.12. Sigstore Fulcio + Rekor (built into the `cosign`
+  binary) is now the only trust anchor.
+- **CLI flag `--trust-key` is deprecated and a no-op.** Keyless cosign
+  verification has no static public-key trust anchor, so the flag is
+  retained only to avoid breaking existing install scripts. Passing it
+  logs a deprecation warning and proceeds via the normal keyless path.
+  Removal targeted for a future release.
 - **`security(plugin install)`: install-time signature policy defaults to
-  `warn` for v0.4.12 only.** The built-in `LAUNCHAPP_DEV_COSIGN_PUBLIC_KEY_PEM`
-  in `orchestrator-plugin-host` is still a `TODO(release-eng)` placeholder, so
-  shipping `strict` as the default would fail-closed against every real
-  `launchapp-dev/animus-*` release signature on first install. Defaulting to
-  `warn` keeps `signature_status` recorded in `~/.animus/plugins.yaml` and
-  logs every verification failure to stderr without blocking the install
-  pipeline. Operators who already trust their own keys can opt back into
-  fail-closed enforcement today via
-  `animus plugin install --signature-policy strict <repo>`. **v0.4.13 flips
-  the default back to `strict`** once the real launchapp-dev cosign public
-  key replaces the placeholder; no CLI surface change. This is an honest
-  acknowledgement of the placeholder-key state, not a regression — strict
-  enforcement against an unusable trust anchor would be worse for end users
-  than warn-mode telemetry. See
+  `warn` for v0.4.12 only.** Now that the trust anchor is real (Fulcio +
+  Rekor) rather than a placeholder PEM, the only reason to keep `warn`
+  as the default for this release is the upgrade path: operators with
+  pre-v0.4.12 installs whose releases predate keyless signing get a
+  one-release migration window where `signature_status` is recorded but
+  install does not fail closed. **v0.4.13 flips the default back to
+  `strict`.** No CLI surface change. Operators with a fully v0.4.12+
+  plugin set can opt in to `strict` today via
+  `animus plugin install --signature-policy strict <repo>`. See
   [`docs/reference/security.md`](docs/reference/security.md#v0412-temporary-default-warn).
 
 ## [0.4.11] - 2026-05-23

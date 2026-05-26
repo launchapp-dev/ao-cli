@@ -22,9 +22,9 @@ use std::process::Stdio;
 use animus_plugin_protocol::PluginManifest;
 use anyhow::{anyhow, Context, Result};
 use orchestrator_plugin_host::{
-    default_trusted_keys_dir, discover_plugins, legacy_plugins_registry_path, plugin_install_dir,
-    plugins_registry_path, registered_skip_manifest_check_at_install, seed_launchapp_dev_trusted_key, DiscoveredPlugin,
-    DiscoverySource, DiscoveryWarning, PluginDiscovery, PluginHost, PolicyMode as PluginPolicyMode,
+    discover_plugins, legacy_plugins_registry_path, plugin_install_dir, plugins_registry_path,
+    registered_skip_manifest_check_at_install, DiscoveredPlugin, DiscoverySource, DiscoveryWarning, PluginDiscovery,
+    PluginHost, PolicyMode as PluginPolicyMode,
 };
 use orchestrator_session_host::is_reserved_provider_tool;
 use serde::Serialize;
@@ -182,8 +182,11 @@ pub(crate) struct PluginInstallRequest {
     /// v0.4.12 while the built-in launchapp-dev cosign key is a placeholder
     /// and `Strict` again starting v0.4.13).
     pub(crate) signature_policy: Option<PluginPolicyMode>,
-    /// Per-install override for the cosign public-key file. When `Some`,
-    /// replaces the trusted-keys-directory lookup for this install only.
+    /// **Deprecated as of v0.4.12** — keyless verification has no static
+    /// public-key trust anchor. The flag is retained so existing scripts
+    /// don't break; when `Some`, the install pipeline logs a deprecation
+    /// warning and ignores the value. Use `--signature-policy` plus the
+    /// built-in `TrustedPublisher` list (`launchapp-dev` keyless) instead.
     pub(crate) trust_key: Option<PathBuf>,
     /// Refuse install when no cosign bundle is present or when verification
     /// fails. Default `false` — verify-if-present.
@@ -1629,8 +1632,11 @@ fn find_bundle_sidecar<'a>(assets: &'a [GithubReleaseAsset], asset_name: &str) -
 
 /// Bridge between [`orchestrator_plugin_host::VerificationResult`] (the
 /// policy-aware result type) and the CLI-internal [`SignatureStatus`]
-/// that's persisted in `plugins.yaml` and the install envelope. Used when
-/// `--trust-key` routes verification through the plugin-host helper.
+/// that's persisted in `plugins.yaml` and the install envelope. The
+/// CLI's own keyless verification path (`verify_with_cosign`) produces
+/// `SignatureStatus` directly; this bridge is reserved for callers that
+/// route through the plugin-host `verify_plugin_install` entry point.
+#[cfg_attr(not(test), allow(dead_code))]
 fn map_host_result_to_status(
     result: orchestrator_plugin_host::VerificationResult,
     bundle_path: &Path,
@@ -1653,11 +1659,12 @@ fn map_host_result_to_status(
 /// 1. `req.signature_policy` (the `--signature-policy` flag).
 /// 2. `--skip-signature` -> `Disabled`.
 /// 3. `--require-signature` -> `Strict`.
-/// 4. Fallback: `Warn` (verify-if-present). Matches the v0.4.12
-///    [`PluginPolicyMode::default_for_install`] while the built-in
-///    launchapp-dev cosign key is still a placeholder; the CLI handler
-///    flows through the same lib default so direct callers (unit tests,
-///    MCP wire) and CLI users agree.
+/// 4. Fallback: `Warn` (verify-if-present). Matches the v0.4.12 transition
+///    default in [`PluginPolicyMode::default_for_install`]. v0.4.13 flips
+///    that lib default back to `Strict` now that keyless verification has
+///    a real Sigstore trust anchor (Fulcio + Rekor) instead of a baked
+///    PEM placeholder. The CLI handler flows through the same lib default
+///    so direct callers (unit tests, MCP wire) and CLI users agree.
 fn effective_policy_mode(req: &PluginInstallRequest) -> PluginPolicyMode {
     if let Some(mode) = req.signature_policy {
         return mode;
@@ -1783,12 +1790,12 @@ fn resolve_signature_status(req: &PluginInstallRequest, provenance: &InstallProv
         });
     }
 
-    if let Some(override_key) = req.trust_key.as_deref() {
-        if !override_key.exists() {
-            return Err(invalid_input_error(format!("--trust-key path does not exist: {}", override_key.display())));
-        }
-        let host_result = orchestrator_plugin_host::verify_plugin_binary(asset_archive, bundle_path, override_key)?;
-        return Ok(map_host_result_to_status(host_result, bundle_path));
+    if req.trust_key.is_some() {
+        tracing::warn!(
+            "--trust-key is deprecated as of v0.4.12 and has no effect: keyless cosign verification uses \
+             --signature-policy plus the built-in TrustedPublisher list (launchapp-dev keyless). The flag \
+             will be removed in a future release."
+        );
     }
 
     let status = verify_with_cosign(asset_archive, bundle_path, identity_regex.as_deref(), GITHUB_OIDC_ISSUER)?;
@@ -2027,20 +2034,11 @@ async fn handle_plugin_install(args: PluginInstallArgs, json: bool) -> Result<()
     }
 
     let signature_policy = resolve_cli_signature_policy(&args)?;
-    if matches!(signature_policy, PluginPolicyMode::Strict) {
-        let trusted_keys_dir = default_trusted_keys_dir();
-        match seed_launchapp_dev_trusted_key(&trusted_keys_dir) {
-            Ok(Some(path)) => {
-                if !json {
-                    eprintln!("info: seeded built-in launchapp-dev cosign public key at {}", path.display());
-                }
-            }
-            Ok(None) => {}
-            Err(error) => {
-                tracing::warn!(%error, "failed to seed launchapp-dev trusted key");
-            }
-        }
-    }
+    // Keyless verification (cosign --certificate-identity-regexp +
+    // --certificate-oidc-issuer) needs no PEM trust seed — the trust anchor
+    // is Sigstore Fulcio + Rekor, both built into the cosign binary. The
+    // pre-v0.4.12 seed step (LAUNCHAPP_DEV_COSIGN_PUBLIC_KEY_PEM into
+    // ~/.animus/trusted-keys/launchapp-dev.pem) is intentionally gone.
     let output = run_plugin_install(PluginInstallRequest {
         source: args.source,
         path: args.path,
@@ -2072,10 +2070,11 @@ async fn handle_plugin_install(args: PluginInstallArgs, json: bool) -> Result<()
 /// 3. `--skip-signature` -> `Disabled` (legacy).
 /// 4. `--require-signature` -> `Strict` (legacy alias; explicit opt-in).
 /// 5. Fallback: [`PluginPolicyMode::default_for_install`], which is
-///    `Warn` in v0.4.12 because the built-in launchapp-dev cosign public
-///    key is still a placeholder. v0.4.13 flips that lib default back to
-///    `Strict` once release-eng bakes in the real key. See
-///    `docs/reference/security.md`.
+///    `Warn` for v0.4.12 as a one-release migration window — pre-v0.4.12
+///    installs used the (now-removed) key-based PEM path and may not have
+///    keyless bundles available yet. v0.4.13 flips that lib default back
+///    to `Strict` now that keyless verification has a real Sigstore trust
+///    anchor. See `docs/reference/security.md`.
 fn resolve_cli_signature_policy(args: &PluginInstallArgs) -> Result<PluginPolicyMode> {
     if let Some(raw) = args.signature_policy.as_deref() {
         return raw
@@ -3096,22 +3095,24 @@ trusted_signers:
         assert!(matches!(&status, SignatureStatus::Unsigned { .. }));
     }
 
+    /// `--trust-key` was the old (pre-v0.4.12) entry point into the
+    /// key-based PEM verifier. Keyless cosign has no PEM trust anchor,
+    /// so the flag is now a deprecated no-op — passing it must not error
+    /// out the install, just log a warning and proceed through the
+    /// normal keyless path.
     #[test]
-    fn trust_key_path_validation_rejects_nonexistent() {
+    fn trust_key_is_deprecated_noop_in_v0_4_12_keyless() {
         let req = PluginInstallRequest {
-            signature_policy: Some(PluginPolicyMode::Strict),
+            signature_policy: Some(PluginPolicyMode::Warn),
             trust_key: Some(PathBuf::from("/definitely/does/not/exist.pem")),
             ..Default::default()
         };
-        let tmp = tempfile::tempdir().unwrap();
-        let bundle = tmp.path().join("x.bundle");
-        std::fs::write(&bundle, b"bundle").unwrap();
-        let prov = release_provenance_with_bundle(Some(bundle));
-        if !orchestrator_plugin_host::cosign_available() {
-            return;
-        }
-        let err = resolve_signature_status(&req, &prov).expect_err("missing --trust-key path must error");
-        assert!(format!("{err}").contains("--trust-key path does not exist"));
+        let prov = release_provenance_with_bundle(None);
+        // No bundle => Unsigned (the keyless path produces this whether or
+        // not --trust-key was passed). Crucially, no `--trust-key path does
+        // not exist` error any more.
+        let status = resolve_signature_status(&req, &prov).expect("trust_key must NOT error in keyless mode");
+        assert!(matches!(&status, SignatureStatus::Unsigned { .. }));
     }
 
     #[test]

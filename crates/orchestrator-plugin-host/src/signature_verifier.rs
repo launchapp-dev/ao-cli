@@ -1,16 +1,25 @@
-//! Cosign signature verification policy for plugin installs.
+//! Cosign **keyless** signature verification policy for plugin installs.
 //!
 //! This module owns the *policy* surface (`SignaturePolicy`, `PolicyMode`,
-//! `VerificationResult`) so it can be reused by the CLI install pipeline
-//! and any future install entry point (MCP wire, daemon-side installs).
+//! `TrustedPublisher`, `VerificationResult`) so it can be reused by the CLI
+//! install pipeline and any future install entry point (MCP wire,
+//! daemon-side installs).
 //!
-//! Verification itself currently shells out to the `cosign` binary. The
-//! intent (see `docs/architecture/plugin-signing.md`) is to migrate to
-//! the `sigstore` Rust crate in v0.5+ without changing this module's
-//! public surface.
+//! Verification shells out to the `cosign` binary in keyless mode against
+//! the Sigstore Fulcio CA + Rekor transparency log (both built into
+//! `cosign`). There is no baked-in public key: trust is anchored on the
+//! signer **identity** (the `<repo>/.github/workflows/release.yml@refs/tags/v*`
+//! SAN URI baked into the per-signing Fulcio cert) plus the OIDC issuer
+//! (`https://token.actions.githubusercontent.com`). Every
+//! `launchapp-dev/animus-*` release pipeline signs this way (see e.g.
+//! `transport-graphql/.github/workflows/release.yml`); the legacy
+//! key-based PEM path was removed in v0.4.12.
+//!
+//! See `docs/reference/security.md` for the operator-facing trust model
+//! and `docs/architecture/plugin-signing.md` for the threat model.
 
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 use anyhow::{Context, Result};
@@ -19,37 +28,17 @@ use serde::{Deserialize, Serialize};
 /// Default OIDC issuer for GitHub Actions keyless signatures.
 pub const GITHUB_OIDC_ISSUER: &str = "https://token.actions.githubusercontent.com";
 
-/// Built-in cosign public key for the `launchapp-dev` org.
-///
-/// Used to seed `~/.animus/trusted-keys/launchapp-dev.pem` on the first
-/// install attempt against `launchapp-dev/*`. This is *not* the trust anchor
-/// for cosign keyless verification (which uses Sigstore's Fulcio CA); it is
-/// the legacy public-key path for repos that publish a `.sig` + `.pub` pair
-/// instead of a keyless `.bundle`.
-///
-/// Loaded at compile time from `trusted-keys/launchapp-dev.pub`. Rotation:
-/// update the .pub file (e.g. via `scripts/bootstrap-cosign-key.sh --force`),
-/// rebuild the binary, ship a new release. Procedure documented in
-/// `docs/reference/security.md`.
-pub const LAUNCHAPP_DEV_COSIGN_PUBLIC_KEY_PEM: &str = include_str!("../trusted-keys/launchapp-dev.pub");
-
-/// Filename written under `~/.animus/trusted-keys/` when seeding the
-/// built-in launchapp-dev key.
-pub const LAUNCHAPP_DEV_TRUSTED_KEY_FILENAME: &str = "launchapp-dev.pem";
-
 /// Signature enforcement mode selected by the operator.
 ///
-/// The default for `animus plugin install` is `Warn` in v0.4.12 because
-/// `LAUNCHAPP_DEV_COSIGN_PUBLIC_KEY_PEM` is still the placeholder; a
-/// `Strict` default would reject every real release signature. v0.4.13
-/// flips this back to `Strict` once release-eng bakes in the real key.
-/// Operators who manage their own trusted keys can opt back in today via
-/// `--signature-policy strict`.
+/// v0.4.12 ships `Warn` as the install default *only* to give operators
+/// one release cycle to either upgrade to a v0.4.12-signed plugin or to
+/// uninstall plugins installed before keyless signing existed. v0.4.13
+/// flips this back to `Strict`. See `docs/reference/security.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PolicyMode {
     /// Fail-closed. Refuse install if signature is missing, invalid, or
-    /// from an untrusted signer.
+    /// signed by an identity outside the trusted-publisher list.
     Strict,
     /// Verify when possible; log a warning and proceed on any failure.
     Warn,
@@ -61,10 +50,10 @@ pub enum PolicyMode {
 impl PolicyMode {
     /// Default policy for `animus plugin install`.
     ///
-    /// Temporarily `Warn` for v0.4.12 because the built-in launchapp-dev
-    /// cosign key is a placeholder; flipping back to `Strict` is tracked
-    /// for v0.4.13 once release-eng ships the real key. See
-    /// `docs/reference/security.md` for the rationale and opt-in path.
+    /// `Warn` for v0.4.12 to ease the migration from the pre-v0.4.12
+    /// key-based path (which no longer exists). v0.4.13 flips this back
+    /// to `Strict` — keyless verification has a real Sigstore trust
+    /// anchor, so there is no longer a placeholder excuse.
     #[must_use]
     pub fn default_for_install() -> Self {
         PolicyMode::Warn
@@ -98,17 +87,47 @@ impl std::str::FromStr for PolicyMode {
     }
 }
 
-/// Full signature policy: enforcement mode plus the trust material the
-/// install pipeline consults when picking a key for a given repo.
+/// A trust anchor for keyless cosign verification: maps a GitHub owner
+/// to the identity regex + OIDC issuer that cosign must see on the
+/// Fulcio-issued cert.
+///
+/// For `launchapp-dev/*` releases the per-signing cert SAN looks like
+/// `https://github.com/launchapp-dev/<repo>/.github/workflows/release.yml@refs/tags/v0.2.3`,
+/// which is what [`TrustedPublisher::launchapp_dev`] matches.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrustedPublisher {
+    /// GitHub owner (org or user) this publisher entry covers.
+    pub owner: String,
+    /// Regex passed to `cosign verify-blob --certificate-identity-regexp`.
+    /// Anchors should match the workflow URI baked into the Fulcio cert.
+    pub identity_regex: String,
+    /// OIDC issuer passed to `cosign verify-blob --certificate-oidc-issuer`.
+    pub oidc_issuer: String,
+}
+
+impl TrustedPublisher {
+    /// Built-in publisher entry for `launchapp-dev/*` plugins. Matches the
+    /// cert SAN emitted by every standardized launchapp-dev release
+    /// pipeline (`/.github/workflows/release.yml@refs/tags/v*`).
+    #[must_use]
+    pub fn launchapp_dev() -> Self {
+        Self {
+            owner: "launchapp-dev".to_string(),
+            identity_regex: "^https://github\\.com/launchapp-dev/[^/]+/\\.github/workflows/release\\.yml@refs/tags/v.*"
+                .to_string(),
+            oidc_issuer: GITHUB_OIDC_ISSUER.to_string(),
+        }
+    }
+}
+
+/// Full signature policy: enforcement mode plus the keyless trust
+/// anchors the install pipeline consults for a given owner.
 #[derive(Debug, Clone)]
 pub struct SignaturePolicy {
     pub mode: PolicyMode,
-    /// Directory of PEM-encoded public keys, one file per identity. The
-    /// filename (without `.pem`) is the key identifier.
-    pub trusted_keys_dir: PathBuf,
-    /// Optional one-off trust-key path; overrides `trusted_keys_dir` lookup
-    /// when set. Wired from `animus plugin install --trust-key <PATH>`.
-    pub trust_key_override: Option<PathBuf>,
+    /// Keyless trust anchors. The install pipeline picks the entry whose
+    /// `owner` matches the install source's GitHub owner.
+    pub trusted_publishers: Vec<TrustedPublisher>,
     /// Repos that are exempt from signature checks even under `Strict`.
     /// MUST be empty by default — populating this list is a security
     /// regression and should only happen when signing is genuinely
@@ -117,14 +136,14 @@ pub struct SignaturePolicy {
 }
 
 impl SignaturePolicy {
-    /// Build a default install-time policy: `Strict`, trusted-keys at
-    /// `~/.animus/trusted-keys/`, no overrides, no exemptions.
+    /// Build a default install-time policy: `Warn` (v0.4.12 transition
+    /// default; flips to `Strict` in v0.4.13), trusted publisher set to
+    /// the built-in `launchapp-dev` keyless anchor, no exemptions.
     #[must_use]
     pub fn default_install() -> Self {
         Self {
             mode: PolicyMode::default_for_install(),
-            trusted_keys_dir: default_trusted_keys_dir(),
-            trust_key_override: None,
+            trusted_publishers: vec![TrustedPublisher::launchapp_dev()],
             allow_unsigned_for: Vec::new(),
         }
     }
@@ -136,73 +155,29 @@ impl SignaturePolicy {
         self.allow_unsigned_for.iter().any(|r| r == owner_repo)
     }
 
-    /// Resolve the public-key file path for a given `<owner>/<repo>`. Returns
-    /// `Some(path)` when either an override is set or a matching file exists
-    /// in `trusted_keys_dir`. Lookup order:
-    ///
-    /// 1. `trust_key_override` (CLI `--trust-key`).
-    /// 2. `<trusted_keys_dir>/<owner>.pem`.
-    /// 3. `<trusted_keys_dir>/<owner>-<repo>.pem`.
+    /// Resolve the trusted publisher entry for a given `<owner>`, if any.
     #[must_use]
-    pub fn resolve_trusted_key_for(&self, owner: &str, repo: &str) -> Option<PathBuf> {
-        if let Some(p) = &self.trust_key_override {
-            return Some(p.clone());
-        }
-        let by_owner = self.trusted_keys_dir.join(format!("{owner}.pem"));
-        if by_owner.exists() {
-            return Some(by_owner);
-        }
-        let by_owner_repo = self.trusted_keys_dir.join(format!("{owner}-{repo}.pem"));
-        if by_owner_repo.exists() {
-            return Some(by_owner_repo);
-        }
-        None
+    pub fn find_trusted_publisher_for(&self, owner: &str) -> Option<&TrustedPublisher> {
+        self.trusted_publishers.iter().find(|p| p.owner == owner)
     }
-}
-
-/// Default trusted-keys directory: `~/.animus/trusted-keys/`.
-#[must_use]
-pub fn default_trusted_keys_dir() -> PathBuf {
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    home.join(".animus").join("trusted-keys")
-}
-
-/// Seed the built-in launchapp-dev public key into the trusted-keys dir,
-/// if one isn't already present. Returns the path of the written file
-/// (when a write happened) so callers can surface a "wrote trust anchor
-/// for launchapp-dev" hint.
-///
-/// This is the trust-on-first-use seed for users who never configured
-/// their own `~/.animus/trusted-keys/`. It is a no-op when the file
-/// already exists, so users who pinned their own key are not stomped.
-pub fn seed_launchapp_dev_trusted_key(trusted_keys_dir: &Path) -> Result<Option<PathBuf>> {
-    let target = trusted_keys_dir.join(LAUNCHAPP_DEV_TRUSTED_KEY_FILENAME);
-    if target.exists() {
-        return Ok(None);
-    }
-    if !trusted_keys_dir.exists() {
-        std::fs::create_dir_all(trusted_keys_dir)
-            .with_context(|| format!("failed to create {}", trusted_keys_dir.display()))?;
-    }
-    std::fs::write(&target, LAUNCHAPP_DEV_COSIGN_PUBLIC_KEY_PEM)
-        .with_context(|| format!("failed to write {}", target.display()))?;
-    Ok(Some(target))
 }
 
 /// Outcome of a signature verification attempt for a single asset.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum VerificationResult {
-    /// Cosign verified the binary against the trusted key/identity.
+    /// Cosign verified the asset against the trusted publisher's keyless
+    /// identity (Fulcio cert SAN + OIDC issuer matched).
     Verified { identity: String, bundle_path: String },
     /// No signature bundle was published or available for this install.
     Unsigned { reason: String },
-    /// A signature bundle exists but cosign rejected it.
+    /// A signature bundle exists but cosign rejected it cryptographically.
     Invalid { identity_pattern: String, message: String },
     /// Cosign accepted the bundle but the signer identity is not on the
-    /// trusted list.
+    /// trusted publisher list.
     UntrustedSigner { identity_pattern: String },
-    /// Verification was skipped (policy = `Disabled` or `--skip-signature`).
+    /// Verification was skipped (policy = `Disabled` or repo is in
+    /// `allow_unsigned_for`).
     Skipped,
 }
 
@@ -240,59 +215,71 @@ pub fn cosign_available() -> bool {
         .unwrap_or(false)
 }
 
-/// Verify a single binary against its cosign bundle using a specific
-/// public key.
+/// Verify a single asset against its cosign keyless bundle.
 ///
-/// Shells out to `cosign verify-blob --key <pem> --bundle <bundle> <binary>`.
+/// Shells out to:
+///
+/// ```text
+/// cosign verify-blob \
+///   --certificate-identity-regexp <identity_regex> \
+///   --certificate-oidc-issuer <oidc_issuer> \
+///   --bundle <signature_bundle_path> \
+///   <artifact_path>
+/// ```
+///
 /// Returns `Verified` on success or `Invalid` with cosign's stderr on
-/// failure. Returns `Err` when cosign itself could not be spawned.
-pub fn verify_plugin_binary(
-    binary_path: &Path,
-    signature_path: &Path,
-    public_key_path: &Path,
+/// cryptographic failure. Returns `Err` only when cosign itself could
+/// not be spawned.
+pub fn verify_plugin_binary_keyless(
+    artifact_path: &Path,
+    signature_bundle_path: &Path,
+    identity_regex: &str,
+    oidc_issuer: &str,
 ) -> Result<VerificationResult> {
     let mut cmd = Command::new("cosign");
     cmd.arg("verify-blob");
-    cmd.arg("--key").arg(public_key_path);
-    cmd.arg("--bundle").arg(signature_path);
-    cmd.arg(binary_path);
+    cmd.arg("--certificate-identity-regexp").arg(identity_regex);
+    cmd.arg("--certificate-oidc-issuer").arg(oidc_issuer);
+    cmd.arg("--bundle").arg(signature_bundle_path);
+    cmd.arg(artifact_path);
 
     let output = cmd.output().context("failed to spawn cosign verify-blob")?;
     if output.status.success() {
         Ok(VerificationResult::Verified {
-            identity: public_key_path.display().to_string(),
-            bundle_path: signature_path.display().to_string(),
+            identity: identity_regex.to_string(),
+            bundle_path: signature_bundle_path.display().to_string(),
         })
     } else {
         Ok(VerificationResult::Invalid {
-            identity_pattern: public_key_path.display().to_string(),
+            identity_pattern: identity_regex.to_string(),
             message: String::from_utf8_lossy(&output.stderr).trim().to_string(),
         })
     }
 }
 
-/// Apply the supplied [`SignaturePolicy`] to a downloaded plugin binary.
+/// Apply the supplied [`SignaturePolicy`] to a downloaded plugin asset.
 ///
-/// `repo_spec` should be `<owner>/<repo>` (e.g. `launchapp-dev/animus-provider-claude`).
-/// `binary_path` is the asset that was signed (typically the `.tar.gz`,
+/// `repo_spec` should be `<owner>/<repo>` (e.g.
+/// `launchapp-dev/animus-provider-claude`).
+/// `artifact_path` is the asset that was signed (typically the `.tar.gz`,
 /// not the extracted binary — that's a CLI-side detail).
-/// `signature_path` is the cosign `.bundle` next to the asset, or `None`
-/// when no bundle was published.
+/// `signature_bundle_path` is the cosign `.bundle` next to the asset, or
+/// `None` when no bundle was published.
 ///
 /// Returns:
-/// - `VerificationResult::Skipped` when `policy.mode == Disabled` or
-///   `repo_spec` is in `policy.allow_unsigned_for`.
-/// - `VerificationResult::Unsigned` when `signature_path` is `None` or
-///   no trusted key can be resolved.
-/// - Whatever [`verify_plugin_binary`] returns otherwise.
+/// - `Skipped` when `policy.mode == Disabled` or `repo_spec` is in
+///   `policy.allow_unsigned_for`.
+/// - `Unsigned` when `signature_bundle_path` is `None`, when no trusted
+///   publisher matches the owner, or when cosign is not installed.
+/// - Otherwise whatever [`verify_plugin_binary_keyless`] returns.
 ///
 /// This function never **enforces** the policy — it only reports. Callers
 /// must check `VerificationResult::is_strict_failure()` against
 /// `policy.mode` and turn `Strict` failures into install errors.
 pub fn verify_plugin_install(
     repo_spec: &str,
-    binary_path: &Path,
-    signature_path: Option<&Path>,
+    artifact_path: &Path,
+    signature_bundle_path: Option<&Path>,
     policy: &SignaturePolicy,
 ) -> Result<VerificationResult> {
     if matches!(policy.mode, PolicyMode::Disabled) {
@@ -302,21 +289,18 @@ pub fn verify_plugin_install(
         return Ok(VerificationResult::Skipped);
     }
 
-    let Some(sig_path) = signature_path else {
+    let Some(bundle_path) = signature_bundle_path else {
         return Ok(VerificationResult::Unsigned {
             reason: "no cosign signature bundle published alongside this asset".to_string(),
         });
     };
 
-    let (owner, repo) = split_owner_repo(repo_spec)
+    let (owner, _repo) = split_owner_repo(repo_spec)
         .ok_or_else(|| anyhow::anyhow!("repo_spec must be '<owner>/<repo>', got '{repo_spec}'"))?;
 
-    let Some(key_path) = policy.resolve_trusted_key_for(owner, repo) else {
-        return Ok(VerificationResult::Unsigned {
-            reason: format!(
-                "no trusted key found for {repo_spec} in {} (add a PEM file or pass --trust-key)",
-                policy.trusted_keys_dir.display()
-            ),
+    let Some(publisher) = policy.find_trusted_publisher_for(owner) else {
+        return Ok(VerificationResult::UntrustedSigner {
+            identity_pattern: format!("(no trusted publisher configured for owner '{owner}')"),
         });
     };
 
@@ -326,7 +310,7 @@ pub fn verify_plugin_install(
         });
     }
 
-    verify_plugin_binary(binary_path, sig_path, &key_path)
+    verify_plugin_binary_keyless(artifact_path, bundle_path, &publisher.identity_regex, &publisher.oidc_issuer)
 }
 
 fn split_owner_repo(spec: &str) -> Option<(&str, &str)> {
@@ -344,8 +328,9 @@ mod tests {
 
     #[test]
     fn policy_mode_defaults_to_warn_for_v0_4_12() {
-        // v0.4.12 temporary default while LAUNCHAPP_DEV_COSIGN_PUBLIC_KEY_PEM
-        // is still a placeholder. v0.4.13 flips this back to Strict.
+        // v0.4.12 ships Warn as the install default to ease the migration
+        // from the (removed) key-based path. v0.4.13 flips this back to
+        // Strict — see docs/reference/security.md.
         assert_eq!(PolicyMode::default_for_install(), PolicyMode::Warn);
     }
 
@@ -368,18 +353,32 @@ mod tests {
     }
 
     #[test]
-    fn allow_unsigned_for_is_empty_by_default() {
+    fn default_install_seeds_launchapp_dev_publisher() {
         let p = SignaturePolicy::default_install();
         assert!(p.allow_unsigned_for.is_empty(), "default policy must NOT exempt any repos");
         assert_eq!(p.mode, PolicyMode::default_for_install());
+        let lp = p.find_trusted_publisher_for("launchapp-dev").expect("launchapp-dev publisher must be seeded");
+        assert_eq!(lp.oidc_issuer, GITHUB_OIDC_ISSUER);
+        assert!(lp.identity_regex.contains("launchapp-dev"));
+        assert!(lp.identity_regex.contains("workflows/release"));
+        assert!(lp.identity_regex.contains("refs/tags/v"));
+    }
+
+    #[test]
+    fn launchapp_dev_identity_regex_is_anchored_and_escaped() {
+        let p = TrustedPublisher::launchapp_dev();
+        // The regex must escape `.` to avoid matching `releaseXyml` etc.
+        assert!(p.identity_regex.contains("\\.github"));
+        assert!(p.identity_regex.contains("release\\.yml"));
+        // Anchored at start: no prefix attack (`evil/launchapp-dev/...`).
+        assert!(p.identity_regex.starts_with("^https://github\\.com/launchapp-dev/"));
     }
 
     #[test]
     fn allow_unsigned_for_matches_exact_repo() {
         let p = SignaturePolicy {
             mode: PolicyMode::Strict,
-            trusted_keys_dir: PathBuf::from("/tmp/keys"),
-            trust_key_override: None,
+            trusted_publishers: vec![TrustedPublisher::launchapp_dev()],
             allow_unsigned_for: vec!["launchapp-dev/animus-provider-mock".to_string()],
         };
         assert!(p.allows_unsigned_repo("launchapp-dev/animus-provider-mock"));
@@ -387,69 +386,35 @@ mod tests {
     }
 
     #[test]
-    fn resolve_trusted_key_prefers_override() {
-        let tmp = tempfile::tempdir().unwrap();
-        let override_key = tmp.path().join("custom.pem");
-        std::fs::write(&override_key, "pem").unwrap();
-        let p = SignaturePolicy {
-            mode: PolicyMode::Strict,
-            trusted_keys_dir: tmp.path().to_path_buf(),
-            trust_key_override: Some(override_key.clone()),
-            allow_unsigned_for: Vec::new(),
-        };
-        let resolved = p.resolve_trusted_key_for("anyone", "anything").expect("override resolves");
-        assert_eq!(resolved, override_key);
+    fn find_trusted_publisher_returns_match() {
+        let p = SignaturePolicy::default_install();
+        assert!(p.find_trusted_publisher_for("launchapp-dev").is_some());
+        assert!(p.find_trusted_publisher_for("evil-org").is_none());
     }
 
     #[test]
-    fn resolve_trusted_key_prefers_owner_pem() {
-        let tmp = tempfile::tempdir().unwrap();
-        let owner_key = tmp.path().join("launchapp-dev.pem");
-        std::fs::write(&owner_key, "pem").unwrap();
+    fn find_trusted_publisher_supports_custom_owner() {
         let p = SignaturePolicy {
             mode: PolicyMode::Strict,
-            trusted_keys_dir: tmp.path().to_path_buf(),
-            trust_key_override: None,
+            trusted_publishers: vec![
+                TrustedPublisher::launchapp_dev(),
+                TrustedPublisher {
+                    owner: "alice".to_string(),
+                    identity_regex: "^https://github\\.com/alice/.+".to_string(),
+                    oidc_issuer: GITHUB_OIDC_ISSUER.to_string(),
+                },
+            ],
             allow_unsigned_for: Vec::new(),
         };
-        let resolved =
-            p.resolve_trusted_key_for("launchapp-dev", "animus-provider-claude").expect("owner-scoped key resolves");
-        assert_eq!(resolved, owner_key);
-    }
-
-    #[test]
-    fn resolve_trusted_key_falls_back_to_owner_repo_pem() {
-        let tmp = tempfile::tempdir().unwrap();
-        let scoped_key = tmp.path().join("alice-myplugin.pem");
-        std::fs::write(&scoped_key, "pem").unwrap();
-        let p = SignaturePolicy {
-            mode: PolicyMode::Strict,
-            trusted_keys_dir: tmp.path().to_path_buf(),
-            trust_key_override: None,
-            allow_unsigned_for: Vec::new(),
-        };
-        let resolved = p.resolve_trusted_key_for("alice", "myplugin").expect("scoped key resolves");
-        assert_eq!(resolved, scoped_key);
-    }
-
-    #[test]
-    fn resolve_trusted_key_returns_none_when_no_match() {
-        let tmp = tempfile::tempdir().unwrap();
-        let p = SignaturePolicy {
-            mode: PolicyMode::Strict,
-            trusted_keys_dir: tmp.path().to_path_buf(),
-            trust_key_override: None,
-            allow_unsigned_for: Vec::new(),
-        };
-        assert!(p.resolve_trusted_key_for("nobody", "nothing").is_none());
+        let alice = p.find_trusted_publisher_for("alice").expect("alice configured");
+        assert_eq!(alice.identity_regex, "^https://github\\.com/alice/.+");
     }
 
     #[test]
     fn verify_install_returns_skipped_when_disabled() {
         let p = SignaturePolicy {
             mode: PolicyMode::Disabled,
-            trusted_keys_dir: PathBuf::from("/nope"),
-            trust_key_override: None,
+            trusted_publishers: Vec::new(),
             allow_unsigned_for: Vec::new(),
         };
         let result = verify_plugin_install("any/thing", Path::new("/tmp/x"), None, &p).unwrap();
@@ -460,8 +425,7 @@ mod tests {
     fn verify_install_returns_skipped_when_repo_is_exempt() {
         let p = SignaturePolicy {
             mode: PolicyMode::Strict,
-            trusted_keys_dir: PathBuf::from("/nope"),
-            trust_key_override: None,
+            trusted_publishers: Vec::new(),
             allow_unsigned_for: vec!["test/fixture".to_string()],
         };
         let result = verify_plugin_install("test/fixture", Path::new("/tmp/x"), None, &p).unwrap();
@@ -478,7 +442,7 @@ mod tests {
     }
 
     #[test]
-    fn verify_install_returns_unsigned_when_no_trusted_key() {
+    fn verify_install_returns_untrusted_signer_when_no_publisher() {
         let tmp = tempfile::tempdir().unwrap();
         let bundle = tmp.path().join("x.bundle");
         std::fs::write(&bundle, b"bundle").unwrap();
@@ -486,16 +450,17 @@ mod tests {
         std::fs::write(&binary, b"bin").unwrap();
         let p = SignaturePolicy {
             mode: PolicyMode::Strict,
-            trusted_keys_dir: tmp.path().join("empty-keys"),
-            trust_key_override: None,
+            trusted_publishers: vec![TrustedPublisher::launchapp_dev()],
             allow_unsigned_for: Vec::new(),
         };
-        let result = verify_plugin_install("launchapp-dev/animus-provider-claude", &binary, Some(&bundle), &p).unwrap();
+        // Owner is not in trusted_publishers — should fail closed under
+        // Strict via UntrustedSigner.
+        let result = verify_plugin_install("evil-org/animus-provider-claude", &binary, Some(&bundle), &p).unwrap();
         match result {
-            VerificationResult::Unsigned { reason } => {
-                assert!(reason.contains("no trusted key found"), "unexpected reason: {reason}");
+            VerificationResult::UntrustedSigner { identity_pattern } => {
+                assert!(identity_pattern.contains("evil-org"), "unexpected pattern: {identity_pattern}");
             }
-            other => panic!("expected Unsigned, got {other:?}"),
+            other => panic!("expected UntrustedSigner, got {other:?}"),
         }
     }
 
@@ -504,12 +469,9 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let bundle = tmp.path().join("x.bundle");
         std::fs::write(&bundle, b"bundle").unwrap();
-        let key = tmp.path().join("launchapp-dev.pem");
-        std::fs::write(&key, "pem").unwrap();
         let p = SignaturePolicy {
             mode: PolicyMode::Strict,
-            trusted_keys_dir: tmp.path().to_path_buf(),
-            trust_key_override: None,
+            trusted_publishers: Vec::new(),
             allow_unsigned_for: Vec::new(),
         };
         let err = verify_plugin_install("not-a-spec", &bundle, Some(&bundle), &p).unwrap_err();
@@ -526,26 +488,31 @@ mod tests {
     }
 
     #[test]
-    fn seed_writes_launchapp_key_when_missing() {
-        let tmp = tempfile::tempdir().unwrap();
-        let dir = tmp.path().join("trusted-keys");
-        let written = seed_launchapp_dev_trusted_key(&dir).unwrap();
-        let path = written.expect("first seed must write");
-        assert!(path.ends_with(LAUNCHAPP_DEV_TRUSTED_KEY_FILENAME));
-        let contents = std::fs::read_to_string(&path).unwrap();
-        assert!(contents.contains("BEGIN PUBLIC KEY"), "seed must contain a PEM header");
+    fn verification_result_labels_are_stable() {
+        assert_eq!(VerificationResult::Skipped.label(), "skipped");
+        assert_eq!(VerificationResult::Verified { identity: "x".into(), bundle_path: "y".into() }.label(), "verified");
+        assert_eq!(VerificationResult::Unsigned { reason: "x".into() }.label(), "unsigned");
+        assert_eq!(
+            VerificationResult::Invalid { identity_pattern: "x".into(), message: "y".into() }.label(),
+            "invalid"
+        );
+        assert_eq!(VerificationResult::UntrustedSigner { identity_pattern: "x".into() }.label(), "untrusted_signer");
     }
 
+    /// Sanity check: when cosign is not on PATH, the keyless API returns a
+    /// `VerificationResult::Invalid` (cosign spawn succeeded -> non-zero) or
+    /// surfaces a spawn error. Either way we never panic. Skipped when
+    /// cosign is actually available.
     #[test]
-    fn seed_is_noop_when_key_already_present() {
+    fn verify_plugin_binary_keyless_with_fake_artifact_does_not_panic() {
+        if cosign_available() {
+            return;
+        }
         let tmp = tempfile::tempdir().unwrap();
-        let dir = tmp.path().join("trusted-keys");
-        std::fs::create_dir_all(&dir).unwrap();
-        let existing = dir.join(LAUNCHAPP_DEV_TRUSTED_KEY_FILENAME);
-        std::fs::write(&existing, "user-pinned-key").unwrap();
-        let written = seed_launchapp_dev_trusted_key(&dir).unwrap();
-        assert!(written.is_none(), "seed must not stomp a user-pinned key");
-        let contents = std::fs::read_to_string(&existing).unwrap();
-        assert_eq!(contents, "user-pinned-key");
+        let artifact = tmp.path().join("a.tar.gz");
+        let bundle = tmp.path().join("a.tar.gz.bundle");
+        std::fs::write(&artifact, b"data").unwrap();
+        std::fs::write(&bundle, b"bundle").unwrap();
+        let _ = verify_plugin_binary_keyless(&artifact, &bundle, "^https://example/.+", GITHUB_OIDC_ISSUER);
     }
 }

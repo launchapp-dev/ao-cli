@@ -19,9 +19,8 @@ pub use host::{
 };
 pub use registry::PluginRegistry;
 pub use signature_verifier::{
-    cosign_available, default_trusted_keys_dir, seed_launchapp_dev_trusted_key, verify_plugin_binary,
-    verify_plugin_install, PolicyMode, SignaturePolicy, VerificationResult, GITHUB_OIDC_ISSUER,
-    LAUNCHAPP_DEV_COSIGN_PUBLIC_KEY_PEM, LAUNCHAPP_DEV_TRUSTED_KEY_FILENAME,
+    cosign_available, verify_plugin_binary_keyless, verify_plugin_install, PolicyMode, SignaturePolicy,
+    TrustedPublisher, VerificationResult, GITHUB_OIDC_ISSUER,
 };
 pub use subject_router::SubjectRouter;
 pub use transport::StdioTransport;

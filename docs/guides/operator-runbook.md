@@ -205,25 +205,32 @@ error: plugin signature verification failed
   reason: signature not trusted by built-in keys
 ```
 
-The v0.4.12 default policy is `warn` (because the bundled
-`launchapp-dev` cosign key is still a placeholder); v0.4.13 will flip
-back to `strict`. During the placeholder phase, you may see strict
-failures if your environment forces `strict`.
+The v0.4.12 default policy is `warn` (one-release migration window for
+plugins installed before keyless cosign verification shipped); v0.4.13
+flips back to `strict`. Verification is keyless — trust is anchored on
+Sigstore Fulcio + Rekor (built into the `cosign` binary) plus the
+per-publisher identity regex; there is no PEM trust anchor to manage.
 
-Workaround during placeholder phase:
+To temporarily skip verification for an unsigned local build:
 
 ```bash
 animus plugin install <owner/repo> --signature-policy disabled
 ```
 
-For long-term trust, point at a known-good cosign key:
+To verify a published artifact manually:
 
 ```bash
-animus plugin install <owner/repo> --trust-key /path/to/cosign.pub
+cosign verify-blob \
+  --certificate-identity-regexp "https://github.com/launchapp-dev/<repo>/.github/workflows/release\.yml@refs/tags/v.*" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  --bundle <asset>.tar.gz.bundle \
+  <asset>.tar.gz
 ```
 
-See [`docs/architecture/plugin-signing.md`](../architecture/plugin-signing.md)
-for the full policy model.
+See [`docs/reference/security.md`](../reference/security.md) and
+[`docs/architecture/plugin-signing.md`](../architecture/plugin-signing.md)
+for the full policy model. The pre-v0.4.12 `--trust-key <PATH>` flag is
+deprecated and a no-op.
 
 ---
 

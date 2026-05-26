@@ -6,7 +6,6 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 animus-plugin-protocol = { workspace = true }
-dirs = "5"
 semver = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }

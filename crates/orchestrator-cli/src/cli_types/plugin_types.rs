@@ -176,17 +176,20 @@ pub(crate) struct PluginInstallArgs {
     #[arg(long, value_name = "PATH")]
     pub(crate) plugin_dir: Option<String>,
     /// Signature enforcement mode. `strict` refuses installs whose cosign
-    /// bundle is missing, invalid, or signed by an untrusted key. `warn`
-    /// (the v0.4.12 default while the built-in launchapp-dev cosign key
-    /// is a placeholder) logs the failure and proceeds. `disabled` skips
-    /// verification entirely (escape hatch). v0.4.13 flips the default
-    /// back to `strict`. See `docs/reference/security.md`.
+    /// keyless bundle is missing, invalid, or signed by an identity outside
+    /// the trusted-publisher list. `warn` (the v0.4.12 transition default;
+    /// v0.4.13 flips back to `strict`) logs the failure and proceeds.
+    /// `disabled` skips verification entirely (escape hatch). Keyless trust
+    /// is anchored on Sigstore Fulcio + Rekor and the per-publisher
+    /// identity regex; no PEM is required. See `docs/reference/security.md`.
     #[arg(long, value_name = "MODE", value_parser = ["strict", "warn", "disabled"])]
     pub(crate) signature_policy: Option<String>,
-    /// Path to a PEM-encoded cosign public key used to verify this install
-    /// only. Overrides the trusted-keys-directory lookup
-    /// (`~/.animus/trusted-keys/<owner>.pem`).
-    #[arg(long, value_name = "PATH")]
+    /// **Deprecated as of v0.4.12.** Keyless cosign verification has no
+    /// static public-key trust anchor; this flag is retained so existing
+    /// scripts don't break and is logged + ignored. The flag will be
+    /// removed in a future release. Use `--signature-policy` plus the
+    /// built-in trusted-publisher list instead.
+    #[arg(long, value_name = "PATH", hide = true)]
     pub(crate) trust_key: Option<PathBuf>,
     /// Convenience flag: equivalent to `--signature-policy warn`.
     /// Mutually exclusive with `--signature-policy` and `--require-signature`.

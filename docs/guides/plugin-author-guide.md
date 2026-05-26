@@ -382,11 +382,14 @@ and drops the binary into `~/.animus/plugins/`.
 | `warn` (default in v0.4.12) | Verify when present, log on failure, install anyway |
 | `disabled` | Skip verification entirely |
 
-The default is `warn` while the built-in `launchapp-dev` cosign trust
-key is still a placeholder. v0.4.13 flips back to `strict`.
+The default is `warn` for v0.4.12 as a one-release migration window for
+pre-keyless plugin installs. v0.4.13 flips back to `strict`. Verification
+is cosign **keyless** — the trust anchor is Sigstore Fulcio + Rekor (built
+into the `cosign` binary) plus the per-publisher identity regex + OIDC
+issuer held in `TrustedPublisher`. No PEM file is required.
 
-Override per-install with `--signature-policy <mode>` or trust an
-extra key with `--trust-key <PATH>`.
+Override per-install with `--signature-policy <mode>`. The legacy
+`--trust-key <PATH>` flag is deprecated and a no-op as of v0.4.12.
 
 ---
 

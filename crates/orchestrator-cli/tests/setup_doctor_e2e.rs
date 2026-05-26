@@ -59,7 +59,10 @@ fn doctor_fix_skips_manual_ao_directory_repair() -> Result<()> {
     let fixed = harness.run_json_ok(&["doctor", "--fix"])?;
     assert_eq!(fixed.pointer("/data/fix/applied").and_then(Value::as_bool), Some(false));
     let actions = fixed.pointer("/data/fix/actions").and_then(Value::as_array).expect("fix actions should be an array");
-    assert_eq!(actions.len(), 3);
+    // v0.4.13 D2: doctor emits more action ids now (chmod_plugin_binaries,
+    // remove_stale_locks, …) — assert the legacy three are still present
+    // without pinning the total count.
+    assert!(actions.len() >= 3, "fix actions should include legacy trio plus new safe fixes");
     assert!(actions.iter().any(|action| {
         matches!(
             (action.get("id").and_then(Value::as_str), action.get("status").and_then(Value::as_str)),

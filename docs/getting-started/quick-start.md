@@ -2,6 +2,43 @@
 
 This guide takes you from a fresh repository to autonomous AI workflows. Animus is built to run continuously with a background daemon that executes work automatically.
 
+## 0. Five-Minute Walkthrough (v0.4.13+)
+
+The fastest way to verify a fresh install end-to-end is the `animus init`
+walkthrough. From your project root:
+
+```bash
+cd /path/to/your/project
+animus init --walkthrough
+```
+
+The walkthrough:
+
+1. Detects which provider CLIs (`claude`, `codex`, `gemini`, `opencode`) are
+   on `$PATH` and whether their API keys are configured via env vars or local
+   dotfiles.
+2. Prompts you to install the default provider plugins via
+   `animus plugin install-defaults` (skip with `--no-install` if already
+   installed).
+3. Copies the bundled `hello-world` workflow template into
+   `.animus/workflows/hello-world.yaml` (skip with `--no-template`).
+4. Optionally starts the autonomous daemon (`--auto-start` or answer the
+   prompt).
+5. Prints next steps so you can immediately run:
+
+   ```bash
+   animus workflow run hello-world --sync
+   ```
+
+Non-interactive form for scripts / CI:
+
+```bash
+animus init --walkthrough --non-interactive --auto-start
+```
+
+If you want the registry-driven, pattern-based init instead, skip ahead to
+step 2 below.
+
 ## 1. Install Plugins (one-time, v0.4.12+)
 
 If you've already installed the default plugin set on this machine for another

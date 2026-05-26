@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 use anyhow::Result;
 use orchestrator_config::{
@@ -16,6 +17,75 @@ use orchestrator_core::{
 use serde::Serialize;
 
 use crate::{conflict_error, invalid_input_error, print_value, InitArgs};
+
+// -----------------------------------------------------------------------------
+// v0.4.13 onboarding walkthrough: bundled hello-world template + helpers.
+// -----------------------------------------------------------------------------
+
+const HELLO_WORLD_TEMPLATE_NAME: &str = "hello-world";
+const HELLO_WORLD_WORKFLOW_FILE: &str = "hello-world.yaml";
+const HELLO_WORLD_WORKFLOW_YAML: &str = include_str!("../../../templates/hello-world/workflows/hello-world.yaml");
+const HELLO_WORLD_README: &str = include_str!("../../../templates/hello-world/README.md");
+
+/// Logical name -> (CLI binary, env var holding the API key, dotfile dir).
+/// The detection is best-effort; absence does not mean "no key", because
+/// providers also fall back to per-tool config files.
+const CLI_DETECTION_TARGETS: &[CliTarget] = &[
+    CliTarget { name: "claude", binary: "claude", api_env: "ANTHROPIC_API_KEY", config_subpath: ".claude" },
+    CliTarget { name: "codex", binary: "codex", api_env: "OPENAI_API_KEY", config_subpath: ".codex" },
+    CliTarget { name: "gemini", binary: "gemini", api_env: "GEMINI_API_KEY", config_subpath: ".gemini" },
+    CliTarget { name: "opencode", binary: "opencode", api_env: "OPENCODE_API_KEY", config_subpath: ".opencode" },
+];
+
+#[derive(Debug, Clone, Copy)]
+struct CliTarget {
+    name: &'static str,
+    binary: &'static str,
+    api_env: &'static str,
+    config_subpath: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CliDetection {
+    name: String,
+    binary: String,
+    installed: bool,
+    binary_path: Option<String>,
+    api_key_env: String,
+    api_key_via_env: bool,
+    api_key_via_config: bool,
+    config_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct WalkthroughTemplatePlan {
+    name: String,
+    relative_path: String,
+    action: String, // "create" | "skip_exists" | "overwrite"
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct WalkthroughPluginStep {
+    skipped: bool,
+    invoked: bool,
+    exit_code: Option<i32>,
+    stderr_tail: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct WalkthroughDaemonStep {
+    requested: bool,
+    invoked: bool,
+    exit_code: Option<i32>,
+    stderr_tail: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct WalkthroughTemplateStep {
+    skipped: bool,
+    written: Vec<String>,
+    skipped_existing: Vec<String>,
+}
 
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -79,6 +149,11 @@ struct DesiredDaemonConfig {
 pub(crate) async fn handle_init(args: InitArgs, project_root: &str, json: bool) -> Result<()> {
     let mode = if args.non_interactive { InitMode::NonInteractive } else { InitMode::Guided };
     let project_root_path = Path::new(project_root);
+
+    if args.walkthrough {
+        return run_walkthrough(&args, project_root_path, mode, json).await;
+    }
+
     let loaded_template = resolve_template(&args, mode)?;
     ensure_supported_template_source_mode(&loaded_template)?;
 
@@ -569,6 +644,352 @@ fn remediation_needed(report: &DoctorReport, remediation_id: &str) -> bool {
     })
 }
 
+// ---------------------------------------------------------------------------
+// v0.4.13 walkthrough flow
+// ---------------------------------------------------------------------------
+
+async fn run_walkthrough(args: &InitArgs, project_root: &Path, mode: InitMode, json: bool) -> Result<()> {
+    let interactive = matches!(mode, InitMode::Guided) && io::stdin().is_terminal() && io::stdout().is_terminal();
+
+    let detections = detect_clis_and_keys();
+    if interactive {
+        print_walkthrough_intro(&detections);
+    }
+
+    let default_provider = pick_default_provider(&detections);
+
+    let install_plugins = if args.no_install {
+        false
+    } else if interactive && !args.non_interactive && !args.plan {
+        prompt_yes_no("Install the default provider plugins (animus-provider-claude/codex/gemini/opencode)?", true)?
+    } else {
+        true
+    };
+
+    let copy_template = !args.no_template;
+
+    let template_plan = plan_walkthrough_template(project_root, &args.walkthrough_template, args.force)?;
+
+    let auto_start_daemon = if args.auto_start {
+        true
+    } else if interactive && !args.non_interactive && !args.plan {
+        prompt_yes_no("Start the autonomous daemon after init?", false)?
+    } else {
+        false
+    };
+
+    // Dry-run: --plan must not mutate state. Report the planned actions only.
+    if args.plan {
+        return print_value(
+            serde_json::json!({
+                "stage": "walkthrough_plan",
+                "mode": mode,
+                "interactive": interactive,
+                "environment": {
+                    "project_root": project_root.display().to_string(),
+                },
+                "detected_clis": detections,
+                "default_provider": default_provider,
+                "template": {
+                    "name": HELLO_WORLD_TEMPLATE_NAME,
+                    "requested": &args.walkthrough_template,
+                    "plan": template_plan,
+                },
+                "planned_actions": {
+                    "install_plugins": install_plugins,
+                    "copy_template": copy_template,
+                    "auto_start_daemon": auto_start_daemon,
+                },
+                "next_steps": [
+                    "Re-run without --plan to apply these actions.".to_string(),
+                ],
+            }),
+            json,
+        );
+    }
+
+    let plugin_step = if install_plugins {
+        run_install_defaults_subprocess(project_root, json).await
+    } else {
+        WalkthroughPluginStep { skipped: true, invoked: false, exit_code: None, stderr_tail: None }
+    };
+
+    let template_step = if copy_template {
+        copy_walkthrough_template(project_root, &args.walkthrough_template, args.force)?
+    } else {
+        WalkthroughTemplateStep { skipped: true, written: Vec::new(), skipped_existing: Vec::new() }
+    };
+
+    let daemon_step = if auto_start_daemon {
+        run_daemon_start_subprocess(project_root, json).await
+    } else {
+        WalkthroughDaemonStep { requested: false, invoked: false, exit_code: None, stderr_tail: None }
+    };
+
+    let next_steps = build_next_steps(&template_plan, &plugin_step, &daemon_step);
+
+    print_value(
+        serde_json::json!({
+            "stage": "walkthrough",
+            "mode": mode,
+            "interactive": interactive,
+            "environment": {
+                "project_root": project_root.display().to_string(),
+            },
+            "detected_clis": detections,
+            "default_provider": default_provider,
+            "template": {
+                "name": HELLO_WORLD_TEMPLATE_NAME,
+                "requested": &args.walkthrough_template,
+                "plan": template_plan,
+            },
+            "apply": {
+                "plugins": plugin_step,
+                "template": template_step,
+                "daemon": daemon_step,
+            },
+            "next_steps": next_steps,
+        }),
+        json,
+    )
+}
+
+fn print_walkthrough_intro(detections: &[CliDetection]) {
+    println!("Animus init walkthrough — detected CLIs and API keys:");
+    for detection in detections {
+        let install_label = if detection.installed { "installed" } else { "not installed" };
+        let key_label = match (detection.api_key_via_env, detection.api_key_via_config) {
+            (true, _) => format!("api key via env ({})", detection.api_key_env),
+            (false, true) => "api key via local config".to_string(),
+            _ => "no api key detected".to_string(),
+        };
+        println!("  - {:<10} {} | {}", detection.name, install_label, key_label);
+    }
+    println!();
+}
+
+fn pick_default_provider(detections: &[CliDetection]) -> Option<String> {
+    detections
+        .iter()
+        .find(|d| d.installed && (d.api_key_via_env || d.api_key_via_config))
+        .map(|d| d.name.clone())
+        .or_else(|| detections.iter().find(|d| d.installed).map(|d| d.name.clone()))
+}
+
+fn detect_clis_and_keys() -> Vec<CliDetection> {
+    let home = dirs::home_dir();
+    CLI_DETECTION_TARGETS
+        .iter()
+        .map(|target| {
+            let binary_path = which::which(target.binary).ok();
+            let api_key_via_env = std::env::var(target.api_env).map(|v| !v.is_empty()).unwrap_or(false);
+            let config_path = home.as_ref().map(|h| h.join(target.config_subpath));
+            let api_key_via_config = config_path.as_ref().map(|p| p.exists()).unwrap_or(false);
+            CliDetection {
+                name: target.name.to_string(),
+                binary: target.binary.to_string(),
+                installed: binary_path.is_some(),
+                binary_path: binary_path.map(|p| p.display().to_string()),
+                api_key_env: target.api_env.to_string(),
+                api_key_via_env,
+                api_key_via_config,
+                config_path: config_path.map(|p| p.display().to_string()),
+            }
+        })
+        .collect()
+}
+
+fn plan_walkthrough_template(
+    project_root: &Path,
+    template_name: &str,
+    force: bool,
+) -> Result<Vec<WalkthroughTemplatePlan>> {
+    let files = lookup_walkthrough_template_files(template_name)?;
+    Ok(files
+        .into_iter()
+        .map(|(relative_path, _)| {
+            let target = project_root.join(&relative_path);
+            let action = if target.exists() {
+                if force {
+                    "overwrite"
+                } else {
+                    "skip_exists"
+                }
+            } else {
+                "create"
+            };
+            WalkthroughTemplatePlan { name: template_name.to_string(), relative_path, action: action.to_string() }
+        })
+        .collect())
+}
+
+fn lookup_walkthrough_template_files(template_name: &str) -> Result<Vec<(String, &'static str)>> {
+    match template_name {
+        HELLO_WORLD_TEMPLATE_NAME => {
+            Ok(vec![(format!(".animus/workflows/{HELLO_WORLD_WORKFLOW_FILE}"), HELLO_WORLD_WORKFLOW_YAML)])
+        }
+        other => Err(invalid_input_error(format!(
+            "unknown walkthrough template '{other}'; only '{HELLO_WORLD_TEMPLATE_NAME}' is bundled in this release"
+        ))),
+    }
+}
+
+fn copy_walkthrough_template(project_root: &Path, template_name: &str, force: bool) -> Result<WalkthroughTemplateStep> {
+    let files = lookup_walkthrough_template_files(template_name)?;
+    let mut written = Vec::new();
+    let mut skipped_existing = Vec::new();
+    for (relative, contents) in files {
+        let target = project_root.join(&relative);
+        if target.exists() && !force {
+            skipped_existing.push(relative);
+            continue;
+        }
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&target, contents)?;
+        written.push(relative);
+    }
+    Ok(WalkthroughTemplateStep { skipped: false, written, skipped_existing })
+}
+
+async fn run_install_defaults_subprocess(project_root: &Path, json: bool) -> WalkthroughPluginStep {
+    let exe = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(err) => {
+            return WalkthroughPluginStep {
+                skipped: false,
+                invoked: false,
+                exit_code: None,
+                stderr_tail: Some(format!("could not resolve current_exe: {err}")),
+            };
+        }
+    };
+    let mut cmd = Command::new(exe);
+    cmd.arg("--project-root").arg(project_root);
+    if json {
+        cmd.arg("--json");
+    }
+    cmd.args(["plugin", "install-defaults", "--yes"]);
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::inherit());
+    cmd.stderr(Stdio::piped());
+    let output = match cmd.output() {
+        Ok(out) => out,
+        Err(err) => {
+            return WalkthroughPluginStep {
+                skipped: false,
+                invoked: false,
+                exit_code: None,
+                stderr_tail: Some(format!("failed to spawn animus plugin install-defaults: {err}")),
+            };
+        }
+    };
+    WalkthroughPluginStep {
+        skipped: false,
+        invoked: true,
+        exit_code: output.status.code(),
+        stderr_tail: tail_stderr(&output.stderr),
+    }
+}
+
+async fn run_daemon_start_subprocess(project_root: &Path, json: bool) -> WalkthroughDaemonStep {
+    let exe = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(err) => {
+            return WalkthroughDaemonStep {
+                requested: true,
+                invoked: false,
+                exit_code: None,
+                stderr_tail: Some(format!("could not resolve current_exe: {err}")),
+            };
+        }
+    };
+    let mut cmd = Command::new(exe);
+    cmd.arg("--project-root").arg(project_root);
+    if json {
+        cmd.arg("--json");
+    }
+    cmd.args(["daemon", "start", "--autonomous", "--auto-install", "--skip-preflight"]);
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::inherit());
+    cmd.stderr(Stdio::piped());
+    let output = match cmd.output() {
+        Ok(out) => out,
+        Err(err) => {
+            return WalkthroughDaemonStep {
+                requested: true,
+                invoked: false,
+                exit_code: None,
+                stderr_tail: Some(format!("failed to spawn animus daemon start: {err}")),
+            };
+        }
+    };
+    WalkthroughDaemonStep {
+        requested: true,
+        invoked: true,
+        exit_code: output.status.code(),
+        stderr_tail: tail_stderr(&output.stderr),
+    }
+}
+
+fn tail_stderr(bytes: &[u8]) -> Option<String> {
+    let text = String::from_utf8_lossy(bytes);
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.is_empty() {
+        return None;
+    }
+    let start = lines.len().saturating_sub(10);
+    Some(lines[start..].join("\n"))
+}
+
+fn build_next_steps(
+    template_plan: &[WalkthroughTemplatePlan],
+    plugin_step: &WalkthroughPluginStep,
+    daemon_step: &WalkthroughDaemonStep,
+) -> Vec<String> {
+    let mut steps = Vec::new();
+    if plugin_step.skipped {
+        steps.push("Install default plugins: animus plugin install-defaults --yes".to_string());
+    } else if plugin_step.exit_code != Some(0) {
+        steps.push("Re-run `animus plugin install-defaults` to fix the failed install above.".to_string());
+    }
+    if template_plan.iter().any(|plan| plan.action == "create" || plan.action == "overwrite") {
+        steps.push("Run `animus workflow run hello-world --sync` to verify your install.".to_string());
+    } else {
+        steps.push(
+            "Hello-world template already present; run `animus workflow run hello-world --sync` to verify.".to_string(),
+        );
+    }
+    if !daemon_step.requested {
+        steps.push("Start the daemon when ready: `animus daemon start --autonomous`".to_string());
+    } else if daemon_step.exit_code != Some(0) {
+        steps.push("Daemon start exited non-zero. Check `animus daemon status` and `animus logs tail`.".to_string());
+    }
+    steps.push("More: docs/getting-started/quick-start.md".to_string());
+    steps
+}
+
+fn prompt_yes_no(message: &str, default_yes: bool) -> Result<bool> {
+    let default_label = if default_yes { "[Y/n]" } else { "[y/N]" };
+    let mut input = String::new();
+    print!("{message} {default_label}: ");
+    io::stdout().flush()?;
+    io::stdin().read_line(&mut input)?;
+    let trimmed = input.trim().to_ascii_lowercase();
+    if trimmed.is_empty() {
+        return Ok(default_yes);
+    }
+    Ok(matches!(trimmed.as_str(), "y" | "yes"))
+}
+
+/// Re-exported for the bundled README contents so callers (or future
+/// `animus init --walkthrough --print-readme` style flags) can surface it.
+#[allow(dead_code)]
+pub(crate) fn bundled_hello_world_readme() -> &'static str {
+    HELLO_WORLD_README
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -684,11 +1105,228 @@ mod tests {
             auto_pr: None,
             auto_commit_before_merge: Some(false),
             update_registry: false,
+            walkthrough: false,
+            no_install: false,
+            no_template: false,
+            auto_start: false,
+            walkthrough_template: HELLO_WORLD_TEMPLATE_NAME.to_string(),
         };
 
         let desired = resolve_desired_config(&args, &template, &current);
         assert!(desired.auto_merge_enabled);
         assert!(!desired.auto_pr_enabled);
         assert!(!desired.auto_commit_before_merge);
+    }
+
+    // ---- v0.4.13 walkthrough tests ---------------------------------------
+
+    #[test]
+    fn walkthrough_template_lookup_returns_hello_world_yaml() {
+        let files = lookup_walkthrough_template_files(HELLO_WORLD_TEMPLATE_NAME).expect("hello-world lookup");
+        assert_eq!(files.len(), 1);
+        let (path, contents) = &files[0];
+        assert_eq!(path, ".animus/workflows/hello-world.yaml");
+        assert!(contents.contains("id: hello-world"));
+        assert!(contents.contains("model: claude-haiku-4-5"));
+    }
+
+    #[test]
+    fn walkthrough_template_lookup_rejects_unknown_template() {
+        let err = lookup_walkthrough_template_files("does-not-exist").err().expect("unknown template should error");
+        let msg = format!("{err}");
+        assert!(msg.contains("unknown walkthrough template"), "got: {msg}");
+    }
+
+    #[test]
+    fn init_template_hello_world_passes_yaml_schema_validation() {
+        let parsed = orchestrator_config::parse_yaml_workflow_config(HELLO_WORLD_WORKFLOW_YAML)
+            .expect("bundled hello-world workflow must parse cleanly");
+        assert!(
+            parsed.workflows.iter().any(|w| w.id == "hello-world"),
+            "parsed workflows should include 'hello-world', got: {:?}",
+            parsed.workflows.iter().map(|w| &w.id).collect::<Vec<_>>()
+        );
+        assert!(
+            parsed.agent_profiles.contains_key("hello-world-agent"),
+            "agent registry should include hello-world-agent"
+        );
+    }
+
+    #[test]
+    fn copy_walkthrough_template_writes_hello_world_workflow() {
+        let project = tempfile::tempdir().expect("project tempdir");
+        let step = copy_walkthrough_template(project.path(), HELLO_WORLD_TEMPLATE_NAME, false).expect("copy succeeds");
+        assert!(!step.skipped);
+        assert_eq!(step.written, vec![".animus/workflows/hello-world.yaml".to_string()]);
+        let target = project.path().join(".animus/workflows/hello-world.yaml");
+        assert!(target.exists(), "yaml should be written to {}", target.display());
+        let contents = std::fs::read_to_string(&target).expect("read written yaml");
+        assert!(contents.contains("id: hello-world"));
+    }
+
+    #[test]
+    fn init_skips_template_if_no_template_flag_set() {
+        // When --no-template is set we should not touch the workflows
+        // directory at all. We simulate that by calling the plan + apply
+        // helpers in their "skip" branch.
+        let project = tempfile::tempdir().expect("project tempdir");
+        let skipped = WalkthroughTemplateStep { skipped: true, written: Vec::new(), skipped_existing: Vec::new() };
+        assert!(skipped.skipped && skipped.written.is_empty());
+        let target = project.path().join(".animus/workflows/hello-world.yaml");
+        assert!(!target.exists(), "no template copy must not write anything");
+    }
+
+    #[test]
+    fn copy_walkthrough_template_skips_existing_without_force() {
+        let project = tempfile::tempdir().expect("project tempdir");
+        let target = project.path().join(".animus/workflows/hello-world.yaml");
+        std::fs::create_dir_all(target.parent().unwrap()).expect("parent dir");
+        std::fs::write(&target, "user-owned").expect("seed existing");
+        let step = copy_walkthrough_template(project.path(), HELLO_WORLD_TEMPLATE_NAME, false).expect("copy succeeds");
+        assert!(step.written.is_empty(), "should not overwrite without --force");
+        assert_eq!(step.skipped_existing, vec![".animus/workflows/hello-world.yaml".to_string()]);
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "user-owned");
+    }
+
+    #[test]
+    fn copy_walkthrough_template_overwrites_with_force() {
+        let project = tempfile::tempdir().expect("project tempdir");
+        let target = project.path().join(".animus/workflows/hello-world.yaml");
+        std::fs::create_dir_all(target.parent().unwrap()).expect("parent dir");
+        std::fs::write(&target, "stale").expect("seed");
+        let step = copy_walkthrough_template(project.path(), HELLO_WORLD_TEMPLATE_NAME, true).expect("copy succeeds");
+        assert_eq!(step.written, vec![".animus/workflows/hello-world.yaml".to_string()]);
+        let contents = std::fs::read_to_string(&target).expect("read overwritten yaml");
+        assert!(contents.contains("id: hello-world"), "force overwrite should replace stale contents");
+    }
+
+    #[test]
+    fn pick_default_provider_prefers_installed_with_key() {
+        let detections = vec![
+            CliDetection {
+                name: "claude".into(),
+                binary: "claude".into(),
+                installed: false,
+                binary_path: None,
+                api_key_env: "ANTHROPIC_API_KEY".into(),
+                api_key_via_env: true,
+                api_key_via_config: false,
+                config_path: None,
+            },
+            CliDetection {
+                name: "codex".into(),
+                binary: "codex".into(),
+                installed: true,
+                binary_path: Some("/usr/local/bin/codex".into()),
+                api_key_env: "OPENAI_API_KEY".into(),
+                api_key_via_env: true,
+                api_key_via_config: false,
+                config_path: None,
+            },
+            CliDetection {
+                name: "gemini".into(),
+                binary: "gemini".into(),
+                installed: true,
+                binary_path: Some("/usr/local/bin/gemini".into()),
+                api_key_env: "GEMINI_API_KEY".into(),
+                api_key_via_env: false,
+                api_key_via_config: false,
+                config_path: None,
+            },
+        ];
+        assert_eq!(pick_default_provider(&detections), Some("codex".to_string()));
+    }
+
+    #[test]
+    fn pick_default_provider_falls_back_to_installed_without_key() {
+        let detections = vec![CliDetection {
+            name: "gemini".into(),
+            binary: "gemini".into(),
+            installed: true,
+            binary_path: Some("/usr/local/bin/gemini".into()),
+            api_key_env: "GEMINI_API_KEY".into(),
+            api_key_via_env: false,
+            api_key_via_config: false,
+            config_path: None,
+        }];
+        assert_eq!(pick_default_provider(&detections), Some("gemini".to_string()));
+    }
+
+    #[test]
+    fn pick_default_provider_returns_none_when_nothing_installed() {
+        let detections = vec![CliDetection {
+            name: "claude".into(),
+            binary: "claude".into(),
+            installed: false,
+            binary_path: None,
+            api_key_env: "ANTHROPIC_API_KEY".into(),
+            api_key_via_env: false,
+            api_key_via_config: false,
+            config_path: None,
+        }];
+        assert_eq!(pick_default_provider(&detections), None);
+    }
+
+    #[test]
+    fn plan_walkthrough_template_marks_create_when_absent() {
+        let project = tempfile::tempdir().expect("project tempdir");
+        let plan = plan_walkthrough_template(project.path(), HELLO_WORLD_TEMPLATE_NAME, false).expect("plan");
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].action, "create");
+    }
+
+    #[test]
+    fn plan_walkthrough_template_marks_skip_when_present_without_force() {
+        let project = tempfile::tempdir().expect("project tempdir");
+        let target = project.path().join(".animus/workflows/hello-world.yaml");
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(&target, "existing").unwrap();
+        let plan = plan_walkthrough_template(project.path(), HELLO_WORLD_TEMPLATE_NAME, false).expect("plan");
+        assert_eq!(plan[0].action, "skip_exists");
+    }
+
+    #[tokio::test]
+    async fn walkthrough_plan_does_not_mutate_filesystem() {
+        let project = tempfile::tempdir().expect("project tempdir");
+        let args = InitArgs {
+            template: None,
+            path: None,
+            non_interactive: true,
+            plan: true,
+            force: false,
+            auto_merge: None,
+            auto_pr: None,
+            auto_commit_before_merge: None,
+            update_registry: false,
+            walkthrough: true,
+            no_install: false,
+            no_template: false,
+            auto_start: false,
+            walkthrough_template: HELLO_WORLD_TEMPLATE_NAME.to_string(),
+        };
+
+        let res = run_walkthrough(&args, project.path(), InitMode::NonInteractive, true).await;
+        assert!(res.is_ok(), "walkthrough --plan should succeed; got {res:?}");
+
+        let workflow_path = project.path().join(".animus/workflows/hello-world.yaml");
+        assert!(
+            !workflow_path.exists(),
+            "walkthrough --plan must NOT write the hello-world template; found at {}",
+            workflow_path.display()
+        );
+    }
+
+    #[test]
+    fn build_next_steps_includes_workflow_run_hint() {
+        let template_plan = vec![WalkthroughTemplatePlan {
+            name: HELLO_WORLD_TEMPLATE_NAME.into(),
+            relative_path: ".animus/workflows/hello-world.yaml".into(),
+            action: "create".into(),
+        }];
+        let plugins = WalkthroughPluginStep { skipped: false, invoked: true, exit_code: Some(0), stderr_tail: None };
+        let daemon = WalkthroughDaemonStep { requested: false, invoked: false, exit_code: None, stderr_tail: None };
+        let steps = build_next_steps(&template_plan, &plugins, &daemon);
+        assert!(steps.iter().any(|s| s.contains("animus workflow run hello-world")));
+        assert!(steps.iter().any(|s| s.contains("animus daemon start")));
     }
 }

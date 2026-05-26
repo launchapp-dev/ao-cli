@@ -7,6 +7,7 @@ mod dispatch_selection_source;
 mod dispatch_support;
 mod dispatch_workflow_start;
 mod dispatch_workflow_start_summary;
+pub mod event_pipe;
 mod process_manager;
 mod ready_dispatch_plan;
 
@@ -22,5 +23,8 @@ pub use dispatch_support::{
 };
 pub use dispatch_workflow_start::DispatchWorkflowStart;
 pub use dispatch_workflow_start_summary::DispatchWorkflowStartSummary;
+#[cfg(unix)]
+#[allow(unused_imports)]
+pub use event_pipe::SubprocessEventPipe;
 pub use process_manager::ProcessManager;
 pub use ready_dispatch_plan::PlannedDispatchStart;

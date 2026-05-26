@@ -1,12 +1,19 @@
+pub mod audit;
 pub mod control;
 mod daemon;
 mod dispatch;
 mod log_storage;
 pub mod metrics;
 mod queue;
+pub mod quotas;
 mod schedule;
 mod subject_dispatch;
 mod tick;
+
+pub use audit::{
+    audit_log_path, log as log_audit_event, log_event as log_audit, log_plugin_install as log_audit_plugin_install,
+    Audit, AuditActor, AuditEvent, AuditEventKind, AUDIT_LOG_MAX_BYTES,
+};
 
 pub use daemon::{
     current_workflow_event_emitter, discover_installed_plugins, run_daemon, run_plugin_preflight, DaemonEventLog,
@@ -31,6 +38,7 @@ pub use queue::{
     remove_terminal_dispatch_queue_entry_non_fatal, reorder_subjects, save_dispatch_queue_state, DispatchQueueEntry,
     DispatchQueueEntryStatus, DispatchQueueState, QueueEnqueueResult, QueueEntrySnapshot, QueueSnapshot, QueueStats,
 };
+pub use quotas::{install_runtime_quotas, runtime_quotas, RuntimeQuotas};
 pub use schedule::{
     discover_trigger_plugins, ScheduleDispatch, ScheduleDispatchOutcome, TriggerDispatch, TriggerDispatchOutcome,
     TriggerSupervisor, TriggerSupervisorEvent, TriggerSupervisorSink, MAX_RESTART_ATTEMPTS,

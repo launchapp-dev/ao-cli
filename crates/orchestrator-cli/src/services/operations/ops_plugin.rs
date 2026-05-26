@@ -21,10 +21,12 @@ use std::process::Stdio;
 
 use animus_plugin_protocol::PluginManifest;
 use anyhow::{anyhow, Context, Result};
+use orchestrator_daemon_runtime::{Audit, AuditActor, AuditEvent, AuditEventKind};
 use orchestrator_plugin_host::{
     discover_plugins, legacy_plugins_registry_path, plugin_install_dir, plugins_registry_path,
-    registered_skip_manifest_check_at_install, DiscoveredPlugin, DiscoverySource, DiscoveryWarning, PluginDiscovery,
-    PluginHost, PolicyMode as PluginPolicyMode,
+    registered_skip_manifest_check_at_install, sha256_of_file as plugin_host_sha256_of_file, DiscoveredPlugin,
+    DiscoverySource, DiscoveryWarning, LockEntry, LockVerifyResult, PluginDiscovery, PluginHost, PluginLockfile,
+    PolicyMode as PluginPolicyMode,
 };
 use orchestrator_session_host::is_reserved_provider_tool;
 use serde::Serialize;
@@ -33,7 +35,8 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     invalid_input_error, not_found_error, print_value, PluginCallArgs, PluginCommand, PluginInfoArgs,
-    PluginInstallArgs, PluginInstallDefaultsArgs, PluginListArgs, PluginPingArgs, PluginUninstallArgs,
+    PluginInstallArgs, PluginInstallDefaultsArgs, PluginListArgs, PluginLockCommand, PluginLockListArgs,
+    PluginLockVerifyArgs, PluginPingArgs, PluginUninstallArgs,
 };
 
 #[derive(Debug, Serialize)]
@@ -206,12 +209,17 @@ pub(crate) struct PluginInstallRequest {
     pub(crate) allow_org: Vec<String>,
     /// Auto-confirm the TOFU prompt for unknown orgs.
     pub(crate) yes: bool,
+    /// Project root for lockfile + audit-log resolution. `None` falls back to
+    /// the global `~/.animus/plugins.lock` and skips audit logging.
+    pub(crate) project_root: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct PluginUninstallRequest {
     pub(crate) name: String,
     pub(crate) plugin_dir: Option<String>,
+    /// Project root for lockfile + audit-log resolution.
+    pub(crate) project_root: Option<String>,
 }
 
 pub(crate) async fn handle_plugin(command: PluginCommand, project_root: &str, json: bool) -> Result<()> {
@@ -226,13 +234,14 @@ pub(crate) async fn handle_plugin(command: PluginCommand, project_root: &str, js
         // The daemon-side `plugin/install` handler exists so MCP/WebAPI
         // (C7/C8) can call it via the wire, but the CLI's user-facing
         // path is intentionally direct.
-        PluginCommand::Install(args) => handle_plugin_install(args, json).await,
-        PluginCommand::Uninstall(args) => handle_plugin_uninstall(args, json),
+        PluginCommand::Install(args) => handle_plugin_install(args, project_root, json).await,
+        PluginCommand::Uninstall(args) => handle_plugin_uninstall(args, project_root, json),
         PluginCommand::New(args) => new::handle_plugin_new(args, json),
         PluginCommand::Search(args) => marketplace::handle_plugin_search(args).await,
         PluginCommand::Browse(args) => marketplace::handle_plugin_browse(args).await,
         PluginCommand::Update(args) => marketplace::handle_plugin_update(args).await,
-        PluginCommand::InstallDefaults(args) => handle_plugin_install_defaults(args).await,
+        PluginCommand::InstallDefaults(args) => handle_plugin_install_defaults(args, project_root).await,
+        PluginCommand::Lock(cmd) => handle_plugin_lock(cmd, project_root).await,
     }
 }
 
@@ -269,7 +278,7 @@ struct InstallDefaultsOutput {
     summary: InstallDefaultsSummary,
 }
 
-async fn handle_plugin_install_defaults(args: PluginInstallDefaultsArgs) -> Result<()> {
+async fn handle_plugin_install_defaults(args: PluginInstallDefaultsArgs, project_root: &str) -> Result<()> {
     let mut targets: Vec<(&str, &str)> = DEFAULT_PROVIDER_PLUGINS.to_vec();
     if args.include_oai_agent {
         targets.extend_from_slice(DEFAULT_OAI_AGENT_PLUGIN);
@@ -323,6 +332,7 @@ async fn handle_plugin_install_defaults(args: PluginInstallDefaultsArgs) -> Resu
             allow_org: vec!["launchapp-dev".to_string()],
             yes: args.yes,
             allow_shadow_builtin: true,
+            project_root: Some(project_root.to_string()),
             ..Default::default()
         };
 
@@ -492,6 +502,31 @@ pub(crate) fn run_plugin_uninstall(req: PluginUninstallRequest) -> Result<Plugin
         return Err(not_found_error(format!("plugin '{plugin_name}' is not installed")));
     }
 
+    // Remove the lockfile entry (best-effort; never blocks uninstall).
+    let project_root_pb = req.project_root.as_deref().map(std::path::PathBuf::from);
+    let project_root_for_lock: Option<&std::path::Path> = project_root_pb.as_deref();
+    if let Ok(mut lockfile) = PluginLockfile::load_default(project_root_for_lock) {
+        if lockfile.remove(&plugin_name).is_some() {
+            if let Err(err) = lockfile.save() {
+                tracing::warn!(path = %lockfile.path().display(), %err, "failed to persist plugin lockfile after uninstall");
+            }
+        }
+    }
+
+    // Audit log.
+    if let Some(root) = project_root_for_lock {
+        if let Some(scoped) = protocol::repository_scope::scoped_state_root(root) {
+            Audit::at_scoped_root(&scoped).log_event(AuditEvent::new(
+                AuditActor::User,
+                AuditEventKind::PluginUninstall,
+                serde_json::json!({
+                    "plugin": plugin_name,
+                    "removed_path": removed,
+                }),
+            ));
+        }
+    }
+
     Ok(PluginUninstallOutput {
         name: plugin_name,
         removed_path: removed,
@@ -648,6 +683,60 @@ pub(crate) async fn run_plugin_install(req: PluginInstallRequest) -> Result<Plug
 
     let install_dir = install_root(req.plugin_dir.as_deref())?;
     let installed_path = install_dir.join(&plugin_name);
+
+    // ---- Lockfile pre-check (runs BEFORE the already-installed gate) ----
+    //
+    // When the installed binary's sha256 disagrees with the recorded lock
+    // entry, treat this as a tampered-binary scenario and refuse — even
+    // when the operator passes the equivalent of --force. The only way to
+    // proceed is to either `animus plugin uninstall` first (clears the lock
+    // entry) or to re-run with `--force`, which is the supported escape
+    // hatch. Without this gate, an unattended `plugin install --force`
+    // could silently paper over the on-disk tamper.
+    let project_root_pb = req.project_root.as_deref().map(std::path::PathBuf::from);
+    let project_root_for_lock: Option<&std::path::Path> = project_root_pb.as_deref();
+    let mut lockfile = PluginLockfile::load_default(project_root_for_lock).unwrap_or_else(|err| {
+        tracing::warn!(error = %err, "failed to load plugin lockfile; continuing with empty in-memory lockfile");
+        PluginLockfile::empty_at(&PluginLockfile::default_path(project_root_for_lock))
+    });
+    let lockfile_path_for_log = lockfile.path().to_path_buf();
+    let is_upgrade = installed_path.exists();
+    if is_upgrade {
+        if let Some(existing_entry) = lockfile.find(&plugin_name).cloned() {
+            match lockfile.verify_installed(&plugin_name, &installed_path) {
+                Ok(LockVerifyResult::Match) | Ok(LockVerifyResult::Missing) => {}
+                Ok(LockVerifyResult::Mismatch { expected, actual }) => {
+                    if let Some(root) = project_root_for_lock {
+                        if let Some(scoped) = protocol::repository_scope::scoped_state_root(root) {
+                            Audit::at_scoped_root(&scoped).log_event(AuditEvent::new(
+                                AuditActor::User,
+                                AuditEventKind::LockfileMismatch,
+                                serde_json::json!({
+                                    "plugin": plugin_name,
+                                    "expected_sha256": expected,
+                                    "actual_sha256": actual,
+                                    "force": req.force,
+                                    "lockfile": lockfile_path_for_log.display().to_string(),
+                                }),
+                            ));
+                        }
+                    }
+                    if !req.force {
+                        return Err(invalid_input_error(format!(
+                            "lockfile mismatch for plugin '{plugin_name}': recorded sha256 {} but on-disk binary hashes to {}. \
+                             The installed binary appears to have been modified or replaced out of band. \
+                             Re-run with --force to overwrite (and update the lockfile), or `animus plugin lock verify` to inspect.",
+                            existing_entry.artifact_sha256, actual,
+                        )));
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!(plugin = %plugin_name, %err, "failed to hash existing installed plugin during lockfile pre-check");
+                }
+            }
+        }
+    }
+
     if installed_path.exists() && !req.force {
         return Err(invalid_input_error(format!(
             "plugin '{plugin_name}' already installed at {} (pass force=true to overwrite)",
@@ -747,6 +836,125 @@ pub(crate) async fn run_plugin_install(req: PluginInstallRequest) -> Result<Plug
     };
 
     let signature_status = signature_detail.label().to_string();
+
+    // ---- Lockfile: persist this install ----
+    let bundle_sha = provenance.bundle_path.as_deref().and_then(|p| plugin_host_sha256_of_file(p).ok());
+    let recorded_at = chrono::Utc::now().to_rfc3339();
+    let lock_entry = LockEntry {
+        name: plugin_name.clone(),
+        version: provenance.release_tag.clone().unwrap_or_default(),
+        artifact_sha256: computed_sha.clone(),
+        signature_bundle_sha256: bundle_sha,
+        installed_at: recorded_at,
+    };
+    lockfile.upsert(lock_entry);
+    if let Err(err) = lockfile.save() {
+        tracing::warn!(path = %lockfile.path().display(), %err, "failed to persist plugin lockfile");
+    }
+
+    // ---- Audit log ----
+    if let Some(root) = project_root_for_lock {
+        if let Some(scoped) = protocol::repository_scope::scoped_state_root(root) {
+            let audit = Audit::at_scoped_root(&scoped);
+            let event_kind = if is_upgrade { AuditEventKind::PluginUpgrade } else { AuditEventKind::PluginInstall };
+            let repo_label = provenance
+                .origin
+                .clone()
+                .or_else(|| match (provenance.owner.as_deref(), provenance.repo.as_deref()) {
+                    (Some(o), Some(r)) => Some(format!("{o}/{r}")),
+                    _ => None,
+                })
+                .unwrap_or_else(|| plugin_name.clone());
+            audit.log_event(AuditEvent::new(
+                AuditActor::User,
+                event_kind,
+                serde_json::json!({
+                    "repo": repo_label,
+                    "plugin": plugin_name,
+                    "version": provenance.release_tag.clone().unwrap_or_default(),
+                    "sha256": computed_sha,
+                    "signature_status": signature_status,
+                    "force": req.force,
+                    "source_kind": provenance.source_kind.unwrap_or("unknown"),
+                }),
+            ));
+            match &signature_detail {
+                SignatureStatus::Invalid { identity_pattern, message } => {
+                    audit.log_event(AuditEvent::new(
+                        AuditActor::User,
+                        AuditEventKind::SignatureInvalid,
+                        serde_json::json!({
+                            "plugin": plugin_name,
+                            "identity_pattern": identity_pattern,
+                            "message": message,
+                        }),
+                    ));
+                }
+                SignatureStatus::Unsigned { reason }
+                    if !matches!(effective_policy_mode(&req), PluginPolicyMode::Strict) =>
+                {
+                    audit.log_event(AuditEvent::new(
+                        AuditActor::User,
+                        AuditEventKind::SignatureSkipped,
+                        serde_json::json!({
+                            "plugin": plugin_name,
+                            "reason": reason,
+                            "policy": effective_policy_mode(&req).as_str(),
+                        }),
+                    ));
+                }
+                SignatureStatus::UntrustedSigner { identity_pattern }
+                    if !matches!(effective_policy_mode(&req), PluginPolicyMode::Strict) =>
+                {
+                    audit.log_event(AuditEvent::new(
+                        AuditActor::User,
+                        AuditEventKind::SignatureSkipped,
+                        serde_json::json!({
+                            "plugin": plugin_name,
+                            "reason": format!("untrusted signer ({identity_pattern})"),
+                            "policy": effective_policy_mode(&req).as_str(),
+                        }),
+                    ));
+                }
+                _ => {}
+            }
+            if req.force {
+                audit.log_event(AuditEvent::new(
+                    AuditActor::User,
+                    AuditEventKind::PolicyOverride,
+                    serde_json::json!({
+                        "flag": "--force",
+                        "plugin": plugin_name,
+                    }),
+                ));
+            }
+            if req.skip_signature || matches!(effective_policy_mode(&req), PluginPolicyMode::Disabled) {
+                audit.log_event(AuditEvent::new(
+                    AuditActor::User,
+                    AuditEventKind::PolicyOverride,
+                    serde_json::json!({
+                        "flag": "--skip-signature/--signature-policy=disabled",
+                        "plugin": plugin_name,
+                    }),
+                ));
+            }
+            for org in &req.allow_org {
+                audit.log_event(AuditEvent::new(
+                    AuditActor::User,
+                    AuditEventKind::TrustPublisherAdded,
+                    serde_json::json!({"owner": org, "via": "--allow-org"}),
+                ));
+            }
+            if req.trust_key.is_some() {
+                audit.log_event(AuditEvent::new(
+                    AuditActor::User,
+                    AuditEventKind::TrustKeyAdded,
+                    serde_json::json!({"deprecated": true}),
+                ));
+            }
+        }
+    }
+
     let signature_detail = Some(signature_detail);
 
     Ok(PluginInstallOutput {
@@ -2023,7 +2231,7 @@ fn enforce_org_trust(owner: &str, req: &PluginInstallRequest) -> Result<()> {
     }
 }
 
-async fn handle_plugin_install(args: PluginInstallArgs, json: bool) -> Result<()> {
+async fn handle_plugin_install(args: PluginInstallArgs, project_root: &str, json: bool) -> Result<()> {
     if args.latest && args.tag.is_some() {
         return Err(invalid_input_error("--latest and --tag are mutually exclusive"));
     }
@@ -2057,6 +2265,7 @@ async fn handle_plugin_install(args: PluginInstallArgs, json: bool) -> Result<()
         allow_shadow_builtin: args.allow_shadow_builtin,
         allow_org: args.allow_org,
         yes: args.yes,
+        project_root: Some(project_root.to_string()),
     })
     .await?;
     print_value(output, json)
@@ -2093,9 +2302,167 @@ fn resolve_cli_signature_policy(args: &PluginInstallArgs) -> Result<PluginPolicy
     Ok(PluginPolicyMode::default_for_install())
 }
 
-fn handle_plugin_uninstall(args: PluginUninstallArgs, json: bool) -> Result<()> {
-    let output = run_plugin_uninstall(PluginUninstallRequest { name: args.name, plugin_dir: args.plugin_dir })?;
+fn handle_plugin_uninstall(args: PluginUninstallArgs, project_root: &str, json: bool) -> Result<()> {
+    let output = run_plugin_uninstall(PluginUninstallRequest {
+        name: args.name,
+        plugin_dir: args.plugin_dir,
+        project_root: Some(project_root.to_string()),
+    })?;
     print_value(output, json)
+}
+
+// ===== `plugin lock` subcommands =====
+
+#[derive(Debug, Serialize)]
+struct PluginLockListOutput {
+    lockfile: String,
+    schema_version: String,
+    generated_at: String,
+    plugins: Vec<LockEntry>,
+}
+
+#[derive(Debug, Serialize)]
+struct PluginLockVerifyEntry {
+    name: String,
+    status: &'static str,
+    expected_sha256: String,
+    actual_sha256: Option<String>,
+    installed_path: Option<String>,
+    detail: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct PluginLockVerifyOutput {
+    lockfile: String,
+    entries: Vec<PluginLockVerifyEntry>,
+    matched: usize,
+    mismatched: usize,
+    missing_binary: usize,
+}
+
+async fn handle_plugin_lock(cmd: PluginLockCommand, project_root: &str) -> Result<()> {
+    match cmd {
+        PluginLockCommand::List(args) => run_lock_list(args, project_root),
+        PluginLockCommand::Verify(args) => run_lock_verify(args, project_root),
+    }
+}
+
+fn run_lock_list(args: PluginLockListArgs, project_root: &str) -> Result<()> {
+    let path = args.lockfile.unwrap_or_else(|| PluginLockfile::default_path(Some(std::path::Path::new(project_root))));
+    let lockfile = PluginLockfile::load_or_empty(&path)?;
+    let output = PluginLockListOutput {
+        lockfile: path.to_string_lossy().to_string(),
+        schema_version: lockfile.schema_version.clone(),
+        generated_at: lockfile.generated_at.clone(),
+        plugins: lockfile.plugins.clone(),
+    };
+    print_value(output, args.json)
+}
+
+fn run_lock_verify(args: PluginLockVerifyArgs, project_root: &str) -> Result<()> {
+    let path = args.lockfile.unwrap_or_else(|| PluginLockfile::default_path(Some(std::path::Path::new(project_root))));
+    let lockfile = PluginLockfile::load_or_empty(&path)?;
+    let install_dir = install_root(args.plugin_dir.as_deref())?;
+    let mut entries = Vec::with_capacity(lockfile.plugins.len());
+    let mut matched = 0_usize;
+    let mut mismatched = 0_usize;
+    let mut missing_binary = 0_usize;
+    for entry in &lockfile.plugins {
+        let installed_path = install_dir.join(&entry.name);
+        if !installed_path.exists() {
+            missing_binary += 1;
+            entries.push(PluginLockVerifyEntry {
+                name: entry.name.clone(),
+                status: "missing_binary",
+                expected_sha256: entry.artifact_sha256.clone(),
+                actual_sha256: None,
+                installed_path: Some(installed_path.to_string_lossy().to_string()),
+                detail: Some("installed binary not found at expected path".to_string()),
+            });
+            continue;
+        }
+        match lockfile.verify_installed(&entry.name, &installed_path) {
+            Ok(LockVerifyResult::Match) => {
+                matched += 1;
+                entries.push(PluginLockVerifyEntry {
+                    name: entry.name.clone(),
+                    status: "ok",
+                    expected_sha256: entry.artifact_sha256.clone(),
+                    actual_sha256: Some(entry.artifact_sha256.clone()),
+                    installed_path: Some(installed_path.to_string_lossy().to_string()),
+                    detail: None,
+                });
+            }
+            Ok(LockVerifyResult::Mismatch { expected, actual }) => {
+                mismatched += 1;
+                if let Some(scoped) = protocol::repository_scope::scoped_state_root(std::path::Path::new(project_root))
+                {
+                    Audit::at_scoped_root(&scoped).log_event(AuditEvent::new(
+                        AuditActor::User,
+                        AuditEventKind::LockfileMismatch,
+                        serde_json::json!({
+                            "plugin": entry.name,
+                            "expected_sha256": expected,
+                            "actual_sha256": actual,
+                            "lockfile": path.display().to_string(),
+                        }),
+                    ));
+                }
+                entries.push(PluginLockVerifyEntry {
+                    name: entry.name.clone(),
+                    status: "mismatch",
+                    expected_sha256: expected,
+                    actual_sha256: Some(actual),
+                    installed_path: Some(installed_path.to_string_lossy().to_string()),
+                    detail: Some("sha256 of installed binary does not match lockfile".to_string()),
+                });
+            }
+            Ok(LockVerifyResult::Missing) => {
+                // Should not happen because we just iterated the lockfile entries.
+                entries.push(PluginLockVerifyEntry {
+                    name: entry.name.clone(),
+                    status: "missing_lock_entry",
+                    expected_sha256: entry.artifact_sha256.clone(),
+                    actual_sha256: None,
+                    installed_path: Some(installed_path.to_string_lossy().to_string()),
+                    detail: Some("entry vanished between read and verify".to_string()),
+                });
+            }
+            Err(err) => {
+                entries.push(PluginLockVerifyEntry {
+                    name: entry.name.clone(),
+                    status: "error",
+                    expected_sha256: entry.artifact_sha256.clone(),
+                    actual_sha256: None,
+                    installed_path: Some(installed_path.to_string_lossy().to_string()),
+                    detail: Some(err.to_string()),
+                });
+            }
+        }
+    }
+    let output = PluginLockVerifyOutput {
+        lockfile: path.to_string_lossy().to_string(),
+        entries,
+        matched,
+        mismatched,
+        missing_binary,
+    };
+    // `animus plugin lock verify` is meant to be wired into CI / cron as a
+    // tamper-detection gate. Both a hash mismatch AND a missing on-disk binary
+    // for a tracked entry indicate the install state has drifted from the
+    // lockfile, so either condition must exit non-zero.
+    let exit_err = if mismatched > 0 || missing_binary > 0 {
+        Some(anyhow!(
+            "plugin lock verify failed: {mismatched} mismatched, {missing_binary} missing binary, {matched} matched"
+        ))
+    } else {
+        None
+    };
+    print_value(output, args.json)?;
+    if let Some(err) = exit_err {
+        return Err(err);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -3132,5 +3499,188 @@ trusted_signers:
             map_host_result_to_status(VR::Verified { identity: "x".into(), bundle_path: "z".into() }, &bundle),
             SignatureStatus::Verified { .. }
         ));
+    }
+
+    // ===== v0.4.13 W1+W5: lockfile + audit hook coverage ======================
+
+    /// Set up isolated env + project root for a lockfile install test. Returns
+    /// `(tempdir, project_root, config_guard, plugin_guard, home_guard)`.
+    /// All guards must stay in scope for the duration of the install call,
+    /// otherwise the install pipeline will leak into the developer's real
+    /// `~/.animus/`.
+    #[cfg(unix)]
+    fn setup_lockfile_test_env(
+        tmp: &tempfile::TempDir,
+    ) -> (
+        std::path::PathBuf,
+        protocol::test_utils::EnvVarGuard,
+        protocol::test_utils::EnvVarGuard,
+        protocol::test_utils::EnvVarGuard,
+    ) {
+        let config_dir = tmp.path().join("config");
+        let install_dir = tmp.path().join("install");
+        let home_dir = tmp.path().join("home");
+        let project_root = tmp.path().join("project");
+        let project_animus = project_root.join(".animus");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::create_dir_all(&install_dir).unwrap();
+        std::fs::create_dir_all(&home_dir).unwrap();
+        std::fs::create_dir_all(&project_animus).unwrap();
+        let config_guard =
+            protocol::test_utils::EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(config_dir.to_str().unwrap()));
+        let plugin_guard =
+            protocol::test_utils::EnvVarGuard::set("ANIMUS_PLUGIN_DIR", Some(install_dir.to_str().unwrap()));
+        // Redirect HOME so scoped_state_root() and global lockfile fallbacks
+        // both land inside the tempdir, never under the developer's real $HOME.
+        let home_guard = protocol::test_utils::EnvVarGuard::set("HOME", Some(home_dir.to_str().unwrap()));
+        (project_root, config_guard, plugin_guard, home_guard)
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread")]
+    #[allow(clippy::await_holding_lock)]
+    async fn lockfile_install_persists_sha256() {
+        let _guard = INSTALL_ENV_GUARD.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let (project_root, _config_env, _plugin_env, _home_env) = setup_lockfile_test_env(&tmp);
+
+        let source = tmp.path().join("animus-plugin-locked");
+        write_fake_plugin_binary(&source, "animus-plugin-locked", "subject_backend");
+        let req = PluginInstallRequest {
+            path: Some(source.to_string_lossy().to_string()),
+            skip_signature: true,
+            yes: true,
+            project_root: Some(project_root.to_string_lossy().to_string()),
+            ..Default::default()
+        };
+        let output = run_plugin_install(req).await.expect("install must succeed");
+
+        let lock_path = PluginLockfile::default_path(Some(&project_root));
+        assert!(lock_path.exists(), "lockfile should exist at {}", lock_path.display());
+        let lock = PluginLockfile::load_or_empty(&lock_path).unwrap();
+        let entry = lock.find(&output.name).expect("lockfile entry must be present");
+        assert_eq!(entry.artifact_sha256, output.sha256);
+        assert!(!entry.installed_at.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread")]
+    #[allow(clippy::await_holding_lock)]
+    async fn lockfile_upgrade_refuses_on_hash_mismatch_without_force() {
+        let _guard = INSTALL_ENV_GUARD.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let (project_root, _config_env, _plugin_env, _home_env) = setup_lockfile_test_env(&tmp);
+
+        let source = tmp.path().join("animus-plugin-tamper");
+        write_fake_plugin_binary(&source, "animus-plugin-tamper", "subject_backend");
+        let req = PluginInstallRequest {
+            path: Some(source.to_string_lossy().to_string()),
+            skip_signature: true,
+            yes: true,
+            project_root: Some(project_root.to_string_lossy().to_string()),
+            ..Default::default()
+        };
+        let output = run_plugin_install(req).await.expect("initial install must succeed");
+
+        // Tamper with the installed binary so its sha256 no longer matches the
+        // lockfile entry the install just wrote.
+        let installed_path = std::path::PathBuf::from(&output.installed_path);
+        std::fs::write(&installed_path, b"tampered binary").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&installed_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&installed_path, perms).unwrap();
+
+        // Re-install from a fresh source with force=false -> must be refused.
+        let source_v2 = tmp.path().join("animus-plugin-tamper-v2");
+        write_fake_plugin_binary(&source_v2, "animus-plugin-tamper", "subject_backend");
+        let req2 = PluginInstallRequest {
+            path: Some(source_v2.to_string_lossy().to_string()),
+            name: Some(output.name.clone()),
+            skip_signature: true,
+            yes: true,
+            force: false,
+            project_root: Some(project_root.to_string_lossy().to_string()),
+            ..Default::default()
+        };
+        let err = run_plugin_install(req2).await.unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("lockfile mismatch"), "unexpected error: {msg}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread")]
+    #[allow(clippy::await_holding_lock)]
+    async fn lockfile_verify_detects_tampered_binary() {
+        let _guard = INSTALL_ENV_GUARD.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let (project_root, _config_env, _plugin_env, _home_env) = setup_lockfile_test_env(&tmp);
+
+        let source = tmp.path().join("animus-plugin-verify-me");
+        write_fake_plugin_binary(&source, "animus-plugin-verify-me", "subject_backend");
+        let req = PluginInstallRequest {
+            path: Some(source.to_string_lossy().to_string()),
+            skip_signature: true,
+            yes: true,
+            project_root: Some(project_root.to_string_lossy().to_string()),
+            ..Default::default()
+        };
+        let output = run_plugin_install(req).await.expect("install must succeed");
+
+        // Tamper.
+        let installed_path = std::path::PathBuf::from(&output.installed_path);
+        std::fs::write(&installed_path, b"different bytes").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&installed_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&installed_path, perms).unwrap();
+
+        let lock_path = PluginLockfile::default_path(Some(&project_root));
+        let lock = PluginLockfile::load_or_empty(&lock_path).unwrap();
+        match lock.verify_installed(&output.name, &installed_path).expect("verify ok") {
+            LockVerifyResult::Mismatch { expected, actual } => {
+                assert_eq!(expected, output.sha256);
+                assert_ne!(actual, output.sha256);
+            }
+            other => panic!("expected Mismatch after tamper, got {other:?}"),
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread")]
+    #[allow(clippy::await_holding_lock)]
+    async fn audit_log_records_install_event_with_signature_status() {
+        let _guard = INSTALL_ENV_GUARD.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let (project_root, _config_env, _plugin_env, _home_env) = setup_lockfile_test_env(&tmp);
+
+        let source = tmp.path().join("animus-plugin-audited");
+        write_fake_plugin_binary(&source, "animus-plugin-audited", "subject_backend");
+        let req = PluginInstallRequest {
+            path: Some(source.to_string_lossy().to_string()),
+            skip_signature: true,
+            yes: true,
+            project_root: Some(project_root.to_string_lossy().to_string()),
+            ..Default::default()
+        };
+        let output = run_plugin_install(req).await.expect("install must succeed");
+
+        let scoped =
+            protocol::repository_scope::scoped_state_root(&project_root).expect("scoped state root must resolve");
+        let audit_path = orchestrator_daemon_runtime::audit_log_path(&scoped);
+        assert!(audit_path.exists(), "audit log must exist at {}", audit_path.display());
+        let body = std::fs::read_to_string(&audit_path).unwrap();
+        let install_lines: Vec<serde_json::Value> = body
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| serde_json::from_str(l).unwrap())
+            .filter(|v: &serde_json::Value| v["event"] == "plugin_install")
+            .collect();
+        assert!(!install_lines.is_empty(), "expected at least one plugin_install line, body: {body}");
+        let event = &install_lines[0];
+        assert_eq!(event["actor"], "user");
+        assert_eq!(event["details"]["plugin"], output.name);
+        // skip_signature=true -> install pipeline returns SignatureStatus::Skipped.
+        assert_eq!(event["details"]["signature_status"], "skipped");
     }
 }

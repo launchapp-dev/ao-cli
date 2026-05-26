@@ -2,6 +2,7 @@
 
 mod discovery;
 mod host;
+pub mod lockfile;
 mod registry;
 pub mod signature_verifier;
 mod subject_router;
@@ -16,6 +17,9 @@ pub use host::{
     check_protocol_compat, HostError, PluginHost, PluginHostInner, PluginNotificationRx, PluginSpawnOptions,
     PluginStderrSink, DEFAULT_NOTIFICATION_BROADCAST_CAPACITY, NOTIFICATION_BROADCAST_CAPACITY_ENV,
     PLUGIN_BASE_ENV_ALLOWLIST,
+};
+pub use lockfile::{
+    global_lockfile_path, sha256_of_file, LockEntry, LockVerifyResult, PluginLockfile, LOCKFILE_SCHEMA_VERSION,
 };
 pub use registry::PluginRegistry;
 pub use signature_verifier::{

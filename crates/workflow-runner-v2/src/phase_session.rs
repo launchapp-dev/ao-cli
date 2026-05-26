@@ -310,8 +310,11 @@ mod tests {
         write_session_pending(scoped_root, "wf-fsync-2", "phase-b", "codex", "run-2", None).expect("write pending");
 
         let phases_dir = scoped_root.join("runs").join(sanitize("wf-fsync-2")).join("phases");
-        let entries: Vec<_> =
-            std::fs::read_dir(&phases_dir).expect("read phases dir").filter_map(Result::ok).map(|e| e.file_name()).collect();
+        let entries: Vec<_> = std::fs::read_dir(&phases_dir)
+            .expect("read phases dir")
+            .filter_map(Result::ok)
+            .map(|e| e.file_name())
+            .collect();
         let session_file = std::ffi::OsString::from("phase-b.session.json");
         assert!(entries.contains(&session_file), "phases dir should show the final session file: {entries:?}");
         // And no leftover .tmp siblings.

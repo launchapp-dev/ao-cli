@@ -40,8 +40,42 @@ use crate::TriggerSupervisorSink;
 /// scheduled for v0.5.
 static DAEMON_WORKFLOW_EVENT_EMITTER: OnceLock<RwLock<Option<SharedWorkflowEventEmitter>>> = OnceLock::new();
 
+/// Process-global slot for the daemon's [`WorkflowEventBroadcaster`]. This
+/// is the *broadcaster* itself (not the trait-obj emitter), exposed so the
+/// scheduler's subprocess spawn path can attach a per-run back-channel
+/// reader without needing to downcast through
+/// [`SharedWorkflowEventEmitter`]. Lifecycle: installed alongside the
+/// emitter in [`run_daemon`]; cleared in
+/// [`clear_workflow_event_emitter`].
+static DAEMON_WORKFLOW_EVENT_BROADCASTER: OnceLock<RwLock<Option<Arc<WorkflowEventBroadcaster>>>> = OnceLock::new();
+
 fn emitter_slot() -> &'static RwLock<Option<SharedWorkflowEventEmitter>> {
     DAEMON_WORKFLOW_EVENT_EMITTER.get_or_init(|| RwLock::new(None))
+}
+
+fn broadcaster_slot() -> &'static RwLock<Option<Arc<WorkflowEventBroadcaster>>> {
+    DAEMON_WORKFLOW_EVENT_BROADCASTER.get_or_init(|| RwLock::new(None))
+}
+
+/// Returns the daemon's `WorkflowEventBroadcaster` when one has been
+/// installed by [`run_daemon`]. Subprocess-dispatch callers use this to
+/// attach a per-run pipe reader that forwards subprocess workflow_events
+/// into the broadcaster. Returns `None` from CLI / one-shot processes
+/// that never started a daemon.
+pub fn current_workflow_event_broadcaster() -> Option<Arc<WorkflowEventBroadcaster>> {
+    broadcaster_slot().read().ok().and_then(|guard| guard.clone())
+}
+
+fn install_workflow_event_broadcaster(broadcaster: Arc<WorkflowEventBroadcaster>) {
+    if let Ok(mut guard) = broadcaster_slot().write() {
+        *guard = Some(broadcaster);
+    }
+}
+
+fn clear_workflow_event_broadcaster() {
+    if let Ok(mut guard) = broadcaster_slot().write() {
+        *guard = None;
+    }
 }
 
 /// Returns the process-global daemon workflow event emitter when one has
@@ -81,6 +115,12 @@ where
     let primary_root = canonicalize_lossy(project_root);
 
     crate::metrics::install_workflow_runner_metrics_bridge();
+
+    // Resolve and install the process-wide runtime quotas before any
+    // subsystem that consults them (trigger backlog, subscriber buffers,
+    // workflow concurrency, plugin process count). First-installer-wins:
+    // tests that pre-install a tweaked quota set keep their values.
+    crate::quotas::install_runtime_quotas(crate::quotas::RuntimeQuotas::from_env());
 
     hooks.handle_event(DaemonRunEvent::Startup { project_root: primary_root.clone(), daemon_pid })?;
 
@@ -136,6 +176,7 @@ where
 
     let workflow_event_broadcaster = WorkflowEventBroadcaster::new();
     install_workflow_event_emitter(BroadcastWorkflowEventEmitter::new(workflow_event_broadcaster.clone()));
+    install_workflow_event_broadcaster(workflow_event_broadcaster.clone());
 
     let control_server_handle =
         start_control_server_for_daemon(project_root, &primary_root, hooks, workflow_event_broadcaster.clone()).await;
@@ -275,6 +316,7 @@ where
     }
 
     clear_workflow_event_emitter();
+    clear_workflow_event_broadcaster();
 
     if stop_daemon_on_exit {
         let _ = hooks.stop_daemon(&primary_root).await;

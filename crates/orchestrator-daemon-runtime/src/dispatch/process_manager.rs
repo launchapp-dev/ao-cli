@@ -1,4 +1,6 @@
 use std::collections::HashSet;
+#[cfg(unix)]
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 
@@ -8,6 +10,10 @@ use protocol::SubjectDispatch;
 use tokio::process::{Child, Command};
 use tokio::task::JoinHandle;
 
+#[cfg(unix)]
+use crate::control::WorkflowEventBroadcaster;
+#[cfg(unix)]
+use crate::dispatch::event_pipe::SubprocessEventPipe;
 use crate::{build_runner_command, CompletedProcess, RunnerEvent};
 
 struct WorkflowProcess {
@@ -21,6 +27,11 @@ struct WorkflowProcess {
     child: Arc<Mutex<Child>>,
     stderr_lines: Arc<Mutex<Vec<String>>>,
     stderr_reader: Option<JoinHandle<()>>,
+    /// Per-spawn workflow_events back-channel. Dropped after the
+    /// subprocess is reaped so the socket file is cleaned up.
+    #[cfg(unix)]
+    #[allow(dead_code)]
+    event_pipe: Option<SubprocessEventPipe>,
 }
 
 pub struct ProcessManager {
@@ -28,6 +39,20 @@ pub struct ProcessManager {
     process_timeout_secs: Option<u64>,
     pub phase_routing: Option<protocol::PhaseRoutingConfig>,
     pub mcp_config: Option<protocol::McpRuntimeConfig>,
+    /// Broadcaster that subprocess back-channel readers forward into.
+    /// `None` means subprocess workflow_events fan-out is disabled and the
+    /// spawn path falls back to setting no env var (runner uses the noop
+    /// emitter). Wired by the daemon at startup via
+    /// [`Self::with_event_broadcaster`].
+    #[cfg(unix)]
+    event_broadcaster: Option<Arc<WorkflowEventBroadcaster>>,
+    /// Root directory under which per-spawn event-pipe socket files live.
+    #[cfg(unix)]
+    pipe_root: Option<PathBuf>,
+    /// Cap on the number of concurrently-running runner subprocesses. New
+    /// spawn requests beyond this point are rejected; the dispatcher then
+    /// leaves the entry in the ready queue for the next tick.
+    workflow_concurrency_max: Option<usize>,
 }
 
 impl Default for ProcessManager {
@@ -38,7 +63,43 @@ impl Default for ProcessManager {
 
 impl ProcessManager {
     pub fn new() -> Self {
-        Self { processes: Vec::new(), process_timeout_secs: None, phase_routing: None, mcp_config: None }
+        // Auto-pick up the daemon's workflow event broadcaster and the
+        // process-wide workflow concurrency cap when one has been
+        // installed by [`crate::run_daemon`]. CLI / one-shot processes
+        // that never started a daemon get `None` and the legacy
+        // unbounded behavior — preserving existing behavior for tests
+        // and `animus workflow run` foreground execution.
+        #[cfg(unix)]
+        let (event_broadcaster, pipe_root) = match crate::daemon::current_workflow_event_broadcaster() {
+            Some(bus) => {
+                let root = default_event_pipe_root();
+                (Some(bus), Some(root))
+            }
+            None => (None, None),
+        };
+        // The workflow concurrency cap only takes effect when the operator
+        // explicitly sets `ANIMUS_WORKFLOW_CONCURRENCY_MAX`. Falling back
+        // to `None` preserves the legacy unbounded behavior for
+        // deployments that rely on `pool_size` / external scheduling. We
+        // detect the explicit-set case by looking for the env var directly
+        // rather than comparing the RuntimeQuotas struct against its
+        // default — that comparison is brittle if other unrelated env
+        // overrides are set.
+        let workflow_concurrency_max = std::env::var("ANIMUS_WORKFLOW_CONCURRENCY_MAX")
+            .ok()
+            .and_then(|raw| raw.trim().parse::<usize>().ok())
+            .filter(|n| *n > 0);
+        Self {
+            processes: Vec::new(),
+            process_timeout_secs: None,
+            phase_routing: None,
+            mcp_config: None,
+            #[cfg(unix)]
+            event_broadcaster,
+            #[cfg(unix)]
+            pipe_root,
+            workflow_concurrency_max,
+        }
     }
 
     pub fn with_timeout(mut self, timeout_secs: Option<u64>) -> Self {
@@ -46,11 +107,50 @@ impl ProcessManager {
         self
     }
 
+    /// Wire the subprocess workflow_events back-channel into this
+    /// `ProcessManager`. Every spawn will allocate a per-run Unix
+    /// domain socket under `pipe_root` (created if missing), advertise it
+    /// to the runner via `ANIMUS_WORKFLOW_EVENT_PIPE`, and start a reader
+    /// task that forwards events into `broadcaster`.
+    #[cfg(unix)]
+    pub fn with_event_broadcaster(mut self, broadcaster: Arc<WorkflowEventBroadcaster>, pipe_root: PathBuf) -> Self {
+        self.event_broadcaster = Some(broadcaster);
+        self.pipe_root = Some(pipe_root);
+        self
+    }
+
+    /// Cap on the number of concurrently-running runner subprocesses.
+    /// `None` means unlimited (legacy default). Once the cap is reached,
+    /// [`Self::spawn_workflow_runner`] returns a recoverable error and
+    /// the caller leaves the entry in the dispatch queue for the next tick.
+    pub fn with_workflow_concurrency_max(mut self, max: Option<usize>) -> Self {
+        self.workflow_concurrency_max = max;
+        self
+    }
+
     pub fn spawn_workflow_runner(&mut self, dispatch: &SubjectDispatch, project_root: &str) -> Result<()> {
+        if let Some(cap) = self.workflow_concurrency_max {
+            if self.processes.len() >= cap {
+                anyhow::bail!(
+                    "workflow concurrency cap reached ({} active, max {}); leaving entry queued for next tick",
+                    self.processes.len(),
+                    cap
+                );
+            }
+        }
+
         let std_cmd =
             build_runner_command(dispatch, project_root, self.phase_routing.as_ref(), self.mcp_config.as_ref());
         let mut command = Command::from(std_cmd);
         command.stdout(Stdio::null()).stderr(Stdio::piped());
+
+        // Bind the subprocess workflow_events back-channel before fork so the
+        // env var we set on the child points to a listener that's already
+        // accepting. Best-effort: if bind fails (eg no Unix DS support in a
+        // sandbox) we still spawn without the back-channel and the runner
+        // falls back to its noop emitter.
+        #[cfg(unix)]
+        let event_pipe = self.bind_event_pipe_for(dispatch, &mut command);
 
         let mut child = command.spawn().context("failed to spawn ao-workflow-runner")?;
 
@@ -86,9 +186,51 @@ impl ProcessManager {
             child: Arc::new(Mutex::new(child)),
             stderr_lines,
             stderr_reader,
+            #[cfg(unix)]
+            event_pipe,
         });
 
         Ok(())
+    }
+
+    /// Bind a fresh per-spawn event pipe and attach the
+    /// `ANIMUS_WORKFLOW_EVENT_PIPE` env var to `command` so the runner can
+    /// connect. Returns `None` when the back-channel isn't configured on
+    /// this `ProcessManager` (eg tests, or daemons that opted out) or when
+    /// `bind` fails on the host filesystem. Failure is best-effort: we
+    /// proceed with the spawn so the workflow still runs; only the
+    /// fan-out is silently disabled for that run.
+    #[cfg(unix)]
+    fn bind_event_pipe_for(&self, dispatch: &SubjectDispatch, command: &mut Command) -> Option<SubprocessEventPipe> {
+        let broadcaster = self.event_broadcaster.as_ref()?.clone();
+        let pipe_root = self.pipe_root.as_ref()?.clone();
+        let subject_label = dispatch.subject_id().to_string();
+        // Bind the listener on the same Tokio runtime the daemon is running
+        // on. We need a synchronous-looking result so we use a oneshot
+        // channel and block on its receiver — this only blocks for as long
+        // as `bind` itself takes (a couple of syscalls).
+        let handle = tokio::runtime::Handle::try_current().ok()?;
+        let (tx, rx) = std::sync::mpsc::channel();
+        handle.spawn(async move {
+            let result = SubprocessEventPipe::bind(&pipe_root, &subject_label, broadcaster).await;
+            let _ = tx.send(result);
+        });
+        let pipe = match rx.recv() {
+            Ok(Ok(pipe)) => Some(pipe),
+            Ok(Err(error)) => {
+                tracing::warn!(
+                    target: "animus.runtime.event_pipe",
+                    %error,
+                    "failed to bind workflow event pipe; subprocess events will be dropped"
+                );
+                None
+            }
+            Err(_) => None,
+        };
+        if let Some(ref pipe) = pipe {
+            command.env(SubprocessEventPipe::env_var(), pipe.socket_path());
+        }
+        pipe
     }
 
     pub async fn check_running(&mut self) -> Vec<CompletedProcess> {
@@ -207,6 +349,15 @@ impl ProcessManager {
     }
 }
 
+/// Default per-process directory for per-run event-pipe socket files.
+/// Picked under `$TMPDIR/animus-event-pipes/<pid>/` so the path stays well
+/// under SUN_LEN on macOS / Linux even when the project root is deep, and
+/// so concurrent daemons can't collide on file names.
+#[cfg(unix)]
+fn default_event_pipe_root() -> std::path::PathBuf {
+    std::env::temp_dir().join("animus-event-pipes").join(std::process::id().to_string())
+}
+
 async fn drain_stderr_reader(handle: &mut Option<JoinHandle<()>>) {
     if let Some(h) = handle.take() {
         let _ = tokio::time::timeout(std::time::Duration::from_secs(2), h).await;
@@ -315,6 +466,62 @@ mod tests {
             .expect("mock runner should be spawned via explicit workflow runner override");
         assert_eq!(manager.active_count(), 1);
         let _ = manager.check_running().await;
+    }
+
+    #[tokio::test]
+    async fn workflow_concurrency_queues_when_at_cap() {
+        // v0.4.13: ProcessManager with `with_workflow_concurrency_max(2)`
+        // accepts the first two spawns and refuses the third with a
+        // recoverable error so the dispatcher leaves the third entry in
+        // the ready queue for the next tick.
+        let _lock = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        let temp_dir = TempDir::new().expect("temp directory should be created");
+        let runner_path = temp_dir.path().join("ao-workflow-runner");
+        // A runner that sleeps long enough that the first two stay active
+        // while we attempt the third spawn.
+        #[cfg(unix)]
+        let runner_payload = "#!/bin/sh\nsleep 5\nexit 0\n";
+        #[cfg(not(unix))]
+        let runner_payload = "@echo off\r\ntimeout 5\r\nexit /B 0\r\n";
+        fs::write(&runner_path, runner_payload).expect("mock runner should be written");
+        #[cfg(unix)]
+        {
+            let mut permissions =
+                fs::metadata(&runner_path).expect("mock runner metadata should be available").permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&runner_path, permissions).expect("mock runner should be executable");
+        }
+        let runner_override = runner_path.to_string_lossy();
+        let _runner_guard = EnvVarGuard::set("ANIMUS_WORKFLOW_RUNNER_BIN", Some(runner_override.as_ref()));
+
+        let mut manager = ProcessManager::new().with_workflow_concurrency_max(Some(2));
+        let project_root = temp_dir.path().to_string_lossy().to_string();
+
+        let d1 = SubjectDispatch::for_task("task-1", "standard");
+        let d2 = SubjectDispatch::for_task("task-2", "standard");
+        let d3 = SubjectDispatch::for_task("task-3", "standard");
+
+        manager.spawn_workflow_runner(&d1, &project_root).expect("spawn 1 should succeed (under cap)");
+        manager.spawn_workflow_runner(&d2, &project_root).expect("spawn 2 should succeed (at cap)");
+        assert_eq!(manager.active_count(), 2);
+
+        let third = manager.spawn_workflow_runner(&d3, &project_root);
+        assert!(third.is_err(), "spawn 3 must be refused when at concurrency cap");
+        let err = third.unwrap_err().to_string();
+        assert!(err.contains("workflow concurrency cap reached"), "error must explain the cap; got: {err}");
+        // The dispatcher's contract: refused entries stay in the queue.
+        // We assert active count is still 2 (the third was not silently
+        // accepted then dropped).
+        assert_eq!(manager.active_count(), 2);
+
+        // Drain so the test exits cleanly.
+        for _ in 0..200 {
+            if manager.check_running().await.len() == 2 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
     }
 
     #[test]

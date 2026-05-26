@@ -50,7 +50,7 @@ pub use phase_targets::PhaseTargetPlanner;
 pub use runtime_support::*;
 pub use workflow_event_emitter::{
     NoopWorkflowEventEmitter, RuntimeWorkflowEvent, RuntimeWorkflowEventKind, SharedWorkflowEventEmitter,
-    WorkflowEventEmitter,
+    SubprocessPipeEmitter, WireWorkflowEvent, WorkflowEventEmitter, ANIMUS_WORKFLOW_EVENT_PIPE_ENV,
 };
 pub use workflow_execute::{execute_workflow, PhaseEvent, WorkflowExecuteParams, WorkflowExecuteResult};
 pub use workflow_helpers::{

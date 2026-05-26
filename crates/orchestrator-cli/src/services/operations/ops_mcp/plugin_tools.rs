@@ -287,6 +287,7 @@ impl AoMcpServer {
             // silently rather than blocking on a TTY prompt. The TOFU record
             // still lands in trusted-orgs.yaml after a successful install.
             yes: true,
+            project_root: None,
         })
         .await
         .map_err(anyhow_to_mcp)?;
@@ -309,7 +310,8 @@ impl AoMcpServer {
     )]
     async fn ao_plugin_uninstall(&self, params: Parameters<PluginUninstallInput>) -> Result<CallToolResult, McpError> {
         let PluginUninstallInput { name, plugin_dir } = params.0;
-        let output = run_plugin_uninstall(PluginUninstallRequest { name, plugin_dir }).map_err(anyhow_to_mcp)?;
+        let output = run_plugin_uninstall(PluginUninstallRequest { name, plugin_dir, project_root: None })
+            .map_err(anyhow_to_mcp)?;
         // Drop the cached plugin registry so subsequent calls re-discover the
         // current set of installed plugins.
         {

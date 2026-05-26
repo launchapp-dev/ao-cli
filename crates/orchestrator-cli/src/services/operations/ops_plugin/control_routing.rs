@@ -150,6 +150,7 @@ impl PluginRouting for PluginRoutingImpl {
             allow_shadow_builtin: false,
             allow_org: Vec::new(),
             yes: request.yes,
+            project_root: Some(self.project_root_str()),
         };
         let output = run_plugin_install(install_req).await.map_err(internal)?;
         let plugin_kind = output.manifest.as_ref().map(|m| m.plugin_kind.clone()).unwrap_or_default();
@@ -176,8 +177,12 @@ impl PluginRouting for PluginRoutingImpl {
     }
 
     async fn plugin_uninstall(&self, request: WireUninstallRequest) -> Result<Unit, ControlError> {
-        super::run_plugin_uninstall(super::PluginUninstallRequest { name: request.name, plugin_dir: None })
-            .map_err(internal)?;
+        super::run_plugin_uninstall(super::PluginUninstallRequest {
+            name: request.name,
+            plugin_dir: None,
+            project_root: Some(self.project_root_str()),
+        })
+        .map_err(internal)?;
         Ok(Unit::default())
     }
 

@@ -5,6 +5,7 @@ use orchestrator_core::WorkflowStatus;
 use orchestrator_logging::{init_workflow_tracing, Logger};
 use serde::Serialize;
 
+use workflow_runner_v2::workflow_event_emitter::{SharedWorkflowEventEmitter, SubprocessPipeEmitter};
 use workflow_runner_v2::workflow_execute::{execute_workflow, PhaseEvent, WorkflowExecuteParams};
 
 #[derive(Parser)]
@@ -181,7 +182,7 @@ async fn run_execute(args: WorkflowExecuteArgs) -> anyhow::Result<u8> {
         hub: None,
         phase_routing,
         mcp_config,
-        workflow_event_emitter: None,
+        workflow_event_emitter: SubprocessPipeEmitter::from_env().map(|emitter| emitter as SharedWorkflowEventEmitter),
     };
 
     {

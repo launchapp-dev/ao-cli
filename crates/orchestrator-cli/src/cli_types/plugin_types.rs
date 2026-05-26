@@ -31,6 +31,43 @@ pub(crate) enum PluginCommand {
     /// (claude, codex, gemini, opencode, oai). Skips plugins that are already
     /// installed. Optional flags pull in additional default plugins.
     InstallDefaults(PluginInstallDefaultsArgs),
+    /// Inspect and verify the plugin lockfile (`.animus/plugins.lock`).
+    /// The lockfile records sha256 + version for every installed plugin so an
+    /// `install --force` or tampered-binary scenario is visible to operators.
+    #[command(subcommand)]
+    Lock(PluginLockCommand),
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum PluginLockCommand {
+    /// List every entry currently recorded in the plugin lockfile.
+    List(PluginLockListArgs),
+    /// Re-hash every installed plugin binary and report mismatches against the lockfile.
+    Verify(PluginLockVerifyArgs),
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct PluginLockListArgs {
+    /// Override the lockfile path. Defaults to `<project>/.animus/plugins.lock`
+    /// when set, otherwise `~/.animus/plugins.lock`.
+    #[arg(long, value_name = "PATH")]
+    pub(crate) lockfile: Option<PathBuf>,
+    /// Emit results as JSON.
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct PluginLockVerifyArgs {
+    /// Override the lockfile path.
+    #[arg(long, value_name = "PATH")]
+    pub(crate) lockfile: Option<PathBuf>,
+    /// Override the plugin install directory.
+    #[arg(long, value_name = "PATH")]
+    pub(crate) plugin_dir: Option<String>,
+    /// Emit results as JSON.
+    #[arg(long, default_value_t = false)]
+    pub(crate) json: bool,
 }
 
 /// Default URL for the public Animus plugin registry index.

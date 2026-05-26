@@ -26,6 +26,42 @@ use workflow_runner_v2::workflow_event_emitter::{RuntimeWorkflowEvent, WorkflowE
 
 const DEFAULT_SUBSCRIBER_BUFFER: usize = 256;
 
+/// Representative average serialized event size in bytes. Used together
+/// with [`crate::quotas::RuntimeQuotas::subscriber_memory_max_mb`] to
+/// derive a slot count for subscriber buffers. Set conservatively — most
+/// phase-lifecycle events serialize to a few hundred bytes once the
+/// payload has been wrapped in protocol envelope, but a phase_completed
+/// frame carrying an extended decision blob can run several KB. 4 KB per
+/// slot keeps the count predictable while leaving headroom for the
+/// occasional fat event.
+pub(crate) const SUBSCRIBER_EVENT_SIZE_BYTES: usize = 4 * 1024;
+
+/// Translate a memory budget in megabytes into a maximum slot count for
+/// the per-subscriber mpsc channel. Always returns at least 1 so a
+/// pathologically small env-override can't break the broadcaster outright.
+pub fn subscriber_slot_count_from_memory_mb(memory_mb: usize) -> usize {
+    let bytes = memory_mb.saturating_mul(1024 * 1024);
+    let slots = bytes / SUBSCRIBER_EVENT_SIZE_BYTES;
+    slots.max(1)
+}
+
+/// Terminal reason the broadcaster emits via `subscription/closed` when
+/// the per-subscriber memory cap is exceeded. The wire string is part of
+/// the public protocol contract observers depend on, so changing it is
+/// a breaking change.
+pub const REASON_BUFFER_FULL_LAGGED: &str = "buffer_full_lagged";
+
+/// Resolve the subscriber buffer slot count from the process-wide
+/// [`crate::quotas::RuntimeQuotas`]. Falls back to
+/// [`DEFAULT_SUBSCRIBER_BUFFER`] when the derived slot count is smaller
+/// than the historical default — the cap is meant to protect against
+/// runaway memory, not to make small fan-outs less responsive.
+fn subscriber_buffer_from_quotas() -> usize {
+    let memory_mb = crate::quotas::runtime_quotas().subscriber_memory_max_mb;
+    let derived = subscriber_slot_count_from_memory_mb(memory_mb);
+    derived.max(DEFAULT_SUBSCRIBER_BUFFER)
+}
+
 /// Workflow kinds whose arrival implicitly closes any subscription
 /// filtered to that specific workflow id. The terminal `subscription/closed`
 /// notification fires *after* the matching event is delivered so clients
@@ -77,6 +113,12 @@ struct SubscriberSlot {
     id: SubscriptionId,
     sender: mpsc::Sender<SubscriberItem>,
     filter: WorkflowEventFilter,
+    /// User-visible buffer cap (the number the caller passed to
+    /// [`WorkflowEventBroadcaster::subscribe_with_buffer`]). The actual
+    /// channel capacity is `user_buffer + 1` so the terminal `Closed`
+    /// frame always has room; the broadcaster treats `>= user_buffer`
+    /// in-flight events as full.
+    user_buffer: usize,
 }
 
 /// Fan-out hub for `workflow/events`.
@@ -106,7 +148,8 @@ impl WorkflowEventBroadcaster {
         self: &Arc<Self>,
         filter: WorkflowEventFilter,
     ) -> (SubscriptionId, mpsc::Receiver<SubscriberItem>) {
-        self.subscribe_with_buffer(filter, DEFAULT_SUBSCRIBER_BUFFER)
+        let buffer = subscriber_buffer_from_quotas();
+        self.subscribe_with_buffer(filter, buffer)
     }
 
     pub fn subscribe_with_buffer(
@@ -115,9 +158,15 @@ impl WorkflowEventBroadcaster {
         buffer: usize,
     ) -> (SubscriptionId, mpsc::Receiver<SubscriberItem>) {
         let id = SubscriptionId(self.next_id.fetch_add(1, Ordering::Relaxed));
-        let (tx, rx) = mpsc::channel(buffer.max(1));
+        // Allocate `buffer + 1` slots so the terminal `Closed` frame can
+        // always be enqueued, even when the user-visible buffer is
+        // saturated. The broadcaster treats `remaining_capacity == 1` as
+        // full when sending events so that the spare slot is reserved
+        // exclusively for the terminal frame.
+        let user_buffer = buffer.max(1);
+        let (tx, rx) = mpsc::channel(user_buffer.saturating_add(1));
         let mut guard = self.subscribers.lock().expect("workflow event subscribers mutex poisoned");
-        guard.push(SubscriberSlot { id, sender: tx, filter });
+        guard.push(SubscriberSlot { id, sender: tx, filter, user_buffer });
         (id, rx)
     }
 
@@ -181,11 +230,35 @@ impl WorkflowEventBroadcaster {
         let mut delivered = 0usize;
         let mut closed_ids: Vec<SubscriptionId> = Vec::new();
         let mut terminal_ids: Vec<SubscriptionId> = Vec::new();
+        // Subscribers whose buffer was full at try_send time. They are
+        // terminated with `subscription/closed` reason=buffer_full_lagged
+        // *after* the per-event loop so we don't mutate the subscriber list
+        // while holding the read borrow.
+        let mut lagged_ids: Vec<SubscriptionId> = Vec::new();
         let is_terminal = TERMINAL_WORKFLOW_KINDS.contains(&event.kind.as_str());
         {
             let guard = self.subscribers.lock().expect("workflow event subscribers mutex poisoned");
             for slot in guard.iter() {
                 if !slot.filter.matches(&event) {
+                    continue;
+                }
+                // Reserve one slot in the underlying channel for the
+                // terminal `Closed` frame. The "user buffer" we promise
+                // callers is `user_buffer`; the actual channel capacity is
+                // `user_buffer + 1`. Once `sender.capacity()` drops to 1,
+                // there's no room for another Event without consuming the
+                // reserved Closed slot.
+                let remaining = slot.sender.capacity();
+                if remaining <= 1 {
+                    tracing::warn!(
+                        target: "animus.control.workflow_events",
+                        subscription_id = slot.id.0,
+                        workflow_id = %event.workflow_id,
+                        kind = %event.kind,
+                        user_buffer = slot.user_buffer,
+                        "workflow event subscriber buffer full; terminating subscription with buffer_full_lagged"
+                    );
+                    lagged_ids.push(slot.id);
                     continue;
                 }
                 match slot.sender.try_send(SubscriberItem::Event(event.clone())) {
@@ -200,13 +273,9 @@ impl WorkflowEventBroadcaster {
                         }
                     }
                     Err(mpsc::error::TrySendError::Full(_)) => {
-                        tracing::warn!(
-                            target: "animus.control.workflow_events",
-                            subscription_id = slot.id.0,
-                            workflow_id = %event.workflow_id,
-                            kind = %event.kind,
-                            "workflow event dropped: subscriber buffer full"
-                        );
+                        // Should not happen given the capacity guard above
+                        // (we leave one slot for Closed). Defensive fallback.
+                        lagged_ids.push(slot.id);
                     }
                     Err(mpsc::error::TrySendError::Closed(_)) => {
                         closed_ids.push(slot.id);
@@ -217,6 +286,9 @@ impl WorkflowEventBroadcaster {
         if !closed_ids.is_empty() {
             let mut guard = self.subscribers.lock().expect("workflow event subscribers mutex poisoned");
             guard.retain(|s| !closed_ids.contains(&s.id));
+        }
+        for sub_id in lagged_ids {
+            self.close_subscription(sub_id, REASON_BUFFER_FULL_LAGGED);
         }
         for sub_id in terminal_ids {
             self.close_subscription(sub_id, format!("workflow {} ended ({})", event.workflow_id, event.kind));
@@ -320,22 +392,40 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn broadcaster_drops_when_subscriber_buffer_full() {
+    async fn subscriber_buffer_terminates_with_closed_when_full() {
+        // v0.4.13: when a subscriber's buffer is full we terminate that
+        // subscription with `subscription/closed` reason=buffer_full_lagged
+        // instead of silently dropping the event. The previously-delivered
+        // events stay readable on the receiver, then the Closed frame
+        // arrives as the terminal item before the stream ends.
         let bus = WorkflowEventBroadcaster::new();
         let (_id, mut rx) = bus.subscribe_with_buffer(WorkflowEventFilter::default(), 2);
+        assert_eq!(bus.subscriber_count(), 1);
 
         let delivered_first = bus.emit(evt("wf-1", "phase_started"));
         let delivered_second = bus.emit(evt("wf-1", "phase_completed"));
-        let delivered_third = bus.emit(evt("wf-1", "workflow_completed"));
+        let delivered_third = bus.emit(evt("wf-1", "phase_started"));
 
         assert_eq!(delivered_first, 1);
         assert_eq!(delivered_second, 1);
-        assert_eq!(delivered_third, 0, "third emit must be dropped (buffer full)");
+        assert_eq!(delivered_third, 0, "third emit must NOT be counted as delivered (buffer was full)");
+        assert_eq!(bus.subscriber_count(), 0, "lagged subscriber must be terminated, not retained");
 
         let a = unwrap_event(rx.recv().await.unwrap());
         let b = unwrap_event(rx.recv().await.unwrap());
         assert_eq!(a.kind, "phase_started");
         assert_eq!(b.kind, "phase_completed");
+
+        // After draining the prior frames we must see the terminal Closed
+        // frame with the buffer_full_lagged reason — the wire contract
+        // operators rely on.
+        match rx.recv().await.expect("Closed frame must arrive") {
+            SubscriberItem::Closed { reason } => {
+                assert_eq!(reason, REASON_BUFFER_FULL_LAGGED);
+            }
+            SubscriberItem::Event(e) => panic!("expected Closed, got Event({})", e.kind),
+        }
+        assert!(rx.recv().await.is_none(), "channel must end after Closed frame");
     }
 
     #[tokio::test]

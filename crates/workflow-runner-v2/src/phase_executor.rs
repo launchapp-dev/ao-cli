@@ -1656,6 +1656,11 @@ fn load_manual_phase_markers(path: &Path) -> BTreeMap<String, bool> {
     serde_json::from_str::<BTreeMap<String, bool>>(&content).unwrap_or_default()
 }
 
+// Manual phase markers gate the "phase needs human attention" notification:
+// losing one after a crash would re-emit the same notification, while
+// double-writing one would silence a needed alert. Either failure mode is
+// user-visible, so durability matters — write through the shared fsync
+// helper that sync_all's the data and then fsync's the parent directory.
 fn write_manual_phase_markers(path: &Path, markers: &BTreeMap<String, bool>) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -1666,8 +1671,13 @@ fn write_manual_phase_markers(path: &Path, markers: &BTreeMap<String, bool>) -> 
         path.file_name().and_then(|value| value.to_str()).unwrap_or("manual-phase-markers"),
         Uuid::new_v4()
     ));
-    std::fs::write(&tmp_path, payload)?;
-    std::fs::rename(&tmp_path, path)?;
+    {
+        use std::io::Write;
+        let mut file = std::fs::File::create(&tmp_path)?;
+        file.write_all(payload.as_bytes())?;
+        file.sync_all()?;
+    }
+    orchestrator_store::fsync_rename(&tmp_path, path)?;
     Ok(())
 }
 

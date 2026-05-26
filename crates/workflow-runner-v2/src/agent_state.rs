@@ -78,6 +78,10 @@ where
     serde_json::from_str(&raw).with_context(|| format!("failed to parse {}", path.display()))
 }
 
+// Agent memory writes use the same durable pattern as session checkpoints:
+// fsync the staged tempfile, atomic rename, then fsync the parent dir so
+// the rename survives power loss. See `orchestrator_store::fsync_rename`
+// for the macOS F_FULLFSYNC caveat.
 fn write_json_atomic<T>(path: &Path, value: &T) -> Result<()>
 where
     T: Serialize,
@@ -91,8 +95,15 @@ where
         path.file_name().and_then(|name| name.to_str()).unwrap_or("agent-state"),
         Uuid::new_v4()
     ));
-    std::fs::write(&tmp_path, payload).with_context(|| format!("failed to write {}", tmp_path.display()))?;
-    std::fs::rename(&tmp_path, path).with_context(|| format!("failed to replace {}", path.display()))?;
+    {
+        use std::io::Write;
+        let mut file =
+            std::fs::File::create(&tmp_path).with_context(|| format!("failed to create {}", tmp_path.display()))?;
+        file.write_all(payload.as_bytes()).with_context(|| format!("failed to write {}", tmp_path.display()))?;
+        file.sync_all().with_context(|| format!("failed to fsync {}", tmp_path.display()))?;
+    }
+    orchestrator_store::fsync_rename(&tmp_path, path)
+        .with_context(|| format!("failed to durably rename {} -> {}", tmp_path.display(), path.display()))?;
     Ok(())
 }
 

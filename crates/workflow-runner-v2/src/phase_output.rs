@@ -45,9 +45,18 @@ pub fn write_phase_completion_marker(
         use std::io::Write;
         let mut file = std::fs::File::create(&tmp_path)?;
         file.write_all(&payload)?;
+        // sync_all() pushes data + metadata to disk. On macOS, std calls
+        // F_FULLFSYNC since Rust 1.79 so the bytes reach platter, not
+        // just drive cache. On Linux, this is fsync(2).
         file.sync_all()?;
     }
-    std::fs::rename(&tmp_path, &final_path)?;
+    // fsync the parent directory after rename so the rename itself is
+    // durable across power loss: without it, the dir entry change can
+    // sit in the dir cache and disappear after a kernel panic / outage
+    // even though the data file is fully on disk. ~5-50ms on SSD —
+    // negligible vs. the cost of replaying a completed phase or, worse,
+    // double-running one.
+    orchestrator_store::fsync_rename(&tmp_path, &final_path)?;
     Ok(())
 }
 
@@ -195,9 +204,18 @@ pub fn persist_phase_output(
         use std::io::Write;
         let mut file = std::fs::File::create(&tmp_path)?;
         file.write_all(payload.as_bytes())?;
+        // Force data + metadata to stable storage before the rename so a
+        // crash can never reveal a half-written phase output to the
+        // recovery path. macOS uses F_FULLFSYNC (Rust 1.79+) which
+        // forces the drive write cache to flush — plain POSIX fsync on
+        // macOS only schedules the flush.
         file.sync_all()?;
     }
-    std::fs::rename(&tmp_path, &file_path)?;
+    // fsync_rename: rename then fsync the parent dir so the dir entry
+    // change is durable across power loss. Without this the recovery
+    // logic could find a completion marker without the sibling
+    // <phase>.json (or vice versa) after a kernel panic.
+    orchestrator_store::fsync_rename(&tmp_path, &file_path)?;
     write_phase_completion_marker(project_root, workflow_id, phase_id, attempt)?;
     Ok(())
 }

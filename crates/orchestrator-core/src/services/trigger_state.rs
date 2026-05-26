@@ -68,14 +68,19 @@ pub fn load_trigger_state(project_root: &Path) -> Result<TriggerState> {
     serde_json::from_str(&raw).with_context(|| format!("failed to parse trigger state JSON from {}", path.display()))
 }
 
+// Trigger state holds the pending webhook event queue plus rate-limit
+// windows. After a power-loss we want pending events to survive (so the
+// next daemon tick can dispatch them) and we want the dispatch_count to
+// stay monotone (so dedupe logic stays sane). Route through the durable
+// helper which fsyncs the data file and the parent directory.
 pub fn save_trigger_state(project_root: &Path, state: &TriggerState) -> Result<()> {
     let path = trigger_state_path(project_root);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("failed to create trigger state directory {}", parent.display()))?;
     }
-    let payload = serde_json::to_string_pretty(state)?;
-    std::fs::write(&path, payload).with_context(|| format!("failed to write trigger state to {}", path.display()))
+    orchestrator_store::write_json_pretty(&path, state)
+        .with_context(|| format!("failed to write trigger state to {}", path.display()))
 }
 
 #[cfg(test)]

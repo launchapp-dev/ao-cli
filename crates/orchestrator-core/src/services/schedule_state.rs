@@ -39,14 +39,19 @@ pub fn load_schedule_state(project_root: &Path) -> Result<ScheduleState> {
     serde_json::from_str(&raw).with_context(|| format!("failed to parse schedule state JSON from {}", path.display()))
 }
 
+// Schedule state drives cron-style trigger dispatch — losing the last_run
+// timestamp after a power-loss would replay schedules and double-fire
+// pipelines. Route through the durable write helper which sync_all's the
+// data file and then fsync's the parent directory so the rename itself is
+// crash-safe.
 pub fn save_schedule_state(project_root: &Path, state: &ScheduleState) -> Result<()> {
     let path = schedule_state_path(project_root);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("failed to create schedule state directory {}", parent.display()))?;
     }
-    let payload = serde_json::to_string_pretty(state)?;
-    std::fs::write(&path, payload).with_context(|| format!("failed to write schedule state to {}", path.display()))
+    orchestrator_store::write_json_pretty(&path, state)
+        .with_context(|| format!("failed to write schedule state to {}", path.display()))
 }
 
 #[cfg(test)]

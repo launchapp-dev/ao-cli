@@ -40,9 +40,9 @@ pub const DEFAULT_SUBJECT_PLUGINS: &[(&str, &str)] = &[
 
 /// Transport + web UI plugins installed by `--include-transports`.
 pub const DEFAULT_TRANSPORT_PLUGINS: &[(&str, &str)] = &[
-    ("launchapp-dev/animus-transport-http", "v0.2.0"),
+    ("launchapp-dev/animus-transport-http", "v0.2.1"),
     ("launchapp-dev/animus-transport-graphql", "v0.2.3"),
-    ("launchapp-dev/animus-web-ui", "v0.1.0"),
+    ("launchapp-dev/animus-web-ui", "v0.1.1"),
 ];
 
 /// Format a registry entry into the `owner/repo@tag` spec accepted by

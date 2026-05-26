@@ -28,7 +28,9 @@ use std::time::SystemTime;
 use super::canonicalize_lossy;
 use super::daemon_run_host::DefaultDaemonRunHost;
 use super::daemon_scheduler::{runtime_options_from_cli, slim_project_tick_driver, SlimProjectTickDriver};
-use orchestrator_session_host::{discover_provider_plugins, PluginSessionBackend, ResumeAgentOutcome};
+use orchestrator_session_host::{
+    canonical_tool_alias, discover_provider_plugins, PluginSessionBackend, ResumeAgentOutcome,
+};
 use std::collections::HashMap;
 use std::path::Path;
 use workflow_runner_v2::persist_resumed_phase_completion;
@@ -165,10 +167,33 @@ impl ProductionResumeProviderRegistry {
     }
 }
 
+// Pure resume-lookup helper, factored out for testability. Returns the
+// canonicalized provider key actually used to look up the resume backend.
+// Mirrors the alias normalization done by the normal `SessionBackendResolver`
+// so historical `checkpoint.provider = "oai-runner"` (or `"animus-oai-runner"`)
+// still finds the installed plugin registered under `provider_tool = "oai"`.
+// `provider_keys` is a string-only stand-in for the real `providers` map keys
+// so tests can exercise the lookup without standing up a `PluginSessionBackend`.
+fn resolve_resume_provider_key(provider_keys: &[String], checkpoint_provider: &str) -> Option<String> {
+    let canonical = canonical_tool_alias(checkpoint_provider);
+    provider_keys.iter().find(|k| **k == canonical).cloned()
+}
+
 #[async_trait::async_trait(?Send)]
 impl ResumeProviderRegistry for ProductionResumeProviderRegistry {
     async fn try_resume(&self, checkpoint: &SessionCheckpoint) -> ResumeLookup {
-        let Some(backend) = self.providers.get(&checkpoint.provider.to_ascii_lowercase()).cloned() else {
+        // Codex round 8 P2 #2: historical workflows wrote
+        // `checkpoint.provider = "oai-runner"` (or `"animus-oai-runner"`),
+        // but the installed first-party plugin registers under
+        // `provider_tool = "oai"`. The normal session resolver
+        // canonicalizes aliases before lookup (see
+        // `orchestrator_session_host::canonical_tool_alias` and
+        // `SessionBackendResolver::resolve`); restart-resume must mirror
+        // that or it mis-classifies an installed plugin as
+        // `NotInstalled` and blocks the checkpoint with a misleading
+        // reinstall hint.
+        let canonical = canonical_tool_alias(&checkpoint.provider);
+        let Some(backend) = self.providers.get(&canonical).cloned() else {
             return ResumeLookup::NotInstalled;
         };
         let Some(session_id) = checkpoint.provider_session_id.as_deref().map(str::trim).filter(|s| !s.is_empty())
@@ -1603,6 +1628,71 @@ mod tests {
             let report = auto_resume_running_checkpoints(scoped, &registry, &applier).await;
             assert_eq!(report.resumed, 1, "AlreadyAdvanced still counts as a successful resume recovery");
             assert_eq!(report.blocked_on_failure, 0);
+        }
+
+        // Codex round 8 P2 #2: historical workflows wrote
+        // `checkpoint.provider = "oai-runner"` (or `"animus-oai-runner"`),
+        // but the installed first-party plugin registers under
+        // `provider_tool = "oai"`. The restart-resume lookup must
+        // canonicalize the alias before the map lookup; otherwise
+        // restart-recovery mis-classifies a present plugin as
+        // `NotInstalled` and shoves the checkpoint into Blocked with a
+        // reinstall hint that wouldn't help.
+        #[test]
+        fn restart_resume_finds_oai_plugin_via_canonical_alias_when_checkpoint_says_oai_runner() {
+            use super::super::resolve_resume_provider_key;
+            let providers = vec!["oai".to_string()];
+            assert_eq!(
+                resolve_resume_provider_key(&providers, "oai-runner").as_deref(),
+                Some("oai"),
+                "checkpoint provider 'oai-runner' must canonicalize to installed key 'oai'"
+            );
+        }
+
+        #[test]
+        fn restart_resume_finds_oai_plugin_when_checkpoint_says_animus_oai_runner() {
+            use super::super::resolve_resume_provider_key;
+            let providers = vec!["oai".to_string()];
+            assert_eq!(
+                resolve_resume_provider_key(&providers, "animus-oai-runner").as_deref(),
+                Some("oai"),
+                "checkpoint provider 'animus-oai-runner' must canonicalize to installed key 'oai'"
+            );
+        }
+
+        #[test]
+        fn restart_resume_canonical_alias_lookup_returns_none_when_plugin_absent() {
+            use super::super::resolve_resume_provider_key;
+            // No oai-family plugin installed at all: must classify as
+            // NotInstalled even after canonicalization, so the production
+            // code falls through to the Blocked/uninstalled branch.
+            let providers = vec!["claude".to_string(), "gemini".to_string()];
+            assert!(resolve_resume_provider_key(&providers, "oai-runner").is_none());
+            assert!(resolve_resume_provider_key(&providers, "animus-oai-runner").is_none());
+            assert!(resolve_resume_provider_key(&providers, "oai").is_none());
+        }
+
+        #[test]
+        fn restart_resume_canonical_alias_lookup_is_case_insensitive() {
+            use super::super::resolve_resume_provider_key;
+            let providers = vec!["oai".to_string()];
+            // Mirror the resolver: canonicalization lowercases the input
+            // before comparing, so uppercase aliases must still match.
+            assert_eq!(resolve_resume_provider_key(&providers, "OAI-RUNNER").as_deref(), Some("oai"));
+            assert_eq!(resolve_resume_provider_key(&providers, "Animus-OAI-Runner").as_deref(), Some("oai"));
+        }
+
+        #[test]
+        fn restart_resume_canonical_alias_passes_through_non_aliased_providers() {
+            use super::super::resolve_resume_provider_key;
+            // Regression guard: non-aliased tools (claude, codex, gemini, ...)
+            // must still lookup against their literal lowercase key after
+            // canonicalization. Don't accidentally remap them through the
+            // oai-runner branch.
+            let providers = vec!["claude".to_string(), "codex".to_string(), "gemini".to_string()];
+            assert_eq!(resolve_resume_provider_key(&providers, "claude").as_deref(), Some("claude"));
+            assert_eq!(resolve_resume_provider_key(&providers, "Codex").as_deref(), Some("codex"));
+            assert_eq!(resolve_resume_provider_key(&providers, "GEMINI").as_deref(), Some("gemini"));
         }
     }
 

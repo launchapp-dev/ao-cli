@@ -35,7 +35,7 @@ pub fn is_reserved_provider_tool(tool: &str) -> bool {
 /// `animus-provider-` prefix). Normalize legacy aliases to the canonical
 /// plugin tool name before lookup so existing workflows keep resolving the
 /// first-party plugin without YAML rewrites.
-fn canonical_tool_alias(tool: &str) -> String {
+pub fn canonical_tool_alias(tool: &str) -> String {
     let lower = tool.trim().to_ascii_lowercase();
     match lower.as_str() {
         "oai-runner" | "animus-oai-runner" => "oai".to_string(),

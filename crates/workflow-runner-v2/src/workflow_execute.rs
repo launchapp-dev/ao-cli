@@ -24,7 +24,9 @@ use orchestrator_core::{
 
 use crate::ensure_execution_cwd::ensure_execution_cwd;
 use crate::phase_executor::{run_workflow_phase, PhaseExecuteOverrides, PhaseExecutionOutcome, PhaseRunParams};
-use crate::phase_output::{is_phase_completed, persist_phase_output, read_persisted_decision};
+use crate::phase_output::{
+    is_phase_completed, persist_phase_output, phase_output_dir, read_persisted_decision, PersistedPhaseOutput,
+};
 use crate::workflow_event_emitter::{RuntimeWorkflowEvent, RuntimeWorkflowEventKind, SharedWorkflowEventEmitter};
 
 pub enum PhaseEvent<'a> {
@@ -309,13 +311,17 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
                 }
 
                 let phase_status = phase_result_status(&result.outcome);
-                let _ = persist_phase_output(
+                // Codex round 8 P2 #1: `--phase` runs persist JSON output
+                // for inspection but MUST NOT write the recovery marker, or
+                // the next full workflow run will skip this phase thinking
+                // crash-recovery already completed it.
+                let _ = persist_phase_output_without_marker(
                     &params.project_root,
                     &workflow.id,
                     &phase_filter,
-                    phase_attempt,
                     &result.outcome,
                 );
+                let _ = phase_attempt; // unused without marker write
                 emit(PhaseEvent::Completed {
                     phase_id: &phase_filter,
                     duration: phase_elapsed,
@@ -849,6 +855,68 @@ fn phase_result_status(outcome: &PhaseExecutionOutcome) -> &'static str {
         PhaseExecutionOutcome::Completed { phase_decision: None, .. } => "completed",
         PhaseExecutionOutcome::ManualPending { .. } => "manual_pending",
     }
+}
+
+// Codex round 8 P2 #1: single-phase (`--phase` filter) write path. Persists
+// the phase JSON output for inspection but deliberately does NOT write the
+// `<phase>.attempt-N.completed` marker. The completion marker is consulted
+// by crash-recovery in full-workflow runs to decide whether to skip a phase
+// (codex round-4 P1); writing it from an ad-hoc single-phase invocation
+// would poison the next full run by tricking it into skipping a phase the
+// workflow state machine never actually completed. The JSON shape mirrors
+// `persist_phase_output` exactly so any reader that does open the file gets
+// the same fields, just without the recovery breadcrumb.
+fn persist_phase_output_without_marker(
+    project_root: &str,
+    workflow_id: &str,
+    phase_id: &str,
+    outcome: &PhaseExecutionOutcome,
+) -> anyhow::Result<()> {
+    let dir = phase_output_dir(project_root, workflow_id);
+    std::fs::create_dir_all(&dir)?;
+
+    let (verdict, confidence, reason, commit_message, evidence, guardrail_violations, payload) = match outcome {
+        PhaseExecutionOutcome::Completed { commit_message, phase_decision, result_payload } => {
+            let (v, c, r, ev, gv) = match phase_decision {
+                Some(decision) => (
+                    Some(format!("{:?}", decision.verdict).to_ascii_lowercase()),
+                    Some(decision.confidence),
+                    if decision.reason.is_empty() { None } else { Some(decision.reason.clone()) },
+                    decision.evidence.clone(),
+                    decision.guardrail_violations.clone(),
+                ),
+                None => (Some("advance".to_string()), None, None, Vec::new(), Vec::new()),
+            };
+            (v, c, r, commit_message.clone(), ev, gv, result_payload.clone())
+        }
+        PhaseExecutionOutcome::ManualPending { instructions, .. } => {
+            (Some("manual_pending".to_string()), None, Some(instructions.clone()), None, Vec::new(), Vec::new(), None)
+        }
+    };
+
+    let output = PersistedPhaseOutput {
+        phase_id: phase_id.to_string(),
+        completed_at: chrono::Utc::now().to_rfc3339(),
+        verdict,
+        confidence,
+        reason,
+        commit_message,
+        evidence,
+        guardrail_violations,
+        payload,
+    };
+
+    let serialized = serde_json::to_string_pretty(&output)?;
+    let file_path = dir.join(format!("{phase_id}.json"));
+    let tmp_path = file_path.with_file_name(format!("{phase_id}.{}.tmp", uuid::Uuid::new_v4()));
+    {
+        use std::io::Write;
+        let mut file = std::fs::File::create(&tmp_path)?;
+        file.write_all(serialized.as_bytes())?;
+        file.sync_all()?;
+    }
+    std::fs::rename(&tmp_path, &file_path)?;
+    Ok(())
 }
 
 fn post_success_failure_reason(post_success: &Value) -> Option<String> {
@@ -2592,5 +2660,135 @@ mod post_success_merge_tests {
         );
         assert_eq!(git_stdout(repo.path(), &["status", "--porcelain", "--untracked-files=no"]), "");
         assert_eq!(fs::read_to_string(repo.path().join("feature.txt")).expect("squashed file"), "squashed\n");
+    }
+}
+
+// Codex round 8 P2 #1: marker-suppression regression tests for the
+// `--phase` filter write path. Validates that `persist_phase_output_without_marker`
+// leaves no `.attempt-N.completed` breadcrumb, so a subsequent full
+// workflow run replays the phase normally instead of treating the ad-hoc
+// invocation as crash-recovery completion.
+#[cfg(test)]
+mod phase_filter_marker_tests {
+    use super::*;
+    use crate::phase_output::{is_phase_completed, persist_phase_output, phase_completion_marker_path};
+    use orchestrator_core::{PhaseDecision, PhaseDecisionVerdict, WorkflowDecisionRisk};
+    use uuid::Uuid;
+
+    fn sample_completed_outcome(phase_id: &str) -> PhaseExecutionOutcome {
+        PhaseExecutionOutcome::Completed {
+            commit_message: Some("feat: marker-suppression fixture".to_string()),
+            phase_decision: Some(PhaseDecision {
+                kind: "phase_decision".to_string(),
+                phase_id: phase_id.to_string(),
+                verdict: PhaseDecisionVerdict::Advance,
+                confidence: 0.95,
+                risk: WorkflowDecisionRisk::Low,
+                reason: "fixture decision".to_string(),
+                evidence: Vec::new(),
+                guardrail_violations: Vec::new(),
+                commit_message: None,
+                target_phase: None,
+            }),
+            result_payload: None,
+        }
+    }
+
+    #[test]
+    fn phase_filter_run_does_not_write_completion_marker() {
+        let _serial = crate::test_env::scoped_state_serializer();
+        let tmp = std::env::temp_dir().join(format!("animus-test-phase-filter-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&tmp).expect("create test dir");
+        let project_root = tmp.to_str().expect("project_root utf8");
+        let workflow_id = "wf-phase-filter-001";
+        let phase_id = "research";
+        let attempt: u32 = 1;
+
+        let outcome = sample_completed_outcome(phase_id);
+        persist_phase_output_without_marker(project_root, workflow_id, phase_id, &outcome)
+            .expect("phase-filter persist must succeed");
+
+        let json_path = phase_output_dir(project_root, workflow_id).join(format!("{phase_id}.json"));
+        assert!(
+            json_path.exists(),
+            "phase-filter persist must still write the JSON output for inspection (path: {})",
+            json_path.display()
+        );
+
+        let marker_path = phase_completion_marker_path(project_root, workflow_id, phase_id, attempt);
+        assert!(
+            !marker_path.exists(),
+            "phase-filter persist must NOT write `.attempt-N.completed` marker (path: {})",
+            marker_path.display()
+        );
+        assert!(
+            !is_phase_completed(project_root, workflow_id, phase_id, attempt),
+            "is_phase_completed must report false so a subsequent full workflow run replays the phase"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn subsequent_full_workflow_runs_phase_normally_after_phase_filter_run() {
+        let _serial = crate::test_env::scoped_state_serializer();
+        let tmp = std::env::temp_dir().join(format!("animus-test-phase-filter-recover-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&tmp).expect("create test dir");
+        let project_root = tmp.to_str().expect("project_root utf8");
+        let workflow_id = "wf-phase-filter-002";
+        let phase_id = "implementation";
+        let attempt: u32 = 1;
+
+        // 1. User runs `--phase implementation` for inspection — must NOT
+        //    leave a recovery marker behind.
+        let outcome = sample_completed_outcome(phase_id);
+        persist_phase_output_without_marker(project_root, workflow_id, phase_id, &outcome)
+            .expect("phase-filter persist must succeed");
+        assert!(
+            !is_phase_completed(project_root, workflow_id, phase_id, attempt),
+            "phase-filter run must not poison crash-recovery markers"
+        );
+
+        // 2. A later full workflow run executes the phase for real and
+        //    persists output WITH the marker. The marker must now appear,
+        //    and is_phase_completed flips to true so a third run skips it.
+        persist_phase_output(project_root, workflow_id, phase_id, attempt, &outcome)
+            .expect("full-workflow persist must succeed");
+        assert!(
+            is_phase_completed(project_root, workflow_id, phase_id, attempt),
+            "after a real full-workflow completion, crash-recovery marker must exist"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn phase_filter_persist_overwrites_prior_json_atomically() {
+        // Regression guard: re-running `--phase` on the same workflow+phase
+        // must replace the JSON output (tmp+rename pattern), not append.
+        let _serial = crate::test_env::scoped_state_serializer();
+        let tmp = std::env::temp_dir().join(format!("animus-test-phase-filter-overwrite-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&tmp).expect("create test dir");
+        let project_root = tmp.to_str().expect("project_root utf8");
+        let workflow_id = "wf-phase-filter-003";
+        let phase_id = "qa";
+
+        let first = sample_completed_outcome(phase_id);
+        persist_phase_output_without_marker(project_root, workflow_id, phase_id, &first).expect("first write");
+        let json_path = phase_output_dir(project_root, workflow_id).join(format!("{phase_id}.json"));
+        let first_payload = std::fs::read_to_string(&json_path).expect("read first");
+
+        let mut second = sample_completed_outcome(phase_id);
+        if let PhaseExecutionOutcome::Completed { phase_decision: Some(ref mut d), .. } = second {
+            d.reason = "second invocation reason".to_string();
+            d.confidence = 0.42;
+        }
+        persist_phase_output_without_marker(project_root, workflow_id, phase_id, &second).expect("second write");
+        let second_payload = std::fs::read_to_string(&json_path).expect("read second");
+
+        assert_ne!(first_payload, second_payload, "second --phase run must overwrite, not append");
+        assert!(second_payload.contains("second invocation reason"));
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

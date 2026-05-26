@@ -28,4 +28,6 @@ pub use plugin_supervisor::{
     classify, is_structured_jsonrpc_error, DispatchObserver, NoopDispatchObserver, PluginSupervisor, RetryDecision,
     SupervisorConfig, SupervisorError,
 };
-pub use session_backend_resolver::{is_reserved_provider_tool, SessionBackendResolver, RESERVED_PROVIDER_TOOLS};
+pub use session_backend_resolver::{
+    canonical_tool_alias, is_reserved_provider_tool, SessionBackendResolver, RESERVED_PROVIDER_TOOLS,
+};

@@ -31,8 +31,7 @@ pub const GITHUB_OIDC_ISSUER: &str = "https://token.actions.githubusercontent.co
 /// update the .pub file (e.g. via `scripts/bootstrap-cosign-key.sh --force`),
 /// rebuild the binary, ship a new release. Procedure documented in
 /// `docs/reference/security.md`.
-pub const LAUNCHAPP_DEV_COSIGN_PUBLIC_KEY_PEM: &str =
-    include_str!("../trusted-keys/launchapp-dev.pub");
+pub const LAUNCHAPP_DEV_COSIGN_PUBLIC_KEY_PEM: &str = include_str!("../trusted-keys/launchapp-dev.pub");
 
 /// Filename written under `~/.animus/trusted-keys/` when seeding the
 /// built-in launchapp-dev key.

@@ -16,8 +16,9 @@ export default withMermaid(
     ignoreDeadLinks: [
       /\.\.\/\.\.\/crates\//,
       // CHANGELOG lives at repo root (../../CHANGELOG from docs subpages).
+      // Linked from SHIP doc, CLI reference, install, migration pages.
       /\.\.\/.*CHANGELOG/,
-      // Migration index does not exist yet (per-version migration pages are self-contained).
+      // Migration index does not exist yet (each per-version migration page is self-contained).
       /\.\.\/migration\/index/,
     ],
 

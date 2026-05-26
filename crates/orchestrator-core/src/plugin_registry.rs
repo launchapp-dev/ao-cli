@@ -17,15 +17,15 @@
 /// first entry is the one preflight points users at for
 /// `at_least_one_provider`.
 pub const DEFAULT_PROVIDER_PLUGINS: &[(&str, &str)] = &[
-    ("launchapp-dev/animus-provider-claude", "v0.2.1"),
-    ("launchapp-dev/animus-provider-codex", "v0.2.2"),
-    ("launchapp-dev/animus-provider-gemini", "v0.2.2"),
-    ("launchapp-dev/animus-provider-opencode", "v0.2.2"),
-    ("launchapp-dev/animus-provider-oai", "v0.2.1"),
+    ("launchapp-dev/animus-provider-claude", "v0.2.2"),
+    ("launchapp-dev/animus-provider-codex", "v0.2.3"),
+    ("launchapp-dev/animus-provider-gemini", "v0.2.3"),
+    ("launchapp-dev/animus-provider-opencode", "v0.2.3"),
+    ("launchapp-dev/animus-provider-oai", "v0.2.2"),
 ];
 
 /// Optional add-on opted in by `--include-oai-agent`.
-pub const DEFAULT_OAI_AGENT_PLUGINS: &[(&str, &str)] = &[("launchapp-dev/animus-provider-oai-agent", "v0.1.2")];
+pub const DEFAULT_OAI_AGENT_PLUGINS: &[(&str, &str)] = &[("launchapp-dev/animus-provider-oai-agent", "v0.1.3")];
 
 /// Subject backends installed by `--include-subjects`. Indexed lookups
 /// below (`default_subject_repo_for_kind`) assume each entry is listed

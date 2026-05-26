@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixes
+
+- **`fix(web)`: partition transport plugins by `$ui/web` capability so
+  `animus web open` picks the UI instead of an API transport.** Previously
+  `ops_web.rs` keyed off `plugin_kind = "web_ui"`, but no installed plugin
+  declares that kind — `animus-web-ui` ships as `transport_backend` like
+  the API transports, so the UI bucket was empty and `transport-http` won
+  the sort. The browser opened the API endpoint instead of the UI.
+  Fix: `ops_web.rs` now scans each transport plugin's manifest
+  `capabilities` (which `extra_capabilities` flattens into at discovery
+  time) and treats any plugin advertising `$ui/web` as the UI surface.
+  `animus web open` opens the UI URL when one is installed and falls back
+  to the highest-priority API transport with a warning explaining how to
+  remediate. `animus web serve` prints `UI:` and `API (<name>):` on their
+  own labelled lines and includes `ui_url` / `api_url` / `serves_ui` in
+  the JSON envelope.
+
+  Follow-up required in `launchapp-dev/animus-web-ui` v0.1.2: declare
+  `"$ui/web"` in its manifest via the v0.1.13 `extra_capabilities`
+  extension point. Until that plugin ships, machines with only the
+  default transports installed still open the API endpoint and get the
+  warning above.
+
 ## [0.4.12] - 2026-05-24
 
 Closes the v0.4 arc. Finishes plugin extraction (web stack, subject adapters,

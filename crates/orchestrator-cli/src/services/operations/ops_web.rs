@@ -10,6 +10,22 @@ use crate::{print_ok, print_value, WebCommand};
 
 const TRANSPORT_PLUGIN_KIND: &str = "transport_backend";
 const WEB_UI_PLUGIN_KIND: &str = "web_ui";
+/// Capability marker declared by a `transport_backend` plugin to advertise
+/// that it serves a browser-facing HTML UI (as opposed to a machine-facing
+/// API endpoint like GraphQL or REST).
+///
+/// `animus web open` partitions installed transports by this marker so the
+/// browser opens the UI instead of an API transport. This is the capability-
+/// based escape hatch that avoids a protocol bump for a new `web_ui` plugin
+/// kind: existing transport plugins can opt in by listing this string in their
+/// manifest `capabilities` (or via the v0.1.13 `extra_capabilities` extension
+/// point — both surfaces flatten into `PluginManifest.capabilities` at
+/// discovery time).
+///
+/// Follow-up tracked separately: `animus-web-ui` v0.1.2 still needs to declare
+/// this capability in its manifest. Until then, `animus web open` falls back
+/// to whichever API transport sorts first and prints a warning.
+const WEB_UI_CAPABILITY: &str = "$ui/web";
 const DEFAULT_TRANSPORT_KIND_PREFERENCE: &[&str] = &["transport-http", "transport-graphql"];
 const PLUGIN_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -26,13 +42,15 @@ pub(crate) async fn handle_web(
 }
 
 async fn handle_serve(args: crate::WebServeArgs, project_root: &str, json: bool) -> Result<()> {
-    let (transports, web_ui_plugins) = collect_transport_plugins(project_root)?;
-    if transports.is_empty() && web_ui_plugins.is_empty() {
+    let (api_plugins, web_ui_plugins) = collect_transport_plugins(project_root)?;
+    if api_plugins.is_empty() && web_ui_plugins.is_empty() {
         bail_with_install_help();
     }
 
+    // UI first so the URL the user is most likely to want shows up before
+    // the API URLs in both the JSON envelope and the human-facing log lines.
     let mut running: Vec<RunningTransport> = Vec::new();
-    for plugin in transports.iter().chain(web_ui_plugins.iter()) {
+    for plugin in web_ui_plugins.iter().chain(api_plugins.iter()) {
         match spawn_and_keep_alive(plugin).await {
             Ok(rt) => running.push(rt),
             Err(err) => {
@@ -42,11 +60,9 @@ async fn handle_serve(args: crate::WebServeArgs, project_root: &str, json: bool)
         }
     }
 
-    let primary_url = running
-        .iter()
-        .find(|s| s.info.kind == WEB_UI_PLUGIN_KIND)
-        .or_else(|| running.first())
-        .and_then(|s| s.info.url.clone());
+    let ui_url = first_ui_url(&running);
+    let api_url = first_api_url(&running);
+    let primary_url = ui_url.clone().or_else(|| api_url.clone());
 
     if args.open {
         if let Some(url) = primary_url.as_deref() {
@@ -60,19 +76,20 @@ async fn handle_serve(args: crate::WebServeArgs, project_root: &str, json: bool)
     let payload = json!({
         "message": "transport plugins ready",
         "primary_url": primary_url,
+        "ui_url": ui_url,
+        "api_url": api_url,
         "transports": running.iter().map(|s| json!({
             "name": s.info.name,
             "kind": s.info.kind,
             "url": s.info.url,
+            "serves_ui": s.info.serves_ui,
             "info": s.info.info,
         })).collect::<Vec<_>>(),
     });
     print_value(payload, json)?;
 
     if !json {
-        if let Some(url) = primary_url.as_deref() {
-            print_ok(&format!("web UI available at {url}"), false);
-        }
+        print_serve_url_summary(&running, ui_url.as_deref(), api_url.as_deref());
         eprintln!(
             "[serve] transport plugins running in foreground. Press Ctrl-C to shut them down. \
              For long-lived supervision (auto-restart, background lifetime), run \
@@ -86,6 +103,69 @@ async fn handle_serve(args: crate::WebServeArgs, project_root: &str, json: bool)
     }
     shutdown_running_transports(running).await;
     Ok(())
+}
+
+fn first_ui_url(running: &[RunningTransport]) -> Option<String> {
+    first_ui_url_in(running.iter().map(|r| &r.info))
+}
+
+fn first_api_url(running: &[RunningTransport]) -> Option<String> {
+    first_api_url_in(running.iter().map(|r| &r.info))
+}
+
+fn first_ui_url_in<'a>(mut spawns: impl Iterator<Item = &'a SpawnedTransport>) -> Option<String> {
+    spawns.find(|s| s.serves_ui).and_then(|s| s.url.clone())
+}
+
+fn first_api_url_in<'a>(mut spawns: impl Iterator<Item = &'a SpawnedTransport>) -> Option<String> {
+    spawns.find(|s| !s.serves_ui).and_then(|s| s.url.clone())
+}
+
+fn print_serve_url_summary(running: &[RunningTransport], ui_url: Option<&str>, api_url: Option<&str>) {
+    let lines = serve_url_summary_lines(running.iter().map(|r| &r.info), ui_url, api_url);
+    for line in lines.stdout {
+        print_ok(&line, false);
+    }
+    if let Some(text) = lines.warning {
+        eprintln!("[serve] {text}");
+    }
+}
+
+struct ServeSummaryLines {
+    stdout: Vec<String>,
+    warning: Option<String>,
+}
+
+fn serve_url_summary_lines<'a>(
+    spawns: impl Iterator<Item = &'a SpawnedTransport>,
+    ui_url: Option<&str>,
+    api_url: Option<&str>,
+) -> ServeSummaryLines {
+    let mut stdout: Vec<String> = Vec::new();
+    if let Some(url) = ui_url {
+        stdout.push(format!("UI: {url}"));
+    }
+    for s in spawns {
+        if s.serves_ui {
+            continue;
+        }
+        if let Some(url) = s.url.as_deref() {
+            stdout.push(format!("API ({}): {url}", s.name));
+        }
+    }
+    let warning = if ui_url.is_none() {
+        api_url.map(|url| {
+            format!(
+                "no transport plugin advertised the `{WEB_UI_CAPABILITY}` capability; \
+                 browser-facing UI is unavailable. The API endpoint at {url} is still reachable. \
+                 Install launchapp-dev/animus-web-ui or upgrade an installed transport to a \
+                 version that declares `{WEB_UI_CAPABILITY}` in its manifest capabilities."
+            )
+        })
+    } else {
+        None
+    };
+    ServeSummaryLines { stdout, warning }
 }
 
 async fn handle_open(args: crate::WebOpenArgs, project_root: &str, json: bool) -> Result<()> {
@@ -106,22 +186,27 @@ async fn handle_open(args: crate::WebOpenArgs, project_root: &str, json: bool) -
     // closes the inherited stdin pipe, so we cannot honestly promise a
     // detached lifecycle without a separate supervisor (which is the job
     // of `animus daemon start` once daemon-managed web plugins land).
-    let (transports, web_ui_plugins) = collect_transport_plugins(project_root)?;
-    if transports.is_empty() && web_ui_plugins.is_empty() {
+    let (api_plugins, web_ui_plugins) = collect_transport_plugins(project_root)?;
+    if api_plugins.is_empty() && web_ui_plugins.is_empty() {
         bail_with_install_help();
     }
 
-    handle_open_foreground(&args, transports, web_ui_plugins, json).await
+    handle_open_foreground(&args, api_plugins, web_ui_plugins, json).await
 }
 
 async fn handle_open_foreground(
     args: &crate::WebOpenArgs,
-    transports: Vec<DiscoveredPlugin>,
+    api_plugins: Vec<DiscoveredPlugin>,
     web_ui_plugins: Vec<DiscoveredPlugin>,
     json: bool,
 ) -> Result<()> {
+    // UI plugins go up front so the URL we open in the browser is always the
+    // UI URL when one is installed. API plugins still get spawned so that
+    // (a) operators who installed both can see API URLs in the JSON envelope,
+    // and (b) we have a fallback URL to open if the UI plugin failed to
+    // produce one.
     let mut running: Vec<RunningTransport> = Vec::new();
-    for plugin in web_ui_plugins.iter().chain(transports.iter()) {
+    for plugin in web_ui_plugins.iter().chain(api_plugins.iter()) {
         match spawn_and_keep_alive(plugin).await {
             Ok(rt) => running.push(rt),
             Err(err) => {
@@ -131,14 +216,12 @@ async fn handle_open_foreground(
         }
     }
 
-    let primary_url = running
-        .iter()
-        .find(|s| s.info.kind == WEB_UI_PLUGIN_KIND)
-        .or_else(|| running.first())
-        .and_then(|s| s.info.url.clone())
-        .map(|u| append_path(&u, &args.path));
+    let ui_url = first_ui_url(&running);
+    let api_url = first_api_url(&running);
+    let resolved_kind = if ui_url.is_some() { "ui" } else { "api" };
+    let resolved_url = ui_url.clone().or_else(|| api_url.clone()).map(|u| append_path(&u, &args.path));
 
-    let url = match primary_url {
+    let url = match resolved_url {
         Some(url) => url,
         None => {
             shutdown_running_transports(running).await;
@@ -149,14 +232,36 @@ async fn handle_open_foreground(
         }
     };
 
+    let warning = (resolved_kind == "api").then(|| {
+        format!(
+            "no transport plugin advertised the `{WEB_UI_CAPABILITY}` capability; \
+             opening the API endpoint at {url} instead. This is the API surface, not \
+             the browser UI. Install launchapp-dev/animus-web-ui or upgrade an installed \
+             transport to a version that declares `{WEB_UI_CAPABILITY}` in its manifest \
+             capabilities to fix this."
+        )
+    });
+
     if let Err(err) = open_in_browser(&url) {
         shutdown_running_transports(running).await;
         return Err(err);
     }
 
     if json {
-        print_value(json!({"message": "browser opened", "url": url, "mode": "foreground"}), true)?;
+        print_value(
+            json!({
+                "message": "browser opened",
+                "url": url,
+                "mode": "foreground",
+                "resolved_kind": resolved_kind,
+                "warning": warning,
+            }),
+            true,
+        )?;
     } else {
+        if let Some(text) = warning.as_deref() {
+            eprintln!("[open] WARNING: {text}");
+        }
         print_ok(&format!("opened {url}"), false);
         eprintln!(
             "[open] transport plugin running in foreground so {url} stays reachable. \
@@ -182,12 +287,12 @@ async fn resolve_open_url(args: &crate::WebOpenArgs, project_root: &str) -> Resu
     if let Some(explicit) = args.url.as_deref() {
         return Ok(explicit.to_string());
     }
-    let (transports, web_ui_plugins) = collect_transport_plugins(project_root)?;
-    if transports.is_empty() && web_ui_plugins.is_empty() {
+    let (api_plugins, web_ui_plugins) = collect_transport_plugins(project_root)?;
+    if api_plugins.is_empty() && web_ui_plugins.is_empty() {
         bail_with_install_help();
     }
     let mut url: Option<String> = None;
-    for plugin in web_ui_plugins.iter().chain(transports.iter()) {
+    for plugin in web_ui_plugins.iter().chain(api_plugins.iter()) {
         if let Ok(info) = spawn_and_describe(plugin).await {
             if let Some(resolved) = info.url {
                 url = Some(append_path(&resolved, &args.path));
@@ -217,6 +322,14 @@ struct SpawnedTransport {
     name: String,
     kind: String,
     url: Option<String>,
+    /// `true` when the plugin should be treated as a browser-facing UI for
+    /// the purposes of `animus web open` / `animus web serve`. Set from the
+    /// discovered manifest (`plugin_kind = "web_ui"` legacy shape OR
+    /// `transport_backend` plugins that advertise the `$ui/web` capability).
+    /// Carried on `SpawnedTransport` instead of recomputed from `kind` so the
+    /// resolution lives at the partition boundary, not scattered through the
+    /// URL-picking code.
+    serves_ui: bool,
     info: Value,
 }
 
@@ -240,7 +353,14 @@ async fn describe_host(plugin: &DiscoveredPlugin, host: &PluginHost) -> Result<S
             url = extract_url(&value);
         }
     }
-    Ok(SpawnedTransport { name: plugin.name.clone(), kind: plugin.manifest.plugin_kind.clone(), url, info: init_value })
+    let serves_ui = plugin.manifest.plugin_kind == WEB_UI_PLUGIN_KIND || plugin_advertises_web_ui(plugin);
+    Ok(SpawnedTransport {
+        name: plugin.name.clone(),
+        kind: plugin.manifest.plugin_kind.clone(),
+        url,
+        serves_ui,
+        info: init_value,
+    })
 }
 
 #[cfg(test)]
@@ -319,19 +439,50 @@ fn extract_url(value: &Value) -> Option<String> {
 
 fn collect_transport_plugins(project_root: &str) -> Result<(Vec<DiscoveredPlugin>, Vec<DiscoveredPlugin>)> {
     let discovered = discover_plugins(project_root)?;
-    let mut transports: Vec<DiscoveredPlugin> = Vec::new();
-    let mut web_ui: Vec<DiscoveredPlugin> = Vec::new();
+    partition_transport_plugins(discovered)
+}
+
+/// Pure partitioning logic split out for unit testing. Walks the discovered
+/// plugin set and bins each one into:
+///
+/// - `api_plugins`: `transport_backend` plugins that do *not* declare the
+///   `$ui/web` capability (e.g. transport-http, transport-graphql serving
+///   machine endpoints).
+/// - `web_ui_plugins`: anything that legitimately wants the browser. That
+///   covers both the legacy `plugin_kind = "web_ui"` shape and any
+///   `transport_backend` plugin that opted into the `$ui/web` capability
+///   via its manifest (or the v0.1.13 `extra_capabilities` extension point,
+///   which flattens into `PluginManifest.capabilities` at discovery time).
+///
+/// API plugins are sorted by `DEFAULT_TRANSPORT_KIND_PREFERENCE` so the
+/// fallback path is deterministic when no UI plugin is installed.
+fn partition_transport_plugins(
+    discovered: Vec<DiscoveredPlugin>,
+) -> Result<(Vec<DiscoveredPlugin>, Vec<DiscoveredPlugin>)> {
+    let mut api_plugins: Vec<DiscoveredPlugin> = Vec::new();
+    let mut web_ui_plugins: Vec<DiscoveredPlugin> = Vec::new();
     for plugin in discovered {
+        let advertises_web_ui = plugin_advertises_web_ui(&plugin);
         match plugin.manifest.plugin_kind.as_str() {
-            TRANSPORT_PLUGIN_KIND => transports.push(plugin),
-            WEB_UI_PLUGIN_KIND => web_ui.push(plugin),
+            WEB_UI_PLUGIN_KIND => web_ui_plugins.push(plugin),
+            TRANSPORT_PLUGIN_KIND => {
+                if advertises_web_ui {
+                    web_ui_plugins.push(plugin);
+                } else {
+                    api_plugins.push(plugin);
+                }
+            }
             _ => {}
         }
     }
-    transports.sort_by_key(|p| {
+    api_plugins.sort_by_key(|p| {
         DEFAULT_TRANSPORT_KIND_PREFERENCE.iter().position(|name| p.name.contains(name)).unwrap_or(usize::MAX)
     });
-    Ok((transports, web_ui))
+    Ok((api_plugins, web_ui_plugins))
+}
+
+fn plugin_advertises_web_ui(plugin: &DiscoveredPlugin) -> bool {
+    plugin.manifest.capabilities.iter().any(|cap| cap == WEB_UI_CAPABILITY)
 }
 
 fn bail_with_install_help() -> ! {
@@ -371,10 +522,45 @@ fn append_path(base: &str, path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{append_path, extract_url, resolve_open_url, shutdown_running_transports, wait_for_shutdown_signal};
+    use super::{
+        append_path, extract_url, first_api_url_in, first_ui_url_in, partition_transport_plugins,
+        plugin_advertises_web_ui, resolve_open_url, serve_url_summary_lines, shutdown_running_transports,
+        wait_for_shutdown_signal, SpawnedTransport, TRANSPORT_PLUGIN_KIND, WEB_UI_CAPABILITY, WEB_UI_PLUGIN_KIND,
+    };
     use crate::WebOpenArgs;
+    use animus_plugin_protocol::PluginManifest;
+    use orchestrator_plugin_host::{DiscoveredPlugin, DiscoverySource};
     use serde_json::json;
+    use std::path::PathBuf;
     use std::time::Duration;
+
+    fn fake_plugin(name: &str, plugin_kind: &str, capabilities: &[&str]) -> DiscoveredPlugin {
+        DiscoveredPlugin {
+            name: name.to_string(),
+            path: PathBuf::from(format!("/tmp/{name}")),
+            manifest: PluginManifest {
+                name: name.to_string(),
+                version: "0.0.0".to_string(),
+                plugin_kind: plugin_kind.to_string(),
+                description: "test fixture".to_string(),
+                protocol_version: "1.0.0".to_string(),
+                capabilities: capabilities.iter().map(|s| s.to_string()).collect(),
+                env_required: Vec::new(),
+                notification_buffer_size: None,
+            },
+            source: DiscoverySource::ExplicitConfig,
+        }
+    }
+
+    fn fake_running(name: &str, kind: &str, url: Option<&str>, serves_ui: bool) -> SpawnedTransport {
+        SpawnedTransport {
+            name: name.to_string(),
+            kind: kind.to_string(),
+            url: url.map(ToString::to_string),
+            serves_ui,
+            info: json!({}),
+        }
+    }
 
     #[test]
     fn extract_url_from_direct_field() {
@@ -425,5 +611,114 @@ mod tests {
         shutdown_running_transports(Vec::new()).await;
         let blocked = tokio::time::timeout(Duration::from_millis(150), wait_for_shutdown_signal()).await;
         assert!(blocked.is_err(), "wait_for_shutdown_signal returned before any signal was raised");
+    }
+
+    /// Capability marker scan: a transport plugin with `$ui/web` in its
+    /// declared capabilities must be detected as a UI plugin even when its
+    /// `plugin_kind` is still `transport_backend` (the v0.1.13 extension
+    /// point flattens `extra_capabilities` into `manifest.capabilities` at
+    /// discovery time, so we only need to check that vec).
+    #[test]
+    fn plugin_advertises_web_ui_reads_capabilities_vec() {
+        let with_ui = fake_plugin("animus-web-ui", TRANSPORT_PLUGIN_KIND, &["transport/info", WEB_UI_CAPABILITY]);
+        let without_ui = fake_plugin("animus-transport-http", TRANSPORT_PLUGIN_KIND, &["transport/info"]);
+        assert!(plugin_advertises_web_ui(&with_ui));
+        assert!(!plugin_advertises_web_ui(&without_ui));
+    }
+
+    /// User audit P1: when both kinds are installed, the partitioner must
+    /// place plugins that advertise `$ui/web` in the UI bucket. The API
+    /// bucket holds plain transport_backend plugins and is sorted by the
+    /// default preference so transport-http wins ties (fallback determinism).
+    #[test]
+    fn partition_separates_ui_plugins_from_api_plugins() {
+        let discovered = vec![
+            fake_plugin("animus-transport-graphql", TRANSPORT_PLUGIN_KIND, &["transport/info"]),
+            fake_plugin("animus-web-ui", TRANSPORT_PLUGIN_KIND, &[WEB_UI_CAPABILITY]),
+            fake_plugin("animus-transport-http", TRANSPORT_PLUGIN_KIND, &["transport/info"]),
+            // Legacy `plugin_kind = "web_ui"` plugins still land in the UI bucket.
+            fake_plugin("legacy-web-ui", WEB_UI_PLUGIN_KIND, &[]),
+            // Unrelated kinds (e.g. provider, subject_backend) are filtered out entirely.
+            fake_plugin("animus-provider-claude", "provider", &["agent/run"]),
+        ];
+        let (api_plugins, web_ui_plugins) = partition_transport_plugins(discovered).expect("partition succeeds");
+        let ui_names: Vec<&str> = web_ui_plugins.iter().map(|p| p.name.as_str()).collect();
+        let api_names: Vec<&str> = api_plugins.iter().map(|p| p.name.as_str()).collect();
+        assert!(ui_names.contains(&"animus-web-ui"), "expected $ui/web plugin in UI bucket, got {ui_names:?}");
+        assert!(ui_names.contains(&"legacy-web-ui"), "expected legacy web_ui kind in UI bucket, got {ui_names:?}");
+        assert!(!ui_names.contains(&"animus-transport-http"), "API transport must not appear in UI bucket");
+        assert_eq!(
+            api_names,
+            vec!["animus-transport-http", "animus-transport-graphql"],
+            "API plugins must be sorted by DEFAULT_TRANSPORT_KIND_PREFERENCE so the fallback is deterministic"
+        );
+        assert!(!api_names.contains(&"animus-provider-claude"), "non-transport kinds must be dropped");
+    }
+
+    /// User audit P1 fix: when both a UI plugin and an API transport are
+    /// running, `web open` must pick the UI URL. The partitioner places UI
+    /// plugins first; this test pins the URL-picking helpers so a future
+    /// refactor can't silently regress.
+    #[test]
+    fn web_open_prefers_ui_plugin_over_api_when_both_installed() {
+        let spawns = [
+            fake_running("animus-web-ui", TRANSPORT_PLUGIN_KIND, Some("http://127.0.0.1:8082"), true),
+            fake_running("animus-transport-http", TRANSPORT_PLUGIN_KIND, Some("http://127.0.0.1:8080"), false),
+            fake_running("animus-transport-graphql", TRANSPORT_PLUGIN_KIND, Some("http://127.0.0.1:8081"), false),
+        ];
+        let ui = first_ui_url_in(spawns.iter()).expect("UI url present");
+        let api = first_api_url_in(spawns.iter()).expect("API url present");
+        assert_eq!(ui, "http://127.0.0.1:8082", "UI plugin URL must win when present");
+        assert_eq!(api, "http://127.0.0.1:8080", "API picker returns the first non-UI plugin (sorted upstream)");
+    }
+
+    /// User audit P1 fallback path: when no plugin advertises `$ui/web`, the
+    /// only URL available is the API endpoint. The picker still returns that
+    /// URL (we don't want the command to fail with "no URL") but the warning
+    /// channel of `serve_url_summary_lines` must fire so the operator knows
+    /// the browser will hit the API surface, not a real UI. This is the
+    /// pre-animus-web-ui-v0.1.2 reality.
+    #[test]
+    fn web_open_falls_back_to_api_with_warning_when_no_ui_plugin() {
+        let spawns = [
+            fake_running("animus-transport-http", TRANSPORT_PLUGIN_KIND, Some("http://127.0.0.1:8080"), false),
+            fake_running("animus-transport-graphql", TRANSPORT_PLUGIN_KIND, Some("http://127.0.0.1:8081"), false),
+        ];
+        assert!(first_ui_url_in(spawns.iter()).is_none(), "no UI plugin installed");
+        let api = first_api_url_in(spawns.iter()).expect("API fallback URL");
+        assert_eq!(api, "http://127.0.0.1:8080");
+        let lines = serve_url_summary_lines(spawns.iter(), None, Some(&api));
+        let warning = lines.warning.expect("warning must fire when only the API endpoint is reachable");
+        assert!(
+            warning.contains(WEB_UI_CAPABILITY),
+            "warning must name the missing capability so operators can fix it: {warning}"
+        );
+        assert!(warning.contains("8080"), "warning must include the API URL the browser would have opened");
+    }
+
+    /// `web serve` must surface UI and API URLs as distinct lines so an
+    /// operator scanning stdout can find the URL they care about. This pins
+    /// the summary line shape (`UI: ...` and `API (<name>): ...`) and proves
+    /// no warning fires in the happy path.
+    #[test]
+    fn web_serve_prints_ui_and_api_urls_separately() {
+        let spawns = [
+            fake_running("animus-web-ui", TRANSPORT_PLUGIN_KIND, Some("http://127.0.0.1:8082"), true),
+            fake_running("animus-transport-http", TRANSPORT_PLUGIN_KIND, Some("http://127.0.0.1:8080"), false),
+            fake_running("animus-transport-graphql", TRANSPORT_PLUGIN_KIND, Some("http://127.0.0.1:8081"), false),
+        ];
+        let ui = first_ui_url_in(spawns.iter());
+        let api = first_api_url_in(spawns.iter());
+        let lines = serve_url_summary_lines(spawns.iter(), ui.as_deref(), api.as_deref());
+        assert_eq!(
+            lines.stdout,
+            vec![
+                "UI: http://127.0.0.1:8082".to_string(),
+                "API (animus-transport-http): http://127.0.0.1:8080".to_string(),
+                "API (animus-transport-graphql): http://127.0.0.1:8081".to_string(),
+            ],
+            "UI and API URLs must each occupy their own labelled line"
+        );
+        assert!(lines.warning.is_none(), "no warning when a UI plugin is installed");
     }
 }

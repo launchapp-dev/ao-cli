@@ -31,8 +31,10 @@ use super::daemon_scheduler::{runtime_options_from_cli, slim_project_tick_driver
 use orchestrator_session_host::{discover_provider_plugins, PluginSessionBackend, ResumeAgentOutcome};
 use std::collections::HashMap;
 use std::path::Path;
+use workflow_runner_v2::persist_resumed_phase_completion;
 use workflow_runner_v2::phase_session::{
-    list_running_checkpoints, update_session_blocked, update_session_running_after_resume, SessionCheckpoint,
+    list_running_checkpoints, update_session_blocked, update_session_completed, update_session_running_after_resume,
+    SessionCheckpoint,
 };
 
 pub(super) enum ResumeLookup {
@@ -43,6 +45,110 @@ pub(super) enum ResumeLookup {
 #[async_trait::async_trait(?Send)]
 pub(super) trait ResumeProviderRegistry {
     async fn try_resume(&self, checkpoint: &SessionCheckpoint) -> ResumeLookup;
+}
+
+// Applies a resumed phase outcome back to durable workflow state once the
+// provider plugin's resumed session has drained to a terminal Finished.
+// Production wires this through `FileServiceHub`: it persists a minimal
+// completion via `persist_resumed_phase_completion`, advances the workflow
+// state machine via `complete_current_phase_with_decision`, and flips the
+// session checkpoint to Completed so the next restart does not retry it.
+// Tests stub it with `RecordingApplier` so the resume-flow unit tests stay
+// in-memory and focused on the dispatch surface.
+#[async_trait::async_trait(?Send)]
+pub(super) trait ResumedOutcomeApplier {
+    async fn apply(&self, checkpoint: &SessionCheckpoint, new_session_id: Option<&str>) -> ResumedOutcomeApplyResult;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum ResumedOutcomeApplyResult {
+    // Workflow state was advanced and session checkpoint flipped to Completed.
+    Advanced,
+    // The workflow had already advanced past this phase (durable marker was
+    // already on disk from a previous restart). We still flipped the session
+    // checkpoint to Completed but did not double-advance.
+    AlreadyAdvanced,
+    // The phase is decision-gated (review/QA/testing/etc.) so we refuse to
+    // synthesize an `Advance` verdict from the resumed session. The session
+    // checkpoint is marked Blocked with an actionable reason so the operator
+    // can re-run the phase via `animus workflow resume <id> --force`.
+    BlockedAwaitingDecision,
+    // Apply failed before any state was advanced. The session checkpoint is
+    // left as-is (still Running) so the next restart can retry.
+    Failed(String),
+}
+
+// Codex round-7 P1 follow-up: phases whose verdict gates downstream work
+// (review, QA, testing, requirements review) MUST NOT have an implicit
+// Advance synthesized when we only have a Finished signal but no captured
+// PhaseDecision. Synthesizing Advance for these would let a Rework/Fail
+// result from the resumed agent silently bypass the gate after restart.
+//
+// Codex round-7 round-2 P1+P2 extends this to:
+//   - PROJECT-CONFIGURED phases that set capabilities.is_review /
+//     capabilities.is_testing in agent-runtime-config under custom names
+//     (e.g. `security-audit`).
+//   - Any phase that declares a `decision_contract` — those phases own a
+//     verdict and a synthesized Advance silently bypasses it.
+//   - Phases that require a commit message (built-in `implementation` +
+//     custom equivalents) — we can't synthesize a commit message, and a
+//     resumed agent could have made file changes that were never committed;
+//     downstream review/PR/merge would otherwise miss the work.
+//
+// Codex round-7 round-4 P2 adds workflow-level `on_verdict` routing as a
+// fifth gate signal — a phase entry in workflows.yaml may declare
+// verdict-conditional routing even when the phase itself has no
+// decision_contract, and synthesizing Advance would silently bypass it.
+//
+// Implementation/research/design phases default-to-advance under the same
+// no-decision path during normal execution (see
+// `phase_output::persist_phase_output`'s "None" branch), so it is safe to
+// keep mirroring that behavior for them when none of the gate signals fire.
+fn phase_requires_explicit_decision_for_resume(project_root: &str, phase_id: &str) -> bool {
+    phase_requires_explicit_decision_for_resume_in_workflow(project_root, phase_id, None)
+}
+
+fn phase_requires_explicit_decision_for_resume_in_workflow(
+    project_root: &str,
+    phase_id: &str,
+    workflow_ref: Option<&str>,
+) -> bool {
+    let ctx = workflow_runner_v2::config_context::RuntimeConfigContext::load(project_root);
+
+    if workflow_runner_v2::phase_prompt::phase_requires_commit_message_with_ctx(&ctx, phase_id) {
+        return true;
+    }
+
+    let runtime_config = orchestrator_core::load_agent_runtime_config_or_default(std::path::Path::new(project_root));
+    if let Some(definition) = runtime_config.phase_execution(phase_id) {
+        if definition.decision_contract.is_some() {
+            return true;
+        }
+        if let Some(caps) = definition.capabilities.as_ref() {
+            let merged = caps.clone().merge_with_defaults(phase_id);
+            if merged.is_review || merged.is_testing || merged.requires_commit {
+                return true;
+            }
+        }
+    }
+
+    let caps = protocol::PhaseCapabilities::defaults_for_phase(phase_id);
+    if caps.is_review || caps.is_testing || caps.requires_commit {
+        return true;
+    }
+
+    // Workflow YAML-level on_verdict gating. The presence of ANY
+    // on_verdict entry for this phase signals the workflow owner expects
+    // a real verdict; synthesizing Advance would bypass their routing.
+    let workflow_config = orchestrator_core::load_workflow_config_or_default(std::path::Path::new(project_root));
+    let routing = orchestrator_core::resolve_workflow_verdict_routing(&workflow_config.config, workflow_ref);
+    if let Some(verdicts) = routing.get(phase_id) {
+        if !verdicts.is_empty() {
+            return true;
+        }
+    }
+
+    false
 }
 
 struct ProductionResumeProviderRegistry {
@@ -80,6 +186,201 @@ impl ResumeProviderRegistry for ProductionResumeProviderRegistry {
     }
 }
 
+// Production wiring of `ResumedOutcomeApplier` that drives the in-tree
+// workflow service hub. Owns the scoped state root and a project-root
+// `ServiceHub` so we can both write the phase-output marker and advance the
+// workflow state machine in one place.
+pub(super) struct FileResumedOutcomeApplier {
+    project_root: String,
+    scoped_root: std::path::PathBuf,
+    hub: Arc<dyn ServiceHub>,
+}
+
+impl FileResumedOutcomeApplier {
+    pub(super) fn new(project_root: String, scoped_root: std::path::PathBuf, hub: Arc<dyn ServiceHub>) -> Self {
+        Self { project_root, scoped_root, hub }
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl ResumedOutcomeApplier for FileResumedOutcomeApplier {
+    async fn apply(&self, checkpoint: &SessionCheckpoint, new_session_id: Option<&str>) -> ResumedOutcomeApplyResult {
+        apply_resumed_outcome_in_tree(
+            &self.project_root,
+            &self.scoped_root,
+            self.hub.clone(),
+            checkpoint,
+            new_session_id,
+        )
+        .await
+    }
+}
+
+// Shared implementation: keeps the rewrite of session-checkpoint state, the
+// durable phase-output write, and the workflow state mutation in lock-step.
+// Order matters for crash-recovery idempotency:
+//   1. Rewrite session checkpoint to Running w/ rotated provider_session_id
+//      first, so even if we crash before the rest a future restart still
+//      sees the freshest session id to dispatch against.
+//   2. Look up the workflow + locate the attempt counter for the phase the
+//      session belongs to. If the workflow has already moved past this
+//      phase (durable marker carried it forward in a previous restart) the
+//      apply collapses to "just mark checkpoint Completed" so we never
+//      double-advance.
+//   3. Persist the resumed completion via the existing tmp+rename writer
+//      (so a re-apply rewrites the same bytes rather than racing).
+//   4. Call `complete_current_phase_with_decision(workflow_id, None)` —
+//      mirrors the verdict-less branch of the normal phase-success path.
+//   5. Mark the session checkpoint Completed last so a crash between (3)
+//      and (5) leaves the marker readable and the next restart finishes
+//      the job by replaying the persisted decision via the workflow loop.
+pub(super) async fn apply_resumed_outcome_in_tree(
+    project_root: &str,
+    scoped_root: &Path,
+    hub: Arc<dyn ServiceHub>,
+    checkpoint: &SessionCheckpoint,
+    new_session_id: Option<&str>,
+) -> ResumedOutcomeApplyResult {
+    let workflow_id = checkpoint.workflow_id.as_str();
+    let phase_id = checkpoint.phase_id.as_str();
+
+    if let Err(err) = update_session_running_after_resume(scoped_root, workflow_id, phase_id, new_session_id) {
+        return ResumedOutcomeApplyResult::Failed(format!("failed to refresh session checkpoint after resume: {err}"));
+    }
+
+    let workflow = match hub.workflows().get(workflow_id).await {
+        Ok(workflow) => workflow,
+        Err(err) => {
+            return ResumedOutcomeApplyResult::Failed(format!(
+                "failed to load workflow '{workflow_id}' for resumed phase application: {err}"
+            ));
+        }
+    };
+
+    let current_phase_id = workflow
+        .current_phase
+        .clone()
+        .or_else(|| workflow.phases.get(workflow.current_phase_index).map(|phase| phase.phase_id.clone()));
+
+    // Workflow already advanced past this phase in a prior restart pass —
+    // do NOT re-persist or re-advance; just mark the session checkpoint
+    // terminal so it stops showing up in the resume scan. We treat
+    // "already advanced" as ANY of: current_phase no longer matches the
+    // checkpoint's phase_id, OR the workflow's specific phase entry has
+    // already transitioned out of Running/Ready/Pending (a previous apply
+    // marked it Success on its way to Completed), OR the workflow status
+    // is itself terminal.
+    let phase_done_already = workflow
+        .phases
+        .iter()
+        .find(|p| p.phase_id == phase_id)
+        .map(|p| {
+            !matches!(
+                p.status,
+                orchestrator_core::WorkflowPhaseStatus::Running
+                    | orchestrator_core::WorkflowPhaseStatus::Ready
+                    | orchestrator_core::WorkflowPhaseStatus::Pending
+            )
+        })
+        .unwrap_or(false);
+    let workflow_terminal = matches!(
+        workflow.status,
+        orchestrator_core::WorkflowStatus::Completed
+            | orchestrator_core::WorkflowStatus::Cancelled
+            | orchestrator_core::WorkflowStatus::Failed
+            | orchestrator_core::WorkflowStatus::Escalated
+    );
+    if current_phase_id.as_deref() != Some(phase_id) || phase_done_already || workflow_terminal {
+        if let Err(err) = update_session_completed(scoped_root, workflow_id, phase_id) {
+            return ResumedOutcomeApplyResult::Failed(format!(
+                "workflow already advanced past phase '{phase_id}' but failed to mark session completed: {err}"
+            ));
+        }
+        return ResumedOutcomeApplyResult::AlreadyAdvanced;
+    }
+
+    // Decision-gated phases (review/QA/testing), phases that own a
+    // decision_contract, and phases that require a commit message MUST
+    // NOT have an implicit Advance synthesized — we never captured the
+    // resumed agent's actual verdict (or commit message), so silently
+    // advancing would let a Rework/Fail bypass the gate or push
+    // downstream review/PR/merge past uncommitted file changes. Block
+    // with an explicit, --force-aware reason so the operator knows to
+    // re-run the phase.
+    //
+    // Codex round-7 round-3 P1: we ALSO need to flip the workflow itself
+    // to Paused — otherwise the next scheduler tick's
+    // recover_orphaned_running_workflows (no longer shielded once we drop
+    // back into the steady-state loop) cancels the workflow before the
+    // operator can run --force.
+    if phase_requires_explicit_decision_for_resume_in_workflow(project_root, phase_id, workflow.workflow_ref.as_deref())
+    {
+        let reason = format!(
+            "resumed agent finished but daemon could not recover the phase decision for decision-gated phase '{phase_id}'; re-run with `animus workflow resume {workflow_id} --force` to capture a fresh verdict"
+        );
+        let _ = update_session_blocked(scoped_root, workflow_id, phase_id, &reason);
+        // Codex round-7 round-4 P2: do not re-pause an already-paused
+        // workflow — `WorkflowLifecycleExecutor::pause` uses `expect` on
+        // a transition that does not exist from Paused and would panic
+        // and crash the daemon startup recovery loop.
+        if !matches!(workflow.status, orchestrator_core::WorkflowStatus::Paused) {
+            if let Err(err) = hub.workflows().pause(workflow_id).await {
+                return ResumedOutcomeApplyResult::Failed(format!(
+                    "blocked decision-gated phase '{phase_id}' but failed to pause workflow '{workflow_id}': {err}"
+                ));
+            }
+        }
+        return ResumedOutcomeApplyResult::BlockedAwaitingDecision;
+    }
+
+    let phase_attempt = workflow.phases.iter().find(|p| p.phase_id == phase_id).map(|p| p.attempt).unwrap_or(0);
+
+    if let Err(err) = persist_resumed_phase_completion(project_root, workflow_id, phase_id, phase_attempt) {
+        return ResumedOutcomeApplyResult::Failed(format!(
+            "failed to persist resumed phase output for '{workflow_id}/{phase_id}': {err}"
+        ));
+    }
+
+    let advanced_workflow = match hub.workflows().complete_current_phase_with_decision(workflow_id, None).await {
+        Ok(workflow) => workflow,
+        Err(err) => {
+            return ResumedOutcomeApplyResult::Failed(format!(
+                "failed to advance workflow '{workflow_id}' after resumed phase '{phase_id}': {err}"
+            ));
+        }
+    };
+
+    // Codex round-7 round-3 P1: if the advance moved the workflow into a
+    // NEW Running phase (not the terminal Completed/Failed state) we are
+    // running outside of any ao-workflow-runner process, so nothing is
+    // driving the new phase. The next zombie sweep would cancel the
+    // workflow. Pause it so the operator can resume it under a fresh
+    // runner via `animus workflow resume <id>`. Terminal advances
+    // (Completed / Failed / Cancelled) are safe to leave alone.
+    let workflow_terminal_after = matches!(
+        advanced_workflow.status,
+        orchestrator_core::WorkflowStatus::Completed
+            | orchestrator_core::WorkflowStatus::Cancelled
+            | orchestrator_core::WorkflowStatus::Failed
+            | orchestrator_core::WorkflowStatus::Escalated
+    );
+    if !workflow_terminal_after && !matches!(advanced_workflow.status, orchestrator_core::WorkflowStatus::Paused) {
+        if let Err(err) = hub.workflows().pause(workflow_id).await {
+            return ResumedOutcomeApplyResult::Failed(format!(
+                "advanced workflow '{workflow_id}' after resumed phase '{phase_id}' but failed to pause it for handoff: {err}"
+            ));
+        }
+    }
+
+    if let Err(err) = update_session_completed(scoped_root, workflow_id, phase_id) {
+        return ResumedOutcomeApplyResult::Failed(format!(
+            "advanced workflow '{workflow_id}' but failed to mark session checkpoint completed: {err}"
+        ));
+    }
+
+    ResumedOutcomeApplyResult::Advanced
+}
+
 // Returns the set of workflow_ids that have a Running session checkpoint
 // with a captured provider_session_id — i.e. workflows that
 // auto_resume_running_checkpoints can actually attempt to resume. These
@@ -109,10 +410,15 @@ pub(super) fn resumable_workflow_ids_for_project(project_root: &str) -> std::col
         .collect()
 }
 
-pub(super) async fn auto_resume_running_checkpoints<R: ResumeProviderRegistry + ?Sized>(
+pub(super) async fn auto_resume_running_checkpoints<R, A>(
     scoped_root: &Path,
     registry: &R,
-) -> AutoResumeReport {
+    applier: &A,
+) -> AutoResumeReport
+where
+    R: ResumeProviderRegistry + ?Sized,
+    A: ResumedOutcomeApplier + ?Sized,
+{
     let mut report = AutoResumeReport::default();
     let running = match list_running_checkpoints(scoped_root) {
         Ok(items) => items,
@@ -137,13 +443,34 @@ pub(super) async fn auto_resume_running_checkpoints<R: ResumeProviderRegistry + 
         }
         match registry.try_resume(&checkpoint).await {
             ResumeLookup::Outcome(ResumeAgentOutcome::Resumed { session_id }) => {
-                let _ = update_session_running_after_resume(
-                    scoped_root,
-                    &checkpoint.workflow_id,
-                    &checkpoint.phase_id,
-                    session_id.as_deref(),
-                );
-                report.resumed += 1;
+                // Codex round-7 P1: the resumed agent has finished, but
+                // until we apply the outcome back through the workflow
+                // service the run stays stuck in Running with no
+                // persisted phase decision. Persist a minimal completion
+                // (verdict defaults to "advance" like the normal
+                // no-decision path), advance the workflow, and flip the
+                // session checkpoint to Completed so subsequent restarts
+                // don't pick it back up.
+                match applier.apply(&checkpoint, session_id.as_deref()).await {
+                    ResumedOutcomeApplyResult::Advanced | ResumedOutcomeApplyResult::AlreadyAdvanced => {
+                        report.resumed += 1;
+                    }
+                    ResumedOutcomeApplyResult::BlockedAwaitingDecision => {
+                        // Decision-gated phase. The applier already wrote
+                        // the descriptive blocked reason; just account it.
+                        report.blocked_on_failure += 1;
+                    }
+                    ResumedOutcomeApplyResult::Failed(reason) => {
+                        let blocked_reason = format!("resume succeeded but applying outcome failed: {reason}");
+                        let _ = update_session_blocked(
+                            scoped_root,
+                            &checkpoint.workflow_id,
+                            &checkpoint.phase_id,
+                            &blocked_reason,
+                        );
+                        report.blocked_on_failure += 1;
+                    }
+                }
             }
             ResumeLookup::Outcome(ResumeAgentOutcome::Failed { reason }) => {
                 let _ = update_session_blocked(scoped_root, &checkpoint.workflow_id, &checkpoint.phase_id, &reason);
@@ -280,7 +607,9 @@ impl DaemonRunHooks for CliDaemonRunHost {
 
         if let Some(scoped_root) = protocol::repository_scope::scoped_state_root(std::path::Path::new(project_root)) {
             let registry = ProductionResumeProviderRegistry::discover(std::path::Path::new(project_root));
-            auto_resume_running_checkpoints(&scoped_root, &registry).await;
+            let apply_hub: Arc<dyn ServiceHub> = Arc::new(FileServiceHub::new(project_root)?);
+            let applier = FileResumedOutcomeApplier::new(project_root.to_string(), scoped_root.clone(), apply_hub);
+            auto_resume_running_checkpoints(&scoped_root, &registry, &applier).await;
         }
 
         Ok(orphans)
@@ -950,7 +1279,10 @@ mod tests {
     }
 
     mod auto_resume {
-        use super::super::{auto_resume_running_checkpoints, ResumeLookup, ResumeProviderRegistry};
+        use super::super::{
+            auto_resume_running_checkpoints, ResumeLookup, ResumeProviderRegistry, ResumedOutcomeApplier,
+            ResumedOutcomeApplyResult,
+        };
         use async_trait::async_trait;
         use orchestrator_session_host::ResumeAgentOutcome;
         use serde_json::json;
@@ -958,8 +1290,8 @@ mod tests {
         use std::sync::Mutex;
         use tempfile::TempDir;
         use workflow_runner_v2::phase_session::{
-            read_checkpoint, update_provider_session_id, update_session_running, write_session_pending,
-            SessionCheckpoint, SessionCheckpointStatus,
+            read_checkpoint, update_provider_session_id, update_session_running, update_session_running_after_resume,
+            write_session_pending, SessionCheckpoint, SessionCheckpointStatus,
         };
 
         enum Script {
@@ -989,6 +1321,61 @@ mod tests {
                     Some(Script::Failed { reason }) => ResumeLookup::Outcome(ResumeAgentOutcome::Failed { reason }),
                     None => ResumeLookup::NotInstalled,
                 }
+            }
+        }
+
+        // Test applier that records calls and returns a configurable
+        // result. For the older dispatch-surface tests we mimic the
+        // pre-fix behaviour (rewrite checkpoint as Running) so we don't
+        // need to wire a full ServiceHub for tests that only care about
+        // the resume-provider dispatch path. New durability tests pass a
+        // result that flips the checkpoint to Completed.
+        struct RecordingApplier {
+            calls: Mutex<Vec<(String, String, Option<String>)>>,
+            result: ResumedOutcomeApplyResult,
+            // When set, also rotate provider_session_id on the checkpoint
+            // (kept Running) so legacy dispatch-surface assertions still
+            // see the rotated id. The newer apply-path tests do not need
+            // this and should leave it `false`.
+            rewrite_checkpoint_running: bool,
+            scoped_root: std::path::PathBuf,
+        }
+
+        impl RecordingApplier {
+            fn new(
+                result: ResumedOutcomeApplyResult,
+                rewrite_checkpoint_running: bool,
+                scoped_root: std::path::PathBuf,
+            ) -> Self {
+                Self { calls: Mutex::new(Vec::new()), result, rewrite_checkpoint_running, scoped_root }
+            }
+
+            fn calls(&self) -> Vec<(String, String, Option<String>)> {
+                self.calls.lock().expect("calls mutex").clone()
+            }
+        }
+
+        #[async_trait(?Send)]
+        impl ResumedOutcomeApplier for RecordingApplier {
+            async fn apply(
+                &self,
+                checkpoint: &SessionCheckpoint,
+                new_session_id: Option<&str>,
+            ) -> ResumedOutcomeApplyResult {
+                self.calls.lock().expect("calls mutex").push((
+                    checkpoint.workflow_id.clone(),
+                    checkpoint.phase_id.clone(),
+                    new_session_id.map(str::to_string),
+                ));
+                if self.rewrite_checkpoint_running {
+                    let _ = update_session_running_after_resume(
+                        &self.scoped_root,
+                        &checkpoint.workflow_id,
+                        &checkpoint.phase_id,
+                        new_session_id,
+                    );
+                }
+                self.result.clone()
             }
         }
 
@@ -1025,8 +1412,9 @@ mod tests {
                 "claude",
                 Script::Resumed { new_session_id: Some("sess-new".to_string()) },
             )]);
+            let applier = RecordingApplier::new(ResumedOutcomeApplyResult::Advanced, true, scoped.to_path_buf());
 
-            let report = auto_resume_running_checkpoints(scoped, &registry).await;
+            let report = auto_resume_running_checkpoints(scoped, &registry, &applier).await;
             assert_eq!(report.resumed, 1);
             assert_eq!(report.blocked_on_failure, 0);
             assert_eq!(report.blocked_uninstalled, 0);
@@ -1035,6 +1423,7 @@ mod tests {
             assert_eq!(after.status, SessionCheckpointStatus::Running);
             assert_eq!(after.provider_session_id.as_deref(), Some("sess-new"));
             assert!(after.blocked_reason.is_none());
+            assert_eq!(applier.calls(), vec![("wf-ok".to_string(), "impl".to_string(), Some("sess-new".to_string()))]);
         }
 
         #[tokio::test]
@@ -1046,8 +1435,9 @@ mod tests {
                 "codex",
                 Script::Failed { reason: "resume_agent failed: session expired".to_string() },
             )]);
+            let applier = RecordingApplier::new(ResumedOutcomeApplyResult::Advanced, false, scoped.to_path_buf());
 
-            let report = auto_resume_running_checkpoints(scoped, &registry).await;
+            let report = auto_resume_running_checkpoints(scoped, &registry, &applier).await;
             assert_eq!(report.resumed, 0);
             assert_eq!(report.blocked_on_failure, 1);
             assert_eq!(report.blocked_uninstalled, 0);
@@ -1059,6 +1449,7 @@ mod tests {
                 reason.contains("session expired") && reason.contains("resume_agent failed"),
                 "expected specific resume failure reason, got: {reason}"
             );
+            assert!(applier.calls().is_empty(), "applier must NOT be invoked when resume fails");
         }
 
         #[tokio::test]
@@ -1090,7 +1481,8 @@ mod tests {
                 // is None.
                 Script::Resumed { new_session_id: Some("sess-should-never-arrive".to_string()) },
             )]);
-            let report = auto_resume_running_checkpoints(scoped, &registry).await;
+            let applier = RecordingApplier::new(ResumedOutcomeApplyResult::Advanced, false, scoped.to_path_buf());
+            let report = auto_resume_running_checkpoints(scoped, &registry, &applier).await;
             assert_eq!(report.resumed, 0);
             assert_eq!(report.blocked_on_failure, 1);
 
@@ -1101,6 +1493,7 @@ mod tests {
                 reason.contains("no provider session_id captured") && reason.contains("--force"),
                 "expected explicit 'no provider session_id captured' guidance, got: {reason}"
             );
+            assert!(applier.calls().is_empty(), "applier must NOT be invoked when provider_session_id is missing");
         }
 
         #[tokio::test]
@@ -1116,7 +1509,8 @@ mod tests {
                 "claude",
                 Script::Resumed { new_session_id: Some("sess-rotated".to_string()) },
             )]);
-            let report = auto_resume_running_checkpoints(scoped, &registry).await;
+            let applier = RecordingApplier::new(ResumedOutcomeApplyResult::Advanced, true, scoped.to_path_buf());
+            let report = auto_resume_running_checkpoints(scoped, &registry, &applier).await;
             assert_eq!(report.resumed, 1);
             let after = read_checkpoint(scoped, "wf-correct", "impl").expect("read").expect("present");
             assert_eq!(after.provider_session_id.as_deref(), Some("sess-rotated"));
@@ -1124,6 +1518,10 @@ mod tests {
                 after.provider_session_id.as_deref(),
                 Some(after.run_id.as_str()),
                 "auto-resume must NOT confuse run_id with provider_session_id"
+            );
+            assert_eq!(
+                applier.calls(),
+                vec![("wf-correct".to_string(), "impl".to_string(), Some("sess-rotated".to_string()))]
             );
         }
 
@@ -1133,8 +1531,9 @@ mod tests {
             let scoped = temp.path();
             seed_running_checkpoint(scoped, "wf-gone", "design", "gemini");
             let registry = ScriptedRegistry::new(vec![]);
+            let applier = RecordingApplier::new(ResumedOutcomeApplyResult::Advanced, false, scoped.to_path_buf());
 
-            let report = auto_resume_running_checkpoints(scoped, &registry).await;
+            let report = auto_resume_running_checkpoints(scoped, &registry, &applier).await;
             assert_eq!(report.resumed, 0);
             assert_eq!(report.blocked_on_failure, 0);
             assert_eq!(report.blocked_uninstalled, 1);
@@ -1146,6 +1545,736 @@ mod tests {
                 reason.contains("provider 'gemini' not installed")
                     && reason.contains("animus plugin install launchapp-dev/animus-provider-gemini"),
                 "expected reinstall hint, got: {reason}"
+            );
+            assert!(applier.calls().is_empty(), "applier must NOT be invoked when provider plugin is missing");
+        }
+
+        // Codex round-7 P1 regression: when the resumed agent drains
+        // successfully but the applier fails (e.g. workflow service can't
+        // load the workflow), the checkpoint must be marked Blocked with a
+        // descriptive reason so the next restart doesn't loop on the same
+        // stuck Running checkpoint.
+        #[tokio::test]
+        async fn auto_resume_marks_blocked_when_applier_fails_after_successful_drain() {
+            let temp = TempDir::new().expect("tempdir");
+            let scoped = temp.path();
+            seed_running_checkpoint(scoped, "wf-apply-fail", "impl", "claude");
+            let registry = ScriptedRegistry::new(vec![(
+                "claude",
+                Script::Resumed { new_session_id: Some("sess-new".to_string()) },
+            )]);
+            let applier = RecordingApplier::new(
+                ResumedOutcomeApplyResult::Failed("workflow service offline".to_string()),
+                false,
+                scoped.to_path_buf(),
+            );
+
+            let report = auto_resume_running_checkpoints(scoped, &registry, &applier).await;
+            assert_eq!(report.resumed, 0);
+            assert_eq!(report.blocked_on_failure, 1);
+
+            let after = read_checkpoint(scoped, "wf-apply-fail", "impl").expect("read").expect("present");
+            assert_eq!(after.status, SessionCheckpointStatus::Blocked);
+            let reason = after.blocked_reason.unwrap_or_default();
+            assert!(
+                reason.contains("resume succeeded but applying outcome failed")
+                    && reason.contains("workflow service offline"),
+                "expected combined apply-failure reason, got: {reason}"
+            );
+        }
+
+        // Codex round-7 P1: idempotent re-apply. When a previous restart
+        // already advanced the workflow past this phase (durable marker
+        // carried it forward) the apply must NOT double-advance — it
+        // should report AlreadyAdvanced and the resume report still counts
+        // it as resumed (i.e. successfully recovered).
+        #[tokio::test]
+        async fn auto_resume_treats_already_advanced_as_resumed() {
+            let temp = TempDir::new().expect("tempdir");
+            let scoped = temp.path();
+            seed_running_checkpoint(scoped, "wf-already", "impl", "claude");
+            let registry = ScriptedRegistry::new(vec![(
+                "claude",
+                Script::Resumed { new_session_id: Some("sess-new".to_string()) },
+            )]);
+            let applier =
+                RecordingApplier::new(ResumedOutcomeApplyResult::AlreadyAdvanced, false, scoped.to_path_buf());
+
+            let report = auto_resume_running_checkpoints(scoped, &registry, &applier).await;
+            assert_eq!(report.resumed, 1, "AlreadyAdvanced still counts as a successful resume recovery");
+            assert_eq!(report.blocked_on_failure, 0);
+        }
+    }
+
+    mod apply_resumed_outcome {
+        use super::super::{apply_resumed_outcome_in_tree, ResumedOutcomeApplyResult};
+        use orchestrator_core::{services::ServiceHub, FileServiceHub};
+        use protocol::test_utils::EnvVarGuard;
+        use serde_json::json;
+        use std::sync::{Arc, Mutex, MutexGuard};
+        use tempfile::TempDir;
+        use workflow_runner_v2::phase_session::{
+            read_checkpoint, update_provider_session_id, update_session_running, write_session_pending,
+            SessionCheckpointStatus,
+        };
+        use workflow_runner_v2::{is_phase_completed, read_persisted_decision};
+
+        fn lock_env() -> MutexGuard<'static, ()> {
+            static LOCK: Mutex<()> = Mutex::new(());
+            LOCK.lock().unwrap_or_else(|p| p.into_inner())
+        }
+
+        // Seed a workflow + checkpoint for a SAFE-to-auto-advance phase.
+        // The standard pipeline's first phase (`requirements`) is gated by
+        // a default decision_contract, so we use the `research-workflow`
+        // template (phases: [requirements, research]) and advance past
+        // `requirements` so the checkpoint lands on `research` — a phase
+        // with no decision_contract and no requires_commit flag.
+        async fn seed_workflow_and_safe_phase_checkpoint(
+            project_root: &str,
+            scoped_root: &std::path::Path,
+        ) -> (Arc<dyn ServiceHub>, String, String) {
+            seed_workflow_and_checkpoint_on_phase(project_root, scoped_root, Some("research-workflow"), &["research"])
+                .await
+        }
+
+        // Seed a workflow + checkpoint targeting any one of the given
+        // phase_ids. Advances through earlier phases via
+        // `complete_current_phase_with_decision(None)` so the seeded
+        // checkpoint lines up with workflow.current_phase. This bypasses
+        // the apply path's decision-gating because the workflow service's
+        // direct mutation method does not enforce it.
+        async fn seed_workflow_and_checkpoint_on_phase(
+            project_root: &str,
+            scoped_root: &std::path::Path,
+            workflow_ref: Option<&str>,
+            preferred_phases: &[&str],
+        ) -> (Arc<dyn ServiceHub>, String, String) {
+            let hub: Arc<dyn ServiceHub> = Arc::new(FileServiceHub::new(project_root).expect("hub"));
+            let task = hub
+                .tasks()
+                .create(orchestrator_core::TaskCreateInput {
+                    title: "resume durability".to_string(),
+                    description: "verify resumed outcome application".to_string(),
+                    task_type: Some(orchestrator_core::TaskType::Feature),
+                    priority: Some(orchestrator_core::Priority::Medium),
+                    created_by: Some("test".to_string()),
+                    tags: Vec::new(),
+                    linked_requirements: Vec::new(),
+                    linked_architecture_entities: Vec::new(),
+                })
+                .await
+                .expect("create task");
+            let mut workflow = hub
+                .workflows()
+                .run(orchestrator_core::WorkflowRunInput::for_task(task.id.clone(), workflow_ref.map(String::from)))
+                .await
+                .expect("run workflow");
+
+            let mut hops = 0usize;
+            loop {
+                let phase = workflow.current_phase.clone().unwrap_or_default();
+                if preferred_phases.iter().any(|p| *p == phase) {
+                    break;
+                }
+                if hops > 12 {
+                    panic!(
+                        "workflow never reached one of {:?}; current phase={phase} all={:?}",
+                        preferred_phases, workflow.phases
+                    );
+                }
+                workflow = hub
+                    .workflows()
+                    .complete_current_phase_with_decision(&workflow.id, None)
+                    .await
+                    .expect("advance workflow");
+                hops += 1;
+            }
+            let phase_id = workflow.current_phase.clone().expect("workflow should have a current phase");
+
+            write_session_pending(
+                scoped_root,
+                &workflow.id,
+                &phase_id,
+                "claude",
+                "run-resume-1",
+                Some(json!({
+                    "protocol_version": "1",
+                    "run_id": "run-resume-1",
+                    "model": "claude-sonnet-4-6",
+                    "context": {"tool": "claude", "prompt": "x", "cwd": "/tmp", "project_root": "/tmp"}
+                })),
+            )
+            .expect("pending");
+            update_session_running(scoped_root, &workflow.id, &phase_id).expect("running");
+            update_provider_session_id(scoped_root, &workflow.id, &phase_id, "sess-original").expect("provider sid");
+
+            (hub, workflow.id, phase_id)
+        }
+
+        // Codex round-7 P1: successful drain MUST persist the phase output
+        // (so `is_phase_completed` returns true and the next scheduler tick
+        // can replay the decision) AND flip the session checkpoint to
+        // Completed.
+        #[tokio::test]
+        async fn auto_resume_persists_phase_output_after_successful_drain() {
+            let _lock = lock_env();
+            let config_root = TempDir::new().expect("config temp dir");
+            let home_root = TempDir::new().expect("home temp dir");
+            let _config_guard =
+                EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
+            let _home_guard = EnvVarGuard::set("HOME", Some(home_root.path().to_string_lossy().as_ref()));
+            let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
+
+            let project = TempDir::new().expect("project temp dir");
+            let project_root = project.path().to_string_lossy().to_string();
+            let scoped_root = protocol::repository_scope::scoped_state_root(project.path()).expect("scoped root");
+
+            let (hub, workflow_id, phase_id) =
+                seed_workflow_and_safe_phase_checkpoint(&project_root, &scoped_root).await;
+
+            let checkpoint =
+                read_checkpoint(&scoped_root, &workflow_id, &phase_id).expect("read").expect("checkpoint present");
+
+            // Look up the workflow's current attempt for this phase BEFORE
+            // applying, so we can assert the marker was written at the
+            // correct attempt index (bootstrap sets first phase attempt=1).
+            let workflow_before = hub.workflows().get(&workflow_id).await.expect("workflow before");
+            let attempt =
+                workflow_before.phases.iter().find(|p| p.phase_id == phase_id).map(|p| p.attempt).unwrap_or(0);
+
+            let result = apply_resumed_outcome_in_tree(
+                &project_root,
+                &scoped_root,
+                hub.clone(),
+                &checkpoint,
+                Some("sess-rotated"),
+            )
+            .await;
+            assert_eq!(result, ResumedOutcomeApplyResult::Advanced);
+
+            let after = read_checkpoint(&scoped_root, &workflow_id, &phase_id).expect("read").expect("present");
+            assert_eq!(after.status, SessionCheckpointStatus::Completed);
+            assert_eq!(after.provider_session_id.as_deref(), Some("sess-rotated"));
+            assert!(after.completed_at.is_some(), "completed_at must be stamped");
+
+            assert!(
+                is_phase_completed(&project_root, &workflow_id, &phase_id, attempt),
+                "completion marker for attempt {attempt} must exist"
+            );
+            let decision = read_persisted_decision(&project_root, &workflow_id, &phase_id).expect("decision");
+            assert_eq!(decision.verdict, orchestrator_core::PhaseDecisionVerdict::Advance);
+        }
+
+        // Codex round-7 P1: successful apply must transition workflow state
+        // (current_phase advances OR workflow becomes terminal). Codex
+        // round-7 round-3 P1: if the advance lands on a NEW Running phase
+        // (non-terminal) the workflow must end up Paused, not Running, so
+        // the orphan sweep does not cancel it.
+        #[tokio::test]
+        async fn auto_resume_transitions_workflow_state_after_drain() {
+            let _lock = lock_env();
+            let config_root = TempDir::new().expect("config temp dir");
+            let home_root = TempDir::new().expect("home temp dir");
+            let _config_guard =
+                EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
+            let _home_guard = EnvVarGuard::set("HOME", Some(home_root.path().to_string_lossy().as_ref()));
+            let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
+
+            let project = TempDir::new().expect("project temp dir");
+            let project_root = project.path().to_string_lossy().to_string();
+            let scoped_root = protocol::repository_scope::scoped_state_root(project.path()).expect("scoped root");
+
+            let (hub, workflow_id, phase_id) =
+                seed_workflow_and_safe_phase_checkpoint(&project_root, &scoped_root).await;
+
+            let before = hub.workflows().get(&workflow_id).await.expect("workflow before");
+            let before_phase = before.current_phase.clone();
+            let before_index = before.current_phase_index;
+
+            let checkpoint =
+                read_checkpoint(&scoped_root, &workflow_id, &phase_id).expect("read").expect("checkpoint present");
+            let result =
+                apply_resumed_outcome_in_tree(&project_root, &scoped_root, hub.clone(), &checkpoint, Some("sess-x"))
+                    .await;
+            assert_eq!(result, ResumedOutcomeApplyResult::Advanced);
+
+            let after = hub.workflows().get(&workflow_id).await.expect("workflow after");
+            let advanced = after.current_phase_index > before_index
+                || after.current_phase.as_deref() != before_phase.as_deref()
+                || matches!(
+                    after.status,
+                    orchestrator_core::WorkflowStatus::Completed | orchestrator_core::WorkflowStatus::Failed
+                );
+            assert!(
+                advanced,
+                "workflow state should have advanced past phase '{phase_id}'; before idx={before_index} after idx={} status={:?}",
+                after.current_phase_index, after.status
+            );
+
+            // Workflow must NOT be left in Running state without a runner —
+            // either terminal (Completed/Failed) or Paused so the orphan
+            // sweep skips it. research-workflow's research is the last
+            // phase so completion is terminal; broader workflows would
+            // land on Paused.
+            assert!(
+                matches!(
+                    after.status,
+                    orchestrator_core::WorkflowStatus::Completed
+                        | orchestrator_core::WorkflowStatus::Cancelled
+                        | orchestrator_core::WorkflowStatus::Failed
+                        | orchestrator_core::WorkflowStatus::Escalated
+                        | orchestrator_core::WorkflowStatus::Paused
+                ),
+                "workflow must not stay Running without an active runner after resume apply; status={:?}",
+                after.status
+            );
+        }
+
+        // Idempotency: if a previous restart already advanced the workflow
+        // (durable marker carried it forward), re-applying must NOT
+        // double-advance — it should report AlreadyAdvanced and still mark
+        // the session checkpoint Completed so it stops showing up.
+        #[tokio::test]
+        async fn auto_resume_idempotent_when_workflow_already_advanced() {
+            let _lock = lock_env();
+            let config_root = TempDir::new().expect("config temp dir");
+            let home_root = TempDir::new().expect("home temp dir");
+            let _config_guard =
+                EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
+            let _home_guard = EnvVarGuard::set("HOME", Some(home_root.path().to_string_lossy().as_ref()));
+            let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
+
+            let project = TempDir::new().expect("project temp dir");
+            let project_root = project.path().to_string_lossy().to_string();
+            let scoped_root = protocol::repository_scope::scoped_state_root(project.path()).expect("scoped root");
+
+            let (hub, workflow_id, phase_id) =
+                seed_workflow_and_safe_phase_checkpoint(&project_root, &scoped_root).await;
+
+            let checkpoint =
+                read_checkpoint(&scoped_root, &workflow_id, &phase_id).expect("read").expect("checkpoint present");
+
+            // First apply advances the workflow normally.
+            let first =
+                apply_resumed_outcome_in_tree(&project_root, &scoped_root, hub.clone(), &checkpoint, Some("sess-1"))
+                    .await;
+            assert_eq!(first, ResumedOutcomeApplyResult::Advanced);
+
+            // Re-read the checkpoint (it's now Completed) but pretend a
+            // crash left the OLD Running checkpoint for the same phase.
+            // We re-seed Running to simulate a corrupted re-discover.
+            update_session_running(&scoped_root, &workflow_id, &phase_id).expect("force Running again");
+            let stale_checkpoint =
+                read_checkpoint(&scoped_root, &workflow_id, &phase_id).expect("read").expect("present");
+
+            let second = apply_resumed_outcome_in_tree(
+                &project_root,
+                &scoped_root,
+                hub.clone(),
+                &stale_checkpoint,
+                Some("sess-2"),
+            )
+            .await;
+            assert_eq!(
+                second,
+                ResumedOutcomeApplyResult::AlreadyAdvanced,
+                "second apply MUST NOT double-advance the workflow"
+            );
+
+            let after = read_checkpoint(&scoped_root, &workflow_id, &phase_id).expect("read").expect("present");
+            assert_eq!(
+                after.status,
+                SessionCheckpointStatus::Completed,
+                "AlreadyAdvanced still flips the stale checkpoint Completed"
+            );
+        }
+
+        // Codex round-7 follow-up P1: decision-gated phases (review, QA,
+        // testing) MUST NOT have an implicit Advance synthesized — the
+        // resumed agent might have produced a Rework/Fail that we never
+        // captured. Apply must mark the session Blocked with a clear,
+        // --force-aware reason instead of advancing the workflow.
+        #[tokio::test]
+        async fn auto_resume_blocks_decision_gated_phase_instead_of_implicit_advance() {
+            let _lock = lock_env();
+            let config_root = TempDir::new().expect("config temp dir");
+            let home_root = TempDir::new().expect("home temp dir");
+            let _config_guard =
+                EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
+            let _home_guard = EnvVarGuard::set("HOME", Some(home_root.path().to_string_lossy().as_ref()));
+            let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
+
+            let project = TempDir::new().expect("project temp dir");
+            let project_root = project.path().to_string_lossy().to_string();
+            let scoped_root = protocol::repository_scope::scoped_state_root(project.path()).expect("scoped root");
+
+            let (hub, workflow_id, target_phase) = seed_workflow_and_checkpoint_on_phase(
+                &project_root,
+                &scoped_root,
+                None, // standard pipeline
+                &["code-review", "testing"],
+            )
+            .await;
+
+            let checkpoint =
+                read_checkpoint(&scoped_root, &workflow_id, &target_phase).expect("read").expect("checkpoint present");
+
+            let before = hub.workflows().get(&workflow_id).await.expect("workflow before");
+
+            let result = apply_resumed_outcome_in_tree(
+                &project_root,
+                &scoped_root,
+                hub.clone(),
+                &checkpoint,
+                Some("sess-rotated"),
+            )
+            .await;
+            assert_eq!(result, ResumedOutcomeApplyResult::BlockedAwaitingDecision);
+
+            // Workflow MUST NOT have been advanced.
+            let after = hub.workflows().get(&workflow_id).await.expect("workflow after");
+            assert_eq!(
+                after.current_phase, before.current_phase,
+                "decision-gated phase MUST NOT auto-advance on resume"
+            );
+            assert_eq!(after.current_phase_index, before.current_phase_index);
+
+            // Codex round-7 round-3 P1: workflow must be Paused (not
+            // Running) so the orphan sweep does not cancel it before the
+            // operator runs --force.
+            assert_eq!(
+                after.status,
+                orchestrator_core::WorkflowStatus::Paused,
+                "decision-gated resume must Pause the workflow to survive the orphan sweep"
+            );
+
+            // Session checkpoint marked Blocked with an actionable reason.
+            let after_ck = read_checkpoint(&scoped_root, &workflow_id, &target_phase).expect("read").expect("present");
+            assert_eq!(after_ck.status, SessionCheckpointStatus::Blocked);
+            let reason = after_ck.blocked_reason.unwrap_or_default();
+            assert!(
+                reason.contains("decision-gated phase")
+                    && reason.contains(target_phase.as_str())
+                    && reason.contains("--force"),
+                "expected decision-gated blocked reason w/ --force hint, got: {reason}"
+            );
+        }
+
+        // Codex round-7 round-3 P1: when the resumed apply advances the
+        // workflow to a NEW non-terminal phase (not the final one), the
+        // workflow MUST be Paused — otherwise the next orphan sweep would
+        // cancel it (no runner is driving the new phase from inside the
+        // startup recovery path).
+        #[tokio::test]
+        async fn auto_resume_pauses_workflow_when_advance_lands_on_non_terminal_phase() {
+            let _lock = lock_env();
+            let config_root = TempDir::new().expect("config temp dir");
+            let home_root = TempDir::new().expect("home temp dir");
+            let _config_guard =
+                EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
+            let _home_guard = EnvVarGuard::set("HOME", Some(home_root.path().to_string_lossy().as_ref()));
+            let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
+
+            let project = TempDir::new().expect("project temp dir");
+            let project_root = project.path().to_string_lossy().to_string();
+            let scoped_root = protocol::repository_scope::scoped_state_root(project.path()).expect("scoped root");
+
+            // Author a custom workflow YAML with two safe-to-advance
+            // phases so the apply path moves to a non-terminal phase. We
+            // bootstrap the standard scaffold first (FileServiceHub::new
+            // ensures defaults) then add our own file.
+            let _ = FileServiceHub::new(&project_root).expect("bootstrap hub");
+            let workflows_dir = project.path().join(".animus").join("workflows");
+            std::fs::create_dir_all(&workflows_dir).expect("create dir");
+            let custom_yaml = r#"workflows:
+  - id: research-then-wireframe
+    name: Research Then Wireframe
+    description: Two safe-to-advance phases for resume-pause testing.
+    phases:
+      - research
+      - wireframe
+"#;
+            std::fs::write(workflows_dir.join("research-then-wireframe.yaml"), custom_yaml).expect("write yaml");
+
+            let (hub, workflow_id, phase_id) = seed_workflow_and_checkpoint_on_phase(
+                &project_root,
+                &scoped_root,
+                Some("research-then-wireframe"),
+                &["research"],
+            )
+            .await;
+
+            let checkpoint =
+                read_checkpoint(&scoped_root, &workflow_id, &phase_id).expect("read").expect("checkpoint present");
+            let result =
+                apply_resumed_outcome_in_tree(&project_root, &scoped_root, hub.clone(), &checkpoint, Some("sess-x"))
+                    .await;
+            assert_eq!(result, ResumedOutcomeApplyResult::Advanced);
+
+            let after = hub.workflows().get(&workflow_id).await.expect("workflow after");
+            assert_eq!(
+                after.status,
+                orchestrator_core::WorkflowStatus::Paused,
+                "non-terminal advance must Pause workflow so orphan sweep does not cancel it"
+            );
+            // And the workflow actually moved forward.
+            assert!(
+                after.current_phase_index > 0 || after.current_phase.as_deref() == Some("wireframe"),
+                "workflow should have advanced past 'research'; current_phase={:?} idx={}",
+                after.current_phase,
+                after.current_phase_index
+            );
+        }
+
+        // Codex round-7 round-4 P2: when the operator already paused the
+        // workflow before the daemon restart, `WorkflowLifecycleExecutor::pause`
+        // panics because the state machine has no Paused -> PauseRequested
+        // transition. Apply must skip the redundant pause call and not crash.
+        #[tokio::test]
+        async fn auto_resume_does_not_repause_already_paused_workflow() {
+            let _lock = lock_env();
+            let config_root = TempDir::new().expect("config temp dir");
+            let home_root = TempDir::new().expect("home temp dir");
+            let _config_guard =
+                EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
+            let _home_guard = EnvVarGuard::set("HOME", Some(home_root.path().to_string_lossy().as_ref()));
+            let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
+
+            let project = TempDir::new().expect("project temp dir");
+            let project_root = project.path().to_string_lossy().to_string();
+            let scoped_root = protocol::repository_scope::scoped_state_root(project.path()).expect("scoped root");
+
+            // Seed a decision-gated checkpoint (standard pipeline's
+            // code-review/testing) then pause the workflow BEFORE running
+            // apply, simulating the "operator paused while session was
+            // still running, then daemon restarted" scenario codex called
+            // out.
+            let (hub, workflow_id, target_phase) =
+                seed_workflow_and_checkpoint_on_phase(&project_root, &scoped_root, None, &["code-review", "testing"])
+                    .await;
+            hub.workflows().pause(&workflow_id).await.expect("pause workflow");
+            let before = hub.workflows().get(&workflow_id).await.expect("workflow before");
+            assert_eq!(before.status, orchestrator_core::WorkflowStatus::Paused);
+
+            let checkpoint =
+                read_checkpoint(&scoped_root, &workflow_id, &target_phase).expect("read").expect("checkpoint present");
+
+            // Apply MUST NOT panic — must short-circuit through the
+            // already-paused branch and return BlockedAwaitingDecision.
+            let result =
+                apply_resumed_outcome_in_tree(&project_root, &scoped_root, hub.clone(), &checkpoint, Some("sess-x"))
+                    .await;
+            assert_eq!(result, ResumedOutcomeApplyResult::BlockedAwaitingDecision);
+
+            // Workflow stays Paused, not duplicated/cancelled.
+            let after = hub.workflows().get(&workflow_id).await.expect("workflow after");
+            assert_eq!(after.status, orchestrator_core::WorkflowStatus::Paused);
+        }
+    }
+
+    mod decision_gate {
+        use super::super::phase_requires_explicit_decision_for_resume;
+        use protocol::test_utils::EnvVarGuard;
+        use std::sync::{Mutex, MutexGuard};
+        use tempfile::TempDir;
+
+        fn lock_env() -> MutexGuard<'static, ()> {
+            static LOCK: Mutex<()> = Mutex::new(());
+            LOCK.lock().unwrap_or_else(|p| p.into_inner())
+        }
+
+        // Use an isolated empty project for tests that only need built-in
+        // defaults. Critical: do NOT use a path that happens to have an
+        // overlay config that would mutate the answer.
+        fn empty_project() -> TempDir {
+            TempDir::new().expect("empty project")
+        }
+
+        #[test]
+        fn review_and_testing_phases_require_explicit_decision() {
+            let _lock = lock_env();
+            let config_root = TempDir::new().expect("config");
+            let home_root = TempDir::new().expect("home");
+            let _config_guard =
+                EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
+            let _home_guard = EnvVarGuard::set("HOME", Some(home_root.path().to_string_lossy().as_ref()));
+            let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
+            let project = empty_project();
+            let root = project.path().to_string_lossy().to_string();
+
+            assert!(phase_requires_explicit_decision_for_resume(&root, "code-review"));
+            assert!(phase_requires_explicit_decision_for_resume(&root, "review"));
+            assert!(phase_requires_explicit_decision_for_resume(&root, "architecture"));
+            assert!(phase_requires_explicit_decision_for_resume(&root, "testing"));
+            assert!(phase_requires_explicit_decision_for_resume(&root, "test"));
+            assert!(phase_requires_explicit_decision_for_resume(&root, "qa"));
+            assert!(phase_requires_explicit_decision_for_resume(&root, "design-review"));
+        }
+
+        // Codex round-7 round-2 P1: implementation phases require a
+        // commit message; we cannot synthesize one, so they MUST block.
+        #[test]
+        fn implementation_phase_blocks_because_it_requires_commit_message() {
+            let _lock = lock_env();
+            let config_root = TempDir::new().expect("config");
+            let home_root = TempDir::new().expect("home");
+            let _config_guard =
+                EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
+            let _home_guard = EnvVarGuard::set("HOME", Some(home_root.path().to_string_lossy().as_ref()));
+            let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
+            let project = empty_project();
+            let root = project.path().to_string_lossy().to_string();
+            assert!(phase_requires_explicit_decision_for_resume(&root, "implementation"));
+        }
+
+        #[test]
+        fn research_design_phases_safe_to_implicit_advance() {
+            let _lock = lock_env();
+            let config_root = TempDir::new().expect("config");
+            let home_root = TempDir::new().expect("home");
+            let _config_guard =
+                EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
+            let _home_guard = EnvVarGuard::set("HOME", Some(home_root.path().to_string_lossy().as_ref()));
+            let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
+            let project = empty_project();
+            let root = project.path().to_string_lossy().to_string();
+
+            // These phases default-to-advance under the normal no-decision
+            // execution path (see phase_output::persist_phase_output's
+            // None branch), so the resume path mirrors that behavior.
+            assert!(!phase_requires_explicit_decision_for_resume(&root, "research"));
+            assert!(!phase_requires_explicit_decision_for_resume(&root, "design"));
+            assert!(!phase_requires_explicit_decision_for_resume(&root, "ux-research"));
+            // Unknown / custom phases with no overlay fall through to
+            // default capabilities (no review/testing/commit flag) and
+            // are safe to auto-advance.
+            assert!(!phase_requires_explicit_decision_for_resume(&root, "custom-phase"));
+        }
+
+        // Codex round-7 round-2 P2: built-in `requirements` phase carries
+        // a `decision_contract` in the bundled default config, so the
+        // recovery path MUST honor it and refuse to auto-advance — even
+        // though the phase's built-in capabilities don't set is_review.
+        #[test]
+        fn requirements_phase_blocks_via_default_decision_contract() {
+            let _lock = lock_env();
+            let config_root = TempDir::new().expect("config");
+            let home_root = TempDir::new().expect("home");
+            let _config_guard =
+                EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
+            let _home_guard = EnvVarGuard::set("HOME", Some(home_root.path().to_string_lossy().as_ref()));
+            let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
+            let project = empty_project();
+            let root = project.path().to_string_lossy().to_string();
+
+            assert!(
+                phase_requires_explicit_decision_for_resume(&root, "requirements"),
+                "requirements has decision_contract in built-in runtime config and MUST be honored"
+            );
+        }
+
+        // Codex round-7 round-5 P1: workflow YAML `phases:` definitions
+        // that declare `decision_contract` or `capabilities.is_review` /
+        // `is_testing` / `requires_commit` MUST be honored by the resume
+        // safety predicate — the YAML phase_definitions are merged into
+        // the AgentRuntimeConfig.phases map by
+        // `merge_workflow_runtime_overlay`, so the predicate should pick
+        // them up via `phase_execution(phase_id)`.
+        #[tokio::test]
+        async fn workflow_yaml_phase_definition_with_decision_contract_blocks() {
+            let _lock = lock_env();
+            let config_root = TempDir::new().expect("config");
+            let home_root = TempDir::new().expect("home");
+            let _config_guard =
+                EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
+            let _home_guard = EnvVarGuard::set("HOME", Some(home_root.path().to_string_lossy().as_ref()));
+            let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
+            let project = empty_project();
+            let root = project.path().to_string_lossy().to_string();
+
+            let _ = orchestrator_core::FileServiceHub::new(&root).expect("hub bootstrap");
+            let workflows_dir = project.path().join(".animus").join("workflows");
+            std::fs::create_dir_all(&workflows_dir).expect("mkdir");
+            // YAML-only custom phase with decision_contract. No
+            // companion entry in agent-runtime-config.v2.json — the
+            // overlay merge is the ONLY surface that injects it.
+            let yaml = r#"agents:
+  default:
+    description: default agent
+    role: software_engineer
+    tool: claude
+workflows:
+  - id: audit-workflow
+    name: Audit Workflow
+    description: workflow with custom yaml-only phase
+    phases:
+      - security-audit
+phases:
+  security-audit:
+    mode: agent
+    agent_id: default
+    directive: Audit the change for security regressions.
+    decision_contract:
+      required_evidence: []
+      min_confidence: 0.6
+      max_risk: medium
+      allow_missing_decision: false
+"#;
+            std::fs::write(workflows_dir.join("audit-workflow.yaml"), yaml).expect("write yaml");
+
+            assert!(
+                phase_requires_explicit_decision_for_resume(&root, "security-audit"),
+                "YAML phase_definitions with decision_contract MUST be honored by the resume guard"
+            );
+        }
+
+        // Codex round-7 round-4 P2: workflow YAML-level on_verdict routing
+        // is a decision gate even when the phase itself has no
+        // decision_contract or review/testing capabilities. The
+        // workflow-aware variant of the predicate must honor it.
+        #[tokio::test]
+        async fn workflow_on_verdict_routing_blocks_resume_advance() {
+            use super::super::phase_requires_explicit_decision_for_resume_in_workflow;
+            let _lock = lock_env();
+            let config_root = TempDir::new().expect("config");
+            let home_root = TempDir::new().expect("home");
+            let _config_guard =
+                EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(config_root.path().to_string_lossy().as_ref()));
+            let _home_guard = EnvVarGuard::set("HOME", Some(home_root.path().to_string_lossy().as_ref()));
+            let _legacy_guard = EnvVarGuard::set("AGENT_ORCHESTRATOR_CONFIG_DIR", None);
+            let project = empty_project();
+            let root = project.path().to_string_lossy().to_string();
+
+            // Bootstrap default scaffolding then write a custom workflow
+            // YAML where `research` has on_verdict routing (without any
+            // decision_contract or review/testing capabilities on the
+            // phase definition itself).
+            let _ = orchestrator_core::FileServiceHub::new(&root).expect("hub");
+            let workflows_dir = project.path().join(".animus").join("workflows");
+            std::fs::create_dir_all(&workflows_dir).expect("mkdir");
+            let yaml = r#"workflows:
+  - id: gated-research
+    name: Gated Research
+    description: research phase with on_verdict routing
+    phases:
+      - research:
+          on_verdict:
+            rework:
+              target: research
+"#;
+            std::fs::write(workflows_dir.join("gated-research.yaml"), yaml).expect("write yaml");
+
+            // Without the workflow_ref, the phase appears safe to advance.
+            assert!(
+                !phase_requires_explicit_decision_for_resume(&root, "research"),
+                "bare `research` phase has no built-in gates"
+            );
+
+            // With the workflow_ref, on_verdict gating must engage.
+            assert!(
+                phase_requires_explicit_decision_for_resume_in_workflow(&root, "research", Some("gated-research")),
+                "on_verdict routing MUST block resume auto-advance for the configured workflow"
             );
         }
     }

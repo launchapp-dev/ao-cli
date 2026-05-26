@@ -202,6 +202,26 @@ pub fn persist_phase_output(
     Ok(())
 }
 
+// Daemon-restart helper: persist a minimal `Completed` outcome for a phase
+// whose live execution we cannot recover (the in-process AgentRunResponse
+// was lost when the daemon crashed, but the provider plugin reported a
+// successful terminal Finished event on the resumed session). Mirrors the
+// "no phase_decision" branch in `persist_phase_output` — verdict defaults
+// to "advance" — so the next scheduler tick replays this as a normal
+// completed phase via `read_persisted_decision` +
+// `complete_current_phase_with_decision`. Idempotent: the underlying
+// persist uses an atomic tmp+rename, so a double-apply rewrites the same
+// bytes rather than racing partial writes.
+pub fn persist_resumed_phase_completion(
+    project_root: &str,
+    workflow_id: &str,
+    phase_id: &str,
+    attempt: u32,
+) -> anyhow::Result<()> {
+    let outcome = PhaseExecutionOutcome::Completed { commit_message: None, phase_decision: None, result_payload: None };
+    persist_phase_output(project_root, workflow_id, phase_id, attempt, &outcome)
+}
+
 pub fn load_prior_phase_outputs(
     project_root: &str,
     workflow_id: &str,

@@ -63,28 +63,17 @@ impl Default for ProcessManager {
 
 impl ProcessManager {
     pub fn new() -> Self {
-        // Auto-pick up the daemon's workflow event broadcaster and the
-        // process-wide workflow concurrency cap when one has been
-        // installed by [`crate::run_daemon`]. CLI / one-shot processes
-        // that never started a daemon get `None` and the legacy
-        // unbounded behavior — preserving existing behavior for tests
-        // and `animus workflow run` foreground execution.
-        #[cfg(unix)]
-        let (event_broadcaster, pipe_root) = match crate::daemon::current_workflow_event_broadcaster() {
-            Some(bus) => {
-                let root = default_event_pipe_root();
-                (Some(bus), Some(root))
-            }
-            None => (None, None),
-        };
         // The workflow concurrency cap only takes effect when the operator
         // explicitly sets `ANIMUS_WORKFLOW_CONCURRENCY_MAX`. Falling back
         // to `None` preserves the legacy unbounded behavior for
-        // deployments that rely on `pool_size` / external scheduling. We
-        // detect the explicit-set case by looking for the env var directly
-        // rather than comparing the RuntimeQuotas struct against its
-        // default — that comparison is brittle if other unrelated env
-        // overrides are set.
+        // deployments that rely on `pool_size` / external scheduling.
+        //
+        // The subprocess workflow_events broadcaster is NOT looked up
+        // here — it is picked up lazily on each spawn via
+        // [`crate::daemon::current_workflow_event_broadcaster`] so that
+        // a `ProcessManager` constructed before `run_daemon` installs
+        // the broadcaster (the normal CLI startup sequence) still
+        // attaches per-run pipes once the daemon is live.
         let workflow_concurrency_max = std::env::var("ANIMUS_WORKFLOW_CONCURRENCY_MAX")
             .ok()
             .and_then(|raw| raw.trim().parse::<usize>().ok())
@@ -95,9 +84,9 @@ impl ProcessManager {
             phase_routing: None,
             mcp_config: None,
             #[cfg(unix)]
-            event_broadcaster,
+            event_broadcaster: None,
             #[cfg(unix)]
-            pipe_root,
+            pipe_root: None,
             workflow_concurrency_max,
         }
     }
@@ -202,8 +191,20 @@ impl ProcessManager {
     /// fan-out is silently disabled for that run.
     #[cfg(unix)]
     fn bind_event_pipe_for(&self, dispatch: &SubjectDispatch, command: &mut Command) -> Option<SubprocessEventPipe> {
-        let broadcaster = self.event_broadcaster.as_ref()?.clone();
-        let pipe_root = self.pipe_root.as_ref()?.clone();
+        // Lazy lookup so the broadcaster is picked up even when the
+        // `ProcessManager` was constructed BEFORE [`crate::run_daemon`]
+        // installed it (the production daemon spawns the manager first
+        // and then starts the daemon loop). Explicit per-instance wiring
+        // via [`Self::with_event_broadcaster`] still wins so tests can
+        // pin a specific broadcaster.
+        let broadcaster = match self.event_broadcaster.as_ref() {
+            Some(bus) => bus.clone(),
+            None => crate::daemon::current_workflow_event_broadcaster()?,
+        };
+        let pipe_root = match self.pipe_root.as_ref() {
+            Some(root) => root.clone(),
+            None => default_event_pipe_root(),
+        };
         let subject_label = dispatch.subject_id().to_string();
         // Bind the listener on the same Tokio runtime the daemon is running
         // on. We need a synchronous-looking result so we use a oneshot

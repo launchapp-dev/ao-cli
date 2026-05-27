@@ -708,6 +708,12 @@ async fn run_walkthrough(args: &InitArgs, project_root: &Path, mode: InitMode, j
         );
     }
 
+    // Create `.animus/` before installing defaults so the project-local
+    // plugin lockfile resolves to `.animus/plugins.lock` instead of the
+    // `~/.animus/plugins.lock` fallback. Without this, `animus plugin lock
+    // list/verify` after init misses the walkthrough's installed entries.
+    std::fs::create_dir_all(project_root.join(".animus"))?;
+
     let plugin_step = if install_plugins {
         run_install_defaults_subprocess(project_root, json).await
     } else {
@@ -872,7 +878,14 @@ async fn run_install_defaults_subprocess(project_root: &Path, json: bool) -> Wal
     }
     cmd.args(["plugin", "install-defaults", "--yes"]);
     cmd.stdin(Stdio::null());
-    cmd.stdout(Stdio::inherit());
+    // In JSON mode, pipe stdout (and discard) so the child's `--json` output
+    // does not interleave with the parent envelope. In human mode, inherit
+    // so the user sees progress live.
+    if json {
+        cmd.stdout(Stdio::piped());
+    } else {
+        cmd.stdout(Stdio::inherit());
+    }
     cmd.stderr(Stdio::piped());
     let output = match cmd.output() {
         Ok(out) => out,
@@ -912,7 +925,11 @@ async fn run_daemon_start_subprocess(project_root: &Path, json: bool) -> Walkthr
     }
     cmd.args(["daemon", "start", "--autonomous", "--auto-install", "--skip-preflight"]);
     cmd.stdin(Stdio::null());
-    cmd.stdout(Stdio::inherit());
+    if json {
+        cmd.stdout(Stdio::piped());
+    } else {
+        cmd.stdout(Stdio::inherit());
+    }
     cmd.stderr(Stdio::piped());
     let output = match cmd.output() {
         Ok(out) => out,

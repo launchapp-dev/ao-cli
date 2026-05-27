@@ -4,6 +4,41 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Security
+
+- **`fix(session-host)`: enforce provider plugin env allowlist via the
+  plugin manifest at the RPC layer.** `PluginSessionBackend::dispatch`
+  was forwarding every key in `SessionRequest.env_vars` straight through
+  to the plugin's spawn-time `env_allowlist`, copying them into the
+  per-call RPC `env` param AND embedding the full merged launch env
+  under `extras.runtime_contract.cli.launch.env`, bypassing the
+  manifest gate documented in `docs/guides/plugin-author-guide.md` § 9.
+  A provider plugin whose manifest declared no `env_required` could
+  still receive the runner's sanitized launch env wholesale (e.g.
+  `OPENAI_API_KEY` reaching a Claude plugin that never asked for it).
+  Fix intersects request env keys against
+  (`PLUGIN_BASE_ENV_ALLOWLIST` ∪ `manifest.env_required`) at the
+  dispatch boundary and applies the SAME filter to all three leak
+  channels — spawn allowlist, RPC `env` param, and runtime_contract
+  launch env. Six new regression tests cover empty-manifest scrubbing,
+  manifest-declared pass-through, the RPC-param surface, and the
+  runtime_contract surface (including no-op behaviour when the path
+  is absent or wrong-shape).
+
+### Docs
+
+- **`docs(security)`: align signature-policy default text with code
+  (`Warn`, not `Strict`).** Several places — the `PolicyMode` /
+  `PolicyMode::default_for_install` rustdoc, the `SignaturePolicy::default_install`
+  rustdoc, `effective_policy_mode` in `ops_plugin.rs`, the v0.4.12 entry
+  in `CHANGELOG.md`, and the "v0.4.12 temporary default" section in
+  `docs/reference/security.md` — claimed v0.4.13 would flip the
+  install-time default back to `Strict`. The code at
+  `signature_verifier.rs::default_for_install` continues to return
+  `Warn` intentionally; the docs were stale. Text now reflects the
+  shipped behaviour and the recommended `--signature-policy strict`
+  opt-in for production. No behaviour change.
+
 ## [0.4.13] - 2026-05-27
 
 Operational hardening of the v0.4.12 plugin extraction. Several pieces of
@@ -335,17 +370,14 @@ replacement code lives in 18 standalone plugin repositories under
   retained only to avoid breaking existing install scripts. Passing it
   logs a deprecation warning and proceeds via the normal keyless path.
   Removal targeted for a future release.
-- **`security(plugin install)`: install-time signature policy defaults to
-  `warn` for v0.4.12 only.** Now that the trust anchor is real (Fulcio +
-  Rekor) rather than a placeholder PEM, the only reason to keep `warn`
-  as the default for this release is the upgrade path: operators with
-  pre-v0.4.12 installs whose releases predate keyless signing get a
-  one-release migration window where `signature_status` is recorded but
-  install does not fail closed. **v0.4.13 flips the default back to
-  `strict`.** No CLI surface change. Operators with a fully v0.4.12+
-  plugin set can opt in to `strict` today via
-  `animus plugin install --signature-policy strict <repo>`. See
-  [`docs/reference/security.md`](docs/reference/security.md#v0412-temporary-default-warn).
+- **`security(plugin install)`: install-time signature policy default is
+  `warn`.** Now that the trust anchor is real (Fulcio + Rekor) rather
+  than a placeholder PEM, `warn` records `signature_status` and logs a
+  stderr warning on missing / invalid / untrusted signatures without
+  failing the install. Operators wanting fail-closed enforcement opt
+  in per-install via `animus plugin install --signature-policy strict
+  <repo>`. See
+  [`docs/reference/security.md`](docs/reference/security.md#install-time-default-warn).
 
 ## [0.4.11] - 2026-05-23
 

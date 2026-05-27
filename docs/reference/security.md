@@ -40,15 +40,19 @@ No baked-in public key is involved. The pre-v0.4.12 key-based path
 `LAUNCHAPP_DEV_COSIGN_PUBLIC_KEY_PEM` constant) was removed because the
 real release pipeline never produced PEM-verifiable signatures.
 
-### v0.4.12 temporary default: `warn`
+### Install-time default: `warn`
 
-For v0.4.12 only, the install-time default policy is `warn` rather than
-the long-term `strict` setting. The reason is narrow: v0.4.12 is the
-release that *introduces* keyless verification end-to-end, so users with
-plugins installed pre-v0.4.12 may have no usable signature bundle for
-those releases. Shipping `strict` as the v0.4.12 default would
-fail-closed against legitimately-installed older releases on the next
-upgrade pass.
+The install-time default policy is `warn`. Verification still runs and
+the resolved `signature_status` is recorded in `~/.animus/plugins.yaml`,
+but a missing / invalid / untrusted-signer signature degrades to a
+stderr warning rather than failing the install.
+
+This default is intentional: it keeps the audit trail intact while
+avoiding a hard install failure for plugins whose release pipeline does
+not yet publish a keyless cosign bundle. Source of truth lives in
+[`PolicyMode::default_for_install`](https://docs.rs/orchestrator-plugin-host/latest/orchestrator_plugin_host/signature_verifier/enum.PolicyMode.html#method.default_for_install)
+and the CLI fallback in
+`crates/orchestrator-cli/src/services/operations/ops_plugin.rs::effective_policy_mode`.
 
 Under `warn`:
 
@@ -57,28 +61,26 @@ Under `warn`:
 - Unsigned / invalid / untrusted-signer results log a warning to stderr
   and the install proceeds.
 
-Operators with up-to-date plugins can opt back into fail-closed
-enforcement today:
+Operators who want fail-closed enforcement opt in per-install:
 
 ```bash
 animus plugin install --signature-policy strict <owner>/<repo>
 ```
 
-Roadmap: **v0.4.13 flips the default back to `strict`** once the
-one-release migration window has passed. No CLI surface change — only
-the default flips.
+See [Recommended posture for production](#recommended-posture-for-production)
+for the deployment-time configuration that pins every install to
+`strict` without needing the flag on each invocation.
 
 ### Policy modes
 
 `animus plugin install` exposes three enforcement modes via the
-`--signature-policy <MODE>` flag. The default is `warn` in v0.4.12 (see
-[above](#v0412-temporary-default-warn)); v0.4.13 restores the long-term
-`strict` default.
+`--signature-policy <MODE>` flag. The default is
+[`warn`](#install-time-default-warn).
 
 | Mode       | Behavior                                                                                          | When to use                                                                |
 | ---------- | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `strict`   | Refuse install if the keyless signature is missing, invalid, or signed by an identity outside the trusted-publisher list. | All production environments. Default again in v0.4.13. |
-| `warn`     | Verify when possible; log a warning to stderr and proceed on any failure. **DEFAULT in v0.4.12.** | Temporary v0.4.12 default while pre-keyless installs roll over.            |
+| `strict`   | Refuse install if the keyless signature is missing, invalid, or signed by an identity outside the trusted-publisher list. | Production environments — opt in per-install or via deployment config. |
+| `warn`     | Verify when possible; log a warning to stderr and proceed on any failure. **DEFAULT.**            | Default for interactive use and environments where some plugins lack signatures. |
 | `disabled` | Skip verification entirely.                                                                       | Air-gapped or local-build flows where signing is not feasible.             |
 
 The legacy `--require-signature` and `--skip-signature` flags are
@@ -87,11 +89,10 @@ strict` and `--signature-policy disabled` respectively.
 
 `--allow-unsigned` is a convenience alias for `--signature-policy warn`.
 
-#### Strict mode (opt-in for v0.4.12, default again in v0.4.13)
+#### Strict mode (opt-in)
 
 ```bash
 animus plugin install --signature-policy strict launchapp-dev/animus-provider-claude
-# v0.4.13+: the explicit flag is no longer required to get strict behavior.
 ```
 
 When strict mode rejects an install you'll see one of:
@@ -248,20 +249,25 @@ deleted; Animus does not write to it.
 
 ## Recommended posture for production
 
-1. Pass `--signature-policy strict` explicitly on v0.4.12 (the default
-   is `warn` for one release while pre-keyless plugin installs roll
-   over; v0.4.13 makes `strict` the default again).
+1. Pass `--signature-policy strict` explicitly on every install. The
+   library default ([`PolicyMode::default_for_install`]) is `warn` to
+   keep interactive onboarding unblocked; production callers should
+   override per-install (or wrap `animus plugin install` in a script
+   that always supplies the flag).
 2. Install `cosign` on every machine that runs `animus plugin install`.
    Strict mode fails closed without it.
 3. Pre-populate `~/.animus/trusted-orgs.yaml` so non-interactive installs
    never block on a TOFU prompt.
 4. Audit `signature_status` in `~/.animus/plugins.yaml` periodically.
    Anything other than `verified` or `skipped` for a `--path`/`--url`
-   install is a policy violation worth investigating. On v0.4.12 the
-   default `warn` posture means `unsigned` rows for release installs
-   are expected only for pre-keyless installs; treat them as a reminder
-   to reinstall under `--signature-policy strict` once your plugin set
-   is fully v0.4.12+.
+   install is a policy violation worth investigating. `unsigned` rows
+   under the default `warn` policy are the expected signal that the
+   release pipeline for that plugin has not yet adopted keyless cosign
+   bundles; treat them as a reminder to either contact the maintainer
+   or reinstall under `--signature-policy strict` after confirming a
+   bundle now ships.
+
+[`PolicyMode::default_for_install`]: https://docs.rs/orchestrator-plugin-host/latest/orchestrator_plugin_host/signature_verifier/enum.PolicyMode.html#method.default_for_install
 
 ## Kill switches
 

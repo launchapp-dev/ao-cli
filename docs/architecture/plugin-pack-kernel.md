@@ -2,8 +2,8 @@
 
 ## Purpose
 
-Animus should evolve from a product with built-in task and requirement semantics
-into a workflow kernel that can host bundled and third-party domain packs.
+Animus should stay a workflow kernel that hosts bundled and third-party domain
+packs instead of baking task and requirement semantics into daemon-core.
 
 The daemon stays dumb. The workflow runner stays the execution host. Product
 domains such as tasks, requirements, incidents, CRM leads, or external issue
@@ -504,7 +504,7 @@ installed packs.
 
 - move task workflows into `animus.task`
 - move requirement workflows into `animus.requirement`
-- register built-in task and requirement projectors/adapters via pack ids
+- register task and requirement projectors/adapters via pack ids
 
 ### Phase 5: Native Module Registries
 

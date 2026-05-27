@@ -101,7 +101,7 @@ Animus turns a single YAML file into an autonomous software delivery pipeline.
 
 You define agents, wire them into phases, compose phases into workflows, schedule everything with cron — and Animus's daemon handles the rest: dispatching tasks to AI agents in isolated git worktrees, managing quality gates, and merging the results.
 
-As of v0.4.4, Animus is plugin-first. The core daemon is the orchestration runtime; providers (Claude, Codex, Gemini, OpenCode, any OpenAI-compatible HTTP endpoint), subject backends (in-tree task + requirement adapters plus Linear / SQLite / markdown / requirements plugins), triggers (webhook, Slack), and log storage all ship as independent `animus-*` repositories under [launchapp-dev](https://github.com/launchapp-dev) — 14 repos live today. `animus plugin install <owner/repo>` pulls them in (with optional cosign signature verification). The daemon discovers installed plugins at startup, exposes a Unix-socket control protocol, and the CLI/MCP/WebAPI all route through it.
+Animus is plugin-first. The core daemon is the orchestration runtime; providers, subject backends, triggers, transports, web UI, and log storage ship as independent `animus-*` plugins under [launchapp-dev](https://github.com/launchapp-dev). `animus plugin install <owner/repo>` pulls them in with optional cosign signature verification. The daemon discovers installed plugins at startup, exposes a Unix-socket control protocol, and the CLI, MCP server, and web transports route through that control surface.
 
 ```
                 ┌──────────────────────────────────────────────────┐
@@ -157,10 +157,9 @@ animus plugin new --kind subject --name jira
 Bundled `init` templates: **`task-queue`**, **`conductor`**, **`direct-workflow`**.
 
 > **v0.4.4 note:** `animus task ...` and `animus requirements ...` were removed
-> in favor of `animus subject --kind <kind>`. The in-tree task and requirement
-> adapters auto-register so the verb surface (`list`, `get`, `create`, `update`,
-> `next`, `status`) works identically — just route through `subject --kind task`
-> or `subject --kind requirement`.
+> in favor of `animus subject --kind <kind>`. Install the task and requirement
+> subject plugins, then route through `subject --kind task` or
+> `subject --kind requirement`.
 
 ---
 
@@ -334,10 +333,9 @@ Every task gets its own git worktree. Agents work in parallel on separate branch
 
 ## Plugin Ecosystem
 
-The full v0.4.x ecosystem — 14 standalone GitHub repos under
-[launchapp-dev](https://github.com/launchapp-dev), each tagged `v0.1.x` or
-`v0.2.x` with green CI. The exact `(repo, tag)` set installed by
-`animus plugin install-defaults` lives in a single source of truth at
+The plugin ecosystem lives in standalone GitHub repositories under
+[launchapp-dev](https://github.com/launchapp-dev). The exact `(repo, tag)` set
+installed by `animus plugin install-defaults` lives in a single source of truth at
 [`crates/orchestrator-core/src/plugin_registry.rs`](crates/orchestrator-core/src/plugin_registry.rs)
 so the CLI installer and the daemon preflight always agree on which tag is
 "the default":
@@ -345,14 +343,16 @@ so the CLI installer and the daemon preflight always agree on which tag is
 | Kind | Repos |
 |---|---|
 | **Protocol + tooling** | [`animus-protocol`](https://github.com/launchapp-dev/animus-protocol), [`animus-plugin-template`](https://github.com/launchapp-dev/animus-plugin-template), [`animus-plugin-registry`](https://github.com/launchapp-dev/animus-plugin-registry) |
-| **Subject backends** | [`animus-subject-linear`](https://github.com/launchapp-dev/animus-subject-linear), [`animus-subject-sqlite`](https://github.com/launchapp-dev/animus-subject-sqlite), [`animus-subject-markdown`](https://github.com/launchapp-dev/animus-subject-markdown), [`animus-subject-requirements`](https://github.com/launchapp-dev/animus-subject-requirements) |
+| **Subject backends** | `animus-subject-default`, [`animus-subject-requirements`](https://github.com/launchapp-dev/animus-subject-requirements), [`animus-subject-linear`](https://github.com/launchapp-dev/animus-subject-linear), [`animus-subject-sqlite`](https://github.com/launchapp-dev/animus-subject-sqlite), [`animus-subject-markdown`](https://github.com/launchapp-dev/animus-subject-markdown) |
 | **Providers** | [`animus-provider-claude`](https://github.com/launchapp-dev/animus-provider-claude), [`animus-provider-codex`](https://github.com/launchapp-dev/animus-provider-codex), [`animus-provider-gemini`](https://github.com/launchapp-dev/animus-provider-gemini), [`animus-provider-opencode`](https://github.com/launchapp-dev/animus-provider-opencode), [`animus-provider-oai`](https://github.com/launchapp-dev/animus-provider-oai) |
 | **Triggers** | [`animus-trigger-webhook`](https://github.com/launchapp-dev/animus-trigger-webhook), [`animus-trigger-slack`](https://github.com/launchapp-dev/animus-trigger-slack) |
+| **Transports + web UI** | `animus-transport-http`, `animus-transport-graphql`, `animus-web-ui` |
 | **Log storage** | [`animus-log-storage-file`](https://github.com/launchapp-dev/animus-log-storage-file) |
 
 ```bash
 animus plugin install launchapp-dev/animus-provider-claude
 animus plugin list                     # see what's installed with SIG column
+animus plugin install-defaults --include-subjects --include-transports
 animus plugin new my-thing --kind subject   # scaffold from the template
 ```
 
@@ -415,7 +415,7 @@ The `./setup` script supports `--host claude|codex|opencode|cursor|slate|kiro|al
 
 ```
 animus subject       Unified subject surface: list/get/create/update/next/status --kind <kind>
-                     (in-tree: kind=task, kind=requirement; plus any installed subject plugin)
+                     (kind=task and kind=requirement are served by installed subject_backend plugins)
 animus workflow      Run and manage multi-phase workflows
 animus daemon        Start/stop the autonomous scheduler (--autonomous, health, stream)
 animus queue         Inspect and manage the dispatch queue
@@ -433,7 +433,7 @@ animus git           Worktree and branch helpers
 animus history       Inspect run history (includes phase + runtime error reports)
 animus init          Initialize a project from a template registry or local template
 animus mcp           Start Animus as an MCP server
-animus web           Launch the embedded web dashboard
+animus web           Launch installed web dashboard/transport plugins
 animus status        Project overview at a glance
 animus doctor        Health checks, auto-remediation, and troubleshooting
 ```
@@ -459,41 +459,24 @@ Animus is a Rust workspace. The core crates:
 - `protocol` — shared types and routing
 - `workflow-runner-v2` — workflow execution runtime
 - `agent-runner` — LLM CLI process management
-- `llm-cli-wrapper` — session backend layer (launch parsing + in-tree provider session backends)
+- `orchestrator-session-host` — provider plugin session bridge
 - `oai-runner` — OpenAI-compatible runner
 - `orchestrator-daemon-runtime` — daemon scheduler, cron, event triggers
 - `orchestrator-providers` — provider integrations
 - `orchestrator-git-ops` — worktree and branch management
 - `orchestrator-notifications` — event streaming and notifications
 - `orchestrator-logging` — shared logging utilities
-- `orchestrator-plugin-host` / `animus-plugin-protocol` — stdio plugin foundation
+- `orchestrator-plugin-host` / `animus-plugin-protocol` / `animus-subject-protocol` / `animus-plugin-runtime` — stdio plugin foundation
 - `animus-provider-mock` / `animus-plugin-smoke` — in-tree contract test fixtures for the plugin protocol
+
+See [`docs/architecture/full-system-architecture.md`](docs/architecture/full-system-architecture.md),
+[`docs/architecture/runtime-architecture.md`](docs/architecture/runtime-architecture.md),
+and [`docs/architecture/plugin-system.md`](docs/architecture/plugin-system.md)
+for the current source-backed architecture docs.
 
 The web dashboard is no longer bundled in-tree. Install it as plugins via
 `animus plugin install-defaults --include-transports`
 (`animus-transport-http` + `animus-transport-graphql` + `animus-web-ui`).
-
-### Plugin ecosystem
-
-Provider, subject, trigger, and log-storage backends live in their own GitHub repositories under [launchapp-dev](https://github.com/launchapp-dev) and are installed via `animus plugin install <owner/repo>`. 14 repos live today, each tagged `v0.1.x` or `v0.2.x` with green CI. The exact tags pinned by `animus plugin install-defaults` and used by the daemon preflight are kept in [`crates/orchestrator-core/src/plugin_registry.rs`](crates/orchestrator-core/src/plugin_registry.rs):
-
-| Repository | Purpose |
-|---|---|
-| [`animus-protocol`](https://github.com/launchapp-dev/animus-protocol) | Plugin protocol Rust crates published to crates.io (`animus-plugin-protocol`, `animus-subject-protocol`, `animus-provider-protocol`, `animus-plugin-runtime`, `animus-session-backend`, `animus-control-protocol`). Latest: v0.1.3. |
-| [`animus-plugin-template`](https://github.com/launchapp-dev/animus-plugin-template) | Subject + provider scaffolds, consumed by `animus plugin new` |
-| [`animus-plugin-registry`](https://github.com/launchapp-dev/animus-plugin-registry) | Marketplace index (browse + search) |
-| [`animus-subject-linear`](https://github.com/launchapp-dev/animus-subject-linear) | Linear GraphQL subject backend |
-| [`animus-subject-sqlite`](https://github.com/launchapp-dev/animus-subject-sqlite) | SQLite-backed subject store |
-| [`animus-subject-markdown`](https://github.com/launchapp-dev/animus-subject-markdown) | Markdown-file subject store |
-| [`animus-subject-requirements`](https://github.com/launchapp-dev/animus-subject-requirements) | Requirement-tree subject backend |
-| [`animus-provider-claude`](https://github.com/launchapp-dev/animus-provider-claude) | Claude Code CLI provider |
-| [`animus-provider-codex`](https://github.com/launchapp-dev/animus-provider-codex) | Codex CLI provider |
-| [`animus-provider-gemini`](https://github.com/launchapp-dev/animus-provider-gemini) | Gemini CLI provider |
-| [`animus-provider-opencode`](https://github.com/launchapp-dev/animus-provider-opencode) | OpenCode CLI provider |
-| [`animus-provider-oai`](https://github.com/launchapp-dev/animus-provider-oai) | OpenAI-compatible HTTP provider |
-| [`animus-trigger-webhook`](https://github.com/launchapp-dev/animus-trigger-webhook) | Generic webhook trigger plugin |
-| [`animus-trigger-slack`](https://github.com/launchapp-dev/animus-trigger-slack) | Slack event trigger plugin |
-| [`animus-log-storage-file`](https://github.com/launchapp-dev/animus-log-storage-file) | File log-storage backend |
 
 ```mermaid
 graph LR
@@ -501,17 +484,16 @@ graph LR
     A --> C[Daemon Runtime]
     B --> D[Workflow Runner]
     D --> E[Agent Runner]
-    E --> F[LLM CLI Wrapper]
-    F --> G[claude / codex / gemini]
-    B --> H[Config]
-    H --> I[YAML Compiler]
-    A --> J[Web Server]
-    J --> K[Web API]
-    K --> B
+    E --> F[Session Host]
+    F --> G[Provider Plugins]
+    B --> H[Config Compiler]
+    A --> I[Plugin Host]
+    C --> I
+    I --> J[Subject / Trigger / Transport Plugins]
     C --> D
     style A fill:#1f6feb,stroke:#1f6feb,color:#fff
     style C fill:#1f6feb,stroke:#1f6feb,color:#fff
-    style J fill:#1f6feb,stroke:#1f6feb,color:#fff
+    style I fill:#1f6feb,stroke:#1f6feb,color:#fff
 ```
 
 ---
@@ -548,7 +530,7 @@ curl -fsSL https://raw.githubusercontent.com/launchapp-dev/animus-cli/main/scrip
 rm -f ~/.local/bin/animus \
   ~/.local/bin/agent-runner \
   ~/.local/bin/animus-oai-runner \
-  ~/.local/bin/animus-workflow-runner
+  ~/.local/bin/ao-workflow-runner
 ```
 
 <br/>

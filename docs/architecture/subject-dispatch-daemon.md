@@ -160,7 +160,9 @@ flowchart LR
   subgraph Workflow["Execution"]
     WFR["workflow-runner"]
     AR["agent-runner"]
-    WRAP["llm-cli-wrapper"]
+    SESSION["orchestrator-session-host"]
+    PHOST["orchestrator-plugin-host"]
+    PROVIDERS["provider plugins"]
   end
 
   CLI --> DRT
@@ -168,7 +170,9 @@ flowchart LR
   MCP --> DRT
   DRT --> WFR
   WFR --> AR
-  AR --> WRAP
+  AR --> SESSION
+  SESSION --> PHOST
+  PHOST --> PROVIDERS
 
   DRT --> PROJ
   WFR --> PROJ

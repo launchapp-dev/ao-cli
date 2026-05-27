@@ -1,8 +1,10 @@
 # Animus v0.4.x — Plugin Ecosystem Shipped
 
-**Current release:** v0.4.4 (2026-05-21)
-**Protocol:** animus-protocol v0.1.3
-**Animus CLI:** v0.4.4
+**Historical release log:** v0.4.x plugin rollout
+
+For the current source-backed runtime and plugin architecture, see
+[`docs/architecture/runtime-architecture.md`](architecture/runtime-architecture.md)
+and [`docs/architecture/plugin-system.md`](architecture/plugin-system.md).
 
 Animus is a Rust-based autonomous agent orchestrator. The v0.4.x series
 makes the entire stack pluggable — anyone can ship a subject backend,
@@ -61,21 +63,25 @@ Four plugin kinds dispatch through the daemon's stdio plugin host:
 | Trigger backend | Event sources (Slack, webhooks) | `animus-trigger-{webhook,slack}` |
 | Log storage | Persist `events.jsonl` to file, S3, ELK, etc. | `animus-log-storage-file` |
 
-When the daemon starts, it discovers every installed plugin, registers
-their declared kinds with the `SubjectRouter`/`ProviderRouter`, and
-rejects duplicate-kind claims at startup. Fallback to bundled in-tree
-adapters (tasks, requirements, file logging) when no plugin is
-installed.
+When the daemon starts, it discovers installed plugins, registers their declared
+kinds with the subject and provider routing layers, and rejects duplicate
+subject-kind claims during router setup. Current daemon preflight requires
+installed provider and subject plugins; the former in-tree task and requirement
+fallbacks are no longer used for new daemon runs.
 
-## The 14-repo plugin ecosystem
+## Plugin Ecosystem
 
-All under [launchapp-dev](https://github.com/launchapp-dev/), each tagged `v0.1.x` with green CI:
+The launchapp-dev plugin ecosystem is installed through `animus plugin install`
+or the curated default sets in `animus plugin install-defaults`. Keep version
+pins in `orchestrator-core::plugin_registry` and the marketplace registry as the
+source of truth rather than hard-coding live counts in this historical release
+note.
 
 ### Protocol + tooling
 
 | Repo | Role |
 |---|---|
-| [`animus-protocol`](https://github.com/launchapp-dev/animus-protocol) | 5-crate workspace: `animus-plugin-protocol`, `animus-subject-protocol`, `animus-provider-protocol`, `animus-plugin-runtime`, `animus-session-backend`. Latest: v0.1.3 (control protocol). |
+| [`animus-protocol`](https://github.com/launchapp-dev/animus-protocol) | Protocol crates for stdio plugins, subject backends, provider sessions, and runtime helpers |
 | [`animus-plugin-template`](https://github.com/launchapp-dev/animus-plugin-template) | Subject + provider scaffolds consumed by `animus plugin new` |
 | [`animus-plugin-registry`](https://github.com/launchapp-dev/animus-plugin-registry) | Marketplace index (browse + search) |
 

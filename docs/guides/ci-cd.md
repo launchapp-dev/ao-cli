@@ -8,7 +8,7 @@ Animus uses GitHub Actions for continuous integration and release automation. Th
 
 Runs on every push and pull request. Checks and tests each crate in the workspace independently:
 
-- `cargo check` for each crate: `protocol`, `orchestrator-cli`, `orchestrator-core`, `agent-runner`, `llm-cli-wrapper`
+- `cargo check` for runtime-critical crates: `protocol`, `orchestrator-cli`, `orchestrator-core`, `agent-runner`, `orchestrator-session-host`, `orchestrator-plugin-host`, `oai-runner`, and `workflow-runner-v2`
 - `cargo test --workspace` for the full test suite
 - Concurrency grouping cancels superseded runs on the same branch
 
@@ -36,13 +36,14 @@ cargo animus-bin-build           # Debug build of all runtime binaries
 cargo animus-bin-build-release   # Release (optimized) build
 ```
 
-The workspace produces three binaries:
+The runtime binary set is:
 
 | Binary | Crate | Purpose |
 |--------|-------|---------|
 | `animus` | `orchestrator-cli` | Main CLI |
 | `agent-runner` | `agent-runner` | Daemon agent runner |
-| `llm-cli-wrapper` | `llm-cli-wrapper` | LLM CLI abstraction |
+| `animus-oai-runner` | `oai-runner` | OpenAI-compatible runner |
+| `ao-workflow-runner` | `workflow-runner-v2` | Workflow phase execution runner |
 
 ## Testing
 
@@ -73,7 +74,7 @@ Releases are triggered by pushing a tag matching `v*` or a branch matching `vers
 
 ### Release Steps
 
-1. **Web UI gates** -- Runs npm tests, builds the web UI bundle, and runs smoke E2E tests
+1. **Rust gates** -- Runs workspace checks and tests for the runtime crates
 2. **Cross-platform builds** -- Compiles release binaries for all targets
 3. **Packaging** -- Creates archives with binaries and metadata
 4. **Publishing** -- Uploads artifacts (for tag pushes, creates a GitHub release)

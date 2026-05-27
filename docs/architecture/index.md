@@ -1,8 +1,19 @@
 # Architecture Overview
 
-Animus is a Rust-only agent orchestrator built as a Cargo workspace of around 20 crates. It provides a CLI (`animus`), a daemon runtime, a workflow runner, an agent runner, an MCP server (`animus.*` tool namespace), a web UI, and a plugin host for stdio-based subject and provider plugins.
+Animus is a Rust-only agent orchestrator built as a Cargo workspace of 20 crates.
+It provides the `animus` CLI, daemon runtime, workflow runner, agent runner, MCP
+server, plugin host, and plugin protocol crates. Provider, subject, transport,
+and web UI integrations run as external stdio plugins rather than in-process
+desktop or web shell frameworks.
 
-For the public name and protocol contract see [Naming Contract](naming-contract.md). For the v0.3.x → v0.4.0 migration see [`docs/migration/v0.3-to-v0.4.md`](../migration/v0.3-to-v0.4.md).
+Trust code and generated references over hand-maintained summaries when they
+disagree. Start with:
+
+- [Full System Architecture](full-system-architecture.md)
+- [Runtime Architecture](runtime-architecture.md)
+- [Plugin System](plugin-system.md)
+- [Crate Map](crate-map.md)
+- [Runtime Topology Diagram](diagram.md)
 
 ## Crate Dependency Graph
 
@@ -16,70 +27,90 @@ graph TD
     DAEMON[orchestrator-daemon-runtime]
     WR[workflow-runner-v2]
     AR[agent-runner]
-    LLM[llm-cli-wrapper]
+    SESSION[orchestrator-session-host]
+    PLUGIN_HOST[orchestrator-plugin-host]
+    PLUGIN_PROTO[animus-plugin-protocol]
+    PLUGIN_RUNTIME[animus-plugin-runtime]
+    SUBJECT_PROTO[animus-subject-protocol]
     OAI[oai-runner]
     PROV[orchestrator-providers]
     NOTIF[orchestrator-notifications]
     GIT[orchestrator-git-ops]
     LOG[orchestrator-logging]
+    MOCK[animus-provider-mock]
+    SMOKE[animus-plugin-smoke]
 
     CLI --> CORE
     CLI --> DAEMON
     CLI --> WR
     CLI --> GIT
     CLI --> NOTIF
-    CLI --> LLM
+    CLI --> PLUGIN_HOST
+    CLI --> SESSION
     CLI --> PROTO
 
     DAEMON --> CORE
     DAEMON --> WR
     DAEMON --> GIT
     DAEMON --> NOTIF
-    DAEMON --> PROV
+    DAEMON --> PLUGIN_HOST
     DAEMON --> LOG
     DAEMON --> PROTO
-
-    GIT --> CORE
-    GIT --> WR
-    GIT --> PROTO
 
     WR --> CORE
     WR --> CONFIG
     WR --> PROTO
 
+    AR --> SESSION
+    AR --> PROTO
+
+    SESSION --> PLUGIN_HOST
+    SESSION --> PLUGIN_PROTO
+
+    PLUGIN_HOST --> PLUGIN_PROTO
+    PLUGIN_HOST --> SUBJECT_PROTO
+
     CORE --> STORE
     CORE --> CONFIG
     CORE --> PROV
-    CORE --> LLM
     CORE --> LOG
     CORE --> PROTO
 
-    AR --> LLM
-    AR --> PROTO
-
     OAI --> PROTO
+    GIT --> CORE
+    GIT --> WR
+    GIT --> PROTO
 
     STORE --> PROTO
     CONFIG --> PROTO
     PROV --> PROTO
     NOTIF --> PROTO
-    WCON --> PROTO
     LOG --> PROTO
+
+    PLUGIN_RUNTIME --> PLUGIN_PROTO
+    MOCK --> PLUGIN_PROTO
+    SMOKE --> PLUGIN_PROTO
 ```
 
-`protocol` sits at the foundation for shared types, configuration shapes, and runtime path derivation.
+`protocol` sits at the foundation for shared types, configuration shapes, and
+runtime path derivation.
 
-`orchestrator-core` provides the domain services and state mutation APIs used by the CLI, web layer, and daemon.
+`orchestrator-core` provides the domain services and state mutation APIs used by
+the CLI, daemon, and plugin preflight paths.
 
-`orchestrator-cli` composes the workspace into the user-facing `animus` command surface.
+`orchestrator-cli` composes the workspace into the user-facing `animus` command
+surface.
 
 ## Architecture Decision Records
 
-- [Naming Contract](naming-contract.md) -- One name everywhere: `animus.*` for MCP tools, env vars, config dirs, pack ids, and JSON envelopes (v0.4.0 hard cut from the legacy `ao.*` surfaces)
+- [Naming Contract](naming-contract.md) -- One name everywhere: `animus.*` for MCP tools, env vars, config dirs, pack ids, and JSON envelopes
+- [Full System Architecture](full-system-architecture.md) -- Canonical end-to-end architecture narrative covering crates, process topology, state, config, services, daemon, workflow runner, agent runner, plugins, control surfaces, security, observability, and verification
+- [Runtime Architecture](runtime-architecture.md) -- Current end-to-end runtime topology, startup flow, state model, crate responsibilities, execution pipeline, and failure boundaries
+- [Plugin System](plugin-system.md) -- Current stdio plugin architecture: discovery, install state, wire protocol, hosting, security, provider/subject/trigger/transport paths, and operations
 - [Plugin Pack Kernel](plugin-pack-kernel.md) -- Package-style plugin architecture for workflows, MCP servers, and bundled domain modules
 - [Project Init Templates](project-init-templates.md) -- Template-driven `animus init` architecture layered above packs
 - [Subject Dispatch Daemon](subject-dispatch-daemon.md) -- How the daemon schedules and dispatches workflow subjects
-- [Subject Backend Plugins](subject-backend-plugins.md) -- v0.4.0 plugin contract that lets external systems (Linear, Jira, GitHub Issues, Notion, ...) act as first-class subject sources alongside the native task store
+- [Subject Backend Plugins](subject-backend-plugins.md) -- Current subject_backend contract: normalized subjects, kind-scoped routing, preflight requirements, CLI/daemon behavior, and authoring rules
 - [Tool-Driven Mutation Surfaces](tool-driven-mutation-surfaces.md) -- How state mutations are channeled through tool abstractions
 - [Workflow-First CLI](workflow-first-cli.md) -- Why workflows are the primary execution primitive
 - [Phase Contracts](phase-contracts.md) -- Universal phase verdicts, YAML-defined fields, and runtime validation
@@ -89,4 +120,4 @@ graph TD
 - [Runtime Topology Diagram](diagram.md) -- High-level Mermaid diagram of operators, daemon, plugins, and external systems with design rationale
 - [Crate Map](crate-map.md) -- All workspace crates grouped by responsibility with descriptions
 - [ServiceHub Pattern](service-hub.md) -- Dependency injection via the `ServiceHub` trait
-- [llm-cli-wrapper Session Backends](llm-cli-wrapper-session-backends.md) -- Planned unified session facade for SDK-backed CLI integrations
+- [Provider Session Host](llm-cli-wrapper-session-backends.md) -- Historical session-backend design notes plus the current `orchestrator-session-host` provider-plugin boundary

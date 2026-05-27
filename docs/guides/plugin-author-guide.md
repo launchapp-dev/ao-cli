@@ -45,7 +45,7 @@ stdio is just as compatible as one that links `animus-plugin-runtime`.
 | Kind | Method family | Status |
 |---|---|---|
 | `provider` | `agent/run`, `agent/resume`, `agent/cancel` | Shipped; 5 references at [launchapp-dev](https://github.com/launchapp-dev) |
-| `subject_backend` | `subject/list`, `subject/get`, `subject/update`, `subject/watch` (optional), `subject/schema` | Shipped; reference at [`animus-subject-linear`](https://github.com/launchapp-dev/animus-subject-linear) |
+| `subject_backend` | kind-scoped calls such as `<kind>/list`, `<kind>/get`, `<kind>/update`; protocol helpers may expose `subject/schema` and `subject/watch` | Shipped; references include `animus-subject-default`, `animus-subject-requirements`, and [`animus-subject-linear`](https://github.com/launchapp-dev/animus-subject-linear) |
 | `trigger_backend` | `trigger/watch`, emits `trigger/event` notifications, accepts `trigger/ack` | Shipped; references at `animus-trigger-webhook`, `animus-trigger-slack` |
 | `transport_backend` | Hosts a control transport (HTTP, GraphQL, ...) | Shipped; references at `animus-transport-http`, `animus-transport-graphql`, `animus-web-ui` |
 | `log_storage_backend` | Receives `log/entry` notifications, serves `log_storage/tail` | Shipped; in-tree `events.jsonl` is the fallback |
@@ -139,7 +139,7 @@ impl SubjectBackend for MyTicketsBackend {
 
 See
 [`docs/architecture/subject-backend-plugins.md`](../architecture/subject-backend-plugins.md)
-for the full trait definition and the normalized `Subject` schema.
+for the current kind-scoped routing contract and normalized `Subject` schema.
 
 ### Step 3 — wire the stdio loop
 
@@ -153,8 +153,10 @@ async fn main() -> anyhow::Result<()> {
 ```
 
 `subject_backend_main` handles the `initialize` handshake,
-`health/check`, `$/ping`, `shutdown`, manifest emission, and dispatches
-every `subject/*` method to the trait. You don't write any of that.
+`health/check`, `$/ping`, `shutdown`, manifest emission, and request dispatch.
+Current host routing sends kind-scoped methods such as `task/list` or
+`linear.issue/get`; keep the advertised `subject_kinds` in sync with the methods
+your backend handles.
 
 ### Step 4 — advertise the kind
 
@@ -338,9 +340,9 @@ animus-plugin-harness conformance --scenarios tests/conformance \
   --plugin ./target/release/animus-subject-my-tickets
 ```
 
-Use this for regressions specific to your backend — e.g. a Linear
-plugin scenario that ensures `subject/list` paginates correctly when
-the upstream returns more than 50 issues.
+Use this for regressions specific to your backend, such as a Linear plugin
+scenario that ensures `linear.issue/list` paginates correctly when the upstream
+returns more than 50 issues.
 
 ---
 

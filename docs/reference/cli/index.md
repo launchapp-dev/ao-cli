@@ -260,7 +260,7 @@ prints the exact `animus plugin install ...` command to remediate.
 | Flag | Description |
 |---|---|
 | `--auto-install` | When preflight finds a missing role, install the daemon's recommended default plugin (pinned `owner/repo@tag`) before continuing. Avoids surprise network fetches when omitted. |
-| `--skip-preflight` | Bypass preflight entirely. Escape hatch for dev iteration when in-tree adapters are still active and you don't want preflight enforcement. |
+| `--skip-preflight` | Bypass preflight entirely. Escape hatch for dev iteration or intentionally degraded runs when required provider or subject plugins are not installed. |
 
 ### `animus daemon preflight`
 
@@ -412,9 +412,10 @@ binaries from being picked up. Pass `--include-system-path` to opt in to scannin
 | `animus plugin uninstall` | `--name <NAME>`, `--plugin-dir <PATH>` |
 
 Default discovery order (no `--include-system-path`):
-`~/.animus/plugins.yaml` (or the legacy `~/.config/animus/plugins.yaml` on first
-read) → `.animus/plugins/` → `$ANIMUS_PLUGIN_DIR` (or `~/.animus/plugins/`) →
-`$ANIMUS_PLUGIN_PATH`. With `--include-system-path`, `$PATH` is appended.
+`~/.animus/plugins.yaml` (or the legacy `~/.config/animus/plugins.yaml` only
+when the new registry is absent) → `.animus/plugins/` → `$ANIMUS_PLUGIN_DIR`
+when explicitly set → `$ANIMUS_PLUGIN_PATH`. With `--include-system-path`,
+`$PATH` is appended.
 
 `animus plugin list --json` returns a top-level `warnings` array when a configured
 plugin failed its `--manifest` probe (binary missing, exited non-zero, returned

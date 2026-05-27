@@ -18,8 +18,8 @@ pub(crate) enum SubjectCommand {
     Update(SubjectUpdateArgs),
     /// Return the highest-priority Ready subject for the given kind.
     ///
-    /// Backed by the in-tree task / requirement adapters; external
-    /// subject_backend plugins may opt in by implementing `<kind>/next`.
+    /// Backed by the active subject_backend plugin for the resolved kind.
+    /// Plugins opt in by implementing `<kind>/next`.
     /// Returns JSON `null` when no eligible subject exists.
     Next(SubjectNextArgs),
     /// Set the status of a subject by id through the active subject_backend.

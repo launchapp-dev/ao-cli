@@ -159,5 +159,8 @@ No external runtime is embedded into Animus core.
 | Execution projectors | Subject-kind-specific projection of workflow facts |
 | Tool-driven mutation | Animus state changes happen through MCP/CLI mutation surfaces |
 
-See also: [Workflows](./workflows.md), [MCP Integration](./mcp-tools.md), and
-[State Management](./state-management.md).
+See also: [Workflows](./workflows.md), [MCP Integration](./mcp-tools.md),
+[State Management](./state-management.md),
+[Full System Architecture](../architecture/full-system-architecture.md),
+[Runtime Architecture](../architecture/runtime-architecture.md), and
+[Plugin System](../architecture/plugin-system.md).

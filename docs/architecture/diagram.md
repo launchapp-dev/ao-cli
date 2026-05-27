@@ -2,7 +2,9 @@
 
 High-level runtime topology of an Animus install. This diagram is the
 fastest way to orient a new operator or plugin author. For the
-crate-level dependency graph see
+full narrative see
+[`docs/architecture/full-system-architecture.md`](full-system-architecture.md);
+for the crate-level dependency graph see
 [`docs/architecture/index.md`](index.md); for the inbound control
 surface in detail see
 [`docs/architecture/control-protocol.md`](control-protocol.md); for the
@@ -52,7 +54,7 @@ flowchart TB
     %% ---- Plugin processes ----
     subgraph Subjects["Subject plugins (out-of-process)"]
         direction TB
-        SD["animus-subject-default<br/>(native tasks)"]:::plugin
+        SD["animus-subject-default<br/>(task subjects)"]:::plugin
         SR["animus-subject-requirements"]:::plugin
         SL["animus-subject-linear"]:::plugin
         SQL["animus-subject-sqlite"]:::plugin
@@ -83,7 +85,7 @@ flowchart TB
     end
 
     %% ---- State ----
-    STATE["~/.animus/scope/<br/>runs/, state/, plugins/<br/>+ .animus/ project state"]:::state
+    STATE["~/.animus/&lt;repo-scope&gt;/<br/>state/, daemon/, worktrees/<br/>+ .animus/ project config"]:::state
 
     %% ---- Edges ----
     CLI -->|spawns CLI process,<br/>connects control.sock| CTRL

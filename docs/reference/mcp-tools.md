@@ -53,10 +53,10 @@ surface and can claim their own `kind`.
 
 ## Subject Operations (6 tools)
 
-The subject surface replaces the per-domain `animus.task.*` and `animus.requirements.*` tool
-families removed in v0.4.4. Set `kind` to `task` to drive the in-tree task adapter, `requirement`
-to drive the in-tree requirements adapter, or any other kind claimed by an installed
-`subject_backend` plugin (e.g. `linear`, `jira`, `github-issue`).
+The subject surface replaces the per-domain `animus.task.*` and
+`animus.requirements.*` tool families removed in v0.4.4. Set `kind` to `task`,
+`requirement`, or any other kind claimed by an installed `subject_backend`
+plugin (e.g. `linear`, `jira`, `github-issue`).
 
 | Tool | Description | Key Parameters |
 |---|---|---|
@@ -228,7 +228,11 @@ These tools query and update the public plugin registry view exposed by the CLI.
 | `animus.plugin.browse` | Browse registry entries grouped by plugin kind. | `kind`, `installed`, `available`, `registry_url`, `no_cache` |
 | `animus.plugin.update` | Update one or all installed release-source plugins from the registry. | `name`, `tag`, `dry_run`, `force`, `registry_url`, `no_cache` |
 
-Discovery order: `~/.animus/plugins.yaml` (or the legacy `~/.config/animus/plugins.yaml` on first read) → `.animus/plugins/` → `$ANIMUS_PLUGIN_DIR` (defaults to `~/.animus/plugins/`) → `$ANIMUS_PLUGIN_PATH` → `$PATH` (`animus-provider-*` / `animus-plugin-*` prefixes; `$PATH` opt-in via `--include-system-path`).
+Discovery order: `~/.animus/plugins.yaml` (or the legacy
+`~/.config/animus/plugins.yaml` only when the new registry is absent) →
+`.animus/plugins/` → `$ANIMUS_PLUGIN_DIR` when explicitly set →
+`$ANIMUS_PLUGIN_PATH` → `$PATH` (`animus-provider-*` / `animus-plugin-*`
+prefixes; `$PATH` opt-in via `--include-system-path`).
 
 ---
 

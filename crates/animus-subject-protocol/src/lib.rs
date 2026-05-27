@@ -3,9 +3,9 @@
 //! Animus dispatches `SubjectDispatch` envelopes off a queue and into
 //! `workflow-runner` subprocesses. The set of subjects available for dispatch
 //! comes from one or more *subject backends* — pluggable sources of work
-//! items. Native `animus task` is a backend; so are external systems of
-//! record like Linear, Jira, GitHub Issues, Notion, Asana, Zendesk, and
-//! anything else with an API.
+//! items. The default task and requirement stores are now provided by
+//! subject-backend plugins, as are external systems of record like Linear,
+//! Jira, GitHub Issues, Notion, Asana, Zendesk, and anything else with an API.
 //!
 //! This crate defines:
 //!

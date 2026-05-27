@@ -53,10 +53,10 @@ The test:
 
 ## Additional Constraints
 
-The dependency policy test also enforces:
-
-- **Workspace axum pin** -- The `axum` dependency must be pinned to `0.8` at the workspace level, and consuming crates must use `workspace = true` rather than declaring their own version
-- **llm-cli-wrapper tokio-process ban** -- The `llm-cli-wrapper` crate must not depend on `tokio-process` (process spawning is handled by the agent-runner layer)
+The dependency policy test also enforces the narrow Rust-only boundary: no
+desktop shell frameworks or transitive equivalents should enter the workspace.
+External web UI and transport behavior belongs in plugins, not in a bundled
+desktop shell.
 
 ## Adding New Dependencies
 

@@ -54,8 +54,8 @@ The web stack lives in three external repositories under the
 | `animus-transport-graphql` | GraphQL transport plugin |
 | `animus-web-ui` | React dashboard bundled by a wrapper plugin |
 
-The CLI discovers them through the standard plugin host
-(`~/.animus/plugins/` and `$ANIMUS_PLUGIN_PATH`) and spawns them via
-`PluginHost::spawn`. Plugins return their bound URL via the JSON-RPC
-`initialize` handshake or the optional `transport/info` call. See
+The CLI discovers them through the standard plugin host registry and plugin
+search paths, then spawns them via `PluginHost::spawn`. Plugins return their
+bound URL via the JSON-RPC `initialize` handshake or the optional
+`transport/info` call. See
 [`crates/orchestrator-cli/src/services/operations/ops_web.rs`](../../crates/orchestrator-cli/src/services/operations/ops_web.rs).

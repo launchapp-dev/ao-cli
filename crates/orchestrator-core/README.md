@@ -112,13 +112,11 @@ graph LR
     PROVIDERS["orchestrator-providers"]
     STORE["orchestrator-store"]
     CFG["orchestrator-config"]
-    WRAP["llm-cli-wrapper"]
 
     CORE --> PROTO
     CORE --> PROVIDERS
     CORE --> STORE
     CORE --> CFG
-    CORE --> WRAP
 ```
 
 ## Notes

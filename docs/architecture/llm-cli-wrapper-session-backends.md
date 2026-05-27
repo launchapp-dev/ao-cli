@@ -1,202 +1,97 @@
-# llm-cli-wrapper Session Backends
+# Provider Session Host
 
-## Summary
+This file keeps the historical `llm-cli-wrapper-session-backends.md` path for
+old links, but the current implementation no longer has an in-tree
+`llm-cli-wrapper` crate. Provider execution now crosses two boundaries:
 
-`llm-cli-wrapper` currently gives Animus a thin compatibility layer for:
+1. `agent-runner` manages runner IPC, workspace validation, persistence, and
+   orchestration.
+2. `orchestrator-session-host` resolves and drives installed provider plugins
+   through `orchestrator-plugin-host`.
 
-- runtime-contract launch parsing
-- machine-output flag injection
-- basic CLI discovery and health checks
-- text normalization from provider-specific JSON output
+For the broader plugin architecture, see [Plugin System](plugin-system.md).
 
-That is enough for the current subprocess model, but it leaves most of the
-session lifecycle inside `agent-runner`. Animus still owns:
+## Source Files
 
-- process creation and shutdown
-- provider-specific resume/session behavior
-- stdout/stderr event extraction
-- MCP-aware tool-call normalization
-- fallback behavior when a provider surface is incomplete
-
-The new direction is to make `llm-cli-wrapper` the session boundary for
-CLI-backed agents while keeping `agent-runner` focused on workspace validation,
-policy enforcement, persistence, and orchestration.
-
-## Goal
-
-Define one Animus-facing backend contract that can drive:
-
-- an Animus-owned Claude backend
-- an Animus-owned Codex backend
-- an Animus-owned Gemini backend
-- subprocess fallback for unsupported or incomplete cases
-
-The studied community libraries are references for protocol shape and lifecycle
-design:
-
-- `claude-agent-sdk`
-- `codex-sdk-rs`
-- `gemini-cli-sdk`
-
-This is not a lowest-common-denominator API. The wrapper owns canonical Animus
-session events, but each backend may expose additional provider-specific
-capabilities through metadata and explicit opt-in fields.
-
-## Canonical Contract
-
-The wrapper contract must cover:
-
-- backend identity and stability level
-- capability discovery
-- session start
-- session resume
-- session termination
-- permission mode selection
-- MCP/tool-use support reporting
-- event streaming back to Animus in a canonical format
-
-The canonical event surface should support:
-
-- text deltas
-- final text
-- tool calls
-- tool results
-- thinking traces
-- artifacts
-- usage metadata
-- structured errors
-- completion
-
-## Canonical Event Model
-
-Animus should normalize all CLI-backed agent sessions into one stream:
-
-| Event | Required payload |
+| Area | Source |
 |---|---|
-| `Started` | backend, provider tool, session id if known |
-| `TextDelta` | incremental text |
-| `FinalText` | final assistant text when the backend separates it |
-| `ToolCall` | tool name, arguments, optional server |
-| `ToolResult` | tool name, success flag, payload |
-| `Thinking` | provider-exposed reasoning/thinking text |
-| `Artifact` | identifier, path or metadata |
-| `Metadata` | token usage, cost, provider metadata |
-| `Error` | error class, message, recoverability |
-| `Finished` | exit status / terminal state |
+| Provider resolver | [`crates/orchestrator-session-host/src/session_backend_resolver.rs`](../../crates/orchestrator-session-host/src/session_backend_resolver.rs) |
+| Provider plugin backend | [`crates/orchestrator-session-host/src/plugin_backend.rs`](../../crates/orchestrator-session-host/src/plugin_backend.rs) |
+| Provider supervisor | [`crates/orchestrator-session-host/src/plugin_supervisor.rs`](../../crates/orchestrator-session-host/src/plugin_supervisor.rs) |
+| Agent runner process path | [`crates/agent-runner/src/`](../../crates/agent-runner/src/) |
+| Stdio host | [`crates/orchestrator-plugin-host/src/host.rs`](../../crates/orchestrator-plugin-host/src/host.rs) |
 
-Lossy mapping is acceptable when a provider backend cannot distinguish
-`TextDelta` from `FinalText`, or when the underlying CLI surface does not expose
-artifacts or usage. That loss must be explicit in capability reporting.
+## Current Flow
 
-## Required Backend Methods
+```mermaid
+sequenceDiagram
+    participant Runner as agent-runner
+    participant Resolver as orchestrator-session-host
+    participant Host as PluginHost
+    participant Plugin as provider plugin
 
-Every backend should implement the following semantics:
+    Runner->>Resolver: resolve provider tool
+    Resolver->>Resolver: discover provider plugins
+    Resolver->>Host: spawn + initialize
+    Host->>Plugin: agent/run or agent/resume
+    Plugin-->>Host: notifications
+    Host-->>Resolver: canonical events
+    Resolver-->>Runner: session events
+    Runner->>Host: agent/cancel on active session
+```
 
-| Method | Purpose |
-|---|---|
-| `info()` | backend identity, stability, provider tool name |
-| `capabilities()` | supported session, MCP, permissions, resume, and event surfaces |
-| `start_session(request)` | launch a new session and return a streaming handle |
-| `resume_session(request, session_id)` | reuse an existing session when supported |
-| `terminate_session(session_id)` | best-effort stop of a running session |
+The resolver discovers plugins with `plugin_kind == "provider"`. There is no
+in-tree provider fallback. If a requested provider is not installed, the resolver
+returns a hard error with the install command.
 
-The session request should carry:
+## Provider Names
 
-- tool id
-- model id
-- prompt
-- cwd
-- optional project root
-- optional MCP endpoint/config
-- timeout hints
-- permission mode
-- provider-specific extras
+The resolver canonicalizes the OpenAI-compatible runner names:
 
-## Capability Matrix
+- `oai-runner` -> `oai`
+- `animus-oai-runner` -> `oai`
 
-This matrix reflects current evaluation of the candidate reference libraries and
-the corresponding Animus-owned backend direction. It is an implementation decision
-aid, not a promise that all features work in Animus today.
+Reserved first-party provider names are:
 
-| Animus backend target | Reference input | Session model | Resume | MCP / tools | Permissions | Notes | Ship level |
-|---|---|---|---|---|---|---|
-| Claude native backend | `claude-agent-sdk` | Rich client/session surface | Yes | Yes | Yes | Strongest shape and documentation of the three | Stable target |
-| Codex native backend | `codex-sdk-rs` | Promising structured session/event surface | Likely yes | Partial / evolving | Unknown | Good protocol fit, weak maturity signals | Experimental target |
-| Gemini native backend | `gemini-cli-sdk` | ACP-based session client | Yes | Yes | Yes | Strong API shape, but depends on experimental Gemini CLI ACP mode | Experimental target |
-| subprocess fallback | Current Animus path | Yes, via Animus runtime contract logic | Yes, via current parsing and policy layers | Partial and tool-specific | Safety net for unsupported or broken native backends | Stable fallback |
+- `claude`
+- `codex`
+- `gemini`
+- `opencode`
+- `oai`
+- `oai-runner`
 
-## Stable vs Experimental Recommendation
+Installing a plugin that shadows a reserved provider name requires the explicit
+override path in the plugin installer.
 
-### Stable now
+## Session Model
 
-- Animus-owned Claude backend, informed by `claude-agent-sdk`
-- existing subprocess backend
+`PluginSessionBackend` spawns and handshakes a provider plugin for each
+dispatch, then keeps a session map so follow-up operations can reach the same
+live plugin host.
 
-### Experimental until proven in Animus
+Important behavior:
 
-- Animus-owned Codex backend, informed by `codex-sdk-rs`
-- Animus-owned Gemini backend, informed by `gemini-cli-sdk`
+- `agent/run` starts a new provider session.
+- `agent/resume` resumes a provider-owned session when supported.
+- `agent/cancel` routes through the existing active session host, not through a
+  fresh plugin process.
+- The default `agent/run` request timeout is 1800 seconds.
+- The cancel timeout is 10 seconds.
+- Provider retries happen once for death-like failures only when no
+  notifications were forwarded yet.
+- Structured JSON-RPC errors are surfaced directly and do not consume restart
+  budget.
 
-The experimental designation is driven by maturity and upstream stability, not
-by architectural fit. Both native backends should be integrated behind feature
-gates or runtime backend selection so Animus can fall back to subprocess mode.
+The supervisor default is three restarts in a 60 second window, followed by a
+five minute cooldown.
 
-## Fallback Rules
+## Event Boundary
 
-Animus must keep subprocess mode when any of the following are true:
+Provider plugins emit JSON-RPC notifications while handling `agent/run` or
+`agent/resume`. The host's single-reader router separates responses from
+notifications, forwards provider events to the runner, and keeps pending
+requests keyed by JSON-RPC id.
 
-- the native backend is disabled by config
-- the requested feature is unsupported by the selected backend
-- resume/session reuse is required but unavailable
-- MCP-only policy cannot be enforced with equivalent semantics
-- the native backend drifts from a newer upstream CLI release
-
-Fallback must be deterministic. Animus should report:
-
-- requested backend
-- selected backend
-- reason for fallback
-
-## Integration Boundary
-
-Responsibilities should be divided like this:
-
-### llm-cli-wrapper
-
-- backend selection
-- Animus-owned native backend integration
-- provider session lifecycle
-- canonical event emission
-- capability reporting
-- subprocess fallback implementation
-
-### agent-runner
-
-- workspace guardrails
-- env sanitization
-- timeout policy
-- MCP-only enforcement policy
-- run persistence
-- IPC transport
-
-This keeps Animus from duplicating provider-specific logic in both crates.
-
-## Migration Plan
-
-1. Add the canonical session backend facade to `llm-cli-wrapper`.
-2. Implement a subprocess backend using the current launch/parser path.
-3. Add the Claude native backend and prove parity on one end-to-end flow.
-4. Add Codex and Gemini native backends behind experimental gating.
-5. Move `agent-runner` happy-path session startup to the wrapper facade.
-6. Keep current parsing-based fallback until the native backends are
-   operationally proven.
-
-## Validation Targets
-
-Before Animus can treat the new facade as complete, it must verify:
-
-- agent execution across Claude, Codex, and Gemini
-- at least one session continuation/resume path
-- tool-call and tool-result normalization
-- fallback behavior when a native backend is unavailable
-- preservation of existing run persistence and timeout behavior
+This keeps `agent-runner` focused on orchestration and persistence while
+provider-specific launch, resume, event extraction, and cancellation behavior
+live behind the provider plugin contract.

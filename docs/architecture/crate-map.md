@@ -1,57 +1,66 @@
 # Crate Map
 
-The Animus workspace is a Cargo workspace of around 20 crates organized by responsibility.
+The Animus workspace is a Cargo workspace of 20 crates organized by runtime
+responsibility. `Cargo.toml` is the source of truth for membership.
 
 ## Foundation
 
-| Crate | Description | Key Responsibility |
-|-------|-------------|-------------------|
-| [protocol](../../crates/protocol/README.md) | Shared wire and config types | IPC messages, config schemas, scoped runtime paths, CLI JSON envelopes |
-
-## Core
-
-| Crate | Description | Key Responsibility |
-|-------|-------------|-------------------|
-| [orchestrator-core](../../crates/orchestrator-core/README.md) | Domain logic and services | `ServiceHub`, service APIs, workflow lifecycle, task and requirement state mutation |
-| [orchestrator-config](../../crates/orchestrator-config/README.md) | Workflow and runtime configuration | Workflow YAML parsing, pack loading, scaffolding, phase plan resolution |
-| [orchestrator-store](../../crates/orchestrator-store/README.md) | Persistence primitives | Atomic JSON writes, repo-scoped state directory helpers |
-| `orchestrator-logging` | Shared logging support | Structured logging helpers and runtime log plumbing |
+| Crate | Responsibility |
+|---|---|
+| `protocol` | Shared protocol, config, repository-scope, and CLI JSON envelope types |
+| `orchestrator-store` | Atomic persistence helpers and repo-scoped state directory support |
+| `orchestrator-logging` | Shared tracing, log path, and runtime log plumbing |
 
 ## Runtime
 
-| Crate | Description | Key Responsibility |
-|-------|-------------|-------------------|
-| [orchestrator-daemon-runtime](../../crates/orchestrator-daemon-runtime/README.md) | Daemon scheduling runtime | Queue execution, reactive dispatch, subprocess supervision |
-| `workflow-runner-v2` | Workflow execution runtime | Phase execution, state-machine transitions, checkpoint persistence |
-| [agent-runner](../../crates/agent-runner/README.md) | Agent process runner | IPC server, AI CLI execution, output parsing |
+| Crate | Responsibility |
+|---|---|
+| `orchestrator-daemon-runtime` | Daemon queue, scheduling, subject dispatch, trigger handling, and runtime supervision |
+| `workflow-runner-v2` | Workflow phase execution, checkpoint persistence, and runtime contracts |
+| `agent-runner` | Runner process that launches and supervises provider sessions |
+| `oai-runner` | OpenAI-compatible runner binary |
 
-## CLI
+## CLI and Services
 
-| Crate | Description | Key Responsibility |
-|-------|-------------|-------------------|
-| [orchestrator-cli](../../crates/orchestrator-cli/README.md) | Main `animus` binary | Clap command surface, JSON output, MCP server, operational commands |
+| Crate | Responsibility |
+|---|---|
+| `orchestrator-cli` | Main `animus` binary, clap surface, MCP server, output formatting, and operations |
+| `orchestrator-core` | Domain services, bootstrap, state mutation APIs, plugin registry, and preflight |
+| `orchestrator-config` | Workflow YAML loading, pack loading, scaffolding, and phase plan resolution |
+| `orchestrator-git-ops` | Branch, worktree, merge, and PR helper operations |
+| `orchestrator-notifications` | Notification/runtime integration support |
+| `orchestrator-providers` | Provider-facing adapter glue and compatibility helpers |
+
+## Plugin Runtime
+
+| Crate | Responsibility |
+|---|---|
+| `orchestrator-plugin-host` | Plugin discovery, install lockfiles, manifest probes, stdio host, router, and signature verification |
+| `orchestrator-session-host` | Provider plugin session bridge used by `agent-runner` |
+| `animus-plugin-protocol` | In-tree copy of the stdio plugin protocol types |
+| `animus-subject-protocol` | Normalized subject schema, subject backend trait, and subject errors |
+| `animus-plugin-runtime` | Runtime helper crate for plugin implementations |
+
+The workspace also depends on external `launchapp-dev/animus-protocol` crates
+for provider/session contracts, currently through `animus-provider-protocol` and
+`animus-session-backend` in `Cargo.toml`.
+
+## Fixtures
+
+| Crate | Responsibility |
+|---|---|
+| `animus-provider-mock` | Mock provider plugin for contract and e2e tests |
+| `animus-plugin-smoke` | Smoke-test plugin for host and protocol behavior |
 
 ## Web
 
-The web stack is no longer in-tree. `animus web` discovers and spawns three
-standalone plugins from
-[`launchapp-dev`](https://github.com/launchapp-dev): `animus-transport-http`
-(REST + SSE), `animus-transport-graphql` (GraphQL), and `animus-web-ui` (React
-dashboard wrapped as a `web_ui` plugin). Install them with
-`animus plugin install-defaults --include-transports`. See
-[docs/guides/web-dashboard.md](../guides/web-dashboard.md).
+The web stack is no longer in-tree. `animus web` discovers and spawns external
+plugins, normally installed through:
 
-## Integration
+```bash
+animus plugin install-defaults --include-transports
+```
 
-| Crate | Description | Key Responsibility |
-|-------|-------------|-------------------|
-| [orchestrator-providers](../../crates/orchestrator-providers/README.md) | Provider integrations | Built-in task, requirement, subject, and git adapters |
-| [orchestrator-notifications](../../crates/orchestrator-notifications/README.md) | Notification delivery | Webhook and runtime notification support |
-| [orchestrator-git-ops](../../crates/orchestrator-git-ops/README.md) | Git automation | Branching, worktree, merge, and PR helper operations |
-
-## Model and Runner Adapters
-
-| Crate | Description | Key Responsibility |
-|-------|-------------|-------------------|
-| [llm-cli-wrapper](../../crates/llm-cli-wrapper/README.md) | AI CLI abstraction layer | Claude, Codex, Gemini, and related CLI integration |
-| [oai-runner](../../crates/oai-runner/README.md) | OpenAI-compatible runner | Streaming API execution for OpenAI-compatible endpoints |
+The curated transport set is currently `animus-transport-http`,
+`animus-transport-graphql`, and `animus-web-ui`. The exact tags live in
+`orchestrator-core::plugin_registry`.

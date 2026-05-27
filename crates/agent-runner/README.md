@@ -84,7 +84,7 @@ flowchart TD
 
 - `src/runner/mod.rs` keeps the live and finished run maps and coordinates cleanup.
 - `src/runner/supervisor.rs` validates the workspace, sanitizes the environment, prepares launch settings, and maps process results into runner status.
-- `src/runner/process_builder.rs` resolves launch invocations from runtime contracts via `llm-cli-wrapper`.
+- `src/runner/process_builder.rs` resolves launch invocations from runtime contracts and delegates provider sessions through `orchestrator-session-host`.
 - `src/runner/process.rs` spawns the child process, enforces idle timeout behavior, wires MCP-related settings, and supports cancellation.
 - `src/runner/stream_bridge.rs` forwards stdout and stderr lines into structured runner events.
 - `src/runner/event_persistence.rs` writes event JSONL under scoped AO run directories.
@@ -110,14 +110,16 @@ flowchart TD
 graph LR
     AR["agent-runner"]
     PROTO["protocol"]
-    WRAP["llm-cli-wrapper"]
+    SESSION["orchestrator-session-host"]
+    PHOST["orchestrator-plugin-host"]
 
     AR --> PROTO
-    AR --> WRAP
+    AR --> SESSION
+    SESSION --> PHOST
 ```
 
 - `protocol`: IPC types, config helpers, model routing, process utilities, and shared constants.
-- `llm-cli-wrapper`: launch-contract parsing, CLI capability helpers, PATH checks, and text normalization.
+- `orchestrator-session-host`: provider plugin resolution, dispatch, resume, cancel, retry, and supervision.
 
 ## Notes
 

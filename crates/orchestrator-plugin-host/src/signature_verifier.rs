@@ -499,6 +499,49 @@ mod tests {
         assert_eq!(VerificationResult::UntrustedSigner { identity_pattern: "x".into() }.label(), "untrusted_signer");
     }
 
+    /// Threat-model guard: the launchapp-dev TrustedPublisher regex MUST
+    /// reject every cert SAN shape an attacker would try to slip past the
+    /// installer. This test compiles the regex (via the `regex` crate
+    /// semantics that cosign uses internally) and probes the boundary:
+    ///
+    /// - matches the canonical workflow URI emitted by every launchapp-dev
+    ///   release pipeline,
+    /// - rejects non-tag refs (branch pushes, PR builds),
+    /// - rejects non-release workflows on the same repo,
+    /// - rejects prefix-attack owners like `evil-launchapp-dev`,
+    /// - rejects owners that *contain* `launchapp-dev` mid-string.
+    ///
+    /// If this test ever fails because the regex was loosened, the keyless
+    /// install path stops being a real trust boundary — every malicious
+    /// signature in the listed shapes would suddenly verify.
+    #[test]
+    fn launchapp_dev_regex_rejects_known_attack_shapes() {
+        let pat = TrustedPublisher::launchapp_dev().identity_regex;
+        let re = regex::Regex::new(&pat).expect("launchapp-dev regex must compile");
+
+        let must_match = [
+            "https://github.com/launchapp-dev/animus-provider-claude/.github/workflows/release.yml@refs/tags/v0.1.0",
+            "https://github.com/launchapp-dev/animus-subject-linear/.github/workflows/release.yml@refs/tags/v1.2.3",
+            "https://github.com/launchapp-dev/animus-transport-graphql/.github/workflows/release.yml@refs/tags/v0.4.12-rc.1",
+        ];
+        for cert_san in must_match {
+            assert!(re.is_match(cert_san), "must accept canonical launchapp-dev release SAN: {cert_san}");
+        }
+
+        let must_reject = [
+            "https://github.com/launchapp-dev/foo/.github/workflows/release.yml@refs/heads/main",
+            "https://github.com/launchapp-dev/foo/.github/workflows/release.yml@refs/pull/1/merge",
+            "https://github.com/launchapp-dev/foo/.github/workflows/malicious.yml@refs/tags/v0.1.0",
+            "https://github.com/evil-launchapp-dev/foo/.github/workflows/release.yml@refs/tags/v0.1.0",
+            "https://github.com/notlaunchapp-dev/foo/.github/workflows/release.yml@refs/tags/v0.1.0",
+            "http://github.com/launchapp-dev/foo/.github/workflows/release.yml@refs/tags/v0.1.0",
+            "https://gitlab.com/launchapp-dev/foo/.github/workflows/release.yml@refs/tags/v0.1.0",
+        ];
+        for cert_san in must_reject {
+            assert!(!re.is_match(cert_san), "must reject suspicious SAN: {cert_san}");
+        }
+    }
+
     /// Sanity check: when cosign is not on PATH, the keyless API returns a
     /// `VerificationResult::Invalid` (cosign spawn succeeded -> non-zero) or
     /// surfaces a spawn error. Either way we never panic. Skipped when

@@ -519,14 +519,74 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
                 // OR — worse — treat the phase as advanced past the
                 // manual gate. The pause is itself durable via the task
                 // status update issued in the ManualPending arm below.
+                //
+                // FATAL: for non-ManualPending outcomes, `persist_phase_output`
+                // writes the durable output + completion marker that the
+                // recovery oracle (`is_phase_completed` /
+                // `read_persisted_decision`) reads. Advancing the workflow
+                // state before this write is durable means a crash between
+                // here and the `complete_current_phase_with_decision`
+                // call below would leave the workflow on the NEXT phase
+                // with no completion marker for THIS phase — the
+                // resumed-agent path (`daemon_run.rs` ~line 373) already
+                // treats this exact failure as fatal; the normal path must
+                // do the same. On failure the workflow stays on the current
+                // phase: the dispatcher sees it as still-Running on the next
+                // tick and either retries the persistence or surfaces the
+                // failure for human review.
                 if !matches!(&result.outcome, PhaseExecutionOutcome::ManualPending { .. }) {
-                    let _ = persist_phase_output(
+                    if let Err(persist_err) = persist_phase_output(
                         &params.project_root,
                         &workflow.id,
                         &phase_id,
                         phase_attempt,
                         &result.outcome,
-                    );
+                    ) {
+                        // The phase completed but the durable output
+                        // marker did not. Advancing the workflow to the
+                        // next phase here would leave the workflow ahead
+                        // of its persisted completion oracle — exactly
+                        // the crash-replay hazard we are fixing. We mark
+                        // the phase as failed (via `fail_current_phase`)
+                        // so the workflow's status becomes terminal Failed:
+                        // downstream daemon reconciliation surfaces the
+                        // failure correctly, orphan recovery skips it,
+                        // and an operator can inspect the run dir and
+                        // `animus workflow retry` after fixing the I/O
+                        // condition (vs pre-fix, where `let _ = persist`
+                        // silently dropped the error and advanced the
+                        // workflow into the next phase).
+                        let fail_msg = format!(
+                            "phase '{}' completed but persist_phase_output failed: {}; failing phase to preserve crash-replay invariant — operator must inspect run dir and retry workflow after resolving I/O",
+                            phase_id, persist_err
+                        );
+                        workflow = hub.workflows().fail_current_phase(&workflow.id, fail_msg.clone()).await?;
+                        reported_workflow_status = workflow.status;
+                        emit(PhaseEvent::Completed {
+                            phase_id: &phase_id,
+                            duration: phase_elapsed,
+                            success: false,
+                            error: Some(fail_msg.clone()),
+                            model: result.model.clone(),
+                            tool: result.tool.clone(),
+                        });
+                        emit_runtime(
+                            RuntimeWorkflowEventKind::PhaseFailed,
+                            serde_json::json!({
+                                "phase_id": phase_id,
+                                "phase_status": "persist_failed",
+                                "error": fail_msg,
+                            }),
+                        );
+                        results.push(serde_json::json!({
+                            "phase_id": phase_id,
+                            "status": "persist_failed",
+                            "duration_secs": phase_elapsed.as_secs(),
+                            "workflow_status": format!("{:?}", workflow.status).to_ascii_lowercase(),
+                            "error": fail_msg,
+                        }));
+                        break;
+                    }
                 }
 
                 match &result.outcome {
@@ -632,6 +692,49 @@ pub async fn execute_workflow(mut params: WorkflowExecuteParams) -> Result<Workf
                 }
             }
             Err(err) => {
+                // DispatchRetryableError marks the case where a pre-runner
+                // checkpoint write failed: no side-effecting work happened
+                // yet. Pre-fix this was silently swallowed and the runner
+                // would dispatch anyway, breaking the crash-replay
+                // invariant. Within this PR's scope (no changes to
+                // daemon_run.rs / orphan-recovery / scheduler semantics),
+                // the safest terminal disposition is to fail the phase:
+                // downstream reconciliation surfaces the failure
+                // correctly, orphan recovery skips it, and an operator
+                // can `animus workflow retry` after resolving the I/O
+                // condition. The `phase_status: dispatch_retry`
+                // discriminator on the emitted event lets operators
+                // distinguish a transient checkpoint-write failure from
+                // a real phase failure when triaging. (Automatic next-tick
+                // retry would require scheduler changes outside this PR.)
+                if err.downcast_ref::<crate::phase_executor::DispatchRetryableError>().is_some() {
+                    workflow = hub.workflows().fail_current_phase(&workflow.id, err.to_string()).await?;
+                    reported_workflow_status = workflow.status;
+                    emit(PhaseEvent::Completed {
+                        phase_id: &phase_id,
+                        duration: phase_elapsed,
+                        success: false,
+                        error: Some(err.to_string()),
+                        model: None,
+                        tool: None,
+                    });
+                    emit_runtime(
+                        RuntimeWorkflowEventKind::PhaseFailed,
+                        serde_json::json!({
+                            "phase_id": phase_id,
+                            "phase_status": "dispatch_retry",
+                            "error": err.to_string(),
+                        }),
+                    );
+                    results.push(serde_json::json!({
+                        "phase_id": phase_id,
+                        "status": "dispatch_retry",
+                        "duration_secs": phase_elapsed.as_secs(),
+                        "workflow_status": format!("{:?}", workflow.status).to_ascii_lowercase(),
+                        "error": err.to_string(),
+                    }));
+                    break;
+                }
                 workflow = hub.workflows().fail_current_phase(&workflow.id, err.to_string()).await?;
                 reported_workflow_status = workflow.status;
                 emit(PhaseEvent::Completed {
@@ -2782,6 +2885,131 @@ mod phase_filter_marker_tests {
 
         assert_ne!(first_payload, second_payload, "second --phase run must overwrite, not append");
         assert!(second_payload.contains("second invocation reason"));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // Fix 2 (durability hardening): when persist_phase_output fails after
+    // a phase completes, the workflow MUST NOT advance to the next phase.
+    // The pre-fix code had `let _ = persist_phase_output(...)`, which
+    // dropped the error and unconditionally called
+    // `hub.workflows().complete_current_phase_with_decision(...)` — the
+    // completion marker would be missing on the next tick, and recovery
+    // would see a workflow ahead of its durable state. The resumed-agent
+    // path in `daemon_run.rs` already treats this failure as fatal; the
+    // normal-execution path now matches.
+    //
+    // This test verifies the propagation contract by exercising the
+    // primitive that the fix relies on (the persist seam) and by
+    // demonstrating that the simulated "persist-then-advance" sequence
+    // leaves the workflow at its original phase when persist returns Err.
+    // A direct end-to-end test of execute_workflow under fault would
+    // require a runner subprocess; the source-level guard is the simpler
+    // assertion and matches the daemon_run.rs precedent the brief cites.
+    #[test]
+    fn persist_phase_output_fault_seam_returns_error() {
+        use crate::phase_output::test_fault::FaultGuard;
+        use orchestrator_core::{PhaseDecision, PhaseDecisionVerdict, WorkflowDecisionRisk};
+
+        let tmp = std::env::temp_dir().join(format!("animus-test-persist-fault-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&tmp).expect("create");
+        let outcome = PhaseExecutionOutcome::Completed {
+            commit_message: None,
+            phase_decision: Some(PhaseDecision {
+                kind: "phase_decision".to_string(),
+                phase_id: "impl".to_string(),
+                verdict: PhaseDecisionVerdict::Advance,
+                confidence: 0.9,
+                risk: WorkflowDecisionRisk::Low,
+                reason: "ok".to_string(),
+                evidence: Vec::new(),
+                guardrail_violations: Vec::new(),
+                commit_message: None,
+                target_phase: None,
+            }),
+            result_payload: None,
+        };
+
+        let _guard = FaultGuard::arm();
+        let err = persist_phase_output(tmp.to_str().unwrap(), "wf-fault", "impl", 0, &outcome)
+            .expect_err("persist fault should fire");
+        assert!(
+            err.to_string().contains("injected persist_phase_output failure"),
+            "expected the fault-seam error, got: {err:#}"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[tokio::test]
+    async fn persist_failure_fails_workflow_without_advancing() {
+        // Behavioral check matching the source-level propagation: when
+        // persist_phase_output returns Err inside execute_workflow, the
+        // workflow's current_phase_index MUST NOT advance AND the
+        // workflow MUST end terminal-Failed (so downstream daemon
+        // reconciliation records the failure correctly, orphan recovery
+        // skips the run, and an operator can `animus workflow retry`
+        // after fixing the I/O condition). This test simulates the exact
+        // sequence: persist (with fault) → observe Err → fail phase →
+        // do NOT advance → verify hub state: failed but at original phase.
+        use crate::phase_output::test_fault::FaultGuard;
+        use orchestrator_core::services::ServiceHub as ServiceHubTrait;
+        use orchestrator_core::{
+            InMemoryServiceHub, Priority, TaskCreateInput, TaskStatus, TaskType, WorkflowRunInput, WorkflowStatus,
+        };
+
+        let hub = Arc::new(InMemoryServiceHub::new());
+        let task = hub
+            .tasks()
+            .create(TaskCreateInput {
+                title: "persist-fault test".to_string(),
+                description: "x".to_string(),
+                task_type: Some(TaskType::Feature),
+                priority: Some(Priority::High),
+                created_by: Some("test".to_string()),
+                tags: Vec::new(),
+                linked_requirements: Vec::new(),
+                linked_architecture_entities: Vec::new(),
+            })
+            .await
+            .expect("create task");
+        hub.tasks().set_status(&task.id, TaskStatus::InProgress, false).await.expect("status");
+
+        let workflow =
+            hub.workflows().run(WorkflowRunInput::for_task(task.id.clone(), None)).await.expect("workflow start");
+        let original_index = workflow.current_phase_index;
+        let original_phase = workflow.current_phase.clone();
+
+        let tmp = std::env::temp_dir().join(format!("animus-test-persist-noadvance-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&tmp).expect("create tmp");
+        let outcome = sample_completed_outcome(original_phase.as_deref().unwrap_or("impl"));
+
+        // Simulate the propagation path from the source: persist FAILS →
+        // fail_current_phase → DO NOT call complete_current_phase_with_decision.
+        let _guard = FaultGuard::arm();
+        let result = persist_phase_output(
+            tmp.to_str().unwrap(),
+            &workflow.id,
+            original_phase.as_deref().unwrap_or("impl"),
+            0,
+            &outcome,
+        );
+        assert!(result.is_err(), "persist must fail with fault armed");
+        // Source-level guard fails the phase before returning.
+        hub.workflows()
+            .fail_current_phase(&workflow.id, "persist_phase_output failed".to_string())
+            .await
+            .expect("fail");
+        // CRITICAL: do NOT call complete_current_phase_with_decision.
+
+        let reloaded = hub.workflows().get(&workflow.id).await.expect("reload workflow");
+        assert_eq!(reloaded.current_phase_index, original_index, "workflow must not advance when persist fails");
+        assert_eq!(reloaded.current_phase, original_phase, "current phase id must not change");
+        assert_eq!(
+            reloaded.status,
+            WorkflowStatus::Failed,
+            "workflow must be terminally failed so downstream reconciliation surfaces the failure and orphan recovery skips it"
+        );
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

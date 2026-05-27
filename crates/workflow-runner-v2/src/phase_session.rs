@@ -63,6 +63,8 @@ pub fn write_session_pending(
     run_id: &str,
     request: Option<Value>,
 ) -> io::Result<SessionCheckpoint> {
+    #[cfg(test)]
+    test_fault::maybe_fail(test_fault::FaultOp::Pending)?;
     let path = phase_session_path(scoped_root, workflow_id, phase_id);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -89,6 +91,8 @@ pub fn write_session_pending(
 // runner persists after the plugin's first response); callers should
 // invoke `update_provider_session_id` separately once it is known.
 pub fn update_session_running(scoped_root: &Path, workflow_id: &str, phase_id: &str) -> io::Result<()> {
+    #[cfg(test)]
+    test_fault::maybe_fail(test_fault::FaultOp::Running)?;
     mutate(scoped_root, workflow_id, phase_id, |checkpoint| {
         checkpoint.status = SessionCheckpointStatus::Running;
     })
@@ -127,6 +131,8 @@ pub fn update_session_running_after_resume(
 }
 
 pub fn update_session_completed(scoped_root: &Path, workflow_id: &str, phase_id: &str) -> io::Result<()> {
+    #[cfg(test)]
+    test_fault::maybe_fail(test_fault::FaultOp::Completed)?;
     mutate(scoped_root, workflow_id, phase_id, |checkpoint| {
         checkpoint.status = SessionCheckpointStatus::Completed;
         checkpoint.completed_at = Some(Utc::now().to_rfc3339());
@@ -145,6 +151,8 @@ pub fn update_session_blocked(scoped_root: &Path, workflow_id: &str, phase_id: &
 // Blocked so `list_running_checkpoints` does not surface it for daemon-restart
 // auto-resume — the run is over, not paused waiting for input.
 pub fn update_session_failed(scoped_root: &Path, workflow_id: &str, phase_id: &str, reason: &str) -> io::Result<()> {
+    #[cfg(test)]
+    test_fault::maybe_fail(test_fault::FaultOp::Failed)?;
     mutate(scoped_root, workflow_id, phase_id, |checkpoint| {
         checkpoint.status = SessionCheckpointStatus::Failed;
         checkpoint.blocked_reason = Some(reason.to_string());
@@ -265,6 +273,69 @@ fn write_atomic(path: &Path, checkpoint: &SessionCheckpoint) -> io::Result<()> {
 
 fn sanitize(value: &str) -> String {
     value.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' { c } else { '_' }).collect()
+}
+
+/// Per-thread fault-injection seam for the four durable-checkpoint write
+/// paths. Tests install a guard that arms a specific [`FaultOp`] for the
+/// duration of the test; the matching `write_session_pending` /
+/// `update_session_running` / `update_session_completed` /
+/// `update_session_failed` call returns a synthetic
+/// `io::ErrorKind::PermissionDenied` instead of writing.
+///
+/// This exists so the crash-replay invariant tests in
+/// [`crate::phase_executor`] can assert that the dispatcher treats each
+/// checkpoint failure as FATAL — without resorting to chmod games on the
+/// tempdir, which are platform-fragile and race the parent-directory fsync.
+#[cfg(test)]
+pub mod test_fault {
+    use std::cell::Cell;
+    use std::io;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum FaultOp {
+        Pending,
+        Running,
+        Completed,
+        Failed,
+    }
+
+    thread_local! {
+        static ARMED: Cell<Option<FaultOp>> = const { Cell::new(None) };
+    }
+
+    /// RAII guard. Arms the fault for the current thread on construction
+    /// and disarms on drop. Tests must not span threads while the guard is
+    /// live; the per-thread cell means each parallel test gets its own
+    /// arming without serializing on a global mutex.
+    pub struct FaultGuard;
+
+    impl FaultGuard {
+        pub fn arm(op: FaultOp) -> Self {
+            ARMED.with(|cell| cell.set(Some(op)));
+            Self
+        }
+    }
+
+    impl Drop for FaultGuard {
+        fn drop(&mut self) {
+            ARMED.with(|cell| cell.set(None));
+        }
+    }
+
+    pub fn maybe_fail(op: FaultOp) -> io::Result<()> {
+        let armed = ARMED.with(Cell::get);
+        if armed == Some(op) {
+            // Disarm so a single armed op doesn't spuriously fire on
+            // re-entry (e.g. the dispatcher's own retry path on the next
+            // tick, which legitimately re-attempts the same mutation).
+            ARMED.with(|cell| cell.set(None));
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!("test_fault::maybe_fail injected failure for {:?}", op),
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

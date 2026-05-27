@@ -155,7 +155,8 @@ pub(crate) struct PluginInstallDefaultsArgs {
     /// Auto-confirm the trust-on-first-use prompt for the launchapp-dev org.
     #[arg(long, default_value_t = false)]
     pub(crate) yes: bool,
-    /// Also install `animus-provider-oai-agent` v0.1.1.
+    /// Also install `animus-provider-oai-agent` (curated tag in
+    /// `orchestrator-core::plugin_registry::DEFAULT_OAI_AGENT_PLUGINS`).
     #[arg(long, default_value_t = false)]
     pub(crate) include_oai_agent: bool,
     /// Also install the default subject_backend plugins (subject-default,

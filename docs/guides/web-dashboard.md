@@ -15,9 +15,9 @@ animus plugin install-defaults --include-transports
 Or install them individually:
 
 ```bash
-animus plugin install launchapp-dev/animus-transport-http@v0.2.0
+animus plugin install launchapp-dev/animus-transport-http@v0.2.1
 animus plugin install launchapp-dev/animus-transport-graphql@v0.2.3
-animus plugin install launchapp-dev/animus-web-ui@v0.1.0
+animus plugin install launchapp-dev/animus-web-ui@v0.1.1
 ```
 
 ## Starting the Web UI

@@ -4,6 +4,69 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.13] - 2026-05-27
+
+Operational hardening of the v0.4.12 plugin extraction. Several pieces of
+infrastructure shipped in v0.4.12 (signature verifier, process quota,
+durability fsync, doctor diagnostics) but were not actually invoked on
+the user path; v0.4.13 wires them up. Plus the v0.4.13 W-bundle ships
+plugin lockfile, audit log, subprocess workflow_events back-channel,
+runtime quotas, and an onboarding overhaul (`animus init`, `animus doctor`).
+
+### Security
+
+- **`fix(installer)`: invoke keyless cosign TrustedPublisher verifier on
+  install + close cross-repo SAN attack.** The keyless cosign rewrite
+  (v0.4.12 commit 518c0d9e) landed `verify_plugin_install` in
+  `orchestrator-plugin-host::signature_verifier` but `animus plugin install`
+  was still routing through a local `verify_with_cosign` with a weak
+  `^https://github.com/<owner>/<repo>/.+` regex that would have accepted a
+  bundle signed by `launchapp-dev/animus-subject-linear` against an install
+  of `launchapp-dev/animus-provider-claude` (cross-repo SAN attack). Fix
+  delegates to the host verifier with the TrustedPublisher regex pinned
+  per-install to the specific repo segment, and re-applies the
+  trusted-signers allowlist on the host verdict. 6 new tests including
+  the attack-shape regression.
+
+### Features
+
+- **`feat(durability bundle)`: plugin lockfile + audit log + subprocess
+  workflow_events back-channel + runtime quotas.** `.animus/plugins.lock`
+  pins `sha256(artifact)` and `sha256(signature_bundle)`; install appends,
+  upgrade refuses on mismatch without `--force`. `~/.animus/<scope>/audit.jsonl`
+  is an append-only audit log of plugin installs / signatures / quota
+  denials with 10 MB rotation. Subprocess phases now receive workflow events
+  via a per-run Unix-domain-socket back-channel
+  (`$TMPDIR/animus-event-pipes/<daemon-pid>/<subject>-<hex>.sock`) instead
+  of relying on direct broadcaster handles. `RuntimeQuotas` caps trigger
+  backlog (1000), subscriber memory (10 MB/sub), plugin process count (50),
+  workflow concurrency (10).
+- **`feat(plugin-host)`: enforce process quota via `ProcessSlotFactory` at
+  spawn site.** The `PluginProcessSlot` RAII guard from the W-bundle is now
+  actually acquired in `host.rs::spawn_with_options`. Wiring uses a trait
+  (`ProcessSlotFactory`) the daemon installs at startup to avoid a circular
+  dep between plugin-host and daemon-runtime. Spawn returns
+  `ProcessSlotError::Exhausted` when at cap; the slot is released eagerly
+  on shutdown.
+- **`feat(durability)`: fsync session checkpoints + phase markers + task
+  state writes (W3).** All atomic writes now call `File::sync_all()` +
+  `fsync_rename()` so a crash mid-write cannot leave torn state.
+- **`feat(daemon)`: defer `ProcessManager` broadcaster lookup to spawn time
+  so subprocess workflow events actually fire.** The lookup was happening
+  at construction time, before `run_daemon` installed the broadcaster,
+  always returning `None`.
+
+### Onboarding
+
+- **`feat(onboarding)`: `animus init` interactive walkthrough + hello-world
+  workflow template.** First-run experience: detects whether plugins are
+  installed, offers `--auto-install`, drops a `.animus/` skeleton with a
+  bundled `hello-world.yaml` workflow you can run immediately.
+- **`feat(onboarding)`: `animus doctor` polish — 8 actionable diagnostic
+  categories.** Replaces the previous monolithic health output with
+  category-scoped checks (daemon socket, plugin install state, signature
+  cache, audit log presence, etc.) each with concrete remediation steps.
+
 ### Fixes
 
 - **`fix(web)`: partition transport plugins by `$ui/web` capability so
@@ -26,6 +89,75 @@ All notable changes to this project will be documented in this file.
   extension point. Until that plugin ships, machines with only the
   default transports installed still open the API endpoint and get the
   warning above.
+- **`fix(doctor)`: avoid nested tokio runtime in daemon RPC check.**
+  `probe_daemon_health` was constructing a current-thread `Runtime` and
+  calling `block_on` while already inside the `#[tokio::main]` runtime
+  driving `handle_doctor`, panicking with "Cannot start a runtime from
+  within a runtime" whenever the daemon control socket was present and
+  `--skip-subprocess` was off. Fix converts the probe to async and
+  propagates `.await` through `run_all_checks`.
+- **`fix(durability)`: skip marker writes for `--phase` runs + canonicalize
+  provider alias on restart resume.** Two follow-ups from codex round 8:
+  the `--phase` filter path now uses `persist_phase_output_without_marker`
+  so partial workflow runs do not advance the workflow marker, and
+  restart-resume now normalizes `oai-runner` / `animus-oai-runner` →
+  `oai` before looking up the resume target.
+- **`fix(init)`: create `.animus/` before `install-defaults` + suppress
+  child JSON on parent stdout.** Two codex round-9 P2s in the new
+  `animus init --walkthrough`. (1) The plugin install was running before
+  the template copy created `.animus/`, so `PluginLockfile::default_path`
+  fell back to `~/.animus/plugins.lock`; subsequent `animus plugin lock
+  list/verify` then looked at the now-existing project-local lockfile
+  and missed the walkthrough's entries. Fix creates `.animus/` first so
+  the lockfile location is stable. (2) `animus init --walkthrough --json`
+  was passing `--json` to the child install / daemon subprocesses while
+  inheriting their stdout, producing multiple JSON documents on the
+  parent stdout. Fix pipes (and discards) child stdout when `json=true`,
+  inherits in human mode so progress still streams.
+- **`fix(workflow-runner-v2)`: unify plugin_pack_fixture tests with the
+  crate-wide state serializer.** `plugin_pack_fixture_tests` had its own
+  local `env_lock()` mutex while every other HOME-mutating test used
+  `crate::test_env::scoped_state_serializer`. Parallel runs raced on
+  `HOME` between the two groups, surfacing intermittently as
+  `agent_state::tests::memory_delete_entry_by_id_removes_only_matching_entry`
+  failures depending on which test got HOME first. Fix routes the 4
+  plugin_pack_fixture tests through the shared serializer so a single
+  mutex covers all HOME mutators. `cargo test -p workflow-runner-v2`
+  (default parallel) now passes 120 tests with no flakes.
+- **`fix(daemon)`: enforce default workflow concurrency from `RuntimeQuotas`
+  + bind event-pipe synchronously.** Two daemon-runtime correctness
+  fixes from user codex round 9: (1) `RuntimeQuotas.workflow_concurrency_max`
+  (default 10) was documented but `ProcessManager::new()` only honored
+  the env var; the cap was effectively unbounded for typical operators.
+  `daemon_run` now installs `RuntimeQuotas::from_env()` before
+  constructing `ProcessManager`, which seeds its spawn cap from the
+  quota struct. `schedule_headroom(pool_size, active)` now caps the
+  effective pool at `min(pool_size, runtime_quota)` so scheduler and
+  trigger paths never select more work than the spawn site will accept.
+  Without this, oversized `pool_size` configs would silently consume
+  schedules and drain webhook events without runners ever starting.
+  (2) `SubprocessEventPipe::bind` spawned an async bind task and waited
+  on a `std::sync::mpsc::Receiver` from the calling thread, which could
+  deadlock a current-thread runtime and stall a multi-thread worker.
+  New `bind_sync` binds the socket synchronously on the calling thread
+  and spawns only the reader task on the current Tokio runtime.
+
+### Documentation
+
+- **`docs`: refresh plugin version refs after registry bumps.** Installation,
+  upgrading, web-dashboard, and CLI reference docs now match
+  `plugin_registry.rs` constants. `plugin_types.rs` help text cross-references
+  the registry instead of hard-coded versions to prevent future drift.
+
+### Internal
+
+- **`chore(cleanup)`: drop dead code, dedupe audit test, fix duplicate
+  test attr, remove unused imports.** 5 → 0 workspace build warnings.
+- **`chore(scripts)`: add `dispatch-wave.sh` helper for worktree-isolated
+  parallel agent dispatch.** Standardizes the `git worktree add` +
+  per-agent branch + merge / cleanup flow for parallel sub-agent waves.
+  Not on the user path — used by the maintainer when driving multi-agent
+  cleanup waves like this release.
 
 ## [0.4.12] - 2026-05-24
 

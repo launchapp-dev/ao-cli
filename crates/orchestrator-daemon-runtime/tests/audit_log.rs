@@ -20,12 +20,13 @@ fn read_lines(path: &Path) -> Vec<Value> {
 #[test]
 fn audit_log_appends_install_event_with_signature_status() {
     let dir = tempdir().unwrap();
+    let sha = "deadbeef".repeat(8);
     log_plugin_install(
         dir.path(),
         AuditEventKind::PluginInstall,
         "launchapp-dev/animus-provider-claude",
         "v0.2.2",
-        "deadbeef".repeat(8).as_str(),
+        sha.as_str(),
         "verified",
     );
     let lines = read_lines(&audit_log_path(dir.path()));
@@ -36,6 +37,7 @@ fn audit_log_appends_install_event_with_signature_status() {
     let details = &line["details"];
     assert_eq!(details["repo"], "launchapp-dev/animus-provider-claude");
     assert_eq!(details["version"], "v0.2.2");
+    assert_eq!(details["sha256"], sha);
     assert_eq!(details["signature_status"], "verified");
 }
 

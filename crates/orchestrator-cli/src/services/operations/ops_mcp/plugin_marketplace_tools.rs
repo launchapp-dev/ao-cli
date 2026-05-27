@@ -167,7 +167,6 @@ impl AoMcpServer {
 #[cfg(test)]
 mod marketplace_tool_tests {
     use super::super::new_ao_mcp_server;
-    use super::*;
     use tempfile::TempDir;
 
     #[tokio::test]

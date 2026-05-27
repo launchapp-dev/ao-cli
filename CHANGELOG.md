@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`fix(cli)`: emit JSON envelope for clap argparse failures when `--json` is set.** `Cli::parse()` exits the process directly on bad argv, bypassing every downstream `emit_cli_error` call. `main` now pre-scans argv for `--json`, switches to `Cli::try_parse()`, and on parse error emits an `animus.cli.v1` invalid_input envelope with `error.details.stage = "parse"` plus the raw clap text under `details.raw`. Non-JSON callers keep clap's pretty-printed help text unchanged. Exit code stays 2. (audit Fix 3)
+- **`fix(cli)`: `animus web serve --json` returns JSON envelope when no transport plugins installed.** `bail_with_install_help` wrote multi-line human help to stderr and called `std::process::exit(2)`, never giving the JSON envelope path a chance to fire. Replaced with `missing_transport_plugins_error(json)` which routes through `CliError(InvalidInput)` — JSON callers get a single-line message plus `error.details.install_command` and `error.details.individual_plugins`; humans still see the multi-line help. (audit Fix 1)
+- **`fix(cli)`: MCP tool error payloads now read the stderr envelope.** The production `build_tool_error_payload` and `batch_item_error_from_result` only checked `stdout_json`, so a properly-emitted `animus.cli.v1` error envelope on stderr was silently dropped. A test-only helper (`build_cli_error_payload`) handled stderr correctly, so the test suite was green against the wrong helper. Production helpers now share a `pick_envelope_error` that prefers `stderr_json` (canonical error channel per `docs/reference/json-envelope.md`) over `stdout_json`. Added production-path regression tests. (audit Fix 2)
+- **`fix(cli)`: `workflow run --sync --json` keeps stderr silent.** Phase/progress emitters in `ops_workflow::execute` accepted `_json` but ignored it, spraying ANSI-colored progress to stderr in `--json` mode. Now gated on `if json { return }` so the JSON envelope on stdout is the entire user-facing surface. (audit Fix 4)
+- **`fix(cli)`: `init --walkthrough --json` no longer prompts in TTY.** The `interactive` flag was computed from TTY detection alone, so a Guided walkthrough in a TTY would block on `prompt_yes_no` even when `--json` was set (silent hang for scripted callers). `interactive` now requires `!json`, so the JSON envelope path is the entire surface in JSON mode. (audit Fix 5)
+
 ## [0.4.13] - 2026-05-27
 
 Operational hardening of the v0.4.12 plugin extraction. Several pieces of

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EnvRequirement",
+  "description": "One environment variable a plugin asks the host to forward at spawn time.\n\nThe host treats `name` as the source of truth: only matching variables are\npassed through the `env_clear()` boundary. `description` and `sensitive`\nare informational hints surfaced in `animus plugin info` and the install\nflow so operators can decide whether a plugin's secret requirements are\nreasonable before granting it access.\n\nWhen `required` is set, the host emits a warning at spawn time if the\nvariable isn't present in the daemon's own environment. The host never\nrefuses to spawn over a missing required var — that decision belongs to\nthe plugin itself, which sees the missing variable during its own startup.",
+  "type": "object",
+  "properties": {
+    "description": {
+      "description": "Optional human-readable explanation of what the variable is used for.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "name": {
+      "description": "Environment variable name (e.g. `\"OPENAI_API_KEY\"`).",
+      "type": "string"
+    },
+    "required": {
+      "description": "When `true`, the host emits a warning at spawn time if the variable is\nnot set in the daemon's environment.",
+      "type": "boolean",
+      "default": false
+    },
+    "sensitive": {
+      "description": "Hint that this variable carries a secret. Informational only — does not\nchange spawn behavior. Used to drive warnings in install output and\n`animus plugin info` listings.",
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "name"
+  ]
+}

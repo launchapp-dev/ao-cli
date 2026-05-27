@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PluginCapabilities",
+  "description": "Capabilities the plugin advertises during the handshake.\n\n`methods` is the closed set of domain methods the plugin implements; the\nhost uses it to skip calls the plugin would reject anyway. `subject_kinds`\nand `mcp_tools` are supplemental hints for subject-backend and\ncustom-plugin kinds respectively.",
+  "type": "object",
+  "properties": {
+    "cancellation": {
+      "description": "Plugin honors `$/cancelRequest` notifications.",
+      "type": "boolean",
+      "default": false
+    },
+    "mcp_tools": {
+      "description": "MCP tools exposed by the plugin (custom plugins only).",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/McpTool"
+      }
+    },
+    "methods": {
+      "description": "Concrete methods the plugin implements (e.g. `[\"subject/list\",\n\"subject/get\", \"subject/update\"]`).",
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string"
+      }
+    },
+    "progress": {
+      "description": "Plugin honors `$/progress` notifications.",
+      "type": "boolean",
+      "default": false
+    },
+    "projections": {
+      "description": "Optional projection names the plugin can serve (subject backends\nonly). Hosts may request a projection by name in calls that opt into\nprojected views.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "streaming": {
+      "description": "Plugin emits server-streaming notifications.",
+      "type": "boolean",
+      "default": false
+    },
+    "subject_kinds": {
+      "description": "Subject kinds the plugin can produce (subject backends only).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$defs": {
+    "McpTool": {
+      "description": "Description of an MCP tool exposed by a custom plugin.\n\nHosts that bridge MCP can re-expose these tools to MCP clients without\nthe plugin author writing MCP-specific code.",
+      "type": "object",
+      "properties": {
+        "description": {
+          "description": "Human-readable description.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "input_schema": {
+          "description": "JSON Schema describing the tool's input."
+        },
+        "name": {
+          "description": "MCP tool name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PluginInfo",
+  "description": "Identity of the plugin returned in the `initialize` response.",
+  "type": "object",
+  "properties": {
+    "description": {
+      "description": "Human-readable description.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "name": {
+      "description": "Plugin's published name (e.g. `\"animus-subject-linear\"`).",
+      "type": "string"
+    },
+    "plugin_kind": {
+      "description": "One of the `PLUGIN_KIND_*` constants.",
+      "type": "string"
+    },
+    "version": {
+      "description": "Plugin's semver.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "version",
+    "plugin_kind"
+  ]
+}

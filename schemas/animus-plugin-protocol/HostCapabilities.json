@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HostCapabilities",
+  "description": "Capabilities the host advertises during the handshake.\n\nPlugins may use these to enable optional features. The host promises to\nhonor any capability it advertises.",
+  "type": "object",
+  "properties": {
+    "cancellation": {
+      "description": "Host may issue `$/cancelRequest` notifications to cancel in-flight\nrequests.",
+      "type": "boolean",
+      "default": false
+    },
+    "progress": {
+      "description": "Host accepts `$/progress` notifications.",
+      "type": "boolean",
+      "default": false
+    },
+    "streaming": {
+      "description": "Host accepts server-streaming notifications carrying the original\nrequest id.",
+      "type": "boolean",
+      "default": false
+    }
+  }
+}

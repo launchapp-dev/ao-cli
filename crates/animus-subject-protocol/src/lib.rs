@@ -32,6 +32,7 @@ use animus_plugin_protocol::{error_codes, HealthCheckResult, RpcError};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use futures_core::Stream;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -72,7 +73,7 @@ pub const NOTIFICATION_SUBJECT_CHANGED: &str = "subject/changed";
 ///
 /// The `backend:` prefix is reserved. Plugin authors should always emit
 /// prefixed ids so cross-backend collisions are impossible.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
 #[serde(transparent)]
 pub struct SubjectId(pub String);
 
@@ -116,7 +117,7 @@ impl From<&str> for SubjectId {
 /// into one of these five via the `status_map` declared per-subject in
 /// workflow YAML. The mapping lives in configuration, not code, so adding a
 /// new backend never requires extending this enum.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum SubjectStatus {
     /// Eligible for dispatch.
@@ -143,7 +144,7 @@ pub enum SubjectStatus {
 /// daemon doesn't interpret live in [`Subject::custom`] and are addressable
 /// from workflow YAML via templating (e.g.
 /// `{{subject.custom.story_points}}`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Subject {
     /// Backend-qualified identifier. See [`SubjectId`].
     pub id: SubjectId,
@@ -210,7 +211,7 @@ pub struct Subject {
 /// All fields are optional and combined with AND semantics. Empty `Vec`
 /// fields mean "no constraint on this dimension". `cursor` is opaque to the
 /// daemon — backends issue and accept their own pagination tokens.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct SubjectFilter {
     /// Match subjects whose status is one of these.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -246,7 +247,7 @@ pub struct SubjectFilter {
 }
 
 /// Result of `subject/list`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct SubjectList {
     /// Subjects in this page.
     pub subjects: Vec<Subject>,
@@ -271,7 +272,7 @@ pub struct SubjectList {
 /// (`None`) from "explicitly clear" (`Some(None)`). Labels are partitioned
 /// into add/remove sets to avoid lost-write races on the labels list as a
 /// whole.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct SubjectPatch {
     /// Set the normalized status. Backends translate to their native value
     /// using the workflow-YAML `status_map`.
@@ -311,7 +312,7 @@ pub struct SubjectPatch {
 /// The daemon uses this to adapt behavior without runtime guessing — for
 /// example, to skip `subject/watch` for polling-only backends, or to
 /// pre-populate a UI with the subject's available custom-field values.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct SubjectSchema {
     /// Subject kinds this backend produces.
     pub kinds: Vec<String>,
@@ -339,7 +340,7 @@ pub struct SubjectSchema {
 }
 
 /// Description of one custom field a backend exposes.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct CustomFieldSpec {
     /// Field key as it appears in [`Subject::custom`].
     pub key: String,
@@ -352,7 +353,7 @@ pub struct CustomFieldSpec {
 }
 
 /// The type of a custom field.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum CustomFieldKind {
     /// Free-form string.
@@ -378,7 +379,7 @@ pub enum CustomFieldKind {
 pub type EventStream = Pin<Box<dyn Stream<Item = SubjectChangedEvent> + Send>>;
 
 /// Notification payload for `subject/changed`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct SubjectChangedEvent {
     /// Affected subject id.
     pub id: SubjectId,
@@ -389,7 +390,7 @@ pub struct SubjectChangedEvent {
 }
 
 /// Categorization of a subject change event.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum ChangeKind {
     /// Subject was newly created upstream.

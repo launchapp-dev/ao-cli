@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TriggerEvent",
+  "description": "A trigger event emitted by a trigger backend plugin.\n\nPlugins deliver these as `trigger/event` JSON-RPC notifications. The host\nroutes the event to the matching trigger configuration; what the host\ndoes next depends on `action_hint` and `subject_id`:\n\n- `subject_id` is set → the host resolves the subject (via the configured\n  subject backend) and may kick the subject's assigned workflow.\n- `action_hint` is `Some(\"create_task\")` → the host creates a new task\n  with `payload` as input context.\n- Otherwise the host enqueues the event against the trigger's\n  `workflow_ref` (if configured) using the existing webhook dispatch path.",
+  "type": "object",
+  "properties": {
+    "action_hint": {
+      "description": "Optional hint for what the host should do (`\"create_task\"`,\n`\"run_workflow\"`, ...). Plugins may omit this and let the host fall\nback to the trigger config's `workflow_ref`.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "event_id": {
+      "description": "Unique event id assigned by the plugin. Used by the host to send back\n`trigger/ack`. Plugins should make this stable across restarts when\npossible so duplicate deliveries can be deduplicated.",
+      "type": "string"
+    },
+    "payload": {
+      "description": "Event payload. Forwarded to the spawned workflow as input.",
+      "default": null
+    },
+    "subject_id": {
+      "description": "Optional subject the event refers to (e.g. a Linear issue id). When\nset, the host may resolve the subject via its configured subject\nbackend and kick the subject's assigned workflow.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "subject_kind": {
+      "description": "Optional subject kind for `subject_id` (e.g. `\"issue\"`, `\"task\"`).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "trigger_id": {
+      "description": "Logical trigger id this event belongs to. Matches the `id` of a\n`WorkflowTrigger` in the project's workflow YAML.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "event_id"
+  ]
+}

@@ -58,15 +58,50 @@ fn find_existing_scope_by_origin(ao_root: &Path, project_root: &Path) -> Option<
         }
 
         let origin_file = scope_dir.join(".git-origin");
-        if let Ok(existing_origin) = std::fs::read_to_string(&origin_file) {
-            if existing_origin.trim() == our_origin {
-                let project_root_file = scope_dir.join(".project-root");
-                if let Ok(existing_root) = std::fs::read_to_string(&project_root_file) {
-                    let existing_canonical = Path::new(existing_root.trim()).canonicalize().unwrap_or_default();
-                    if existing_canonical == canonical {
+        let Ok(existing_origin) = std::fs::read_to_string(&origin_file) else {
+            continue;
+        };
+        if existing_origin.trim() != our_origin {
+            continue;
+        }
+
+        // Same remote origin found. To avoid cross-clone collisions (two
+        // separate checkouts of the same repo sharing workflow.db, logs, and
+        // worktrees), require that the candidate scope's recorded
+        // `.project-root` resolves to the same canonical path we are being
+        // asked about. If the marker points to a different existing path,
+        // that scope belongs to a sibling clone — skip it and let the caller
+        // fall through to creating the hash-derived scope.
+        //
+        // Adopting a same-origin scope is still allowed when:
+        //   * no `.project-root` marker exists (legacy/unmigrated scope), or
+        //   * the recorded path no longer canonicalizes (the user moved the
+        //     repo on disk and we want the historical scope to remain
+        //     reachable from the new path).
+        let project_root_file = scope_dir.join(".project-root");
+        match std::fs::read_to_string(&project_root_file) {
+            Ok(existing_root) => {
+                let recorded = Path::new(existing_root.trim());
+                match recorded.canonicalize() {
+                    Ok(existing_canonical) if existing_canonical == canonical => {
+                        // The marker already points at us; the caller will
+                        // also detect this via the hash path. Returning here
+                        // keeps the legacy adoption path working.
+                        return Some(scope_dir);
+                    }
+                    Ok(_) => {
+                        // Recorded path resolves to a different live clone.
                         continue;
                     }
+                    Err(_) => {
+                        // Recorded path no longer exists — assume the user
+                        // moved the repo and reclaim the scope.
+                        return Some(scope_dir);
+                    }
                 }
+            }
+            Err(_) => {
+                // No marker → legacy scope, adopt for backwards compat.
                 return Some(scope_dir);
             }
         }
@@ -209,6 +244,107 @@ mod tests {
         let resolved = scoped_state_root(&repo).expect("scope dir");
         assert_eq!(resolved, scope_dir);
         assert!(!marker.exists(), "existing scope lookup should not invoke git");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scoped_state_root_isolates_distinct_clones_with_same_origin() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempdir().expect("tempdir");
+        let home = temp.path().join("home");
+        let bin = temp.path().join("bin");
+        let clone_a = temp.path().join("clones").join("alpha");
+        let clone_b = temp.path().join("clones").join("beta");
+        std::fs::create_dir_all(home.join(".animus")).expect("ao root");
+        std::fs::create_dir_all(&clone_a).expect("clone a");
+        std::fs::create_dir_all(&clone_b).expect("clone b");
+        std::fs::create_dir_all(&bin).expect("bin dir");
+
+        // Fake git that always reports the same origin URL regardless of cwd.
+        let git_script = bin.join("git");
+        std::fs::write(
+            &git_script,
+            "#!/bin/sh\necho 'git@github.com:example/shared-repo.git'\n",
+        )
+        .expect("write fake git");
+        let mut perms = std::fs::metadata(&git_script).expect("metadata").permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&git_script, perms).expect("set perms");
+
+        let _home_guard = EnvVarGuard::set("HOME", Some(home.to_string_lossy().as_ref()));
+        let _path_guard = EnvVarGuard::set("PATH", Some(bin.to_string_lossy().as_ref()));
+
+        let scope_a = scoped_state_root(&clone_a).expect("scope a");
+        let scope_b = scoped_state_root(&clone_b).expect("scope b");
+
+        let expected_a = home.join(".animus").join(repository_scope_for_path(&clone_a));
+        let expected_b = home.join(".animus").join(repository_scope_for_path(&clone_b));
+
+        assert_eq!(scope_a, expected_a, "clone A should land on its hash-derived scope");
+        assert_eq!(scope_b, expected_b, "clone B should land on its hash-derived scope");
+        assert_ne!(scope_a, scope_b, "two clones of the same origin must not share a scope");
+
+        // Subsequent calls must remain stable and not cross over via the
+        // same-origin fallback.
+        let scope_a_again = scoped_state_root(&clone_a).expect("scope a again");
+        let scope_b_again = scoped_state_root(&clone_b).expect("scope b again");
+        assert_eq!(scope_a_again, expected_a);
+        assert_eq!(scope_b_again, expected_b);
+
+        // Markers should record each clone's own canonical path.
+        let marker_a = std::fs::read_to_string(scope_a.join(".project-root")).expect("marker a");
+        let marker_b = std::fs::read_to_string(scope_b.join(".project-root")).expect("marker b");
+        let canonical_a = clone_a.canonicalize().expect("canon a");
+        let canonical_b = clone_b.canonicalize().expect("canon b");
+        assert_eq!(marker_a.trim(), canonical_a.to_string_lossy());
+        assert_eq!(marker_b.trim(), canonical_b.to_string_lossy());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scoped_state_root_adopts_moved_clone_when_recorded_path_missing() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempdir().expect("tempdir");
+        let home = temp.path().join("home");
+        let bin = temp.path().join("bin");
+        let new_clone = temp.path().join("new-location");
+        std::fs::create_dir_all(home.join(".animus")).expect("ao root");
+        std::fs::create_dir_all(&new_clone).expect("new clone");
+        std::fs::create_dir_all(&bin).expect("bin dir");
+
+        let git_script = bin.join("git");
+        std::fs::write(
+            &git_script,
+            "#!/bin/sh\necho 'git@github.com:example/moved-repo.git'\n",
+        )
+        .expect("write fake git");
+        let mut perms = std::fs::metadata(&git_script).expect("metadata").permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&git_script, perms).expect("set perms");
+
+        // Pre-create a legacy scope whose recorded `.project-root` no longer exists.
+        let legacy_scope = home.join(".animus").join("legacy-scope-aaaaaaaaaaaa");
+        std::fs::create_dir_all(&legacy_scope).expect("legacy scope");
+        std::fs::write(legacy_scope.join(".git-origin"), "git@github.com:example/moved-repo.git\n")
+            .expect("write origin");
+        std::fs::write(
+            legacy_scope.join(".project-root"),
+            format!("{}\n", temp.path().join("old-location").display()),
+        )
+        .expect("write stale project-root");
+
+        let _home_guard = EnvVarGuard::set("HOME", Some(home.to_string_lossy().as_ref()));
+        let _path_guard = EnvVarGuard::set("PATH", Some(bin.to_string_lossy().as_ref()));
+
+        let resolved = scoped_state_root(&new_clone).expect("scope");
+        assert_eq!(resolved, legacy_scope, "moved clone should reclaim its legacy scope");
+
+        // And the marker should now point at the new canonical location.
+        let marker = std::fs::read_to_string(legacy_scope.join(".project-root")).expect("marker");
+        let canonical_new = new_clone.canonicalize().expect("canon");
+        assert_eq!(marker.trim(), canonical_new.to_string_lossy());
     }
 
     proptest! {

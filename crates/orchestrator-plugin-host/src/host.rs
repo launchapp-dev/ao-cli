@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Duration;
 
 use animus_plugin_protocol::{
@@ -244,6 +244,101 @@ pub(crate) fn resolve_broadcast_capacity(spawn_override: Option<usize>, manifest
     DEFAULT_NOTIFICATION_BROADCAST_CAPACITY
 }
 
+/// Opaque RAII guard returned by [`ProcessSlotFactory::acquire`]. Dropping it
+/// must release the underlying quota slot. The plugin host holds one of these
+/// alongside the spawned child for the child's lifetime, so a slot is held for
+/// exactly the same duration as the live plugin process.
+///
+/// The marker trait is intentionally empty: the only behaviour the host cares
+/// about is `Drop`. Implementors typically wrap a concrete RAII type owned by
+/// the quota module (e.g. `orchestrator_daemon_runtime::PluginProcessSlot`).
+pub trait ProcessSlotGuard: Send + Sync + std::fmt::Debug {}
+
+/// Boxed trait object alias used everywhere the host stores or returns a slot.
+pub type BoxedProcessSlotGuard = Box<dyn ProcessSlotGuard>;
+
+/// Structured error returned by [`ProcessSlotFactory::acquire`] when the
+/// configured per-process plugin cap is at its limit. The host translates this
+/// into an `anyhow::Error` at the spawn site so callers see a single error
+/// type from `spawn_with_options`.
+#[derive(Debug, Clone)]
+pub struct ProcessSlotError {
+    /// Currently-live plugin process count as observed by the factory.
+    pub current: usize,
+    /// Configured cap (e.g. `RuntimeQuotas::plugin_process_max`).
+    pub cap: usize,
+    /// Human-readable diagnostic appended by the factory (often the factory's
+    /// own `Display` formatting of its native error type).
+    pub message: String,
+}
+
+impl std::fmt::Display for ProcessSlotError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for ProcessSlotError {}
+
+/// Quota-enforcement boundary the plugin host uses at the spawn site.
+///
+/// The plugin-host crate intentionally does NOT depend on
+/// `orchestrator-daemon-runtime` (that crate already depends on this one;
+/// adding a reverse dep would form a cycle). Instead the daemon installs an
+/// implementation of this trait at startup via [`install_process_slot_factory`].
+/// When no factory is installed, the host falls back to a no-op slot and
+/// behaviour is identical to pre-quota releases (used by unit tests and any
+/// embedder that hasn't opted in).
+pub trait ProcessSlotFactory: Send + Sync + 'static {
+    /// Try to claim a slot. Returns `Err` if the cap is reached; the host
+    /// surfaces this as a spawn failure rather than queuing or blocking.
+    fn acquire(&self) -> Result<BoxedProcessSlotGuard, ProcessSlotError>;
+}
+
+/// Lazy-init container for the process-wide factory. Production daemon
+/// startup installs exactly once; tests may swap via
+/// [`install_process_slot_factory_for_test`] under a serializing mutex.
+fn process_slot_factory_slot() -> &'static RwLock<Option<Arc<dyn ProcessSlotFactory>>> {
+    static SLOT: OnceLock<RwLock<Option<Arc<dyn ProcessSlotFactory>>>> = OnceLock::new();
+    SLOT.get_or_init(|| RwLock::new(None))
+}
+
+/// Install the process-wide [`ProcessSlotFactory`]. First-installer-wins:
+/// subsequent calls return `false` and leave the existing factory in place so
+/// a test that pre-installed a stub keeps its override even if the daemon
+/// startup path also runs.
+pub fn install_process_slot_factory(factory: Arc<dyn ProcessSlotFactory>) -> bool {
+    let mut guard = process_slot_factory_slot().write().expect("process slot factory lock poisoned");
+    if guard.is_some() {
+        return false;
+    }
+    *guard = Some(factory);
+    true
+}
+
+/// Test-only: unconditionally replace the installed factory. Production code
+/// must never call this; the daemon startup path uses
+/// [`install_process_slot_factory`] which is first-installer-wins.
+#[cfg(any(test, feature = "test-support"))]
+pub fn install_process_slot_factory_for_test(factory: Arc<dyn ProcessSlotFactory>) {
+    let mut guard = process_slot_factory_slot().write().expect("process slot factory lock poisoned");
+    *guard = Some(factory);
+}
+
+/// Test-only: clear the installed factory so the spawn path falls back to
+/// the no-quota path.
+#[cfg(any(test, feature = "test-support"))]
+pub fn clear_process_slot_factory_for_test() {
+    let mut guard = process_slot_factory_slot().write().expect("process slot factory lock poisoned");
+    *guard = None;
+}
+
+/// Snapshot of the currently-installed factory. Cloned `Arc` so the caller
+/// doesn't hold the lock across an `.acquire()` call.
+fn current_process_slot_factory() -> Option<Arc<dyn ProcessSlotFactory>> {
+    process_slot_factory_slot().read().expect("process slot factory lock poisoned").clone()
+}
+
 /// Shared inner state for a [`PluginHost`]. One per spawned plugin process.
 ///
 /// The host follows the single-reader-router pattern: one tokio task owns
@@ -281,6 +376,16 @@ pub struct PluginHostInner {
     /// [`HostError::ConnectionLost`] instead of inserting an awaiter that
     /// would never be answered.
     alive: AtomicBool,
+    /// Process-quota RAII guard acquired at spawn time. Held for the lifetime
+    /// of the host (and therefore the child); dropped when the `Arc<...Inner>`
+    /// goes away, which is after [`PluginHost::shutdown`] has reaped the
+    /// child. `None` for tests / embedders that haven't installed a
+    /// [`ProcessSlotFactory`].
+    ///
+    /// Held inside a mutex purely so [`PluginHost::shutdown`] can take the
+    /// guard and drop it eagerly after the child wait completes, ahead of the
+    /// last `Arc` drop. In steady state nothing else touches this field.
+    _process_slot: std::sync::Mutex<Option<BoxedProcessSlotGuard>>,
 }
 
 /// Single-process JSON-RPC plugin host.
@@ -333,6 +438,20 @@ impl PluginHost {
         let binary_name = binary_path.file_name().and_then(|value| value.to_str()).unwrap_or("plugin").to_string();
         let name = options.plugin_label.clone().unwrap_or_else(|| binary_name.clone());
 
+        // Quota check BEFORE the fork: if the daemon has installed a
+        // ProcessSlotFactory and the per-process cap is reached, refuse
+        // the spawn instead of letting the fd/memory pressure build. The
+        // slot is held alongside the child for the rest of its lifetime;
+        // dropping it (in shutdown or when the Arc<...Inner> goes away)
+        // releases capacity for the next spawn.
+        let process_slot = match current_process_slot_factory() {
+            Some(factory) => Some(factory.acquire().map_err(|err| {
+                warn!(plugin = %name, error = %err, "refused plugin spawn: process slot cap reached");
+                anyhow!("{err}")
+            })?),
+            None => None,
+        };
+
         let mut command = tokio::process::Command::new(binary_path);
         command
             .args(args)
@@ -380,7 +499,7 @@ impl PluginHost {
         });
 
         let capacity = resolve_broadcast_capacity(options.notification_capacity, None);
-        Ok(Self::launch(name, Box::new(stdout), Box::new(stdin), Some(child), capacity))
+        Ok(Self::launch_with_slot(name, Box::new(stdout), Box::new(stdin), Some(child), capacity, process_slot))
     }
 
     /// Build a host from caller-supplied in-memory streams. Used by tests
@@ -418,6 +537,20 @@ impl PluginHost {
         child: Option<Child>,
         notification_capacity: usize,
     ) -> Self {
+        Self::launch_with_slot(name, reader, writer, child, notification_capacity, None)
+    }
+
+    /// Variant of [`Self::launch`] that also stashes the process-quota slot
+    /// alongside the child. Only `spawn_with_options` calls this with a
+    /// `Some` slot; in-memory stream constructors pass `None`.
+    fn launch_with_slot(
+        name: String,
+        reader: Box<dyn AsyncRead + Send + Unpin>,
+        writer: Box<dyn AsyncWrite + Send + Unpin>,
+        child: Option<Child>,
+        notification_capacity: usize,
+        process_slot: Option<BoxedProcessSlotGuard>,
+    ) -> Self {
         let (notifications_tx, _) = broadcast::channel::<RpcNotification>(notification_capacity);
         let inner = Arc::new(PluginHostInner {
             name,
@@ -428,6 +561,7 @@ impl PluginHost {
             child: Mutex::new(child),
             reader_handle: std::sync::Mutex::new(None),
             alive: AtomicBool::new(true),
+            _process_slot: std::sync::Mutex::new(process_slot),
         });
 
         let reader_inner = inner.clone();
@@ -621,6 +755,13 @@ impl PluginHost {
         // pending map. If the child died before this and the reader task
         // already drained, this is a no-op.
         drain_pending(inner.as_ref()).await;
+
+        // Release the process-quota slot eagerly now that the child has
+        // been reaped. Dropping the Arc<...Inner> would also drop the
+        // slot, but other clones of the host may still hold a reference;
+        // releasing here lets a follow-up spawn proceed without waiting
+        // for those to drop.
+        let _ = inner._process_slot.lock().expect("process slot mutex poisoned").take();
 
         Ok(())
     }
@@ -944,10 +1085,6 @@ mod tests {
 
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
-    #[cfg(unix)]
-    use std::sync::Mutex as StdMutex;
-    #[cfg(unix)]
-    static ENV_SCRUB_GUARD: StdMutex<()> = StdMutex::new(());
 
     #[cfg(unix)]
     fn write_env_dump_plugin(dir: &std::path::Path) -> std::path::PathBuf {
@@ -976,7 +1113,7 @@ mod tests {
     #[tokio::test]
     #[allow(clippy::await_holding_lock)] // intentional: guards std::env mutation across spawn await
     async fn env_scrubbing_strips_unrelated_vars() {
-        let _guard = ENV_SCRUB_GUARD.lock().unwrap_or_else(|p| p.into_inner());
+        let _guard = slot_factory_lock().lock().unwrap_or_else(|p| p.into_inner());
         let dir = tempfile::tempdir().unwrap();
         let plugin = write_env_dump_plugin(dir.path());
         let env_out = dir.path().join("env.out");
@@ -998,7 +1135,7 @@ mod tests {
     #[tokio::test]
     #[allow(clippy::await_holding_lock)] // intentional: guards std::env mutation across spawn await
     async fn env_scrubbing_keeps_declared_vars() {
-        let _guard = ENV_SCRUB_GUARD.lock().unwrap_or_else(|p| p.into_inner());
+        let _guard = slot_factory_lock().lock().unwrap_or_else(|p| p.into_inner());
         let dir = tempfile::tempdir().unwrap();
         let plugin = write_env_dump_plugin(dir.path());
         let env_out = dir.path().join("env.out");
@@ -1029,7 +1166,7 @@ mod tests {
     #[tokio::test]
     #[allow(clippy::await_holding_lock)] // intentional: guards std::env mutation across spawn await
     async fn env_scrubbing_always_includes_path_and_home() {
-        let _guard = ENV_SCRUB_GUARD.lock().unwrap_or_else(|p| p.into_inner());
+        let _guard = slot_factory_lock().lock().unwrap_or_else(|p| p.into_inner());
         let dir = tempfile::tempdir().unwrap();
         let plugin = write_env_dump_plugin(dir.path());
         let env_out = dir.path().join("env.out");
@@ -1043,6 +1180,150 @@ mod tests {
         let env = read_env_dump(&env_out);
         assert!(env.contains_key("PATH"), "PATH must be in the base allowlist; saw env={env:?}");
         assert!(env.contains_key("HOME"), "HOME must be in the base allowlist; saw env={env:?}");
+    }
+
+    /// Minimal `ProcessSlotFactory` used by the cap-enforcement test. Tracks
+    /// the live count itself (independent of the daemon-runtime global
+    /// counter) so the test is hermetic and doesn't race other tests in the
+    /// binary.
+    #[derive(Debug)]
+    struct CappedFactory {
+        cap: usize,
+        live: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    #[derive(Debug)]
+    struct CappedGuard {
+        live: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl ProcessSlotGuard for CappedGuard {}
+
+    impl Drop for CappedGuard {
+        fn drop(&mut self) {
+            self.live.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    impl ProcessSlotFactory for CappedFactory {
+        fn acquire(&self) -> Result<BoxedProcessSlotGuard, ProcessSlotError> {
+            loop {
+                let current = self.live.load(std::sync::atomic::Ordering::SeqCst);
+                if current >= self.cap {
+                    return Err(ProcessSlotError {
+                        current,
+                        cap: self.cap,
+                        message: format!("test cap reached ({} live, max {})", current, self.cap),
+                    });
+                }
+                if self
+                    .live
+                    .compare_exchange(
+                        current,
+                        current + 1,
+                        std::sync::atomic::Ordering::SeqCst,
+                        std::sync::atomic::Ordering::SeqCst,
+                    )
+                    .is_ok()
+                {
+                    return Ok(Box::new(CappedGuard { live: self.live.clone() }));
+                }
+            }
+        }
+    }
+
+    /// Serialize the slot-factory tests so they don't race each other on the
+    /// process-wide installed factory.
+    fn slot_factory_lock() -> &'static std::sync::Mutex<()> {
+        static LOCK: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| std::sync::Mutex::new(()))
+    }
+
+    #[test]
+    fn process_slot_factory_enforces_cap_and_releases_on_drop() {
+        let _guard = slot_factory_lock().lock().unwrap_or_else(|p| p.into_inner());
+
+        let live = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let factory: Arc<dyn ProcessSlotFactory> = Arc::new(CappedFactory { cap: 2, live: live.clone() });
+        install_process_slot_factory_for_test(factory.clone());
+
+        // Drive the cap via the installed-factory path so we exercise the
+        // exact wiring `spawn_with_options` uses.
+        let installed = current_process_slot_factory().expect("factory installed");
+
+        let slot1 = installed.acquire().expect("1st under cap");
+        let slot2 = installed.acquire().expect("2nd under cap");
+        assert_eq!(live.load(std::sync::atomic::Ordering::SeqCst), 2);
+
+        let denied = installed.acquire();
+        let err = denied.expect_err("3rd acquire must be refused at cap");
+        assert_eq!(err.cap, 2);
+        assert_eq!(err.current, 2);
+        assert!(err.message.contains("test cap reached"), "unexpected message: {}", err.message);
+
+        // Drop one slot — a fresh acquire must succeed and reuse the freed slot.
+        drop(slot1);
+        let slot3 = installed.acquire().expect("recovered slot after drop");
+        assert_eq!(live.load(std::sync::atomic::Ordering::SeqCst), 2);
+
+        drop(slot2);
+        drop(slot3);
+        assert_eq!(live.load(std::sync::atomic::Ordering::SeqCst), 0);
+
+        clear_process_slot_factory_for_test();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)] // intentional: serializes process-quota tests across spawn awaits
+    async fn spawn_with_options_refuses_at_cap() {
+        let _guard = slot_factory_lock().lock().unwrap_or_else(|p| p.into_inner());
+
+        let live = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let factory: Arc<dyn ProcessSlotFactory> = Arc::new(CappedFactory { cap: 2, live: live.clone() });
+        install_process_slot_factory_for_test(factory);
+
+        let dir = tempfile::tempdir().unwrap();
+        let plugin = write_env_dump_plugin(dir.path());
+        let env_out = dir.path().join("env.out");
+
+        // First two spawns should succeed (slots 1 and 2). The plugins are
+        // trivial shell scripts that exit immediately, but the slot lives
+        // until shutdown drops it — so we deliberately keep the hosts alive.
+        let host1 =
+            PluginHost::spawn_with_options(&plugin, &[env_out.to_str().unwrap()], PluginSpawnOptions::default())
+                .await
+                .expect("first spawn under cap");
+        let host2 =
+            PluginHost::spawn_with_options(&plugin, &[env_out.to_str().unwrap()], PluginSpawnOptions::default())
+                .await
+                .expect("second spawn under cap");
+        assert_eq!(live.load(std::sync::atomic::Ordering::SeqCst), 2);
+
+        // Third spawn must fail with our ProcessSlotError surfacing through anyhow.
+        let denied =
+            PluginHost::spawn_with_options(&plugin, &[env_out.to_str().unwrap()], PluginSpawnOptions::default()).await;
+        let err = match denied {
+            Ok(_) => panic!("third spawn must be refused at cap"),
+            Err(err) => err,
+        };
+        let msg = format!("{err}");
+        assert!(msg.contains("test cap reached"), "expected refusal to surface ProcessSlotError, got: {msg}");
+
+        // Drop one slot via shutdown; a fresh spawn must succeed.
+        host1.shutdown().await.ok();
+        // Shutdown releases the slot eagerly — but the dropped child's stderr
+        // task may still hold an Arc briefly. Give it a tick.
+        tokio::task::yield_now().await;
+
+        let host3 =
+            PluginHost::spawn_with_options(&plugin, &[env_out.to_str().unwrap()], PluginSpawnOptions::default())
+                .await
+                .expect("spawn should succeed after slot freed");
+
+        host2.shutdown().await.ok();
+        host3.shutdown().await.ok();
+        clear_process_slot_factory_for_test();
     }
 
     #[test]

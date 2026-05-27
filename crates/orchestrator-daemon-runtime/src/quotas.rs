@@ -163,6 +163,45 @@ pub fn reset_plugin_process_count_for_tests() {
     LIVE_PLUGIN_PROCESSES.store(0, Ordering::SeqCst);
 }
 
+/// Boxed `ProcessSlotGuard` implementation that wraps a
+/// [`PluginProcessSlot`] so the plugin-host crate can hold the RAII slot
+/// without depending on `orchestrator-daemon-runtime`.
+#[derive(Debug)]
+struct RuntimeQuotaSlotGuard {
+    _inner: PluginProcessSlot,
+}
+
+impl orchestrator_plugin_host::ProcessSlotGuard for RuntimeQuotaSlotGuard {}
+
+/// `ProcessSlotFactory` implementation backed by the runtime-quota module.
+/// Installed by the daemon startup path so the plugin host's spawn site
+/// enforces the configured `RuntimeQuotas::plugin_process_max` cap.
+#[derive(Debug, Default)]
+pub struct RuntimeQuotaSlotFactory;
+
+impl orchestrator_plugin_host::ProcessSlotFactory for RuntimeQuotaSlotFactory {
+    fn acquire(
+        &self,
+    ) -> Result<orchestrator_plugin_host::BoxedProcessSlotGuard, orchestrator_plugin_host::ProcessSlotError> {
+        match acquire_plugin_process_slot() {
+            Ok(slot) => Ok(Box::new(RuntimeQuotaSlotGuard { _inner: slot })),
+            Err(err) => Err(orchestrator_plugin_host::ProcessSlotError {
+                current: err.current,
+                cap: err.cap,
+                message: err.to_string(),
+            }),
+        }
+    }
+}
+
+/// Install the runtime-quota-backed `ProcessSlotFactory` into the plugin
+/// host. First-installer-wins (the plugin host's installer ignores
+/// subsequent calls), so the daemon startup path can call this
+/// unconditionally and tests that pre-install a stub still keep theirs.
+pub fn install_runtime_quota_process_slot_factory() -> bool {
+    orchestrator_plugin_host::install_process_slot_factory(std::sync::Arc::new(RuntimeQuotaSlotFactory))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PluginProcessSlotError {
     pub current: usize,
@@ -269,6 +308,37 @@ mod tests {
         drop(recovered);
         held.clear();
         assert_eq!(live_plugin_process_count(), 0, "all slots should be released after drop");
+    }
+
+    #[test]
+    fn runtime_quota_factory_refuses_when_cap_reached() {
+        use orchestrator_plugin_host::ProcessSlotFactory as _;
+
+        let _lock = env_lock().lock().unwrap_or_else(|p| p.into_inner());
+        reset_plugin_process_count_for_tests();
+
+        let factory = RuntimeQuotaSlotFactory;
+        let cap = runtime_quotas().plugin_process_max;
+
+        let mut held = Vec::with_capacity(cap);
+        for _ in 0..cap {
+            held.push(factory.acquire().expect("factory should grant slot under cap"));
+        }
+        assert_eq!(live_plugin_process_count(), cap);
+
+        let denied = factory.acquire();
+        assert!(denied.is_err(), "factory must refuse at cap");
+        let err = denied.unwrap_err();
+        assert_eq!(err.cap, cap);
+        assert_eq!(err.current, cap);
+
+        // Drop one boxed guard; counter releases via the inner
+        // `PluginProcessSlot::drop` => fresh acquire succeeds.
+        held.pop();
+        let recovered = factory.acquire().expect("released slot should be reusable");
+        drop(recovered);
+        held.clear();
+        assert_eq!(live_plugin_process_count(), 0);
     }
 
     #[test]

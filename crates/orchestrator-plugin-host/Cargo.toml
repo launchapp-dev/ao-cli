@@ -3,6 +3,15 @@ name = "orchestrator-plugin-host"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+# Exposes the test-only `install_process_slot_factory_for_test` /
+# `clear_process_slot_factory_for_test` helpers to downstream crates
+# (e.g. orchestrator-daemon-runtime) so they can swap the installed
+# `ProcessSlotFactory` in their own tests without depending on the
+# `#[cfg(test)]`-gated symbols.
+test-support = []
+
 [dependencies]
 anyhow = "1.0"
 animus-plugin-protocol = { workspace = true }

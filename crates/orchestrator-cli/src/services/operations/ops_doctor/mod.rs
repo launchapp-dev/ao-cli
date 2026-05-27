@@ -67,7 +67,7 @@ pub(crate) async fn handle_doctor(project_root: &str, args: DoctorArgs, json: bo
     let project_root_path = PathBuf::from(project_root);
     let ctx = CheckContext { project_root: project_root_path.clone(), skip_subprocess: args.skip_subprocess };
 
-    let mut checks = run_all_checks(&ctx);
+    let mut checks = run_all_checks(&ctx).await;
     if !args.filter.is_empty() {
         let needles: Vec<String> = args.filter.iter().map(|s| s.to_ascii_lowercase()).collect();
         checks.retain(|c| {
@@ -87,7 +87,7 @@ pub(crate) async fn handle_doctor(project_root: &str, args: DoctorArgs, json: bo
         fix_section.applied = outcomes.iter().any(|o| o.status == "applied");
         fix_section.actions = outcomes;
         // Re-run after applying fixes so the surfaced state is fresh.
-        checks = run_all_checks(&ctx);
+        checks = run_all_checks(&ctx).await;
         if !args.filter.is_empty() {
             let needles: Vec<String> = args.filter.iter().map(|s| s.to_ascii_lowercase()).collect();
             checks.retain(|c| {
@@ -119,10 +119,10 @@ pub(crate) async fn handle_doctor(project_root: &str, args: DoctorArgs, json: bo
     Ok(())
 }
 
-fn run_all_checks(ctx: &CheckContext) -> Vec<DiagnosticCheck> {
+async fn run_all_checks(ctx: &CheckContext) -> Vec<DiagnosticCheck> {
     let mut out = Vec::new();
     out.extend(checks_plugins::run(ctx));
-    out.extend(checks_daemon::run(ctx));
+    out.extend(checks_daemon::run(ctx).await);
     out.extend(checks_cli_tools::run(ctx));
     out.extend(checks_api_keys::run(ctx));
     out.extend(checks_cosign::run(ctx));
@@ -365,13 +365,13 @@ mod tests {
         crate::shared::test_env_lock().lock().unwrap_or_else(|p| p.into_inner())
     }
 
-    #[test]
-    fn run_all_checks_includes_all_categories_in_empty_project() {
+    #[tokio::test]
+    async fn run_all_checks_includes_all_categories_in_empty_project() {
         let temp = tempfile::tempdir().expect("tempdir");
         let _lock = lock();
         let _home = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
         let ctx = CheckContext { project_root: temp.path().to_path_buf(), skip_subprocess: true };
-        let checks = run_all_checks(&ctx);
+        let checks = run_all_checks(&ctx).await;
         let categories: std::collections::BTreeSet<&str> = checks.iter().map(|c| c.category).collect();
         for expected in &["plugins", "daemon", "cli_tools", "cosign", "filesystem", "disk", "recent_crashes"] {
             assert!(categories.contains(expected), "missing category: {expected}");
@@ -424,13 +424,13 @@ mod tests {
         handle_doctor(temp.path().to_string_lossy().as_ref(), args, true).await.expect("filter run ok");
     }
 
-    #[test]
-    fn doctor_fix_creates_default_daemon_config_when_missing() {
+    #[tokio::test]
+    async fn doctor_fix_creates_default_daemon_config_when_missing() {
         let temp = tempfile::tempdir().expect("tempdir should be created");
         let _lock = lock();
         let _home = EnvVarGuard::set("HOME", Some(temp.path().to_string_lossy().as_ref()));
         let ctx = CheckContext { project_root: temp.path().to_path_buf(), skip_subprocess: true };
-        let checks = run_all_checks(&ctx);
+        let checks = run_all_checks(&ctx).await;
         let actions = apply_safe_fixes(&ctx, &checks);
         assert!(actions.iter().any(|action| action.id == "create_default_daemon_config" && action.status == "applied"));
         assert!(orchestrator_core::daemon_project_config_path(temp.path()).exists());

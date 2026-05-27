@@ -36,9 +36,9 @@ wt-build = "build --manifest-path"
 wt-test = "test --manifest-path"
 
 # Runtime binary set used by animus in local dev and release packaging
-animus-bin-build = "build -p orchestrator-cli -p agent-runner -p llm-cli-wrapper -p oai-runner -p workflow-runner-v2"
-animus-bin-build-release = "build --release -p orchestrator-cli -p agent-runner -p llm-cli-wrapper -p oai-runner -p workflow-runner-v2"
-animus-bin-check = "check -p orchestrator-cli -p agent-runner -p llm-cli-wrapper -p oai-runner -p workflow-runner-v2"
+animus-bin-build = "build -p orchestrator-cli -p agent-runner -p oai-runner -p workflow-runner-v2"
+animus-bin-build-release = "build --release -p orchestrator-cli -p agent-runner -p oai-runner -p workflow-runner-v2"
+animus-bin-check = "check -p orchestrator-cli -p agent-runner -p oai-runner -p workflow-runner-v2"
 
 # Linting
 animus-lint = "clippy --workspace --all-targets"

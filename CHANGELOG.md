@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.14] - 2026-05-27
+
+Audit remediation release. External audit + parallel review across v0.3.2 →
+v0.4.13 surfaced 30+ findings (security, durability, JSON contract,
+control-protocol parity, release pipeline). This release lands ~20 of them
+across 14 merge commits + adds the TypeScript plugin SDK skeleton and the
+first non-coding reference pack (customer support).
+
+### Added
+
+- **`feat(sdk-ts)`: TypeScript plugin SDK skeleton** at `sdk/typescript/animus-plugin-sdk/`.
+  Wire (NDJSON-RPC over stdio), handshake, `definePlugin({ kind, impl, ... })` entrypoint.
+  subject_backend role fully wired (list/get/create/update/status/next); provider,
+  trigger_backend, transport_backend, log_storage_backend roles export type-only
+  interfaces and throw on dispatch (to prevent host routing to unwired plugins).
+  28 vitest tests.
+- **`feat(sdk-ts)`: TypeScript types codegen from JSON Schemas.** New `scripts/codegen.mjs`
+  generates `src/types/{plugin,subject}-protocol.ts` (32 types total) from
+  `schemas/animus-{plugin,subject}-protocol/_all.json` via `json-schema-to-typescript`.
+  `pnpm run codegen:check` enforces no-drift. Enums render as
+  `"known" | (string & {})` to preserve autocomplete + accept arbitrary
+  strings for the Rust `Other(String)` forward-compat case.
+- **`feat(examples)`: hello-world TS plugin** at `examples/plugin-hello-ts/`.
+  ~60-line `src/index.ts`, complete README install workflow, bash launcher,
+  local-install script. The reference for what "plugin authoring in TypeScript"
+  looks like end-to-end.
+- **`feat(packs)`: first-party customer-support reference pack** at
+  `packs/customer-support/`. 4-phase workflow (classify → draft_response →
+  summarize_for_human → flag_for_review), 5 realistic sample tickets, full
+  README + architecture + customizing docs, idempotent setup script.
+  Proves the workflow-engine framing for a non-coding vertical and serves
+  as the agency starter fork for support automation.
+
 ### Fixed
 
 - **`fix(cli)`: emit JSON envelope for clap argparse failures when `--json` is set.** `Cli::parse()` exits the process directly on bad argv, bypassing every downstream `emit_cli_error` call. `main` now pre-scans argv for `--json`, switches to `Cli::try_parse()`, and on parse error emits an `animus.cli.v1` invalid_input envelope with `error.details.stage = "parse"` plus the raw clap text under `details.raw`. Non-JSON callers keep clap's pretty-printed help text unchanged. Exit code stays 2. (audit Fix 3)

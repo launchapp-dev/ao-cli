@@ -1011,7 +1011,12 @@ async fn handle_plugin_list(args: PluginListArgs, project_root: &str, json: bool
     use animus_control_protocol::types::PluginListRequest as WirePluginListRequest;
     use orchestrator_daemon_runtime::control::ControlClient;
 
-    if json {
+    // Skip the wire route when `--include-system-path` is set: the
+    // control protocol's PluginListRequest has no slot for that flag
+    // (the daemon hardcodes false in routing.rs), so honoring the flag
+    // requires the local discovery path. Without this guard the daemon
+    // wire would silently drop the user-supplied flag.
+    if json && !args.include_system_path {
         let project_root_path = std::path::Path::new(project_root);
         if let Some(client) = ControlClient::try_connect(project_root_path).await? {
             let request = WirePluginListRequest { include_warnings: true, kind: None };
@@ -1134,7 +1139,9 @@ async fn handle_plugin_info(args: PluginInfoArgs, project_root: &str, json: bool
     use animus_control_protocol::types::PluginInfoRequest as WirePluginInfoRequest;
     use orchestrator_daemon_runtime::control::ControlClient;
 
-    if json {
+    // Skip the wire route when `--include-system-path` is set; see
+    // `handle_plugin_list` for the rationale.
+    if json && !args.include_system_path {
         let project_root_path = std::path::Path::new(project_root);
         if let Some(client) = ControlClient::try_connect(project_root_path).await? {
             let request = WirePluginInfoRequest { name: args.name.clone() };
@@ -1172,7 +1179,9 @@ async fn handle_plugin_call(args: PluginCallArgs, project_root: &str, json: bool
         None => None,
     };
 
-    if json {
+    // Skip the wire route when `--include-system-path` is set; see
+    // `handle_plugin_list` for the rationale.
+    if json && !args.include_system_path {
         let project_root_path = std::path::Path::new(project_root);
         if let Some(client) = ControlClient::try_connect(project_root_path).await? {
             let request = WirePluginCallRequest {
@@ -1205,7 +1214,9 @@ async fn handle_plugin_ping(args: PluginPingArgs, project_root: &str, json: bool
     use animus_control_protocol::types::PluginPingRequest as WirePluginPingRequest;
     use orchestrator_daemon_runtime::control::ControlClient;
 
-    if json {
+    // Skip the wire route when `--include-system-path` is set; see
+    // `handle_plugin_list` for the rationale.
+    if json && !args.include_system_path {
         let project_root_path = std::path::Path::new(project_root);
         if let Some(client) = ControlClient::try_connect(project_root_path).await? {
             let request = WirePluginPingRequest { name: args.name.clone() };

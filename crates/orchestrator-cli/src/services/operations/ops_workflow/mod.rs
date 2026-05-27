@@ -374,10 +374,20 @@ pub(crate) async fn handle_workflow(
                 // title / freeform paths and any --input-json path stay
                 // local — the wire surface only covers `workflow/run`
                 // for task subjects today.
+                // Parse --var KEY=VALUE pairs up front so both the
+                // control-wire path and the local path receive the same
+                // validated map. Otherwise the wire path would silently
+                // drop user-supplied vars when the daemon is running.
+                let parsed_vars = if args.input_json.is_none() {
+                    parse_workflow_vars(&args.vars)?
+                } else {
+                    std::collections::HashMap::new()
+                };
                 if json && args.input_json.is_none() && args.requirement_id.is_none() && args.title.is_none() {
                     if let Some(task_id) = args.task_id.as_ref() {
                         if let Some(start) =
-                            try_workflow_run_via_control(project_root, task_id, workflow_ref.clone()).await?
+                            try_workflow_run_via_control(project_root, task_id, workflow_ref.clone(), &parsed_vars)
+                                .await?
                         {
                             return print_value(start, true);
                         }
@@ -386,7 +396,6 @@ pub(crate) async fn handle_workflow(
                 let dispatch = match args.input_json {
                     Some(raw) => resolve_workflow_run_dispatch_from_raw_input(hub.clone(), project_root, &raw).await?,
                     None => {
-                        let vars = parse_workflow_vars(&args.vars)?;
                         resolve_workflow_run_dispatch(
                             hub.clone(),
                             project_root,
@@ -395,7 +404,7 @@ pub(crate) async fn handle_workflow(
                             args.title,
                             args.description,
                             workflow_ref,
-                            vars,
+                            parsed_vars,
                         )
                         .await?
                     }
@@ -663,6 +672,7 @@ async fn try_workflow_run_via_control(
     project_root: &str,
     task_id: &str,
     definition: Option<String>,
+    vars: &std::collections::HashMap<String, String>,
 ) -> Result<Option<animus_control_protocol::types::WorkflowRunStart>> {
     use animus_control_protocol::types::WorkflowRunRequest as WireRequest;
     use orchestrator_daemon_runtime::control::{is_method_unavailable, ControlClient};
@@ -671,7 +681,17 @@ async fn try_workflow_run_via_control(
     let Some(client) = ControlClient::try_connect(project_root_path).await? else {
         return Ok(None);
     };
-    let request = WireRequest { task_id: task_id.to_string(), definition, params: Default::default() };
+    // Plumb --var KEY=VALUE pairs through the control wire via the
+    // `params` map under the well-known `vars` key so they reach
+    // `WorkflowRunInput::with_vars` on the daemon side. See the
+    // matching extraction in `ops_workflow::control_routing::workflow_run`.
+    let mut params: std::collections::BTreeMap<String, serde_json::Value> = std::collections::BTreeMap::new();
+    if !vars.is_empty() {
+        let vars_obj: serde_json::Map<String, serde_json::Value> =
+            vars.iter().map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone()))).collect();
+        params.insert("vars".to_string(), serde_json::Value::Object(vars_obj));
+    }
+    let request = WireRequest { task_id: task_id.to_string(), definition, params };
     match client.workflow_run(request).await {
         Ok(response) => Ok(Some(response)),
         Err(err) if is_method_unavailable(&err) => {

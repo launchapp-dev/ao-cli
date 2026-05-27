@@ -1,0 +1,26 @@
+{
+  "name": "@launchapp-dev/example-plugin-hello-ts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "End-to-end hello-world example for the Animus TypeScript Plugin SDK. Implements a tiny subject_backend plugin that returns three hard-coded subjects.",
+  "license": "Elastic-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --target node20 --out-dir dist --clean --no-splitting --minify",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/index.js",
+    "install:local": "bash ./scripts/install-local.sh",
+    "manifest": "node dist/index.js --manifest"
+  },
+  "dependencies": {
+    "@launchapp-dev/animus-plugin-sdk": "file:../../sdk/typescript/animus-plugin-sdk"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0",
+    "@types/node": "^20.14.0"
+  }
+}

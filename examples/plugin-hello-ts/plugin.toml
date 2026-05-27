@@ -1,0 +1,28 @@
+# Static plugin metadata.
+#
+# Animus's primary discovery surface is the executable's `--manifest` JSON
+# output (printed by `src/index.ts` via the SDK). This `plugin.toml` mirrors
+# that data for tooling that wants to parse it statically (e.g. CI lint,
+# `animus plugin info` against an uninstalled tree, or the
+# `animus.plugins` registry yaml).
+#
+# Keep this in sync with `definePlugin({ ... })` in `src/index.ts`. The SDK's
+# `--manifest` output is the source of truth at runtime.
+
+name        = "animus-plugin-hello-ts"
+version     = "0.1.0"
+plugin_kind = "subject_backend"
+description = "Hello-world TypeScript subject backend (returns 3 demo subjects)"
+binary      = "animus-plugin-hello-ts"
+protocol    = "stdio"
+
+# The plugin host clears the daemon's environment before spawn and only
+# forwards a minimal shell allowlist (PATH, HOME, TMPDIR, LANG, LC_ALL,
+# RUST_LOG, RUST_BACKTRACE, TZ) plus anything declared here. This example
+# needs no secrets; a real plugin would list its API tokens.
+env_required = []
+
+# Subject backends advertise the `kind` values they can produce. The
+# daemon routes `animus subject list --kind <kind>` calls to the backend
+# whose `subject_kinds` matches.
+subject_kinds = ["hello_world_demo"]

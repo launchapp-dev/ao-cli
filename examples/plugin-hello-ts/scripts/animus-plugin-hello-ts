@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Launcher shim for the TypeScript hello-world plugin.
+#
+# Animus discovers plugins by scanning $ANIMUS_PLUGIN_DIR (default
+# `~/.animus/plugins/`) for executables whose name starts with
+# `animus-plugin-` or `animus-provider-`. The daemon spawns the discovered
+# file as a child process and speaks newline-delimited JSON-RPC 2.0
+# over stdin/stdout. For a Node plugin the executable is this script,
+# which simply execs `node <bundled-js>`.
+#
+# Install layout produced by `pnpm run install:local` (see README):
+#
+#   ~/.animus/plugins/animus-plugin-hello-ts        (this launcher)
+#   ~/.animus/plugins/animus-plugin-hello-ts.d/     (sibling dir)
+#     └── index.js                                  (bundled JS)
+#
+# We resolve the bundle relative to this script so the install is
+# relocatable. If you move the launcher, move the `.d` sibling too.
+
+set -euo pipefail
+
+self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+self_name="$(basename "${BASH_SOURCE[0]}")"
+bundle="${self_dir}/${self_name}.d/index.js"
+
+if [[ ! -f "${bundle}" ]]; then
+  echo "animus-plugin-hello-ts: bundle not found at ${bundle}" >&2
+  echo "Run \`pnpm run build\` in the source dir and re-install per the README." >&2
+  exit 127
+fi
+
+exec node "${bundle}" "$@"

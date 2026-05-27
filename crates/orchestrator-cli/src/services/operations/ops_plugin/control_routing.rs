@@ -151,6 +151,10 @@ impl PluginRouting for PluginRoutingImpl {
             allow_org: Vec::new(),
             yes: request.yes,
             project_root: Some(self.project_root_str()),
+            // Control-plane installs (MCP / WebAPI parity surface) default to
+            // fail-closed when the project lockfile is corrupt. Operators
+            // must inspect via CLI and re-run with `--force-rewrite-lockfile`.
+            force_rewrite_lockfile: false,
         };
         let output = run_plugin_install(install_req).await.map_err(internal)?;
         let plugin_kind = output.manifest.as_ref().map(|m| m.plugin_kind.clone()).unwrap_or_default();

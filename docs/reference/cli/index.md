@@ -337,6 +337,7 @@ animus plugin install --url https://example.com/plugin --sha256 a1b2c3d4...
 | `--allow-shadow-builtin` | Permit installing a provider plugin whose `provider_tool` collides with an in-tree backend (`claude` / `codex` / `gemini` / `opencode` / `oai-runner`). Without this flag the install pipeline refuses such plugins because they silently hijack all dispatch for the matching tool |
 | `--allow-org <OWNER>` | Mark an additional GitHub owner as trusted (repeatable). Skips the trust-on-first-use prompt for that owner and writes the entry to `~/.animus/trusted-orgs.yaml` after the install succeeds |
 | `--yes` | Auto-confirm the trust-on-first-use prompt for unknown orgs |
+| `--force-rewrite-lockfile` | Discard an unparseable / schema-incompatible `.animus/plugins.lock` (or `~/.animus/plugins.lock`) and rebuild a fresh lockfile starting from this install. Without this flag, an unreadable lockfile fails the install **closed** with an actionable error pointing at the corrupt path. **Security warning**: rewriting drops the recorded sha256 integrity history, so subsequent `--force` installs cannot detect pre-existing tamper. See [Security › Lockfile fail-closed policy](../security.md#lockfile-fail-closed-policy) |
 
 #### Signature verification (v0.4.x+)
 
@@ -383,6 +384,7 @@ animus plugin install-defaults --include-subjects
 | `--include-subjects` | Also install the default subject_backend plugins (`subject-default` v0.1.2, `subject-requirements` v0.1.6, `subject-linear` v0.1.4, `subject-sqlite` v0.1.4, `subject-markdown` v0.1.4) |
 | `--include-transports` | Also install transport + UI plugins (`transport-http` v0.2.1, `transport-graphql` v0.2.3, `web-ui` v0.1.1) |
 | `--json` | Emit per-plugin results + summary as JSON |
+| `--force-rewrite-lockfile` | Discard an unparseable / schema-incompatible `plugins.lock` and rebuild a fresh lockfile for the batch. Without this flag the batch fails closed up front, *before* the per-target skip loop runs, so an all-skipped run cannot mask a corrupt lockfile. Same security caveat as `animus plugin install --force-rewrite-lockfile` |
 
 The command pins each install to a specific release tag (currently `v0.2.2` for
 `claude`/`oai` providers, `v0.2.3` for `codex`/`gemini`/`opencode` providers,

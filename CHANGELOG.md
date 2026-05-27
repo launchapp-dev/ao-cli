@@ -209,6 +209,28 @@ All notable changes to this project will be documented in this file.
   from the daemon environment we emit a `daemon_health.probe` warn so the
   operator can correlate the unhealthy row with the missing secret. (3 new
   unit tests covering the present / missing / no-env-declared shapes.)
+### Security
+
+- **Log redaction now scrubs secret-keyed JSON metadata, not just
+  regex-matched values.** Previously, `redact_json_value` recursed into
+  `meta` objects and only ran the content regex against string *values*,
+  so a payload like `meta({"api_key":"sk_live_..."})` persisted the raw
+  secret to `events.jsonl` because the bare value did not match any
+  `key=value` content pattern. The recursion now also checks each JSON
+  object key against a default secret-key set (`api_key`, `apikey`,
+  `token`, `access_token`, `refresh_token`, `id_token`, `secret`,
+  `client_secret`, `password`, `passwd`, `pwd`, `authorization`,
+  `bearer`, `private_key`, `signing_key`, `x-api-key`). Matching is
+  case-insensitive and treats `_` and `-` as equivalent, and the list
+  also includes no-separator variants (`privatekey`, `signingkey`,
+  `accesstoken`, etc.) so camelCase keys such as `privateKey`,
+  `signingKey`, `accessToken` are redacted as well as snake_case and
+  kebab-case forms (`X-API-Key`, `access-token`, `Authorization`). The
+  value-content regex path is unchanged and still fires for plain
+  strings such as `"description":"my api_key=sk_live_abc was leaked"`.
+  Override the secret-key list with the new `ANIMUS_LOG_REDACT_KEYS`
+  environment variable (comma-separated; replaces defaults). Documented
+  in `docs/reference/observability.md`. (P2 from external audit.)
 
 ## [0.4.13] - 2026-05-27
 

@@ -343,6 +343,16 @@ fn protocol_public_surface_does_not_drift_against_standalone() {
         "PluginManifest.env_required",
         "PluginManifest.notification_buffer_size",
         "PluginCapabilities.projections",
+        // r-protocol/r1-type-audit (2026-05): typed enum mirrors for previously
+        // stringly-typed fields. The wire shape is unchanged — these enums use
+        // serde `from = "String", into = "String"` so older plugins / hosts
+        // round-trip identically. Slated for inclusion in the next standalone
+        // tag together with the matching `kind()` accessor on `PluginManifest`
+        // / `PluginInfo` and the typed `TriggerEvent.action_hint` +
+        // `TriggerAckParams.status` fields.
+        "PluginKind",
+        "TriggerActionHint",
+        "TriggerAckStatus",
     ];
 
     let unexpected_findings: Vec<&DriftFinding> =

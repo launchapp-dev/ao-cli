@@ -100,6 +100,105 @@ pub const LOG_STORAGE_METHOD_TAIL: &str = "log_storage/tail";
 /// the `animus.plugin.call` MCP tool.
 pub const PLUGIN_KIND_CUSTOM: &str = "custom";
 
+/// Strongly typed enumeration of plugin roles.
+///
+/// The set of well-known kinds is captured here so callers can pattern-match
+/// instead of comparing magic strings. New plugin roles can be added by the
+/// host without breaking older binaries: an unknown wire value parses as
+/// [`PluginKind::Other`], and round-trips byte-for-byte through serde.
+///
+/// The string forms match the `PLUGIN_KIND_*` constants in this module; the
+/// constants remain available for code that needs the literal wire form.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(from = "String", into = "String")]
+#[non_exhaustive]
+pub enum PluginKind {
+    /// LLM provider plugin. See [`PLUGIN_KIND_PROVIDER`].
+    Provider,
+    /// Subject backend plugin. See [`PLUGIN_KIND_SUBJECT_BACKEND`].
+    SubjectBackend,
+    /// Legacy task backend alias. See [`PLUGIN_KIND_TASK_BACKEND`].
+    TaskBackend,
+    /// Trigger backend plugin. See [`PLUGIN_KIND_TRIGGER_BACKEND`].
+    TriggerBackend,
+    /// Log storage backend plugin. See [`PLUGIN_KIND_LOG_STORAGE_BACKEND`].
+    LogStorageBackend,
+    /// Generic custom plugin. See [`PLUGIN_KIND_CUSTOM`].
+    Custom,
+    /// Any kind not understood by this crate version. Preserves the wire
+    /// string so unknown roles round-trip and so hosts that recognize the
+    /// role can still dispatch on the string.
+    Other(String),
+}
+
+impl PluginKind {
+    /// Return the canonical wire-string form of this kind.
+    pub fn as_str(&self) -> &str {
+        match self {
+            PluginKind::Provider => PLUGIN_KIND_PROVIDER,
+            PluginKind::SubjectBackend => PLUGIN_KIND_SUBJECT_BACKEND,
+            PluginKind::TaskBackend => PLUGIN_KIND_TASK_BACKEND,
+            PluginKind::TriggerBackend => PLUGIN_KIND_TRIGGER_BACKEND,
+            PluginKind::LogStorageBackend => PLUGIN_KIND_LOG_STORAGE_BACKEND,
+            PluginKind::Custom => PLUGIN_KIND_CUSTOM,
+            PluginKind::Other(value) => value.as_str(),
+        }
+    }
+
+    /// `true` for variants this crate version recognizes natively.
+    ///
+    /// Returns `false` only for [`PluginKind::Other`]. Callers can use this
+    /// to log a warning when the host is talking to a plugin that uses a
+    /// kind the host doesn't model.
+    pub fn is_known(&self) -> bool {
+        !matches!(self, PluginKind::Other(_))
+    }
+}
+
+impl std::fmt::Display for PluginKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl From<String> for PluginKind {
+    fn from(value: String) -> Self {
+        match value.as_str() {
+            PLUGIN_KIND_PROVIDER => PluginKind::Provider,
+            PLUGIN_KIND_SUBJECT_BACKEND => PluginKind::SubjectBackend,
+            PLUGIN_KIND_TASK_BACKEND => PluginKind::TaskBackend,
+            PLUGIN_KIND_TRIGGER_BACKEND => PluginKind::TriggerBackend,
+            PLUGIN_KIND_LOG_STORAGE_BACKEND => PluginKind::LogStorageBackend,
+            PLUGIN_KIND_CUSTOM => PluginKind::Custom,
+            _ => PluginKind::Other(value),
+        }
+    }
+}
+
+impl From<&str> for PluginKind {
+    fn from(value: &str) -> Self {
+        PluginKind::from(value.to_string())
+    }
+}
+
+impl From<PluginKind> for String {
+    fn from(kind: PluginKind) -> Self {
+        kind.as_str().to_string()
+    }
+}
+
+impl PartialEq<str> for PluginKind {
+    fn eq(&self, other: &str) -> bool {
+        self.as_str() == other
+    }
+}
+
+impl PartialEq<&str> for PluginKind {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str() == *other
+    }
+}
+
 /// Method name for the trigger-backend `trigger/watch` request.
 pub const TRIGGER_METHOD_WATCH: &str = "trigger/watch";
 
@@ -261,11 +360,23 @@ pub struct PluginInfo {
     pub name: String,
     /// Plugin's semver.
     pub version: String,
-    /// One of the `PLUGIN_KIND_*` constants.
+    /// One of the `PLUGIN_KIND_*` constants. Prefer
+    /// [`PluginInfo::plugin_kind`] to read this as a typed [`PluginKind`].
     pub plugin_kind: String,
     /// Human-readable description.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+}
+
+impl PluginInfo {
+    /// Typed view of [`PluginInfo::plugin_kind`].
+    ///
+    /// Unknown wire values land in [`PluginKind::Other`] so unrecognized
+    /// roles round-trip without loss. Prefer this over comparing the raw
+    /// string to the `PLUGIN_KIND_*` constants.
+    pub fn kind(&self) -> PluginKind {
+        PluginKind::from(self.plugin_kind.as_str())
+    }
 }
 
 /// Capabilities the host advertises during the handshake.
@@ -379,7 +490,8 @@ pub struct PluginManifest {
     pub name: String,
     /// Plugin semver.
     pub version: String,
-    /// One of the `PLUGIN_KIND_*` constants.
+    /// One of the `PLUGIN_KIND_*` constants. Prefer
+    /// [`PluginManifest::kind`] to read this as a typed [`PluginKind`].
     pub plugin_kind: String,
     /// Human-readable description.
     pub description: String,
@@ -422,6 +534,17 @@ pub struct PluginManifest {
     /// up the new hint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notification_buffer_size: Option<usize>,
+}
+
+impl PluginManifest {
+    /// Typed view of [`PluginManifest::plugin_kind`].
+    ///
+    /// Unknown wire values land in [`PluginKind::Other`] so unrecognized
+    /// roles round-trip without loss. Prefer this over comparing the raw
+    /// string to the `PLUGIN_KIND_*` constants.
+    pub fn kind(&self) -> PluginKind {
+        PluginKind::from(self.plugin_kind.as_str())
+    }
 }
 
 /// One environment variable a plugin asks the host to forward at spawn time.
@@ -511,8 +634,8 @@ pub struct TriggerWatchParams {
 ///
 /// - `subject_id` is set → the host resolves the subject (via the configured
 ///   subject backend) and may kick the subject's assigned workflow.
-/// - `action_hint` is `Some("create_task")` → the host creates a new task
-///   with `payload` as input context.
+/// - `action_hint` is `Some(TriggerActionHint::CreateTask)` → the host creates
+///   a new task with `payload` as input context.
 /// - Otherwise the host enqueues the event against the trigger's
 ///   `workflow_ref` (if configured) using the existing webhook dispatch path.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -533,14 +656,77 @@ pub struct TriggerEvent {
     /// Optional subject kind for `subject_id` (e.g. `"issue"`, `"task"`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subject_kind: Option<String>,
-    /// Optional hint for what the host should do (`"create_task"`,
-    /// `"run_workflow"`, ...). Plugins may omit this and let the host fall
-    /// back to the trigger config's `workflow_ref`.
+    /// Optional hint for what the host should do. Plugins may omit this and
+    /// let the host fall back to the trigger config's `workflow_ref`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub action_hint: Option<String>,
+    pub action_hint: Option<TriggerActionHint>,
     /// Event payload. Forwarded to the spawned workflow as input.
     #[serde(default)]
     pub payload: Value,
+}
+
+/// Suggestion from a trigger backend plugin for what the host should do with
+/// an incoming event.
+///
+/// The host is free to ignore the hint when its trigger configuration has a
+/// more specific instruction (e.g. an explicit `workflow_ref`). Unknown wire
+/// values land in [`TriggerActionHint::Other`] so older hosts can still
+/// forward events from newer plugins without crashing.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(from = "String", into = "String")]
+#[non_exhaustive]
+pub enum TriggerActionHint {
+    /// Create a new task with the event payload as initial context.
+    CreateTask,
+    /// Dispatch the trigger's configured workflow against the event payload.
+    RunWorkflow,
+    /// Any hint not understood by this crate version. Preserves the wire
+    /// string for forwarding.
+    Other(String),
+}
+
+impl TriggerActionHint {
+    /// Canonical wire-string form of this hint.
+    pub fn as_str(&self) -> &str {
+        match self {
+            TriggerActionHint::CreateTask => "create_task",
+            TriggerActionHint::RunWorkflow => "run_workflow",
+            TriggerActionHint::Other(value) => value.as_str(),
+        }
+    }
+
+    /// `true` for variants this crate version recognizes natively.
+    pub fn is_known(&self) -> bool {
+        !matches!(self, TriggerActionHint::Other(_))
+    }
+}
+
+impl std::fmt::Display for TriggerActionHint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl From<String> for TriggerActionHint {
+    fn from(value: String) -> Self {
+        match value.as_str() {
+            "create_task" => TriggerActionHint::CreateTask,
+            "run_workflow" => TriggerActionHint::RunWorkflow,
+            _ => TriggerActionHint::Other(value),
+        }
+    }
+}
+
+impl From<&str> for TriggerActionHint {
+    fn from(value: &str) -> Self {
+        TriggerActionHint::from(value.to_string())
+    }
+}
+
+impl From<TriggerActionHint> for String {
+    fn from(hint: TriggerActionHint) -> Self {
+        hint.as_str().to_string()
+    }
 }
 
 /// Parameters sent from host to plugin in the `trigger/ack` notification.
@@ -551,10 +737,88 @@ pub struct TriggerEvent {
 pub struct TriggerAckParams {
     /// The `event_id` being acknowledged.
     pub event_id: String,
-    /// Optional status the host wants to report (`"dispatched"`,
-    /// `"skipped"`, `"failed"`).
+    /// Optional status the host wants to report. See [`TriggerAckStatus`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub status: Option<String>,
+    pub status: Option<TriggerAckStatus>,
+}
+
+/// Host-reported disposition of a single `trigger/event`.
+///
+/// Plugins may key on the status to update local state (e.g. trim a queue,
+/// advance a cursor only on `Dispatched`). Unknown wire values land in
+/// [`TriggerAckStatus::Other`] so newer hosts can introduce additional
+/// statuses without breaking older plugins.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(from = "String", into = "String")]
+#[non_exhaustive]
+pub enum TriggerAckStatus {
+    /// Host accepted the event and started the configured workflow.
+    Dispatched,
+    /// Host queued the event for later dispatch.
+    Queued,
+    /// Host did not find a matching trigger configuration for the event.
+    Unmatched,
+    /// Host intentionally skipped the event (e.g. dedupe or filter rule).
+    Skipped,
+    /// Host attempted to dispatch the event but the dispatch itself failed.
+    Failed,
+    /// Host is shutting down and is acknowledging the event without
+    /// dispatching it.
+    Shutdown,
+    /// Any status not understood by this crate version.
+    Other(String),
+}
+
+impl TriggerAckStatus {
+    /// Canonical wire-string form of this status.
+    pub fn as_str(&self) -> &str {
+        match self {
+            TriggerAckStatus::Dispatched => "dispatched",
+            TriggerAckStatus::Queued => "queued",
+            TriggerAckStatus::Unmatched => "unmatched",
+            TriggerAckStatus::Skipped => "skipped",
+            TriggerAckStatus::Failed => "failed",
+            TriggerAckStatus::Shutdown => "shutdown",
+            TriggerAckStatus::Other(value) => value.as_str(),
+        }
+    }
+
+    /// `true` for variants this crate version recognizes natively.
+    pub fn is_known(&self) -> bool {
+        !matches!(self, TriggerAckStatus::Other(_))
+    }
+}
+
+impl std::fmt::Display for TriggerAckStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl From<String> for TriggerAckStatus {
+    fn from(value: String) -> Self {
+        match value.as_str() {
+            "dispatched" => TriggerAckStatus::Dispatched,
+            "queued" => TriggerAckStatus::Queued,
+            "unmatched" => TriggerAckStatus::Unmatched,
+            "skipped" => TriggerAckStatus::Skipped,
+            "failed" => TriggerAckStatus::Failed,
+            "shutdown" => TriggerAckStatus::Shutdown,
+            _ => TriggerAckStatus::Other(value),
+        }
+    }
+}
+
+impl From<&str> for TriggerAckStatus {
+    fn from(value: &str) -> Self {
+        TriggerAckStatus::from(value.to_string())
+    }
+}
+
+impl From<TriggerAckStatus> for String {
+    fn from(status: TriggerAckStatus) -> Self {
+        status.as_str().to_string()
+    }
 }
 
 #[cfg(test)]
@@ -598,6 +862,8 @@ mod tests {
         });
         let manifest: PluginManifest = serde_json::from_value(value).expect("manifest should parse");
         assert_eq!(manifest.plugin_kind, "ticket_backend");
+        assert_eq!(manifest.kind(), PluginKind::Other("ticket_backend".to_string()));
+        assert!(!manifest.kind().is_known(), "ticket_backend is not a built-in role");
         assert!(manifest.env_required.is_empty(), "env_required must default to empty for back-compat");
     }
 
@@ -630,7 +896,7 @@ mod tests {
         let manifest = PluginManifest {
             name: "x".to_string(),
             version: "0.1.0".to_string(),
-            plugin_kind: "custom".to_string(),
+            plugin_kind: PluginKind::Custom.to_string(),
             description: "x".to_string(),
             protocol_version: "1.0.0".to_string(),
             capabilities: vec![],
@@ -643,6 +909,8 @@ mod tests {
             value.get("notification_buffer_size").is_none(),
             "unset notification_buffer_size must not be serialized for back-compat"
         );
+        assert_eq!(value.get("plugin_kind"), Some(&serde_json::json!("custom")));
+        assert_eq!(manifest.kind(), PluginKind::Custom);
     }
 
     #[test]
@@ -679,6 +947,74 @@ mod tests {
         let encoded = serde_json::to_value(&event).unwrap();
         let decoded: TriggerEvent = serde_json::from_value(encoded).unwrap();
         assert_eq!(decoded, event);
+    }
+
+    #[test]
+    fn plugin_kind_round_trips_well_known_variants() {
+        for (variant, wire) in [
+            (PluginKind::Provider, "provider"),
+            (PluginKind::SubjectBackend, "subject_backend"),
+            (PluginKind::TaskBackend, "task_backend"),
+            (PluginKind::TriggerBackend, "trigger_backend"),
+            (PluginKind::LogStorageBackend, "log_storage_backend"),
+            (PluginKind::Custom, "custom"),
+        ] {
+            assert!(variant.is_known(), "{variant:?} should be known");
+            assert_eq!(variant.as_str(), wire);
+            let encoded = serde_json::to_value(&variant).unwrap();
+            assert_eq!(encoded, serde_json::Value::String(wire.to_string()));
+            let decoded: PluginKind = serde_json::from_value(encoded).unwrap();
+            assert_eq!(decoded, variant);
+        }
+    }
+
+    #[test]
+    fn plugin_kind_round_trips_unknown_variant_byte_for_byte() {
+        let raw = serde_json::json!("ticket_backend");
+        let decoded: PluginKind = serde_json::from_value(raw.clone()).unwrap();
+        assert_eq!(decoded, PluginKind::Other("ticket_backend".to_string()));
+        assert!(!decoded.is_known());
+        let encoded = serde_json::to_value(&decoded).unwrap();
+        assert_eq!(encoded, raw, "unknown plugin_kind must round-trip byte-for-byte");
+    }
+
+    #[test]
+    fn trigger_action_hint_round_trips_known_and_unknown() {
+        let known = TriggerActionHint::CreateTask;
+        assert!(known.is_known());
+        let encoded = serde_json::to_value(&known).unwrap();
+        assert_eq!(encoded, serde_json::json!("create_task"));
+        let decoded: TriggerActionHint = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded, known);
+
+        let raw = serde_json::json!("publish_release");
+        let unknown: TriggerActionHint = serde_json::from_value(raw.clone()).unwrap();
+        assert_eq!(unknown, TriggerActionHint::Other("publish_release".to_string()));
+        assert!(!unknown.is_known());
+        let reencoded = serde_json::to_value(&unknown).unwrap();
+        assert_eq!(reencoded, raw, "unknown action_hint must round-trip byte-for-byte");
+    }
+
+    #[test]
+    fn trigger_ack_status_round_trips_all_known_variants() {
+        for (status, wire) in [
+            (TriggerAckStatus::Dispatched, "dispatched"),
+            (TriggerAckStatus::Queued, "queued"),
+            (TriggerAckStatus::Unmatched, "unmatched"),
+            (TriggerAckStatus::Skipped, "skipped"),
+            (TriggerAckStatus::Failed, "failed"),
+            (TriggerAckStatus::Shutdown, "shutdown"),
+        ] {
+            assert!(status.is_known(), "{status:?} should be known");
+            let encoded = serde_json::to_value(&status).unwrap();
+            assert_eq!(encoded, serde_json::Value::String(wire.to_string()));
+            let decoded: TriggerAckStatus = serde_json::from_value(encoded).unwrap();
+            assert_eq!(decoded, status);
+        }
+        let raw = serde_json::json!("rejected");
+        let unknown: TriggerAckStatus = serde_json::from_value(raw.clone()).unwrap();
+        assert_eq!(unknown, TriggerAckStatus::Other("rejected".to_string()));
+        assert!(!unknown.is_known());
     }
 
     #[test]

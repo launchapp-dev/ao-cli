@@ -31,8 +31,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use animus_plugin_protocol::{
-    TriggerAckParams, TriggerEvent, TriggerWatchParams, PLUGIN_KIND_TRIGGER_BACKEND, TRIGGER_METHOD_ACK,
-    TRIGGER_METHOD_EVENT, TRIGGER_METHOD_WATCH,
+    TriggerAckParams, TriggerAckStatus, TriggerEvent, TriggerWatchParams, PLUGIN_KIND_TRIGGER_BACKEND,
+    TRIGGER_METHOD_ACK, TRIGGER_METHOD_EVENT, TRIGGER_METHOD_WATCH,
 };
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -263,7 +263,7 @@ impl TriggerPluginRunner for ProcessTriggerRunner {
                 biased;
                 _ = shutdown_rx.recv() => {
                     if let Some(last) = last_event_id.lock().await.clone() {
-                        let ack = TriggerAckParams { event_id: last, status: Some("shutdown".to_string()) };
+                        let ack = TriggerAckParams { event_id: last, status: Some(TriggerAckStatus::Shutdown) };
                         let _ = host
                             .notify(TRIGGER_METHOD_ACK, Some(serde_json::to_value(ack).unwrap_or_default()))
                             .await;
@@ -313,7 +313,7 @@ impl TriggerPluginRunner for ProcessTriggerRunner {
                     });
                     let ack = TriggerAckParams {
                         event_id,
-                        status: Some(if routed { "queued" } else { "unmatched" }.to_string()),
+                        status: Some(if routed { TriggerAckStatus::Queued } else { TriggerAckStatus::Unmatched }),
                     };
                     let _ = host
                         .notify(TRIGGER_METHOD_ACK, Some(serde_json::to_value(ack).unwrap_or_default()))
@@ -579,7 +579,8 @@ fn build_routed_payload(event: &TriggerEvent) -> serde_json::Value {
         object.insert(RESERVED_KEY_SUBJECT_KIND.to_string(), serde_json::Value::String(subject_kind.clone()));
     }
     if let Some(ref action_hint) = event.action_hint {
-        object.insert(RESERVED_KEY_ACTION_HINT.to_string(), serde_json::Value::String(action_hint.clone()));
+        object
+            .insert(RESERVED_KEY_ACTION_HINT.to_string(), serde_json::Value::String(action_hint.as_str().to_string()));
     }
     object.insert(RESERVED_KEY_EVENT_ID.to_string(), serde_json::Value::String(event.event_id.clone()));
     if let Some(ref trigger_id) = event.trigger_id {
@@ -755,7 +756,7 @@ mod tests {
             trigger_id: Some("slack-incoming".to_string()),
             subject_id: None,
             subject_kind: None,
-            action_hint: Some("create_task".to_string()),
+            action_hint: Some(animus_plugin_protocol::TriggerActionHint::CreateTask),
             payload: json!({ "user": "alice", "text": "@bot create a task for the login bug" }),
         };
 

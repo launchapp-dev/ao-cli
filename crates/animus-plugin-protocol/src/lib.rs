@@ -112,7 +112,10 @@ pub const PLUGIN_KIND_CUSTOM: &str = "custom";
 /// constants remain available for code that needs the literal wire form.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(from = "String", into = "String")]
-#[schemars(with = "String", description = "Plugin role kind. Wire representation is a snake_case string; unknown values round-trip via Other.")]
+#[schemars(
+    with = "String",
+    description = "Plugin role kind. Wire representation is a snake_case string; unknown values round-trip via Other."
+)]
 #[non_exhaustive]
 pub enum PluginKind {
     /// LLM provider plugin. See [`PLUGIN_KIND_PROVIDER`].
@@ -676,7 +679,10 @@ pub struct TriggerEvent {
 /// forward events from newer plugins without crashing.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(from = "String", into = "String")]
-#[schemars(with = "String", description = "Trigger action hint. Wire representation is a snake_case string; unknown values round-trip via Other.")]
+#[schemars(
+    with = "String",
+    description = "Trigger action hint. Wire representation is a snake_case string; unknown values round-trip via Other."
+)]
 #[non_exhaustive]
 pub enum TriggerActionHint {
     /// Create a new task with the event payload as initial context.
@@ -753,7 +759,10 @@ pub struct TriggerAckParams {
 /// statuses without breaking older plugins.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(from = "String", into = "String")]
-#[schemars(with = "String", description = "Trigger ack status. Wire representation is a snake_case string; unknown values round-trip via Other.")]
+#[schemars(
+    with = "String",
+    description = "Trigger ack status. Wire representation is a snake_case string; unknown values round-trip via Other."
+)]
 #[non_exhaustive]
 pub enum TriggerAckStatus {
     /// Host accepted the event and started the configured workflow.

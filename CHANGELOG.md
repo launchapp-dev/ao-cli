@@ -4,6 +4,50 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`fix(workflow)`: plumb `--var KEY=VALUE` through the control wire.**
+  `animus workflow run --task-id ... --var FOO=bar --json` was silently
+  dropping the user-supplied vars when the daemon was running because the
+  control-path `WorkflowRunRequest` was sent with `params: Default::default()`.
+  Vars now round-trip via `params["vars"]` and reach
+  `WorkflowRunInput::with_vars` on the daemon side, matching the local path.
+  Same fix applies to `workflow_execute` over the control wire.
+- **`fix(queue)`: stop silently swapping `--workflow-ref` for the project
+  default when the daemon is running.** `animus queue enqueue --task-id ...
+  --workflow-ref custom --json` was routing through the wire-side
+  `queue/enqueue` that only carries `task_id + priority`, then the daemon
+  loaded the default workflow ref. Now the CLI degrades to the local path
+  whenever `--workflow-ref` is set so the user's requested workflow is
+  honored. (Wire-side fix needs a new `workflow_ref` field on
+  `QueueEnqueueRequest`, deferred until the external protocol crate gains it.)
+- **`fix(plugin)`: stop silently ignoring `--include-system-path` over the
+  control wire.** `animus plugin list/info/ping/call --include-system-path
+  --json` was routing through the daemon (which hardcodes
+  `include_system_path: false`), dropping the flag. The CLI now stays on the
+  local discovery path when the flag is set.
+- **`fix(daemon preflight)`: exit non-zero when required plugins are
+  missing.** `animus daemon preflight` was printing `"ok": false` inside the
+  payload but exiting 0 with `"ok": true` on the outer envelope —
+  contradicting `docs/getting-started/installation.md`'s contract and
+  silently passing CI gates. Now exits 2 (invalid_input) when required roles
+  are missing, exit 1 (internal) on transient plugin-discovery failures, and
+  exit 0 only when all required roles are satisfied. The error envelope
+  carries the actionable `animus plugin install ...` fix message.
+- **`fix(daemon preflight)`: surface plugin-discovery failures instead of
+  swallowing them.** The standalone preflight previously used
+  `discover_installed_plugins(...).unwrap_or_default()`, masking real
+  discovery errors (broken install index, IO failures) as "no plugins
+  installed". Now propagates discovery errors as exit code 1 with a clear
+  message, distinct from "ran successfully and found gaps".
+- **`fix(init walkthrough)`: don't ship the first-contact daemon in a
+  degraded state.** `animus init --walkthrough --auto-start` was installing
+  providers-only and then booting the daemon with `--skip-preflight`,
+  hiding missing subject/transport backends from the operator. Now installs
+  the full required-role set (`--include-subjects --include-transports`)
+  AND drops `--skip-preflight` from the daemon spawn so any leftover gaps
+  surface as actionable preflight errors before the daemon boots.
+
 ## [0.4.13] - 2026-05-27
 
 Operational hardening of the v0.4.12 plugin extraction. Several pieces of

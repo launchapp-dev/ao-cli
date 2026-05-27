@@ -154,15 +154,40 @@ fn e2e_daemon_autonomous_start_reports_early_exit_failure() -> Result<()> {
 fn e2e_daemon_preflight_subcommand_reports_missing_plugins() -> Result<()> {
     let harness = CliHarness::new()?;
 
-    let report = harness.run_json_ok(&["daemon", "preflight"])?;
-
-    assert_eq!(report.pointer("/data/schema").and_then(Value::as_str), Some("animus.daemon.preflight.v1"));
-    assert_eq!(report.pointer("/data/ok").and_then(Value::as_bool), Some(false));
-    let missing = report.pointer("/data/missing").and_then(Value::as_array).context("missing array")?;
-    assert!(!missing.is_empty(), "fresh project should have missing required plugins");
-    let fix_message = report.pointer("/data/fix_message").and_then(Value::as_str).context("fix_message present")?;
-    assert!(fix_message.contains("plugin preflight failed"));
-    assert!(fix_message.contains("animus plugin install"));
+    // Preflight must exit non-zero (code 2 = invalid_input) when any
+    // required role is missing, so CI scripts and `&&` chains can
+    // detect the failure. The inner JSON error body still carries the
+    // actionable `plugin install` hint that operators rely on.
+    let (failure, exit_code) = harness.run_json_err_with_exit(&["daemon", "preflight"])?;
+    assert_eq!(exit_code, 2, "preflight should exit 2 (invalid_input) when required roles missing");
+    let message = failure
+        .pointer("/error/message")
+        .and_then(Value::as_str)
+        .context("preflight error envelope should include /error/message")?;
+    assert!(
+        message.contains("plugin preflight failed"),
+        "preflight error message should describe the gap; got: {message}"
+    );
+    assert!(
+        message.contains("animus plugin install"),
+        "preflight error message should surface the actionable install command; got: {message}"
+    );
+    // The structured preflight payload (schema / missing / fix_message)
+    // must survive into /error/details so machine consumers can still
+    // iterate the missing-roles list without re-parsing the textual
+    // message. Without this the JSON-mode error path is strictly
+    // poorer than the legacy `"ok": true` success-with-failure shape
+    // it replaces.
+    assert_eq!(
+        failure.pointer("/error/details/schema").and_then(Value::as_str),
+        Some("animus.daemon.preflight.v1"),
+        "preflight error details should carry the structured schema"
+    );
+    let missing = failure
+        .pointer("/error/details/missing")
+        .and_then(Value::as_array)
+        .context("preflight error details should expose the missing-roles array")?;
+    assert!(!missing.is_empty(), "missing-roles array should be non-empty in fresh project");
     Ok(())
 }
 

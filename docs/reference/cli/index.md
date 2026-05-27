@@ -275,6 +275,14 @@ prerequisites are in place.
 JSON envelope: `animus.daemon.preflight.v1` with fields `satisfied`, `missing`,
 `auto_installed`, `ok`, `fix_message`.
 
+Exit code matrix:
+
+| Code | Meaning |
+|---|---|
+| 0 | All required roles satisfied. |
+| 2 | At least one required role is missing. The error envelope's `message` carries the `animus plugin install ...` fix. CI scripts and `&&` chains can rely on this. |
+| 1 | Transient plugin discovery failure (broken install index, IO error, etc.). Distinct from "ran successfully and found gaps". |
+
 ### `animus init`
 
 Initialize an Animus project from a template registry or a local template directory.

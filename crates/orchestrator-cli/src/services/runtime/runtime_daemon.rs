@@ -458,23 +458,62 @@ async fn handle_daemon_preflight(args: DaemonPreflightArgs, project_root: &str, 
     let mut spec = PluginPreflightSpec::daemon_default();
     spec.auto_install = args.auto_install;
 
-    let installed = discover_installed_plugins(project_root).unwrap_or_default();
+    // Surface plugin-discovery failures distinctly from "preflight ran
+    // and found gaps". A transient discovery failure (e.g. broken
+    // install index, IO error) is exit code 1 (internal) and is NOT
+    // the same as missing required roles (exit code 2). Using
+    // `unwrap_or_default()` here would mask both as "no plugins
+    // installed" and then exit 0/2 misleadingly.
+    let installed = discover_installed_plugins(project_root)
+        .map_err(|err| crate::internal_error(format!("plugin discovery failed: {err:#}")))?;
     let installer = if args.auto_install { Some(daemon_run::CliPluginInstaller::new(project_root)) } else { None };
     let installer_ref = installer.as_ref().map(|i| i as &dyn orchestrator_core::PluginInstaller);
     let result = PluginPreflightRunner::run(&spec, installed, installer_ref).await?;
 
-    print_value(
-        serde_json::json!({
-            "schema": "animus.daemon.preflight.v1",
-            "auto_install": args.auto_install,
-            "satisfied": result.satisfied,
-            "missing": result.missing,
-            "auto_installed": result.auto_installed,
-            "ok": result.is_ok(),
-            "fix_message": if result.is_ok() { String::new() } else { result.render_missing_message() },
-        }),
-        json,
-    )
+    let payload = serde_json::json!({
+        "schema": "animus.daemon.preflight.v1",
+        "auto_install": args.auto_install,
+        "satisfied": result.satisfied,
+        "missing": result.missing,
+        "auto_installed": result.auto_installed,
+        "ok": result.is_ok(),
+        "fix_message": if result.is_ok() { String::new() } else { result.render_missing_message() },
+    });
+
+    if result.is_ok() {
+        return print_value(payload, json);
+    }
+
+    // Preflight ran but required roles are missing. Print the same
+    // payload (so machine consumers still see `missing` / `fix_message`)
+    // then return a typed CLI error so the process exits with a
+    // non-zero code AND the JSON envelope's outer `ok` reflects the
+    // failure — matching `docs/getting-started/installation.md`'s
+    // contract that preflight exits non-zero when plugins are missing.
+    //
+    // Exit code matrix (documented in `docs/reference/cli/index.md`):
+    //   0 = all required roles satisfied
+    //   1 = transient discovery failure (returned above via internal_error)
+    //   2 = any required role missing (returned below via invalid_input_error)
+    if !json {
+        // Mirror the payload contents in human mode so operators still
+        // see the missing-roles and fix-message lines before the
+        // `error:` summary line. JSON mode preserves the same payload
+        // via `CliError::with_details` (attached below), which surfaces
+        // under `/error/details` in the envelope.
+        if let Ok(rendered) = serde_json::to_string_pretty(&payload) {
+            eprintln!("{rendered}");
+        }
+    }
+    // Attach the full preflight payload as structured details so
+    // machine consumers in JSON mode can still read `schema` /
+    // `missing` / `auto_installed` / `fix_message` from
+    // `/error/details` instead of having to re-parse the textual
+    // `/error/message`. The `animus.cli.v1` envelope already supports
+    // a `details` slot under the error body for exactly this case.
+    Err(crate::CliError::new(crate::CliErrorKind::InvalidInput, result.render_missing_message())
+        .with_details(payload)
+        .into())
 }
 
 fn spawn_autonomous_daemon_run(project_root: &str, args: &DaemonStartArgs) -> Result<AutonomousDaemonSpawn> {

@@ -17,6 +17,7 @@ pub use host::{
     check_protocol_compat, install_process_slot_factory, BoxedProcessSlotGuard, HostError, PluginHost, PluginHostInner,
     PluginNotificationRx, PluginSpawnOptions, PluginStderrSink, ProcessSlotError, ProcessSlotFactory, ProcessSlotGuard,
     DEFAULT_NOTIFICATION_BROADCAST_CAPACITY, NOTIFICATION_BROADCAST_CAPACITY_ENV, PLUGIN_BASE_ENV_ALLOWLIST,
+    TRANSPORT_METHOD_SHUTDOWN, TRANSPORT_METHOD_START,
 };
 #[cfg(any(test, feature = "test-support"))]
 pub use host::{clear_process_slot_factory_for_test, install_process_slot_factory_for_test};

@@ -49,6 +49,25 @@ pub const NOTIFICATION_BROADCAST_CAPACITY_ENV: &str = "ANIMUS_PLUGIN_BROADCAST_C
 /// after sending the `shutdown` RPC.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 
+/// Deadline the [`PluginHost::shutdown_transport`] flow waits for a transport
+/// plugin's `transport/shutdown` reply before moving on to the generic
+/// shutdown. Spec-compliant transports drain in-flight requests during this
+/// call; a misbehaving plugin must not block daemon teardown so the upper
+/// bound is enforced here.
+const TRANSPORT_SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
+
+/// JSON-RPC method name the host issues to ask a `transport_backend` plugin
+/// to bind its external listener. Kept as a string constant so this crate
+/// avoids a build-time dependency on `animus-transport-protocol`; the spec
+/// freezes the literal at `transport/start` (see
+/// `animus-transport-protocol::TRANSPORT_METHOD_START`).
+pub const TRANSPORT_METHOD_START: &str = "transport/start";
+
+/// JSON-RPC method name the host issues to ask a `transport_backend` plugin
+/// to drain in-flight requests and release its bound address. Mirrors
+/// `animus-transport-protocol::TRANSPORT_METHOD_SHUTDOWN`.
+pub const TRANSPORT_METHOD_SHUTDOWN: &str = "transport/shutdown";
+
 /// Structured plugin-host errors that benefit from being matched on by
 /// callers. The supervisor pattern-matches on this enum to decide whether a
 /// failure is death-like (retry-once safe) or a structured plugin-side error
@@ -712,6 +731,63 @@ impl PluginHost {
         Ok(serde_json::from_value(result)?)
     }
 
+    /// Transport-lifecycle drain: sends the spec-mandated
+    /// `transport/shutdown` RPC so a `transport_backend` plugin can stop
+    /// accepting new connections and drain in-flight requests before the
+    /// host issues the generic `shutdown` RPC + `exit` notification.
+    ///
+    /// Behaviour:
+    ///
+    /// - Waits at most [`TRANSPORT_SHUTDOWN_GRACE`] for the plugin to reply
+    ///   so a misbehaving plugin can never block daemon teardown.
+    /// - Treats `METHOD_NOT_FOUND` (-32601) and `METHOD_NOT_SUPPORTED`
+    ///   (-32001) as a no-op (logged as a deprecation warning) — these are
+    ///   the responses returned by transport plugins that pre-date the
+    ///   `transport/start`/`transport/shutdown` lifecycle and bind/unbind
+    ///   during `initialize`/`shutdown` instead. The host MUST NOT fail
+    ///   serve on this, since the legacy launchapp-dev transports relied
+    ///   on the non-compliant happenstance for the entire v0.4.x cycle.
+    /// - Treats `ConnectionLost` as a no-op — the plugin is already dead
+    ///   and the subsequent `shutdown()` call will reap it.
+    /// - All other errors are returned to the caller so unusual failures
+    ///   surface in CLI output (and `serve` can decide whether to bail).
+    ///
+    /// Callers should always invoke this BEFORE [`Self::shutdown`] on
+    /// `transport_backend` plugins. For other plugin kinds, calling this is
+    /// a no-op (the plugin returns `METHOD_NOT_FOUND` and the host logs +
+    /// continues), so passing every shutdown through this helper is safe.
+    pub async fn shutdown_transport(&self) -> Result<()> {
+        let outcome = self.request_typed_with_timeout(TRANSPORT_METHOD_SHUTDOWN, None, TRANSPORT_SHUTDOWN_GRACE).await;
+        match outcome {
+            Ok(_) => {
+                debug!(plugin = %self.inner.name, "transport plugin acknowledged transport/shutdown");
+                Ok(())
+            }
+            Err(HostError::Rpc(error)) if is_method_unimplemented(&error) => {
+                warn!(
+                    plugin = %self.inner.name,
+                    code = error.code,
+                    message = %error.message,
+                    "transport plugin does not implement transport/shutdown — legacy lifecycle, continuing"
+                );
+                Ok(())
+            }
+            Err(HostError::ConnectionLost) => {
+                debug!(plugin = %self.inner.name, "transport plugin already dead before transport/shutdown");
+                Ok(())
+            }
+            Err(HostError::Timeout(deadline)) => {
+                warn!(
+                    plugin = %self.inner.name,
+                    timeout_ms = u64::try_from(deadline.as_millis()).unwrap_or(u64::MAX),
+                    "transport/shutdown timed out; proceeding with generic shutdown"
+                );
+                Ok(())
+            }
+            Err(other) => Err(anyhow!("transport/shutdown failed on plugin '{}': {other}", self.inner.name)),
+        }
+    }
+
     /// Graceful shutdown: sends `shutdown` RPC + `exit` notification, waits
     /// up to [`SHUTDOWN_GRACE`] for the child to exit, then kills it.
     ///
@@ -801,6 +877,15 @@ impl PluginHost {
     async fn write_frame<T: serde::Serialize>(&self, frame: &T) -> Result<()> {
         write_frame_inner(self.inner.as_ref(), frame).await
     }
+}
+
+/// True when an [`RpcError`] indicates the plugin recognized the method name
+/// but does not (yet) implement it. Both classic JSON-RPC `METHOD_NOT_FOUND`
+/// (-32601) and the protocol's domain-specific `METHOD_NOT_SUPPORTED`
+/// (-32001) qualify. Used by [`PluginHost::shutdown_transport`] to keep
+/// pre-lifecycle transport plugins working while the ecosystem catches up.
+fn is_method_unimplemented(error: &RpcError) -> bool {
+    error.code == error_codes::METHOD_NOT_FOUND || error.code == error_codes::METHOD_NOT_SUPPORTED
 }
 
 /// Module-level helper so [`PluginHost::shutdown`] (which consumes `self`)

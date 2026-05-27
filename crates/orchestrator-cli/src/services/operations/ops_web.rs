@@ -1,9 +1,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use animus_plugin_protocol::RpcError;
 use anyhow::{anyhow, Result};
 use orchestrator_core::ServiceHub;
-use orchestrator_plugin_host::{discover_plugins, DiscoveredPlugin, PluginHost};
+use orchestrator_daemon_runtime::control::control_socket_path;
+use orchestrator_plugin_host::{discover_plugins, DiscoveredPlugin, HostError, PluginHost, TRANSPORT_METHOD_START};
 use serde_json::{json, Value};
 
 use crate::{print_ok, print_value};
@@ -11,6 +13,20 @@ use crate::{CliError, CliErrorKind, WebCommand};
 
 const TRANSPORT_PLUGIN_KIND: &str = "transport_backend";
 const WEB_UI_PLUGIN_KIND: &str = "web_ui";
+/// JSON-RPC error codes returned when a plugin does not (yet) implement
+/// `transport/start`. The legacy launchapp-dev transport plugins bind their
+/// listener inside `initialize` and have no transport-method dispatch; they
+/// respond with `METHOD_NOT_FOUND` (-32601). Spec-compliant plugins that
+/// recognize the method but decline it use `METHOD_NOT_SUPPORTED` (-32001).
+/// Either is treated as a soft no-op by `animus web serve` so we don't break
+/// the entire web surface during the ecosystem upgrade.
+const METHOD_NOT_FOUND_CODE: i32 = -32601;
+const METHOD_NOT_SUPPORTED_CODE: i32 = -32001;
+/// Upper bound on how long `animus web serve` waits for a transport plugin's
+/// `transport/start` reply before giving up. Spec-compliant plugins bind the
+/// listener inside this call, so the deadline includes any port acquisition
+/// the plugin performs.
+const TRANSPORT_START_TIMEOUT: Duration = Duration::from_secs(15);
 /// Capability marker declared by a `transport_backend` plugin to advertise
 /// that it serves a browser-facing HTML UI (as opposed to a machine-facing
 /// API endpoint like GraphQL or REST).
@@ -52,7 +68,7 @@ async fn handle_serve(args: crate::WebServeArgs, project_root: &str, json: bool)
     // the API URLs in both the JSON envelope and the human-facing log lines.
     let mut running: Vec<RunningTransport> = Vec::new();
     for plugin in web_ui_plugins.iter().chain(api_plugins.iter()) {
-        match spawn_and_keep_alive(plugin).await {
+        match spawn_and_keep_alive(plugin, project_root).await {
             Ok(rt) => running.push(rt),
             Err(err) => {
                 shutdown_running_transports(running).await;
@@ -192,13 +208,14 @@ async fn handle_open(args: crate::WebOpenArgs, project_root: &str, json: bool) -
         return Err(missing_transport_plugins_error(json));
     }
 
-    handle_open_foreground(&args, api_plugins, web_ui_plugins, json).await
+    handle_open_foreground(&args, api_plugins, web_ui_plugins, project_root, json).await
 }
 
 async fn handle_open_foreground(
     args: &crate::WebOpenArgs,
     api_plugins: Vec<DiscoveredPlugin>,
     web_ui_plugins: Vec<DiscoveredPlugin>,
+    project_root: &str,
     json: bool,
 ) -> Result<()> {
     // UI plugins go up front so the URL we open in the browser is always the
@@ -208,7 +225,7 @@ async fn handle_open_foreground(
     // produce one.
     let mut running: Vec<RunningTransport> = Vec::new();
     for plugin in web_ui_plugins.iter().chain(api_plugins.iter()) {
-        match spawn_and_keep_alive(plugin).await {
+        match spawn_and_keep_alive(plugin, project_root).await {
             Ok(rt) => running.push(rt),
             Err(err) => {
                 shutdown_running_transports(running).await;
@@ -294,7 +311,7 @@ async fn resolve_open_url(args: &crate::WebOpenArgs, project_root: &str) -> Resu
     }
     let mut url: Option<String> = None;
     for plugin in web_ui_plugins.iter().chain(api_plugins.iter()) {
-        if let Ok(info) = spawn_and_describe(plugin).await {
+        if let Ok(info) = spawn_and_describe(plugin, project_root).await {
             if let Some(resolved) = info.url {
                 url = Some(append_path(&resolved, &args.path));
                 break;
@@ -339,14 +356,26 @@ struct RunningTransport {
     host: PluginHost,
 }
 
-async fn describe_host(plugin: &DiscoveredPlugin, host: &PluginHost) -> Result<SpawnedTransport> {
+async fn describe_host(plugin: &DiscoveredPlugin, host: &PluginHost, project_root: &str) -> Result<SpawnedTransport> {
     let init = tokio::time::timeout(PLUGIN_HANDSHAKE_TIMEOUT, host.handshake())
         .await
         .map_err(|_| anyhow!("transport plugin {} handshake timed out", plugin.name))?
         .map_err(|err| anyhow!("transport plugin {} handshake failed: {err}", plugin.name))?;
     let init_value = serde_json::to_value(&init).unwrap_or(Value::Null);
 
-    let mut url = extract_url(&init_value);
+    // Spec lifecycle: host MUST call transport/start AFTER initialize so the
+    // plugin can bind its listener. Pre-v0.4.13 launchapp-dev transports skip
+    // this call entirely and bind inside `initialize` — we keep them working
+    // by treating METHOD_NOT_FOUND / METHOD_NOT_SUPPORTED as a deprecation
+    // warning + continue, but new plugins MUST honor the spec to actually
+    // bind.
+    let is_transport_kind = plugin.manifest.plugin_kind == TRANSPORT_PLUGIN_KIND;
+    let start_reply = if is_transport_kind { drive_transport_start(plugin, host, project_root).await? } else { None };
+
+    let mut url = start_reply.as_ref().and_then(bind_url_for_kind_from_info);
+    if url.is_none() {
+        url = extract_url(&init_value);
+    }
     if url.is_none() {
         if let Ok(Ok(value)) =
             tokio::time::timeout(PLUGIN_HANDSHAKE_TIMEOUT, host.request_typed("transport/info", None)).await
@@ -364,25 +393,85 @@ async fn describe_host(plugin: &DiscoveredPlugin, host: &PluginHost) -> Result<S
     })
 }
 
+/// Build the spec-shaped `TransportConfig` payload and issue `transport/start`
+/// against `host`. Returns `Some(transport_info_value)` on success, `None`
+/// when the plugin pre-dates the lifecycle (and we logged a deprecation
+/// warning).
+async fn drive_transport_start(
+    plugin: &DiscoveredPlugin,
+    host: &PluginHost,
+    project_root: &str,
+) -> Result<Option<Value>> {
+    let project_root_path = std::path::PathBuf::from(project_root);
+    let socket_path = control_socket_path(&project_root_path);
+    // Spec shape per animus-transport-protocol v0.1.13:
+    //   { control_socket_path, project_root, bind_addr?, config? }
+    // bind_addr is omitted so the plugin uses its TransportSchema::default_port
+    // (HTTP plugin defaults to 127.0.0.1:8080, GraphQL to 127.0.0.1:8090). A
+    // future `animus web serve --port` flag can set this explicitly.
+    let params = json!({
+        "control_socket_path": socket_path,
+        "project_root": project_root_path,
+    });
+
+    let outcome =
+        tokio::time::timeout(TRANSPORT_START_TIMEOUT, host.request_typed(TRANSPORT_METHOD_START, Some(params))).await;
+    match outcome {
+        Ok(Ok(value)) => Ok(Some(value)),
+        Ok(Err(HostError::Rpc(err))) if is_legacy_transport_error(&err) => {
+            eprintln!(
+                "[serve] WARNING: transport plugin '{}' does not implement `{TRANSPORT_METHOD_START}` \
+                 (pre-spec lifecycle). Treating as no-op so the legacy bind-in-initialize behavior keeps \
+                 working. Upgrade the plugin to a release that drives the v0.1.13 transport lifecycle.",
+                plugin.name
+            );
+            Ok(None)
+        }
+        Ok(Err(err)) => Err(anyhow!("transport plugin {} `{TRANSPORT_METHOD_START}` failed: {err}", plugin.name)),
+        Err(_) => Err(anyhow!(
+            "transport plugin {} did not respond to `{TRANSPORT_METHOD_START}` within {}s",
+            plugin.name,
+            TRANSPORT_START_TIMEOUT.as_secs()
+        )),
+    }
+}
+
+fn is_legacy_transport_error(err: &RpcError) -> bool {
+    err.code == METHOD_NOT_FOUND_CODE || err.code == METHOD_NOT_SUPPORTED_CODE
+}
+
+/// Best-effort URL extraction from a `transport/start` `TransportInfo` reply.
+/// The reply is just `{ bound_addr, started_at }`; the plugin kind in the
+/// manifest gives us the URL scheme.
+fn bind_url_for_kind_from_info(value: &Value) -> Option<String> {
+    let bound = value.get("bound_addr").and_then(Value::as_str)?;
+    Some(format!("http://{bound}"))
+}
+
 #[cfg(test)]
-async fn spawn_and_describe(plugin: &DiscoveredPlugin) -> Result<SpawnedTransport> {
+async fn spawn_and_describe(plugin: &DiscoveredPlugin, project_root: &str) -> Result<SpawnedTransport> {
     let host = PluginHost::spawn(&plugin.path, &[])
         .await
         .map_err(|err| anyhow!("failed to spawn transport plugin {}: {err}", plugin.name))?;
-    let described = describe_host(plugin, &host).await;
+    let described = describe_host(plugin, &host, project_root).await;
     // Test-only describe-and-shutdown helper. Production paths use
     // `spawn_and_keep_alive` so the plugin survives URL resolution.
+    let _ = host.shutdown_transport().await;
     let _ = host.shutdown().await;
     described
 }
 
-async fn spawn_and_keep_alive(plugin: &DiscoveredPlugin) -> Result<RunningTransport> {
+async fn spawn_and_keep_alive(plugin: &DiscoveredPlugin, project_root: &str) -> Result<RunningTransport> {
     let host = PluginHost::spawn(&plugin.path, &[])
         .await
         .map_err(|err| anyhow!("failed to spawn transport plugin {}: {err}", plugin.name))?;
-    match describe_host(plugin, &host).await {
+    match describe_host(plugin, &host, project_root).await {
         Ok(info) => Ok(RunningTransport { info, host }),
         Err(err) => {
+            // Spec: even on failure, drive the transport/shutdown drain so
+            // a partially-bound listener gets a chance to release its port
+            // before we drop the process.
+            let _ = host.shutdown_transport().await;
             let _ = host.shutdown().await;
             Err(err)
         }
@@ -391,6 +480,12 @@ async fn spawn_and_keep_alive(plugin: &DiscoveredPlugin) -> Result<RunningTransp
 
 async fn shutdown_running_transports(running: Vec<RunningTransport>) {
     for rt in running {
+        // Spec lifecycle: drive `transport/shutdown` BEFORE the generic
+        // `shutdown` so the plugin can drain in-flight requests and release
+        // the bound port. Legacy plugins that don't implement
+        // `transport/shutdown` are handled inside `shutdown_transport` (log
+        // + continue), so this call is safe on every plugin kind.
+        let _ = rt.host.shutdown_transport().await;
         let _ = rt.host.shutdown().await;
     }
 }

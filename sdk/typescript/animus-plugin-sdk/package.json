@@ -1,0 +1,13 @@
+{
+  "name": "@animus/plugin-sdk",
+  "version": "0.0.0",
+  "description": "TypeScript SDK for building Animus stdio plugins.",
+  "type": "module",
+  "scripts": {
+    "codegen": "node scripts/codegen.mjs",
+    "codegen:check": "node scripts/codegen-check.mjs"
+  },
+  "devDependencies": {
+    "json-schema-to-typescript": "^15.0.4"
+  }
+}

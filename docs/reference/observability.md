@@ -112,6 +112,60 @@ The daemon writes all events to the project-scoped
 `~/.animus/<scope>/logs/events.jsonl`. Each line is a redacted, structured
 `LogEntry` (see `crates/orchestrator-logging/src/lib.rs::LogEntry`).
 
+### Secret redaction
+
+Before a `LogEntry` is persisted, two parallel mechanisms strip secrets
+from `msg`, `content`, `error`, and the recursive `meta` JSON tree:
+
+1. **Value-content regex redaction.** String contents are scanned for
+   `key=value` / `key: value` shapes (e.g. `api_key=sk_live_abc`,
+   `authorization: Bearer ...`). The default pattern covers `api_key`,
+   `api-key`, `password`, `token`, `secret`, `authorization`. Matches
+   collapse to `<key>=***REDACTED***`. Extend the pattern set with
+   `ANIMUS_LOG_REDACT_PATTERNS` (comma-separated regex strings; invalid
+   patterns are silently skipped).
+
+2. **Key-name redaction (since v0.4.13).** When recursing into a JSON
+   object inside `meta`, any `(key, value)` pair whose key matches the
+   secret-key set has its value replaced with `***REDACTED***` regardless
+   of the value's content. This catches the
+   `meta({"api_key":"sk_live_..."})` case, where the bare value
+   `"sk_live_..."` would not match any content regex on its own.
+
+   Key normalization is the matching strategy:
+
+   - lowercase
+   - collapse `-` to `_`
+   - insert `_` at camelCase / PascalCase boundaries so `secretKey`
+     becomes `secret_key`, `apiKey` becomes `api_key`, `X-API-Key`
+     becomes `x_api_key`
+
+   Matching is then **word-boundary aware** (delimited by `_` or
+   string boundaries), so `token` matches `access_token`,
+   `accessToken`, and `x_api_token`, but does NOT match `input_tokens`,
+   `max_tokens`, or `tokenizer` — token-count observability metadata
+   stays intact.
+
+   Defaults (case-insensitive; snake_case, kebab-case, camelCase,
+   PascalCase, and `X-*-*` headers all hit):
+
+   ```
+   api_key, apikey, token, access_token, accesstoken, refresh_token,
+   refreshtoken, id_token, idtoken, secret, client_secret, clientsecret,
+   secretkey, password, passwd, pwd, authorization, bearer, bearertoken,
+   private_key, privatekey, signing_key, signingkey, x-api-key, xapikey
+   ```
+
+   This naturally covers `X-API-Key`, `X-Access-Token`, `apiKey`,
+   `secretKey`, `privateKey`, `bearerToken`, and similar header /
+   config families. Override the list with `ANIMUS_LOG_REDACT_KEYS`
+   (comma-separated names; override **replaces** the defaults rather
+   than appending — set it to the full list you want).
+
+Identifier-shaped typed fields on `LogEntry` (`workflow_id`, `model`,
+`provider`, etc.) are not scrubbed — they are not secret-bearing and
+skipping them keeps the hot path cheap.
+
 For the `tracing` event stream (everything that goes through
 `tracing::info!`, `tracing::warn!`, etc.), the daemon defaults to
 human-readable formatting on stderr. Enable JSON-line output by setting

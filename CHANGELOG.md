@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`fix(daemon-health)`: apply manifest `env_required` to plugin probes.**
+  `daemon_health()` in `crates/orchestrator-daemon-runtime/src/control/dispatch.rs`
+  was probing each plugin with `PluginSpawnOptions::default()`, which scrubs
+  env down to the base allowlist and never forwards manifest-declared vars.
+  As a result, provider plugins that need credentials (e.g. `OPENAI_API_KEY`,
+  `ANTHROPIC_API_KEY`, `LINEAR_API_TOKEN`) were spawned without them during
+  the probe and reported false-unhealthy even when the daemon environment
+  carried the keys. The probe now builds spawn options via
+  `PluginSpawnOptions::for_manifest(&plugin.manifest.env_required, ...)` —
+  the same path used by `subject_dispatch.rs` and
+  `schedule/trigger_supervisor.rs`. When a `required = true` var is missing
+  from the daemon environment we emit a `daemon_health.probe` warn so the
+  operator can correlate the unhealthy row with the missing secret. (3 new
+  unit tests covering the present / missing / no-env-declared shapes.)
+
 ## [0.4.13] - 2026-05-27
 
 Operational hardening of the v0.4.12 plugin extraction. Several pieces of

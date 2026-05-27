@@ -910,6 +910,37 @@ fn short_hash(msg: &str) -> String {
     format!("{:016x}", hasher.finish())
 }
 
+/// Build the [`PluginSpawnOptions`] used by [`probe_plugin_health`].
+///
+/// Forwards the plugin manifest's declared `env_required` allowlist (plus
+/// the base allowlist) into the spawned plugin process so probes see the
+/// same secrets the production spawn paths see. If any `required = true`
+/// vars are missing from the daemon environment the function still
+/// returns options (the plugin host warns at spawn time), but we also
+/// emit a `daemon_health.probe` warn so operators can correlate the
+/// probe-shape degradation with the unhealthy row.
+fn build_probe_spawn_options(
+    plugin: &orchestrator_plugin_host::DiscoveredPlugin,
+) -> orchestrator_plugin_host::PluginSpawnOptions {
+    use orchestrator_plugin_host::PluginSpawnOptions;
+
+    let options = PluginSpawnOptions::for_manifest(
+        plugin.name.clone(),
+        &plugin.manifest.env_required,
+        std::iter::empty::<String>(),
+        None,
+    );
+    if !options.missing_required_env.is_empty() {
+        tracing::warn!(
+            target: "daemon_health.probe",
+            plugin = %plugin.name,
+            missing_env = ?options.missing_required_env,
+            "plugin health probe spawning with missing required env vars; probe will likely report unhealthy"
+        );
+    }
+    options
+}
+
 /// Per-plugin live `health/check` probe used by `daemon_health`.
 ///
 /// Spawns the plugin one-shot, runs the `initialize` handshake, calls
@@ -921,7 +952,7 @@ fn short_hash(msg: &str) -> String {
 /// daemon's own status stays `Healthy` because plugin-side trouble is an
 /// observability concern, not a daemon-liveness one.
 async fn probe_plugin_health(plugin: &orchestrator_plugin_host::DiscoveredPlugin) -> PluginHealth {
-    use orchestrator_plugin_host::{PluginHost, PluginSpawnOptions};
+    use orchestrator_plugin_host::PluginHost;
     use std::time::Duration;
 
     const PLUGIN_HEALTH_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
@@ -930,8 +961,19 @@ async fn probe_plugin_health(plugin: &orchestrator_plugin_host::DiscoveredPlugin
     let kind = plugin.manifest.plugin_kind.clone();
     let path = plugin.path.clone();
 
+    // v0.4.x P2 fix: apply the plugin's manifest `env_required` allowlist to
+    // the probe spawn so provider plugins (and other backends) that need API
+    // keys (e.g. `OPENAI_API_KEY`) actually see them. Previously the probe
+    // used `PluginSpawnOptions::default()`, which scrubs env down to the base
+    // allowlist and reports false-unhealthy whenever a required secret is
+    // present in the daemon environment but the plugin can't see it.
+    //
+    // Matches the spawn shape used by subject_dispatch.rs and the trigger
+    // supervisor so all live plugin spawns share one env contract.
+    let options = build_probe_spawn_options(plugin);
+
     let outcome = tokio::time::timeout(PLUGIN_HEALTH_PROBE_TIMEOUT, async move {
-        let host = PluginHost::spawn_with_options(&path, &[], PluginSpawnOptions::default()).await?;
+        let host = PluginHost::spawn_with_options(&path, &[], options).await?;
         host.handshake().await?;
         let result = host.health_check().await?;
         // Best-effort shutdown — we still report the probe result if shutdown trips.
@@ -1025,5 +1067,112 @@ mod log_dispatch_tests {
         let entries = read_in_tree_log_entries(temp.path(), 10, Some(LogLevel::Info), None, None);
         assert_eq!(entries.len(), 2);
         assert_ne!(entries[0].id, entries[1].id, "ids must disambiguate rows");
+    }
+}
+
+#[cfg(test)]
+mod health_probe_env_tests {
+    //! v0.4.x P2: prove that `daemon_health` plugin probes spawn with the
+    //! manifest's declared `env_required` allowlist applied, so provider
+    //! plugins that need `OPENAI_API_KEY` (etc.) actually see the var
+    //! during the probe instead of false-reporting unhealthy.
+    use super::build_probe_spawn_options;
+    use animus_plugin_protocol::{EnvRequirement, PluginManifest};
+    use orchestrator_plugin_host::{DiscoveredPlugin, DiscoverySource};
+    use std::path::PathBuf;
+
+    fn manifest_with_env(required: Vec<EnvRequirement>) -> PluginManifest {
+        PluginManifest {
+            name: "fake-provider".to_string(),
+            version: "0.0.0".to_string(),
+            plugin_kind: "provider".to_string(),
+            description: "test fixture".to_string(),
+            protocol_version: "0.1".to_string(),
+            capabilities: Vec::new(),
+            env_required: required,
+            notification_buffer_size: None,
+        }
+    }
+
+    fn discovered(manifest: PluginManifest) -> DiscoveredPlugin {
+        DiscoveredPlugin {
+            name: manifest.name.clone(),
+            path: PathBuf::from("/tmp/fake-probe-plugin"),
+            manifest,
+            source: DiscoverySource::SystemPath,
+        }
+    }
+
+    /// Probe spawn options must carry the manifest's declared env names into
+    /// the allowlist so the plugin process can read its required secret.
+    #[test]
+    fn probe_options_forward_declared_env_when_set() {
+        // Scope the env var to the test; the previous probe behavior used
+        // `default()` and would have produced an empty allowlist.
+        std::env::set_var("FAKE_PROBE_VAR_PRESENT", "expected-value");
+
+        let plugin = discovered(manifest_with_env(vec![EnvRequirement {
+            name: "FAKE_PROBE_VAR_PRESENT".to_string(),
+            description: None,
+            sensitive: false,
+            required: true,
+        }]));
+
+        let opts = build_probe_spawn_options(&plugin);
+
+        assert!(
+            opts.env_allowlist.iter().any(|n| n == "FAKE_PROBE_VAR_PRESENT"),
+            "manifest env_required must propagate into the probe allowlist; got {:?}",
+            opts.env_allowlist
+        );
+        assert!(
+            opts.missing_required_env.is_empty(),
+            "env var is present, so missing_required_env should be empty; got {:?}",
+            opts.missing_required_env
+        );
+
+        std::env::remove_var("FAKE_PROBE_VAR_PRESENT");
+    }
+
+    /// When the var is unset, the probe still forwards the name (so the
+    /// allowlist is correct), but it surfaces the missing-required-env
+    /// list so the operator-visible warn fires and the plugin's own
+    /// "missing key" error path can run instead of a generic unhealthy.
+    #[test]
+    fn probe_options_report_missing_required_env_when_unset() {
+        std::env::remove_var("FAKE_PROBE_VAR_ABSENT");
+
+        let plugin = discovered(manifest_with_env(vec![EnvRequirement {
+            name: "FAKE_PROBE_VAR_ABSENT".to_string(),
+            description: None,
+            sensitive: true,
+            required: true,
+        }]));
+
+        let opts = build_probe_spawn_options(&plugin);
+
+        assert!(
+            opts.env_allowlist.iter().any(|n| n == "FAKE_PROBE_VAR_ABSENT"),
+            "the allowlist still includes the declared name even when unset"
+        );
+        assert_eq!(
+            opts.missing_required_env,
+            vec!["FAKE_PROBE_VAR_ABSENT".to_string()],
+            "required=true with var unset must populate missing_required_env"
+        );
+    }
+
+    /// A manifest with no declared env still produces valid options — this
+    /// is the no-secret subject_backend / web_ui case; the probe must not
+    /// regress to behaving worse than the previous `default()` path for
+    /// plugins that legitimately need no env.
+    #[test]
+    fn probe_options_handle_empty_env_required() {
+        let plugin = discovered(manifest_with_env(Vec::new()));
+        let opts = build_probe_spawn_options(&plugin);
+
+        assert!(opts.env_allowlist.is_empty(), "no declared env => empty allowlist (base allowlist is added by the host)");
+        assert!(opts.missing_required_env.is_empty());
+        assert_eq!(opts.plugin_label.as_deref(), Some("fake-provider"));
     }
 }

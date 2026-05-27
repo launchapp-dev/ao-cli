@@ -29,6 +29,8 @@
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
     "clean": "rm -rf dist coverage",
+    "codegen": "node scripts/codegen.mjs",
+    "codegen:check": "node scripts/codegen-check.mjs",
     "prepack": "npm run build",
     "prepublishOnly": "npm run build"
   },
@@ -42,6 +44,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.12.0",
+    "json-schema-to-typescript": "^15.0.4",
     "typescript": "^5.5.0",
     "vitest": "^1.6.0"
   },

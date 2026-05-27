@@ -110,8 +110,9 @@ pub const PLUGIN_KIND_CUSTOM: &str = "custom";
 ///
 /// The string forms match the `PLUGIN_KIND_*` constants in this module; the
 /// constants remain available for code that needs the literal wire form.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(from = "String", into = "String")]
+#[schemars(with = "String", description = "Plugin role kind. Wire representation is a snake_case string; unknown values round-trip via Other.")]
 #[non_exhaustive]
 pub enum PluginKind {
     /// LLM provider plugin. See [`PLUGIN_KIND_PROVIDER`].
@@ -673,8 +674,9 @@ pub struct TriggerEvent {
 /// more specific instruction (e.g. an explicit `workflow_ref`). Unknown wire
 /// values land in [`TriggerActionHint::Other`] so older hosts can still
 /// forward events from newer plugins without crashing.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(from = "String", into = "String")]
+#[schemars(with = "String", description = "Trigger action hint. Wire representation is a snake_case string; unknown values round-trip via Other.")]
 #[non_exhaustive]
 pub enum TriggerActionHint {
     /// Create a new task with the event payload as initial context.
@@ -749,8 +751,9 @@ pub struct TriggerAckParams {
 /// advance a cursor only on `Dispatched`). Unknown wire values land in
 /// [`TriggerAckStatus::Other`] so newer hosts can introduce additional
 /// statuses without breaking older plugins.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(from = "String", into = "String")]
+#[schemars(with = "String", description = "Trigger ack status. Wire representation is a snake_case string; unknown values round-trip via Other.")]
 #[non_exhaustive]
 pub enum TriggerAckStatus {
     /// Host accepted the event and started the configured workflow.

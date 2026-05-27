@@ -16,7 +16,7 @@
       "type": "string"
     },
     "plugin_kind": {
-      "description": "One of the `PLUGIN_KIND_*` constants.",
+      "description": "One of the `PLUGIN_KIND_*` constants. Prefer\n[`PluginInfo::plugin_kind`] to read this as a typed [`PluginKind`].",
       "type": "string"
     },
     "version": {

@@ -1,14 +1,18 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "TriggerEvent",
-  "description": "A trigger event emitted by a trigger backend plugin.\n\nPlugins deliver these as `trigger/event` JSON-RPC notifications. The host\nroutes the event to the matching trigger configuration; what the host\ndoes next depends on `action_hint` and `subject_id`:\n\n- `subject_id` is set → the host resolves the subject (via the configured\n  subject backend) and may kick the subject's assigned workflow.\n- `action_hint` is `Some(\"create_task\")` → the host creates a new task\n  with `payload` as input context.\n- Otherwise the host enqueues the event against the trigger's\n  `workflow_ref` (if configured) using the existing webhook dispatch path.",
+  "description": "A trigger event emitted by a trigger backend plugin.\n\nPlugins deliver these as `trigger/event` JSON-RPC notifications. The host\nroutes the event to the matching trigger configuration; what the host\ndoes next depends on `action_hint` and `subject_id`:\n\n- `subject_id` is set → the host resolves the subject (via the configured\n  subject backend) and may kick the subject's assigned workflow.\n- `action_hint` is `Some(TriggerActionHint::CreateTask)` → the host creates\n  a new task with `payload` as input context.\n- Otherwise the host enqueues the event against the trigger's\n  `workflow_ref` (if configured) using the existing webhook dispatch path.",
   "type": "object",
   "properties": {
     "action_hint": {
-      "description": "Optional hint for what the host should do (`\"create_task\"`,\n`\"run_workflow\"`, ...). Plugins may omit this and let the host fall\nback to the trigger config's `workflow_ref`.",
-      "type": [
-        "string",
-        "null"
+      "description": "Optional hint for what the host should do. Plugins may omit this and\nlet the host fall back to the trigger config's `workflow_ref`.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TriggerActionHint"
+        },
+        {
+          "type": "null"
+        }
       ]
     },
     "event_id": {
@@ -43,5 +47,11 @@
   },
   "required": [
     "event_id"
-  ]
+  ],
+  "$defs": {
+    "TriggerActionHint": {
+      "description": "Trigger action hint. Wire representation is a snake_case string; unknown values round-trip via Other.",
+      "type": "string"
+    }
+  }
 }

@@ -37,7 +37,7 @@
       "minimum": 0
     },
     "plugin_kind": {
-      "description": "One of the `PLUGIN_KIND_*` constants.",
+      "description": "One of the `PLUGIN_KIND_*` constants. Prefer\n[`PluginManifest::kind`] to read this as a typed [`PluginKind`].",
       "type": "string"
     },
     "protocol_version": {

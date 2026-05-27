@@ -9,14 +9,24 @@
       "type": "string"
     },
     "status": {
-      "description": "Optional status the host wants to report (`\"dispatched\"`,\n`\"skipped\"`, `\"failed\"`).",
-      "type": [
-        "string",
-        "null"
+      "description": "Optional status the host wants to report. See [`TriggerAckStatus`].",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TriggerAckStatus"
+        },
+        {
+          "type": "null"
+        }
       ]
     }
   },
   "required": [
     "event_id"
-  ]
+  ],
+  "$defs": {
+    "TriggerAckStatus": {
+      "description": "Trigger ack status. Wire representation is a snake_case string; unknown values round-trip via Other.",
+      "type": "string"
+    }
+  }
 }

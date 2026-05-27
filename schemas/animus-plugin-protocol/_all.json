@@ -270,7 +270,7 @@
           "type": "string"
         },
         "plugin_kind": {
-          "description": "One of the `PLUGIN_KIND_*` constants.",
+          "description": "One of the `PLUGIN_KIND_*` constants. Prefer\n[`PluginInfo::plugin_kind`] to read this as a typed [`PluginKind`].",
           "type": "string"
         },
         "version": {
@@ -322,7 +322,7 @@
           ]
         },
         "plugin_kind": {
-          "description": "One of the `PLUGIN_KIND_*` constants.",
+          "description": "One of the `PLUGIN_KIND_*` constants. Prefer\n[`PluginManifest::kind`] to read this as a typed [`PluginKind`].",
           "type": "string"
         },
         "protocol_version": {
@@ -453,11 +453,15 @@
           "type": "string"
         },
         "status": {
-          "description": "Optional status the host wants to report (`\"dispatched\"`,\n`\"skipped\"`, `\"failed\"`).",
-          "type": [
-            "string",
-            "null"
-          ]
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TriggerAckStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional status the host wants to report. See [`TriggerAckStatus`]."
         }
       },
       "required": [
@@ -466,15 +470,27 @@
       "title": "TriggerAckParams",
       "type": "object"
     },
+    "TriggerAckStatus": {
+      "description": "Trigger ack status. Wire representation is a snake_case string; unknown values round-trip via Other.",
+      "type": "string"
+    },
+    "TriggerActionHint": {
+      "description": "Trigger action hint. Wire representation is a snake_case string; unknown values round-trip via Other.",
+      "type": "string"
+    },
     "TriggerEvent": {
-      "description": "A trigger event emitted by a trigger backend plugin.\n\nPlugins deliver these as `trigger/event` JSON-RPC notifications. The host\nroutes the event to the matching trigger configuration; what the host\ndoes next depends on `action_hint` and `subject_id`:\n\n- `subject_id` is set → the host resolves the subject (via the configured\n  subject backend) and may kick the subject's assigned workflow.\n- `action_hint` is `Some(\"create_task\")` → the host creates a new task\n  with `payload` as input context.\n- Otherwise the host enqueues the event against the trigger's\n  `workflow_ref` (if configured) using the existing webhook dispatch path.",
+      "description": "A trigger event emitted by a trigger backend plugin.\n\nPlugins deliver these as `trigger/event` JSON-RPC notifications. The host\nroutes the event to the matching trigger configuration; what the host\ndoes next depends on `action_hint` and `subject_id`:\n\n- `subject_id` is set → the host resolves the subject (via the configured\n  subject backend) and may kick the subject's assigned workflow.\n- `action_hint` is `Some(TriggerActionHint::CreateTask)` → the host creates\n  a new task with `payload` as input context.\n- Otherwise the host enqueues the event against the trigger's\n  `workflow_ref` (if configured) using the existing webhook dispatch path.",
       "properties": {
         "action_hint": {
-          "description": "Optional hint for what the host should do (`\"create_task\"`,\n`\"run_workflow\"`, ...). Plugins may omit this and let the host fall\nback to the trigger config's `workflow_ref`.",
-          "type": [
-            "string",
-            "null"
-          ]
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TriggerActionHint"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional hint for what the host should do. Plugins may omit this and\nlet the host fall back to the trigger config's `workflow_ref`."
         },
         "event_id": {
           "description": "Unique event id assigned by the plugin. Used by the host to send back\n`trigger/ack`. Plugins should make this stable across restarts when\npossible so duplicate deliveries can be deduplicated.",

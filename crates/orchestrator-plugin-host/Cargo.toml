@@ -25,6 +25,7 @@ tempfile = "3"
 # Kept as a dev-dep so we don't pull syn into the production binary.
 syn = { version = "2", features = ["full", "extra-traits", "parsing"] }
 proc-macro2 = "1"
+regex = "1"
 
 [lints]
 workspace = true

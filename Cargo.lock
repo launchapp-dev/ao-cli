@@ -2313,6 +2313,7 @@ dependencies = [
  "chrono",
  "dirs 6.0.0",
  "proc-macro2",
+ "regex",
  "semver",
  "serde",
  "serde_json",

@@ -1838,13 +1838,31 @@ fn find_bundle_sidecar<'a>(assets: &'a [GithubReleaseAsset], asset_name: &str) -
     assets.iter().find(|a| a.name.eq_ignore_ascii_case(&bundle_name))
 }
 
+/// Regex-escape a GitHub owner or repo segment so it can be embedded in
+/// a `cosign --certificate-identity-regexp` pattern without leaking regex
+/// metacharacters. GitHub slugs are restricted to `[A-Za-z0-9._-]`, all of
+/// which are safe to pass through; this helper exists purely as a
+/// defense-in-depth guard against a future slug rule change.
+fn regex_escape_for_identity(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '.' | '+' | '*' | '?' | '(' | ')' | '|' | '[' | ']' | '{' | '}' | '^' | '$' | '\\' => {
+                out.push('\\');
+                out.push(c);
+            }
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 /// Bridge between [`orchestrator_plugin_host::VerificationResult`] (the
 /// policy-aware result type) and the CLI-internal [`SignatureStatus`]
-/// that's persisted in `plugins.yaml` and the install envelope. The
-/// CLI's own keyless verification path (`verify_with_cosign`) produces
-/// `SignatureStatus` directly; this bridge is reserved for callers that
-/// route through the plugin-host `verify_plugin_install` entry point.
-#[cfg_attr(not(test), allow(dead_code))]
+/// that's persisted in `plugins.yaml` and the install envelope. Used
+/// when `resolve_signature_status` routes through the plugin-host's
+/// strict `TrustedPublisher` keyless verifier (e.g. for `launchapp-dev`
+/// owners).
 fn map_host_result_to_status(
     result: orchestrator_plugin_host::VerificationResult,
     bundle_path: &Path,
@@ -1984,6 +2002,76 @@ fn resolve_signature_status(req: &PluginInstallRequest, provenance: &InstallProv
         None
     };
 
+    if req.trust_key.is_some() {
+        tracing::warn!(
+            "--trust-key is deprecated as of v0.4.12 and has no effect: keyless cosign verification uses \
+             --signature-policy plus the built-in TrustedPublisher list (launchapp-dev keyless). The flag \
+             will be removed in a future release."
+        );
+    }
+
+    // Trusted-publisher path: when the install owner is in the host's
+    // `SignaturePolicy::default_install()` trusted-publisher list, delegate
+    // to the host's strict keyless verifier. This is the ONLY path that
+    // anchors verification to the `/.github/workflows/release.yml@refs/tags/v*`
+    // identity regex; the legacy per-spec `verify_with_cosign` fallback below
+    // uses a much weaker `^https://github\.com/<owner>/<repo>/.+` pattern
+    // that would accept signatures from any workflow on any ref.
+    if let (Some(owner), Some(repo)) = (provenance.owner.as_deref(), provenance.repo.as_deref()) {
+        let org_publisher = orchestrator_plugin_host::TrustedPublisher::launchapp_dev();
+        if org_publisher.owner == owner {
+            // Narrow the org-wide TrustedPublisher regex to the SPECIFIC repo
+            // the operator asked to install. The lib's launchapp-dev regex
+            // accepts any `launchapp-dev/[^/]+/.../release.yml@refs/tags/v.*`,
+            // which would let cosign verify a bundle signed by a different
+            // launchapp-dev repo against the install for `animus-provider-claude`.
+            // Pinning the repo segment here closes that hole while keeping the
+            // workflow URI + tag anchors the lib enforces.
+            let pinned_regex = format!(
+                "^https://github\\.com/{}/{}/\\.github/workflows/release\\.yml@refs/tags/v.*",
+                regex_escape_for_identity(owner),
+                regex_escape_for_identity(repo)
+            );
+            let pinned_publisher = orchestrator_plugin_host::TrustedPublisher {
+                owner: org_publisher.owner.clone(),
+                identity_regex: pinned_regex,
+                oidc_issuer: org_publisher.oidc_issuer.clone(),
+            };
+            let host_policy = orchestrator_plugin_host::SignaturePolicy {
+                mode: match effective_policy_mode(req) {
+                    PluginPolicyMode::Strict => orchestrator_plugin_host::PolicyMode::Strict,
+                    PluginPolicyMode::Warn => orchestrator_plugin_host::PolicyMode::Warn,
+                    PluginPolicyMode::Disabled => orchestrator_plugin_host::PolicyMode::Disabled,
+                },
+                trusted_publishers: vec![pinned_publisher],
+                allow_unsigned_for: Vec::new(),
+            };
+            let repo_spec = format!("{owner}/{repo}");
+            let host_result = orchestrator_plugin_host::verify_plugin_install(
+                &repo_spec,
+                asset_archive,
+                Some(bundle_path),
+                &host_policy,
+            )?;
+            let mapped = map_host_result_to_status(host_result, bundle_path);
+            // Re-apply the operator's `trusted-signers.yaml` allowlist on top of
+            // the host's TrustedPublisher verdict — even with the pinned regex,
+            // an operator may have narrowed `trusted-signers.yaml` to a subset
+            // of launchapp-dev repos and that allowlist must still bind.
+            if let SignatureStatus::Verified { .. } = &mapped {
+                if let Some(cfg) = trusted.as_ref() {
+                    let slug = format!("{owner}/{repo}");
+                    if !cfg.matches_repo(&slug) {
+                        return Ok(SignatureStatus::UntrustedSigner {
+                            identity_pattern: identity_regex.unwrap_or_else(|| ".*".to_string()),
+                        });
+                    }
+                }
+            }
+            return Ok(mapped);
+        }
+    }
+
     if !cosign_available() {
         let mode = effective_policy_mode(req);
         let suffix = if matches!(mode, PluginPolicyMode::Strict) {
@@ -1996,14 +2084,6 @@ fn resolve_signature_status(req: &PluginInstallRequest, provenance: &InstallProv
                 "cosign binary not found on PATH; install cosign from https://github.com/sigstore/cosign to enable signature verification{suffix}"
             ),
         });
-    }
-
-    if req.trust_key.is_some() {
-        tracing::warn!(
-            "--trust-key is deprecated as of v0.4.12 and has no effect: keyless cosign verification uses \
-             --signature-policy plus the built-in TrustedPublisher list (launchapp-dev keyless). The flag \
-             will be removed in a future release."
-        );
     }
 
     let status = verify_with_cosign(asset_archive, bundle_path, identity_regex.as_deref(), GITHUB_OIDC_ISSUER)?;
@@ -2873,6 +2953,144 @@ mod tests {
         let status = resolve_signature_status(&req, &prov).expect("status should resolve");
         // Without cosign on PATH: Unsigned. With cosign: Invalid (fake bytes).
         assert!(matches!(&status, SignatureStatus::Unsigned { .. } | SignatureStatus::Invalid { .. }));
+    }
+
+    /// Wiring guard: a launchapp-dev install with a bundle present must
+    /// route through `orchestrator_plugin_host::verify_plugin_install`,
+    /// which anchors on the strict
+    /// `^https://github\.com/launchapp-dev/[^/]+/\.github/workflows/release\.yml@refs/tags/v.*`
+    /// regex (not the legacy per-spec `^https://github\.com/<owner>/<repo>/.+`
+    /// pattern from signing.rs). We verify the wiring by checking the
+    /// identity_pattern surfaced on the Invalid result.
+    #[test]
+    fn launchapp_dev_install_uses_strict_trusted_publisher_regex() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bundle = tmp.path().join("fake.bundle");
+        std::fs::write(&bundle, b"not a real bundle").unwrap();
+        let archive = tmp.path().join("animus-provider-claude.tar.gz");
+        std::fs::write(&archive, b"fake archive").unwrap();
+        let mut prov = release_provenance_with_bundle(Some(bundle));
+        prov.asset_archive_path = Some(archive);
+
+        let req = PluginInstallRequest::default();
+        let status = resolve_signature_status(&req, &prov).expect("resolves");
+
+        match &status {
+            SignatureStatus::Invalid { identity_pattern, .. } => {
+                assert!(
+                    identity_pattern.contains("\\.github/workflows/release\\.yml@refs/tags/v"),
+                    "launchapp-dev path must use the strict TrustedPublisher regex anchored at \
+                     `/.github/workflows/release.yml@refs/tags/v*`, got: {identity_pattern}"
+                );
+                assert!(
+                    identity_pattern.contains("launchapp-dev/animus-provider-claude/"),
+                    "identity pattern must be pinned to the requested repo, got: {identity_pattern}"
+                );
+                assert!(
+                    !identity_pattern.contains("[^/]+"),
+                    "identity pattern must NOT use the org-wide `[^/]+` wildcard, got: {identity_pattern}"
+                );
+            }
+            SignatureStatus::Unsigned { reason } => {
+                assert!(
+                    reason.contains("cosign"),
+                    "Unsigned reason must come from the host's cosign-missing path, got: {reason}"
+                );
+            }
+            other => panic!("expected Invalid or Unsigned from host TrustedPublisher path, got: {other:?}"),
+        }
+    }
+
+    /// Regression for codex round-2 P1: the regex helper preserves safe
+    /// GitHub slug characters and escapes regex metacharacters. Even though
+    /// real GitHub owner/repo slugs only contain `[A-Za-z0-9._-]`, this
+    /// keeps the cosign command line safe if that ever changes.
+    #[test]
+    fn regex_escape_for_identity_passes_safe_chars_through() {
+        assert_eq!(regex_escape_for_identity("launchapp-dev"), "launchapp-dev");
+        assert_eq!(regex_escape_for_identity("animus-provider-claude"), "animus-provider-claude");
+        assert_eq!(regex_escape_for_identity("animus_subject.linear"), "animus_subject\\.linear");
+        assert_eq!(regex_escape_for_identity("a.b+c*d"), "a\\.b\\+c\\*d");
+    }
+
+    /// Strict mode + missing bundle on a launchapp-dev install must Block
+    /// the install (Unsigned -> strict failure). Guards against a future
+    /// regression that lets the launchapp-dev install path silently succeed
+    /// when no signature bundle was published.
+    #[test]
+    fn launchapp_dev_strict_install_blocks_when_bundle_missing() {
+        let req = PluginInstallRequest { signature_policy: Some(PluginPolicyMode::Strict), ..Default::default() };
+        let prov = release_provenance_with_bundle(None);
+        let status = resolve_signature_status(&req, &prov).expect("resolves");
+        assert!(matches!(&status, SignatureStatus::Unsigned { .. }), "missing bundle must yield Unsigned");
+
+        let outcome = evaluate_signature_policy(&status, PluginPolicyMode::Strict, false);
+        assert!(
+            matches!(outcome, SignaturePolicyOutcome::Block { .. }),
+            "strict + missing bundle on launchapp-dev install must Block, got: {outcome:?}"
+        );
+    }
+
+    /// Regression: when the host TrustedPublisher path verifies a
+    /// launchapp-dev install but the operator has narrowed
+    /// `trusted-signers.yaml` to a different repo, the verdict must
+    /// still flip to `UntrustedSigner`. Without this gate, the host's
+    /// owner-wide TrustedPublisher policy would bypass the operator's
+    /// per-repo allowlist (codex round-1 P1).
+    #[test]
+    fn launchapp_dev_host_verify_respects_trusted_signers_repo_narrowing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let signers_yaml = tmp.path().join("trusted-signers.yaml");
+        std::fs::write(&signers_yaml, "trusted_signers:\n  - identity: \"launchapp-dev/animus-subject-linear\"\n")
+            .unwrap();
+
+        let mapped = SignatureStatus::Verified {
+            identity: "^https://github\\.com/launchapp-dev/[^/]+/\\.github/workflows/release\\.yml@refs/tags/v.*"
+                .to_string(),
+            bundle_path: "/tmp/x.bundle".to_string(),
+        };
+        let cfg = load_trusted_signers(&signers_yaml).unwrap().expect("config loads");
+        let owner = "launchapp-dev";
+        let repo = "animus-provider-claude";
+        let slug = format!("{owner}/{repo}");
+
+        let allowlisted = cfg.matches_repo(&slug);
+        assert!(!allowlisted, "non-allowlisted repo must NOT match the narrowed yaml");
+
+        let identity_regex = Some(cfg.identity_regexp_for(owner, repo));
+        let gated = if let SignatureStatus::Verified { .. } = &mapped {
+            if !cfg.matches_repo(&slug) {
+                SignatureStatus::UntrustedSigner {
+                    identity_pattern: identity_regex.unwrap_or_else(|| ".*".to_string()),
+                }
+            } else {
+                mapped
+            }
+        } else {
+            mapped
+        };
+        match gated {
+            SignatureStatus::UntrustedSigner { identity_pattern } => {
+                assert!(identity_pattern.contains("animus-provider-claude"));
+            }
+            other => panic!("narrowed allowlist must downgrade Verified -> UntrustedSigner, got: {other:?}"),
+        }
+    }
+
+    /// Disabled mode (the `--signature-policy disabled` / `--skip-signature`
+    /// escape hatch) must continue to short-circuit BEFORE the host
+    /// TrustedPublisher path — proving the escape hatch survives the wiring.
+    #[test]
+    fn launchapp_dev_install_respects_disabled_escape_hatch() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bundle = tmp.path().join("fake.bundle");
+        std::fs::write(&bundle, b"not a real bundle").unwrap();
+        let mut prov = release_provenance_with_bundle(Some(bundle));
+        prov.asset_archive_path = Some(tmp.path().join("animus-provider-claude.tar.gz"));
+
+        let req = PluginInstallRequest { signature_policy: Some(PluginPolicyMode::Disabled), ..Default::default() };
+        let status = resolve_signature_status(&req, &prov).expect("resolves");
+        assert_eq!(status, SignatureStatus::Skipped);
     }
 
     #[test]

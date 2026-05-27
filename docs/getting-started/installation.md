@@ -113,11 +113,11 @@ animus plugin install-defaults --include-subjects --include-transports
 
 This installs:
 
-- 5 providers (`animus-provider-claude` v0.2.1, `animus-provider-{codex,gemini,opencode}` v0.2.2, `animus-provider-oai` v0.2.1) — daemon requires at least one
-- 5 subject backends (`animus-subject-{default,requirements,linear,sqlite,markdown}` v0.1.0) — daemon requires `default` for `kind=task` and `requirements` for `kind=requirement`
-- 3 transport + UI plugins (`animus-transport-{http,graphql}` + `animus-web-ui`) — required for `animus web serve`
+- 5 providers (`animus-provider-claude` v0.2.2, `animus-provider-{codex,gemini,opencode}` v0.2.3, `animus-provider-oai` v0.2.2) — daemon requires at least one
+- 5 subject backends (`animus-subject-default` v0.1.2, `animus-subject-requirements` v0.1.6, `animus-subject-{linear,sqlite,markdown}` v0.1.4) — daemon requires `default` for `kind=task` and `requirements` for `kind=requirement`
+- 3 transport + UI plugins (`animus-transport-http` v0.2.1, `animus-transport-graphql` v0.2.3, `animus-web-ui` v0.1.1) — required for `animus web serve`
 
-Add `--include-oai-agent` to also install `animus-provider-oai-agent@v0.1.1`
+Add `--include-oai-agent` to also install `animus-provider-oai-agent@v0.1.3`
 (OpenAI Responses API agent loop, separate from the chat completions provider).
 
 **Or install individually:**

@@ -81,7 +81,7 @@ animus plugin update
 To pin a specific plugin to a specific tag:
 
 ```bash
-animus plugin install launchapp-dev/animus-provider-claude@v0.2.1
+animus plugin install launchapp-dev/animus-provider-claude@v0.2.2
 ```
 
 To see which plugins have updates available:

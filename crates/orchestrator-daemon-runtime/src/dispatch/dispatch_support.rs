@@ -36,10 +36,16 @@ fn dispatch_headroom(max_tasks_per_tick: usize, active_agents: usize, capacity_l
 }
 
 /// Compute how many additional processes can be spawned given a pool size and
-/// current active count.  Returns `None` when no pool cap is configured
-/// (unlimited capacity).
+/// current active count. The effective cap is `min(pool_size, runtime quota)`:
+/// `RuntimeQuotas::workflow_concurrency_max` (default 10) always upper-bounds
+/// the result so scheduler/trigger paths never select more work than
+/// `ProcessManager::spawn_workflow_runner` will accept. Without this,
+/// rejected schedules still get marked `last_run` / `run_count` and webhook
+/// events get drained without a runner ever starting.
 pub fn schedule_headroom(pool_size: Option<usize>, active_process_count: usize) -> Option<usize> {
-    pool_size.map(|limit| limit.saturating_sub(active_process_count))
+    let quota = crate::quotas::runtime_quotas().workflow_concurrency_max;
+    let effective = pool_size.map(|p| p.min(quota)).unwrap_or(quota);
+    Some(effective.saturating_sub(active_process_count))
 }
 
 pub fn normalize_optional_id(value: Option<&str>) -> Option<String> {
@@ -135,7 +141,44 @@ mod tests {
     }
 
     #[test]
-    fn schedule_headroom_without_pool_cap() {
-        assert_eq!(schedule_headroom(None, 10), None);
+    fn schedule_headroom_with_pool_size_above_quota_caps_at_quota() {
+        // Regression for the codex finding: if `pool_size` exceeds the
+        // process-wide `RuntimeQuotas::workflow_concurrency_max`, the
+        // effective cap must collapse to the quota. Otherwise scheduler /
+        // trigger paths consume extra due work whose runner the spawn
+        // site will immediately refuse — schedules get marked attempted
+        // and webhook events get drained without anything running.
+        let quota = crate::quotas::runtime_quotas().workflow_concurrency_max;
+        let oversized_pool = quota.saturating_add(10);
+
+        let headroom = schedule_headroom(Some(oversized_pool), 0);
+        assert_eq!(
+            headroom,
+            Some(quota),
+            "headroom must cap at quota ({quota}) even when pool_size ({oversized_pool}) is larger"
+        );
+    }
+
+    #[test]
+    fn schedule_headroom_without_pool_cap_falls_back_to_runtime_quota() {
+        // No explicit pool_size: headroom is bounded by
+        // `RuntimeQuotas::workflow_concurrency_max` (process-wide,
+        // default 10 from `DEFAULT_WORKFLOW_CONCURRENCY_MAX`). We
+        // can't assert an exact value because other tests in the
+        // binary may have installed a different quota via
+        // `install_runtime_quotas`; we only assert the contract:
+        // (1) headroom is bounded (Some, not None),
+        // (2) headroom == quota - active when quota >= active,
+        // (3) headroom saturates at 0 when active > quota.
+        let quota = crate::quotas::runtime_quotas().workflow_concurrency_max;
+
+        let headroom_with_room = schedule_headroom(None, 0);
+        assert_eq!(headroom_with_room, Some(quota), "no active: full quota available");
+
+        let headroom_at_cap = schedule_headroom(None, quota);
+        assert_eq!(headroom_at_cap, Some(0), "at cap: no headroom");
+
+        let headroom_over_cap = schedule_headroom(None, quota.saturating_add(5));
+        assert_eq!(headroom_over_cap, Some(0), "over cap: saturating, never negative or None");
     }
 }

@@ -68,6 +68,20 @@ impl SubprocessEventPipe {
         subject_label: &str,
         broadcaster: Arc<WorkflowEventBroadcaster>,
     ) -> std::io::Result<Self> {
+        Self::bind_sync(pipe_root, subject_label, broadcaster)
+    }
+
+    /// Synchronous bind variant. Performs the socket bind on the calling
+    /// thread (a couple of syscalls) and spawns the reader task on the
+    /// current Tokio runtime. Returns an error if no runtime is current or
+    /// if bind fails. Used by the sync subprocess-spawn path so we don't
+    /// have to block on a channel waiting for an async task to call
+    /// `bind`.
+    pub fn bind_sync(
+        pipe_root: &Path,
+        subject_label: &str,
+        broadcaster: Arc<WorkflowEventBroadcaster>,
+    ) -> std::io::Result<Self> {
         std::fs::create_dir_all(pipe_root)?;
         // Unix domain socket paths are capped (SUN_LEN — ~104 bytes on
         // macOS, 108 on Linux). Pick a socket directory whose path fits
@@ -86,7 +100,13 @@ impl SubprocessEventPipe {
         if socket_path.exists() {
             let _ = std::fs::remove_file(&socket_path);
         }
-        let listener = tokio::net::UnixListener::bind(&socket_path)?;
+        // Bind synchronously via std, then promote to a Tokio listener. We
+        // require a current Tokio runtime so the reader task has somewhere
+        // to live; the caller (subprocess spawn site) always runs inside
+        // the daemon runtime.
+        let std_listener = std::os::unix::net::UnixListener::bind(&socket_path)?;
+        std_listener.set_nonblocking(true)?;
+        let listener = tokio::net::UnixListener::from_std(std_listener)?;
 
         let socket_path_clone = socket_path.clone();
         let reader_task = tokio::spawn(async move {
@@ -290,6 +310,43 @@ mod tests {
 
         pipe.shutdown().await;
         assert!(!socket_path.exists(), "socket file should be removed on shutdown");
+    }
+
+    #[tokio::test]
+    async fn bind_sync_does_not_block_runtime_and_forwards_events() {
+        // Regression: previously the subprocess-spawn site spawned an
+        // async bind task and waited on a `std::sync::mpsc::Receiver`,
+        // which could deadlock a current-thread runtime and stall a
+        // worker on a multi-thread runtime. The `bind_sync` path binds
+        // on the calling thread (no waiting on another task) and just
+        // spawns the reader. This test asserts the sync entry point
+        // works end-to-end without any rx.recv() hop.
+        let temp = tempdir().expect("tempdir");
+        let bus = WorkflowEventBroadcaster::new();
+        let (_id, mut rx) = bus.subscribe(WorkflowEventFilter::default());
+
+        let pipe = SubprocessEventPipe::bind_sync(temp.path(), "wf-sync-bind", bus.clone()).expect("bind_sync");
+        let socket_path = pipe.socket_path().to_path_buf();
+
+        let writer_path = socket_path.clone();
+        let writer = tokio::task::spawn_blocking(move || {
+            let mut stream = UnixStream::connect(&writer_path).expect("connect");
+            let evt = WireWorkflowEvent {
+                workflow_id: "wf-sync".to_string(),
+                kind: "phase_started".to_string(),
+                payload: json!({}),
+                occurred_at: Utc::now(),
+            };
+            let mut line = serde_json::to_string(&evt).expect("serialize");
+            line.push('\n');
+            stream.write_all(line.as_bytes()).expect("write");
+        });
+        writer.await.expect("writer task");
+
+        let event = unwrap_event(rx.recv().await.expect("event must arrive"));
+        assert_eq!(event.workflow_id, "wf-sync");
+        assert_eq!(event.kind, "phase_started");
+        pipe.shutdown().await;
     }
 
     #[tokio::test]

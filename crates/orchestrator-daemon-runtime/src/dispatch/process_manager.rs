@@ -63,10 +63,12 @@ impl Default for ProcessManager {
 
 impl ProcessManager {
     pub fn new() -> Self {
-        // The workflow concurrency cap only takes effect when the operator
-        // explicitly sets `ANIMUS_WORKFLOW_CONCURRENCY_MAX`. Falling back
-        // to `None` preserves the legacy unbounded behavior for
-        // deployments that rely on `pool_size` / external scheduling.
+        // The workflow concurrency cap is sourced from `RuntimeQuotas`
+        // (which reads `ANIMUS_WORKFLOW_CONCURRENCY_MAX` once at install
+        // time, with a documented default of 10). When the env var is
+        // explicitly set, the quota struct still honors it — this keeps
+        // the operator escape hatch working while ensuring the documented
+        // default actually applies even when no env var is present.
         //
         // The subprocess workflow_events broadcaster is NOT looked up
         // here — it is picked up lazily on each spawn via
@@ -74,10 +76,7 @@ impl ProcessManager {
         // a `ProcessManager` constructed before `run_daemon` installs
         // the broadcaster (the normal CLI startup sequence) still
         // attaches per-run pipes once the daemon is live.
-        let workflow_concurrency_max = std::env::var("ANIMUS_WORKFLOW_CONCURRENCY_MAX")
-            .ok()
-            .and_then(|raw| raw.trim().parse::<usize>().ok())
-            .filter(|n| *n > 0);
+        let workflow_concurrency_max = Some(crate::quotas::runtime_quotas().workflow_concurrency_max);
         Self {
             processes: Vec::new(),
             process_timeout_secs: None,
@@ -108,10 +107,18 @@ impl ProcessManager {
         self
     }
 
-    /// Cap on the number of concurrently-running runner subprocesses.
-    /// `None` means unlimited (legacy default). Once the cap is reached,
+    /// Override the cap on the number of concurrently-running runner
+    /// subprocesses. `Some(n)` pins the cap at `n`; `None` disables the
+    /// cap entirely (unbounded — for tests / specialty deployments that
+    /// rely on external scheduling). When the cap is reached,
     /// [`Self::spawn_workflow_runner`] returns a recoverable error and
-    /// the caller leaves the entry in the dispatch queue for the next tick.
+    /// the caller leaves the entry in the dispatch queue for the next
+    /// tick.
+    ///
+    /// Note: the default cap (from `ProcessManager::new()`) is already
+    /// seeded from `RuntimeQuotas::workflow_concurrency_max`, so this
+    /// setter is only needed when overriding for tests or specialty
+    /// dispatchers.
     pub fn with_workflow_concurrency_max(mut self, max: Option<usize>) -> Self {
         self.workflow_concurrency_max = max;
         self
@@ -206,19 +213,24 @@ impl ProcessManager {
             None => default_event_pipe_root(),
         };
         let subject_label = dispatch.subject_id().to_string();
-        // Bind the listener on the same Tokio runtime the daemon is running
-        // on. We need a synchronous-looking result so we use a oneshot
-        // channel and block on its receiver — this only blocks for as long
-        // as `bind` itself takes (a couple of syscalls).
-        let handle = tokio::runtime::Handle::try_current().ok()?;
-        let (tx, rx) = std::sync::mpsc::channel();
-        handle.spawn(async move {
-            let result = SubprocessEventPipe::bind(&pipe_root, &subject_label, broadcaster).await;
-            let _ = tx.send(result);
-        });
-        let pipe = match rx.recv() {
-            Ok(Ok(pipe)) => Some(pipe),
-            Ok(Err(error)) => {
+        // Bind synchronously on the calling thread (just a couple of
+        // syscalls) and let `SubprocessEventPipe::bind_sync` spawn the
+        // reader task on the current Tokio runtime. This avoids the
+        // previous pattern of spawning a bind helper task and blocking
+        // on a channel for its result, which could deadlock on a
+        // current-thread runtime and stall an executor worker on
+        // multi-thread runtimes.
+        //
+        // Requires a current Tokio runtime (the reader task needs a home);
+        // returning `None` when none is present preserves legacy
+        // best-effort semantics — the workflow still spawns, only the
+        // fan-out is dropped for that run.
+        if tokio::runtime::Handle::try_current().is_err() {
+            return None;
+        }
+        let pipe = match SubprocessEventPipe::bind_sync(&pipe_root, &subject_label, broadcaster) {
+            Ok(pipe) => Some(pipe),
+            Err(error) => {
                 tracing::warn!(
                     target: "animus.runtime.event_pipe",
                     %error,
@@ -226,7 +238,6 @@ impl ProcessManager {
                 );
                 None
             }
-            Err(_) => None,
         };
         if let Some(ref pipe) = pipe {
             command.env(SubprocessEventPipe::env_var(), pipe.socket_path());
@@ -428,6 +439,26 @@ mod tests {
     fn new_process_manager_starts_empty() {
         let manager = ProcessManager::new();
         assert_eq!(manager.active_count(), 0);
+    }
+
+    #[test]
+    fn new_process_manager_seeds_concurrency_cap_from_runtime_quotas() {
+        // `ProcessManager::new()` must always seed `workflow_concurrency_max`
+        // from `RuntimeQuotas` — never leave it `None`. Previously the
+        // field was `None` unless `ANIMUS_WORKFLOW_CONCURRENCY_MAX` was
+        // explicitly set, leaving the spawn site unbounded for typical
+        // operators and contradicting the documented "default 10" cap
+        // in the v0.4.13 CHANGELOG.
+        //
+        // We don't mutate the env here (would race other tests sharing
+        // the process); we only assert the wiring: whatever the
+        // process-wide quota currently is, `ProcessManager::new()`
+        // mirrors it as `Some(quota)`.
+        let manager = ProcessManager::new();
+        let cap = manager.workflow_concurrency_max.expect("default cap must be wired from RuntimeQuotas");
+        let expected = crate::quotas::runtime_quotas().workflow_concurrency_max;
+        assert_eq!(cap, expected, "ProcessManager cap must match the live RuntimeQuotas value");
+        assert!(cap > 0, "default workflow concurrency must be > 0; got {cap}");
     }
 
     #[tokio::test]

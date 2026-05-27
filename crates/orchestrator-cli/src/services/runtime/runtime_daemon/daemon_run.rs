@@ -765,6 +765,14 @@ pub(super) async fn handle_daemon_run(args: DaemonRunArgs, project_root: &str, j
     };
     let workflow_config = orchestrator_core::load_workflow_config_or_default(std::path::Path::new(project_root));
     let daemon_config = workflow_config.config.daemon.as_ref();
+    // Install the process-wide RuntimeQuotas BEFORE constructing
+    // `ProcessManager`. `ProcessManager::new()` reads
+    // `RuntimeQuotas::workflow_concurrency_max` to seed its spawn cap, so
+    // the install must win the OnceLock race here even though
+    // `run_daemon` later calls `install_runtime_quotas` again (the second
+    // install is a no-op by design). First-installer-wins keeps tests and
+    // tweaked quota setters intact.
+    orchestrator_daemon_runtime::install_runtime_quotas(orchestrator_daemon_runtime::RuntimeQuotas::from_env());
     let mut process_manager = ProcessManager::new().with_timeout(runtime_options.phase_timeout_secs);
     process_manager.phase_routing = daemon_config.and_then(|d| d.phase_routing.clone());
     process_manager.mcp_config = daemon_config.and_then(|d| d.mcp.clone());

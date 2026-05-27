@@ -467,6 +467,181 @@ async fn host_error_timeout_display_includes_duration() {
     assert!(message.contains("123"), "Timeout error should mention the duration; got: {message}");
 }
 
+// ---------------------------------------------------------------------------
+// Transport-lifecycle contract.
+//
+// Spec (animus-transport-protocol v0.1.13, spec.md §13): the host MUST drive
+// `initialize` → `transport/start` → (work) → `transport/shutdown` → generic
+// `shutdown` on every transport_backend plugin. Pre-spec plugins respond to
+// `transport/shutdown` with METHOD_NOT_FOUND and the host MUST treat that as
+// a no-op so legacy launchapp-dev transports keep working during the
+// ecosystem upgrade.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn shutdown_transport_drains_then_generic_shutdown_runs() {
+    use animus_plugin_protocol::error_codes;
+
+    let scripted = spawn_scripted_plugin(64 * 1024);
+    let (host, mut driver) = scripted.into_host();
+
+    // Record the methods the host issues, in order. Spec demands:
+    //   initialize → work → transport/shutdown → shutdown → exit
+    let methods: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+
+    let driver_methods = methods.clone();
+    let driver_task: JoinHandle<()> = tokio::spawn(async move {
+        loop {
+            let req = match tokio::time::timeout(Duration::from_secs(5), driver.next_request()).await {
+                Ok(req) => req,
+                Err(_) => return,
+            };
+            driver_methods.lock().unwrap().push(req.method.clone());
+            // Respond to anything with an id. Notifications (no id) are
+            // observed but get no reply.
+            if let Some(id) = req.id.clone() {
+                match req.method.as_str() {
+                    "initialize" => {
+                        driver
+                            .send_response(
+                                id,
+                                json!({
+                                    "protocol_version": animus_plugin_protocol::PROTOCOL_VERSION,
+                                    "plugin_info": {
+                                        "name": "mock-transport",
+                                        "version": "0.1.0",
+                                        "plugin_kind": "transport_backend",
+                                    },
+                                    "capabilities": {},
+                                }),
+                            )
+                            .await;
+                    }
+                    "transport/shutdown" => {
+                        driver.send_response(id, json!({"shutdown": true})).await;
+                    }
+                    "shutdown" => {
+                        driver.send_response(id, json!({})).await;
+                    }
+                    _ => {
+                        // Reply OK to anything else (work). The test exercises
+                        // a single `request("work", ...)` call between the
+                        // handshake and shutdown.
+                        driver.send_response(id, json!({"ok": true})).await;
+                    }
+                }
+            }
+        }
+    });
+
+    // Drive the spec lifecycle.
+    host.handshake().await.expect("handshake");
+    host.request("work", Some(json!({"step": 1}))).await.expect("work");
+    host.shutdown_transport().await.expect("transport/shutdown should succeed");
+    host.shutdown().await.expect("generic shutdown");
+    drop(driver_task);
+
+    // Verify the ordering. `initialized` is a notification the host sends
+    // post-handshake; it shows up between `initialize` and `work`.
+    let recorded = methods.lock().unwrap().clone();
+    let positions = |needle: &str| -> Option<usize> { recorded.iter().position(|m| m == needle) };
+
+    let p_init = positions("initialize").expect("initialize must be sent");
+    let p_work = positions("work").expect("work must be sent");
+    let p_t_shutdown =
+        positions("transport/shutdown").expect("transport/shutdown must be sent BEFORE generic shutdown");
+    let p_shutdown = positions("shutdown").expect("generic shutdown must be sent");
+
+    assert!(p_init < p_work, "initialize must precede work; got {recorded:?}");
+    assert!(p_work < p_t_shutdown, "work must precede transport/shutdown; got {recorded:?}");
+    assert!(
+        p_t_shutdown < p_shutdown,
+        "transport/shutdown must precede generic shutdown (spec §13.4); got {recorded:?}"
+    );
+
+    // Defensive: make sure no shutdown was sent before transport/shutdown.
+    assert_eq!(
+        recorded.iter().filter(|m| m.as_str() == "transport/shutdown").count(),
+        1,
+        "transport/shutdown should be sent exactly once; got {recorded:?}"
+    );
+    assert_eq!(
+        recorded.iter().filter(|m| m.as_str() == "shutdown").count(),
+        1,
+        "generic shutdown should be sent exactly once; got {recorded:?}"
+    );
+
+    // Sanity: the JSON-RPC method names match the wire constants exported by
+    // the host crate so a future rename surfaces here too.
+    assert_eq!(orchestrator_plugin_host::TRANSPORT_METHOD_START, "transport/start");
+    assert_eq!(orchestrator_plugin_host::TRANSPORT_METHOD_SHUTDOWN, "transport/shutdown");
+    let _ = error_codes::METHOD_NOT_FOUND; // keep import used
+}
+
+#[tokio::test]
+async fn shutdown_transport_swallows_method_not_found_for_legacy_plugins() {
+    use animus_plugin_protocol::error_codes;
+
+    let scripted = spawn_scripted_plugin(64 * 1024);
+    let (host, mut driver) = scripted.into_host();
+
+    let driver_task: JoinHandle<()> = tokio::spawn(async move {
+        loop {
+            let req = match tokio::time::timeout(Duration::from_secs(5), driver.next_request()).await {
+                Ok(req) => req,
+                Err(_) => return,
+            };
+            let Some(id) = req.id.clone() else { continue };
+            match req.method.as_str() {
+                "initialize" => {
+                    driver
+                        .send_response(
+                            id,
+                            json!({
+                                "protocol_version": animus_plugin_protocol::PROTOCOL_VERSION,
+                                "plugin_info": {
+                                    "name": "legacy-transport",
+                                    "version": "0.1.0",
+                                    "plugin_kind": "transport_backend",
+                                },
+                                "capabilities": {},
+                            }),
+                        )
+                        .await;
+                }
+                "transport/shutdown" => {
+                    // Pre-spec plugins do not dispatch `transport/*` and
+                    // reply with the generic JSON-RPC METHOD_NOT_FOUND error.
+                    let response = animus_plugin_protocol::RpcResponse::err(
+                        Some(id),
+                        animus_plugin_protocol::RpcError {
+                            code: error_codes::METHOD_NOT_FOUND,
+                            message: "method not found".to_string(),
+                            data: None,
+                        },
+                    );
+                    let frame = serde_json::to_value(&response).unwrap();
+                    driver.send_frame(frame).await;
+                }
+                "shutdown" => {
+                    driver.send_response(id, json!({})).await;
+                }
+                _ => {
+                    driver.send_response(id, json!({})).await;
+                }
+            }
+        }
+    });
+
+    host.handshake().await.expect("handshake");
+    // Spec compliance: even when the plugin doesn't implement
+    // `transport/shutdown`, the host must succeed (log deprecation + continue)
+    // so legacy launchapp-dev transports keep serving.
+    host.shutdown_transport().await.expect("transport/shutdown METHOD_NOT_FOUND must be a no-op");
+    host.shutdown().await.expect("generic shutdown");
+    drop(driver_task);
+}
+
 // Per the contract: subsequent request() on a cloned host returns
 // ConnectionLost after shutdown.
 #[tokio::test]

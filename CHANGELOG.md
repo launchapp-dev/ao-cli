@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`fix(web)`: drive transport protocol lifecycle (`transport/start` +
+  `transport/shutdown`) per spec.** `animus web serve` / `animus web open`
+  only called `initialize` and (optionally) `transport/info` on installed
+  `transport_backend` plugins, then waited in the foreground. The
+  animus-protocol v0.1.13 spec (§13) requires the host to issue
+  `transport/start` with a `TransportConfig` after `initialize` so the
+  plugin can bind its listener, and `transport/shutdown` before process
+  exit so it can drain in-flight requests. The ops_web path now drives
+  the full lifecycle: after `initialize` it sends `transport/start` with
+  the control socket path + project root, and the new
+  `PluginHost::shutdown_transport()` helper issues `transport/shutdown`
+  (with a bounded 5 s timeout) before the generic `shutdown` RPC. Legacy
+  plugins that pre-date the lifecycle (current launchapp-dev
+  `animus-transport-http`, `animus-transport-graphql`, and
+  `animus-web-ui` bind inside `initialize`) respond with
+  METHOD_NOT_FOUND / METHOD_NOT_SUPPORTED and are handled gracefully
+  with a deprecation warning so the v0.4.x web surface keeps working
+  while the ecosystem upgrades. New plugin-host tests in
+  `tests/concurrency.rs` assert the spec ordering
+  (`initialize` → work → `transport/shutdown` → `shutdown`) and the
+  legacy METHOD_NOT_FOUND swallow.
+
 ## [0.4.13] - 2026-05-27
 
 Operational hardening of the v0.4.12 plugin extraction. Several pieces of

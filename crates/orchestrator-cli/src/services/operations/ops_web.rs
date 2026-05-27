@@ -6,7 +6,8 @@ use orchestrator_core::ServiceHub;
 use orchestrator_plugin_host::{discover_plugins, DiscoveredPlugin, PluginHost};
 use serde_json::{json, Value};
 
-use crate::{print_ok, print_value, WebCommand};
+use crate::{print_ok, print_value};
+use crate::{CliError, CliErrorKind, WebCommand};
 
 const TRANSPORT_PLUGIN_KIND: &str = "transport_backend";
 const WEB_UI_PLUGIN_KIND: &str = "web_ui";
@@ -44,7 +45,7 @@ pub(crate) async fn handle_web(
 async fn handle_serve(args: crate::WebServeArgs, project_root: &str, json: bool) -> Result<()> {
     let (api_plugins, web_ui_plugins) = collect_transport_plugins(project_root)?;
     if api_plugins.is_empty() && web_ui_plugins.is_empty() {
-        bail_with_install_help();
+        return Err(missing_transport_plugins_error(json));
     }
 
     // UI first so the URL the user is most likely to want shows up before
@@ -188,7 +189,7 @@ async fn handle_open(args: crate::WebOpenArgs, project_root: &str, json: bool) -
     // of `animus daemon start` once daemon-managed web plugins land).
     let (api_plugins, web_ui_plugins) = collect_transport_plugins(project_root)?;
     if api_plugins.is_empty() && web_ui_plugins.is_empty() {
-        bail_with_install_help();
+        return Err(missing_transport_plugins_error(json));
     }
 
     handle_open_foreground(&args, api_plugins, web_ui_plugins, json).await
@@ -289,7 +290,7 @@ async fn resolve_open_url(args: &crate::WebOpenArgs, project_root: &str) -> Resu
     }
     let (api_plugins, web_ui_plugins) = collect_transport_plugins(project_root)?;
     if api_plugins.is_empty() && web_ui_plugins.is_empty() {
-        bail_with_install_help();
+        return Err(missing_transport_plugins_error(false));
     }
     let mut url: Option<String> = None;
     for plugin in web_ui_plugins.iter().chain(api_plugins.iter()) {
@@ -485,22 +486,40 @@ fn plugin_advertises_web_ui(plugin: &DiscoveredPlugin) -> bool {
     plugin.manifest.capabilities.iter().any(|cap| cap == WEB_UI_CAPABILITY)
 }
 
-fn bail_with_install_help() -> ! {
-    let lines = [
-        "No transport_backend or web_ui plugins are installed.".to_string(),
-        "".to_string(),
-        "Animus delegates `animus web` to standalone transport + UI plugins.".to_string(),
-        "Install the defaults with:".to_string(),
-        "".to_string(),
-        "  animus plugin install-defaults --include-transports".to_string(),
-        "".to_string(),
-        "Or install them individually:".to_string(),
-        "  animus plugin install launchapp-dev/animus-transport-http@v0.2.0".to_string(),
-        "  animus plugin install launchapp-dev/animus-transport-graphql@v0.2.3".to_string(),
-        "  animus plugin install launchapp-dev/animus-web-ui@v0.1.0".to_string(),
-    ];
-    eprintln!("{}", lines.join("\n"));
-    std::process::exit(2);
+/// Build the "no transport plugins installed" error. In `--json` mode the
+/// message is a single line so the `animus.cli.v1` envelope stays grep-friendly;
+/// scripted consumers can still discover the install command via
+/// `error.details.install_command`. In human mode we keep the multi-line install
+/// help, matching the pre-fix experience operators are used to.
+fn missing_transport_plugins_error(json: bool) -> anyhow::Error {
+    let install_command = "animus plugin install-defaults --include-transports";
+    let details = serde_json::json!({
+        "install_command": install_command,
+        "individual_plugins": [
+            "animus plugin install launchapp-dev/animus-transport-http@v0.2.0",
+            "animus plugin install launchapp-dev/animus-transport-graphql@v0.2.3",
+            "animus plugin install launchapp-dev/animus-web-ui@v0.1.0",
+        ],
+    });
+    let message = if json {
+        format!("no transport_backend or web_ui plugins are installed; run `{install_command}` to install the defaults")
+    } else {
+        [
+            "No transport_backend or web_ui plugins are installed.".to_string(),
+            "".to_string(),
+            "Animus delegates `animus web` to standalone transport + UI plugins.".to_string(),
+            "Install the defaults with:".to_string(),
+            "".to_string(),
+            format!("  {install_command}"),
+            "".to_string(),
+            "Or install them individually:".to_string(),
+            "  animus plugin install launchapp-dev/animus-transport-http@v0.2.0".to_string(),
+            "  animus plugin install launchapp-dev/animus-transport-graphql@v0.2.3".to_string(),
+            "  animus plugin install launchapp-dev/animus-web-ui@v0.1.0".to_string(),
+        ]
+        .join("\n")
+    };
+    CliError::new(CliErrorKind::InvalidInput, message).with_details(details).into()
 }
 
 fn open_in_browser(url: &str) -> Result<()> {
@@ -523,10 +542,12 @@ fn append_path(base: &str, path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        append_path, extract_url, first_api_url_in, first_ui_url_in, partition_transport_plugins,
-        plugin_advertises_web_ui, resolve_open_url, serve_url_summary_lines, shutdown_running_transports,
-        wait_for_shutdown_signal, SpawnedTransport, TRANSPORT_PLUGIN_KIND, WEB_UI_CAPABILITY, WEB_UI_PLUGIN_KIND,
+        append_path, extract_url, first_api_url_in, first_ui_url_in, missing_transport_plugins_error,
+        partition_transport_plugins, plugin_advertises_web_ui, resolve_open_url, serve_url_summary_lines,
+        shutdown_running_transports, wait_for_shutdown_signal, SpawnedTransport, TRANSPORT_PLUGIN_KIND,
+        WEB_UI_CAPABILITY, WEB_UI_PLUGIN_KIND,
     };
+    use crate::shared::{classify_cli_error_kind, extract_cli_error_details, CliErrorKind};
     use crate::WebOpenArgs;
     use animus_plugin_protocol::PluginManifest;
     use orchestrator_plugin_host::{DiscoveredPlugin, DiscoverySource};
@@ -720,5 +741,53 @@ mod tests {
             "UI and API URLs must each occupy their own labelled line"
         );
         assert!(lines.warning.is_none(), "no warning when a UI plugin is installed");
+    }
+
+    /// JSON envelope contract: when `animus web serve` or `animus web open`
+    /// runs on a machine with no transport plugins installed, the failure must
+    /// flow through the typed `CliError` channel (not `std::process::exit`)
+    /// so `main::emit_cli_error` can wrap it in `animus.cli.v1`. The
+    /// `--json`-shaped message is a single line and includes the install
+    /// command in `error.details` for script consumers.
+    #[test]
+    fn missing_transport_plugins_error_routes_through_typed_cli_error() {
+        let err = missing_transport_plugins_error(true);
+        assert_eq!(
+            classify_cli_error_kind(&err),
+            CliErrorKind::InvalidInput,
+            "missing-plugins must classify as invalid_input (exit 2), matching the pre-fix std::process::exit(2)"
+        );
+        let message = err.to_string();
+        assert!(
+            !message.contains('\n'),
+            "--json message must be a single line so the envelope stays grep-friendly: {message:?}"
+        );
+        assert!(
+            message.contains("animus plugin install-defaults"),
+            "message must point operators at the fix command, got: {message:?}"
+        );
+
+        let details = extract_cli_error_details(&err).expect("--json failure must carry structured install hints");
+        assert_eq!(
+            details.pointer("/install_command").and_then(serde_json::Value::as_str),
+            Some("animus plugin install-defaults --include-transports"),
+            "details must include the canonical install command for scripted recovery"
+        );
+        let individual = details
+            .pointer("/individual_plugins")
+            .and_then(serde_json::Value::as_array)
+            .expect("details must list individual install commands");
+        assert!(individual.len() >= 3, "details should list http, graphql, and web-ui install commands");
+    }
+
+    /// Human-mode error keeps the multi-line install help so terminal users
+    /// see the same guidance as before the JSON envelope fix.
+    #[test]
+    fn missing_transport_plugins_error_keeps_multiline_help_for_humans() {
+        let err = missing_transport_plugins_error(false);
+        let message = err.to_string();
+        assert!(message.contains('\n'), "human-mode message keeps multi-line install help: {message:?}");
+        assert!(message.contains("animus plugin install-defaults --include-transports"));
+        assert!(message.contains("launchapp-dev/animus-transport-http"));
     }
 }

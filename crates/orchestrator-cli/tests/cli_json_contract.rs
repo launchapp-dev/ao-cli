@@ -110,3 +110,88 @@ fn json_error_envelope_maps_invalid_output_run_id() -> Result<()> {
 
     Ok(())
 }
+
+/// Regression for the audit's Fix 3: clap argparse failures must not bypass
+/// `--json`. Before this fix, `animus --json nope` exited 2 with multi-line
+/// human-readable clap text on stderr, breaking every scripted consumer that
+/// expects the `animus.cli.v1` envelope on stderr.
+///
+/// We exercise the `Command` path directly (not `CliHarness::run_json_*`)
+/// because the harness's run wrappers prepend `--json --project-root <tmp>`
+/// to `args`; we still want that here, but we also want to assert against
+/// raw stdout/stderr and the exit code.
+#[test]
+fn argparse_failure_emits_json_envelope_when_json_requested() -> Result<()> {
+    use std::process::Command;
+    let binary = assert_cmd::cargo::cargo_bin!("animus");
+    let output =
+        Command::new(binary).arg("--json").arg("nope").output().expect("animus binary should execute for argparse");
+
+    assert!(!output.status.success(), "unknown subcommand must fail");
+    assert_eq!(output.status.code(), Some(2), "argparse failure must keep clap's historical exit code of 2");
+
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    let envelope_line = stderr
+        .lines()
+        .map(str::trim)
+        .find(|line| line.starts_with('{'))
+        .unwrap_or_else(|| panic!("expected JSON envelope on stderr, got:\n{stderr}"));
+    let payload: Value =
+        serde_json::from_str(envelope_line).unwrap_or_else(|e| panic!("envelope must be valid JSON ({e}): {stderr}"));
+    assert_error_envelope(&payload, "invalid_input", 2);
+    assert_eq!(
+        payload.pointer("/error/details/stage").and_then(Value::as_str),
+        Some("parse"),
+        "argparse failures must mark stage=parse so consumers can distinguish them from runtime errors"
+    );
+    let message = payload.pointer("/error/message").and_then(Value::as_str).unwrap_or_default();
+    assert!(
+        message.contains("nope") || message.to_ascii_lowercase().contains("unrecognized"),
+        "argparse error message should mention the offending token or be recognizably parse-shaped: {message}"
+    );
+
+    Ok(())
+}
+
+/// Companion check: without `--json`, the failure path stays exactly as
+/// before — clap's pretty-printed human text on stderr, no JSON envelope.
+/// This pins the non-regression for terminal users.
+#[test]
+fn argparse_failure_keeps_human_text_when_json_not_requested() -> Result<()> {
+    use std::process::Command;
+    let binary = assert_cmd::cargo::cargo_bin!("animus");
+    let output = Command::new(binary).arg("nope").output().expect("animus binary should execute for argparse");
+
+    assert!(!output.status.success(), "unknown subcommand must fail");
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    assert!(
+        stderr.lines().map(str::trim).find(|line| line.starts_with('{')).is_none(),
+        "no JSON envelope expected when --json was not requested: {stderr}"
+    );
+    assert!(stderr.contains("Usage") || stderr.to_ascii_lowercase().contains("unrecognized"));
+
+    Ok(())
+}
+
+/// `animus --json --help` is a *successful* display, not a parse failure.
+/// Pre-fix this path didn't exist (clap exited 0 directly); the post-fix
+/// argparse-envelope code path must not lie about success/failure here.
+/// Exit 0 is mandatory; stdout has clap's help text; no JSON error envelope
+/// on stderr.
+#[test]
+fn help_flag_keeps_exit_zero_under_json_mode() -> Result<()> {
+    use std::process::Command;
+    let binary = assert_cmd::cargo::cargo_bin!("animus");
+    let output =
+        Command::new(binary).arg("--json").arg("--help").output().expect("animus binary should execute for --help");
+    assert!(output.status.success(), "`--help` must exit 0 even with --json");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    assert!(
+        stderr.lines().map(str::trim).find(|line| line.starts_with('{')).is_none(),
+        "--help must not emit a JSON error envelope on stderr: {stderr}"
+    );
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("Usage"), "clap help text expected on stdout, got: {stdout}");
+    Ok(())
+}

@@ -649,7 +649,14 @@ fn remediation_needed(report: &DoctorReport, remediation_id: &str) -> bool {
 // ---------------------------------------------------------------------------
 
 async fn run_walkthrough(args: &InitArgs, project_root: &Path, mode: InitMode, json: bool) -> Result<()> {
-    let interactive = matches!(mode, InitMode::Guided) && io::stdin().is_terminal() && io::stdout().is_terminal();
+    // JSON envelope contract: in `--json` mode the envelope on stdout is the
+    // entire user-facing surface. We must not print the human-readable intro,
+    // and we must not block on stdin prompts (which would silently hang
+    // scripted callers in a TTY). Forcing `interactive=false` whenever `json`
+    // is set bakes both requirements into a single check so every downstream
+    // branch (intro print + prompt_yes_no calls) inherits the safe behavior.
+    let interactive =
+        matches!(mode, InitMode::Guided) && !json && io::stdin().is_terminal() && io::stdout().is_terminal();
 
     let detections = detect_clis_and_keys();
     if interactive {
@@ -1345,5 +1352,45 @@ mod tests {
         let steps = build_next_steps(&template_plan, &plugins, &daemon);
         assert!(steps.iter().any(|s| s.contains("animus workflow run hello-world")));
         assert!(steps.iter().any(|s| s.contains("animus daemon start")));
+    }
+
+    /// Audit Fix 5 regression: `init --walkthrough --json` must NOT prompt
+    /// for input, even in a TTY where `io::stdin().is_terminal()` is true.
+    /// Before the fix, the TTY-detection branch (Guided + TTY) forced
+    /// interactive=true regardless of `--json`, so a CI runner with an
+    /// allocated pty would silently hang waiting for `prompt_yes_no`.
+    ///
+    /// We exercise the `--plan` short-circuit so the test completes without
+    /// touching the filesystem mutation paths. The contract this pins is
+    /// "JSON-mode walkthrough returns a JSON envelope without ever calling
+    /// `prompt_yes_no`" — if a future change reads stdin in JSON mode, this
+    /// test will hang and time out instead of silently passing.
+    #[tokio::test]
+    async fn walkthrough_json_mode_does_not_prompt_in_guided_tty() {
+        let project = tempfile::tempdir().expect("project tempdir");
+        let args = InitArgs {
+            template: None,
+            path: None,
+            non_interactive: false, // Guided mode; would normally prompt in TTY.
+            plan: true,             // Short-circuit so we don't mutate the filesystem.
+            force: false,
+            auto_merge: None,
+            auto_pr: None,
+            auto_commit_before_merge: None,
+            update_registry: false,
+            walkthrough: true,
+            no_install: false,
+            no_template: false,
+            auto_start: false,
+            walkthrough_template: HELLO_WORLD_TEMPLATE_NAME.to_string(),
+        };
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            run_walkthrough(&args, project.path(), InitMode::Guided, true),
+        )
+        .await;
+        let walkthrough_result =
+            result.expect("walkthrough must return without blocking on stdin when --json is set in Guided mode");
+        assert!(walkthrough_result.is_ok(), "JSON-mode walkthrough should succeed; got {walkthrough_result:?}");
     }
 }

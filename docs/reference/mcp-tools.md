@@ -201,7 +201,7 @@ The `animus.memory.*` tools are exposed in two places, with different gating:
 
 ---
 
-## Plugins (2 tools)
+## Plugin Control (6 tools)
 
 Discovered Animus STDIO plugins are reachable from MCP clients via these meta-tools.
 Plugins themselves can declare additional `mcp_tools` in their `initialize` response;
@@ -209,8 +209,22 @@ those are aggregated automatically.
 
 | Tool | Description | Key Parameters |
 |---|---|---|
-| `animus.plugin.list` | List discovered plugins (providers, subject backends, custom) with name, version, kind, source, and path. The response gains a parallel top-level `warnings` array for plugins that failed their `--manifest` probe (binary missing, exit non-zero, malformed JSON). | `project_root` (optional) |
-| `animus.plugin.call` | Send a JSON-RPC request to a discovered plugin. The plugin is spawned (or reused) and handshaked before the call. | `name`, `method`, `params` (optional), `project_root` (optional) |
+| `animus.plugin.list` | List discovered plugins (providers, subject backends, custom) with manifest metadata and discovery warnings. | `project_root`, `include_system_path` |
+| `animus.plugin.info` | Spawn a plugin, complete the initialize handshake, and return manifest plus runtime capabilities. | `name`, `project_root`, `include_system_path` |
+| `animus.plugin.ping` | Health-check a plugin by spawning it and sending `$/ping`. | `name`, `project_root`, `include_system_path` |
+| `animus.plugin.call` | Send a JSON-RPC request to a discovered plugin. | `name`, `method`, `params`, `project_root` |
+| `animus.plugin.install` | Install a plugin from `source`, local `path`, or verified `url`. | `source`, `path`, `url`, `tag`, `name`, `sha256`, `force`, `plugin_dir`, `require_signature`, `skip_signature`, `trusted_signers` |
+| `animus.plugin.uninstall` | Remove an installed plugin binary and unregister it. | `name`, `plugin_dir` |
+
+## Plugin Marketplace (3 tools)
+
+These tools query and update the public plugin registry view exposed by the CLI.
+
+| Tool | Description | Key Parameters |
+|---|---|---|
+| `animus.plugin.search` | Search the public plugin registry. | `query`, `limit`, `project_root` |
+| `animus.plugin.browse` | Browse registry entries grouped by plugin kind. | `kind`, `installed`, `available`, `project_root` |
+| `animus.plugin.update` | Update one installed plugin from the registry. | `name`, `project_root` |
 
 Discovery order: `~/.animus/plugins.yaml` (or the legacy `~/.config/animus/plugins.yaml` on first read) → `.animus/plugins/` → `$ANIMUS_PLUGIN_DIR` (defaults to `~/.animus/plugins/`) → `$ANIMUS_PLUGIN_PATH` → `$PATH` (`animus-provider-*` / `animus-plugin-*` prefixes; `$PATH` opt-in via `--include-system-path`).
 
@@ -230,14 +244,15 @@ List responses are wrapped in a guard envelope (`animus.mcp.list.result.v1`) tha
 
 ## Batch Tool Behavior
 
-Batch tools (`animus.task.bulk-status`, `animus.task.bulk-update`, `animus.workflow.run-multiple`) accept an `on_error` parameter:
+`animus.workflow.run-multiple` accepts an `on_error` parameter:
 
 | Value | Behavior |
 |---|---|
 | `"continue"` | Process all items regardless of failures |
 | `"stop"` | Stop processing after the first failure; remaining items are marked `"skipped"` |
 
-Batch responses use the `animus.mcp.batch.result.v1` schema with a summary of succeeded/failed/skipped counts and per-item results.
+Batch responses use the `animus.mcp.batch.result.v1` schema with a summary of
+succeeded/failed/skipped counts and per-item results.
 
 Maximum batch size is 100 items per call.
 

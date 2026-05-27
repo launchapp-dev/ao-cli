@@ -11,7 +11,7 @@ Enables machine-readable JSON output using the [`animus.cli.v1` envelope](../jso
 - The envelope schema is always `"animus.cli.v1"`.
 
 ```bash
-animus task list --json
+animus subject list --kind task --json
 ```
 
 ```json
@@ -31,7 +31,7 @@ root from the current git common root when available, and otherwise falls back
 to the current working directory.
 
 ```bash
-animus task list --project-root /path/to/my-project
+animus subject list --kind task --project-root /path/to/my-project
 ```
 
 This flag is required when running Animus commands from outside a project
@@ -49,7 +49,7 @@ mutation.
 Pass structured input as a JSON string. Used by commands that accept complex input beyond simple flags.
 
 ```bash
-animus task create --input-json '{"title": "Fix bug", "priority": "high", "tags": ["urgent"]}'
+animus workflow run --input-json '{"task_id":"TASK-001","workflow_ref":"standard-workflow"}'
 ```
 
 Many mutation and workflow commands accept `--input-json` as an alternative to

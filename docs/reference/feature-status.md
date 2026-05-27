@@ -19,7 +19,7 @@ This page clarifies which Animus features are **shipped and stable**, **in-fligh
 | Task Status Lifecycle | **Shipped** | Progress tasks through backlog → todo → ready → in_progress → done/cancelled states |
 | Task Prioritization | **Shipped** | Set and rebalance task priority with budget policies |
 | Task Blockers | **Shipped** | Mark tasks as blocked with reasons and automatic unblock detection |
-| Requirements as First-Class | **Shipped** | Define requirements separately from tasks; use `animus requirements execute` to materialize work |
+| Requirements as First-Class | **Shipped** | Define requirements as `kind=requirement` subjects and link workflow execution through the unified subject surface |
 
 ### Workflows and Execution
 
@@ -49,16 +49,15 @@ This page clarifies which Animus features are **shipped and stable**, **in-fligh
 
 | Feature | Status | Description |
 |---------|--------|-------------|
-| Status Dashboard (`animus status`) | **Shipped** | Unified project status view with task and workflow summaries |
-| Now/Inbox Surface (`animus now`) | **Shipped** | Unified work inbox showing next task, active workflows, blocked items, and stale items |
-| Task Commands | **Shipped** | Full `animus task` family (list, create, update, delete, status, prioritize, etc.) |
+| Status Dashboard (`animus status`) | **Shipped** | Unified work dashboard showing subject, workflow, daemon, and queue state |
+| Subject Commands | **Shipped** | Unified `animus subject` family for task, requirement, and external subject backends |
 | Workflow Commands | **Shipped** | Workflow execution, status, checkpoints, and phase management |
 | Daemon Commands | **Shipped** | Daemon lifecycle, health, queue, and event inspection |
 | Git Integration (`animus git`) | **Shipped** | Worktree creation, branch management, push/pull, confirmation requests |
 | MCP Integration (`animus mcp serve`) | **Shipped** | Expose Animus state and operations as MCP tools for use by AI agents |
 | Skill Management (`animus skill`) | **Shipped** | Search, install, update, and publish versioned skills |
 | Model Management (`animus model`) | **Shipped** | Check model availability, validate model selection, view model roster |
-| History and Error Inspection | **Shipped** | Inspect execution history and recorded operational errors |
+| History Inspection | **Shipped** | Inspect execution history through `animus history ...` |
 | Template-Driven Project Init | **Shipped** | `animus init` supports registry-backed and local copy templates plus daemon defaults. Bundled templates (`task-queue`, `conductor`, `direct-workflow`) and the `--template` / `--path` / `--non-interactive` flags are stable. Registry pinning, template authoring helpers, and richer multi-registry management are planned |
 
 ### Observability and Output
@@ -127,8 +126,8 @@ The following represent aspirational architectural goals and roadmap items:
 The following JSON schemas are considered stable and will be maintained for backward compatibility:
 
 - `animus.cli.v1` — CLI output envelope
-- `animus.now.v1` — Now/inbox surface schema
 - `animus.status.v1` — Status dashboard schema
-- Task, Workflow, and Requirement state schemas
+- Workflow and subject-related state schemas
 
-When contracts change, version numbers will increment (e.g., `animus.now.v2`) and both old and new versions will be supported briefly to allow client migration.
+When contracts change, version numbers will increment and old/new versions will
+briefly overlap to allow client migration.

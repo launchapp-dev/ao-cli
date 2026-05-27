@@ -209,6 +209,15 @@ animus
 ├── init                     Initialize an Animus project from a template
 │   (no subcommands)         Supports registry-backed or local copy templates, plan mode, and daemon defaults
 │
+├── doctor                   Run environment and configuration diagnostics
+│
+├── trigger                  Inspect and manage event triggers
+│   ├── list                 List configured event triggers for the project
+│   └── fire                 Manually fire a webhook trigger for testing
+│
+├── logs                     Tail and inspect daemon log output
+│   └── tail                 Tail recent log entries from the active log storage backend
+│
 ├── subject                  List/get/create/update subjects via installed subject_backend plugins (in-tree adapters removed in v0.4.12)
 │   ├── list                 List subjects for a given kind (`--kind task|requirement|<external>`)
 │   ├── get                  Fetch one subject by wire id (`<kind>:<native_id>`)
@@ -217,7 +226,7 @@ animus
 │   ├── next                 Highest-priority Ready subject for the kind, or null
 │   └── status               Set the subject's normalized status
 │
-└── doctor                   Run environment and configuration diagnostics
+└── help                     Print help for a command
 ```
 
 > **v0.4.4 surfaces removed.** Use `animus subject --kind task` for the

@@ -4,9 +4,9 @@ All accepted enum values across the Animus system. These values are case-insensi
 
 ---
 
-## Task Status
+## Normalized Subject Status
 
-Used by: `animus task status`, `animus task list --status`, `animus task update --status`
+Used by: `animus subject list --status`, `animus subject status`, `animus subject update --status`
 
 | Value | Aliases | Description |
 |---|---|---|
@@ -27,43 +27,24 @@ Used by: `animus task status`, `animus task list --status`, `animus task update 
 
 ---
 
-## Task Type
+## Subject Priority Buckets
 
-Used by: `animus task create --task-type`, `animus task list --task-type`
-
-| Value | Aliases | Description |
-|---|---|---|
-| `feature` | | New feature |
-| `bugfix` | `bug` | Bug fix |
-| `hotfix` | `hot-fix` | Urgent fix |
-| `refactor` | | Code refactoring |
-| `docs` | `documentation`, `doc` | Documentation |
-| `test` | `tests`, `testing` | Test work |
-| `chore` | | Maintenance/chore |
-| `experiment` | | Experimental work |
-
-**Serialization:** lowercase (e.g., `"feature"`, `"bugfix"`)
-
----
-
-## Task Priority
-
-Used by: `animus task set-priority --priority`, `animus task create --priority`, `animus task list --priority`
+Used by: `animus subject create --priority`, `animus subject update --priority`
 
 | Value | Description |
 |---|---|
-| `critical` | Highest priority, blocks other work |
-| `high` | High priority |
-| `medium` | Normal priority |
-| `low` | Low priority |
+| `p0` | Highest priority |
+| `p1` | High priority |
+| `p2` | Normal priority |
+| `p3` | Lower priority |
 
-**Serialization:** lowercase (e.g., `"critical"`, `"high"`)
+**Serialization:** lowercase (e.g., `"p1"`)
 
 ---
 
 ## Requirement Priority (MoSCoW)
 
-Used by: `animus requirements create --priority`, `animus requirements update --priority`
+Used internally by the built-in requirements domain model and requirement-linked workflows.
 
 | Value | Description |
 |---|---|
@@ -80,7 +61,7 @@ Used by: `animus requirements create --priority`, `animus requirements update --
 
 ## Requirement Status
 
-Used by: `animus requirements update --status`, `animus requirements list --status`
+Used internally by the built-in requirements domain model and requirement-linked workflows.
 
 | Value | Description |
 |---|---|
@@ -154,7 +135,7 @@ Used in: `post_success.merge.strategy` in workflow YAML
 
 ## Batch on_error Policy
 
-Used by: `animus.task.bulk-status`, `animus.task.bulk-update`, `animus.workflow.run-multiple`
+Used by: `animus.workflow.run-multiple`
 
 | Value | Description |
 |---|---|

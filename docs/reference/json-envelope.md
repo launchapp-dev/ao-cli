@@ -124,11 +124,11 @@ The JSON envelope is serialized in compact form (no pretty-printing, no newlines
 
 ```bash
 # Capture success data
-data=$(animus task get --id TASK-001 --json 2>/dev/null)
+data=$(animus subject get --kind task --id task:TASK-001 --json 2>/dev/null)
 echo "$data" | jq '.data.status'
 
 # Capture error
-animus task get --id NONEXISTENT --json 2>err.json
+animus subject get --kind task --id task:NONEXISTENT --json 2>err.json
 cat err.json | jq '.error.code'
 ```
 

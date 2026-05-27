@@ -63,7 +63,7 @@ Startup flow:
    1. `--project-root`
    2. Git common root for the current working directory or linked worktree
    3. Current working directory
-3. Bootstrap project-local `.ao/` files and scoped runtime state under `~/.ao/<repo-scope>/`.
+3. Bootstrap project-local `.animus/` files and scoped runtime state under `~/.animus/<repo-scope>/`.
 4. Construct `FileServiceHub`.
 5. Dispatch into CLI operations, daemon runtime, agent runtime, or web services.
 
@@ -80,15 +80,15 @@ Key implementation files:
 
 ## State Layout
 
-AO now splits project-local config from scoped runtime state.
+Animus now splits project-local config from scoped runtime state.
 
-Project-local config in `<project>/.ao/`:
+Project-local config in `<project>/.animus/`:
 
 - `config.json`
 - `workflows.yaml`
 - `workflows/*.yaml`
 
-Scoped runtime state in `~/.ao/<repo-scope>/`:
+Scoped runtime state in `~/.animus/<repo-scope>/`:
 
 - `core-state.json`
 - `resume-config.json`
@@ -110,7 +110,7 @@ Global config in `protocol::Config::global_config_dir()`:
 Repository scope format:
 
 - `<repo-scope>` = `<sanitized-repo-name>-<12 hex sha256(canonical-root)>`
-- managed task worktrees live under `~/.ao/<repo-scope>/worktrees/`
+- managed task worktrees live under `~/.animus/<repo-scope>/worktrees/`
 
 Legacy fallback readers still check some repo-local run/artifact paths. Do not depend on
 those fallback locations for new features unless you are intentionally preserving compatibility.
@@ -124,23 +124,23 @@ Visible top-level commands:
 - `agent`
 - `project`
 - `queue`
-- `task`
 - `workflow`
-- `requirements`
 - `history`
-- `errors`
 - `git`
 - `skill`
 - `model`
 - `pack`
+- `plugin`
 - `runner`
 - `status`
 - `output`
 - `mcp`
 - `web`
-- `setup`
-- `sync`
+- `init`
 - `doctor`
+- `trigger`
+- `logs`
+- `subject`
 
 Hidden/internal top-level commands:
 
@@ -155,10 +155,10 @@ Use these reference docs instead of hand-maintained summaries:
 
 ## Mutation Policy
 
-- Treat `~/.ao/<repo-scope>/` and `.ao/*.json` as AO-managed state.
-- Use `ao project`, `ao queue`, `ao task`, `ao workflow`, `ao requirements`, `ao review`, and `ao qa` commands for mutations.
+- Treat `~/.animus/<repo-scope>/` and `.animus/*.json` as Animus-managed state.
+- Use `animus project`, `animus queue`, `animus subject`, `animus workflow`, `animus review`, and `animus qa` commands for mutations.
 - Do not hand-edit generated state JSON unless the task is explicitly about persistence or migrations.
-- Supported exception: project-local workflow YAML overlays in `.ao/workflows.yaml` and `.ao/workflows/*.yaml`.
+- Supported exception: project-local workflow YAML overlays in `.animus/workflows.yaml` and `.animus/workflows/*.yaml`.
 - In scripts and automation, always pass `--project-root "$(pwd)"`.
 
 ## Contributor Rules
@@ -178,10 +178,10 @@ cargo ao-bin-check
 cargo test -p orchestrator-cli
 cargo test --workspace
 
-ao status
+animus status
 animus project list
-animus task prioritized
-animus task next
+animus subject list --kind task
+animus subject next --kind task
 animus queue list
 animus daemon health
 animus workflow list
@@ -190,9 +190,9 @@ animus workflow list
 ## Self-Hosting Flow
 
 ```bash
-animus task next
-animus task status --id TASK-XXX --status in-progress
+animus subject next --kind task
+animus subject status --kind task --id task:TASK-XXX --status in_progress
 animus workflow run --task-id TASK-XXX
 animus output monitor --run-id <run-id>
-animus task status --id TASK-XXX --status done
+animus subject status --kind task --id task:TASK-XXX --status done
 ```

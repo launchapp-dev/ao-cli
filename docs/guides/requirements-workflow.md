@@ -1,91 +1,49 @@
 # Requirements Workflow Guide
 
-Animus treats requirements as first-class project records. You create them, refine
-them, and then execute them into tasks and workflows when they are ready for
-implementation.
+Requirements now use the same unified subject surface as tasks:
+`animus subject ... --kind requirement`.
 
 ## Create a Requirement
 
-Start with a requirement record:
-
 ```bash
-animus requirements create \
+animus subject create --kind requirement \
   --title "Add rate limiting" \
-  --description "Protect the API from burst traffic." \
-  --priority high
+  --body "Protect the API from burst traffic and define rollout constraints." \
+  --priority p1
 ```
 
-This writes a tracked requirement into Animus-managed state. Requirements can also
-carry a category, type, source, and acceptance criteria.
-
-## Inspect and Refine
-
-List and inspect existing requirements:
+## Inspect and Update
 
 ```bash
-animus requirements list
-animus requirements get --id REQ-001
+animus subject list --kind requirement
+animus subject get --kind requirement --id requirement:REQ-001
+animus subject update --kind requirement --id requirement:REQ-001 --priority p0
+animus subject status --kind requirement --id requirement:REQ-001 --status ready
 ```
 
-Update a requirement as the scope becomes clearer:
+## Execute a Workflow for a Requirement
+
+Use the workflow surface when the requirement itself should drive execution:
 
 ```bash
-animus requirements update \
-  --id REQ-001 \
-  --title "Add request rate limiting" \
-  --priority critical
+animus workflow run --requirement-id REQ-001
 ```
 
-Requirements support the lifecycle states used by the CLI and state machine:
-`draft`, `refined`, `planned`, `in-progress`, and `done`.
-
-## Execute Into Tasks
-
-When a requirement is ready, execute it into tasks:
+Then inspect the resulting workflow state:
 
 ```bash
-animus requirements execute --id REQ-001
+animus workflow list --workflow-ref standard-workflow
+animus workflow get --id <workflow-id>
 ```
 
-Execution turns the requirement into one or more tasks and can optionally start
-workflows for the generated tasks. Use `animus task list` and `animus workflow list` to
-inspect the results.
+## Notes
 
-## Manage Relationships
+- The legacy `animus requirements ...` command tree was removed.
+- Requirement ids are backend-qualified on the subject surface; use
+  `animus subject list --kind requirement --json` to inspect returned ids.
+- The exact requirement lifecycle and field set depends on the active
+  `subject_backend` plugin for `kind=requirement`.
 
-Use the requirement graph to understand links between requirements:
-
-```bash
-animus requirements graph get
-```
-
-Use the recommendations surface when you want Animus to scan for improvements or
-gaps:
-
-```bash
-animus requirements recommendations scan
-animus requirements recommendations list
-animus requirements recommendations apply --report-id REC-001
-```
-
-## Optional Mockups
-
-Requirements can also carry mockup records and linked assets:
-
-```bash
-animus requirements mockups list
-animus requirements mockups create --name "Rate limit banner" --description "Draft UI for 429 states"
-```
-
-## Practical Loop
-
-The normal loop is simple:
-
-1. Create the requirement.
-2. Review or update it until the scope is clear.
-3. Execute it into tasks.
-4. Run the daemon or targeted workflows to do the work.
-5. Use `animus task` and `animus workflow` commands to track progress.
-
-See also: [Task Management](task-management.md), [Daemon Operations](daemon-operations.md), and
-[Writing Workflows](writing-workflows.md).
+See also: [Task Management](task-management.md),
+[Writing Workflows](writing-workflows.md), and
+[MCP Tools Reference](../reference/mcp-tools.md).

@@ -84,10 +84,10 @@ Or read the config cascade documentation in the [Model Routing Guide](model-rout
 
 **Cause**: When tasks are blocked, `paused=true` is set internally. The daemon skips paused tasks during scheduling. Direct JSON edits or incomplete status transitions can leave ghost state.
 
-**Fix**: Always reset via `animus task status` which clears all blocking metadata:
+**Fix**: Always reset via `animus subject status --kind task`:
 
 ```bash
-animus task status --id TASK-XXX --status ready
+animus subject status --kind task --id task:TASK-XXX --status ready
 ```
 
 This clears `paused`, `blocked_at`, `blocked_reason`, and `blocked_by`. Never hand-edit Animus-managed runtime JSON or SQLite state.
@@ -174,7 +174,7 @@ Animus stores runtime state under `~/.animus/<repo-scope>/`, and log plumbing is
 5. If the workflow is stuck, you can cancel and retry:
    ```bash
    animus workflow cancel --id WF-001
-   animus task status --id TASK-XXX --status ready
+   animus subject status --kind task --id task:TASK-XXX --status ready
    ```
 
 ## Missing API Keys

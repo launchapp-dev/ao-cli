@@ -69,7 +69,7 @@ The `error` object may include an optional `details` field with structured conte
 ## Usage in Scripts
 
 ```bash
-animus task get --id TASK-001 --json 2>/dev/null
+animus subject get --kind task --id task:TASK-001 --json 2>/dev/null
 case $? in
   0) echo "success" ;;
   2) echo "invalid input" ;;

@@ -1,204 +1,69 @@
 # Task Management Guide
 
-Tasks are the primary unit of work in Animus. Each task tracks a discrete piece of work from creation through completion, with support for priorities, dependencies, checklists, and agent assignment.
+Tasks are managed through the unified subject surface:
+`animus subject ... --kind task`.
 
-## Creating Tasks
-
-```bash
-animus task create --title "Add retry logic to HTTP client" --task-type feature --priority high
-```
-
-Available task types:
-
-| Type | Use case |
-|------|----------|
-| `feature` | New functionality |
-| `bugfix` | Fix for a known defect |
-| `hotfix` | Urgent production fix |
-| `refactor` | Code restructuring without behavior change |
-| `docs` | Documentation updates |
-| `test` | Test coverage additions |
-| `chore` | Maintenance, dependency bumps, CI tweaks |
-| `experiment` | Exploratory or spike work |
-
-You can also supply a description inline:
+## Create a Task
 
 ```bash
-animus task create \
-  --title "Retry HTTP 429 responses" \
-  --task-type feature \
-  --priority high \
-  --description "Implement exponential backoff for rate-limited responses in the HTTP client module."
+animus subject create --kind task \
+  --title "Add retry logic to HTTP client" \
+  --body "Implement exponential backoff for 429 responses." \
+  --priority p1 \
+  --labels backend,reliability
 ```
 
-## Task Status Flow
-
-Tasks move through a defined set of statuses:
-
-```
-Backlog --> Ready --> In-Progress --> Done
-                  \              \
-                   \--> Blocked   \--> Cancelled
-                   \--> On-Hold
-```
-
-Change status with `animus task status`:
+## List and Inspect Tasks
 
 ```bash
-animus task status --id TASK-001 --status ready
-animus task status --id TASK-001 --status in-progress
-animus task status --id TASK-001 --status done
+animus subject list --kind task
+animus subject list --kind task --status ready --limit 10
+animus subject next --kind task
+animus subject get --kind task --id task:TASK-001
 ```
 
-To unblock a task, set it back to `ready`:
+Subject ids are backend-qualified. Use `animus subject list --kind task --json`
+to discover the exact id format your active backend returns.
+
+## Update Task State
 
 ```bash
-animus task status --id TASK-001 --status ready
+animus subject status --kind task --id task:TASK-001 --status ready
+animus subject status --kind task --id task:TASK-001 --status in_progress
+animus subject status --kind task --id task:TASK-001 --status done
 ```
 
-## Assigning Tasks
-
-Assign a task to an agent with a specific model:
+You can also patch priority and labels:
 
 ```bash
-animus task assign --id TASK-001 --assignee agent:claude --type agent --model claude-sonnet-4-6
+animus subject update --kind task --id task:TASK-001 --priority p0 --labels urgent,backend
 ```
 
-Or assign to a human:
+## Run a Workflow for a Task
 
 ```bash
-animus task assign --id TASK-001 --type human --assignee "alice"
+animus workflow run --task-id TASK-001
 ```
 
-## Priority Management
-
-Set priority directly:
+For terminal debugging, use synchronous execution:
 
 ```bash
-animus task set-priority --id TASK-001 --priority critical
+animus workflow run --task-id TASK-001 --sync
 ```
 
-Priority levels: `critical`, `high`, `medium`, `low`.
-
-Rebalance priorities across multiple tasks by budget:
+## Queue and Daemon Operations
 
 ```bash
-animus task rebalance-priority
+animus queue list
+animus queue hold --subject-id task:TASK-001
+animus queue release --subject-id task:TASK-001
+animus daemon start --autonomous
 ```
 
-## Dependencies
+## Notes
 
-Add a dependency so one task blocks another:
-
-```bash
-animus task dependency-add --id TASK-002 --dependency-id TASK-001 --type blocks
-```
-
-When TASK-001 is not yet done, TASK-002 cannot move to `in-progress`. The daemon respects dependency ordering when picking the next task to execute.
-
-Remove a dependency:
-
-```bash
-animus task dependency-remove --id TASK-002 --dependency-id TASK-001
-```
-
-## Checklists
-
-Add checklist items to a task for granular tracking:
-
-```bash
-animus task checklist-add --id TASK-001 --description "Implement retry logic"
-animus task checklist-add --id TASK-001 --description "Add unit tests for backoff"
-animus task checklist-add --id TASK-001 --description "Update API docs"
-```
-
-Toggle a checklist item as complete:
-
-```bash
-animus task checklist-update --id TASK-001 --item-id chk-1 --completed true
-```
-
-Agents use checklists during PO review and rework phases to verify acceptance criteria.
-
-## Querying Tasks
-
-List tasks with filters:
-
-```bash
-animus task list                             # All tasks
-animus task list --status in-progress        # Only in-progress tasks
-animus task list --task-type feature         # Only features
-animus task list --priority high             # Only high-priority
-```
-
-View tasks sorted by priority:
-
-```bash
-animus task list --sort priority
-```
-
-Get the next task the daemon would pick:
-
-```bash
-animus task next
-```
-
-View task statistics:
-
-```bash
-animus task stats
-```
-
-Get a single task by ID:
-
-```bash
-animus task get --id TASK-001
-```
-
-All commands support `--json` for machine-readable output:
-
-```bash
-animus task list --status ready --json
-```
-
-## Task History
-
-View workflow dispatch history for a task:
-
-```bash
-animus task history --id TASK-001
-```
-
-## Pausing and Cancelling
-
-Pause a task (prevents daemon from scheduling it):
-
-```bash
-animus task pause --id TASK-001
-```
-
-Resume a paused task:
-
-```bash
-animus task resume --id TASK-001
-```
-
-Cancel a task (requires confirmation):
-
-```bash
-animus task cancel --id TASK-001 --confirm TASK-001
-```
-
-## Deadlines
-
-Set a deadline:
-
-```bash
-animus task set-deadline --id TASK-001 --deadline "2026-03-15T09:30:00Z"
-```
-
-Clear a deadline:
-
-```bash
-animus task set-deadline --id TASK-001
-```
+- The legacy `animus task ...` command tree was removed.
+- Task creation and status transitions now route through the active
+  `subject_backend` for `kind=task`.
+- Workflow history is tracked through `animus workflow list` and
+  `animus history ...`, not a dedicated `task history` command.

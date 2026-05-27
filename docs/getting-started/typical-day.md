@@ -1,102 +1,75 @@
 # A Typical Day Using Animus
 
-Animus is built for continuous, autonomous execution. You define work (requirements or tasks), mark it ready, and the daemon picks it up automatically.
+Animus is built for continuous execution. You define work through the subject
+surface, mark it ready, and let the daemon or workflow runtime execute it.
 
 ## The Autonomous Workflow
 
 ```mermaid
 flowchart TB
     IDEA["Your Idea"]
-    --> REQ["animus requirements create"]
-    --> EXECUTE["animus requirements execute --id REQ-001"]
-    --> TASKS["Tasks materialized & queued"]
-    --> READY["animus task status ... --status ready"]
+    --> REQ["animus subject create --kind requirement"]
+    --> TASK["animus subject create --kind task"]
+    --> READY["animus subject status --kind task --status ready"]
     --> DAEMON["animus daemon start --autonomous"]
 
-    DAEMON --> LOOP{"Ready task in queue?"}
+    DAEMON --> LOOP{"Ready subject in queue?"}
     LOOP -->|"yes"| WORKFLOW["Spawn workflow runner"]
     WORKFLOW --> RUNNER["AI agents execute phases"]
     RUNNER --> FACTS["Execution facts"]
-    FACTS --> STATE["Tasks, workflows, reviews, outputs updated"]
+    FACTS --> STATE["Subjects, workflows, reviews, outputs updated"]
     STATE --> LOOP
 ```
 
 ## Typical Flow
 
-### 1. Capture a requirement or task
+### 1. Create work
 
 ```bash
-# Option A: Start with a product requirement
-animus requirements create \
-  --title "Rate limiting" \
-  --priority must \
-  --acceptance-criterion "Requests above the threshold are delayed or rejected"
+animus subject create --kind requirement \
+  --title "Rate limiting rollout" \
+  --body "Protect the API from burst traffic."
 
-# Option B: Create a task directly
-animus task create \
+animus subject create --kind task \
   --title "Add rate limiting" \
-  --task-type feature \
-  --priority high
+  --body "Implement request throttling before upstream calls." \
+  --priority p1
 ```
 
-### 2. Materialize implementation work
-
-If you created a requirement, execute it to generate tasks:
+### 2. Mark a task ready
 
 ```bash
-animus requirements execute --id REQ-001
+animus subject status --kind task --id task:TASK-001 --status ready
 ```
 
-If you created a task directly, you can skip this step.
-
-### 3. Start the daemon (autonomous mode)
+### 3. Start the daemon
 
 ```bash
-animus task status --id TASK-001 --status ready
 animus daemon start --autonomous
 ```
-
-The daemon now continuously polls for ready tasks and executes them. It runs in the background and persists across restarts.
 
 ### 4. Monitor progress
 
 ```bash
-animus now
-animus daemon health
-animus workflow list
-animus output tail
 animus status
+animus subject list --kind task
+animus workflow list
+animus daemon health
+animus logs tail
 ```
 
-## Testing Workflows (Debug Mode)
-
-If you need to test a workflow definition, agent prompt, or MCP tool before enabling the daemon, use the `--sync` flag:
+## Testing a Workflow Before Enabling the Daemon
 
 ```bash
-# Run a single workflow synchronously in your terminal for debugging
 animus workflow run --task-id TASK-001 --sync
 ```
 
-The `--sync` flag is a development and debugging tool—it blocks until the workflow completes in the terminal. Once the workflow definition is validated, enable autonomous execution above.
+Use synchronous runs to debug a workflow definition, prompt, or plugin setup in
+the current terminal.
 
-## What the Daemon Actually Does
+## Separation of Concerns
 
-The daemon:
-
-- continuously polls for ready work
-- respects queue ordering and capacity limits
-- spawns workflow runner subprocesses
-- records runtime state and execution facts
-
-The daemon does not own task semantics, requirement semantics, or AI logic. That responsibility belongs to [workflow definitions](../concepts/workflows.md) and [agents](../concepts/agents-and-phases.md).
-
-## Architecture: Separation of Concerns
-
-Animus splits responsibilities to keep concerns clean:
-
-- **Project configuration** (`.animus/`) stays in your repository, versioned with your code
-- **Runtime state** (`~/.animus/<repo-scope>/`) lives outside, persisted across runs
-- **Workflow logic** (YAML phases and agent prompts) is authored and committed
-- **Daemon** is a generic scheduler—policies live in workflow definitions, not in the daemon
-
-This design lets you customize workflows per repository while keeping the daemon simple and reliable.
+- Project configuration lives in `.animus/`.
+- Repo-scoped runtime state lives in `~/.animus/<repo-scope>/`.
+- Workflow logic lives in YAML.
+- The daemon is a scheduler, not the place where product policy lives.

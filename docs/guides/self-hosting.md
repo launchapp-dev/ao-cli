@@ -1,104 +1,48 @@
 # Self-Hosting Workflow
 
-Animus is built using Animus. The project's own requirements and tasks are tracked through the same `animus` commands that users run on their projects. This guide documents that workflow.
+Animus can be used to operate an Animus-managed repository through the same
+CLI and daemon surfaces it exposes to other projects.
 
-## The "Animus Builds Animus" Loop
+## The Loop
 
-The development cycle follows this pattern:
+1. Create or inspect requirements with `animus subject --kind requirement`.
+2. Create or inspect tasks with `animus subject --kind task`.
+3. Mark work ready through `animus subject status`.
+4. Start the daemon or run a workflow directly.
+5. Monitor workflows, queue state, logs, and outputs.
 
-1. Requirements are drafted and refined using `animus requirements`
-2. Tasks are created from requirements using `animus requirements execute --id REQ-001`
-3. The daemon picks up tasks and dispatches workflows
-4. Agents implement, test, and review changes
-5. Completed work is merged back into the codebase
-
-## Viewing the Backlog
-
-List all requirements:
+## Backlog Inspection
 
 ```bash
-animus requirements list
+animus subject list --kind requirement
+animus subject list --kind task --status ready
+animus subject next --kind task
+animus workflow list
+animus status
 ```
 
-View prioritized tasks:
+## Working a Task
 
 ```bash
-animus task list --sort priority
-```
-
-Check task statistics for overall progress:
-
-```bash
-animus task stats
-```
-
-## Working on a Task
-
-Get the next highest-priority ready task:
-
-```bash
-animus task next
-```
-
-Start work on it:
-
-```bash
-animus task status --id TASK-XXX --status in-progress
-```
-
-Complete the task:
-
-```bash
-animus task status --id TASK-XXX --status done
+animus subject status --kind task --id task:TASK-001 --status in_progress
+animus workflow run --task-id TASK-001 --sync
+animus subject status --kind task --id task:TASK-001 --status done
 ```
 
 ## Autonomous Execution
 
-For fully autonomous operation, start the daemon:
-
 ```bash
 animus daemon start --autonomous
-```
-
-The daemon will:
-
-1. Poll for ready tasks
-2. Respect dependency ordering
-3. Create git worktrees for each task
-4. Dispatch the configured workflow pipeline
-5. Run through phases: requirements, implementation, testing, review
-6. Create PRs and optionally auto-merge on success
-7. Clean up worktrees after merge
-
-Monitor progress:
-
-```bash
 animus daemon status
+animus daemon health
 animus daemon events
-animus task stats
+animus logs tail
 ```
 
-## Task State Management
+## Operational Notes
 
-When the daemon encounters issues, tasks may end up in a blocked state. Always use `animus task status` to reset:
-
-```bash
-animus task status --id TASK-XXX --status ready
-```
-
-This clears all blocking metadata (`paused`, `blocked_at`, `blocked_reason`, `blocked_by`). Never edit task JSON files in `.animus/` directly.
-
-## Environment Setup
-
-When running the daemon from inside a Claude Code session, the `CLAUDECODE` environment variable is inherited. This prevents the `claude` CLI from starting. Unset it before launching:
-
-```bash
-env -u CLAUDECODE animus daemon start --autonomous
-```
-
-Or:
-
-```bash
-unset CLAUDECODE
-animus daemon start --autonomous
-```
+- Use `animus subject status --kind task --id <task-id> --status ready` to
+  clear a blocked task back into the ready pool.
+- Never hand-edit Animus-managed state files.
+- If you launch the daemon from inside a Claude Code session, unset
+  `CLAUDECODE` first if the provider CLI depends on a clean environment.

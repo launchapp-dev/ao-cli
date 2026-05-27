@@ -2,46 +2,32 @@
 
 ## What `animus init` Does
 
-`animus init` is the primary first-run command for a repository. It initializes both the project-local Animus config and the repo-scoped runtime state that Animus uses while the repository is active, then applies a registry-backed or local project template on top of that bootstrap.
+`animus init` is the supported first-run command for a repository.
 
 On first run it:
 
 1. resolves the project root
 2. creates `.animus/` if it does not exist
-3. provisions repo-scoped state under `~/.animus/<repo-scope>/`
+3. provisions repo-scoped runtime state under `~/.animus/<repo-scope>/`
 4. writes project config and baseline workflow scaffolding
 5. copies template workflow wrappers into `.animus/workflows/`
-6. creates the default state-machine config if it is missing
-
-`animus setup` still exists as a lower-level bootstrap wizard. Use it when you only want the baseline repo wiring without selecting a template.
 
 ## Project-Local Files
-
-These files live in the repository and are the authored configuration surface. The exact workflow set depends on the selected template:
 
 ```text
 .animus/
 ├── config.json
+├── workflows.yaml
 └── workflows/
     ├── custom.yaml
     ├── standard-workflow.yaml
     ├── hotfix-workflow.yaml
-    ├── research-workflow.yaml
-    └── conductor-workflow.yaml   # template-specific example
+    └── research-workflow.yaml
 ```
 
-Supported but not created by default:
-
-```text
-.animus/workflows.yaml
-.animus/plugins/<pack-id>/
-```
-
-Use the YAML files in `.animus/workflows/` or `.animus/workflows.yaml` to define repository-specific workflows and defaults. Registry templates ship curated workflow wrappers, and local templates can add their own starter files the same way.
+Templates may add more workflow wrappers or companion files.
 
 ## Repo-Scoped Runtime State
-
-Animus keeps mutable runtime data outside the repository under:
 
 ```text
 ~/.animus/<repo-scope>/
@@ -49,47 +35,17 @@ Animus keeps mutable runtime data outside the repository under:
 ├── resume-config.json
 ├── workflow.db
 ├── config/
-│   └── state-machines.v1.json
 ├── daemon/
-│   └── pm-config.json
 ├── docs/
-│   ├── architecture.json
-│   ├── vision.json
-│   └── product-vision.md
 ├── state/
-│   ├── pack-selection.v1.json
-│   ├── schedule-state.json
-│   ├── reviews.json
-│   ├── handoffs.json
-│   ├── history.json
-│   ├── errors.json
-│   ├── qa-results.json
-│   └── qa-review-approvals.json
 └── worktrees/
 ```
 
-Some of these files appear lazily, only after the corresponding subsystem runs.
-
-## What Lives Where
-
-`workflow.db`
-: Stores workflow state plus the persisted task and requirement records.
-
-`core-state.json`
-: Stores the shared in-memory snapshot Animus loads at startup.
-
-`config/state-machines.v1.json`
-: Stores the effective workflow and requirement lifecycle state machines.
-
-`daemon/pm-config.json`
-: Stores persisted daemon configuration such as auto-merge and scheduling overrides.
-
-`worktrees/`
-: Stores managed task worktrees under the repository scope.
+Some runtime files appear lazily when their subsystem first runs.
 
 ## Workflow Sources
 
-Animus resolves workflows from these layers:
+Animus resolves workflows from:
 
 1. project overrides in `.animus/plugins/<pack-id>/`
 2. project YAML in `.animus/workflows.yaml` and `.animus/workflows/*.yaml`
@@ -97,11 +53,12 @@ Animus resolves workflows from these layers:
 
 ## Mutation Policy
 
-Do not hand-edit Animus-managed JSON state. Use:
+Do not hand-edit Animus-managed JSON or SQLite state. Use:
 
-- `animus task ...`
-- `animus requirements ...`
+- `animus subject ...`
 - `animus workflow ...`
+- `animus queue ...`
+- `animus daemon ...`
 - `animus pack ...`
 - Animus MCP tools
 

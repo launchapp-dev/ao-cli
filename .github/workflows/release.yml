@@ -392,20 +392,31 @@ jobs:
             sha256sum *.tar.gz *.zip 2>/dev/null | LC_ALL=C sort -k2 > SHA256SUMS.txt
           )
 
-      - name: Create release on public repo
+      - name: Create or update release on public repo
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.AO_PUBLIC_RELEASE_TOKEN }}
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME}"
-
-          gh release create "${VERSION}" \
-            --repo launchapp-dev/ao \
-            --title "AO ${VERSION}" \
-            --notes "Release ${VERSION} — download the archive for your platform and run install.sh, or use:
+          REPO="launchapp-dev/animus-cli"
+          NOTES="Release ${VERSION} — download the archive for your platform and run install.sh, or use:
 
           \`\`\`bash
-          curl -fsSL https://raw.githubusercontent.com/launchapp-dev/ao/main/install.sh | bash
-          \`\`\`" \
-            dist/release-assets/*
+          curl -fsSL https://raw.githubusercontent.com/launchapp-dev/animus-cli/main/scripts/install.sh | bash
+          \`\`\`"
+
+          # The preceding \`publish\` job already created the release in this
+          # same repo via softprops/action-gh-release. Detect that and either
+          # update assets in place or create the release from scratch (the
+          # latter covers manual reruns where the release was deleted).
+          if gh release view "${VERSION}" --repo "${REPO}" >/dev/null 2>&1; then
+            echo "Release ${VERSION} already exists on ${REPO} — uploading assets with --clobber"
+            gh release upload "${VERSION}" --repo "${REPO}" --clobber dist/release-assets/*
+          else
+            gh release create "${VERSION}" \
+              --repo "${REPO}" \
+              --title "Animus ${VERSION}" \
+              --notes "${NOTES}" \
+              dist/release-assets/*
+          fi

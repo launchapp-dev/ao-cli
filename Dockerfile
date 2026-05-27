@@ -20,10 +20,15 @@ COPY crates crates
 RUN cargo build --release --locked \
     -p orchestrator-cli \
     -p agent-runner \
-    -p llm-cli-wrapper
+    -p oai-runner \
+    -p workflow-runner-v2
 
 # Verify binaries exist
-RUN ls -lh target/release/animus target/release/agent-runner target/release/llm-cli-wrapper
+RUN ls -lh \
+    target/release/animus \
+    target/release/agent-runner \
+    target/release/animus-oai-runner \
+    target/release/ao-workflow-runner
 
 # ── Stage 2: Minimal runtime image ──────────────────────────────────────────────
 FROM debian:bookworm-slim
@@ -59,7 +64,8 @@ RUN mkdir -p /root/.animus /root/.animus/plugins
 # Copy binaries from builder
 COPY --from=builder /src/target/release/animus /usr/local/bin/animus
 COPY --from=builder /src/target/release/agent-runner /usr/local/bin/agent-runner
-COPY --from=builder /src/target/release/llm-cli-wrapper /usr/local/bin/llm-cli-wrapper
+COPY --from=builder /src/target/release/animus-oai-runner /usr/local/bin/animus-oai-runner
+COPY --from=builder /src/target/release/ao-workflow-runner /usr/local/bin/ao-workflow-runner
 
 # Create working directory
 WORKDIR /workspace

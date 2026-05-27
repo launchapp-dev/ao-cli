@@ -72,7 +72,11 @@ main() {
 
   info "Installing Animus CLI ${version} for ${target}"
 
-  archive_name="animus-${version}-${target}.tar.gz"
+  # TODO(naming): Release Binaries workflow currently uploads assets as
+  # `ao-${VERSION}-${TARGET}.tar.gz` (see .github/workflows/release.yml). Rename
+  # both sides to `animus-*` in a coordinated release once existing tags can be
+  # left untouched.
+  archive_name="ao-${version}-${target}.tar.gz"
   archive_url="https://github.com/${REPO}/releases/download/${version}/${archive_name}"
   checksums_url="https://github.com/${REPO}/releases/download/${version}/SHA256SUMS.txt"
 
@@ -93,7 +97,7 @@ main() {
   info "Extracting..."
   tar -xzf "${TMPDIR_INSTALL}/${archive_name}" -C "${TMPDIR_INSTALL}"
 
-  local stage_dir="${TMPDIR_INSTALL}/animus-${version}-${target}"
+  local stage_dir="${TMPDIR_INSTALL}/ao-${version}-${target}"
   if [[ ! -d "${stage_dir}" ]]; then
     stage_dir="$(find "${TMPDIR_INSTALL}" -mindepth 1 -maxdepth 1 -type d | head -1)"
   fi

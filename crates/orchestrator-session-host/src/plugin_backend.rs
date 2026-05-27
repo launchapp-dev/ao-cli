@@ -14,7 +14,9 @@ use std::time::{Duration, Instant};
 use animus_plugin_protocol::{EnvRequirement, RpcError, RpcNotification};
 use async_trait::async_trait;
 use orchestrator_logging::Logger;
-use orchestrator_plugin_host::{HostError, PluginHost, PluginSpawnOptions, PluginStderrSink};
+use orchestrator_plugin_host::{
+    HostError, PluginHost, PluginSpawnOptions, PluginStderrSink, PLUGIN_BASE_ENV_ALLOWLIST,
+};
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -192,7 +194,48 @@ impl PluginSessionBackend {
         self
     }
 
+    /// Build the host-vs-plugin env gate as a set of allowed variable names:
+    /// the universal shell/locale base allowlist union the plugin manifest's
+    /// declared `env_required`.
+    fn allowed_env_keys(&self) -> std::collections::HashSet<String> {
+        PLUGIN_BASE_ENV_ALLOWLIST
+            .iter()
+            .map(|s| (*s).to_string())
+            .chain(self.env_required.iter().map(|req| req.name.clone()))
+            .collect()
+    }
+
+    /// Intersect the runner-supplied request env with the manifest gate so we
+    /// only forward variables the plugin actually declared (plus the universal
+    /// shell/locale base allowlist). Anything the runner happened to inherit
+    /// from the daemon's sanitized environment that the plugin manifest
+    /// doesn't list is dropped on the floor — closing the leak path where
+    /// e.g. `OPENAI_API_KEY` would have been handed to a plugin that never
+    /// declared a need for it.
+    ///
+    /// Used for the spawn-time `env_allowlist` extras AND the per-call RPC
+    /// `env` param in [`PluginSessionBackend::build_run_params`]. The
+    /// `extras.runtime_contract.cli.launch.env` duplicate channel is also
+    /// scrubbed at the dispatch boundary via [`scrub_runtime_contract_env`]
+    /// so a plugin can't fish a secret out of the runtime contract payload
+    /// even though the top-level RPC `env` was filtered. Contract documented
+    /// in `docs/guides/plugin-author-guide.md` § 9.
+    fn filter_request_env_vars(&self, request_env_vars: &[(String, String)]) -> Vec<(String, String)> {
+        let allowed = self.allowed_env_keys();
+        request_env_vars
+            .iter()
+            .filter(|(name, _)| allowed.contains(name.as_str()))
+            .cloned()
+            .collect()
+    }
+
     fn spawn_options(&self, request_env_vars: &[(String, String)]) -> PluginSpawnOptions {
+        // request_env_vars has already been filtered against the manifest gate
+        // by the caller (see `filter_request_env_vars`). Passing the filtered
+        // keys as `extras` is a belt-and-braces: even though every name should
+        // already be in the manifest set, listing them as extras keeps the
+        // existing for_manifest API surface honest about what the host plans
+        // to forward.
         let extras = request_env_vars.iter().map(|(name, _)| name.clone());
         PluginSpawnOptions::for_manifest(self.plugin_name.clone(), &self.env_required, extras, self.stderr_sink_for())
     }
@@ -283,9 +326,32 @@ impl PluginSessionBackend {
     async fn dispatch(
         &self,
         method: &str,
-        request: SessionRequest,
+        mut request: SessionRequest,
         resume_session: Option<String>,
     ) -> Result<SessionRun> {
+        // Tighten the env_vars contract right at the dispatch boundary so the
+        // filtered list flows to BOTH the spawn-time allowlist and the
+        // per-call RPC `env` param built by `build_run_params`. The runner
+        // supplies its full sanitized launch env here; without this filter
+        // any var the runner happens to inherit would leak to a plugin that
+        // never declared a need for it.
+        request.env_vars = self.filter_request_env_vars(&request.env_vars);
+        // The agent-runner duplicates the full merged launch env under
+        // `extras.runtime_contract.cli.launch.env`. `build_run_params`
+        // forwards `runtime_contract` to the plugin verbatim, so without
+        // this scrub a plugin could still read secrets from the runtime
+        // contract payload even after the top-level RPC `env` was filtered.
+        //
+        // TODO(env-override): the agent-runner currently merges intentional
+        // per-run launch env overrides (e.g. `SKILL_MODE` injected via
+        // `inject_cli_launch_env`) into the SAME map as inherited daemon
+        // env, so the manifest gate strips both. A future refactor in
+        // `agent-runner::session_process` should split "intentional
+        // override" from "inherited env" into two distinct fields so the
+        // host can pass overrides through while still gating inherited
+        // secrets. See codex round-1 P2.
+        let allowed = self.allowed_env_keys();
+        scrub_runtime_contract_env(&mut request.extras, &allowed);
         let params = self.build_run_params(&request, resume_session.as_deref());
         let backend_label = format!("plugin:{}", self.plugin_name);
         let control_session_id = Uuid::new_v4().to_string();
@@ -812,6 +878,39 @@ fn session_request_from_agent_run_request(
         env_vars: Vec::new(),
         extras: Value::Object(extras),
     })
+}
+
+/// Scrub `extras.runtime_contract.cli.launch.env` so the manifest gate that
+/// already filtered `SessionRequest.env_vars` also applies to the duplicate
+/// launch-env payload the agent-runner stuffs into the runtime contract.
+///
+/// `build_run_params` forwards the entire `runtime_contract` blob to the
+/// plugin verbatim; without this scrub a plugin whose manifest declared no
+/// `env_required` could still fish e.g. `OPENAI_API_KEY` out of
+/// `runtime_contract.cli.launch.env` even after the top-level RPC `env`
+/// surface was filtered.
+///
+/// Best-effort: silently no-op when the runtime_contract or the
+/// `cli.launch.env` field is absent / not the expected shape. The dispatch
+/// layer doesn't make any guarantees about what `extras` carries beyond
+/// what `build_run_params` reads explicitly.
+fn scrub_runtime_contract_env(extras: &mut Value, allowed: &std::collections::HashSet<String>) {
+    let Some(extras_obj) = extras.as_object_mut() else {
+        return;
+    };
+    let Some(runtime_contract) = extras_obj.get_mut("runtime_contract").and_then(Value::as_object_mut) else {
+        return;
+    };
+    let Some(cli) = runtime_contract.get_mut("cli").and_then(Value::as_object_mut) else {
+        return;
+    };
+    let Some(launch) = cli.get_mut("launch").and_then(Value::as_object_mut) else {
+        return;
+    };
+    let Some(env) = launch.get_mut("env").and_then(Value::as_object_mut) else {
+        return;
+    };
+    env.retain(|key, _| allowed.contains(key));
 }
 
 async fn graceful_shutdown(host: PluginHost) {
@@ -1437,6 +1536,202 @@ mod tests {
         assert!(
             !caps_default.supports_resume && !caps_default.supports_terminate,
             "no declared_methods plumbed → must default to false, not the legacy hardcoded true"
+        );
+    }
+
+    fn env_req(name: &str) -> EnvRequirement {
+        EnvRequirement { name: name.to_string(), description: None, required: false, ..Default::default() }
+    }
+
+    /// Plugin with an empty `env_required` manifest must NOT receive arbitrary
+    /// runner-sourced env vars (e.g. `OPENAI_API_KEY`) on the spawn or RPC
+    /// surface. Pre-fix, `dispatch` forwarded every key the runner had in
+    /// its sanitized launch env, bypassing the manifest gate the plugin
+    /// author guide documents as the contract.
+    #[test]
+    fn filter_request_env_vars_drops_keys_not_in_manifest_or_base() {
+        let backend =
+            PluginSessionBackend::new("silent-plugin", PathBuf::from("/nonexistent/silent"), "silent");
+        // Runner-supplied env: a secret the plugin never asked for plus a
+        // base-allowlist var that's always forwarded.
+        let runner_env = vec![
+            ("OPENAI_API_KEY".to_string(), "sk-leak".to_string()),
+            ("ANTHROPIC_API_KEY".to_string(), "sk-leak".to_string()),
+            ("PATH".to_string(), "/usr/bin".to_string()),
+        ];
+        let filtered = backend.filter_request_env_vars(&runner_env);
+        let keys: Vec<&str> = filtered.iter().map(|(k, _)| k.as_str()).collect();
+        assert!(
+            !keys.contains(&"OPENAI_API_KEY"),
+            "plugin with empty env_required must NOT receive OPENAI_API_KEY"
+        );
+        assert!(
+            !keys.contains(&"ANTHROPIC_API_KEY"),
+            "plugin with empty env_required must NOT receive ANTHROPIC_API_KEY"
+        );
+        assert!(keys.contains(&"PATH"), "base-allowlist var PATH must still pass through");
+    }
+
+    /// Plugin whose manifest declares `OPENAI_API_KEY` MUST receive it; the
+    /// filter is a gate, not a blanket scrub.
+    #[test]
+    fn filter_request_env_vars_passes_keys_declared_in_manifest() {
+        let backend =
+            PluginSessionBackend::new("oai-plugin", PathBuf::from("/nonexistent/oai"), "oai")
+                .with_env_required(vec![env_req("OPENAI_API_KEY"), env_req("OPENAI_ORG_ID")]);
+        let runner_env = vec![
+            ("OPENAI_API_KEY".to_string(), "sk-real".to_string()),
+            ("OPENAI_ORG_ID".to_string(), "org-1".to_string()),
+            ("ANTHROPIC_API_KEY".to_string(), "sk-not-mine".to_string()),
+            ("HOME".to_string(), "/Users/x".to_string()),
+        ];
+        let filtered = backend.filter_request_env_vars(&runner_env);
+        let keys: std::collections::HashSet<&str> = filtered.iter().map(|(k, _)| k.as_str()).collect();
+        assert!(keys.contains("OPENAI_API_KEY"), "manifest-declared key must pass through");
+        assert!(keys.contains("OPENAI_ORG_ID"), "manifest-declared key must pass through");
+        assert!(keys.contains("HOME"), "base-allowlist key must pass through");
+        assert!(
+            !keys.contains("ANTHROPIC_API_KEY"),
+            "key NOT in manifest must be dropped even when manifest declares other secrets"
+        );
+    }
+
+    /// The RPC `env` param built by `build_run_params` must use the SAME
+    /// filtered list as the spawn-time allowlist — both surfaces are the
+    /// only legs request env leaves the host on, and they have to apply the
+    /// same gate. Regression for the RPC-side bypass that left every key in
+    /// SessionRequest.env_vars visible to the plugin even when the host's
+    /// spawn-time env scrub would have dropped it.
+    #[test]
+    fn build_run_params_env_only_contains_filtered_keys() {
+        let backend =
+            PluginSessionBackend::new("oai-plugin", PathBuf::from("/nonexistent/oai"), "oai")
+                .with_env_required(vec![env_req("OPENAI_API_KEY")]);
+        // Caller-side filter (matches what dispatch() does to request.env_vars
+        // before handing it to build_run_params).
+        let runner_env = vec![
+            ("OPENAI_API_KEY".to_string(), "sk-real".to_string()),
+            ("ANTHROPIC_API_KEY".to_string(), "sk-leak".to_string()),
+            ("PATH".to_string(), "/usr/bin".to_string()),
+        ];
+        let filtered = backend.filter_request_env_vars(&runner_env);
+        let req = SessionRequest {
+            tool: "oai".to_string(),
+            model: "gpt".to_string(),
+            prompt: "hi".to_string(),
+            cwd: PathBuf::from("/tmp"),
+            project_root: None,
+            mcp_endpoint: None,
+            permission_mode: None,
+            timeout_secs: None,
+            env_vars: filtered,
+            extras: Value::Object(Default::default()),
+        };
+        let params = backend.build_run_params(&req, None);
+        let env_obj = params.get("env").and_then(Value::as_object).expect("env param must be an object");
+        assert!(env_obj.contains_key("OPENAI_API_KEY"), "manifest-declared key reaches RPC env param");
+        assert!(env_obj.contains_key("PATH"), "base-allowlist key reaches RPC env param");
+        assert!(
+            !env_obj.contains_key("ANTHROPIC_API_KEY"),
+            "non-manifest key must NOT appear in the RPC env param payload — closes the bypass"
+        );
+    }
+
+    /// The agent-runner duplicates the merged launch env under
+    /// `extras.runtime_contract.cli.launch.env`. `build_run_params` forwards
+    /// `runtime_contract` to the plugin verbatim, so the manifest gate has to
+    /// scrub THAT map too — otherwise a plugin can read a non-declared secret
+    /// out of the runtime contract payload even after the top-level RPC `env`
+    /// was filtered. Regression for codex round-1 P1.
+    #[test]
+    fn scrub_runtime_contract_env_strips_undeclared_keys() {
+        let backend =
+            PluginSessionBackend::new("silent-plugin", PathBuf::from("/nonexistent/silent"), "silent");
+        let allowed = backend.allowed_env_keys();
+        let mut extras = json!({
+            "runtime_contract": {
+                "cli": {
+                    "name": "silent",
+                    "launch": {
+                        "command": "/usr/bin/silent",
+                        "args": [],
+                        "env": {
+                            "OPENAI_API_KEY": "sk-leak",
+                            "ANTHROPIC_API_KEY": "sk-leak",
+                            "PATH": "/usr/bin",
+                        },
+                        "prompt_via_stdin": true,
+                    }
+                }
+            }
+        });
+        scrub_runtime_contract_env(&mut extras, &allowed);
+        let scrubbed_env = extras
+            .pointer("/runtime_contract/cli/launch/env")
+            .and_then(Value::as_object)
+            .expect("env path must still exist after scrub");
+        assert!(
+            !scrubbed_env.contains_key("OPENAI_API_KEY"),
+            "non-manifest key in runtime_contract launch env must be stripped"
+        );
+        assert!(
+            !scrubbed_env.contains_key("ANTHROPIC_API_KEY"),
+            "non-manifest key in runtime_contract launch env must be stripped"
+        );
+        assert!(scrubbed_env.contains_key("PATH"), "base-allowlist key must survive the scrub");
+    }
+
+    /// The same scrub must preserve manifest-declared keys so plugins that
+    /// genuinely need a secret still receive it through the runtime contract
+    /// pathway (this is the symmetric case to the test above).
+    #[test]
+    fn scrub_runtime_contract_env_keeps_manifest_declared_keys() {
+        let backend =
+            PluginSessionBackend::new("oai-plugin", PathBuf::from("/nonexistent/oai"), "oai")
+                .with_env_required(vec![env_req("OPENAI_API_KEY")]);
+        let allowed = backend.allowed_env_keys();
+        let mut extras = json!({
+            "runtime_contract": {
+                "cli": {
+                    "name": "oai",
+                    "launch": {
+                        "env": {
+                            "OPENAI_API_KEY": "sk-real",
+                            "ANTHROPIC_API_KEY": "sk-leak",
+                        }
+                    }
+                }
+            }
+        });
+        scrub_runtime_contract_env(&mut extras, &allowed);
+        let scrubbed_env = extras
+            .pointer("/runtime_contract/cli/launch/env")
+            .and_then(Value::as_object)
+            .expect("env path must still exist after scrub");
+        assert!(scrubbed_env.contains_key("OPENAI_API_KEY"), "manifest-declared secret must survive");
+        assert!(
+            !scrubbed_env.contains_key("ANTHROPIC_API_KEY"),
+            "non-manifest secret must still be stripped"
+        );
+    }
+
+    /// Best-effort scrub: when the runtime_contract path is absent (or has
+    /// the wrong shape) the helper silently no-ops instead of panicking.
+    #[test]
+    fn scrub_runtime_contract_env_is_noop_when_path_absent() {
+        let backend =
+            PluginSessionBackend::new("noop-plugin", PathBuf::from("/nonexistent/noop"), "noop");
+        let allowed = backend.allowed_env_keys();
+        let mut empty = json!({});
+        scrub_runtime_contract_env(&mut empty, &allowed);
+        assert_eq!(empty, json!({}), "absent runtime_contract must leave extras unchanged");
+
+        let mut wrong_shape = json!({ "runtime_contract": "not an object" });
+        scrub_runtime_contract_env(&mut wrong_shape, &allowed);
+        assert_eq!(
+            wrong_shape,
+            json!({ "runtime_contract": "not an object" }),
+            "wrong-shape runtime_contract must leave extras unchanged"
         );
     }
 }

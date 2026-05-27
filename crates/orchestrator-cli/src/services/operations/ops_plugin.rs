@@ -1885,12 +1885,11 @@ fn map_host_result_to_status(
 /// 1. `req.signature_policy` (the `--signature-policy` flag).
 /// 2. `--skip-signature` -> `Disabled`.
 /// 3. `--require-signature` -> `Strict`.
-/// 4. Fallback: `Warn` (verify-if-present). Matches the v0.4.12 transition
-///    default in [`PluginPolicyMode::default_for_install`]. v0.4.13 flips
-///    that lib default back to `Strict` now that keyless verification has
-///    a real Sigstore trust anchor (Fulcio + Rekor) instead of a baked
-///    PEM placeholder. The CLI handler flows through the same lib default
-///    so direct callers (unit tests, MCP wire) and CLI users agree.
+/// 4. Fallback: `Warn` (verify-if-present). Matches the library default in
+///    [`PluginPolicyMode::default_for_install`]. The CLI handler flows
+///    through the same value so direct callers (unit tests, MCP wire) and
+///    CLI users agree. See `docs/reference/security.md` for the rationale
+///    and the recommended `strict` opt-in for production.
 fn effective_policy_mode(req: &PluginInstallRequest) -> PluginPolicyMode {
     if let Some(mode) = req.signature_policy {
         return mode;

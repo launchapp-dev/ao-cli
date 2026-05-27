@@ -30,10 +30,11 @@ pub const GITHUB_OIDC_ISSUER: &str = "https://token.actions.githubusercontent.co
 
 /// Signature enforcement mode selected by the operator.
 ///
-/// v0.4.12 ships `Warn` as the install default *only* to give operators
-/// one release cycle to either upgrade to a v0.4.12-signed plugin or to
-/// uninstall plugins installed before keyless signing existed. v0.4.13
-/// flips this back to `Strict`. See `docs/reference/security.md`.
+/// `Warn` is the install-time default (see [`PolicyMode::default_for_install`]).
+/// Operators who want fail-closed enforcement opt in with
+/// `--signature-policy strict` per install or by setting it in their
+/// config. See `docs/reference/security.md` for the rationale and the
+/// recommended production posture.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PolicyMode {
@@ -50,10 +51,19 @@ pub enum PolicyMode {
 impl PolicyMode {
     /// Default policy for `animus plugin install`.
     ///
-    /// `Warn` for v0.4.12 to ease the migration from the pre-v0.4.12
-    /// key-based path (which no longer exists). v0.4.13 flips this back
-    /// to `Strict` — keyless verification has a real Sigstore trust
-    /// anchor, so there is no longer a placeholder excuse.
+    /// `Warn` is the intentional default: verification still runs and the
+    /// resolved `signature_status` is recorded in `~/.animus/plugins.yaml`,
+    /// but a missing / invalid / untrusted-signer signature degrades to a
+    /// stderr warning instead of a hard install failure. Operators who
+    /// want fail-closed enforcement opt in with `--signature-policy strict`
+    /// (or the legacy alias `--require-signature`). See
+    /// `docs/reference/security.md` for the full posture and recommended
+    /// production configuration.
+    ///
+    /// Source-of-truth for the CLI fallback: `effective_policy_mode` in
+    /// `crates/orchestrator-cli/src/services/operations/ops_plugin.rs`
+    /// flows through this value so direct callers (unit tests, MCP wire)
+    /// and CLI users agree on the default.
     #[must_use]
     pub fn default_for_install() -> Self {
         PolicyMode::Warn
@@ -136,9 +146,9 @@ pub struct SignaturePolicy {
 }
 
 impl SignaturePolicy {
-    /// Build a default install-time policy: `Warn` (v0.4.12 transition
-    /// default; flips to `Strict` in v0.4.13), trusted publisher set to
-    /// the built-in `launchapp-dev` keyless anchor, no exemptions.
+    /// Build a default install-time policy: `Warn` (see
+    /// [`PolicyMode::default_for_install`]), trusted publisher set to the
+    /// built-in `launchapp-dev` keyless anchor, no exemptions.
     #[must_use]
     pub fn default_install() -> Self {
         Self {

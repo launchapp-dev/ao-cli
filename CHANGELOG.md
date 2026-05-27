@@ -4,6 +4,66 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`fix(durability)`: propagate phase-checkpoint write failures in dispatch
+  to preserve the crash-replay invariant.** Three failure points in
+  `run_workflow_phase_attempt` (`crates/workflow-runner-v2/src/phase_executor.rs`)
+  previously logged and continued: the pending-checkpoint write before
+  runner dispatch, the post-dispatch flip to `Running`, and the terminal
+  `Completed`/`Failed` mutation. Recovery scans `Running` checkpoints to
+  shield in-flight phases across daemon restart; dispatching without a
+  durable checkpoint risked silently losing the work AND double-dispatching
+  side-effecting phases on a re-tick. All three now return explicit
+  errors using typed sentinels: `DispatchRetryableError` for the
+  pre-runner case (no side-effecting work happened yet — operator
+  triage can distinguish via the `dispatch_retry` event discriminator)
+  and `TerminalCheckpointError` for the post-runner cases. The
+  sentinels are matched by the agent retry/failover loop, which
+  REFUSES to redispatch a phase on those errors even when the I/O
+  message overlaps the transient-runner classifier (eg "connection
+  timed out" on a network-storage fsync) — this prevents the agent
+  loop from re-running a phase whose side effects have already
+  executed. All four cases terminally fail the workflow phase so
+  downstream daemon reconciliation surfaces the failure correctly and
+  orphan recovery skips the run; automatic next-tick retry is left for
+  a follow-up because it would require scheduler changes outside this
+  PR. Added a per-thread fault-injection seam
+  (`phase_session::test_fault`) with 5 regression tests covering each
+  failure mode plus the typed-sentinel detection.
+- **`fix(durability)`: persist failure now fails the phase instead of
+  silently advancing.** `workflow_execute.rs` previously did
+  `let _ = persist_phase_output(...)` after a successful phase and then
+  advanced workflow state — a persist failure would leave the workflow
+  ahead of its durable completion marker. The resumed-agent path in
+  `daemon_run.rs` already treated this same failure as fatal. The
+  normal-execution path now calls `fail_current_phase` when persistence
+  fails (with a `persist_failed` phase_status discriminator so operators
+  can distinguish from real phase failures), preventing the workflow from
+  ever advancing past a phase whose completion oracle isn't on disk.
+  Added a fault-injection seam (`phase_output::test_fault`) plus a
+  behavioral test that the workflow's `current_phase_index` does not
+  change when persist fails and the workflow ends in
+  `WorkflowStatus::Failed`.
+- **`fix(durability)`: graceful drain of subprocess workflow_events on
+  shutdown AND normal-lifecycle process completion.**
+  `SubprocessEventPipe::shutdown` previously aborted the reader task
+  unconditionally, which could drop the final batch of events the runner
+  emitted right before exiting (writer flushed bytes into the socket
+  buffer; reader had not yet consumed them when abort fired). The reader
+  loop now responds to a shutdown notification by entering a bounded-wait
+  drain pass (50 ms accept-queue probe + unbounded EOF read, capped
+  overall by the 250 ms `SHUTDOWN_DRAIN_DEADLINE`) so a runaway plugin
+  still cannot stall daemon shutdown. The deadline path now keeps the
+  `JoinHandle` borrowed via `&mut task` across the timeout so a leaked
+  reader is actually `abort()`-ed on fallback (dropping a `JoinHandle`
+  only detaches the task). `ProcessManager::check_running` now takes and
+  awaits `event_pipe.shutdown()` on the normal-completion, timeout, and
+  probe-error paths so the drain runs in the production lifecycle, not
+  only on explicit pipe-shutdown. New regression test writes 3 events,
+  closes the writer, immediately calls shutdown, and asserts all 3
+  events reach the broadcaster.
+
 ## [0.4.13] - 2026-05-27
 
 Operational hardening of the v0.4.12 plugin extraction. Several pieces of

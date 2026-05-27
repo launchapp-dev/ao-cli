@@ -163,6 +163,8 @@ pub fn persist_phase_output(
     attempt: u32,
     outcome: &PhaseExecutionOutcome,
 ) -> anyhow::Result<()> {
+    #[cfg(test)]
+    test_fault::maybe_fail()?;
     let dir = phase_output_dir(project_root, workflow_id);
     std::fs::create_dir_all(&dir)?;
 
@@ -387,6 +389,45 @@ pub(crate) fn build_workflow_pipeline_context(
 
     let json = serde_json::to_string(&context).unwrap_or_default();
     (json, phase_order)
+}
+
+/// Per-thread fault-injection seam for [`persist_phase_output`]. Tests in
+/// this crate use the [`FaultGuard`] RAII guard to force the next persist
+/// call on the current thread to return an injected
+/// `io::ErrorKind::PermissionDenied`; the matching workflow_execute test
+/// then verifies that the surrounding scheduler does NOT advance the
+/// workflow state when persistence fails.
+#[cfg(test)]
+pub mod test_fault {
+    use std::cell::Cell;
+
+    thread_local! {
+        static ARMED: Cell<bool> = const { Cell::new(false) };
+    }
+
+    pub struct FaultGuard;
+
+    impl FaultGuard {
+        pub fn arm() -> Self {
+            ARMED.with(|cell| cell.set(true));
+            Self
+        }
+    }
+
+    impl Drop for FaultGuard {
+        fn drop(&mut self) {
+            ARMED.with(|cell| cell.set(false));
+        }
+    }
+
+    pub fn maybe_fail() -> anyhow::Result<()> {
+        let armed = ARMED.with(Cell::get);
+        if armed {
+            ARMED.with(|cell| cell.set(false));
+            return Err(anyhow::anyhow!("test_fault::maybe_fail injected persist_phase_output failure"));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

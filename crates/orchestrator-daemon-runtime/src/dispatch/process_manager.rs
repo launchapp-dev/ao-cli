@@ -262,6 +262,12 @@ impl ProcessManager {
                         protocol::graceful_kill_process(pid as i32);
                     }
                     drain_stderr_reader(&mut process.stderr_reader).await;
+                    // Drain the event pipe before the WorkflowProcess is
+                    // dropped: otherwise Drop just aborts the reader and the
+                    // last batch of `workflow_events` the subprocess
+                    // emitted right before timeout-kill is lost.
+                    #[cfg(unix)]
+                    drain_event_pipe(&mut process.event_pipe).await;
                     completed.push(CompletedProcess {
                         subject_id: process.subject_key,
                         subject_kind: Some(process.subject_kind),
@@ -282,6 +288,8 @@ impl ProcessManager {
                 let mut maybe_child = match process.child.lock() {
                     Ok(guard) => guard,
                     Err(error) => {
+                        #[cfg(unix)]
+                        drain_event_pipe(&mut process.event_pipe).await;
                         completed.push(CompletedProcess {
                             subject_id: process.subject_key,
                             subject_kind: Some(process.subject_kind),
@@ -305,6 +313,13 @@ impl ProcessManager {
             match status {
                 Ok(Some(status)) => {
                     drain_stderr_reader(&mut process.stderr_reader).await;
+                    // Normal-lifecycle drain: take + await
+                    // `event_pipe.shutdown()` before the WorkflowProcess is
+                    // dropped. Pre-fix the Drop path aborted the reader,
+                    // which could discard the runner's final
+                    // `workflow_events` batch sitting in the socket buffer.
+                    #[cfg(unix)]
+                    drain_event_pipe(&mut process.event_pipe).await;
                     let exit_code = status.code();
                     let events = parse_runner_events(&process.stderr_lines);
                     let workflow_id = latest_runner_workflow_id(&events);
@@ -331,6 +346,8 @@ impl ProcessManager {
                 }
                 Ok(None) => active.push(process),
                 Err(error) => {
+                    #[cfg(unix)]
+                    drain_event_pipe(&mut process.event_pipe).await;
                     completed.push(CompletedProcess {
                         subject_id: process.subject_key,
                         subject_kind: Some(process.subject_kind),
@@ -373,6 +390,20 @@ fn default_event_pipe_root() -> std::path::PathBuf {
 async fn drain_stderr_reader(handle: &mut Option<JoinHandle<()>>) {
     if let Some(h) = handle.take() {
         let _ = tokio::time::timeout(std::time::Duration::from_secs(2), h).await;
+    }
+}
+
+/// Take + await `SubprocessEventPipe::shutdown()` on a process's event pipe
+/// before the surrounding `WorkflowProcess` is dropped. Without this the
+/// Drop path aborts the reader task, which can discard the final batch of
+/// `workflow_events` the subprocess emitted right before exit (the writer
+/// flushed bytes into the socket buffer; the reader had not yet consumed
+/// them when abort fired). `shutdown` performs a bounded-wait drain so a
+/// misbehaving plugin still cannot stall daemon progress.
+#[cfg(unix)]
+async fn drain_event_pipe(pipe: &mut Option<SubprocessEventPipe>) {
+    if let Some(pipe) = pipe.take() {
+        pipe.shutdown().await;
     }
 }
 

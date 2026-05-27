@@ -1,0 +1,62 @@
+{
+  "name": "@launchapp-dev/animus-plugin-sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for authoring Animus plugins (subject backends, providers, triggers, transports, log storage).",
+  "license": "Elastic-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit",
+    "clean": "rm -rf dist coverage",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "@types/node": ">=20.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@types/node": {
+      "optional": false
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.0",
+    "typescript": "^5.5.0",
+    "vitest": "^1.6.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/launchapp-dev/animus-plugin-sdk-ts"
+  },
+  "keywords": [
+    "animus",
+    "plugin",
+    "sdk",
+    "jsonrpc",
+    "stdio"
+  ]
+}

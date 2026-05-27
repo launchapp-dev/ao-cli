@@ -164,6 +164,18 @@ All notable changes to this project will be documented in this file.
   the full required-role set (`--include-subjects --include-transports`)
   AND drops `--skip-preflight` from the daemon spawn so any leftover gaps
   surface as actionable preflight errors before the daemon boots.
+- **`fix(protocol)` [P1]: isolate scopes by canonical root even when origin
+  matches.** `protocol::scoped_state_root` first hashes the canonical project
+  root into a `<repo-name>-<12 hex>` scope, but if that directory did not yet
+  exist it fell back to `find_existing_scope_by_origin`, which would return any
+  scope sharing the same git remote URL. Two distinct clones of the same repo
+  could therefore alias onto one scope and silently share `workflow.db`, logs,
+  worktrees, and state. The fallback now compares the candidate scope's
+  recorded `.project-root` marker against the requested canonical root and only
+  adopts the existing directory when (a) no marker is present (legacy
+  unmigrated scopes) or (b) the recorded path no longer canonicalizes (the
+  user moved the repo on disk). Two regression tests cover the same-origin
+  isolation guarantee and the moved-clone adoption path.
 
 ## [0.4.13] - 2026-05-27
 

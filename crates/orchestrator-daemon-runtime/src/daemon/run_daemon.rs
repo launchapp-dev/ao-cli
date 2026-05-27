@@ -122,6 +122,12 @@ where
     // tests that pre-install a tweaked quota set keep their values.
     crate::quotas::install_runtime_quotas(crate::quotas::RuntimeQuotas::from_env());
 
+    // Wire the plugin host's spawn-site quota check into the runtime
+    // quota counter. Without this install the plugin host falls back to
+    // a no-op (no cap enforced); with it, every plugin spawn claims a
+    // slot bounded by `RuntimeQuotas::plugin_process_max`.
+    crate::quotas::install_runtime_quota_process_slot_factory();
+
     hooks.handle_event(DaemonRunEvent::Startup { project_root: primary_root.clone(), daemon_pid })?;
 
     // Preflight BEFORE flipping persisted daemon status to Running. A first-time

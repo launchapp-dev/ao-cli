@@ -1973,12 +1973,6 @@ mod plugin_pack_fixture_tests {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
-    use std::sync::{Mutex, OnceLock};
-
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
 
     struct EnvVarGuard {
         key: &'static str,
@@ -2255,7 +2249,7 @@ workflows:
 
     #[tokio::test]
     async fn execute_workflow_runs_node_pack_fixture_and_namespaces_pack_mcp() {
-        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _lock = crate::test_env::scoped_state_serializer();
         let home = tempfile::tempdir().expect("home tempdir");
         let project = tempfile::tempdir().expect("project tempdir");
         let _home_guard = EnvVarGuard::set("HOME", home.path());
@@ -2338,7 +2332,7 @@ workflows:
 
     #[tokio::test]
     async fn execute_workflow_defers_pack_runtime_checks_until_execution() {
-        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _lock = crate::test_env::scoped_state_serializer();
         let home = tempfile::tempdir().expect("home tempdir");
         let project = tempfile::tempdir().expect("project tempdir");
         let _home_guard = EnvVarGuard::set("HOME", home.path());
@@ -2401,7 +2395,7 @@ workflows:
 
     #[tokio::test]
     async fn execute_workflow_checks_dependent_pack_requirements_before_phase_execution() {
-        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _lock = crate::test_env::scoped_state_serializer();
         let home = tempfile::tempdir().expect("home tempdir");
         let project = tempfile::tempdir().expect("project tempdir");
         let _home_guard = EnvVarGuard::set("HOME", home.path());
@@ -2475,7 +2469,7 @@ workflows:
 
     #[tokio::test]
     async fn execute_workflow_runs_python_pack_fixture_with_external_runtime() {
-        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _lock = crate::test_env::scoped_state_serializer();
         let home = tempfile::tempdir().expect("home tempdir");
         let project = tempfile::tempdir().expect("project tempdir");
         let _home_guard = EnvVarGuard::set("HOME", home.path());

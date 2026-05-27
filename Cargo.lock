@@ -106,8 +106,10 @@ dependencies = [
 name = "animus-plugin-protocol"
 version = "0.1.0"
 dependencies = [
+ "schemars 1.2.1",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -181,8 +183,10 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures-core",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 1.0.69",
 ]
 

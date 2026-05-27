@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InitializeParams",
+  "description": "Parameters sent from host to plugin in the `initialize` request.\n\nThis is the first request the host sends after the plugin process starts.\nThe plugin should validate `protocol_version` and return an\n[`InitializeResult`] or an error if the versions are incompatible.",
+  "type": "object",
+  "properties": {
+    "capabilities": {
+      "description": "Capabilities the host promises to honor.",
+      "$ref": "#/$defs/HostCapabilities"
+    },
+    "host_info": {
+      "description": "Identity of the host.",
+      "$ref": "#/$defs/HostInfo"
+    },
+    "protocol_version": {
+      "description": "Protocol version the host speaks. See [`PROTOCOL_VERSION`].",
+      "type": "string"
+    }
+  },
+  "required": [
+    "protocol_version",
+    "host_info",
+    "capabilities"
+  ],
+  "$defs": {
+    "HostCapabilities": {
+      "description": "Capabilities the host advertises during the handshake.\n\nPlugins may use these to enable optional features. The host promises to\nhonor any capability it advertises.",
+      "type": "object",
+      "properties": {
+        "cancellation": {
+          "description": "Host may issue `$/cancelRequest` notifications to cancel in-flight\nrequests.",
+          "type": "boolean",
+          "default": false
+        },
+        "progress": {
+          "description": "Host accepts `$/progress` notifications.",
+          "type": "boolean",
+          "default": false
+        },
+        "streaming": {
+          "description": "Host accepts server-streaming notifications carrying the original\nrequest id.",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "HostInfo": {
+      "description": "Identity of the host issuing the `initialize` call.\n\nPlugins may log this for debugging or vary behavior based on the host\nversion (e.g. enabling features only available in newer hosts).",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Conventionally `\"animus\"` for the official Animus daemon.",
+          "type": "string"
+        },
+        "version": {
+          "description": "Semver of the host.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ]
+    }
+  }
+}

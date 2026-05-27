@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RpcNotification",
+  "description": "A JSON-RPC 2.0 notification frame.\n\nNotifications are fire-and-forget — they have no `id` and the recipient\nnever replies. Server-streaming results from a single request id (e.g.\n`subject/changed` watch events) are also delivered as notifications; in\nthat case the original request id is carried inside `params`.",
+  "type": "object",
+  "properties": {
+    "jsonrpc": {
+      "description": "Always `\"2.0\"`.",
+      "type": "string"
+    },
+    "method": {
+      "description": "JSON-RPC method name.",
+      "type": "string"
+    },
+    "params": {
+      "description": "Notification parameters."
+    }
+  },
+  "required": [
+    "jsonrpc",
+    "method"
+  ]
+}

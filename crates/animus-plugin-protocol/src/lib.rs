@@ -26,6 +26,7 @@
 
 #![warn(missing_docs)]
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -246,7 +247,7 @@ pub mod error_codes {
 /// [`RpcNotification`] instead and have no `id`. `params` is structurally
 /// typed via [`Value`] so the runtime can dispatch to method-specific
 /// deserializers.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct RpcRequest {
     /// Always `"2.0"`.
     pub jsonrpc: String,
@@ -274,7 +275,7 @@ impl RpcRequest {
 /// never replies. Server-streaming results from a single request id (e.g.
 /// `subject/changed` watch events) are also delivered as notifications; in
 /// that case the original request id is carried inside `params`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct RpcNotification {
     /// Always `"2.0"`.
     pub jsonrpc: String,
@@ -296,7 +297,7 @@ impl RpcNotification {
 ///
 /// Exactly one of `result` or `error` should be set. Use [`RpcResponse::ok`]
 /// or [`RpcResponse::err`] to construct correctly-shaped responses.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct RpcResponse {
     /// Always `"2.0"`.
     pub jsonrpc: String,
@@ -330,7 +331,7 @@ impl RpcResponse {
 /// implementation-specific value in the reserved JSON-RPC range. `data` is
 /// optional structured detail that the host can surface in logs or pass back
 /// to the originating CLI/MCP caller.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct RpcError {
     /// Error code; see [`error_codes`].
     pub code: i32,
@@ -345,7 +346,7 @@ pub struct RpcError {
 ///
 /// Plugins may log this for debugging or vary behavior based on the host
 /// version (e.g. enabling features only available in newer hosts).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct HostInfo {
     /// Conventionally `"animus"` for the official Animus daemon.
     pub name: String,
@@ -354,7 +355,7 @@ pub struct HostInfo {
 }
 
 /// Identity of the plugin returned in the `initialize` response.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct PluginInfo {
     /// Plugin's published name (e.g. `"animus-subject-linear"`).
     pub name: String,
@@ -383,7 +384,7 @@ impl PluginInfo {
 ///
 /// Plugins may use these to enable optional features. The host promises to
 /// honor any capability it advertises.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct HostCapabilities {
     /// Host accepts server-streaming notifications carrying the original
     /// request id.
@@ -404,7 +405,7 @@ pub struct HostCapabilities {
 /// host uses it to skip calls the plugin would reject anyway. `subject_kinds`
 /// and `mcp_tools` are supplemental hints for subject-backend and
 /// custom-plugin kinds respectively.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct PluginCapabilities {
     /// Concrete methods the plugin implements (e.g. `["subject/list",
     /// "subject/get", "subject/update"]`).
@@ -436,7 +437,7 @@ pub struct PluginCapabilities {
 ///
 /// Hosts that bridge MCP can re-expose these tools to MCP clients without
 /// the plugin author writing MCP-specific code.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct McpTool {
     /// MCP tool name.
     pub name: String,
@@ -453,7 +454,7 @@ pub struct McpTool {
 /// This is the first request the host sends after the plugin process starts.
 /// The plugin should validate `protocol_version` and return an
 /// [`InitializeResult`] or an error if the versions are incompatible.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct InitializeParams {
     /// Protocol version the host speaks. See [`PROTOCOL_VERSION`].
     pub protocol_version: String,
@@ -468,7 +469,7 @@ pub struct InitializeParams {
 /// The host inspects `protocol_version` for compatibility and stores
 /// `capabilities` for the lifetime of the plugin connection so it can avoid
 /// calling unsupported methods.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct InitializeResult {
     /// Protocol version the plugin speaks. See [`PROTOCOL_VERSION`].
     pub protocol_version: String,
@@ -484,7 +485,7 @@ pub struct InitializeResult {
 /// tooling that needs to know what a binary is before spawning it as a
 /// long-running stdio child. The shape mirrors [`InitializeResult`] but is
 /// flat for ease of static parsing.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct PluginManifest {
     /// Plugin name (matches [`PluginInfo::name`]).
     pub name: String,
@@ -559,7 +560,7 @@ impl PluginManifest {
 /// variable isn't present in the daemon's own environment. The host never
 /// refuses to spawn over a missing required var — that decision belongs to
 /// the plugin itself, which sees the missing variable during its own startup.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct EnvRequirement {
     /// Environment variable name (e.g. `"OPENAI_API_KEY"`).
     pub name: String,
@@ -581,7 +582,7 @@ pub struct EnvRequirement {
 ///
 /// Hosts surface this in `animus daemon health` and may use it to gate work
 /// (e.g. drain in-flight subjects from a `Degraded` plugin before restart).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum HealthStatus {
     /// Plugin is fully functional.
@@ -594,7 +595,7 @@ pub enum HealthStatus {
 }
 
 /// Response to `health/check`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct HealthCheckResult {
     /// Overall status.
     pub status: HealthStatus,
@@ -615,7 +616,7 @@ pub struct HealthCheckResult {
 /// to the request the plugin emits `trigger/event` notifications whenever it
 /// observes something the host should react to. The plugin keeps watching
 /// until it receives a `shutdown` request or its stdio closes.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct TriggerWatchParams {
     /// Optional resume cursor from a previous run; semantics are
     /// plugin-defined. Plugins should ignore it if unrecognized.
@@ -638,7 +639,7 @@ pub struct TriggerWatchParams {
 ///   a new task with `payload` as input context.
 /// - Otherwise the host enqueues the event against the trigger's
 ///   `workflow_ref` (if configured) using the existing webhook dispatch path.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct TriggerEvent {
     /// Unique event id assigned by the plugin. Used by the host to send back
     /// `trigger/ack`. Plugins should make this stable across restarts when
@@ -733,7 +734,7 @@ impl From<TriggerActionHint> for String {
 ///
 /// The host emits this after it has accepted an event for processing. Plugins
 /// use it to persist a cursor or trim a server-side queue.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct TriggerAckParams {
     /// The `event_id` being acknowledged.
     pub event_id: String,

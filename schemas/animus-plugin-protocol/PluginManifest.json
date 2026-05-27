@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PluginManifest",
+  "description": "One-shot manifest emitted when a plugin is invoked with `--manifest`.\n\nThis is the discovery surface used by `animus plugin install` and similar\ntooling that needs to know what a binary is before spawning it as a\nlong-running stdio child. The shape mirrors [`InitializeResult`] but is\nflat for ease of static parsing.",
+  "type": "object",
+  "properties": {
+    "capabilities": {
+      "description": "Methods implemented by the plugin.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string"
+      }
+    },
+    "description": {
+      "description": "Human-readable description.",
+      "type": "string"
+    },
+    "env_required": {
+      "description": "Environment variables the plugin needs the host to forward at spawn\ntime.\n\nThe plugin host clears the daemon's process environment before spawning\na plugin (`env_clear()`) and only forwards a minimal universal shell\nallowlist (`PATH`, `HOME`, `TMPDIR`, `LANG`, `LC_ALL`, `RUST_LOG`,\n`RUST_BACKTRACE`, `TZ`) plus the variables declared here. Plugins that\nneed an `OPENAI_API_KEY`, `LINEAR_API_TOKEN`, etc. must list them in\nthis field; otherwise they will be missing at runtime even though the\ndaemon's environment had them set.\n\nDefaults to empty for back-compat: plugins built against earlier\nversions of the protocol crate simply opt into zero secrets.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/EnvRequirement"
+      }
+    },
+    "name": {
+      "description": "Plugin name (matches [`PluginInfo::name`]).",
+      "type": "string"
+    },
+    "notification_buffer_size": {
+      "description": "Author-supplied hint for the size of the host's notification broadcast\nchannel for this plugin process.\n\nPlugin authors who know they emit bursts of notifications (e.g. a\nchatty streaming `agent/run` that fans out hundreds of `agent/output`\nframes before a slow subscriber catches up) can request a larger\nchannel here. The host picks the channel capacity in priority order:\n\n1. This manifest field (when set and non-zero).\n2. `ANIMUS_PLUGIN_BROADCAST_CAPACITY` env override (when set and\n   parseable as a non-zero `usize`).\n3. The host's compiled default (currently 256).\n\nCapacity is fixed for a given plugin process lifetime — the underlying\n`tokio::sync::broadcast` channel cannot be resized at runtime. To\nchange the capacity, restart the plugin process so the host can pick\nup the new hint.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint",
+      "minimum": 0
+    },
+    "plugin_kind": {
+      "description": "One of the `PLUGIN_KIND_*` constants.",
+      "type": "string"
+    },
+    "protocol_version": {
+      "description": "Protocol version the plugin was built against.",
+      "type": "string"
+    },
+    "version": {
+      "description": "Plugin semver.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "version",
+    "plugin_kind",
+    "description",
+    "protocol_version"
+  ],
+  "$defs": {
+    "EnvRequirement": {
+      "description": "One environment variable a plugin asks the host to forward at spawn time.\n\nThe host treats `name` as the source of truth: only matching variables are\npassed through the `env_clear()` boundary. `description` and `sensitive`\nare informational hints surfaced in `animus plugin info` and the install\nflow so operators can decide whether a plugin's secret requirements are\nreasonable before granting it access.\n\nWhen `required` is set, the host emits a warning at spawn time if the\nvariable isn't present in the daemon's own environment. The host never\nrefuses to spawn over a missing required var — that decision belongs to\nthe plugin itself, which sees the missing variable during its own startup.",
+      "type": "object",
+      "properties": {
+        "description": {
+          "description": "Optional human-readable explanation of what the variable is used for.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "Environment variable name (e.g. `\"OPENAI_API_KEY\"`).",
+          "type": "string"
+        },
+        "required": {
+          "description": "When `true`, the host emits a warning at spawn time if the variable is\nnot set in the daemon's environment.",
+          "type": "boolean",
+          "default": false
+        },
+        "sensitive": {
+          "description": "Hint that this variable carries a secret. Informational only — does not\nchange spawn behavior. Used to drive warnings in install output and\n`animus plugin info` listings.",
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "name"
+      ]
+    }
+  }
+}

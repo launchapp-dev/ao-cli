@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TriggerWatchParams",
+  "description": "Parameters sent from host to plugin in the `trigger/watch` request.\n\nTrigger backend plugins receive this once during startup. After replying\nto the request the plugin emits `trigger/event` notifications whenever it\nobserves something the host should react to. The plugin keeps watching\nuntil it receives a `shutdown` request or its stdio closes.",
+  "type": "object",
+  "properties": {
+    "config": {
+      "description": "Plugin-specific configuration forwarded from project workflow YAML."
+    },
+    "cursor": {
+      "description": "Optional resume cursor from a previous run; semantics are\nplugin-defined. Plugins should ignore it if unrecognized."
+    }
+  }
+}

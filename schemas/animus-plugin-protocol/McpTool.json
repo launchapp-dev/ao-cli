@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "McpTool",
+  "description": "Description of an MCP tool exposed by a custom plugin.\n\nHosts that bridge MCP can re-expose these tools to MCP clients without\nthe plugin author writing MCP-specific code.",
+  "type": "object",
+  "properties": {
+    "description": {
+      "description": "Human-readable description.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "input_schema": {
+      "description": "JSON Schema describing the tool's input."
+    },
+    "name": {
+      "description": "MCP tool name.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ]
+}

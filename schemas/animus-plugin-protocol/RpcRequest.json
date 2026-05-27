@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RpcRequest",
+  "description": "A JSON-RPC 2.0 request frame.\n\n`id` is `Some` for requests that expect a response. Notifications use\n[`RpcNotification`] instead and have no `id`. `params` is structurally\ntyped via [`Value`] so the runtime can dispatch to method-specific\ndeserializers.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "description": "Request id. `None` indicates a notification (use [`RpcNotification`]\ninstead in that case; this field exists to round-trip permissively)."
+    },
+    "jsonrpc": {
+      "description": "Always `\"2.0\"`.",
+      "type": "string"
+    },
+    "method": {
+      "description": "JSON-RPC method name (e.g. `\"initialize\"`, `\"subject/list\"`).",
+      "type": "string"
+    },
+    "params": {
+      "description": "Method parameters; structurally validated by the receiving handler."
+    }
+  },
+  "required": [
+    "jsonrpc",
+    "method"
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RpcError",
+  "description": "JSON-RPC 2.0 error payload.\n\n`code` is one of the constants in [`error_codes`] or an\nimplementation-specific value in the reserved JSON-RPC range. `data` is\noptional structured detail that the host can surface in logs or pass back\nto the originating CLI/MCP caller.",
+  "type": "object",
+  "properties": {
+    "code": {
+      "description": "Error code; see [`error_codes`].",
+      "type": "integer",
+      "format": "int32"
+    },
+    "data": {
+      "description": "Optional structured detail."
+    },
+    "message": {
+      "description": "Short human-readable description.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "code",
+    "message"
+  ]
+}

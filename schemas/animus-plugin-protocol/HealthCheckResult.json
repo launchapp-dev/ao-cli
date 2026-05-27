@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HealthCheckResult",
+  "description": "Response to `health/check`.",
+  "type": "object",
+  "properties": {
+    "last_error": {
+      "description": "Most recent error message, if any.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "memory_usage_bytes": {
+      "description": "Resident-set memory usage in bytes, if cheap to determine.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "minimum": 0
+    },
+    "status": {
+      "description": "Overall status.",
+      "$ref": "#/$defs/HealthStatus"
+    },
+    "uptime_ms": {
+      "description": "Milliseconds since the plugin process started.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "status"
+  ],
+  "$defs": {
+    "HealthStatus": {
+      "description": "Health status emitted by `health/check`.\n\nHosts surface this in `animus daemon health` and may use it to gate work\n(e.g. drain in-flight subjects from a `Degraded` plugin before restart).",
+      "oneOf": [
+        {
+          "description": "Plugin is fully functional.",
+          "type": "string",
+          "const": "healthy"
+        },
+        {
+          "description": "Plugin is operational but in a reduced state (e.g. stale cache,\nupstream rate-limited but recovering).",
+          "type": "string",
+          "const": "degraded"
+        },
+        {
+          "description": "Plugin is non-functional. The host may restart or quarantine it.",
+          "type": "string",
+          "const": "unhealthy"
+        }
+      ]
+    }
+  }
+}

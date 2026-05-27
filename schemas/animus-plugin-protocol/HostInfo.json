@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HostInfo",
+  "description": "Identity of the host issuing the `initialize` call.\n\nPlugins may log this for debugging or vary behavior based on the host\nversion (e.g. enabling features only available in newer hosts).",
+  "type": "object",
+  "properties": {
+    "name": {
+      "description": "Conventionally `\"animus\"` for the official Animus daemon.",
+      "type": "string"
+    },
+    "version": {
+      "description": "Semver of the host.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "version"
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TriggerAckParams",
+  "description": "Parameters sent from host to plugin in the `trigger/ack` notification.\n\nThe host emits this after it has accepted an event for processing. Plugins\nuse it to persist a cursor or trim a server-side queue.",
+  "type": "object",
+  "properties": {
+    "event_id": {
+      "description": "The `event_id` being acknowledged.",
+      "type": "string"
+    },
+    "status": {
+      "description": "Optional status the host wants to report (`\"dispatched\"`,\n`\"skipped\"`, `\"failed\"`).",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "event_id"
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RpcResponse",
+  "description": "A JSON-RPC 2.0 response frame.\n\nExactly one of `result` or `error` should be set. Use [`RpcResponse::ok`]\nor [`RpcResponse::err`] to construct correctly-shaped responses.",
+  "type": "object",
+  "properties": {
+    "error": {
+      "description": "Error payload. Mutually exclusive with `result`.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RpcError"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "id": {
+      "description": "Echoes the id of the originating request. `None` only when the request\nid could not be determined (e.g. parse error on the request frame)."
+    },
+    "jsonrpc": {
+      "description": "Always `\"2.0\"`.",
+      "type": "string"
+    },
+    "result": {
+      "description": "Successful result. Mutually exclusive with `error`."
+    }
+  },
+  "required": [
+    "jsonrpc"
+  ],
+  "$defs": {
+    "RpcError": {
+      "description": "JSON-RPC 2.0 error payload.\n\n`code` is one of the constants in [`error_codes`] or an\nimplementation-specific value in the reserved JSON-RPC range. `data` is\noptional structured detail that the host can surface in logs or pass back\nto the originating CLI/MCP caller.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "description": "Error code; see [`error_codes`].",
+          "type": "integer",
+          "format": "int32"
+        },
+        "data": {
+          "description": "Optional structured detail."
+        },
+        "message": {
+          "description": "Short human-readable description.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ]
+    }
+  }
+}

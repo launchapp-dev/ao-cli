@@ -176,6 +176,25 @@ All notable changes to this project will be documented in this file.
   unmigrated scopes) or (b) the recorded path no longer canonicalizes (the
   user moved the repo on disk). Two regression tests cover the same-origin
   isolation guarantee and the moved-clone adoption path.
+### Security
+
+- **`fix(plugin-install)`: fail closed on corrupt plugin lockfile; add
+  `--force-rewrite-lockfile` escape hatch.** `animus plugin install` and
+  `animus plugin install-defaults` previously caught `PluginLockfile::load_default`
+  errors with a `tracing::warn!` and continued with an empty in-memory
+  lockfile that was then saved over the corrupt file on success. This was
+  fail-OPEN against the tamper/audit boundary: an attacker who corrupted
+  `.animus/plugins.lock` (or who hand-edited it incorrectly) could
+  trigger a fresh install with no integrity checks and silently lose the
+  recorded `sha256` history. The install path now REFUSES with an
+  actionable error that names the corrupt path, surfaces the underlying
+  loader error chain, and documents two remediation paths: (1) restore
+  the lockfile from version control / backup, or (2) re-run with
+  `--force-rewrite-lockfile` to discard and rebuild. Path (2) emits an
+  explicit `warn!` noting integrity history was reset. Flag is wired
+  through both `install` and `install-defaults`; MCP and control-plane
+  install surfaces default to fail-closed (no override). New tests cover
+  the refusal and the override paths.
 
 ## [0.4.13] - 2026-05-27
 

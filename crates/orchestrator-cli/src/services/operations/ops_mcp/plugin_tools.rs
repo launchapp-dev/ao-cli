@@ -70,6 +70,13 @@ pub(super) struct PluginCallInput {
 
 #[derive(Debug, Deserialize, JsonSchema, Default)]
 pub(super) struct PluginInstallInput {
+    /// Override the resolved project root. When omitted, the server uses
+    /// its configured default project root. The resolved value is forwarded
+    /// to the install pipeline so the project-local `.animus/plugins.lock`
+    /// (when present) participates in the install-time integrity check
+    /// rather than silently falling through to `~/.animus/plugins.lock`.
+    #[serde(default)]
+    project_root: Option<String>,
     /// Public GitHub repo slug to install from (e.g.
     /// `launchapp-dev/animus-provider-claude`, or with a tag
     /// `launchapp-dev/animus-provider-claude@v0.1.0`). Mutually exclusive
@@ -253,6 +260,7 @@ impl AoMcpServer {
     )]
     async fn ao_plugin_install(&self, params: Parameters<PluginInstallInput>) -> Result<CallToolResult, McpError> {
         let PluginInstallInput {
+            project_root,
             source,
             path,
             url,
@@ -266,6 +274,12 @@ impl AoMcpServer {
             skip_signature,
             trusted_signers,
         } = params.0;
+        // Resolve to the server's default project root when the caller did
+        // not override it. Forwarding the project root is what makes the
+        // install-time fail-closed lockfile check honor a project-local
+        // `.animus/plugins.lock` instead of silently falling through to
+        // the global `~/.animus/plugins.lock`.
+        let resolved_project_root = self.project_root_or_default(project_root);
         let output = run_plugin_install(PluginInstallRequest {
             source,
             path,
@@ -287,7 +301,11 @@ impl AoMcpServer {
             // silently rather than blocking on a TTY prompt. The TOFU record
             // still lands in trusted-orgs.yaml after a successful install.
             yes: true,
-            project_root: None,
+            project_root: Some(resolved_project_root),
+            // MCP-driven installs default to fail-closed on a corrupt
+            // lockfile. Operators must rerun via CLI with
+            // `--force-rewrite-lockfile` after auditing the file.
+            force_rewrite_lockfile: false,
         })
         .await
         .map_err(anyhow_to_mcp)?;

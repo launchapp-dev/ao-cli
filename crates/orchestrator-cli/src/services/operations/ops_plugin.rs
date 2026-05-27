@@ -212,6 +212,15 @@ pub(crate) struct PluginInstallRequest {
     /// Project root for lockfile + audit-log resolution. `None` falls back to
     /// the global `~/.animus/plugins.lock` and skips audit logging.
     pub(crate) project_root: Option<String>,
+    /// When `true`, a corrupt or incompatible `.animus/plugins.lock` is
+    /// discarded and replaced with a fresh in-memory lockfile (with a
+    /// `warn!` log noting integrity history was reset). When `false`
+    /// (the default), the install **fails closed** with an actionable
+    /// error pointing at the corrupt path. This is the audit-boundary
+    /// equivalent of `--force`: it lets operators recover from a
+    /// genuinely broken file while refusing to silently paper over what
+    /// could be tamper.
+    pub(crate) force_rewrite_lockfile: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -291,6 +300,42 @@ async fn handle_plugin_install_defaults(args: PluginInstallDefaultsArgs, project
     }
 
     let install_dir = install_root(args.plugin_dir.as_deref())?;
+
+    // ---- Batch-level lockfile pre-check ----
+    //
+    // Per codex review of the v0.4.13 P2 fix: the per-target loop below skips
+    // already-installed defaults BEFORE constructing a `PluginInstallRequest`,
+    // so a corrupt lockfile would otherwise let an all-skipped run report
+    // success despite the documented fail-closed policy. Validate once here,
+    // up front, so the install-defaults surface is fail-closed even when no
+    // actual install work would have happened.
+    //
+    // When `--force-rewrite-lockfile` IS set and the lockfile is corrupt, we
+    // must also persist the fresh empty lockfile to disk now — otherwise an
+    // all-skipped run (every default already installed) would discard the
+    // corrupt bytes in memory but leave them on disk, so the documented
+    // remediation would silently fail and the next install would refuse
+    // again. Saving here guarantees the user-visible remediation actually
+    // happens.
+    {
+        let project_root_path = std::path::PathBuf::from(project_root);
+        let project_root_for_lock: Option<&std::path::Path> = Some(&project_root_path);
+        let lock_existed = PluginLockfile::default_path(project_root_for_lock).exists();
+        let lock_parsed_clean = PluginLockfile::load_default(project_root_for_lock).is_ok();
+        let mut lock = load_or_refuse_lockfile(project_root_for_lock, args.force_rewrite_lockfile)?;
+        if args.force_rewrite_lockfile && lock_existed && !lock_parsed_clean {
+            // Persist the freshly emptied lockfile so a no-op (all-skipped)
+            // batch still completes the remediation. The per-install
+            // pipeline below would otherwise leave the corrupt bytes in
+            // place until the next non-skipped install.
+            lock.save().with_context(|| format!("failed to rewrite plugin lockfile at {}", lock.path().display()))?;
+            tracing::warn!(
+                lockfile = %lock.path().display(),
+                "SECURITY: install-defaults --force-rewrite-lockfile rewrote a corrupt lockfile to a fresh empty state",
+            );
+        }
+    }
+
     let mut results: Vec<InstallDefaultsEntry> = Vec::with_capacity(targets.len());
     let mut installed = 0_usize;
     let mut skipped = 0_usize;
@@ -333,6 +378,7 @@ async fn handle_plugin_install_defaults(args: PluginInstallDefaultsArgs, project
             yes: args.yes,
             allow_shadow_builtin: true,
             project_root: Some(project_root.to_string()),
+            force_rewrite_lockfile: args.force_rewrite_lockfile,
             ..Default::default()
         };
 
@@ -534,6 +580,49 @@ pub(crate) fn run_plugin_uninstall(req: PluginUninstallRequest) -> Result<Plugin
     })
 }
 
+/// Load the plugin lockfile for `project_root`, refusing the install when the
+/// file is unparseable / schema-incompatible **unless** `force_rewrite_lockfile`
+/// is set. The fail-closed behavior is part of the tamper/audit boundary: an
+/// unreadable lockfile MUST be surfaced before any source resolution, network
+/// fetch, or manifest probe so a corrupted lock can't trigger network work or
+/// candidate-binary execution as a side effect.
+///
+/// On `force_rewrite_lockfile = true`, the unreadable file is discarded with
+/// a `warn!` and an empty in-memory lockfile is returned; the eventual `save()`
+/// at the end of the install pipeline rewrites it from scratch.
+fn load_or_refuse_lockfile(project_root: Option<&Path>, force_rewrite_lockfile: bool) -> Result<PluginLockfile> {
+    match PluginLockfile::load_default(project_root) {
+        Ok(lock) => Ok(lock),
+        Err(err) => {
+            let lock_path = PluginLockfile::default_path(project_root);
+            if force_rewrite_lockfile {
+                tracing::warn!(
+                    lockfile = %lock_path.display(),
+                    error = %err,
+                    "SECURITY: --force-rewrite-lockfile discarded the existing plugin lockfile; \
+                     integrity history was reset and prior sha256 entries are no longer recorded. \
+                     Audit the install context before trusting subsequent verifications.",
+                );
+                Ok(PluginLockfile::empty_at(&lock_path))
+            } else {
+                let chain = err.chain().map(|cause| cause.to_string()).collect::<Vec<_>>().join(": ");
+                Err(invalid_input_error(format!(
+                    "plugin lockfile at {lockfile} is unreadable: {chain}. \
+                     The install was REFUSED to preserve the integrity audit trail. \
+                     Remediation: \
+                     (1) restore {lockfile} from version control or a backup, or \
+                     (2) re-run with --force-rewrite-lockfile to discard the file and \
+                     start a fresh lockfile (SECURITY WARNING: this drops the recorded \
+                     sha256 history, so subsequent --force installs will not detect \
+                     pre-existing tamper). Inspect the file at {lockfile} before \
+                     choosing option (2).",
+                    lockfile = lock_path.display(),
+                )))
+            }
+        }
+    }
+}
+
 /// Install a plugin binary from a public GitHub release (`owner/repo[@tag]`),
 /// a local path, or an HTTPS URL. Wired into both the CLI
 /// (`handle_plugin_install`) and the MCP install tool.
@@ -566,6 +655,23 @@ pub(crate) async fn run_plugin_install(req: PluginInstallRequest) -> Result<Plug
             ));
         }
     }
+
+    // ---- Lockfile pre-load (runs BEFORE any source resolution / network /
+    // manifest probe) ----------------------------------------------------
+    //
+    // Per codex review of the v0.4.13 P2 fix: if the lockfile is corrupt we
+    // must refuse the install before downloading anything or running the
+    // candidate binary with `--manifest`. Otherwise an attacker who
+    // corrupted the lock could still trigger network fetch and untrusted
+    // process execution as a side effect of the refusal path. The
+    // returned lockfile is discarded here — the integrity check is the
+    // contract; we reload (or rewrite) the lockfile right before the
+    // verify_installed/upsert step below so a concurrent install that
+    // committed during source download / manifest probe is not silently
+    // erased on save.
+    let project_root_pb_pre = req.project_root.as_deref().map(std::path::PathBuf::from);
+    let project_root_for_lock_pre: Option<&std::path::Path> = project_root_pb_pre.as_deref();
+    let _ = load_or_refuse_lockfile(project_root_for_lock_pre, req.force_rewrite_lockfile)?;
 
     // `_install_temp` keeps the install-staging directory alive for the
     // remainder of this function. It drops at the end (RAII) so the
@@ -693,12 +799,15 @@ pub(crate) async fn run_plugin_install(req: PluginInstallRequest) -> Result<Plug
     // entry) or to re-run with `--force`, which is the supported escape
     // hatch. Without this gate, an unattended `plugin install --force`
     // could silently paper over the on-disk tamper.
+    //
+    // The lockfile is RELOADED here (rather than reusing the pre-load
+    // above) so a concurrent install that committed an entry while this
+    // install was downloading / probing the source is not erased on
+    // `save()`. The fail-closed validation contract from the pre-load
+    // still holds — the same `load_or_refuse_lockfile` helper applies.
     let project_root_pb = req.project_root.as_deref().map(std::path::PathBuf::from);
     let project_root_for_lock: Option<&std::path::Path> = project_root_pb.as_deref();
-    let mut lockfile = PluginLockfile::load_default(project_root_for_lock).unwrap_or_else(|err| {
-        tracing::warn!(error = %err, "failed to load plugin lockfile; continuing with empty in-memory lockfile");
-        PluginLockfile::empty_at(&PluginLockfile::default_path(project_root_for_lock))
-    });
+    let mut lockfile = load_or_refuse_lockfile(project_root_for_lock, req.force_rewrite_lockfile)?;
     let lockfile_path_for_log = lockfile.path().to_path_buf();
     let is_upgrade = installed_path.exists();
     if is_upgrade {
@@ -2356,6 +2465,7 @@ async fn handle_plugin_install(args: PluginInstallArgs, project_root: &str, json
         allow_org: args.allow_org,
         yes: args.yes,
         project_root: Some(project_root.to_string()),
+        force_rewrite_lockfile: args.force_rewrite_lockfile,
     })
     .await?;
     print_value(output, json)
@@ -3627,6 +3737,347 @@ trusted_signers:
             flag.is_none() || flag == Some(false),
             "skip_manifest_check_at_install must be absent (or `false`) when the flag is not set; got {flag:?}"
         );
+    }
+
+    // ---- Fail-closed on lockfile parse failure ----------------------------
+    //
+    // Regression guard: a corrupt or schema-incompatible `.animus/plugins.lock`
+    // must refuse the install rather than silently overwriting the lockfile
+    // and losing the integrity audit trail. The escape hatch is the
+    // `--force-rewrite-lockfile` flag, which discards the file with a
+    // `warn!` log.
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread")]
+    #[allow(clippy::await_holding_lock)] // intentional: guards process-global env mutation across the install await
+    async fn install_refuses_when_lockfile_is_corrupt_without_flag() {
+        let _guard = INSTALL_ENV_GUARD.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config_dir = tmp.path().join("config");
+        let install_dir = tmp.path().join("install");
+        let project_root = tmp.path().join("project");
+        let animus_dir = project_root.join(".animus");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::create_dir_all(&install_dir).unwrap();
+        std::fs::create_dir_all(&animus_dir).unwrap();
+
+        // Corrupt project-local lockfile (invalid TOML AND wrong schema).
+        let lock_path = animus_dir.join("plugins.lock");
+        std::fs::write(&lock_path, b"this is not valid toml :::: !!!!").expect("write corrupt lockfile");
+
+        let _config_env = protocol::test_utils::EnvVarGuard::set(
+            "ANIMUS_CONFIG_DIR",
+            Some(config_dir.to_str().expect("config dir utf-8")),
+        );
+        let _plugin_env = protocol::test_utils::EnvVarGuard::set(
+            "ANIMUS_PLUGIN_DIR",
+            Some(install_dir.to_str().expect("install dir utf-8")),
+        );
+
+        let source = tmp.path().join("animus-plugin-corruptlock");
+        write_fake_plugin_binary(&source, "animus-plugin-corruptlock", "subject_backend");
+
+        let req = PluginInstallRequest {
+            path: Some(source.to_string_lossy().to_string()),
+            skip_signature: true,
+            yes: true,
+            project_root: Some(project_root.to_string_lossy().to_string()),
+            // Default: force_rewrite_lockfile = false → fail closed.
+            ..Default::default()
+        };
+
+        let err = run_plugin_install(req).await.expect_err("install must REFUSE corrupt lockfile by default");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("plugin lockfile") && msg.contains("unreadable"),
+            "error must mention 'plugin lockfile' and 'unreadable'; got: {msg}"
+        );
+        assert!(
+            msg.contains(&lock_path.display().to_string()),
+            "error must include the exact corrupt lockfile path; got: {msg}"
+        );
+        assert!(
+            msg.contains("--force-rewrite-lockfile"),
+            "error must point at the --force-rewrite-lockfile escape hatch; got: {msg}"
+        );
+        assert!(
+            msg.contains("restore") || msg.contains("version control"),
+            "error must mention the restore-from-VCS remediation; got: {msg}"
+        );
+
+        // Crucial: the corrupt file must NOT have been overwritten.
+        let after = std::fs::read(&lock_path).expect("corrupt file must still exist");
+        assert_eq!(after.as_slice(), b"this is not valid toml :::: !!!!", "corrupt lockfile must not be rewritten");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread")]
+    #[allow(clippy::await_holding_lock)] // intentional: guards process-global env mutation across the install await
+    async fn install_succeeds_with_force_rewrite_lockfile_flag() {
+        let _guard = INSTALL_ENV_GUARD.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config_dir = tmp.path().join("config");
+        let install_dir = tmp.path().join("install");
+        let project_root = tmp.path().join("project");
+        let animus_dir = project_root.join(".animus");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::create_dir_all(&install_dir).unwrap();
+        std::fs::create_dir_all(&animus_dir).unwrap();
+
+        // Corrupt lockfile in the same shape as the fail-closed test.
+        let lock_path = animus_dir.join("plugins.lock");
+        std::fs::write(&lock_path, b"garbage that cannot parse").expect("write corrupt lockfile");
+
+        let _config_env = protocol::test_utils::EnvVarGuard::set(
+            "ANIMUS_CONFIG_DIR",
+            Some(config_dir.to_str().expect("config dir utf-8")),
+        );
+        let _plugin_env = protocol::test_utils::EnvVarGuard::set(
+            "ANIMUS_PLUGIN_DIR",
+            Some(install_dir.to_str().expect("install dir utf-8")),
+        );
+
+        let source = tmp.path().join("animus-plugin-corruptlock-rewrite");
+        write_fake_plugin_binary(&source, "animus-plugin-corruptlock-rewrite", "subject_backend");
+
+        let req = PluginInstallRequest {
+            path: Some(source.to_string_lossy().to_string()),
+            skip_signature: true,
+            yes: true,
+            project_root: Some(project_root.to_string_lossy().to_string()),
+            force_rewrite_lockfile: true,
+            ..Default::default()
+        };
+
+        let output = run_plugin_install(req)
+            .await
+            .expect("install with --force-rewrite-lockfile must succeed past corrupt lock");
+        assert!(!output.installed_path.is_empty(), "installed_path must be populated on success");
+
+        // The on-disk lockfile must now be a valid parseable file with the
+        // newly recorded entry, proving the rewrite happened intentionally.
+        let after = std::fs::read_to_string(&lock_path).expect("rewritten lockfile must be readable");
+        assert!(
+            after.contains("schema_version"),
+            "rewritten lockfile must contain a valid schema_version field; got: {after}"
+        );
+    }
+
+    // Focused unit test on the `load_or_refuse_lockfile` helper to keep the
+    // fail-closed contract regression-guarded even when the wider install
+    // pipeline is refactored.
+    #[test]
+    fn load_or_refuse_lockfile_returns_fail_closed_error_with_corrupt_path() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let project_root = tmp.path().to_path_buf();
+        let animus_dir = project_root.join(".animus");
+        std::fs::create_dir_all(&animus_dir).unwrap();
+        let lock_path = animus_dir.join("plugins.lock");
+        std::fs::write(&lock_path, b"definitely not toml").unwrap();
+
+        let err =
+            load_or_refuse_lockfile(Some(&project_root), false).expect_err("default must refuse corrupt lockfile");
+        let msg = format!("{err}");
+        assert!(msg.contains("plugin lockfile"));
+        assert!(msg.contains("unreadable"));
+        assert!(msg.contains(&lock_path.display().to_string()));
+        assert!(msg.contains("--force-rewrite-lockfile"));
+    }
+
+    #[test]
+    fn load_or_refuse_lockfile_rewrites_with_flag() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let project_root = tmp.path().to_path_buf();
+        let animus_dir = project_root.join(".animus");
+        std::fs::create_dir_all(&animus_dir).unwrap();
+        let lock_path = animus_dir.join("plugins.lock");
+        std::fs::write(&lock_path, b"definitely not toml").unwrap();
+
+        let lock = load_or_refuse_lockfile(Some(&project_root), true)
+            .expect("--force-rewrite-lockfile must produce a fresh in-memory lock");
+        assert_eq!(lock.path(), &lock_path, "lockfile path must point at the project-local file");
+        // The in-memory lock starts empty; the on-disk corrupt bytes are
+        // untouched until the install pipeline calls `save()`.
+        let on_disk = std::fs::read(&lock_path).unwrap();
+        assert_eq!(on_disk.as_slice(), b"definitely not toml", "helper must not touch disk until save()");
+    }
+
+    // Regression guard for codex review round-3 P2:
+    // `install-defaults --force-rewrite-lockfile` must actually rewrite the
+    // corrupt lockfile on disk even when every default is already installed
+    // and the per-target loop skips them all. Otherwise the documented
+    // remediation is a no-op and the next install fails closed again.
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread")]
+    #[allow(clippy::await_holding_lock)] // intentional: guards process-global env mutation across the install await
+    async fn install_defaults_force_rewrite_persists_when_all_skipped() {
+        let _guard = INSTALL_ENV_GUARD.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config_dir = tmp.path().join("config");
+        let install_dir = tmp.path().join("install");
+        let project_root = tmp.path().join("project");
+        let animus_dir = project_root.join(".animus");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::create_dir_all(&install_dir).unwrap();
+        std::fs::create_dir_all(&animus_dir).unwrap();
+
+        let _config_env = protocol::test_utils::EnvVarGuard::set(
+            "ANIMUS_CONFIG_DIR",
+            Some(config_dir.to_str().expect("config dir utf-8")),
+        );
+        let _plugin_env = protocol::test_utils::EnvVarGuard::set(
+            "ANIMUS_PLUGIN_DIR",
+            Some(install_dir.to_str().expect("install dir utf-8")),
+        );
+
+        // Pre-create the install-dir entries for every default plugin so the
+        // per-target loop skips them all. (`include_*` flags stay false, so
+        // only the provider plugins matter here.)
+        for (slug, _tag) in DEFAULT_PROVIDER_PLUGINS {
+            let basename = slug.rsplit('/').next().unwrap_or(slug);
+            std::fs::write(install_dir.join(basename), b"placeholder").unwrap();
+        }
+
+        // Seed a corrupt lockfile.
+        let lock_path = animus_dir.join("plugins.lock");
+        std::fs::write(&lock_path, b"garbage that will not parse as TOML").unwrap();
+
+        // Drive the install-defaults handler directly with the project root
+        // set to our tempdir. This is the exact entry point that the CLI's
+        // dispatcher routes `animus plugin install-defaults` through.
+        let args = PluginInstallDefaultsArgs {
+            plugin_dir: Some(install_dir.to_string_lossy().to_string()),
+            force: false,
+            yes: true,
+            include_oai_agent: false,
+            include_subjects: false,
+            include_transports: false,
+            json: true,
+            force_rewrite_lockfile: true,
+        };
+        let result = handle_plugin_install_defaults(args, &project_root.to_string_lossy()).await;
+        assert!(result.is_ok(), "install-defaults must succeed when force_rewrite_lockfile=true; got {result:?}");
+
+        // The lockfile on disk MUST now be a fresh parseable file, not the
+        // original garbage bytes. Without the new save() call, the corrupt
+        // bytes would still be there.
+        let after = std::fs::read_to_string(&lock_path).expect("lockfile must be readable after rewrite");
+        assert_ne!(after.as_bytes(), b"garbage that will not parse as TOML");
+        let reparsed = PluginLockfile::load_or_empty(&lock_path)
+            .expect("rewritten lockfile must parse cleanly under the current schema");
+        assert!(reparsed.plugins.is_empty(), "rewritten lockfile must start empty");
+    }
+
+    // Regression guard for codex review round-2 P2: a concurrent install
+    // that completed and saved a lockfile entry between this install's
+    // pre-load and its `save()` must NOT be erased. The fix reloads the
+    // lockfile right before upsert/save so the new on-disk entry survives.
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread")]
+    #[allow(clippy::await_holding_lock)] // intentional: guards process-global env mutation across the install await
+    async fn install_preserves_concurrent_lockfile_entry_added_after_preload() {
+        let _guard = INSTALL_ENV_GUARD.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config_dir = tmp.path().join("config");
+        let install_dir = tmp.path().join("install");
+        let project_root = tmp.path().join("project");
+        let animus_dir = project_root.join(".animus");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::create_dir_all(&install_dir).unwrap();
+        std::fs::create_dir_all(&animus_dir).unwrap();
+
+        // Seed the lockfile with a legitimate entry from a "concurrent
+        // install B" that finished while install A was downloading.
+        let lock_path = animus_dir.join("plugins.lock");
+        let mut concurrent_lock = PluginLockfile::empty_at(&lock_path);
+        concurrent_lock.upsert(LockEntry {
+            name: "animus-plugin-other".to_string(),
+            version: "v0.1.0".to_string(),
+            artifact_sha256: "c".repeat(64),
+            signature_bundle_sha256: None,
+            installed_at: chrono::Utc::now().to_rfc3339(),
+        });
+        concurrent_lock.save().expect("seed concurrent entry");
+
+        let _config_env = protocol::test_utils::EnvVarGuard::set(
+            "ANIMUS_CONFIG_DIR",
+            Some(config_dir.to_str().expect("config dir utf-8")),
+        );
+        let _plugin_env = protocol::test_utils::EnvVarGuard::set(
+            "ANIMUS_PLUGIN_DIR",
+            Some(install_dir.to_str().expect("install dir utf-8")),
+        );
+
+        let source = tmp.path().join("animus-plugin-newcomer");
+        write_fake_plugin_binary(&source, "animus-plugin-newcomer", "subject_backend");
+
+        let req = PluginInstallRequest {
+            path: Some(source.to_string_lossy().to_string()),
+            skip_signature: true,
+            yes: true,
+            project_root: Some(project_root.to_string_lossy().to_string()),
+            ..Default::default()
+        };
+
+        run_plugin_install(req).await.expect("install must succeed against a valid concurrent-write lockfile");
+
+        // The previously-recorded "other" entry must still be present in
+        // the saved lockfile alongside the new entry. Pre-fix code paths
+        // would have erased it because they reused a stale preload.
+        let reloaded = PluginLockfile::load_or_empty(&lock_path).expect("reload saved lockfile");
+        let names: Vec<&str> = reloaded.plugins.iter().map(|e| e.name.as_str()).collect();
+        assert!(names.contains(&"animus-plugin-other"), "concurrent entry must survive; got {names:?}");
+        assert!(names.contains(&"animus-plugin-newcomer"), "newly installed entry must be present; got {names:?}");
+    }
+
+    // Verify the lockfile is refused BEFORE source probing. We use a
+    // non-existent `--path` to prove the corrupt-lockfile error wins over
+    // the (later) source-not-found error.
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread")]
+    #[allow(clippy::await_holding_lock)] // intentional: guards process-global env mutation across the install await
+    async fn install_refuses_lockfile_before_touching_source() {
+        let _guard = INSTALL_ENV_GUARD.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config_dir = tmp.path().join("config");
+        let install_dir = tmp.path().join("install");
+        let project_root = tmp.path().join("project");
+        let animus_dir = project_root.join(".animus");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::create_dir_all(&install_dir).unwrap();
+        std::fs::create_dir_all(&animus_dir).unwrap();
+        let lock_path = animus_dir.join("plugins.lock");
+        std::fs::write(&lock_path, b"corrupted lockfile bytes").unwrap();
+
+        let _config_env = protocol::test_utils::EnvVarGuard::set(
+            "ANIMUS_CONFIG_DIR",
+            Some(config_dir.to_str().expect("config dir utf-8")),
+        );
+        let _plugin_env = protocol::test_utils::EnvVarGuard::set(
+            "ANIMUS_PLUGIN_DIR",
+            Some(install_dir.to_str().expect("install dir utf-8")),
+        );
+
+        // Path that does NOT exist on disk. If lockfile pre-check ran AFTER
+        // source resolution we would surface a not-found error here. With
+        // pre-check first, the unreadable-lockfile error wins.
+        let missing_source = tmp.path().join("does-not-exist-plugin");
+
+        let req = PluginInstallRequest {
+            path: Some(missing_source.to_string_lossy().to_string()),
+            skip_signature: true,
+            yes: true,
+            project_root: Some(project_root.to_string_lossy().to_string()),
+            ..Default::default()
+        };
+
+        let err = run_plugin_install(req).await.expect_err("install must refuse on corrupt lockfile");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("plugin lockfile") && msg.contains("unreadable"),
+            "lockfile fail-closed must win over source-not-found; got: {msg}"
+        );
+        assert!(!msg.contains("plugin source not found"), "source resolution must not run; got: {msg}");
     }
 
     // =================== SignaturePolicy / effective_policy_mode tests ===================

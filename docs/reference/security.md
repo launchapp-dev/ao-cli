@@ -242,6 +242,36 @@ in-tree backend.
 | `~/.animus/trusted-signers.yaml`      | Optional glob allowlist for cosign cert identities. **Missing / empty = permissive** (any keyless signature whose cert chain validates is accepted, regardless of owner). Populate this file to scope the trust set down. |
 | `~/.animus/trusted-orgs.yaml`         | TOFU allowlist of GitHub orgs the operator has accepted (orthogonal to cosign trust).            |
 | `~/.animus/plugins.yaml`              | Installed-plugin registry. Records `signature_status` per entry.                 |
+| `.animus/plugins.lock` (project) or `~/.animus/plugins.lock` (global) | Append-only integrity ledger pinning `sha256(artifact)` + `sha256(signature_bundle)` for every installed plugin. Project-local takes precedence when `<project_root>/.animus/` exists. |
+
+### Lockfile fail-closed policy
+
+`animus plugin install` and `animus plugin install-defaults` **refuse**
+when the resolved `plugins.lock` exists but cannot be parsed or carries
+an incompatible `schema_version`. The error surfaces (a) the exact
+lockfile path, (b) the underlying loader error chain, and (c) two
+remediation paths. This is intentional: an unreadable lockfile is an
+audit-boundary event and silently overwriting it would erase the
+recorded `sha256` history that `verify_installed` uses to detect
+tamper on subsequent upgrades.
+
+Remediation paths:
+
+1. **Restore from version control or backup.** Project-local lockfiles
+   live at `<project_root>/.animus/plugins.lock` and are intended to be
+   checked in. `git checkout HEAD -- .animus/plugins.lock` is usually
+   the right call.
+2. **Re-run with `--force-rewrite-lockfile`.** This discards the
+   unreadable file and rebuilds a fresh lockfile from this install
+   onward. The install pipeline emits a `warn!` at this point that
+   notes integrity history was reset; treat the warning as evidence
+   that subsequent `--force` installs cannot detect pre-existing
+   tamper until the new lockfile has accumulated enough entries.
+
+The `--force-rewrite-lockfile` flag is **CLI-only**: MCP and control-plane
+install routes default to fail-closed with no override, on the
+principle that lockfile recovery is an operator decision that should be
+explicit and synchronous.
 
 `~/.animus/trusted-keys/` is no longer consulted as of v0.4.12 — the
 key-based PEM path it served is gone. Existing directories can be

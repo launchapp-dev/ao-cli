@@ -170,6 +170,12 @@ pub(crate) struct PluginInstallDefaultsArgs {
     /// Emit results as JSON.
     #[arg(long, default_value_t = false)]
     pub(crate) json: bool,
+    /// Discard a corrupt or incompatible `.animus/plugins.lock` and start a
+    /// fresh in-memory lockfile for the batch install. SECURITY: this drops
+    /// the existing integrity history; only use it after confirming the
+    /// lockfile damage was not the result of tampering.
+    #[arg(long, default_value_t = false)]
+    pub(crate) force_rewrite_lockfile: bool,
 }
 
 #[derive(Debug, Args)]
@@ -263,6 +269,14 @@ pub(crate) struct PluginInstallArgs {
     /// org to `~/.animus/trusted-orgs.yaml`.
     #[arg(long, default_value_t = false)]
     pub(crate) yes: bool,
+    /// Discard a corrupt or incompatible `.animus/plugins.lock` and start a
+    /// fresh in-memory lockfile for this install. SECURITY: this drops the
+    /// existing integrity history; only use it after confirming the lockfile
+    /// damage was not the result of tampering. Without this flag, an
+    /// unreadable lockfile fails the install closed rather than silently
+    /// overwriting it.
+    #[arg(long, default_value_t = false)]
+    pub(crate) force_rewrite_lockfile: bool,
 }
 
 #[derive(Debug, Args)]

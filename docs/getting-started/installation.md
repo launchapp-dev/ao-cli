@@ -154,13 +154,14 @@ animus plugin list
 ```
 
 Plugin installs verify a sigstore cosign signature when one is published. Use
-`--require-signature` to refuse unsigned installs or `--skip-signature` to
-bypass verification entirely. See [docs/architecture/plugin-signing.md](../architecture/plugin-signing.md).
+`--signature-policy strict` to fail closed, `--allow-unsigned` for the v0.4.12
+warn-and-proceed posture, or `--signature-policy disabled` for air-gapped and
+local-build workflows. See [Security](../reference/security.md).
 
 To scaffold a new plugin of your own:
 
 ```bash
-animus plugin new my-plugin --kind subject   # or --kind provider
+animus plugin new --kind subject --name my-plugin   # or --kind provider
 ```
 
 ## Prerequisites
@@ -204,9 +205,9 @@ subject_backend plugin instead.
 State paths:
 
 - Project-local config: `.animus/config.json`
-- Project-local daemon settings: `.animus/pm-config.json`
 - Workflow YAML overlays: `.animus/workflows.yaml`, `.animus/workflows/*.yaml`
 - Scoped runtime root: `~/.animus/<repo-scope>/`
+- Scoped daemon settings: `~/.animus/<repo-scope>/daemon/pm-config.json`
 - Control socket: `~/.animus/<repo-scope>/control.sock` (0700)
 
 ## Next Steps

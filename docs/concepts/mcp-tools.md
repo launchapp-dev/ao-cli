@@ -16,14 +16,16 @@ animus mcp serve
 
 It exposes Animus mutation and query tools such as:
 
-- `animus.task.*`
-- `animus.requirements.*`
+- `animus.subject.*`
 - `animus.workflow.*`
 - `animus.daemon.*`
+- `animus.plugin.*`
+- `animus.output.*`
 
-Many of those tools are now conceptually owned by bundled first-party packs
-such as `animus.task` and `animus.requirement`, even though they are exposed through
-the Animus MCP server.
+The legacy per-domain `animus.task.*` and `animus.requirements.*` families are
+gone. Task and requirement work now flows through the unified subject tools with
+`kind=task` or `kind=requirement`; external backends can claim additional kinds
+through subject_backend plugins.
 
 ## Pack-Owned MCP Descriptors
 

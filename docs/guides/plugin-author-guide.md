@@ -167,13 +167,16 @@ maps to exactly one backend per project.
 
 ```bash
 cargo build --release
-animus plugin info ./target/release/animus-subject-my-tickets
-animus plugin ping ./target/release/animus-subject-my-tickets
+./target/release/animus-subject-my-tickets --manifest
+animus plugin install --path ./target/release/animus-subject-my-tickets --name animus-subject-my-tickets --force
+animus plugin info --name animus-subject-my-tickets
+animus plugin ping --name animus-subject-my-tickets
 ```
 
-`info` prints the manifest plus initialize-time capabilities. `ping`
-spawns the plugin, completes the handshake, calls `$/ping`, and shuts
-it down — a fast end-to-end liveness check.
+`--manifest` checks the local binary before install. `info` prints the
+discovered manifest plus initialize-time capabilities. `ping` spawns the
+installed plugin, completes the handshake, calls `$/ping`, and shuts it
+down — a fast end-to-end liveness check.
 
 ---
 

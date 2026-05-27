@@ -58,7 +58,7 @@ This page clarifies which Animus features are **shipped and stable**, **in-fligh
 | Skill Management (`animus skill`) | **Shipped** | Search, install, update, and publish versioned skills |
 | Model Management (`animus model`) | **Shipped** | Check model availability, validate model selection, view model roster |
 | History Inspection | **Shipped** | Inspect execution history through `animus history ...` |
-| Template-Driven Project Init | **Shipped** | `animus init` supports registry-backed and local copy templates plus daemon defaults. Bundled templates (`task-queue`, `conductor`, `direct-workflow`) and the `--template` / `--path` / `--non-interactive` flags are stable. Registry pinning, template authoring helpers, and richer multi-registry management are planned |
+| Template-Driven Project Init | **Shipped** | `animus init` supports registry-backed templates, local template directories, non-interactive mode, plan mode, and the onboarding walkthrough flags |
 
 ### Observability and Output
 
@@ -74,20 +74,19 @@ This page clarifies which Animus features are **shipped and stable**, **in-fligh
 
 | Feature | Status | Description |
 |---------|--------|-------------|
-| Web UI (`animus web serve`) | **Shipped** | React-based web dashboard for task, workflow, and requirement management |
-| Web UI — Task Dashboard | **Shipped** | View, filter, search, and manage tasks from the web UI |
-| Web UI — Workflow Monitoring | **Shipped** | Monitor active and completed workflows with phase details |
-| Web UI — Dark Mode | **Shipped** | Built-in dark mode theme support |
-| TUI Dashboard (`animus tui`) | **In-Flight** | Terminal UI for Animus; under active development |
-| Mobile-Friendly Responsiveness | **In-Flight** | Web UI responsive behavior is experimental; primary experience is desktop |
+| Web UI (`animus web serve`) | **Shipped** | Starts installed `transport_backend` + `web_ui` plugins; there is no in-tree web server |
+| Web UI — Subject Dashboard | **Shipped** | Available through the installed web UI plugin for task, requirement, and external subject backends |
+| Web UI — Workflow Monitoring | **Shipped** | Available through the installed web UI plugin with phase details and run state |
+| TUI Dashboard (`animus tui`) | **Planned** | No live top-level `animus tui` command exists in the current CLI surface |
+| Mobile-Friendly Responsiveness | **In-Flight** | Web UI responsive behavior is owned by the external web UI plugin and may vary by plugin version |
 
 ## Data Persistence and Configuration
 
 | Feature | Status | Description |
 |---------|--------|-------------|
-| Project-Local `.animus/` Config | **Shipped** | Store repo-scoped workflow YAML and daemon settings under `.animus/` |
+| Project-Local `.animus/` Config | **Shipped** | Store repository-authored config and workflow YAML under `.animus/` |
 | Scoped Runtime State (`~/.animus/<repo-scope>/`) | **Shipped** | Per-repo runtime state isolation with automatic cleanup |
-| JSON State Files | **Shipped** | All Animus state is tool-managed JSON (tasks, workflows, requirements, runs) |
+| Runtime State Stores | **Shipped** | Runtime state is tool-managed and split between JSON files and `workflow.db` |
 | Git Worktree Isolation | **Shipped** | Every task gets its own git worktree for safe parallel execution |
 | Worktree Lifecycle | **Shipped** | Automatic creation, pull/push synchronization, and cleanup |
 

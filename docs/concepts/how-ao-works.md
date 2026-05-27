@@ -70,8 +70,9 @@ encode domain behavior.
 
 Examples:
 
-- `animus requirements execute --id REQ-001`
-- `animus workflow run animus.task/standard`
+- `animus subject next --kind task`
+- `animus workflow run animus.task/standard --task-id TASK-001`
+- `animus workflow run animus.requirement/execute --requirement-id REQ-001`
 - `animus workflow run animus.vision/draft`
 - `animus mcp serve`
 - ready-queue and schedule dispatches

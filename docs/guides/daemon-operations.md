@@ -12,7 +12,9 @@ Start the daemon as a detached background process:
 animus daemon start --autonomous
 ```
 
-This forks a child process and redirects stderr to `.animus/daemon.log`. The daemon will continuously poll for ready tasks and dispatch workflows.
+This forks a child process and continuously polls for ready work. Structured
+runtime events are persisted through the active log storage backend; the
+in-tree fallback writes `~/.animus/<repo-scope>/logs/events.jsonl`.
 
 ### Foreground Mode
 
@@ -100,7 +102,9 @@ Read daemon logs:
 animus daemon logs
 ```
 
-The daemon writes structured JSON log lines to `.animus/daemon.log`. Log rotation occurs at 10MB (rotated file: `.animus/daemon.log.1`).
+The daemon writes structured log entries through the active log storage
+backend. With the in-tree fallback, entries are redacted JSON lines under
+`~/.animus/<repo-scope>/logs/events.jsonl`.
 
 Clear logs when they grow too large:
 
@@ -128,13 +132,20 @@ animus daemon agents
 
 ### Reading Daemon Logs Directly
 
-For real-time debugging, tail the log file:
+For recent persisted entries, use the log tail command:
 
 ```bash
-tail -f .animus/daemon.log
+animus logs tail --limit 100
 ```
 
-The log contains structured JSON lines with event types like `daemon_startup`, `daemon_shutdown`, workflow dispatches, and phase completions.
+For live debugging, stream daemon events:
+
+```bash
+animus daemon stream --pretty
+```
+
+The stream contains structured events like `daemon_startup`, `daemon_shutdown`,
+workflow dispatches, and phase completions.
 
 ### Runner Health
 

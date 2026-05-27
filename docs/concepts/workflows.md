@@ -40,8 +40,8 @@ dispatch them through the workflow engine:
 
 | Operator Entry Point | Canonical Ref | Notes |
 |---|---|---|
-| `animus workflow run animus.task/standard` | `animus.task/standard` | Explicit workflow ref execution through the CLI |
-| `animus requirements execute --id REQ-001` | `animus.requirement/execute` | Requirement execution resolves to the canonical pack ref |
+| `animus workflow run animus.task/standard --task-id TASK-001` | `animus.task/standard` | Explicit workflow ref execution through the CLI |
+| `animus workflow run animus.requirement/execute --requirement-id REQ-001` | `animus.requirement/execute` | Requirement execution resolves to the canonical pack ref |
 | `animus workflow run standard-workflow` | `animus.task/standard` | Repository-specific workflows can wrap canonical pack refs |
 
 Animus still ships planning refs such as `animus.vision/draft` and `animus.vision/refine`,

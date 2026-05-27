@@ -115,8 +115,8 @@ Diagnose:
 ```bash
 animus daemon metrics --pretty | grep plugin_disabled_total
 animus daemon health
-animus plugin info <plugin-name>          # check the manifest + env_required
-animus daemon logs --tail 200             # look for restart-loop messages
+animus plugin info --name <plugin-name>   # check the manifest + env_required
+animus daemon logs --limit 200            # look for restart-loop messages
 ```
 
 Fix path:
@@ -242,24 +242,24 @@ deprecated and a no-op.
 ANIMUS_LOG_FORMAT=json animus daemon start --autonomous
 ```
 
-Structured logs ship to `events.jsonl` under the scoped state root.
+Structured logs ship to `logs/events.jsonl` under the scoped state root.
 Pipe through `jq` for filtering:
 
 ```bash
-tail -F ~/.animus/<scope>/state/events.jsonl | jq -c 'select(.level == "error")'
+tail -F ~/.animus/<scope>/logs/events.jsonl | jq -c 'select(.level == "error")'
 ```
 
-### Tail daemon log
+### Tail daemon logs
 
-The autonomous daemon redirects stderr to `<project_root>/.animus/daemon.log`
-(rotated to `.log.1` at 10MB).
+Use the CLI to read the active log storage backend. When the daemon is down,
+the command falls back to the in-tree `logs/events.jsonl` file.
 
 ```bash
-tail -f /path/to/project/.animus/daemon.log
+animus logs tail --level info --limit 100
 ```
 
 Startup and shutdown emit structured JSON lines (`daemon_startup`,
-`daemon_shutdown`); the rest of the log is `tracing` output.
+`daemon_shutdown`), and workflow events include phase and run metadata.
 
 ### Stream live events
 
@@ -278,14 +278,14 @@ Each plugin spawns as a child process and inherits the daemon's
 stderr by default. To isolate a specific plugin:
 
 ```bash
-animus plugin info <plugin-name>                  # locate the binary
-animus plugin ping <path-to-binary>               # liveness + handshake
-animus plugin call --plugin <name> \              # send raw JSON-RPC
+animus plugin info --name <plugin-name>           # locate the binary
+animus plugin ping --name <plugin-name>           # liveness + handshake
+animus plugin call --name <plugin-name> \         # send raw JSON-RPC
   --method health/check --params '{}'
 ```
 
 Long-running plugins (subjects, triggers, transports, and v0.5+
-providers) log to `~/.animus/<scope>/state/events.jsonl` via the
+providers) log to `~/.animus/<scope>/logs/events.jsonl` via the
 in-tree fallback log storage backend, or to whichever
 `log_storage_backend` plugin is installed.
 
@@ -419,16 +419,17 @@ because they're project-local, not scoped-runtime state.
 
 `ANIMUS_PROVIDER_DISABLE_PLUGIN` was removed in v0.4.12 — there is no
 in-tree fallback to switch to, so the kill-switch had nothing left to
-do. To quarantine a specific provider plugin without uninstalling, use:
+do. To quarantine a specific provider plugin, move it out of discovery
+or uninstall it:
 
 ```bash
-animus plugin disable <plugin-name>
-animus daemon restart --autonomous
+animus daemon stop
+animus plugin uninstall --name <plugin-name>
+animus daemon start --autonomous
 ```
 
-The daemon stays up while the plugin is disabled. Any phase that targets
-the disabled provider will Block with a hard error pointing at the
-install/disable surface, instead of silently routing to a missing
+Any phase that targets the removed provider will Block with a hard error pointing at the
+install/uninstall surface, instead of silently routing to a missing
 in-tree implementation.
 
 To disable subject discovery entirely:

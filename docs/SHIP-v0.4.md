@@ -47,7 +47,7 @@ animus subject create --kind task --title "test"
 animus subject next --kind task
 
 # Tail what the daemon is doing
-animus logs tail --follow
+animus daemon stream --pretty
 ```
 
 ## What's pluggable
@@ -170,7 +170,7 @@ families (`ao_task_*`, `ao_requirements_*`) are deleted in favor of
 ## Building your own plugin
 
 ```bash
-animus plugin new my-jira --kind subject
+animus plugin new --kind subject --name my-jira
 cd animus-subject-my-jira
 # implement src/backend.rs against the SubjectBackend trait
 cargo build --release
@@ -229,7 +229,7 @@ If a user asks you to set up Animus for them, follow this exact sequence:
    ```bash
    animus subject create --kind task --title "my-first-task"
    animus subject next --kind task
-   animus logs tail --follow
+   animus daemon stream --pretty
    ```
 
 Do not use `animus task ...` or `animus requirements ...` — both were

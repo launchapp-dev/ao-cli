@@ -120,11 +120,11 @@ cosign keyless signing.
 #### Disabled mode
 
 ```bash
-animus plugin install --signature-policy disabled ./my-local-build.bin --path ./my-local-build.bin
+animus plugin install --path ./my-local-build.bin --signature-policy disabled
 ```
 
-Skips verification entirely. Required for `--path` and `--url` installs
-of locally-built binaries that have no upstream signature bundle.
+Skips verification entirely. Use this for locally built `--path` installs
+or direct `--url --sha256` installs that have no upstream signature bundle.
 
 ### Trusted publishers (built-in)
 

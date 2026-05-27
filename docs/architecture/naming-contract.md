@@ -19,9 +19,9 @@ Every public surface uses the `animus` name:
 
 | Surface | Convention | Examples |
 |---|---|---|
-| CLI binary | `animus` | `animus task next`, `animus workflow run`, `animus daemon start` |
+| CLI binary | `animus` | `animus subject next --kind task`, `animus workflow run`, `animus daemon start` |
 | Daemon binary | `animus` (subcommand today; `animusd` reserved) | `animus daemon start --autonomous` |
-| MCP tool namespace | `animus.*` | `animus.task.create`, `animus.workflow.run`, `animus.plugin.call` |
+| MCP tool namespace | `animus.*` | `animus.subject.create`, `animus.workflow.run`, `animus.plugin.call` |
 | Environment variables | `ANIMUS_*` | `ANIMUS_CONFIG_DIR`, `ANIMUS_PLUGIN_PATH`, `ANIMUS_RUNNER_SCOPE` |
 | Project-local config dir | `.animus/` | `.animus/config.json`, `.animus/workflows.yaml`, `.animus/plugins/` |
 | Scoped runtime state | `~/.animus/<repo-scope>/` | runs, artifacts, compiled config, state machines |
@@ -83,7 +83,7 @@ In addition:
 If you write code that calls Animus, use the `animus.*` names. They are
 the only names. There is no fallback path.
 
-- MCP clients bind to `animus.task.*`, `animus.workflow.*`,
+- MCP clients bind to `animus.subject.*`, `animus.workflow.*`,
   `animus.daemon.*`, etc. See [MCP Tools](../reference/mcp-tools.md).
 - Shell scripts and CI read and set `ANIMUS_*` environment variables.
   See [Configuration](../reference/configuration.md).

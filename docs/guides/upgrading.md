@@ -87,7 +87,7 @@ animus plugin install launchapp-dev/animus-provider-claude@v0.2.2
 To see which plugins have updates available:
 
 ```bash
-animus plugin list --check-updates
+animus plugin update --dry-run
 ```
 
 ## Per-version migration guides
@@ -131,6 +131,6 @@ not auto-reversed.
 - `animus doctor` — environment + prerequisite check
 - `animus daemon preflight` — plugin presence check (v0.4.12+)
 - `animus daemon health` — runtime health snapshot once the daemon is up
-- `tail -f ~/.animus/<repo-scope>/daemon.log` — daemon stderr
-- `animus logs tail --follow` — structured event stream
+- `animus daemon stream --pretty` — live structured daemon/workflow events
+- `animus logs tail --limit 100` — recent persisted log entries
 - [`docs/guides/troubleshooting.md`](./troubleshooting.md) — common issues + fixes

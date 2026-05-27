@@ -2,7 +2,9 @@
 
 All MCP tools exposed by `animus mcp serve`. These tools allow AI agents to interact with the Animus orchestrator over the Model Context Protocol. Each tool wraps an `animus` CLI command, accepting JSON input and returning structured results.
 
-Every tool accepts an optional `project_root` parameter to override the default project root.
+Most project-scoped tools accept an optional `project_root` parameter to override
+the server default. Global plugin/marketplace tools may omit `project_root`
+because they operate on machine-wide plugin state or the public registry.
 
 **v0.4.4 note — subject surface is now mandatory for tasks and requirements.** The legacy
 `animus.task.*` / `animus.requirements.*` / `animus.cloud.*` / `animus.errors.*` MCP tool
@@ -43,7 +45,7 @@ surface and can claim their own `kind`.
 | `animus.daemon.resume` | Resume the scheduler after a pause | `project_root` |
 | `animus.daemon.events` | List recent daemon events for debugging and monitoring | `limit`, `project_root` |
 | `animus.daemon.agents` | List currently running agent tasks and their status | `project_root` |
-| `animus.daemon.logs` | Read daemon process log file | `limit`, `search`, `project_root` |
+| `animus.daemon.logs` | Read recent daemon log entries | `limit`, `search`, `project_root` |
 | `animus.daemon.config` | Read current daemon automation settings | `project_root` |
 | `animus.daemon.config-set` | Update daemon automation settings and notification config | `auto_merge`, `auto_pr`, `auto_commit_before_merge`, `auto_prune_worktrees_after_merge`, `auto_run_ready`, `pool_size` (alias: `max_agents`), `interval_secs`, `max_tasks_per_tick`, `stale_threshold_hours`, `phase_timeout_secs`, `idle_timeout_secs`, `notification_config_json`, `notification_config_file`, `clear_notification_config`, `project_root` |
 
@@ -213,7 +215,7 @@ those are aggregated automatically.
 | `animus.plugin.info` | Spawn a plugin, complete the initialize handshake, and return manifest plus runtime capabilities. | `name`, `project_root`, `include_system_path` |
 | `animus.plugin.ping` | Health-check a plugin by spawning it and sending `$/ping`. | `name`, `project_root`, `include_system_path` |
 | `animus.plugin.call` | Send a JSON-RPC request to a discovered plugin. | `name`, `method`, `params`, `project_root` |
-| `animus.plugin.install` | Install a plugin from `source`, local `path`, or verified `url`. | `source`, `path`, `url`, `tag`, `name`, `sha256`, `force`, `plugin_dir`, `require_signature`, `skip_signature`, `trusted_signers` |
+| `animus.plugin.install` | Install a plugin from `source`, local `path`, or verified `url`. MCP installs run non-interactively and auto-confirm the trusted-org prompt. | `source`, `path`, `url`, `tag`, `name`, `sha256`, `force`, `skip_manifest_check`, `plugin_dir`, `require_signature`, `skip_signature`, `trusted_signers` |
 | `animus.plugin.uninstall` | Remove an installed plugin binary and unregister it. | `name`, `plugin_dir` |
 
 ## Plugin Marketplace (3 tools)
@@ -222,9 +224,9 @@ These tools query and update the public plugin registry view exposed by the CLI.
 
 | Tool | Description | Key Parameters |
 |---|---|---|
-| `animus.plugin.search` | Search the public plugin registry. | `query`, `limit`, `project_root` |
-| `animus.plugin.browse` | Browse registry entries grouped by plugin kind. | `kind`, `installed`, `available`, `project_root` |
-| `animus.plugin.update` | Update one installed plugin from the registry. | `name`, `project_root` |
+| `animus.plugin.search` | Search the public plugin registry. | `query`, `kind`, `tag[]`, `org`, `stability`, `registry_url`, `no_cache` |
+| `animus.plugin.browse` | Browse registry entries grouped by plugin kind. | `kind`, `installed`, `available`, `registry_url`, `no_cache` |
+| `animus.plugin.update` | Update one or all installed release-source plugins from the registry. | `name`, `tag`, `dry_run`, `force`, `registry_url`, `no_cache` |
 
 Discovery order: `~/.animus/plugins.yaml` (or the legacy `~/.config/animus/plugins.yaml` on first read) → `.animus/plugins/` → `$ANIMUS_PLUGIN_DIR` (defaults to `~/.animus/plugins/`) → `$ANIMUS_PLUGIN_PATH` → `$PATH` (`animus-provider-*` / `animus-plugin-*` prefixes; `$PATH` opt-in via `--include-system-path`).
 

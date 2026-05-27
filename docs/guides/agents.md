@@ -23,7 +23,9 @@ Animus currently exposes **77 built-in MCP tools** across these families:
 | `animus.plugin.*` | 9 | Installed plugins plus marketplace discovery/update |
 | `animus.logs.*` | 1 | Tail log entries from the active log backend |
 
-Every tool accepts an optional `project_root`.
+Most project-scoped tools accept an optional `project_root`; global plugin and
+marketplace tools may omit it because they operate on machine-wide plugin state
+or the public registry.
 
 ## Subject Operations
 

@@ -9,7 +9,6 @@ These files live in the repository:
 ```text
 .animus/
 ├── config.json
-├── pm-config.json              # optional project-local daemon automation settings
 ├── workflows.yaml              # optional single-file workflow source
 ├── workflows/
 │   ├── custom.yaml
@@ -29,6 +28,8 @@ Key points:
   the skill resolution chain)
 - `.animus/plugins/<pack-id>/` is the project override root for pack content
 - `.animus/config.json` stores repository-local Animus config
+- Daemon automation settings are persisted under the repo-scoped runtime root,
+  not under project-local `.animus/` for new writes
 
 ## Repo-Scoped Runtime Layout
 
@@ -47,6 +48,9 @@ Mutable runtime state lives outside the repo:
 │   ├── architecture.json
 │   ├── vision.json
 │   └── product-vision.md
+├── logs/
+│   ├── events.jsonl
+│   └── runs/
 ├── state/
 │   ├── pack-selection.v1.json
 │   ├── schedule-state.json
@@ -65,6 +69,8 @@ Key points:
 - `core-state.json` stores the shared runtime snapshot Animus loads at startup
 - `config/state-machines.v1.json` stores the effective state-machine document
 - `daemon/pm-config.json` stores persisted daemon settings
+- `logs/events.jsonl` stores redacted structured runtime events when the
+  in-tree log backend is active
 - `worktrees/` stores managed task worktrees for that repository scope
 
 ## Machine-Wide Layout
@@ -143,6 +149,7 @@ Use Animus commands or Animus MCP tools instead.
 | `.animus/plugins/<pack-id>/` | Project-local pack override root |
 | `~/.animus/<repo-scope>/workflow.db` | Persisted workflows, tasks, requirements, checkpoints |
 | `~/.animus/<repo-scope>/config/state-machines.v1.json` | Repo-scoped state-machine config |
+| `~/.animus/<repo-scope>/logs/events.jsonl` | Redacted structured runtime event log |
 | `~/.animus/<repo-scope>/state/pack-selection.v1.json` | Repo-scoped pack selection state |
 | `~/.animus/packs/<pack-id>/<version>/` | Machine-installed pack root |
 | `~/.animus/packs/animus.core-skills/<version>/` | Bundled core skill catalog (installed pack) |

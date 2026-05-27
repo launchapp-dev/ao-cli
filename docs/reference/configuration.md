@@ -281,14 +281,16 @@ gemini, opencode) when spawning their underlying CLIs.
 
 These environment variables are operator escape hatches for shutting down a
 plugin subsystem when something installed has gone bad and you need the
-daemon to keep running while you investigate. Both require a daemon restart
-to take effect, and both also require a restart to re-enable plugin
-dispatch after you clear the variable.
+daemon to keep running while you investigate. They require a daemon restart
+to take effect and another restart to re-enable plugin dispatch after you
+clear the variable.
 
 | Variable | Description |
 |---|---|
 | `ANIMUS_DAEMON_DISABLE_TRIGGERS` | Truthy (`1`, `true`, `yes`, `on`) — skips the trigger plugin supervisor on daemon start AND interrupts any in-progress backoff sleeps so a flapping plugin stops respawning immediately. Useful when a trigger plugin is panicking, flooding events, or wedging the daemon's startup. Daemon restart needed to re-enable. |
-| ~~`ANIMUS_PROVIDER_DISABLE_PLUGIN`~~ | **Removed in v0.4.12.** Previously forced the `SessionBackendResolver` to fall back to in-tree provider backends. The in-tree backends were extracted to standalone `launchapp-dev/animus-provider-*` plugins in v0.4.12, so there is nothing left to fall back to. Setting this variable has no effect. If a provider plugin is misbehaving, uninstall it with `animus plugin uninstall <name>` or quarantine it with `animus plugin disable <name>`. |
+| `ANIMUS_DAEMON_DISABLE_SUBJECT_PLUGINS` | Truthy — skips subject plugin discovery. Subject plugin calls then behave as if no backend is installed, so most subject operations return not-found/method-not-found. Useful for isolating a broken subject backend. |
+| `ANIMUS_DAEMON_DISABLE_LOG_STORAGE_PLUGIN` | Truthy — ignores installed `log_storage_backend` plugins and uses the in-tree `logs/events.jsonl` backend. |
+| ~~`ANIMUS_PROVIDER_DISABLE_PLUGIN`~~ | **Removed in v0.4.12.** Previously forced the `SessionBackendResolver` to fall back to in-tree provider backends. The in-tree backends were extracted to standalone `launchapp-dev/animus-provider-*` plugins in v0.4.12, so there is nothing left to fall back to. Setting this variable has no effect. If a provider plugin is misbehaving, uninstall it with `animus plugin uninstall --name <name>` or remove/quarantine the binary from the plugin directory. |
 
 Error surfaces emit a hint pointing at the right kill-switch when a plugin
 fails its handshake or exhausts its restart budget, so operators don't have

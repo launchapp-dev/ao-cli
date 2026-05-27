@@ -291,22 +291,18 @@ workflows:
 Workflows without an explicit `subject_type:` continue to use the native
 backend, preserving every existing workflow's behavior.
 
-## Native task migration
+## Current subject surface
 
-`animus task` is reimplemented as `animus-subject-native`, an in-process backend
-that satisfies the `SubjectBackend` trait. It does not run as a separate
-process; the daemon links it directly. The trait impl reads and writes
-`~/.animus/<repo-scope>/state/tasks.v1.json` exactly as today.
+The live CLI surface is the unified `animus subject` tree. Use
+`animus subject --kind task` for task-like work, `--kind requirement` for
+requirements, or a kind claimed by an installed external backend. The legacy
+`animus task ...` and `animus requirements ...` command trees were removed in
+v0.4.4.
 
-This means:
-
-- `animus task create/list/update/status` continue to work, but under the
-  hood call `subject/*` methods on the native backend.
-- Workflows that reference task IDs (`TASK-001`) continue to work; the
-  native backend exposes them as `Subject` with `id = "native:TASK-001"`.
-- The `animus.task.*` MCP tool surface is preserved as a stable contract (per
-  the [naming contract](./naming-contract.md)). Internally these tools
-  delegate to the native backend.
+The live MCP surface follows the same model: `animus.subject.*` replaces the
+old per-domain `animus.task.*` and `animus.requirements.*` tools. Backends own
+their native id format, and CLI/MCP callers should pass backend-qualified ids
+such as `task:TASK-001` when a backend returns them.
 
 ## Authentication
 
@@ -363,10 +359,10 @@ protocol-shape pass. The shipped decisions:
    that in YAML for now. Dispatch-time dependency enforcement is on the
    v0.5.x roadmap.
 
-3. **`animus.task.*` MCP tools accept bare `TASK-001` and prefix
-   internally to `native:TASK-001`.** The MCP layer normalizes the id
-   before handing it to the native `SubjectBackend` impl, so existing
-   v0.3.x agent prompts that pass `TASK-001` continue to work unchanged.
+3. **Subject MCP tools use backend-qualified ids.** The old
+   `animus.task.*` compatibility surface is gone; callers should use
+   `animus.subject.*` with `kind=task` and pass the id shape returned by
+   the selected backend.
 
 4. **Plugin secrets do not appear in workflow YAML.** Each plugin reads
    its own credentials directly from the daemon's process environment

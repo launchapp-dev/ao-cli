@@ -30,7 +30,8 @@ animus
 │   ├── clear-logs           Clear daemon logs
 │   ├── agents               List daemon-managed agents
 │   ├── config               Update daemon automation configuration
-│   └── preflight            Report plugin preflight status (required plugins installed / missing + fix commands)
+│   ├── preflight            Report plugin preflight status (required plugins installed / missing + fix commands)
+│   └── metrics              Print daemon observability metrics
 │
 ├── agent                    Run and inspect agent executions
 │   ├── list                 List configured agent profiles
@@ -178,9 +179,15 @@ animus
 │   ├── call                 Send a JSON-RPC request to a plugin and print its response
 │   ├── ping                 Health-check a plugin by spawning, handshaking, and pinging
 │   ├── install              Install a plugin from a public GitHub repo (owner/repo[@tag]), a local --path, or an https --url --sha256
-│   ├── install-defaults     Bulk-install the standard provider plugins (claude, codex, gemini, opencode, oai). --include-oai-agent and --include-subjects pull in optional groups
 │   ├── uninstall            Remove a previously installed plugin from ~/.animus/plugins/
-│   └── new                  Scaffold a new plugin project from launchapp-dev/animus-plugin-template
+│   ├── new                  Scaffold a new plugin project from launchapp-dev/animus-plugin-template
+│   ├── search               Search the public plugin registry by substring and filters
+│   ├── browse               Browse the public plugin registry grouped by kind
+│   ├── update               Update one or all installed release-source plugins
+│   ├── install-defaults     Bulk-install the standard provider plugins (claude, codex, gemini, opencode, oai). --include-oai-agent, --include-subjects, and --include-transports pull in optional groups
+│   └── lock
+│       ├── list             List entries recorded in the plugin lockfile
+│       └── verify           Re-hash installed plugin binaries and report lockfile mismatches
 │
 ├── runner                   Inspect runner health and orphaned runs
 │   ├── health               Show runner process health
@@ -280,6 +287,11 @@ Initialize an Animus project from a template registry or a local template direct
 | `--plan` | Preview init changes without writing project files |
 | `--force` | Overwrite existing project files targeted by the template |
 | `--update-registry` | Fetch the latest commit from the template registry and re-pin the local cache before loading the template (v0.4.0 supply-chain hardening — by default the registry uses the pinned cache) |
+| `--walkthrough` | Run the v0.4.13 onboarding walkthrough: detect CLIs, install default plugins, and copy the bundled hello-world workflow |
+| `--no-install` | Walkthrough only: skip `animus plugin install-defaults` |
+| `--no-template` | Walkthrough only: skip copying the hello-world workflow template into `.animus/workflows/` |
+| `--auto-start` | Walkthrough only: start the autonomous daemon after init completes |
+| `--walkthrough-template <NAME>` | Walkthrough only: choose the bundled workflow template. Current default is `hello-world` |
 | `--auto-merge <bool>` | Override the template default for automatic merge |
 | `--auto-pr <bool>` | Override the template default for automatic pull request creation |
 | `--auto-commit-before-merge <bool>` | Override the template default for automatic commit before merge |
@@ -317,8 +329,10 @@ animus plugin install --url https://example.com/plugin --sha256 a1b2c3d4...
 | `--force` | Overwrite an existing installed plugin with the same name |
 | `--skip-manifest-check` | Skip running `--manifest` against the installed binary to verify it (use sparingly) |
 | `--plugin-dir <PATH>` | Override the plugin install directory. Takes precedence over `$ANIMUS_PLUGIN_DIR`. Defaults to `~/.animus/plugins/` |
-| `--require-signature` | Refuse to install when no cosign signature bundle is published, or when verification fails. Mutually exclusive with `--skip-signature`. Requires `cosign` on `$PATH` |
-| `--skip-signature` | Bypass cosign signature verification entirely. Use this for plugins that haven't adopted signing yet, air-gapped installs, or local-build workflows |
+| `--signature-policy <strict\|warn\|disabled>` | Signature enforcement mode. `strict` fails closed, `warn` logs and proceeds, and `disabled` skips verification |
+| `--allow-unsigned` | Convenience alias for `--signature-policy warn`; mutually exclusive with `--signature-policy` and `--require-signature` |
+| `--require-signature` | Legacy alias for `--signature-policy strict` |
+| `--skip-signature` | Legacy alias for `--signature-policy disabled` |
 | `--trusted-signers <PATH>` | Path to a trusted-signers YAML allowlist. Defaults to `~/.animus/trusted-signers.yaml`. When the file is absent, the CLI verifies signatures against the cert's stated repo identity but does not enforce a publisher allowlist |
 | `--allow-shadow-builtin` | Permit installing a provider plugin whose `provider_tool` collides with an in-tree backend (`claude` / `codex` / `gemini` / `opencode` / `oai-runner`). Without this flag the install pipeline refuses such plugins because they silently hijack all dispatch for the matching tool |
 | `--allow-org <OWNER>` | Mark an additional GitHub owner as trusted (repeatable). Skips the trust-on-first-use prompt for that owner and writes the entry to `~/.animus/trusted-orgs.yaml` after the install succeeds |
@@ -326,12 +340,12 @@ animus plugin install --url https://example.com/plugin --sha256 a1b2c3d4...
 
 #### Signature verification (v0.4.x+)
 
-When installing from a public repo, the CLI looks for `<asset>.tar.gz.bundle` next to the binary asset and verifies it via `cosign verify-blob` (sigstore keyless). The outcome (one of `verified`, `unsigned`, `invalid`, `untrusted_signer`, `skipped`) is persisted in `~/.animus/plugins.yaml` and surfaced in the `SIG` column of `animus plugin list`. See [docs/architecture/plugin-signing.md](../../architecture/plugin-signing.md).
+When installing from a public repo, the CLI looks for a cosign keyless bundle next to the release asset and verifies it via `cosign verify-blob`. The outcome (one of `verified`, `unsigned`, `invalid`, `untrusted_signer`, `skipped`) is persisted in `~/.animus/plugins.yaml` and surfaced in the `SIG` column of `animus plugin list`. See [Security](../security.md) and [Plugin Signing](../../architecture/plugin-signing.md).
 
-- **Default mode** (no flags): verify if a bundle is present, install with `signature_status=verified`; if no bundle, warn and install with `signature_status=unsigned`. A FAILING signature refuses install.
-- **`--require-signature`**: refuse install when no bundle is published or verification fails.
-- **`--skip-signature`**: bypass verification entirely; install records `signature_status=skipped`.
-- **Missing `cosign` binary**: install proceeds and records `signature_status=unsigned`. Install [cosign](https://github.com/sigstore/cosign) to enable verification.
+- **`--signature-policy strict`**: refuse install when the bundle is missing, invalid, or signed by an untrusted identity. Requires `cosign` on `$PATH`.
+- **`--signature-policy warn`**: log signature failures and install with `signature_status=unsigned` or `untrusted_signer`. This is the v0.4.12 transition default.
+- **`--signature-policy disabled`**: bypass verification entirely; install records `signature_status=skipped`.
+- **Legacy flags**: `--require-signature` maps to `strict`, `--skip-signature` maps to `disabled`, and `--allow-unsigned` maps to `warn`.
 
 The trusted-signers file format:
 
@@ -407,6 +421,31 @@ plugin failed its `--manifest` probe (binary missing, exited non-zero, returned
 non-JSON, etc.). Human output emits each warning to stderr. The
 `animus.plugin.list` MCP tool carries the same `warnings` field.
 
+### `animus plugin search` / `browse` / `update`
+
+Marketplace commands read the public plugin registry and optionally compare it
+with installed release-source plugins.
+
+| Command | Flags |
+|---|---|
+| `animus plugin search [QUERY]` | `--kind <KIND>`, `--tag <TAG>` (repeatable), `--org <ORG>`, `--stability <STABILITY>`, `--registry-url <URL>`, `--no-cache`, `--json` |
+| `animus plugin browse` | `--kind <KIND>`, `--installed`, `--available`, `--registry-url <URL>`, `--no-cache`, `--json` |
+| `animus plugin update [NAME]` | `--tag <TAG>`, `--dry-run`, `--force`, `--json` |
+
+Use `animus plugin update --dry-run` as the update check; there is no
+`plugin list --check-updates` flag.
+
+### `animus plugin lock`
+
+The plugin lockfile records installed plugin version and SHA256 metadata.
+Project-local installs use `.animus/plugins.lock`; otherwise commands fall back
+to `~/.animus/plugins.lock`.
+
+| Command | Flags |
+|---|---|
+| `animus plugin lock list` | `--lockfile <PATH>`, `--json` |
+| `animus plugin lock verify` | `--lockfile <PATH>`, `--plugin-dir <PATH>`, `--json` |
+
 ### `animus plugin new`
 
 Scaffold a new plugin project from the
@@ -437,7 +476,7 @@ in the template repo for the source of truth): `name`, `NAME_UPPER`,
 
 | Metric | Count |
 |---|---|
-| Top-level commands | 25 |
-| Total subcommands (all levels) | 198 |
+| Top-level commands | 22 |
+| Nested command entries (all levels) | 175 |
 
 Counts exclude autogenerated `help` entries.

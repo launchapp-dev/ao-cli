@@ -68,8 +68,8 @@ Do not hand-edit Animus-managed runtime JSON or SQLite state unless you are expl
 
 Approved mutation surfaces:
 
-- CLI commands such as `animus task status`
-- Animus MCP tools such as `animus.task.update`
+- CLI commands such as `animus subject status --kind task`
+- Animus MCP tools such as `animus.subject.update`
 - pack commands such as `animus pack pin`
 
 ## Repository Scope

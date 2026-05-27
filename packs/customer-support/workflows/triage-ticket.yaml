@@ -1,0 +1,245 @@
+# Customer Support: Ticket Triage Workflow
+#
+# Four phases:
+#   1. classify           — categorize + urgency-score the ticket
+#   2. draft_response     — write a customer-facing reply in the right tone
+#   3. summarize_for_human — TL;DR + suggested edits for the reviewer
+#   4. flag_for_review    — set ticket subject status to blocked + label
+#                            it awaiting-human-review
+#
+# The default model assignments use Claude. Swap to OpenAI or Gemini by
+# changing the `model` and `tool` fields on each agent — see docs/customizing.md.
+
+agents:
+  ticket-classifier:
+    description: |
+      Cheap, fast classifier. Reads a single ticket and produces a structured
+      JSON verdict with category + urgency. Does not draft a reply.
+    system_prompt: |
+      You are a customer support triage classifier. Your only job is to read
+      one support ticket and return a structured classification.
+
+      Categories (pick exactly one):
+        - billing      — refunds, charges, invoices, plan changes
+        - bug          — something is broken or behaving unexpectedly
+        - feature      — request for new functionality
+        - security     — auth issues, suspicious activity, data exposure
+        - integration  — third-party connection or API question
+        - other        — anything that doesn't fit the above
+
+      Urgency (pick exactly one):
+        - critical — production down, security incident, data loss
+        - high     — paying customer blocked, no workaround
+        - med      — workaround exists, customer is patient
+        - low      — informational, "nice to have", documentation
+
+      Return ONLY a JSON object. No prose.
+    model: claude-haiku-4-5
+    tool: claude
+
+  response-drafter:
+    description: |
+      Stronger model. Drafts a customer-facing reply using tone guidance
+      derived from the classifier's output.
+    system_prompt: |
+      You are a senior customer support specialist. You draft replies that
+      are warm, specific, and accountable. Never invent facts about the
+      customer's account or the product's behavior. If a fact is uncertain,
+      say so and tell the customer the next step.
+
+      Tone by category:
+        - billing      — apologetic, action-oriented ("here's exactly what
+                         I've done")
+        - bug          — investigatory, set expectations ("I'll route this
+                         to engineering; tracking under <id>")
+        - feature      — appreciative, honest about timelines (no false
+                         promises)
+        - security     — calm, urgent, instructional (rotate credentials
+                         immediately)
+        - integration  — diagnostic, concrete code/config snippets when
+                         helpful
+        - other        — friendly, clarifying questions if scope is unclear
+
+      Output: a complete reply ready for a human reviewer to approve and
+      send. Sign as "the support team" — do not invent a name.
+    model: claude-sonnet-4-6
+    tool: claude
+
+  human-handoff:
+    description: |
+      Concise summarizer. Reads the classification + draft and produces a
+      TL;DR + a short list of suggested edits so the human reviewer can
+      approve quickly.
+    system_prompt: |
+      You are the human-handoff coordinator. Given a classified ticket and
+      a drafted response, produce a short brief for the human reviewer:
+
+      - 1-sentence TL;DR of what the customer asked
+      - 1-sentence summary of what the draft commits to
+      - Up to 3 suggested edits the reviewer should consider (e.g. "verify
+        refund amount before sending", "attach repro steps")
+      - Recommend: send-as-is | minor-edit | rewrite | escalate
+
+      Keep it under 120 words total. The reviewer is busy.
+    model: claude-haiku-4-5
+    tool: claude
+
+phases:
+  classify:
+    mode: agent
+    agent: ticket-classifier
+    directive: |
+      Read the ticket in your subject (title + description). Return a JSON
+      classification: { "category": "...", "urgency": "...",
+      "rationale": "..." }. Keep rationale under 30 words.
+    output_contract:
+      kind: phase_result
+      required_fields:
+        - category
+        - urgency
+      fields:
+        category:
+          type: string
+          description: One of billing, bug, feature, security, integration, other.
+        urgency:
+          type: string
+          description: One of critical, high, med, low.
+        rationale:
+          type: string
+          description: One-sentence justification for the classification.
+    decision_contract:
+      min_confidence: 0.6
+      max_risk: medium
+      allow_missing_decision: false
+
+  draft_response:
+    mode: agent
+    agent: response-drafter
+    directive: |
+      Draft a customer-facing reply to the ticket in your subject. Use the
+      classification from the previous phase to pick tone. Do NOT send the
+      reply — output it as the phase result for a human reviewer.
+    output_contract:
+      kind: phase_result
+      required_fields:
+        - draft_reply
+      fields:
+        draft_reply:
+          type: string
+          description: The full customer-facing reply, ready to send after human approval.
+        assumptions:
+          type: array
+          description: Facts about the account or product the draft assumes; reviewer must verify.
+          items:
+            type: string
+        followups:
+          type: array
+          description: Internal follow-up tasks the support team should track separately.
+          items:
+            type: string
+    decision_contract:
+      min_confidence: 0.7
+      max_risk: medium
+      allow_missing_decision: false
+
+  summarize_for_human:
+    mode: agent
+    agent: human-handoff
+    directive: |
+      Read the classification and the drafted reply for this ticket. Produce
+      the reviewer brief: TL;DR, what the draft commits to, up to 3 suggested
+      edits, and a recommendation (send-as-is | minor-edit | rewrite | escalate).
+    output_contract:
+      kind: phase_result
+      required_fields:
+        - tldr
+        - recommendation
+      fields:
+        tldr:
+          type: string
+          description: One-sentence summary of what the customer asked.
+        commits_to:
+          type: string
+          description: One-sentence summary of what the draft reply promises the customer.
+        suggested_edits:
+          type: array
+          description: Up to 3 concrete edits the reviewer should consider before sending.
+          items:
+            type: string
+        recommendation:
+          type: string
+          description: One of send-as-is, minor-edit, rewrite, escalate.
+    decision_contract:
+      min_confidence: 0.6
+      max_risk: low
+      allow_missing_decision: false
+
+  flag_for_review:
+    mode: agent
+    agent: human-handoff
+    directive: |
+      Mark the ticket as ready for the human reviewer. The Animus subject
+      protocol only accepts the normalized statuses `ready`,
+      `in-progress`, `blocked`, `done`, or `cancelled` — there is no
+      free-form `ready_for_human_review` value. Use `blocked` to indicate
+      the ticket is awaiting human action, and add a label or comment
+      (via `animus subject update --kind ticket --id <id> --labels
+      "awaiting-human-review"`) to communicate the specific reason.
+
+      Use the Animus MCP tools (the agent runtime allows `animus.*`
+      calls but typically does not allow free-form shell).
+
+      IMPORTANT: This pack's documented dry-run dispatches workflows via
+      `animus workflow run --title ...` because there is no
+      first-class `--subject-id` flag yet. In that path, `subject.id` is
+      the ticket title string (e.g. "TKT-1001: Refund for accidental
+      annual renewal") and is NOT a real backend-qualified ticket id.
+
+      Only proceed with the mutating MCP calls below when `subject.id`
+      is an EXACT backend-qualified ticket id. Concretely, treat the
+      subject id as valid only when ALL are true:
+        - It contains NO whitespace
+        - It contains NO colon followed by a space (excludes titles
+          like "TKT-1001: Refund...")
+        - It matches one of these shapes:
+            * `^TKT-\d+$` (e.g. "TKT-1001", the markdown file stem)
+            * `^ticket:[\w.-]+$` (backend-qualified)
+
+      For any other shape (custom-subject dry-run, or unexpected
+      value), SKIP the mutating calls and emit a verdict noting
+      "subject id is a custom title or unrecognized shape, not a
+      backend ticket id — flag step skipped". This is the honest
+      behavior until `--subject-id` ships.
+
+      When proceeding, fetch the ticket first so the label update is
+      additive rather than a destructive replace:
+
+        1. Call `animus.subject.get` with { kind: "ticket", id: <id> }
+           and read the existing labels from the result.
+        2. Call `animus.subject.status` with { kind: "ticket", id: <id>,
+           status: "blocked" }.
+        3. Call `animus.subject.update` with { kind: "ticket", id: <id>,
+           labels: [...existing_labels, "awaiting-human-review"] }
+           (deduplicate so "awaiting-human-review" is not added twice).
+
+      The subject id is in the dispatch envelope as `subject.id`. Emit a
+      short verdict confirming the status change.
+    capabilities:
+      mutates_state: true
+    decision_contract:
+      min_confidence: 0.7
+      max_risk: low
+      allow_missing_decision: false
+
+workflows:
+  - id: animus.customer-support/triage-ticket
+    name: Triage Customer Support Ticket
+    description: |
+      End-to-end tier-1 support triage: classify, draft a reply, brief the
+      human reviewer, flag for review. The reviewer approves and sends from
+      their support tool of choice.
+    phases:
+      - classify
+      - draft_response
+      - summarize_for_human
+      - flag_for_review

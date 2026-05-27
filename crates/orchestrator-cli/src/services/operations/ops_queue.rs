@@ -98,7 +98,21 @@ pub(crate) async fn handle_queue(
             // through the wire. Requirement / title / custom dispatches
             // and any --input-json payload stay local — the wire
             // `queue/enqueue` surface only covers task subjects today.
-            if json && args.input_json.is_none() && args.requirement_id.is_none() && args.title.is_none() {
+            //
+            // `--workflow-ref` also stays local: the wire `queue/enqueue`
+            // request shape only carries `task_id` + `priority`, with no
+            // slot for a workflow override. Routing through the wire
+            // when the user passed `--workflow-ref` would silently swap
+            // their requested workflow for the project default — the
+            // exact P2 fix tracked here. Until the wire grows a
+            // workflow_ref field we degrade to the local path that
+            // honors the flag faithfully.
+            if json
+                && args.input_json.is_none()
+                && args.requirement_id.is_none()
+                && args.title.is_none()
+                && args.workflow_ref.is_none()
+            {
                 if let Some(task_id) = args.task_id.as_ref() {
                     if let Some(entry) = try_queue_enqueue_via_control(project_root, task_id).await? {
                         return print_value(entry, true);

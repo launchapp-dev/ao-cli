@@ -883,7 +883,16 @@ async fn run_install_defaults_subprocess(project_root: &Path, json: bool) -> Wal
     if json {
         cmd.arg("--json");
     }
-    cmd.args(["plugin", "install-defaults", "--yes"]);
+    // Walkthrough is the first-contact path — install the *full* set
+    // of required-role plugins (providers + subject backends +
+    // transports) so the subsequent `daemon start` preflight passes
+    // and the daemon doesn't boot in a degraded state. Without
+    // `--include-subjects` the task/requirement subject roles stay
+    // unsatisfied and the daemon would refuse to start (or, with
+    // --skip-preflight, would boot partially functional). This is
+    // half of the defense-in-depth fix; the other half is removing
+    // `--skip-preflight` from the daemon spawn below.
+    cmd.args(["plugin", "install-defaults", "--yes", "--include-subjects", "--include-transports"]);
     cmd.stdin(Stdio::null());
     // In JSON mode, pipe stdout (and discard) so the child's `--json` output
     // does not interleave with the parent envelope. In human mode, inherit
@@ -930,7 +939,14 @@ async fn run_daemon_start_subprocess(project_root: &Path, json: bool) -> Walkthr
     if json {
         cmd.arg("--json");
     }
-    cmd.args(["daemon", "start", "--autonomous", "--auto-install", "--skip-preflight"]);
+    // Defense-in-depth: do NOT pass `--skip-preflight` here. The
+    // walkthrough's `plugin install-defaults` step above is supposed
+    // to fill all required roles (providers + subjects + transports);
+    // if it didn't, we want the daemon to refuse to start with the
+    // actionable preflight error rather than boot in a degraded
+    // state. `--auto-install` keeps the safety net so any leftover
+    // gaps still get filled before the daemon comes up.
+    cmd.args(["daemon", "start", "--autonomous", "--auto-install"]);
     cmd.stdin(Stdio::null());
     if json {
         cmd.stdout(Stdio::piped());
@@ -973,10 +989,21 @@ fn build_next_steps(
     daemon_step: &WalkthroughDaemonStep,
 ) -> Vec<String> {
     let mut steps = Vec::new();
+    // Keep these install hints in lockstep with the actual command
+    // `run_install_defaults_subprocess` invokes above. Without
+    // `--include-subjects --include-transports` the user would follow
+    // the recovery hint and still end up with an unsatisfied preflight
+    // because subject/transport backends would never get installed.
     if plugin_step.skipped {
-        steps.push("Install default plugins: animus plugin install-defaults --yes".to_string());
+        steps.push(
+            "Install default plugins: animus plugin install-defaults --yes --include-subjects --include-transports"
+                .to_string(),
+        );
     } else if plugin_step.exit_code != Some(0) {
-        steps.push("Re-run `animus plugin install-defaults` to fix the failed install above.".to_string());
+        steps.push(
+            "Re-run `animus plugin install-defaults --include-subjects --include-transports` to fix the failed install above."
+                .to_string(),
+        );
     }
     if template_plan.iter().any(|plan| plan.action == "create" || plan.action == "overwrite") {
         steps.push("Run `animus workflow run hello-world --sync` to verify your install.".to_string());

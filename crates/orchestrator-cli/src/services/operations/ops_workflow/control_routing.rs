@@ -120,6 +120,28 @@ fn workflow_to_wire_run(workflow: OrchestratorWorkflow) -> Result<WireWorkflowRu
     Ok(WireWorkflowRun { summary, detail })
 }
 
+/// Extract the wire-side `params.vars` map into the in-tree
+/// `HashMap<String, String>` consumed by
+/// `WorkflowRunInput::with_vars`. The CLI side stuffs `--var KEY=VALUE`
+/// pairs into `params["vars"]` as a `{key: string}` object; here we
+/// reverse the projection. Non-object payloads are treated as empty so
+/// older CLI binaries (no vars plumbing) keep round-tripping cleanly.
+fn extract_vars_from_params(
+    params: &std::collections::BTreeMap<String, serde_json::Value>,
+) -> std::collections::HashMap<String, String> {
+    let mut out = std::collections::HashMap::new();
+    if let Some(serde_json::Value::Object(obj)) = params.get("vars") {
+        for (k, v) in obj {
+            let stringified = match v {
+                serde_json::Value::String(s) => s.clone(),
+                other => other.to_string(),
+            };
+            out.insert(k.clone(), stringified);
+        }
+    }
+    out
+}
+
 #[async_trait]
 impl WorkflowRouting for WorkflowRoutingImpl {
     async fn workflow_list(&self, request: WireListRequest) -> Result<WireListResponse, ControlError> {
@@ -151,7 +173,14 @@ impl WorkflowRouting for WorkflowRoutingImpl {
 
     async fn workflow_run(&self, request: WireRunRequest) -> Result<WireRunStart, ControlError> {
         let hub = self.hub()?;
-        let input = WorkflowRunInput::for_task(request.task_id, request.definition);
+        // Extract the wire-side `params.vars` map (set by the CLI's
+        // `try_workflow_run_via_control`) so user-supplied
+        // `--var KEY=VALUE` pairs survive the control round-trip and
+        // reach `WorkflowRunInput::with_vars` — matching the local
+        // path. Any non-string values are stringified via
+        // `Value::to_string()` so callers always see a valid scalar.
+        let vars = extract_vars_from_params(&request.params);
+        let input = WorkflowRunInput::for_task(request.task_id, request.definition).with_vars(vars);
         let workflow = hub.workflows().run(input).await.map_err(internal)?;
         Ok(WireRunStart {
             workflow_id: workflow.id,
@@ -172,7 +201,8 @@ impl WorkflowRouting for WorkflowRoutingImpl {
                 "workflow/execute requires a task subject_id for the CLI control routing".to_string(),
             ));
         }
-        let input = WorkflowRunInput::for_task(task_id, Some(request.definition));
+        let vars = extract_vars_from_params(&request.params);
+        let input = WorkflowRunInput::for_task(task_id, Some(request.definition)).with_vars(vars);
         let workflow = hub.workflows().run(input).await.map_err(internal)?;
         Ok(WireRunStart {
             workflow_id: workflow.id,
@@ -209,5 +239,56 @@ impl WorkflowRouting for WorkflowRoutingImpl {
                 .await
                 .map_err(internal)?;
         Ok(Unit::default())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn extract_vars_from_params_round_trips_workflow_run_var_pairs() {
+        // The CLI's `try_workflow_run_via_control` packs `--var KEY=VALUE`
+        // pairs into `params["vars"]` as a `{key: string}` object. The
+        // daemon-side `workflow_run` adapter must extract them back into
+        // the in-tree `HashMap<String, String>` consumed by
+        // `WorkflowRunInput::with_vars` — otherwise `--var` is silently
+        // dropped on the control path while the local path honors it.
+        let mut params: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+        params.insert(
+            "vars".to_string(),
+            json!({
+                "release_name": "Mercury",
+                "rollout_pct": "25",
+            }),
+        );
+
+        let extracted = extract_vars_from_params(&params);
+        assert_eq!(extracted.len(), 2, "both vars should survive the control round-trip");
+        assert_eq!(extracted.get("release_name").map(String::as_str), Some("Mercury"));
+        assert_eq!(extracted.get("rollout_pct").map(String::as_str), Some("25"));
+    }
+
+    #[test]
+    fn extract_vars_from_params_returns_empty_when_vars_key_absent() {
+        // Older CLI binaries (pre-vars-plumbing fix) ship an empty
+        // params map. The adapter must degrade to "no vars" rather
+        // than panic so the wire stays backward-compatible.
+        let params: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+        assert!(extract_vars_from_params(&params).is_empty());
+    }
+
+    #[test]
+    fn extract_vars_from_params_stringifies_non_string_values() {
+        // We accept whatever the CLI sends; future callers may send
+        // numeric or bool values via raw JSON-RPC. Stringify so the
+        // downstream YAML interpolation sees a consistent scalar.
+        let mut params: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+        params.insert("vars".to_string(), json!({ "retries": 3, "force": true }));
+        let extracted = extract_vars_from_params(&params);
+        assert_eq!(extracted.get("retries").map(String::as_str), Some("3"));
+        assert_eq!(extracted.get("force").map(String::as_str), Some("true"));
     }
 }

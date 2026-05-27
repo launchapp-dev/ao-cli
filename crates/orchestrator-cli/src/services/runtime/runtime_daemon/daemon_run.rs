@@ -106,6 +106,12 @@ pub(super) enum ResumedOutcomeApplyResult {
 // no-decision path during normal execution (see
 // `phase_output::persist_phase_output`'s "None" branch), so it is safe to
 // keep mirroring that behavior for them when none of the gate signals fire.
+//
+// Test-only thin wrapper around the workflow-aware variant: production
+// callers always pass an explicit `workflow_ref`, so the no-workflow
+// overload exists purely to keep the R7 round-7 regression tests below
+// readable without threading `None` through every assertion.
+#[cfg(test)]
 fn phase_requires_explicit_decision_for_resume(project_root: &str, phase_id: &str) -> bool {
     phase_requires_explicit_decision_for_resume_in_workflow(project_root, phase_id, None)
 }
@@ -174,6 +180,10 @@ impl ProductionResumeProviderRegistry {
 // still finds the installed plugin registered under `provider_tool = "oai"`.
 // `provider_keys` is a string-only stand-in for the real `providers` map keys
 // so tests can exercise the lookup without standing up a `PluginSessionBackend`.
+// Production callers inline the same canonicalization in `try_resume` below;
+// this helper exists only so the W6 alias-canonicalization regression tests
+// stay focused on the pure string-key logic.
+#[cfg(test)]
 fn resolve_resume_provider_key(provider_keys: &[String], checkpoint_provider: &str) -> Option<String> {
     let canonical = canonical_tool_alias(checkpoint_provider);
     provider_keys.iter().find(|k| **k == canonical).cloned()

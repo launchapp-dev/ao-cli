@@ -393,12 +393,11 @@ pub(crate) fn build_workflow_pipeline_context(
 mod tests {
     use super::*;
 
-    #[test]
     // TODO: phase_output tests intermittently see scoped_state_root resolve to a different
     // path between persist and read under parallel cargo test, even with the
     // scoped_state_serializer held. Always passes in isolation. Reproduce and root-cause separately.
-    #[ignore]
     #[test]
+    #[ignore]
     fn test_persist_and_load_phase_output() {
         let _serial = crate::test_env::scoped_state_serializer();
         let tmp = std::env::temp_dir().join(format!("ao-test-phase-output-{}", Uuid::new_v4()));

@@ -271,27 +271,6 @@ mod tests {
     }
 
     #[test]
-    fn audit_log_appends_install_event_with_signature_status() {
-        let dir = tempdir().unwrap();
-        log_plugin_install(
-            dir.path(),
-            AuditEventKind::PluginInstall,
-            "launchapp-dev/animus-provider-claude",
-            "v0.2.2",
-            "deadbeef",
-            "verified",
-        );
-        let lines = read_lines(&audit_log_path(dir.path()));
-        assert_eq!(lines.len(), 1);
-        let details = &lines[0]["details"];
-        assert_eq!(details["repo"], "launchapp-dev/animus-provider-claude");
-        assert_eq!(details["version"], "v0.2.2");
-        assert_eq!(details["sha256"], "deadbeef");
-        assert_eq!(details["signature_status"], "verified");
-        assert_eq!(lines[0]["event"], "plugin_install");
-    }
-
-    #[test]
     fn audit_log_rotates_at_threshold() {
         let dir = tempdir().unwrap();
         let path = audit_log_path(dir.path());

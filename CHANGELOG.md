@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **daemon**: actually dispatch `log_storage_backend` plugin for
+  `log_storage/store` + `log_storage/query` (P2 audit follow-up). When a
+  `log_storage_backend` plugin is installed the daemon now spawns +
+  handshakes it at startup via `PluginSpawnOptions::for_manifest`
+  (matching subject/trigger/health), installs a process-global
+  `LogStorageHandle`, and forwards every `DaemonEventLog::append` record
+  to the plugin as a `log_storage/store` request (the
+  `animus-log-storage-protocol` wire shape) while still writing the
+  in-tree `daemon-events.jsonl` (tee policy — preserves existing
+  `daemon events` / MCP `daemon.events` poll readers). The `daemon/logs`
+  control endpoint now issues `log_storage/query` against the plugin
+  instead of reading the in-tree file, so `animus logs tail` reflects the
+  installed backend. Plugin failures degrade to a `tracing::warn!`
+  rather than killing the daemon.
+
 ## [0.4.14] - 2026-05-27
 
 Audit remediation release. External audit + parallel review across v0.3.2 →

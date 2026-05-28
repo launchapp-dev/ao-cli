@@ -99,6 +99,61 @@ fn clear_workflow_event_emitter() {
     }
 }
 
+/// RAII guard that ensures the process-global [`crate::LogStorageHandle`]
+/// is cleared and the plugin host is shut down even when the daemon
+/// returns early through a `?` (preflight failure, control server bind
+/// error, scheduler crash, …). The async shutdown is spawned onto the
+/// current Tokio runtime in `Drop` so a misbehaving plugin can never
+/// block daemon teardown; the global slot is cleared synchronously.
+///
+/// On the normal exit path, `run_daemon` calls
+/// [`crate::LogStorageHandle::shutdown`] explicitly before this guard's
+/// `Drop` runs — the guard then sees a host that already took the
+/// `Option<PluginHost>` out and the spawned task is a no-op.
+struct LogStorageHandleDropGuard {
+    handle: Arc<crate::LogStorageHandle>,
+    active: bool,
+}
+
+impl LogStorageHandleDropGuard {
+    fn new(handle: Arc<crate::LogStorageHandle>) -> Self {
+        Self { handle, active: true }
+    }
+
+    /// Disarm the guard so [`Drop`] becomes a no-op. Called from the
+    /// normal exit path after the explicit `shutdown().await` + slot
+    /// clear have completed.
+    fn disarm(mut self) {
+        self.active = false;
+    }
+}
+
+impl Drop for LogStorageHandleDropGuard {
+    fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
+        crate::clear_log_storage_handle();
+        // TODO(codex-p2): Drop is synchronous and cannot await the
+        // graceful shutdown sequence. We schedule it onto the current
+        // runtime, but if the daemon returns through `?` and the runtime
+        // is torn down immediately afterwards the spawned task may be
+        // cancelled before it can drain the plugin host. Restructuring
+        // run_daemon to catch errors before propagating (so it can
+        // explicitly await `handle.shutdown()` on every exit path) is
+        // tracked separately; the OS reaps the orphan when the daemon
+        // process exits.
+        if self.handle.is_plugin() {
+            let handle = self.handle.clone();
+            if let Ok(rt) = tokio::runtime::Handle::try_current() {
+                rt.spawn(async move {
+                    handle.shutdown().await;
+                });
+            }
+        }
+    }
+}
+
 pub async fn run_daemon<D, H>(
     project_root: &str,
     options: &mut DaemonRuntimeOptions,
@@ -176,7 +231,8 @@ where
 
     discover_plugins_for_daemon(project_root, &primary_root, hooks)?;
 
-    resolve_log_storage_dispatch_for_daemon(project_root, &primary_root, hooks);
+    let log_storage_handle = resolve_log_storage_dispatch_for_daemon(project_root, &primary_root, hooks).await;
+    let log_storage_drop_guard = LogStorageHandleDropGuard::new(log_storage_handle.clone());
 
     resolve_subject_dispatch_for_daemon(project_root, &primary_root, hooks).await;
 
@@ -328,8 +384,22 @@ where
         let _ = hooks.stop_daemon(&primary_root).await;
     }
 
+    // Emit final status events BEFORE tearing down the log_storage
+    // plugin host so those records are still forwarded to the backend
+    // (otherwise an operator tailing the plugin would never see the
+    // daemon stopping).
     hooks.handle_event(DaemonRunEvent::Status { project_root: primary_root.clone(), status: "stopped".to_string() })?;
     hooks.handle_event(DaemonRunEvent::Shutdown { project_root: primary_root, daemon_pid })?;
+
+    // Give the fire-and-forget `log_storage/store` tasks spawned by
+    // `DaemonEventLog::append` a brief window to flush before reaping
+    // the plugin host. Bounded to keep teardown deterministic.
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    log_storage_handle.shutdown().await;
+    crate::clear_log_storage_handle();
+    // Normal exit — disarm the drop guard so it doesn't double-shutdown.
+    log_storage_drop_guard.disarm();
+
     Ok(())
 }
 
@@ -439,37 +509,36 @@ async fn resolve_subject_dispatch_for_daemon<H: DaemonRunHooks>(project_root: &s
     }
 }
 
-/// Resolve which log storage backend the daemon will route through and
-/// emit a [`DaemonRunEvent::LogStorageDispatchResolved`] so operators see
-/// the choice on every startup. Failures are degraded to in-tree + a
-/// warning rather than aborting startup — a misbehaving log_storage
-/// plugin must never block the daemon from coming up.
-fn resolve_log_storage_dispatch_for_daemon<H: DaemonRunHooks>(project_root: &str, primary_root: &str, hooks: &mut H) {
-    let disable_env_set = crate::log_storage_disable_env_set();
-    match crate::resolve_log_storage_dispatch(Path::new(project_root)) {
-        Ok(resolution) => {
-            let plugin_name = resolution.selected.plugin_name().map(|s| s.to_string());
-            let candidate_count = resolution.all_candidates.len();
-            let _ = hooks.handle_event(DaemonRunEvent::LogStorageDispatchResolved {
-                project_root: primary_root.to_string(),
-                plugin_name,
-                candidate_count,
-                disable_env_set,
-                warnings: resolution.warnings,
-            });
-        }
-        Err(error) => {
-            let _ = hooks.handle_event(DaemonRunEvent::LogStorageDispatchResolved {
-                project_root: primary_root.to_string(),
-                plugin_name: None,
-                candidate_count: 0,
-                disable_env_set,
-                warnings: vec![format!(
-                    "log_storage_backend discovery failed; falling back to in-tree Logger: {error:#}"
-                )],
-            });
-        }
-    }
+/// Resolve which log storage backend the daemon will route through,
+/// spawn the supervised [`PluginHost`] when the dispatch resolves to a
+/// plugin, install the resulting [`crate::LogStorageHandle`] in the
+/// process-global slot, and emit a
+/// [`DaemonRunEvent::LogStorageDispatchResolved`] so operators see the
+/// choice on every startup.
+///
+/// Failures (discovery, spawn, handshake) degrade to an in-tree handle
+/// plus a warning rather than aborting startup — a misbehaving
+/// log_storage plugin must never block the daemon from coming up.
+async fn resolve_log_storage_dispatch_for_daemon<H: DaemonRunHooks>(
+    project_root: &str,
+    primary_root: &str,
+    hooks: &mut H,
+) -> Arc<crate::LogStorageHandle> {
+    let outcome = crate::spawn_log_storage_supervisor(Path::new(project_root)).await;
+    // Install BEFORE emitting the dispatch-resolved event so the event
+    // itself is forwarded to the plugin when one is active; otherwise
+    // the first daemon event after startup lands in events.jsonl only
+    // and operators tailing the plugin never see which backend the
+    // daemon picked.
+    crate::install_log_storage_handle(outcome.handle.clone());
+    let _ = hooks.handle_event(DaemonRunEvent::LogStorageDispatchResolved {
+        project_root: primary_root.to_string(),
+        plugin_name: outcome.plugin_name.clone(),
+        candidate_count: outcome.candidate_count,
+        disable_env_set: outcome.disable_env_set,
+        warnings: outcome.warnings,
+    });
+    outcome.handle
 }
 
 /// Start the daemon's control RPC server (Unix socket speaking the

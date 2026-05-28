@@ -53,6 +53,19 @@ impl DaemonEventLog {
     }
 
     pub fn append(record: &DaemonEventRecord) -> Result<()> {
+        // Policy (B) tee: when a `log_storage_backend` plugin is
+        // installed, forward each record to the plugin as a
+        // `log_storage/store` request AND continue writing the in-tree
+        // `daemon-events.jsonl` file. The file is still the source of
+        // truth for `animus daemon events` / MCP `daemon.events` poll
+        // readers, which do not (yet) speak the plugin's `query`/`tail`
+        // surface. The plugin call is fire-and-forget so a slow or
+        // unhealthy sink can never block the daemon's hot path.
+        if let Some(handle) = crate::log_storage::current_log_storage_handle() {
+            if handle.is_plugin() {
+                dispatch_log_entry_to_plugin(handle, record);
+            }
+        }
         let path = Self::log_path();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -60,6 +73,85 @@ impl DaemonEventLog {
         rotate_if_needed(&path);
         append_line(&path, &serde_json::to_string(record)?)
     }
+}
+
+/// Fire-and-forget dispatch of a daemon event record to the active
+/// `log_storage_backend` plugin as a `log_storage/store` request.
+///
+/// Runs on the current Tokio runtime when one is available (the daemon
+/// always has one) and degrades to a synchronous best-effort path with a
+/// fresh single-threaded runtime when called outside an async context
+/// (CLI one-shot test paths, tests that call `append` directly).
+/// Plugin failures are warn-logged via `tracing` — policy (B) tees to
+/// the local file so the entry is never lost even when the sink is
+/// unhealthy.
+///
+/// The record is projected onto the
+/// [`animus_log_storage_protocol::LogEntry`] shape before being sent:
+/// id + timestamp + `Daemon` source + `daemon.events.<event_type>`
+/// target + the record's data as `fields`. The original record's
+/// seq/project metadata is preserved inside `fields` so plugin authors
+/// can reach it.
+fn dispatch_log_entry_to_plugin(handle: std::sync::Arc<crate::LogStorageHandle>, record: &DaemonEventRecord) {
+    let entry = match daemon_event_record_to_log_entry(record) {
+        Ok(value) => value,
+        Err(error) => {
+            tracing::warn!(
+                target: "daemon_event_log",
+                error = %error,
+                "failed to project DaemonEventRecord onto log_storage LogEntry shape",
+            );
+            return;
+        }
+    };
+    let plugin_name = handle.plugin_name().unwrap_or("<unknown>").to_string();
+    let publish_fut = async move {
+        if let Err(error) = handle.publish_log_entry(entry).await {
+            tracing::warn!(
+                target: "daemon_event_log",
+                plugin = %plugin_name,
+                error = %format!("{error:#}"),
+                "log_storage plugin store failed; entry still written to events.jsonl (policy: tee)",
+            );
+        }
+    };
+    match tokio::runtime::Handle::try_current() {
+        Ok(rt) => {
+            rt.spawn(publish_fut);
+        }
+        Err(_) => {
+            // No ambient runtime (sync tests, CLI one-shots). Block on a
+            // fresh single-threaded runtime so the test path still
+            // observes the request. Drop any panic — this is best-effort.
+            if let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                rt.block_on(publish_fut);
+            }
+        }
+    }
+}
+
+/// Project a [`DaemonEventRecord`] onto an
+/// [`animus_log_storage_protocol::LogEntry`] JSON value. The plugin sees
+/// a record that conforms to the log_storage wire shape; the original
+/// daemon-event seq + payload are preserved inside `fields` for plugins
+/// that want to disambiguate by daemon-events convention.
+fn daemon_event_record_to_log_entry(record: &DaemonEventRecord) -> Result<Value> {
+    let fields = serde_json::json!({
+        "seq": record.seq,
+        "data": record.data,
+        "schema": record.schema,
+        "project_root": record.project_root,
+    });
+    let entry = serde_json::json!({
+        "id": record.id,
+        "ts": record.timestamp,
+        "level": "info",
+        "source": "daemon",
+        "target": format!("daemon.events.{}", record.event_type),
+        "message": record.event_type,
+        "fields": fields,
+    });
+    Ok(entry)
 }
 
 const MAX_LOG_SIZE_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
@@ -122,4 +214,223 @@ fn apply_event_limit(mut events: Vec<DaemonEventRecord>, limit: Option<usize>) -
 fn canonicalize_lossy(path: &str) -> String {
     let candidate = PathBuf::from(path);
     candidate.canonicalize().unwrap_or(candidate).to_string_lossy().to_string()
+}
+
+#[cfg(test)]
+mod daemon_logs_dispatch_tests {
+    //! Audit P2: prove that `DaemonEventLog::append` actually routes
+    //! through the active `log_storage_backend` plugin (policy A: plugin
+    //! takes over entirely, in-tree events.jsonl is NOT written when a
+    //! plugin handle is installed).
+    use super::*;
+    use crate::log_storage::{
+        clear_log_storage_handle, current_log_storage_handle, install_log_storage_handle, LogStorageHandle,
+        LOG_STORAGE_TEST_SLOT_LOCK,
+    };
+    use animus_plugin_protocol::{InitializeResult, PluginCapabilities, PluginInfo, RpcRequest, RpcResponse};
+    use orchestrator_plugin_host::PluginHost;
+    use std::sync::Arc;
+    use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    struct SlotGuard;
+    impl Drop for SlotGuard {
+        fn drop(&mut self) {
+            clear_log_storage_handle();
+        }
+    }
+
+    /// RAII guard for the `ANIMUS_CONFIG_DIR` env var. Restores the
+    /// previous value (or removes the var entirely if it was unset) when
+    /// the guard drops so concurrent tests in the same process don't
+    /// pick up a stale temp path after the directory is unlinked.
+    struct ConfigDirGuard {
+        prev: Option<std::ffi::OsString>,
+    }
+    impl ConfigDirGuard {
+        fn set(value: &std::path::Path) -> Self {
+            let prev = std::env::var_os("ANIMUS_CONFIG_DIR");
+            std::env::set_var("ANIMUS_CONFIG_DIR", value);
+            Self { prev }
+        }
+    }
+    impl Drop for ConfigDirGuard {
+        fn drop(&mut self) {
+            match self.prev.take() {
+                Some(prev) => std::env::set_var("ANIMUS_CONFIG_DIR", prev),
+                None => std::env::remove_var("ANIMUS_CONFIG_DIR"),
+            }
+        }
+    }
+
+    /// Records (method, params) for every JSON-RPC request the fake host
+    /// receives. Used by tests to assert the daemon hit `log_storage/store`
+    /// with the projected `LogEntry` shape.
+    type RecordedCall = (String, Option<serde_json::Value>);
+
+    async fn fake_recording_host(name: &str, recorded: Arc<tokio::sync::Mutex<Vec<RecordedCall>>>) -> PluginHost {
+        let (host_reader, mut plugin_writer) = duplex(8192);
+        let (plugin_reader, host_writer) = duplex(8192);
+        let name_for_task = name.to_string();
+        let recorded_clone = recorded.clone();
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(plugin_reader);
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).await.unwrap_or(0) == 0 {
+                    break;
+                }
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                let value: serde_json::Value = match serde_json::from_str(trimmed) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                if value.get("id").is_none() || value.get("id") == Some(&serde_json::Value::Null) {
+                    // Skip notifications — we record requests only.
+                    continue;
+                }
+                let request: RpcRequest = match serde_json::from_value(value) {
+                    Ok(r) => r,
+                    Err(_) => continue,
+                };
+                let response = match request.method.as_str() {
+                    "initialize" => RpcResponse::ok(
+                        request.id,
+                        serde_json::json!(InitializeResult {
+                            protocol_version: "1.0.0".to_string(),
+                            plugin_info: PluginInfo {
+                                name: name_for_task.clone(),
+                                version: "0.1.0".to_string(),
+                                plugin_kind: animus_plugin_protocol::PLUGIN_KIND_LOG_STORAGE_BACKEND.to_string(),
+                                description: None,
+                            },
+                            capabilities: PluginCapabilities::default(),
+                        }),
+                    ),
+                    method => {
+                        recorded_clone.lock().await.push((method.to_string(), request.params.clone()));
+                        RpcResponse::ok(request.id, serde_json::json!({}))
+                    }
+                };
+                let mut encoded = serde_json::to_string(&response).unwrap();
+                encoded.push('\n');
+                if plugin_writer.write_all(encoded.as_bytes()).await.is_err() {
+                    break;
+                }
+            }
+        });
+        PluginHost::from_streams(name, host_reader, host_writer)
+    }
+
+    #[tokio::test]
+    async fn append_tees_to_plugin_and_events_jsonl() {
+        let _slot = LOG_STORAGE_TEST_SLOT_LOCK.lock().await;
+        let _guard = SlotGuard;
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _config_dir = ConfigDirGuard::set(temp.path());
+
+        // Spin up a fake log_storage_backend plugin and install its
+        // handle into the process-global slot, simulating the daemon's
+        // startup wiring.
+        let recorded: Arc<tokio::sync::Mutex<Vec<RecordedCall>>> = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let host = fake_recording_host("test-log-sink", recorded.clone()).await;
+        host.handshake().await.expect("handshake");
+        let handle = Arc::new(LogStorageHandle::from_handshaked_host("test-log-sink", host, temp.path().to_path_buf()));
+        install_log_storage_handle(handle.clone());
+        assert!(current_log_storage_handle().is_some(), "handle installed");
+
+        // Build a record and call append.
+        let mut seq = 0u64;
+        let record = DaemonEventLog::next_event(
+            &mut seq,
+            "test-event",
+            Some("/tmp/fake-project".to_string()),
+            serde_json::json!({"hello": "world"}),
+        );
+        DaemonEventLog::append(&record).expect("append ok");
+
+        // Give the spawned dispatch task a moment to flush.
+        tokio::time::sleep(std::time::Duration::from_millis(75)).await;
+
+        // Plugin received a `log_storage/store` request with the
+        // projected LogEntry shape.
+        let captured = recorded.lock().await;
+        let received = captured
+            .iter()
+            .find(|(method, _)| method == animus_log_storage_protocol::METHOD_LOG_STORAGE_STORE)
+            .expect("log_storage/store request arrived");
+        let params = received.1.clone().expect("request carries params");
+        let entries = params.get("entries").and_then(|v| v.as_array()).expect("entries array");
+        assert_eq!(entries.len(), 1, "store batch contains exactly one entry");
+        let entry = &entries[0];
+        assert_eq!(entry.get("message").and_then(|v| v.as_str()), Some("test-event"));
+        assert_eq!(entry.get("source").and_then(|v| v.as_str()), Some("daemon"));
+        let target = entry.get("target").and_then(|v| v.as_str()).unwrap_or("");
+        assert!(target.starts_with("daemon.events."), "target uses daemon.events.* convention, got {target:?}");
+        drop(captured);
+
+        // events.jsonl WAS written (policy B: tee). Existing
+        // `daemon/events` and MCP readers still see history.
+        let log_path = DaemonEventLog::log_path();
+        assert!(log_path.exists(), "events.jsonl is written under policy B (tee)");
+        let contents = std::fs::read_to_string(&log_path).expect("read events.jsonl");
+        assert!(contents.contains("test-event"), "events.jsonl carries the record body verbatim");
+
+        handle.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn append_falls_back_to_events_jsonl_when_no_handle_installed() {
+        let _slot = LOG_STORAGE_TEST_SLOT_LOCK.lock().await;
+        let _guard = SlotGuard;
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _config_dir = ConfigDirGuard::set(temp.path());
+
+        // No plugin handle installed → in-tree behavior.
+        clear_log_storage_handle();
+        assert!(current_log_storage_handle().is_none());
+
+        let mut seq = 0u64;
+        let record = DaemonEventLog::next_event(
+            &mut seq,
+            "in-tree-event",
+            Some("/tmp/fake-project".to_string()),
+            serde_json::json!({"k": "v"}),
+        );
+        DaemonEventLog::append(&record).expect("append ok");
+
+        let log_path = DaemonEventLog::log_path();
+        assert!(log_path.exists(), "in-tree fallback writes events.jsonl, expected at {}", log_path.display());
+        let contents = std::fs::read_to_string(&log_path).expect("read events.jsonl");
+        assert!(contents.contains("in-tree-event"), "events.jsonl carries the record body");
+    }
+
+    #[tokio::test]
+    async fn append_falls_back_to_events_jsonl_when_in_tree_handle_installed() {
+        let _slot = LOG_STORAGE_TEST_SLOT_LOCK.lock().await;
+        let _guard = SlotGuard;
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _config_dir = ConfigDirGuard::set(temp.path());
+
+        // Install an explicit in-tree handle. `append` should ignore the
+        // plugin branch and still write events.jsonl.
+        let handle = Arc::new(LogStorageHandle::in_tree(temp.path().to_path_buf()));
+        install_log_storage_handle(handle.clone());
+
+        let mut seq = 0u64;
+        let record = DaemonEventLog::next_event(
+            &mut seq,
+            "in-tree-handle-event",
+            Some("/tmp/fake-project".to_string()),
+            serde_json::json!({"k": "v"}),
+        );
+        DaemonEventLog::append(&record).expect("append ok");
+
+        let log_path = DaemonEventLog::log_path();
+        assert!(log_path.exists(), "in-tree handle still writes events.jsonl");
+        let contents = std::fs::read_to_string(&log_path).expect("read events.jsonl");
+        assert!(contents.contains("in-tree-handle-event"), "events.jsonl carries the record body");
+    }
 }

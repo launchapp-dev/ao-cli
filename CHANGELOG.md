@@ -4,6 +4,45 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.16] - 2026-05-28
+
+P3 housekeeping complete + **vertical pack expansion** (6 new reference
+packs) + the **Python plugin SDK**. The audit backlog is empty through
+P3. The workflow-engine framing now has 7 reference packs spanning
+engineering, customer support, marketing outreach, sales pipeline,
+recruiting, organization meetings, and ecommerce fulfillment.
+
+### Added (this release)
+
+- **`feat(sdk-py)`: Python plugin SDK skeleton** at `sdk/python/animus_plugin_sdk/`.
+  NDJSON-RPC stdio wire, handshake, `define_plugin(...)`, role Protocols,
+  PEP 561 `py.typed`, mypy strict + ruff clean. 1609 src + 544 test LOC.
+  subject_backend role fully wired (same scope as the v0.4.14 TS SDK).
+- **`feat(packs)`: 6 new vertical reference packs** under `packs/`:
+  marketing-outreach (4-phase prospect triage), engineering-backlog
+  (6-phase impl+codex-review+test+PR), sales-pipeline (5-phase BANT
+  qualification), recruiting-pipeline (screening + debrief), organization-meetings
+  (per-meeting + weekly rollup), ecommerce-fulfillment (process-order +
+  handle-return).
+
+### Fixed (this release)
+
+- **`fix(packs)`: namespace phase IDs to avoid cross-pack collisions** in
+  the daemon's global `phase_definitions` map. `flag_for_review` was used
+  by 3 packs; `enrich` by 2. Renamed `ticket_*` / `prospect_*` / `lead_*`.
+
+### Internal (this release)
+
+- **`chore(workflow-runner)`: rename binary `ao-workflow-runner` → `animus-workflow-runner`**
+  with 3 layers of back-compat (install-time symlink + Dockerfile symlink
+  + daemon resolver fallback). Migration doc at `docs/migration/v0.4-to-v0.5.md`.
+- **`chore`: sweep stale `ao.*` references from user-facing strings** —
+  76 files. MCP `ao://project/*` resource URIs still advertised for client
+  back-compat.
+- **`chore`: strict clippy workspace-clean** — 20 violations fixed. CI
+  now runs clippy with `-D warnings` + `cargo check --workspace --all-targets`.
+  Added `protocol_drift_subject` CI gate alongside plugin-protocol.
+
 ### Internal
 
 - **`feat(protocol)`: add `TransportBackend` + `WebUi` variants to `PluginKind`.**

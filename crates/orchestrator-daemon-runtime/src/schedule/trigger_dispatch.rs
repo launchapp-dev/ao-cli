@@ -99,7 +99,11 @@ impl TriggerDispatch {
         }
 
         // --- webhook / github_webhook processing ---
-        // Drain pending events that were queued by the HTTP handler.
+        // Peek at pending events one at a time and only pop them once the
+        // spawn succeeds. A failed dispatch (e.g. tick budget exhausted)
+        // leaves the event at the head of the queue so the next tick can
+        // retry it, instead of silently dropping the event when the runner
+        // never started.
         for trigger in webhook_triggers {
             let run_state = state.triggers.entry(trigger.id.clone()).or_default();
 
@@ -107,18 +111,16 @@ impl TriggerDispatch {
                 continue;
             }
 
-            // Drain all pending events, dispatching one pipeline per event.
-            let pending = std::mem::take(&mut run_state.pending_events);
-            for event in pending {
-                let trigger_source = match trigger.trigger_type {
-                    orchestrator_core::workflow_config::TriggerType::GithubWebhook => "github-webhook",
-                    orchestrator_core::workflow_config::TriggerType::Plugin => "plugin",
-                    _ => "webhook",
-                };
+            let trigger_source = match trigger.trigger_type {
+                orchestrator_core::workflow_config::TriggerType::GithubWebhook => "github-webhook",
+                orchestrator_core::workflow_config::TriggerType::Plugin => "plugin",
+                _ => "webhook",
+            };
 
-                // Merge the event payload into the trigger's static input.
+            // Drain in FIFO order, but stop the moment a dispatch fails so
+            // the failing event (and everything behind it) stays queued.
+            while let Some(event) = run_state.pending_events.first().cloned() {
                 let merged_input = merge_trigger_input(trigger.input.as_ref(), &event.payload);
-
                 let trigger_with_payload = orchestrator_core::workflow_config::WorkflowTrigger {
                     input: Some(merged_input),
                     ..trigger.clone()
@@ -127,11 +129,22 @@ impl TriggerDispatch {
                 let status =
                     dispatch_trigger(&trigger.id, &trigger_with_payload, now, trigger_source, &mut spawn_pipeline);
 
-                run_state.last_dispatched = Some(now);
-                run_state.last_status = status.clone();
-                run_state.dispatch_count += 1;
+                if status == "dispatched" {
+                    // Spawn accepted — now safe to remove from the queue.
+                    run_state.pending_events.remove(0);
+                    run_state.last_dispatched = Some(now);
+                    run_state.last_status = status.clone();
+                    run_state.dispatch_count += 1;
 
-                outcomes.push(TriggerDispatchOutcome { trigger_id: trigger.id.clone(), status });
+                    outcomes.push(TriggerDispatchOutcome { trigger_id: trigger.id.clone(), status });
+                } else {
+                    // Spawn refused — leave the event queued for the next
+                    // tick. Update last_status so ops can see the failure
+                    // reason without losing the event.
+                    run_state.last_status = status.clone();
+                    outcomes.push(TriggerDispatchOutcome { trigger_id: trigger.id.clone(), status });
+                    break;
+                }
             }
         }
 
@@ -468,6 +481,109 @@ mod tests {
         let state_after = orchestrator_core::load_trigger_state(project_root).expect("load state after");
         let run = state_after.triggers.get("on-webhook").expect("trigger state");
         assert!(run.pending_events.is_empty(), "pending_events should be cleared after dispatch");
+        assert_eq!(run.dispatch_count, 2);
+    }
+
+    #[test]
+    fn process_due_triggers_keeps_event_queued_when_spawn_fails() {
+        // Regression for the audit P2 finding: previously the webhook handler
+        // drained ALL pending events with `std::mem::take` BEFORE invoking
+        // the spawn closure, so a closure that returned Err (e.g. because
+        // the shared tick budget was exhausted) silently dropped the event.
+        // The fix: peek at the head of the queue, attempt the spawn, only
+        // pop on success.
+        let temp = tempdir().expect("tempdir");
+        let project_root = temp.path();
+
+        write_webhook_trigger_config(project_root, "on-webhook");
+
+        let mut state = orchestrator_core::load_trigger_state(project_root).unwrap_or_default();
+        let run_state = state.triggers.entry("on-webhook".to_string()).or_default();
+        run_state.pending_events.push(orchestrator_core::WebhookEvent {
+            event_id: "evt-A".to_string(),
+            received_at: "2026-04-01T10:00:00Z".parse().unwrap(),
+            payload: json!({ "action": "opened" }),
+        });
+        run_state.pending_events.push(orchestrator_core::WebhookEvent {
+            event_id: "evt-B".to_string(),
+            received_at: "2026-04-01T10:00:01Z".parse().unwrap(),
+            payload: json!({ "action": "closed" }),
+        });
+        orchestrator_core::save_trigger_state(project_root, &state).expect("save state");
+
+        let now: DateTime<Utc> = "2026-04-01T10:01:00Z".parse().unwrap();
+
+        let outcomes = TriggerDispatch::process_due_triggers(
+            project_root.to_string_lossy().as_ref(),
+            now,
+            |_trigger_id, _dispatch| Err(anyhow::anyhow!("tick budget exhausted")),
+        );
+
+        // The dispatch failed → the queue must still hold BOTH events so the
+        // next tick can retry them. We expect exactly ONE attempt outcome
+        // (the head event) and then the loop breaks so subsequent events
+        // are NOT re-attempted within this tick.
+        assert_eq!(outcomes.len(), 1, "should attempt only the head event before bailing out");
+        assert_ne!(outcomes[0].status, "dispatched");
+
+        let state_after = orchestrator_core::load_trigger_state(project_root).expect("load state after");
+        let run = state_after.triggers.get("on-webhook").expect("trigger state");
+        assert_eq!(
+            run.pending_events.len(),
+            2,
+            "BOTH events must remain queued when spawn fails — they were never actually dispatched"
+        );
+        assert_eq!(run.pending_events[0].event_id, "evt-A");
+        assert_eq!(run.pending_events[1].event_id, "evt-B");
+        assert_eq!(run.dispatch_count, 0, "no dispatch_count increment on failure");
+    }
+
+    #[test]
+    fn process_due_triggers_drains_partial_when_budget_runs_out_midway() {
+        // With 3 pending events and a budget that allows only the first 2,
+        // exactly 2 should be dispatched and 1 must remain queued.
+        let temp = tempdir().expect("tempdir");
+        let project_root = temp.path();
+
+        write_webhook_trigger_config(project_root, "on-webhook");
+
+        let mut state = orchestrator_core::load_trigger_state(project_root).unwrap_or_default();
+        let run_state = state.triggers.entry("on-webhook".to_string()).or_default();
+        for i in 0..3u32 {
+            run_state.pending_events.push(orchestrator_core::WebhookEvent {
+                event_id: format!("evt-{i}"),
+                received_at: "2026-04-01T10:00:00Z".parse().unwrap(),
+                payload: json!({ "i": i }),
+            });
+        }
+        orchestrator_core::save_trigger_state(project_root, &state).expect("save state");
+
+        let now: DateTime<Utc> = "2026-04-01T10:01:00Z".parse().unwrap();
+
+        let calls = Arc::new(Mutex::new(0usize));
+        let calls_ref = calls.clone();
+        let outcomes = TriggerDispatch::process_due_triggers(
+            project_root.to_string_lossy().as_ref(),
+            now,
+            move |_trigger_id, _dispatch| {
+                let mut n = calls_ref.lock().unwrap();
+                *n += 1;
+                if *n > 2 {
+                    Err(anyhow::anyhow!("tick budget exhausted"))
+                } else {
+                    Ok(())
+                }
+            },
+        );
+
+        // 2 dispatches + 1 budget-rejected attempt = 3 outcomes
+        let dispatched: usize = outcomes.iter().filter(|o| o.status == "dispatched").count();
+        assert_eq!(dispatched, 2, "first two events should dispatch");
+
+        let state_after = orchestrator_core::load_trigger_state(project_root).expect("load");
+        let run = state_after.triggers.get("on-webhook").expect("state");
+        assert_eq!(run.pending_events.len(), 1, "the third event must remain queued");
+        assert_eq!(run.pending_events[0].event_id, "evt-2");
         assert_eq!(run.dispatch_count, 2);
     }
 

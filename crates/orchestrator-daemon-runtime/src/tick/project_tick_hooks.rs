@@ -4,21 +4,22 @@ use serde_json::Value;
 
 use crate::{
     DaemonRuntimeOptions, DispatchWorkflowStartSummary, ProjectTickSnapshot, ProjectTickSummary,
-    ProjectTickSummaryInput,
+    ProjectTickSummaryInput, TickBudget,
 };
 
 #[async_trait::async_trait(?Send)]
 pub trait ProjectTickHooks {
-    /// Process due cron schedules, dispatching up to `schedule_headroom`
-    /// additional workflow-runner processes.  When `schedule_headroom` is
-    /// `Some(0)` the implementation must skip all dispatches.
-    fn process_due_schedules(&mut self, root: &str, now: DateTime<Utc>, schedule_headroom: Option<usize>);
+    /// Process due cron schedules, claiming dispatch slots from the shared
+    /// `budget`. Each successful spawn must call [`TickBudget::try_take`]
+    /// before committing so the trigger hook (called next within the same
+    /// tick) sees the remaining headroom. When the budget is exhausted the
+    /// implementation must skip remaining dispatches.
+    fn process_due_schedules(&mut self, root: &str, now: DateTime<Utc>, budget: &mut TickBudget);
 
-    /// Process pending file-watcher trigger events, dispatching up to
-    /// `trigger_headroom` additional workflow-runner processes.  When
-    /// `trigger_headroom` is `Some(0)` the implementation must skip all
-    /// dispatches.  Default implementation is a no-op.
-    fn process_due_triggers(&mut self, _root: &str, _now: DateTime<Utc>, _trigger_headroom: Option<usize>) {}
+    /// Process pending file-watcher and webhook trigger events, claiming
+    /// dispatch slots from the shared `budget`. Default implementation is
+    /// a no-op.
+    fn process_due_triggers(&mut self, _root: &str, _now: DateTime<Utc>, _budget: &mut TickBudget) {}
 
     /// Return the current number of active workflow-runner child processes.
     /// Used to recompute headroom after schedule dispatches.

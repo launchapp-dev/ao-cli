@@ -21,6 +21,16 @@ pub struct ScheduleRunState {
     pub last_status: String,
     #[serde(default)]
     pub run_count: u64,
+    /// Number of times this schedule was due but could not be dispatched
+    /// (e.g. ProcessManager refused the spawn because the pool was at the
+    /// runtime quota). Separate from `run_count` so ops can distinguish
+    /// "ran" from "missed because we ran out of slots".
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub missed_count: u64,
+}
+
+fn is_zero_u64(value: &u64) -> bool {
+    *value == 0
 }
 
 fn schedule_state_path(project_root: &Path) -> PathBuf {
@@ -72,7 +82,12 @@ mod tests {
         let mut original = ScheduleState::default();
         original.schedules.insert(
             "nightly".to_string(),
-            ScheduleRunState { last_run: Some(Utc::now()), last_status: "completed".to_string(), run_count: 3 },
+            ScheduleRunState {
+                last_run: Some(Utc::now()),
+                last_status: "completed".to_string(),
+                run_count: 3,
+                missed_count: 0,
+            },
         );
 
         save_schedule_state(temp.path(), &original).expect("save state");

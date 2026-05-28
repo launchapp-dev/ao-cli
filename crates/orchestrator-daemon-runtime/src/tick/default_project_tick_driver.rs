@@ -3,15 +3,15 @@ use std::sync::Arc;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use orchestrator_core::{
-    project_schedule_dispatch_attempt, services::ServiceHub, DaemonStatus, DaemonTickMetrics, FileServiceHub,
-    OrchestratorTask,
+    project_schedule_dispatch_attempt, project_schedule_dispatch_missed, services::ServiceHub, DaemonStatus,
+    DaemonTickMetrics, FileServiceHub, OrchestratorTask,
 };
 use serde_json::Value;
 
 use crate::{
     CompletedProcess, DaemonRuntimeOptions, DispatchNotice, DispatchWorkflowStart, DispatchWorkflowStartSummary,
     ProcessManager, ProjectTickHooks, ProjectTickSnapshot, ProjectTickSummary, ProjectTickSummaryInput,
-    ScheduleDispatch, TaskStateChangeEvent, TickSummaryBuilder, TriggerDispatch,
+    ScheduleDispatch, TaskStateChangeEvent, TickBudget, TickSummaryBuilder, TriggerDispatch,
 };
 
 #[async_trait::async_trait(?Send)]
@@ -103,6 +103,14 @@ pub trait DefaultProjectTickServices {
         project_schedule_dispatch_attempt(project_root, schedule_id, run_at, status);
     }
 
+    /// Record a schedule attempt that the dispatcher refused (e.g. pool at
+    /// capacity). Default forwards to `project_schedule_dispatch_missed`,
+    /// which leaves `last_run` untouched so the schedule re-fires on the
+    /// next tick.
+    fn record_schedule_dispatch_missed(&mut self, project_root: &str, schedule_id: &str, status: &str) {
+        project_schedule_dispatch_missed(project_root, schedule_id, status);
+    }
+
     fn dispatch_notice(&mut self, _notice: DispatchNotice) {}
 }
 
@@ -165,25 +173,31 @@ impl<S> ProjectTickHooks for DefaultSlimProjectTickHooks<'_, S>
 where
     S: DefaultProjectTickServices,
 {
-    fn process_due_schedules(&mut self, root: &str, now: DateTime<Utc>, schedule_headroom: Option<usize>) {
-        // Skip all schedule dispatches when the pool is at capacity.
-        if schedule_headroom == Some(0) {
+    fn process_due_schedules(&mut self, root: &str, now: DateTime<Utc>, budget: &mut TickBudget) {
+        // Skip entirely when the shared tick budget is already exhausted.
+        if budget.is_exhausted() {
             return;
         }
 
-        let mut dispatched: usize = 0;
-        let capacity = schedule_headroom;
+        // Track per-schedule outcomes so we can split projection writes:
+        // success → record_schedule_dispatch_attempt (updates last_run + run_count)
+        // budget-rejected → record_schedule_dispatch_missed (NO last_run update,
+        //                   increments missed_count so the schedule re-fires
+        //                   on the next tick)
+        // other failures → record_schedule_dispatch_attempt (last_run updates so
+        //                   we don't retry every tick within the same minute)
+        let mut budget_rejected: Vec<String> = Vec::new();
 
         let outcomes = ScheduleDispatch::process_due_schedules(root, now, |schedule_id, dispatch| {
-            // Respect pool capacity — stop dispatching once headroom is exhausted.
-            if let Some(remaining) = capacity {
-                if dispatched >= remaining {
-                    return Err(anyhow::anyhow!("schedule dispatch skipped: pool at capacity"));
-                }
+            // Claim a budget slot BEFORE attempting the spawn. If the budget
+            // is exhausted, surface a sentinel error so the outer loop records
+            // a "missed" outcome instead of an "attempted" one.
+            if !budget.try_take() {
+                budget_rejected.push(schedule_id.to_string());
+                return Err(anyhow::anyhow!("schedule dispatch skipped: tick budget exhausted"));
             }
             match self.process_manager.spawn_workflow_runner(dispatch, root) {
                 Ok(()) => {
-                    dispatched += 1;
                     self.services.dispatch_notice(DispatchNotice::ScheduleDispatched {
                         schedule_id: schedule_id.to_string(),
                         dispatch: dispatch.clone(),
@@ -191,6 +205,11 @@ where
                     Ok(())
                 }
                 Err(error) => {
+                    // Spawn failed for a reason OTHER than our pre-check (e.g.
+                    // ProcessManager's own capacity guard or runner-command
+                    // build failed). Return the slot to the budget so the
+                    // remaining schedules + triggers can still use it.
+                    budget.release();
                     self.services.dispatch_notice(DispatchNotice::ScheduleDispatchFailed {
                         schedule_id: schedule_id.to_string(),
                         dispatch: dispatch.clone(),
@@ -200,31 +219,40 @@ where
                 }
             }
         });
+
+        let budget_rejected: std::collections::HashSet<String> = budget_rejected.into_iter().collect();
         for outcome in outcomes {
-            self.services.record_schedule_dispatch_attempt(root, &outcome.schedule_id, now, &outcome.status);
+            if budget_rejected.contains(&outcome.schedule_id) {
+                // Pool was full — DO NOT update last_run, so the schedule
+                // gets another shot on the next tick within the same cron
+                // minute.
+                self.services.record_schedule_dispatch_missed(root, &outcome.schedule_id, &outcome.status);
+            } else {
+                self.services.record_schedule_dispatch_attempt(root, &outcome.schedule_id, now, &outcome.status);
+            }
         }
     }
 
-    fn process_due_triggers(&mut self, root: &str, now: DateTime<Utc>, trigger_headroom: Option<usize>) {
-        if trigger_headroom == Some(0) {
+    fn process_due_triggers(&mut self, root: &str, now: DateTime<Utc>, budget: &mut TickBudget) {
+        if budget.is_exhausted() {
             return;
         }
 
-        let mut dispatched: usize = 0;
-        let capacity = trigger_headroom;
-
         let _outcomes = TriggerDispatch::process_due_triggers(root, now, |_trigger_id, dispatch| {
-            if let Some(remaining) = capacity {
-                if dispatched >= remaining {
-                    return Err(anyhow::anyhow!("trigger dispatch skipped: pool at capacity"));
-                }
+            // Webhook events stay queued (not popped) until the spawn
+            // succeeds; trigger_dispatch::process_due_triggers handles the
+            // peek-vs-pop. Here we just gate on the shared tick budget so
+            // schedule and trigger paths share one pool of headroom.
+            if !budget.try_take() {
+                return Err(anyhow::anyhow!("trigger dispatch skipped: tick budget exhausted"));
             }
             match self.process_manager.spawn_workflow_runner(dispatch, root) {
-                Ok(()) => {
-                    dispatched += 1;
-                    Ok(())
+                Ok(()) => Ok(()),
+                Err(error) => {
+                    // Spawn failed for non-budget reasons; release the slot.
+                    budget.release();
+                    Err(error)
                 }
-                Err(error) => Err(error),
             }
         });
     }

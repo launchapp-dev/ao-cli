@@ -13,7 +13,7 @@ use chrono::{DateTime, Utc};
 use orchestrator_core::{DaemonStatus, PluginPreflightSpec, PreflightResult, RequiredRole};
 use orchestrator_daemon_runtime::{
     run_daemon, DaemonRunEvent, DaemonRunHooks, DaemonRuntimeOptions, DispatchWorkflowStartSummary, PreflightOutcome,
-    ProjectTickHooks, ProjectTickSnapshot, ProjectTickSummary, ProjectTickSummaryInput,
+    ProjectTickHooks, ProjectTickSnapshot, ProjectTickSummary, ProjectTickSummaryInput, TickBudget,
 };
 use serde_json::Value;
 use tempfile::TempDir;
@@ -87,7 +87,7 @@ struct StubDriver;
 
 #[async_trait(?Send)]
 impl ProjectTickHooks for StubDriver {
-    fn process_due_schedules(&mut self, _root: &str, _now: DateTime<Utc>, _schedule_headroom: Option<usize>) {}
+    fn process_due_schedules(&mut self, _root: &str, _now: DateTime<Utc>, _budget: &mut TickBudget) {}
 
     async fn capture_snapshot(&mut self, _root: &str) -> Result<ProjectTickSnapshot> {
         Ok(ProjectTickSnapshot {

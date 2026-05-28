@@ -25,7 +25,7 @@ pub use dispatch::{
     build_runner_command_from_dispatch, execute_dispatch_plan_via_runner, is_terminally_completed_workflow,
     ready_dispatch_limit, ready_dispatch_limit_for_options, schedule_headroom, workflow_current_phase_id,
     CompletedProcess, CompletionReconciliationPlan, DispatchNotice, DispatchNoticeSink, DispatchSelectionSource,
-    DispatchWorkflowStart, DispatchWorkflowStartSummary, PlannedDispatchStart, ProcessManager,
+    DispatchWorkflowStart, DispatchWorkflowStartSummary, PlannedDispatchStart, ProcessManager, TickBudget,
 };
 pub use log_storage::{
     clear_log_storage_handle, current_log_storage_handle, discover_log_storage_backends, install_log_storage_handle,

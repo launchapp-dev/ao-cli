@@ -205,9 +205,8 @@ error: plugin signature verification failed
   reason: signature not trusted by built-in keys
 ```
 
-The v0.4.12 default policy is `warn` (one-release migration window for
-plugins installed before keyless cosign verification shipped); v0.4.13
-flips back to `strict`. Verification is keyless — trust is anchored on
+The current default policy is `warn`, so installs record signature status
+without failing closed by default. Verification is keyless — trust is anchored on
 Sigstore Fulcio + Rekor (built into the `cosign` binary) plus the
 per-publisher identity regex; there is no PEM trust anchor to manage.
 

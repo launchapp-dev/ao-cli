@@ -4,7 +4,8 @@ use clap::{Args, Subcommand};
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum PluginCommand {
-    /// Discover plugins on PATH, in `.animus/plugins/`, in `$ANIMUS_PLUGIN_PATH`, and via plugins.yaml.
+    /// Discover plugins via plugins.yaml, `.animus/plugins/`,
+    /// `$ANIMUS_PLUGIN_DIR`, and `$ANIMUS_PLUGIN_PATH`.
     List(PluginListArgs),
     /// Print a plugin's manifest plus initialize-time capabilities.
     Info(PluginInfoArgs),
@@ -221,8 +222,8 @@ pub(crate) struct PluginInstallArgs {
     pub(crate) plugin_dir: Option<String>,
     /// Signature enforcement mode. `strict` refuses installs whose cosign
     /// keyless bundle is missing, invalid, or signed by an identity outside
-    /// the trusted-publisher list. `warn` (the v0.4.12 transition default;
-    /// v0.4.13 flips back to `strict`) logs the failure and proceeds.
+    /// the trusted-publisher list. `warn` (the current default) logs the
+    /// failure and proceeds.
     /// `disabled` skips verification entirely (escape hatch). Keyless trust
     /// is anchored on Sigstore Fulcio + Rekor and the per-publisher
     /// identity regex; no PEM is required. See `docs/reference/security.md`.
@@ -241,8 +242,8 @@ pub(crate) struct PluginInstallArgs {
     pub(crate) allow_unsigned: bool,
     /// Legacy: refuse install when no cosign bundle is present or when
     /// verification fails. Equivalent to `--signature-policy strict`.
-    /// Retained for backward compatibility; also the recommended opt-in
-    /// while the v0.4.12 default is `warn`.
+    /// Retained for backward compatibility; also the recommended opt-in when
+    /// fail-closed install behavior is required.
     #[arg(long, default_value_t = false, conflicts_with = "skip_signature")]
     pub(crate) require_signature: bool,
     /// Legacy: skip cosign signature verification entirely. Equivalent to

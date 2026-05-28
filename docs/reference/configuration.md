@@ -252,7 +252,7 @@ them from the persisted notification config.
 
 | Variable | Description |
 |---|---|
-| `ANIMUS_CLOUD_URL` | Override the cloud-sync server URL for `animus cloud` commands |
+| `ANIMUS_CLOUD_URL` | Legacy cloud-sync server URL override. The in-tree `animus cloud` command was removed; cloud sync now ships as an out-of-tree plugin |
 
 ### Provider plugin tuning
 

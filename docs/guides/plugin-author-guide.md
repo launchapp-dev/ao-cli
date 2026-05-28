@@ -384,11 +384,11 @@ and drops the binary into `~/.animus/plugins/`.
 | Mode | Behavior |
 |---|---|
 | `strict` | Refuse install if signature missing, invalid, or untrusted |
-| `warn` (default in v0.4.12) | Verify when present, log on failure, install anyway |
+| `warn` (default) | Verify when present, log on failure, install anyway |
 | `disabled` | Skip verification entirely |
 
-The default is `warn` for v0.4.12 as a one-release migration window for
-pre-keyless plugin installs. v0.4.13 flips back to `strict`. Verification
+The default is `warn` so installs can keep recording signature status while
+older releases and third-party plugins move onto keyless bundles. Verification
 is cosign **keyless** — the trust anchor is Sigstore Fulcio + Rekor (built
 into the `cosign` binary) plus the per-publisher identity regex + OIDC
 issuer held in `TrustedPublisher`. No PEM file is required.

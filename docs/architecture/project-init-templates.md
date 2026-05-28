@@ -16,7 +16,8 @@ existing pack system instead of bypassing it.
 
 ## Problem
 
-Today `animus setup` does three useful but narrow things:
+The legacy `animus setup` command did three useful but narrow things before it
+was folded into `animus init`:
 
 1. bootstraps `.animus/` and scoped runtime state
 2. writes a generic workflow YAML scaffold
@@ -27,7 +28,7 @@ onboarding:
 
 - every repository starts from the same low-context scaffold
 - there is no concept of "pattern" or "operating model"
-- packs are installable, but setup does not help a project choose them
+- packs are installable, but the old setup flow did not help a project choose them
 - there is no curated path for starter agents, MCP defaults, or workflow refs
 - LaunchApp cannot ship a beautiful first-run catalog without editing the binary
 
@@ -38,8 +39,8 @@ Animus should add a **template-driven init layer** above packs.
 - Packs remain the reusable unit of behavior.
 - Templates become the reusable unit of project bootstrap.
 - `animus init` becomes the primary first-run command.
-- `animus setup` remains as a compatibility alias or a lower-level bootstrap
-  command.
+- `animus setup` is not part of the current CLI; existing scripts should use
+  `animus init`.
 
 This preserves the current architecture:
 
@@ -95,9 +96,8 @@ animus init templates search queue
 
 Compatibility expectations:
 
-- `animus setup` should continue to work
-- `animus setup` can eventually delegate to `animus init --bootstrap-only`
-- existing scriptable flows must keep a non-interactive path
+- existing scriptable flows must keep a non-interactive `animus init` path
+- removed `animus setup` examples should be migrated to `animus init`
 
 ## Relationship to Packs
 

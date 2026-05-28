@@ -134,11 +134,11 @@ Animus is a Rust-only agent orchestrator with:
 
 | ACP Concept | Animus Equivalent | Mapping |
 |---|---|---|
-| `session/new` | `animus workflow new` | Creates a new workflow task with isolation |
-| `session/load` | `animus workflow status --id` or task recovery | Resumes workflow state from scoped runtime |
+| `session/new` | `animus workflow run` | Creates or enqueues a workflow run with isolation |
+| `session/load` | `animus workflow get` or `animus workflow resume-status` | Reads workflow state from scoped runtime |
 | `session/list` | `animus queue list` or `animus workflow list` | Lists active/pending tasks |
-| `session/prompt` | `animus task run` with input | Accepts user input, executes workflow step |
-| `session/cancel` | `animus task cancel --id` | Cancels running workflow |
+| `session/prompt` | `animus agent run --prompt` or `animus workflow run --input-json` | Accepts user input, executes an agent or workflow step |
+| `session/cancel` | `animus workflow cancel --id` | Cancels running workflow |
 | `session/setMode` | Workflow config mode selection | Switch between agent execution strategies |
 
 #### Agent Capabilities → Animus Services

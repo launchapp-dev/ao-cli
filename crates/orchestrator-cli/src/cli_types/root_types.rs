@@ -11,7 +11,7 @@ pub(crate) struct Cli {
         long,
         global = true,
         value_name = "PATH",
-        help = "Project root directory. Overrides PROJECT_ROOT and default root resolution."
+        help = "Project root directory. Overrides default root resolution."
     )]
     pub(crate) project_root: Option<String>,
 
@@ -73,7 +73,7 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: PackCommand,
     },
-    /// Discover, inspect, and call AO STDIO plugins.
+    /// Discover, inspect, install, and call Animus STDIO plugins.
     Plugin {
         #[command(subcommand)]
         command: PluginCommand,

@@ -47,9 +47,9 @@ the now-empty legacy directory. It refuses to clobber a non-empty
 The 19 bundled skill YAMLs (27 names counting alias re-exports) used to ship as
 `include_str!`-compiled constants in `BUILTIN_SKILL_YAMLS`. v0.4 repackages
 them as an installable pack called `animus.core-skills` that `animus init` and
-`animus setup` auto-install. `BUILTIN_SKILL_YAMLS` stays in the binary as a
+the onboarding flow auto-install. `BUILTIN_SKILL_YAMLS` stays in the binary as a
 fallback so existing v0.3 projects continue to resolve every catalog skill
-even before they re-run setup. A follow-up release will retire the fallback
+even before they re-run init. A follow-up release will retire the fallback
 once `animus.core-skills` is universal.
 
 ## Two-tier trust model
@@ -205,7 +205,7 @@ The pack manifest declares 8 aliases under `[skills.aliases]` so `testing`,
 all resolve to existing YAML files. The pack registry emits the 27-name set
 to `load_skill_sources` as `SkillSourceOrigin::Installed { registry: "bundled", source: "animus.core-skills", version: "0.1.0", ... }`.
 
-`animus init` and `animus setup` auto-install the pack via
+`animus init` auto-installs the pack via
 `ensure_bundled_pack_installed("animus.core-skills")` and pin it in
 `.animus/state/pack-selection.v1.json` so the resolver picks it up on the
 next workflow run.

@@ -20,6 +20,14 @@ pub(crate) enum SkillCommand {
         #[command(subcommand)]
         command: SkillRegistryCommand,
     },
+    /// Migrate legacy `.ao/skills/` (v0.3) into `.animus/skills/` (v0.4).
+    ///
+    /// Moves every entry under `<project>/.ao/skills/` to
+    /// `<project>/.animus/skills/`, drops a `.migrated-from-ao` marker so the
+    /// resolver stops warning about the legacy path, and (by default) also
+    /// migrates `~/.ao/skills/` to `~/.animus/skills/`. Refuses to clobber
+    /// existing non-empty targets — operator must merge manually.
+    MigrateFromAo(SkillMigrateFromAoArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -98,6 +106,14 @@ pub(crate) struct SkillListArgs {
 pub(crate) struct SkillShowArgs {
     #[arg(long, help = "Skill name to show.")]
     pub(crate) name: String,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct SkillMigrateFromAoArgs {
+    #[arg(long, default_value_t = false, help = "Print actions without modifying the filesystem.")]
+    pub(crate) dry_run: bool,
+    #[arg(long, default_value_t = false, help = "Skip migrating the user-scoped ~/.ao/skills/ directory.")]
+    pub(crate) project_only: bool,
 }
 
 #[derive(Debug, Args)]

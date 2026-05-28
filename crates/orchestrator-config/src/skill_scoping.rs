@@ -1,7 +1,8 @@
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use anyhow::Result;
 use semver::Version;
@@ -230,6 +231,13 @@ pub fn load_skill_sources(project_root: &Path, user_config_dir: Option<&Path>) -
         Some(dir) => dir.join("skills"),
         None => user_markdown_skills_dir(),
     };
+    // Legacy `.ao/skills/` + `.ao/config/skill_definitions/` path probe —
+    // warn but do NOT scan. `user_config_dir` overrides only apply to the new
+    // layout; legacy probe is rooted at `$HOME/.ao/...`.
+    if user_config_dir.is_none() {
+        warn_about_legacy_skill_paths(&legacy_user_markdown_skills_dir(), &user_markdown_dir);
+        warn_about_legacy_skill_paths(&legacy_user_yaml_skills_dir(), &user_dir);
+    }
     let user_skills = merge_skill_scope_sources(&user_markdown_dir, &user_dir)?;
     if !user_skills.is_empty() {
         sources.push(SkillSource { origin: SkillSourceOrigin::User, skills: user_skills });
@@ -238,6 +246,8 @@ pub fn load_skill_sources(project_root: &Path, user_config_dir: Option<&Path>) -
     // Tier 1 (highest): project-scoped skills.
     let proj_dir = project_skills_dir(project_root);
     let project_markdown_dir = project_markdown_skills_dir(project_root);
+    warn_about_legacy_skill_paths(&legacy_project_markdown_skills_dir(project_root), &project_markdown_dir);
+    warn_about_legacy_skill_paths(&legacy_project_yaml_skills_dir(project_root), &proj_dir);
     let project_skills = merge_skill_scope_sources(&project_markdown_dir, &proj_dir)?;
     if !project_skills.is_empty() {
         sources.push(SkillSource { origin: SkillSourceOrigin::Project, skills: project_skills });
@@ -406,6 +416,11 @@ fn load_markdown_skills_from_directory(dir: &Path) -> Result<BTreeMap<String, Sk
             Ok(entry) => entry,
             Err(_) => continue,
         };
+        // Skip dotfiles (e.g. `.migrated-from-ao` marker). They would
+        // otherwise be parsed as anonymous SKILL.md candidates.
+        if entry.file_name().to_string_lossy().starts_with('.') {
+            continue;
+        }
         let path = markdown_skill_file_for_path(&entry.path());
         if !path.is_file() {
             continue;
@@ -510,21 +525,208 @@ fn split_markdown_frontmatter(content: &str) -> (Option<&str>, &str) {
 }
 
 pub fn project_skills_dir(project_root: &Path) -> PathBuf {
-    project_root.join(".ao").join("config").join("skill_definitions")
+    project_root.join(".animus").join("config").join("skill_definitions")
 }
 
 pub fn project_markdown_skills_dir(project_root: &Path) -> PathBuf {
-    project_root.join(".ao").join("skills")
+    project_root.join(".animus").join("skills")
 }
 
 pub fn user_skills_dir() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    Path::new(&home).join(".ao").join("config").join("skill_definitions")
+    Path::new(&home).join(".animus").join("config").join("skill_definitions")
 }
 
 pub fn user_markdown_skills_dir() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    Path::new(&home).join(".animus").join("skills")
+}
+
+/// Legacy v0.3 path. v0.4 renamed `.ao/` to `.animus/`. The resolver no longer
+/// scans this location, but we still probe it once per process so we can warn
+/// operators who have skills sitting there silently undiscovered. See
+/// [`warn_about_legacy_skill_paths`] and `animus skill migrate-from-ao`.
+pub fn legacy_project_markdown_skills_dir(project_root: &Path) -> PathBuf {
+    project_root.join(".ao").join("skills")
+}
+
+/// Legacy v0.3 user-scoped path (mirror of [`legacy_project_markdown_skills_dir`]).
+pub fn legacy_user_markdown_skills_dir() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     Path::new(&home).join(".ao").join("skills")
+}
+
+/// Legacy v0.3 path for YAML skill definitions (project scope). Same v0.4
+/// migration story as [`legacy_project_markdown_skills_dir`].
+pub fn legacy_project_yaml_skills_dir(project_root: &Path) -> PathBuf {
+    project_root.join(".ao").join("config").join("skill_definitions")
+}
+
+/// Legacy v0.3 path for YAML skill definitions (user scope).
+pub fn legacy_user_yaml_skills_dir() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    Path::new(&home).join(".ao").join("config").join("skill_definitions")
+}
+
+/// Filename of the opt-in marker dropped by `animus skill migrate-from-ao`.
+/// Presence in `<scope>/.animus/skills/.migrated-from-ao` suppresses the
+/// legacy-path warning so the migration helper stays idempotent.
+pub const MIGRATED_FROM_AO_MARKER: &str = ".migrated-from-ao";
+
+fn migration_marker_present(animus_skills_dir: &Path) -> bool {
+    animus_skills_dir.join(MIGRATED_FROM_AO_MARKER).exists()
+}
+
+fn warned_legacy_paths() -> &'static Mutex<BTreeSet<PathBuf>> {
+    static WARNED: std::sync::OnceLock<Mutex<BTreeSet<PathBuf>>> = std::sync::OnceLock::new();
+    WARNED.get_or_init(|| Mutex::new(BTreeSet::new()))
+}
+
+#[cfg(test)]
+fn reset_legacy_warning_dedupe() {
+    if let Ok(mut guard) = warned_legacy_paths().lock() {
+        guard.clear();
+    }
+}
+
+/// Emit a single `warning:` line per (process, legacy path) when a legacy
+/// `.ao/skills/` directory exists but its `.animus/skills/` replacement does
+/// not (or exists without the migration marker). Operators must opt in to the
+/// migration via `animus skill migrate-from-ao` — we do NOT silently move
+/// files.
+fn warn_about_legacy_skill_paths(legacy_dir: &Path, animus_dir: &Path) {
+    if !legacy_dir.is_dir() {
+        return;
+    }
+    // If the operator has already migrated this scope, suppress the warning.
+    if animus_dir.is_dir() && migration_marker_present(animus_dir) {
+        return;
+    }
+    // Dedupe by legacy path so a long-running process only warns once.
+    let key = legacy_dir.to_path_buf();
+    let Ok(mut guard) = warned_legacy_paths().lock() else {
+        return;
+    };
+    if !guard.insert(key) {
+        return;
+    }
+    eprintln!(
+        "warning: legacy skill directory {} is no longer scanned by Animus (v0.4 renamed `.ao/` to `.animus/`). \
+Run `animus skill migrate-from-ao` to move it to {}, or `mv {} {}` manually.",
+        legacy_dir.display(),
+        animus_dir.display(),
+        legacy_dir.display(),
+        animus_dir.display(),
+    );
+}
+
+/// Result of a single legacy-path migration sweep.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MigrateFromAoOutcome {
+    pub scope: &'static str,
+    pub legacy_path: PathBuf,
+    pub animus_path: PathBuf,
+    pub moved: bool,
+    pub already_migrated: bool,
+    /// Number of immediate children moved (skill folders + loose files).
+    pub entries_moved: usize,
+    pub notes: Vec<String>,
+}
+
+/// Move every entry under `legacy_dir` into `animus_dir` (creating the parent
+/// if needed) and drop a `.migrated-from-ao` marker so the legacy-path warning
+/// stops firing.
+///
+/// Behavior:
+///
+/// - If `legacy_dir` does not exist: returns `moved=false` and no notes.
+/// - If `legacy_dir` exists but `animus_dir` exists *and* is non-empty and
+///   missing the marker: returns an error so we do not clobber operator data.
+///   Caller can manually merge.
+/// - On success: rewrites the marker (idempotent) and removes the now-empty
+///   `legacy_dir`.
+pub fn migrate_legacy_skills_from_ao(
+    legacy_dir: &Path,
+    animus_dir: &Path,
+    scope: &'static str,
+) -> Result<MigrateFromAoOutcome> {
+    let mut outcome = MigrateFromAoOutcome {
+        scope,
+        legacy_path: legacy_dir.to_path_buf(),
+        animus_path: animus_dir.to_path_buf(),
+        ..Default::default()
+    };
+
+    if !legacy_dir.exists() {
+        outcome.notes.push(format!("no legacy directory at {}", legacy_dir.display()));
+        return Ok(outcome);
+    }
+    if !legacy_dir.is_dir() {
+        return Err(anyhow::anyhow!("legacy skill path is not a directory: {}", legacy_dir.display()));
+    }
+
+    let animus_exists = animus_dir.exists();
+    if animus_exists {
+        if migration_marker_present(animus_dir) {
+            outcome.already_migrated = true;
+            outcome
+                .notes
+                .push(format!("{} already contains migration marker; treating as no-op", animus_dir.display()));
+            return Ok(outcome);
+        }
+        let animus_is_dir = animus_dir.is_dir();
+        if !animus_is_dir {
+            return Err(anyhow::anyhow!(
+                "{} exists but is not a directory; refusing to overwrite",
+                animus_dir.display()
+            ));
+        }
+        // Refuse to clobber a non-empty target dir without an existing marker.
+        let mut animus_entries = fs::read_dir(animus_dir)?;
+        if animus_entries.next().is_some() {
+            return Err(anyhow::anyhow!(
+                "refusing to migrate: {} already exists and is non-empty. Merge manually or remove the directory.",
+                animus_dir.display()
+            ));
+        }
+    } else {
+        if let Some(parent) = animus_dir.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::create_dir_all(animus_dir)?;
+    }
+
+    let mut moved = 0usize;
+    for entry in fs::read_dir(legacy_dir)? {
+        let entry = entry?;
+        let source = entry.path();
+        let Some(name) = source.file_name() else {
+            continue;
+        };
+        let destination = animus_dir.join(name);
+        fs::rename(&source, &destination)
+            .map_err(|e| anyhow::anyhow!("failed to move {} -> {}: {}", source.display(), destination.display(), e))?;
+        moved += 1;
+    }
+
+    // Drop / refresh the marker.
+    fs::write(animus_dir.join(MIGRATED_FROM_AO_MARKER), b"migrated by `animus skill migrate-from-ao`\n")?;
+
+    // Best-effort cleanup of the now-empty legacy directory. Don't fail the
+    // whole migration on cleanup error.
+    if let Err(err) = fs::remove_dir(legacy_dir) {
+        outcome.notes.push(format!(
+            "moved {} entries but failed to remove empty legacy dir {}: {}",
+            moved,
+            legacy_dir.display(),
+            err
+        ));
+    }
+
+    outcome.moved = true;
+    outcome.entries_moved = moved;
+    outcome.notes.push(format!("moved {} entries from {} to {}", moved, legacy_dir.display(), animus_dir.display()));
+    Ok(outcome)
 }
 
 /// Description of an external agent host's skill directory. Animus probes
@@ -594,6 +796,33 @@ fn agent_host_skill_dir(spec: &AgentHostSpec, scope: AgentHostScope, project_roo
 /// cannot grant tool permissions, MCP servers, env vars, codex overrides, or
 /// adapter configuration. This is the trust boundary: a malicious SKILL.md
 /// dropped under `~/.claude/skills/` cannot widen Animus's tool surface.
+///
+/// Fields explicitly stripped (any non-prompt, runtime-affecting field):
+///
+/// - `tool_policy` — granting allow/deny would widen the tool surface.
+/// - `extra_args` — propagated verbatim to the underlying agent CLI.
+/// - `env` — would leak host environment to a foreign skill.
+/// - `mcp_servers` — attaches arbitrary servers to the runner.
+/// - `adapters` — per-tool model/policy/env/extra_args overrides.
+/// - `codex_config_overrides` — alters codex CLI behavior at exec time.
+/// - `capabilities` — carries semantic meaning the runtime trusts
+///   (`writes_files`, `mutates_state`, `requires_commit`, ...).
+/// - `model` — lets a hostile skill force a cheaper/less-capable model or
+///   claim a model the workspace doesn't have access to.
+/// - `timeout_secs` — lets a hostile skill monopolize the runner with an
+///   arbitrarily long timeout (e.g. 10 hours).
+///
+/// Fields intentionally KEPT (safe / inert — see field-coverage test):
+///
+/// - `name`, `description`, `version`, `category`, `tags` — metadata only.
+/// - `prompt.system`, `prompt.prefix`, `prompt.suffix`, `prompt.directives` —
+///   the whole point of agent-host skills (prompt-text contribution).
+/// - `activation.tools`, `activation.models` — only narrow when the skill
+///   fires; cannot widen permissions.
+///
+/// If you add a new field to `SkillDefinition`, the
+/// `agent_host_strip_covers_every_runtime_field` test will fail loudly until
+/// you decide whether it belongs in the strip list above or the allowlist.
 fn strip_structural_fields_for_agent_host(definition: &mut SkillDefinition) {
     definition.tool_policy = None;
     definition.extra_args.clear();
@@ -601,9 +830,14 @@ fn strip_structural_fields_for_agent_host(definition: &mut SkillDefinition) {
     definition.mcp_servers.clear();
     definition.adapters.clear();
     definition.codex_config_overrides.clear();
-    // Also clear capability overrides — those carry semantic meaning the
-    // runtime trusts (writes_files, mutates_state, ...).
+    // Capability overrides carry semantic meaning the runtime trusts.
     definition.capabilities.clear();
+    // I2 (audit): also strip `model` and `timeout_secs`. A hostile SKILL.md
+    // dropped under `~/.claude/skills/` could otherwise pick its own model
+    // (cheaper/less-capable, or one it doesn't have access to) and monopolize
+    // the runner by setting `timeout_secs` to hours.
+    definition.model = crate::skill_definition::SkillModelPreference::default();
+    definition.timeout_secs = None;
     // Activation filters (tools/models) are safe to keep: they only narrow
     // when a skill applies; they cannot widen permissions.
 }
@@ -832,12 +1066,18 @@ Check behavior before style.
     #[test]
     fn test_project_skills_dir() {
         let dir = project_skills_dir(Path::new("/repo"));
-        assert_eq!(dir, PathBuf::from("/repo/.ao/config/skill_definitions"));
+        assert_eq!(dir, PathBuf::from("/repo/.animus/config/skill_definitions"));
     }
 
     #[test]
     fn test_project_markdown_skills_dir() {
         let dir = project_markdown_skills_dir(Path::new("/repo"));
+        assert_eq!(dir, PathBuf::from("/repo/.animus/skills"));
+    }
+
+    #[test]
+    fn test_legacy_project_markdown_skills_dir() {
+        let dir = legacy_project_markdown_skills_dir(Path::new("/repo"));
         assert_eq!(dir, PathBuf::from("/repo/.ao/skills"));
     }
 
@@ -1190,6 +1430,9 @@ Do not run unsafe commands.
         assert!(evil.adapters.is_empty(), "adapters must be stripped on AgentHost source");
         assert!(evil.codex_config_overrides.is_empty(), "codex_config_overrides must be stripped on AgentHost source");
         assert!(evil.capabilities.is_empty(), "capabilities must be stripped on AgentHost source");
+        assert!(evil.model.preferred.is_none(), "model.preferred must be stripped on AgentHost source (I2)");
+        assert!(evil.model.fallback.is_none(), "model.fallback must be stripped on AgentHost source (I2)");
+        assert!(evil.timeout_secs.is_none(), "timeout_secs must be stripped on AgentHost source (I2)");
 
         // The body and description still flow through (prompt-text-only contributions).
         assert_eq!(evil.description, "Tries to grant itself permissions");
@@ -1305,6 +1548,366 @@ Body text.
         let skill = agent_host.skills.get("namespace-evil").expect("skill resolves");
         assert!(skill.tool_policy.is_none(), "tool_policy must be stripped even when animus namespace declares it");
         assert!(skill.mcp_servers.is_empty(), "mcp_servers must be stripped on AgentHost regardless of namespace");
+    }
+
+    // ----- I2 (audit): tight trust stripping -----
+
+    /// I2: an agent-host SKILL.md that declares `animus.model.preferred` (e.g.
+    /// forcing a cheaper/less-capable model) must have it stripped at parse time.
+    #[test]
+    fn test_agent_host_strips_model() {
+        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = TempDir::new().unwrap();
+        let _home_guard = EnvVarGuard::set("HOME", home.path());
+        let tmp = TempDir::new().unwrap();
+
+        write_agent_host_skill(
+            &home.path().join(".claude").join("skills"),
+            "cheap",
+            r#"---
+name: cheap
+description: Tries to force a cheap model
+animus:
+  model:
+    preferred: claude-3-5-sonnet
+    fallback: claude-3-haiku
+---
+Body.
+"#,
+        );
+
+        let sources = load_skill_sources(tmp.path(), None).unwrap();
+        let agent_host = sources
+            .iter()
+            .find(|src| matches!(&src.origin, SkillSourceOrigin::AgentHost { .. }))
+            .expect("agent-host source should be present");
+        let skill = agent_host.skills.get("cheap").expect("cheap skill should resolve");
+        assert!(skill.model.preferred.is_none(), "model.preferred must be stripped on AgentHost");
+        assert!(skill.model.fallback.is_none(), "model.fallback must be stripped on AgentHost");
+    }
+
+    /// I2: an agent-host SKILL.md that declares a huge `animus.timeout_secs`
+    /// (e.g. ~10 hours to monopolize the runner) must have it stripped.
+    #[test]
+    fn test_agent_host_strips_timeout_secs() {
+        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = TempDir::new().unwrap();
+        let _home_guard = EnvVarGuard::set("HOME", home.path());
+        let tmp = TempDir::new().unwrap();
+
+        write_agent_host_skill(
+            &home.path().join(".claude").join("skills"),
+            "slow",
+            r#"---
+name: slow
+description: Tries to monopolize the runner
+animus:
+  timeout_secs: 36000
+---
+Body.
+"#,
+        );
+
+        let sources = load_skill_sources(tmp.path(), None).unwrap();
+        let agent_host = sources
+            .iter()
+            .find(|src| matches!(&src.origin, SkillSourceOrigin::AgentHost { .. }))
+            .expect("agent-host source should be present");
+        let skill = agent_host.skills.get("slow").expect("slow skill should resolve");
+        assert!(skill.timeout_secs.is_none(), "timeout_secs must be stripped on AgentHost");
+    }
+
+    /// Field-coverage test for the AgentHost trust boundary.
+    ///
+    /// Enumerates every JSON-serializable field on `SkillDefinition` (via its
+    /// serde representation of a fully-populated instance) and asserts each is
+    /// either in the explicit **allowlist** of "safe to keep on AgentHost" or
+    /// in the explicit **strip-list** that `strip_structural_fields_for_agent_host`
+    /// clears. There is no third category.
+    ///
+    /// Adding a new field to `SkillDefinition` will fail this test loudly
+    /// until you update one of the two lists below, forcing a security
+    /// decision instead of letting the field silently flow through.
+    #[test]
+    fn agent_host_strip_covers_every_runtime_field() {
+        // Allowlist: fields that are inert (metadata) or only narrow the
+        // skill's applicability (activation filters). The prompt fields ARE
+        // the entire value of an agent-host skill.
+        let allowlist: &[&str] = &["name", "version", "description", "category", "activation", "prompt", "tags"];
+        // Strip-list: fields that
+        // `strip_structural_fields_for_agent_host` resets.
+        let strip_list: &[&str] = &[
+            "tool_policy",
+            "model",
+            "mcp_servers",
+            "timeout_secs",
+            "capabilities",
+            "extra_args",
+            "env",
+            "codex_config_overrides",
+            "adapters",
+        ];
+
+        // Build a fully-populated SkillDefinition so every `skip_serializing_if`
+        // gate emits its field. We use serde_json::Value so we can iterate keys.
+        let mut populated = SkillDefinition {
+            name: "x".to_string(),
+            version: Some("1.0.0".to_string()),
+            description: "d".to_string(),
+            category: Some(crate::skill_definition::SkillCategory::Review),
+            activation: SkillActivation { tools: vec!["claude".into()], models: vec!["sonnet".into()] },
+            prompt: SkillPrompt {
+                system: Some("sys".into()),
+                prefix: Some("pre".into()),
+                suffix: Some("suf".into()),
+                directives: vec!["d1".into()],
+            },
+            tool_policy: Some(crate::AgentToolPolicy { allow: vec!["Read".into()], deny: vec![] }),
+            model: crate::skill_definition::SkillModelPreference {
+                preferred: Some("m".into()),
+                fallback: Some("f".into()),
+            },
+            mcp_servers: vec!["s".into()],
+            timeout_secs: Some(60),
+            capabilities: BTreeMap::new(),
+            extra_args: vec!["--x".into()],
+            env: BTreeMap::new(),
+            codex_config_overrides: vec!["o".into()],
+            adapters: BTreeMap::new(),
+            tags: vec!["t".into()],
+        };
+        populated.capabilities.insert("is_review".into(), true);
+        populated.env.insert("K".into(), "V".into());
+        populated.adapters.insert("claude".into(), crate::skill_definition::SkillToolAdapter::default());
+
+        let value = serde_json::to_value(&populated).expect("serialize");
+        let obj = value.as_object().expect("SkillDefinition serializes as object");
+
+        let mut unclassified: Vec<String> = Vec::new();
+        for field in obj.keys() {
+            if allowlist.iter().any(|allowed| allowed == field) {
+                continue;
+            }
+            if strip_list.iter().any(|stripped| stripped == field) {
+                continue;
+            }
+            unclassified.push(field.clone());
+        }
+        assert!(
+            unclassified.is_empty(),
+            "SkillDefinition has unclassified field(s) {:?} — add to allowlist or strip-list in \
+             strip_structural_fields_for_agent_host and document the decision. \
+             See skill_scoping::strip_structural_fields_for_agent_host doc comment.",
+            unclassified
+        );
+
+        // Sanity: stripping must actually clear every strip-list field by
+        // comparing each stripped field's serde-JSON to a fresh default
+        // SkillDefinition's same field. Empty collections / `None` / default
+        // structs are all equal to their default-serialized form.
+        let mut stripped = populated.clone();
+        strip_structural_fields_for_agent_host(&mut stripped);
+        let stripped_value = serde_json::to_value(&stripped).expect("serialize stripped");
+        let stripped_obj = stripped_value.as_object().expect("object");
+
+        let default_def = SkillDefinition {
+            name: "x".to_string(),
+            version: None,
+            description: String::new(),
+            category: None,
+            activation: SkillActivation::default(),
+            prompt: SkillPrompt::default(),
+            tool_policy: None,
+            model: crate::skill_definition::SkillModelPreference::default(),
+            mcp_servers: Vec::new(),
+            timeout_secs: None,
+            capabilities: BTreeMap::new(),
+            extra_args: Vec::new(),
+            env: BTreeMap::new(),
+            codex_config_overrides: Vec::new(),
+            adapters: BTreeMap::new(),
+            tags: Vec::new(),
+        };
+        let default_value = serde_json::to_value(&default_def).expect("serialize default");
+        let default_obj = default_value.as_object().expect("object");
+        for field in strip_list {
+            let stripped_field = stripped_obj.get(*field);
+            let default_field = default_obj.get(*field);
+            assert_eq!(
+                stripped_field, default_field,
+                "field `{}` should be reset to its default by strip_structural_fields_for_agent_host",
+                field,
+            );
+        }
+    }
+
+    // ----- I1 (audit): path migration (`.ao/skills` -> `.animus/skills`) -----
+
+    /// I1: a project SKILL.md under `.animus/skills/` is resolved (positive).
+    #[test]
+    fn test_project_animus_skills_dir_is_resolved() {
+        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = TempDir::new().unwrap();
+        let _home_guard = EnvVarGuard::set("HOME", home.path());
+        let tmp = TempDir::new().unwrap();
+
+        let skill_dir = tmp.path().join(".animus").join("skills").join("foo");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(skill_dir.join("SKILL.md"), "---\nname: foo\ndescription: Animus path skill\n---\nBody.\n").unwrap();
+
+        let sources = load_skill_sources(tmp.path(), None).unwrap();
+        let project = sources
+            .iter()
+            .find(|src| matches!(src.origin, SkillSourceOrigin::Project))
+            .expect("project source should be present under .animus/skills");
+        assert!(project.skills.contains_key("foo"));
+    }
+
+    /// I1: a SKILL.md under the LEGACY `.ao/skills/` is NOT resolved as a
+    /// Project source, proving the renamer landed and operators must migrate.
+    #[test]
+    fn test_project_legacy_ao_skills_dir_is_not_resolved() {
+        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = TempDir::new().unwrap();
+        let _home_guard = EnvVarGuard::set("HOME", home.path());
+        let tmp = TempDir::new().unwrap();
+        reset_legacy_warning_dedupe();
+
+        let legacy_dir = tmp.path().join(".ao").join("skills").join("foo");
+        fs::create_dir_all(&legacy_dir).unwrap();
+        fs::write(legacy_dir.join("SKILL.md"), "---\nname: foo\ndescription: Legacy path skill\n---\nBody.\n").unwrap();
+
+        let sources = load_skill_sources(tmp.path(), None).unwrap();
+        let project = sources.iter().find(|src| matches!(src.origin, SkillSourceOrigin::Project));
+        assert!(
+            project.is_none() || !project.unwrap().skills.contains_key("foo"),
+            "skill at LEGACY .ao/skills/foo MUST NOT resolve as a Project source"
+        );
+    }
+
+    /// I1: the legacy-path warning fires when `.ao/skills/` exists alone.
+    /// Re-running `load_skill_sources` in the same process does NOT re-warn.
+    #[test]
+    fn test_legacy_warning_dedupes_per_process() {
+        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = TempDir::new().unwrap();
+        let _home_guard = EnvVarGuard::set("HOME", home.path());
+        let tmp = TempDir::new().unwrap();
+        reset_legacy_warning_dedupe();
+
+        let legacy_dir = tmp.path().join(".ao").join("skills");
+        fs::create_dir_all(&legacy_dir).unwrap();
+        fs::write(legacy_dir.join("foo.md"), "---\nname: foo\ndescription: legacy\n---\nbody\n").unwrap();
+
+        // First call: legacy path is registered.
+        let _ = load_skill_sources(tmp.path(), None).unwrap();
+        let warned_after_first = {
+            let guard = warned_legacy_paths().lock().unwrap();
+            guard.contains(&legacy_dir)
+        };
+        assert!(warned_after_first, "first call should warn about the legacy directory");
+
+        // Second call: legacy path stays registered (we just rely on the set's
+        // idempotent insert), no panic, no removal.
+        let _ = load_skill_sources(tmp.path(), None).unwrap();
+        let warned_after_second = {
+            let guard = warned_legacy_paths().lock().unwrap();
+            guard.contains(&legacy_dir)
+        };
+        assert!(warned_after_second, "second call must not unregister the dedupe entry");
+    }
+
+    /// I1: `animus skill migrate-from-ao` moves files + records the marker
+    /// + makes subsequent runs skip the warning.
+    #[test]
+    fn test_migrate_from_ao_moves_files_and_drops_marker() {
+        let tmp = TempDir::new().unwrap();
+        reset_legacy_warning_dedupe();
+
+        let legacy_dir = tmp.path().join(".ao").join("skills");
+        let animus_dir = tmp.path().join(".animus").join("skills");
+        let foo_dir = legacy_dir.join("foo");
+        fs::create_dir_all(&foo_dir).unwrap();
+        fs::write(foo_dir.join("SKILL.md"), "---\nname: foo\n---\nbody\n").unwrap();
+
+        let outcome = migrate_legacy_skills_from_ao(&legacy_dir, &animus_dir, "project").unwrap();
+        assert!(outcome.moved, "should report moved=true");
+        assert_eq!(outcome.entries_moved, 1);
+        assert!(animus_dir.join("foo").join("SKILL.md").exists(), "foo skill should be at new location");
+        assert!(animus_dir.join(MIGRATED_FROM_AO_MARKER).exists(), "marker should be dropped");
+        assert!(!legacy_dir.exists(), "legacy dir should be cleaned up");
+
+        // Re-running is a no-op (the legacy dir is gone, marker is present).
+        let outcome = migrate_legacy_skills_from_ao(&legacy_dir, &animus_dir, "project").unwrap();
+        assert!(!outcome.moved, "second migration should be a no-op");
+    }
+
+    /// I1: when the marker is present, subsequent resolver runs do NOT warn
+    /// even if some leftover `.ao/skills/` dir exists.
+    #[test]
+    fn test_migration_marker_suppresses_warning() {
+        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = TempDir::new().unwrap();
+        let _home_guard = EnvVarGuard::set("HOME", home.path());
+        let tmp = TempDir::new().unwrap();
+        reset_legacy_warning_dedupe();
+
+        let legacy_dir = tmp.path().join(".ao").join("skills");
+        let animus_dir = tmp.path().join(".animus").join("skills");
+        fs::create_dir_all(&legacy_dir).unwrap();
+        fs::create_dir_all(&animus_dir).unwrap();
+        fs::write(animus_dir.join(MIGRATED_FROM_AO_MARKER), b"migrated\n").unwrap();
+
+        let _ = load_skill_sources(tmp.path(), None).unwrap();
+        let warned = {
+            let guard = warned_legacy_paths().lock().unwrap();
+            guard.contains(&legacy_dir)
+        };
+        assert!(!warned, "marker presence must suppress the legacy-path warning");
+    }
+
+    /// I1: legacy YAML skill definitions under `.ao/config/skill_definitions/`
+    /// also trigger the warning and are NOT resolved.
+    #[test]
+    fn test_legacy_yaml_skill_definitions_warn_and_are_not_resolved() {
+        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = TempDir::new().unwrap();
+        let _home_guard = EnvVarGuard::set("HOME", home.path());
+        let tmp = TempDir::new().unwrap();
+        reset_legacy_warning_dedupe();
+
+        let legacy_dir = tmp.path().join(".ao").join("config").join("skill_definitions");
+        fs::create_dir_all(&legacy_dir).unwrap();
+        fs::write(legacy_dir.join("foo.yaml"), "name: foo\ndescription: legacy yaml skill\n").unwrap();
+
+        let sources = load_skill_sources(tmp.path(), None).unwrap();
+        let project = sources.iter().find(|src| matches!(src.origin, SkillSourceOrigin::Project));
+        assert!(
+            project.is_none() || !project.unwrap().skills.contains_key("foo"),
+            "skill at LEGACY .ao/config/skill_definitions/foo.yaml MUST NOT resolve as a Project source"
+        );
+        // The warning helper registers the legacy YAML directory key.
+        let warned = {
+            let guard = warned_legacy_paths().lock().unwrap();
+            guard.contains(&legacy_dir)
+        };
+        assert!(warned, "legacy YAML skill_definitions dir must emit a one-shot warning");
+    }
+
+    /// I1: migrate refuses to clobber a non-empty `.animus/skills/` that
+    /// lacks the migration marker — operator must merge manually.
+    #[test]
+    fn test_migrate_refuses_to_clobber_existing_animus_dir() {
+        let tmp = TempDir::new().unwrap();
+        let legacy_dir = tmp.path().join(".ao").join("skills");
+        let animus_dir = tmp.path().join(".animus").join("skills");
+        fs::create_dir_all(legacy_dir.join("a")).unwrap();
+        fs::write(legacy_dir.join("a").join("SKILL.md"), "---\nname: a\n---\nbody\n").unwrap();
+        fs::create_dir_all(animus_dir.join("b")).unwrap();
+        fs::write(animus_dir.join("b").join("SKILL.md"), "---\nname: b\n---\nbody\n").unwrap();
+
+        let err = migrate_legacy_skills_from_ao(&legacy_dir, &animus_dir, "project").unwrap_err();
+        assert!(err.to_string().contains("refusing to migrate"), "should refuse to clobber: {}", err);
     }
 
     /// AgentHost::Project must be discovered under each documented host

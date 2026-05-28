@@ -56,6 +56,42 @@ All notable changes to this project will be documented in this file.
   spawn succeeds. (`run_project_tick.rs`, `default_project_tick_driver.rs`,
   `trigger_dispatch.rs`, `execution_projection.rs`, `dispatch_support.rs`,
   `schedule_state.rs`)
+- **`fix(skill)`: project + user skill resolution honors the v0.4 `.animus/`
+  naming contract.** The resolver and `animus skill install --path` previously
+  read and wrote `.ao/skills/` even though every doc told users to drop SKILL.md
+  under `.animus/skills/`. Result: skills placed at the documented location
+  were silently undiscovered. `project_markdown_skills_dir`,
+  `user_markdown_skills_dir`, and the matching YAML-definition dirs
+  (`project_skills_dir`, `user_skills_dir`) in
+  `crates/orchestrator-config/src/skill_scoping.rs` now resolve under
+  `.animus/`. The MCP tool description for `animus.skill.list` and the
+  `cli_skill_lifecycle` regression test both flipped to the new layout.
+  Operators with files still under `.ao/skills/` OR
+  `.ao/config/skill_definitions/` get a single one-shot `warning:` line per
+  process per legacy path pointing at the new location; running
+  `animus skill migrate-from-ao` moves entries for both the markdown skills
+  dir and the YAML skill-definitions dir, drops a `.migrated-from-ao` marker
+  in each destination so the warning stops, and refuses to clobber non-empty
+  targets. (audit I1)
+
+### Security
+
+- **`fix(skill)`: agent-host skill stripper also clears `model` and
+  `timeout_secs`.** `strip_structural_fields_for_agent_host` in
+  `crates/orchestrator-config/src/skill_scoping.rs` enforces the trust
+  boundary for SKILL.md files discovered under `~/.claude/skills/`,
+  `~/.codex/skills/`, etc. The strip list previously covered
+  `tool_policy`, `extra_args`, `env`, `mcp_servers`, `adapters`,
+  `codex_config_overrides`, and `capabilities`, but left `model` and
+  `timeout_secs` flowing through. A hostile SKILL.md could therefore force
+  the runner onto a cheaper / less-capable model (or claim a model the
+  workspace doesn't have access to) and monopolize the runner with an
+  arbitrarily long timeout. Both fields are now stripped, and a new
+  field-coverage test (`agent_host_strip_covers_every_runtime_field`)
+  enumerates every serializable `SkillDefinition` field and fails the build
+  if a new field is added without an explicit allowlist / strip-list
+  classification. `docs/architecture/skill-system.md` updated to match.
+  (audit I2)
 
 ## [0.4.14] - 2026-05-27
 

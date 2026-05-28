@@ -149,8 +149,11 @@ Prefer borrowing over cloning.
     assert_eq!(installed.pointer("/data/installed/0/name").and_then(Value::as_str), Some("rust-skills"));
     assert_eq!(installed.pointer("/data/installed/0/changed").and_then(Value::as_bool), Some(true));
 
-    let installed_skill = harness.project_root().join(".ao").join("skills").join("rust-skills");
-    assert!(installed_skill.join("SKILL.md").exists(), "install --path should materialize the skill under .ao/skills");
+    let installed_skill = harness.project_root().join(".animus").join("skills").join("rust-skills");
+    assert!(
+        installed_skill.join("SKILL.md").exists(),
+        "install --path should materialize the skill under .animus/skills"
+    );
     assert!(
         installed_skill.join("rules").join("borrow.md").exists(),
         "install --path should preserve sibling skill files"

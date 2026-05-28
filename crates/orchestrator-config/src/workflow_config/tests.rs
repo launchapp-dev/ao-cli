@@ -646,7 +646,7 @@ workflows:
 #[test]
 fn yaml_compile_resolves_project_markdown_skills() {
     let temp = tempfile::tempdir().expect("tempdir");
-    let skills_dir = temp.path().join(".ao").join("skills").join("project-markdown-skill");
+    let skills_dir = temp.path().join(".animus").join("skills").join("project-markdown-skill");
     fs::create_dir_all(&skills_dir).expect("create project markdown skills dir");
     fs::write(
         skills_dir.join("SKILL.md"),

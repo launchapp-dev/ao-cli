@@ -14,7 +14,7 @@ reverse, so the first match wins. The chain is:
 
 | Priority | Origin | Trust tier | Source |
 | --- | --- | --- | --- |
-| 1 (highest) | `Project` | High | `<project>/.animus/skills/`, `<project>/.animus/config/skill_definitions/` |
+| 1 (highest) | `Project` | High | `<project>/.animus/skills/`, `<project>/.animus/config/skill_definitions/` (v0.3 `.ao/skills/` is no longer scanned — see "Migrating from v0.3" below) |
 | 2 | `User` | High | `~/.animus/skills/`, `~/.animus/config/skill_definitions/` |
 | 3a | `Installed { registry, source, version, integrity, artifact }` | High | Pack `[skills]` contributions and registry-tracked installs from `animus skill install` |
 | 3b | `Installed` (registry snapshots) | High | `~/.animus/<scope>/state/skills-registry.v1.json` |
@@ -23,6 +23,24 @@ reverse, so the first match wins. The chain is:
 | 5b (lowest) | `AgentHost { host, scope: Global }` | **Prompt-text-only** | `~/.claude/skills/`, `~/.codex/skills/`, ... |
 
 Trust-tier semantics are enforced at load time. See "Two-tier trust model" below.
+
+### Migrating from v0.3 paths
+
+v0.3 stored project skills under `<project>/.ao/skills/` and user skills under
+`~/.ao/skills/`. v0.4's naming contract renamed these to `.animus/skills/`. The
+resolver no longer scans the legacy `.ao/skills/` paths, but it does probe them
+once per process and emits a single `warning:` line per legacy path when one
+exists without its `.animus/skills/` replacement. To migrate cleanly:
+
+```bash
+animus skill migrate-from-ao         # both project + user scopes
+animus skill migrate-from-ao --dry-run --project-only  # preview only
+```
+
+The migration moves every entry under `.ao/skills/` into `.animus/skills/`,
+drops a `.migrated-from-ao` marker so the warning stops firing, and removes
+the now-empty legacy directory. It refuses to clobber a non-empty
+`.animus/skills/` that lacks the marker — operators must merge manually.
 
 ### Builtin fallback (v0.3 → v0.4)
 
@@ -72,12 +90,21 @@ definition.mcp_servers.clear();
 definition.adapters.clear();
 definition.codex_config_overrides.clear();
 definition.capabilities.clear();
+definition.model = SkillModelPreference::default();
+definition.timeout_secs = None;
 ```
 
 This guarantees a malicious SKILL.md dropped under `~/.claude/skills/` cannot
 silently widen Animus's tool surface, attach an MCP server, leak environment
-variables, or escalate codex permissions. Only the prompt body and description
-flow through.
+variables, escalate codex permissions, force the runner onto a cheaper or
+restricted model (`model`), or monopolize the runner with an arbitrarily
+long timeout (`timeout_secs`). Only the prompt body, description, metadata,
+and activation filters flow through.
+
+A field-coverage test in `crates/orchestrator-config/src/skill_scoping.rs`
+(`agent_host_strip_covers_every_runtime_field`) enumerates every serializable
+field on `SkillDefinition` and fails the build if a new field is added
+without an explicit allowlist / strip-list classification.
 
 ### Promoting an AgentHost skill to high trust
 

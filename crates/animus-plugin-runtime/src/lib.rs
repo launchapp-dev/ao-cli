@@ -1,4 +1,4 @@
-//! Shared runtime for AO STDIO provider plugins (claude/codex/gemini/opencode/oai).
+//! Shared runtime for Animus STDIO provider plugins (claude/codex/gemini/opencode/oai).
 //!
 //! Each provider binary plugs into this runtime by implementing
 //! [`ProviderBackend`] (or wiring a plain [`SessionBackend`] via
@@ -215,7 +215,7 @@ fn handle_cli_args(info: &ProviderInfo) {
         match arg.as_str() {
             "--manifest" | "-m" => print_manifest_and_exit(info),
             "--help" | "-h" => {
-                eprintln!("{} {} — STDIO provider plugin for AO", info.plugin_name, info.plugin_version);
+                eprintln!("{} {} — STDIO provider plugin for Animus", info.plugin_name, info.plugin_version);
                 eprintln!("Usage:");
                 eprintln!("  {} --manifest    Print plugin manifest as JSON and exit", info.plugin_name);
                 eprintln!("  {}               Run JSON-RPC loop on stdin/stdout", info.plugin_name);

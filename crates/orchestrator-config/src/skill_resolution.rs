@@ -49,7 +49,7 @@ pub fn resolve_skills_for_project(names: &[String], project_root: &Path) -> Resu
                     .find(|entry| entry.name.eq_ignore_ascii_case(name.trim()) && entry.definition.is_none())
                 {
                     bail!(
-                        "skill '{}' is installed from registry '{}' (source '{}', version '{}') but has no stored definition snapshot. Reinstall or republish it with a newer AO version so runtime can apply it.",
+                        "skill '{}' is installed from registry '{}' (source '{}', version '{}') but has no stored definition snapshot. Reinstall or republish it with a newer Animus version so runtime can apply it.",
                         name.trim(),
                         installed.registry,
                         installed.source,

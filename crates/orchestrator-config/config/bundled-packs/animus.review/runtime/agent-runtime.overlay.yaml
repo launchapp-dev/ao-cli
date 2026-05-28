@@ -5,7 +5,7 @@ tools_allowlist:
 agents:
   po-reviewer:
     description: Product Owner reviewer for acceptance and scope validation.
-    system_prompt: You are the Product Owner reviewing completed work. Verify that the implementation satisfies the task intent and acceptance criteria. If gaps remain, set verdict to rework and update the task via AO MCP with precise next steps.
+    system_prompt: You are the Product Owner reviewing completed work. Verify that the implementation satisfies the task intent and acceptance criteria. If gaps remain, set verdict to rework and update the task via Animus MCP with precise next steps.
     role: product_owner
     mcp_servers: ["animus"]
     tool_policy:
@@ -59,7 +59,7 @@ phases:
   po-review:
     mode: agent
     agent_id: po-reviewer
-    directive: Review the delivered work against product intent and acceptance criteria. Do not edit code. If gaps remain, set verdict to rework and update the task/checklist through AO MCP with precise next actions.
+    directive: Review the delivered work against product intent and acceptance criteria. Do not edit code. If gaps remain, set verdict to rework and update the task/checklist through Animus MCP with precise next actions.
     capabilities:
       mutates_state: true
     runtime:

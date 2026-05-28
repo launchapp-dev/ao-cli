@@ -949,7 +949,7 @@ mod tests {
     fn test_load_skills_from_directory_with_manifest() {
         let tmp = TempDir::new().unwrap();
         let yaml = r#"
-schema: "ao.skills.v1"
+schema: "animus.skills.v1"
 skills:
   greet:
     name: greet

@@ -46,7 +46,7 @@ pub fn validate_workflow_and_runtime_configs_with_project_root(
                 known_claude_profiles = Some(config.claude_profiles.keys().cloned().collect());
             }
             Err(error) => {
-                errors.push(format!("failed to load global AO config for claude profile validation: {error}"));
+                errors.push(format!("failed to load global Animus config for claude profile validation: {error}"));
             }
         }
     }

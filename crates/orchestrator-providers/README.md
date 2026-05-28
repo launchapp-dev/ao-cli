@@ -4,7 +4,7 @@ Provider abstraction crate for tasks, requirements, and git hosts.
 
 ## Overview
 
-`orchestrator-providers` defines the provider traits that AO's service layer depends on and ships the builtin adapters that bridge those traits to the local AO state model. It also contains optional external integrations behind feature flags.
+`orchestrator-providers` defines the provider traits that Animus' service layer depends on and ships the builtin adapters that bridge those traits to the local Animus state model. It also contains optional external integrations behind feature flags.
 
 ## Targets
 

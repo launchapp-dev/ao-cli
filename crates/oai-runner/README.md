@@ -1,10 +1,10 @@
 # oai-runner
 
-Standalone OpenAI-compatible agent runner for AO, providing a multi-turn tool-using loop over OpenAI-style streaming APIs.
+Standalone OpenAI-compatible agent runner for Animus, providing a multi-turn tool-using loop over OpenAI-style streaming APIs.
 
 ## Overview
 
-`oai-runner` is a binary used when AO needs to talk to a provider through an OpenAI-compatible HTTP interface instead of a vendor-specific local CLI. It resolves provider configuration, streams chat completions, executes built-in and MCP tools locally, and emits either plain text or structured JSON events.
+`oai-runner` is a binary used when Animus needs to talk to a provider through an OpenAI-compatible HTTP interface instead of a vendor-specific local CLI. It resolves provider configuration, streams chat completions, executes built-in and MCP tools locally, and emits either plain text or structured JSON events.
 
 ## Targets
 
@@ -79,7 +79,7 @@ The binary currently exposes a single `run` subcommand.
 1. Explicit CLI flags
 2. Provider inference from the model name
 3. Environment variables
-4. AO global credentials
+4. Animus global credentials
 5. OpenCode auth-file fallback
 
 Current built-in provider inference includes MiniMax, Z AI / GLM, DeepSeek, and OpenRouter.
@@ -117,9 +117,9 @@ graph LR
     OAI --> PROTO
 ```
 
-`protocol` is used for shared credential loading and AO config-path conventions.
+`protocol` is used for shared credential loading and Animus config-path conventions.
 
 ## Notes
 
 - MCP tools are merged with the native tool list at runtime.
-- The runner is intended to be supervised by AO, but it is also directly runnable for debugging.
+- The runner is intended to be supervised by Animus, but it is also directly runnable for debugging.

@@ -1,6 +1,6 @@
 # orchestrator-cli
 
-The main `ao` command-line binary and the primary user-facing surface of the AO workspace.
+The main `ao` command-line binary and the primary user-facing surface of the Animus workspace.
 
 ## Overview
 

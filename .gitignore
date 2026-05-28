@@ -42,7 +42,7 @@ docs/.vitepress/dist/
 # Claude Code local settings
 .claude/settings.local.json
 
-# AO Cloud credentials (contains tokens)
+# Animus cloud credentials (contains tokens) — legacy `.ao/` path kept for transition
 .ao/sync.json
 .animus/sync.json
 

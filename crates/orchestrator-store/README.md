@@ -1,10 +1,10 @@
 # orchestrator-store
 
-Atomic, file-backed JSON persistence helpers for AO state.
+Atomic, file-backed JSON persistence helpers for Animus state.
 
 ## Overview
 
-`orchestrator-store` is the low-level persistence crate used to safely read and write AO JSON state. It resolves the scoped state directory, supports default-on-missing reads, and uses temp-file-plus-rename writes to reduce corruption risk.
+`orchestrator-store` is the low-level persistence crate used to safely read and write Animus JSON state. It resolves the scoped state directory, supports default-on-missing reads, and uses temp-file-plus-rename writes to reduce corruption risk.
 
 ## Targets
 
@@ -33,5 +33,5 @@ flowchart TD
 
 ## Notes
 
-- This crate has no AO domain logic.
+- This crate has no Animus domain logic.
 - Higher-level crates build task, workflow, review, and queue persistence on top of it.

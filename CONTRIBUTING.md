@@ -148,7 +148,7 @@ Animus has a stable naming split between the user-facing brand (`animus`) and th
 
 ### State Management
 
-- Treat AO-managed state (in `~/.ao/`) as immutable except through CLI commands
+- Treat Animus-managed state (in `~/.animus/`) as immutable except through CLI commands
 - Use service APIs rather than direct file manipulation
 - Preserve backward compatibility where possible
 

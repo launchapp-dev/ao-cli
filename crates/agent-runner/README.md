@@ -4,7 +4,7 @@ Standalone daemon that spawns, supervises, and streams output from agent CLIs ov
 
 ## Overview
 
-`agent-runner` is the process supervisor behind AO agent execution. It runs as a singleton process, accepts authenticated IPC requests from AO clients, launches the selected tool using a runtime contract, streams structured events back to the caller, and persists those events into scoped AO state.
+`agent-runner` is the process supervisor behind Animus agent execution. It runs as a singleton process, accepts authenticated IPC requests from Animus clients, launches the selected tool using a runtime contract, streams structured events back to the caller, and persists those events into scoped Animus state.
 
 The crate is a standalone binary, not a library target.
 
@@ -75,7 +75,7 @@ flowchart TD
 
 ### IPC layer
 
-- `src/ipc/server.rs` binds the runner endpoint. On Unix this is a Unix domain socket in the AO global config directory; on non-Unix it falls back to TCP loopback.
+- `src/ipc/server.rs` binds the runner endpoint. On Unix this is a Unix domain socket in the Animus global config directory; on non-Unix it falls back to TCP loopback.
 - `src/ipc/auth.rs` requires an initial auth handshake using the configured runner token.
 - `src/ipc/router.rs` routes `AgentRunRequest`, `ModelStatusRequest`, `AgentStatusRequest`, `RunnerStatusRequest`, and `AgentControlRequest`.
 - `src/ipc/handlers/control.rs` currently implements `Terminate`; `Pause` and `Resume` are defined in the protocol but still return unsuccessful responses.
@@ -87,13 +87,13 @@ flowchart TD
 - `src/runner/process_builder.rs` resolves launch invocations from runtime contracts and delegates provider sessions through `orchestrator-session-host`.
 - `src/runner/process.rs` spawns the child process, enforces idle timeout behavior, wires MCP-related settings, and supports cancellation.
 - `src/runner/stream_bridge.rs` forwards stdout and stderr lines into structured runner events.
-- `src/runner/event_persistence.rs` writes event JSONL under scoped AO run directories.
+- `src/runner/event_persistence.rs` writes event JSONL under scoped Animus run directories.
 
 ### Output parsing and sandboxing
 
 - `src/output/` extracts tool calls, artifacts, thinking blocks, and normal output from streamed CLI text.
 - `src/sandbox/env_sanitizer.rs` applies an allowlist-based environment filter before spawn.
-- `src/sandbox/workspace_guard.rs` ensures the requested working directory stays inside the project root or a managed AO worktree.
+- `src/sandbox/workspace_guard.rs` ensures the requested working directory stays inside the project root or a managed Animus worktree.
 
 ## Request flow
 
@@ -123,5 +123,5 @@ graph LR
 
 ## Notes
 
-- Event persistence uses repository-scoped AO directories, not ad hoc temp storage.
+- Event persistence uses repository-scoped Animus directories, not ad hoc temp storage.
 - Model availability checks are intentionally shallow: CLI presence plus required credential env vars.

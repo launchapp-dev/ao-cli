@@ -88,7 +88,7 @@ pub(crate) fn builtin_workflow_config_base() -> WorkflowConfig {
         workflows: vec![
             WorkflowDefinition {
                 id: "animus.vision/draft".to_string(),
-                name: "AO Vision Draft".to_string(),
+                name: "Animus Vision Draft".to_string(),
                 description: "Canonical pack-qualified vision drafting workflow ref.".to_string(),
                 phases: vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
                     workflow_ref: "builtin/vision-draft".to_string(),
@@ -98,7 +98,7 @@ pub(crate) fn builtin_workflow_config_base() -> WorkflowConfig {
             },
             WorkflowDefinition {
                 id: "animus.vision/refine".to_string(),
-                name: "AO Vision Refine".to_string(),
+                name: "Animus Vision Refine".to_string(),
                 description: "Canonical pack-qualified vision refinement workflow ref.".to_string(),
                 phases: vec![WorkflowPhaseEntry::SubWorkflow(SubWorkflowRef {
                     workflow_ref: "builtin/vision-refine".to_string(),

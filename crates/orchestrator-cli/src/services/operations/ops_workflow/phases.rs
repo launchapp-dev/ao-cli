@@ -446,7 +446,7 @@ mod tests {
             .expect("git config user.email should run");
         assert!(email.success(), "git config user.email should succeed");
         let name = ProcessCommand::new("git")
-            .args(["config", "user.name", "AO Test"])
+            .args(["config", "user.name", "Animus Test"])
             .current_dir(temp.path())
             .status()
             .expect("git config user.name should run");

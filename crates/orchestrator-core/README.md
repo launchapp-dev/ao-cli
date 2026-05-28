@@ -1,10 +1,10 @@
 # orchestrator-core
 
-Central domain logic, service abstractions, and state management for AO.
+Central domain logic, service abstractions, and state management for Animus.
 
 ## Overview
 
-`orchestrator-core` is the service-layer foundation of the workspace. It owns the `ServiceHub` abstraction, the production `FileServiceHub`, the test-oriented `InMemoryServiceHub`, and the bulk of AO business logic around tasks, workflows, requirements, projects, reviews, runtime contracts, and state-machine handling.
+`orchestrator-core` is the service-layer foundation of the workspace. It owns the `ServiceHub` abstraction, the production `FileServiceHub`, the test-oriented `InMemoryServiceHub`, and the bulk of Animus business logic around tasks, workflows, requirements, projects, reviews, runtime contracts, and state-machine handling.
 
 ## Targets
 
@@ -75,7 +75,7 @@ graph TD
 ### Service hub layer
 
 - `ServiceHub` is the dependency-injection boundary used across CLI and web layers.
-- `FileServiceHub` is the production implementation backed by AO JSON state on disk.
+- `FileServiceHub` is the production implementation backed by Animus JSON state on disk.
 - `InMemoryServiceHub` supports tests and isolated runtime flows.
 
 ### Service APIs
@@ -121,5 +121,5 @@ graph LR
 
 ## Notes
 
-- `FileServiceHub` is the main AO state bootstrap point for repository-backed use.
+- `FileServiceHub` is the main Animus state bootstrap point for repository-backed use.
 - Feature flags `jira`, `linear`, and `gitlab` are forwarded into provider integrations.

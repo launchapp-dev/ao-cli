@@ -56,7 +56,8 @@ async fn main() {
             // The `DisplayHelpOnMissingArgumentOrSubcommand` kind IS a parse
             // failure (clap prints help with exit 2 because no command was
             // chosen), so we still want the JSON envelope path for it.
-            if matches!(parse_err.kind(), clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion) {
+            if matches!(parse_err.kind(), clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion)
+            {
                 parse_err.exit();
             }
             if argv_requested_json {

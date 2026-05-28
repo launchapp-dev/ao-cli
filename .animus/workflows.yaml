@@ -16,5 +16,5 @@ default_workflow_ref: standard
 # 4. Worktrees are cleaned up automatically to prevent stale checkouts
 #
 # To override this behavior (e.g., for quick fixes or direct merges),
-# create custom workflow definitions in .ao/workflows/ that override
+# create custom workflow definitions in .animus/workflows/ that override
 # the post_success merge configuration as needed.

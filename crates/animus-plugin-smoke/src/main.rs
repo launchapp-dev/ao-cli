@@ -1,4 +1,4 @@
-//! Minimal STDIO plugin for end-to-end verification of the AO plugin host.
+//! Minimal STDIO plugin for end-to-end verification of the Animus plugin host.
 //!
 //! Implements the lifecycle methods (`initialize`, `initialized`, `$/ping`,
 //! `shutdown`, `exit`) and a stub `subject_backend` for the `smoke` kind so
@@ -24,7 +24,7 @@ fn manifest() -> PluginManifest {
         name: PLUGIN_NAME.to_string(),
         version: PLUGIN_VERSION.to_string(),
         plugin_kind: PLUGIN_KIND.to_string(),
-        description: "End-to-end smoke plugin for AO plugin host verification".to_string(),
+        description: "End-to-end smoke plugin for Animus plugin host verification".to_string(),
         protocol_version: PROTOCOL_VERSION.to_string(),
         capabilities: vec![
             "initialize".to_string(),
@@ -79,7 +79,7 @@ fn maybe_handle_manifest_flag() {
         match arg.as_str() {
             "--manifest" | "-m" => print_manifest_and_exit(),
             "--help" | "-h" => {
-                eprintln!("animus-plugin-smoke {PLUGIN_VERSION} — STDIO plugin for AO host verification");
+                eprintln!("animus-plugin-smoke {PLUGIN_VERSION} — STDIO plugin for Animus host verification");
                 eprintln!("Usage:");
                 eprintln!("  animus-plugin-smoke --manifest      Print plugin manifest as JSON and exit");
                 eprintln!("  animus-plugin-smoke                 Run JSON-RPC loop over stdin/stdout");

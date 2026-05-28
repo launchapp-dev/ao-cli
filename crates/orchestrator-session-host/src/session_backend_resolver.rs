@@ -63,7 +63,7 @@ impl SessionBackendResolver {
         Self { plugin_providers: HashMap::new() }
     }
 
-    /// Construct a resolver populated from AO STDIO provider plugin discovery
+    /// Construct a resolver populated from Animus STDIO provider plugin discovery
     /// against the supplied project root.
     pub fn with_plugin_discovery(project_root: &Path) -> Self {
         let mut resolver = Self::new();

@@ -4,7 +4,7 @@ use super::*;
 impl AoMcpServer {
     #[tool(
         name = "animus.daemon.start",
-        description = "Start the AO daemon. Purpose: Launch the background daemon for task scheduling and agent management. Prerequisites: None. Example: {} or {\"interval_secs\": 5}. Sequencing: After starting, use animus.daemon.status or animus.daemon.health to verify it's running.",
+        description = "Start the Animus daemon. Purpose: Launch the background daemon for task scheduling and agent management. Prerequisites: None. Example: {} or {\"interval_secs\": 5}. Sequencing: After starting, use animus.daemon.status or animus.daemon.health to verify it's running.",
         input_schema = ao_schema_for_type::<DaemonStartInput>()
     )]
     async fn ao_daemon_start(&self, params: Parameters<DaemonStartInput>) -> Result<CallToolResult, McpError> {
@@ -15,7 +15,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "animus.daemon.stop",
-        description = "Stop the AO daemon. Purpose: Shutdown the daemon gracefully. Prerequisites: Daemon must be running (check with animus.daemon.status). Example: {}. Sequencing: Use animus.daemon.status first to verify daemon is running, or animus.daemon.agents to see active agents before stopping.",
+        description = "Stop the Animus daemon. Purpose: Shutdown the daemon gracefully. Prerequisites: Daemon must be running (check with animus.daemon.status). Example: {}. Sequencing: Use animus.daemon.status first to verify daemon is running, or animus.daemon.agents to see active agents before stopping.",
         input_schema = ao_schema_for_type::<ProjectRootInput>()
     )]
     async fn ao_daemon_stop(&self, params: Parameters<ProjectRootInput>) -> Result<CallToolResult, McpError> {

@@ -1,10 +1,10 @@
 # orchestrator-daemon-runtime
 
-Core runtime engine for the AO daemon tick loop, queue, scheduling, and process reconciliation.
+Core runtime engine for the Animus daemon tick loop, queue, scheduling, and process reconciliation.
 
 ## Overview
 
-`orchestrator-daemon-runtime` provides the continuous runtime machinery behind `ao daemon ...`. It owns the daemon lifecycle loop, the dispatch queue, schedule evaluation, ready-dispatch planning, spawned workflow-runner process tracking, and reconciliation of completed work back into AO state.
+`orchestrator-daemon-runtime` provides the continuous runtime machinery behind `ao daemon ...`. It owns the daemon lifecycle loop, the dispatch queue, schedule evaluation, ready-dispatch planning, spawned workflow-runner process tracking, and reconciliation of completed work back into Animus state.
 
 ## Targets
 
@@ -78,7 +78,7 @@ graph TD
 - `src/dispatch/process_manager.rs` manages spawned workflow-runner processes.
 - `build_runner_command_from_dispatch()` assembles the child-process invocation for task, requirement, or custom subjects.
 - `plan_ready_dispatch()` merges queue-backed and fallback-ready work into the final start plan.
-- `reconcile_completed_processes()` projects completed process results back into AO state.
+- `reconcile_completed_processes()` projects completed process results back into Animus state.
 
 ### Queue and scheduling
 
@@ -106,4 +106,4 @@ graph LR
 ## Notes
 
 - This crate is library-only. The CLI crate owns the actual command-line surface.
-- Queue state, daemon runtime state, and event logs are all persisted as AO-managed files.
+- Queue state, daemon runtime state, and event logs are all persisted as Animus-managed files.

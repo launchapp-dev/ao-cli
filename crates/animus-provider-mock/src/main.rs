@@ -1,4 +1,4 @@
-//! AO STDIO provider plugin for testing — returns deterministic agent/run
+//! Animus STDIO provider plugin for testing — returns deterministic agent/run
 //! responses without spawning any external CLI. Streams a small canned
 //! sequence of TextDelta / Thinking / ToolCall / FinalText events so the
 //! plugin runtime's notification path is exercised end-to-end.
@@ -17,7 +17,7 @@ use uuid::Uuid;
 const INFO: ProviderInfo = ProviderInfo {
     plugin_name: "animus-provider-mock",
     plugin_version: env!("CARGO_PKG_VERSION"),
-    description: "Deterministic mock provider for AO plugin host integration tests",
+    description: "Deterministic mock provider for Animus plugin host integration tests",
     default_tool: "mock",
     default_model: "mock-fast-1",
 };

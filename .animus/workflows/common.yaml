@@ -342,7 +342,7 @@ phases:
     mode: agent
     agent: po-reviewer
     directive: Review the delivered work against product intent and acceptance criteria. Do not edit code. If gaps remain,
-      set verdict to rework and update the task/checklist through AO MCP with precise next actions.
+      set verdict to rework and update the task/checklist through Animus MCP with precise next actions.
     capabilities:
       mutates_state: true
     decision_contract:

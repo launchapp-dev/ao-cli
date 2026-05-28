@@ -1,0 +1,385 @@
+# Ecommerce Fulfillment: Process Order Workflow
+#
+# Five phases:
+#   1. validate                      — schema + stock + required-field check
+#   2. risk_screen                   — heuristic fraud check, recommends pass/review/hold
+#   3. route_fulfillment             — pick warehouse / drop-ship / digital route
+#   4. draft_customer_notification   — write the order-confirmation or shipping notice
+#   5. flag_order_for_review               — high-risk: status=blocked + label awaiting-fraud-review;
+#                                      low-risk: status=ready + label auto-approved
+#
+# The default model assignments use Claude (Haiku for cheap structured
+# phases, Sonnet for richer prose + reasoning). Swap to OpenAI or Gemini
+# by editing each agent's `model` + `tool` and installing the matching
+# provider plugin — see docs/customizing.md.
+
+agents:
+  order-validator:
+    description: |
+      Cheap, fast schema + inventory checker. Reads a single order and
+      returns a structured JSON verdict on whether the order is
+      processable.
+    system_prompt: |
+      You are an ecommerce order validator. Your only job is to read one
+      order record and return a structured JSON verdict on whether the
+      order has the data needed to be fulfilled.
+
+      The order arrives as a markdown record (the dispatch envelope's
+      title carries the `## ORD-NNNN: ...` heading; the description
+      carries the flat fields below it). Treat the order id as the
+      `ORD-NNNN` token from the title.
+
+      Check for:
+        - order id present (parsed from the title, shape `ORD-\d+`)
+        - required flat fields present in the description body:
+          `status`, `channel`, `customer_email`, `ship_to_country`,
+          `billing_country`, `total`, `payment_status`, `received_at`
+        - `line_items:` block present and each item has `sku`,
+          `title`, `quantity`, `unit_price` (and ideally `physical`)
+        - `payment_status` is one of: paid, authorized, pending,
+          failed
+        - `channel` is one of: web, marketplace, wholesale
+        - stock availability for each sku against the order's
+          inventory-snapshot if one is provided in the dispatch
+          envelope; otherwise note "no inventory snapshot — skipping
+          stock check" as an issue (this is INFORMATIONAL, not a
+          blocker — `ok` may still be true)
+
+      Return ONLY a JSON object. No prose.
+    model: claude-haiku-4-5
+    tool: claude
+
+  fraud-screener:
+    description: |
+      Heuristic fraud-risk screener. Reads the order and produces a
+      risk score (0-100), a list of triggered signals, and a
+      recommendation.
+    system_prompt: |
+      You are a fraud-risk screener for an ecommerce ops team. You apply
+      heuristic checks only — you do NOT call an external fraud API.
+      Treat this as a first-pass filter that a human or a real fraud
+      service will confirm.
+
+      Signals to weigh (each contributes to the 0-100 risk score):
+        - mismatched country between payment billing and ship_to
+          (high signal)
+        - unusually high order total relative to the channel norm
+          (e.g. >$2000 on the `web` channel is unusual)
+        - many high-value items in one order (e.g. >3 items each
+          >$200)
+        - velocity: same customer email appearing in multiple recent
+          orders (only if velocity context is provided)
+        - shipping to a freight-forwarder address (e.g. shipping zip
+          known to be a reshipper)
+        - payment_status=failed or pending after auth attempt
+        - digital-only goods routed to an unverified email
+        - first-time customer ordering the most expensive SKU
+
+      Score rubric:
+        - 0-29   → recommendation: pass    (route to fulfillment)
+        - 30-69  → recommendation: review  (human-eyes before ship)
+        - 70-100 → recommendation: hold    (block fulfillment, escalate)
+
+      Return ONLY a JSON object. No prose.
+    model: claude-sonnet-4-6
+    tool: claude
+
+  fulfillment-router:
+    description: |
+      Cheap router. Picks warehouse / drop-ship / digital based on item
+      type + ship destination + inventory.
+    system_prompt: |
+      You are a fulfillment router. Given a validated order, pick the
+      route and explain why in one sentence.
+
+      Routes:
+        - warehouse    — physical goods, in-stock at the primary
+                         warehouse, ship destination within standard
+                         service area
+        - drop_ship    — physical goods routed directly from a
+                         supplier (e.g. furniture, oversized, or items
+                         flagged as supplier-fulfilled in the
+                         inventory snapshot)
+        - digital      — software licenses, downloadable files,
+                         gift-card codes, subscription activations
+        - split        — order contains a mix of route types; the
+                         downstream system will split the order into
+                         child shipments
+
+      Return ONLY a JSON object. No prose.
+    model: claude-haiku-4-5
+    tool: claude
+
+  notification-drafter:
+    description: |
+      Stronger model. Drafts the customer-facing notification with the
+      tone appropriate to the order's channel and route.
+    system_prompt: |
+      You are a senior ecommerce customer-comms writer. You draft
+      notifications that are clear, specific, and accountable. Never
+      invent facts about stock, ship dates, or carrier service levels.
+      If a fact is uncertain, say so and tell the customer the next
+      step.
+
+      Tone by channel:
+        - web         — friendly, on-brand, concise; one CTA
+        - marketplace — formal, marketplace-compliant phrasing (no
+                        cross-promotion to the brand store, no
+                        external links)
+        - wholesale   — businesslike, account-aware ("Hi $company —
+                        your PO $po_number is confirmed")
+
+      Notification kind depends on context:
+        - new + low-risk      → order-confirmation
+        - new + held-for-review → soft acknowledgement (do NOT promise
+                                  ship date until review clears)
+        - fulfillment routed  → shipping notice with route-specific
+                                expectations (drop-ship may take
+                                longer; digital is instant)
+
+      Output: a complete notification ready for a human reviewer to
+      approve and send. Sign as "the $store team" — do not invent a
+      person's name.
+    model: claude-sonnet-4-6
+    tool: claude
+
+  ops-handoff:
+    description: |
+      Concise summarizer. Reads the validator + fraud screen + router
+      verdicts and produces the reviewer brief.
+    system_prompt: |
+      You are the ops-handoff coordinator. Given a validated order, a
+      fraud-screen verdict, a routing decision, and a draft
+      notification, produce a short brief for the human reviewer:
+
+      - 1-sentence TL;DR (what's the order, what route, what risk)
+      - 1-sentence summary of what the notification commits to
+      - Up to 3 suggested edits or checks the reviewer should consider
+        (e.g. "verify ship_to address is residential", "confirm
+        wholesale PO matches contract")
+      - Recommend: send-as-is | minor-edit | hold-for-fraud-review |
+        escalate-to-ops
+
+      Keep it under 120 words total. The reviewer is busy.
+    model: claude-haiku-4-5
+    tool: claude
+
+phases:
+  validate:
+    mode: agent
+    agent: order-validator
+    directive: |
+      Read the order in your subject (title + description). Return a
+      JSON validation verdict: { "ok": bool, "issues": [string, ...] }.
+      Each issue should be a short, actionable string (e.g. "missing
+      customer.ship_to.country", "sku=SKU-9123 out of stock").
+    output_contract:
+      kind: phase_result
+      required_fields:
+        - ok
+        - issues
+      fields:
+        ok:
+          type: boolean
+          description: True only if all required fields are present and (if inventory snapshot provided) all line items are in stock.
+        issues:
+          type: array
+          description: Short, actionable issue strings; empty array if ok=true.
+          items:
+            type: string
+    decision_contract:
+      min_confidence: 0.6
+      max_risk: low
+      allow_missing_decision: false
+
+  risk_screen:
+    mode: agent
+    agent: fraud-screener
+    directive: |
+      Read the order and apply the heuristic fraud-screen rubric from
+      your system prompt. Return JSON with risk_score, signals,
+      recommendation, and rationale. Do NOT block the order yourself —
+      only set the recommendation field. Downstream phases route based
+      on it.
+    output_contract:
+      kind: phase_result
+      required_fields:
+        - risk_score
+        - recommendation
+      fields:
+        risk_score:
+          type: integer
+          description: 0-100 risk score per the rubric in the agent prompt.
+        signals:
+          type: array
+          description: Short strings naming each triggered heuristic (e.g. "billing_ship_country_mismatch").
+          items:
+            type: string
+        recommendation:
+          type: string
+          description: One of pass, review, hold.
+        rationale:
+          type: string
+          description: One-sentence justification for the score and recommendation.
+    decision_contract:
+      min_confidence: 0.6
+      max_risk: medium
+      allow_missing_decision: false
+
+  route_fulfillment:
+    mode: agent
+    agent: fulfillment-router
+    directive: |
+      Pick the fulfillment route (warehouse | drop_ship | digital |
+      split) for this order. Use the validator output for stock state
+      and the order's line_items + ship_to to decide. Return JSON with
+      route, rationale, and any child_routes when route=split.
+    output_contract:
+      kind: phase_result
+      required_fields:
+        - route
+      fields:
+        route:
+          type: string
+          description: One of warehouse, drop_ship, digital, split.
+        rationale:
+          type: string
+          description: One-sentence justification for the chosen route.
+        child_routes:
+          type: array
+          description: When route=split, the per-sku breakdown (sku, route) for downstream child-shipment creation.
+          items:
+            type: string
+    decision_contract:
+      min_confidence: 0.6
+      max_risk: low
+      allow_missing_decision: false
+
+  draft_customer_notification:
+    mode: agent
+    agent: notification-drafter
+    directive: |
+      Draft a customer-facing notification for this order. Use the
+      channel (web | marketplace | wholesale) from the order subject to
+      pick tone, and the route + risk recommendation from prior phases
+      to pick the notification kind (order-confirmation, soft
+      acknowledgement, or shipping notice). Do NOT send the message —
+      output it as the phase result for a human reviewer.
+    output_contract:
+      kind: phase_result
+      required_fields:
+        - draft_message
+        - notification_kind
+      fields:
+        draft_message:
+          type: string
+          description: The full customer-facing notification, ready to send after human approval.
+        notification_kind:
+          type: string
+          description: One of order-confirmation, soft-acknowledgement, shipping-notice.
+        assumptions:
+          type: array
+          description: Facts about stock, ship date, or account state the draft assumes; reviewer must verify.
+          items:
+            type: string
+    decision_contract:
+      min_confidence: 0.7
+      max_risk: medium
+      allow_missing_decision: false
+
+  flag_order_for_review:
+    mode: agent
+    agent: ops-handoff
+    directive: |
+      Mark the order for the appropriate next step based on BOTH the
+      validate phase output AND the risk_screen recommendation. The
+      workflow phases do NOT short-circuit on validate.ok=false; this
+      phase is the gate that must stop an invalid order from being
+      released to fulfillment.
+
+      Priority rules (apply in order):
+
+        1. If validate.ok=false → status=blocked,
+                                  label=validation-failed (plus
+                                  preserve the existing labels and
+                                  attach the validator's first 1-2
+                                  issue strings to the verdict). DO
+                                  NOT mark `ready` even if
+                                  risk_screen.recommendation=pass.
+
+        2. Otherwise, route by risk_screen.recommendation:
+             - recommendation=pass    → status=ready,
+                                         label=auto-approved
+             - recommendation=review  → status=blocked,
+                                         label=awaiting-fraud-review
+             - recommendation=hold    → status=blocked,
+                                         label=awaiting-fraud-review
+                                         (plus an additional
+                                         "high-risk-hold" label so
+                                         escalation queues can filter
+                                         on it)
+
+      The Animus subject protocol only accepts the normalized statuses
+      `ready`, `in-progress`, `blocked`, `done`, or `cancelled` — there
+      is no free-form `auto_approved` value. Use labels to communicate
+      the specific reason.
+
+      Use the Animus MCP tools (the agent runtime allows `animus.*`
+      calls but typically does not allow free-form shell).
+
+      IMPORTANT: This pack's documented dry-run dispatches workflows
+      via `animus workflow run --title ...` because there is no
+      first-class `--subject-id` flag yet. In that path, `subject.id`
+      is the order title string (e.g. "ORD-5001: Routine domestic
+      web order") and is NOT a real backend-qualified order id.
+
+      Only proceed with the mutating MCP calls below when `subject.id`
+      is an EXACT backend-qualified order id. Concretely, treat the
+      subject id as valid only when ALL are true:
+        - It contains NO whitespace
+        - It contains NO colon followed by a space (excludes titles
+          like "ORD-5001: Routine...")
+        - It matches one of these shapes:
+            * `^ORD-\d+$` (e.g. "ORD-5001", the markdown file stem)
+            * `^order:[\w.-]+$` (backend-qualified)
+
+      For any other shape (custom-subject dry-run, or unexpected
+      value), SKIP the mutating calls and emit a verdict noting
+      "subject id is a custom title or unrecognized shape, not a
+      backend order id — flag step skipped". This is the honest
+      behavior until `--subject-id` ships.
+
+      When proceeding, fetch the order first so label updates are
+      additive rather than a destructive replace:
+
+        1. Call `animus.subject.get` with { kind: "order", id: <id> }
+           and read the existing labels from the result.
+        2. Call `animus.subject.status` with { kind: "order", id: <id>,
+           status: <ready|blocked per the rubric above> }.
+        3. Call `animus.subject.update` with { kind: "order", id: <id>,
+           labels: [...existing_labels, <new labels per the rubric>] }
+           (deduplicate so labels are not added twice).
+
+      The subject id is in the dispatch envelope as `subject.id`. Emit
+      a short verdict confirming the status + label change.
+    capabilities:
+      mutates_state: true
+    decision_contract:
+      min_confidence: 0.7
+      max_risk: medium
+      allow_missing_decision: false
+
+workflows:
+  - id: animus.ecommerce-fulfillment/process-order
+    name: Process Ecommerce Order
+    description: |
+      End-to-end tier-1 order ops: validate the order, screen for
+      fraud, route fulfillment, draft a customer notification, and
+      flag for review. The reviewer approves and triggers the actual
+      shipping label / fulfillment integration from their WMS.
+    phases:
+      - validate
+      - risk_screen
+      - route_fulfillment
+      - draft_customer_notification
+      - flag_order_for_review

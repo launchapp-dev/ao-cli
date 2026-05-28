@@ -6,11 +6,12 @@ Animus uses GitHub Actions for continuous integration and release automation. Th
 
 ### Rust Workspace CI (`rust-workspace-ci.yml`)
 
-Runs on every push and pull request. Checks and tests each crate in the workspace independently:
+Runs on every push and pull request. Checks the workspace and lints with `-D warnings`:
 
-- `cargo check` for runtime-critical crates: `protocol`, `orchestrator-cli`, `orchestrator-core`, `agent-runner`, `orchestrator-session-host`, `orchestrator-plugin-host`, `oai-runner`, and `workflow-runner-v2`
-- `cargo test --workspace` for the full test suite
-- Concurrency grouping cancels superseded runs on the same branch
+- `cargo check --workspace --all-targets` covers every crate (runtime-critical and otherwise) in one cached job — no per-crate matrix to drift against this doc.
+- `cargo clippy --workspace --all-targets -- -D warnings` gates every PR on a clean strict lint (the same gate `cargo animus-lint-strict` runs locally).
+- `cargo test --workspace` for the full test suite.
+- Concurrency grouping cancels superseded runs on the same branch.
 
 ### Rust-Only Dependency Policy (`rust-only-dependency-policy.yml`)
 

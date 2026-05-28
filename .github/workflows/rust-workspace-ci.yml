@@ -51,20 +51,12 @@ jobs:
       - name: Cache Cargo build artifacts
         uses: Swatinem/rust-cache@v2
       - name: Run clippy
-        run: cargo clippy --workspace --all-targets --locked
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   cargo-check:
-    name: cargo-check (${{ matrix.package }})
+    name: cargo-check (workspace)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        package:
-          - protocol
-          - orchestrator-cli
-          - orchestrator-core
-          - agent-runner
+    timeout-minutes: 30
     env:
       CARGO_TERM_COLOR: always
 
@@ -78,8 +70,12 @@ jobs:
       - name: Cache Cargo build artifacts
         uses: Swatinem/rust-cache@v2
 
-      - name: Check package
-        run: cargo check --locked --all-targets -p ${{ matrix.package }}
+      - name: Check workspace
+        # Workspace-wide check keeps every runtime-critical crate covered
+        # (see docs/guides/ci-cd.md) without a manual matrix that drifts
+        # from the doc list. Single job + shared cache is also cheaper
+        # than the prior fan-out.
+        run: cargo check --locked --all-targets --workspace
 
   smoke-help:
     name: smoke-help

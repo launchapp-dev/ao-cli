@@ -33,7 +33,7 @@ use crate::TriggerSupervisorSink;
 /// in-process call site that builds [`workflow_runner_v2::WorkflowExecuteParams`]
 /// inside the daemon process.
 ///
-/// SUBPROCESS GAP: workflow runs launched via `ao-workflow-runner` (the
+/// SUBPROCESS GAP: workflow runs launched via `animus-workflow-runner` (the
 /// scheduler's normal path) live in a separate process and cannot see this
 /// holder. They emit no workflow_events. A subprocess back-channel
 /// (per-run pipe / event log tail) is required for full coverage and is
@@ -81,7 +81,7 @@ fn clear_workflow_event_broadcaster() {
 /// Returns the process-global daemon workflow event emitter when one has
 /// been installed by [`run_daemon`]. Returns `None` when called from a
 /// process that hasn't started the daemon (CLI one-shot commands,
-/// `ao-workflow-runner` subprocess, etc.) — callers should default to a
+/// `animus-workflow-runner` subprocess, etc.) — callers should default to a
 /// noop emitter in that case.
 pub fn current_workflow_event_emitter() -> Option<SharedWorkflowEventEmitter> {
     emitter_slot().read().ok().and_then(|guard| guard.clone())

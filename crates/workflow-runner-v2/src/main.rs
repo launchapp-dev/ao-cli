@@ -9,7 +9,7 @@ use workflow_runner_v2::workflow_event_emitter::{SharedWorkflowEventEmitter, Sub
 use workflow_runner_v2::workflow_execute::{execute_workflow, PhaseEvent, WorkflowExecuteParams};
 
 #[derive(Parser)]
-#[command(name = "ao-workflow-runner", about = "Standalone workflow phase runner")]
+#[command(name = "animus-workflow-runner", about = "Standalone workflow phase runner")]
 struct WorkflowRunnerCli {
     #[command(subcommand)]
     command: WorkflowRunnerCommand,
@@ -88,7 +88,7 @@ async fn main() -> ExitCode {
         WorkflowRunnerCommand::Execute(args) => match run_execute(args).await {
             Ok(code) => ExitCode::from(code),
             Err(error) => {
-                eprintln!("ao-workflow-runner failed: {error}");
+                eprintln!("animus-workflow-runner failed: {error}");
                 ExitCode::from(1)
             }
         },

@@ -9,7 +9,7 @@
 //!
 //! # Subprocess back-channel
 //!
-//! When `ao-workflow-runner` runs as a subprocess of the daemon, it lives
+//! When `animus-workflow-runner` runs as a subprocess of the daemon, it lives
 //! in a different process from the daemon's `WorkflowEventBroadcaster`.
 //! [`SubprocessPipeEmitter`] bridges that gap by writing each event as a
 //! single JSON line to a Unix-domain-socket the daemon pre-binds and
@@ -17,7 +17,7 @@
 //! per-run reader task forwards each line into the in-process broadcaster
 //! so control-socket subscribers see subprocess and in-process workflow
 //! runs identically. See [`SubprocessPipeEmitter::from_env`] for the env
-//! contract used by `ao-workflow-runner`.
+//! contract used by `animus-workflow-runner`.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -84,7 +84,7 @@ impl From<&RuntimeWorkflowEvent> for WireWorkflowEvent {
 
 /// Env var that, when present in the runner subprocess, points to the
 /// per-run Unix domain socket the daemon prebinds for workflow_event
-/// fan-out. The daemon sets this before spawning `ao-workflow-runner`;
+/// fan-out. The daemon sets this before spawning `animus-workflow-runner`;
 /// the runner reads it on startup and constructs a
 /// [`SubprocessPipeEmitter`].
 pub const ANIMUS_WORKFLOW_EVENT_PIPE_ENV: &str = "ANIMUS_WORKFLOW_EVENT_PIPE";
@@ -103,7 +103,7 @@ impl WorkflowEventEmitter for NoopWorkflowEventEmitter {
 }
 
 /// Subprocess-side emitter that serializes each event as a single JSON line
-/// to a Unix domain socket the daemon prebinds. Used by `ao-workflow-runner`
+/// to a Unix domain socket the daemon prebinds. Used by `animus-workflow-runner`
 /// when it detects the [`ANIMUS_WORKFLOW_EVENT_PIPE_ENV`] env var.
 ///
 /// The connection is established lazily on the first `emit` call and held

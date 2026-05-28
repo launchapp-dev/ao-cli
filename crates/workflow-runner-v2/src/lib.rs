@@ -70,7 +70,7 @@ pub(crate) mod test_env {
         static HOME: OnceLock<std::path::PathBuf> = OnceLock::new();
         HOME.get_or_init(|| {
             let home_dir = std::env::temp_dir()
-                .join(format!("ao-workflow-runner-v2-test-home-{}", std::process::id()))
+                .join(format!("animus-workflow-runner-v2-test-home-{}", std::process::id()))
                 .join("home");
             std::fs::create_dir_all(&home_dir).expect("create shared workflow-runner-v2 test home");
             std::env::set_var("HOME", &home_dir);

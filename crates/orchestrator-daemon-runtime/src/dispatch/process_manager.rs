@@ -148,7 +148,7 @@ impl ProcessManager {
         #[cfg(unix)]
         let event_pipe = self.bind_event_pipe_for(dispatch, &mut command);
 
-        let mut child = command.spawn().context("failed to spawn ao-workflow-runner")?;
+        let mut child = command.spawn().context("failed to spawn animus-workflow-runner")?;
 
         let stderr_lines: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let stderr_reader = if let Some(stderr) = child.stderr.take() {
@@ -430,15 +430,18 @@ mod tests {
     use super::*;
     use std::env;
     use std::fs;
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::Mutex;
     use tempfile::TempDir;
 
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
     fn test_env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
+        // Use the dispatch-wide shared lock so we serialize with sibling
+        // modules (build_runner_command_from_dispatch tests) that also
+        // mutate process-wide env vars (`ANIMUS_WORKFLOW_RUNNER_BIN`,
+        // `PATH`).
+        crate::dispatch::test_env::lock()
     }
 
     struct EnvVarGuard {
@@ -499,9 +502,9 @@ mod tests {
         let temp_dir = TempDir::new().expect("temp directory should be created");
         let runner_path = {
             #[cfg(unix)]
-            let path = temp_dir.path().join("ao-workflow-runner");
+            let path = temp_dir.path().join("animus-workflow-runner");
             #[cfg(not(unix))]
-            let path = temp_dir.path().join("ao-workflow-runner.exe");
+            let path = temp_dir.path().join("animus-workflow-runner.exe");
             path
         };
 
@@ -540,7 +543,7 @@ mod tests {
         let _lock = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
 
         let temp_dir = TempDir::new().expect("temp directory should be created");
-        let runner_path = temp_dir.path().join("ao-workflow-runner");
+        let runner_path = temp_dir.path().join("animus-workflow-runner");
         // A runner that sleeps long enough that the first two stay active
         // while we attempt the third spawn.
         #[cfg(unix)]
@@ -613,7 +616,7 @@ mod tests {
         let _lock = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
 
         let temp_dir = TempDir::new().expect("temp directory should be created");
-        let runner_path = temp_dir.path().join("ao-workflow-runner");
+        let runner_path = temp_dir.path().join("animus-workflow-runner");
         let runner_payload = "#!/bin/sh\nprintf '%s\\n' '{\"event\":\"runner_start\",\"workflow_ref\":\"standard\"}' >&2\nprintf '%s\\n' '{\"event\":\"runner_complete\",\"workflow_ref\":\"standard\",\"exit_code\":0}' >&2\nexit 0\n";
         fs::write(&runner_path, runner_payload).expect("mock runner should be written");
         #[cfg(unix)]
@@ -659,7 +662,7 @@ mod tests {
         let _lock = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
 
         let temp_dir = TempDir::new().expect("temp directory should be created");
-        let runner_path = temp_dir.path().join("ao-workflow-runner");
+        let runner_path = temp_dir.path().join("animus-workflow-runner");
         fs::write(&runner_path, "#!/bin/sh\nexit 0\n").expect("mock runner should be written");
         #[cfg(unix)]
         {

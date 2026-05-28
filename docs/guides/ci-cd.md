@@ -43,7 +43,7 @@ The runtime binary set is:
 | `animus` | `orchestrator-cli` | Main CLI |
 | `agent-runner` | `agent-runner` | Daemon agent runner |
 | `animus-oai-runner` | `oai-runner` | OpenAI-compatible runner |
-| `ao-workflow-runner` | `workflow-runner-v2` | Workflow phase execution runner |
+| `animus-workflow-runner` | `workflow-runner-v2` | Workflow phase execution runner (v0.4.x `ao-workflow-runner` is preserved as a back-compat symlink) |
 
 ## Testing
 

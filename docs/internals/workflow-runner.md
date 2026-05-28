@@ -1,6 +1,6 @@
 # Workflow Runner Internals
 
-The `workflow-runner` crate provides both a library and a standalone binary (`ao-workflow-runner`). It executes workflow phases by coordinating with the agent runner and managing the workflow lifecycle.
+The `workflow-runner` crate provides both a library and a standalone binary (`animus-workflow-runner`; the v0.4.x name `ao-workflow-runner` is retained as a back-compat symlink). It executes workflow phases by coordinating with the agent runner and managing the workflow lifecycle.
 
 ## YAML Resolution
 

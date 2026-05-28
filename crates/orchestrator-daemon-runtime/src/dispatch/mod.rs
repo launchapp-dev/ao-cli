@@ -1,5 +1,19 @@
 mod build_runner_command_from_dispatch;
 mod completed_process;
+
+#[cfg(test)]
+pub(crate) mod test_env {
+    //! Shared serialization point for dispatch tests that mutate
+    //! process-wide environment variables (`ANIMUS_WORKFLOW_RUNNER_BIN`,
+    //! `PATH`). Without a single shared lock, sibling module-level locks
+    //! race each other because env state is global per-process.
+    use std::sync::{Mutex, OnceLock};
+
+    pub fn lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+}
 mod completion_reconciliation_plan;
 mod dispatch_execution;
 mod dispatch_notice;

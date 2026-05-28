@@ -28,7 +28,7 @@ RUN ls -lh \
     target/release/animus \
     target/release/agent-runner \
     target/release/animus-oai-runner \
-    target/release/ao-workflow-runner
+    target/release/animus-workflow-runner
 
 # ── Stage 2: Minimal runtime image ──────────────────────────────────────────────
 FROM debian:bookworm-slim
@@ -65,7 +65,14 @@ RUN mkdir -p /root/.animus /root/.animus/plugins
 COPY --from=builder /src/target/release/animus /usr/local/bin/animus
 COPY --from=builder /src/target/release/agent-runner /usr/local/bin/agent-runner
 COPY --from=builder /src/target/release/animus-oai-runner /usr/local/bin/animus-oai-runner
-COPY --from=builder /src/target/release/ao-workflow-runner /usr/local/bin/ao-workflow-runner
+COPY --from=builder /src/target/release/animus-workflow-runner /usr/local/bin/animus-workflow-runner
+
+# Back-compat symlink: v0.4.x daemons spawned `ao-workflow-runner`. The
+# v0.4.16+ daemon prefers `animus-workflow-runner` but the resolver still
+# probes the legacy name. Keep the symlink in the image so an inadvertent
+# downgrade (older daemon image + newer plugins) keeps working until the
+# image is rebuilt against the latest release.
+RUN ln -s animus-workflow-runner /usr/local/bin/ao-workflow-runner
 
 # Create working directory
 WORKDIR /workspace

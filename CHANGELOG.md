@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **`chore(workflow-runner)`: rename binary `ao-workflow-runner` → `animus-workflow-runner` with back-compat (P3 housekeeping).**
+  Closes the v0.4.0 known-follow-up that left the legacy `ao-*` bin name in
+  place. The `[[bin]]` entry in `crates/workflow-runner-v2/Cargo.toml` now
+  emits `animus-workflow-runner`; `Dockerfile`, `scripts/install.sh`, and
+  `.github/workflows/release.yml` all bundle the new name. Back-compat:
+  - The daemon's runner resolver (`build_runner_command_from_dispatch.rs`)
+    probes `animus-workflow-runner` first and falls back to
+    `ao-workflow-runner`. Each name is resolved via `current_exe` sibling
+    first, then `PATH` search, so a daemon in `~/.cargo/bin/` still finds
+    a runner that lives in `~/.local/bin/`. A `tracing::warn!` line
+    nudges operators to reinstall when the legacy binary is selected.
+  - `scripts/install.sh` creates a back-compat `ao-workflow-runner`
+    symlink alongside the new binary and also accepts already-published
+    archives that ship the legacy filename (mapping `ao-workflow-runner`
+    onto the new name during extraction). `Dockerfile` adds the same
+    symlink inside the image. v0.4.x daemon PIDs still spawning the
+    legacy name keep working until they're restarted on the new lookup.
+  - Migration steps live at `docs/migration/v0.4-to-v0.5.md`.
+
 ## [0.4.15] - 2026-05-28
 
 Second audit-remediation release. Lands the 8 remaining P2 findings the

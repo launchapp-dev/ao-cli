@@ -5,7 +5,9 @@ use animus_plugin_protocol::RpcError;
 use anyhow::{anyhow, Result};
 use orchestrator_core::ServiceHub;
 use orchestrator_daemon_runtime::control::control_socket_path;
-use orchestrator_plugin_host::{discover_plugins, DiscoveredPlugin, HostError, PluginHost, TRANSPORT_METHOD_START};
+use orchestrator_plugin_host::{
+    discover_plugins, DiscoveredPlugin, HostError, PluginHost, PluginSpawnOptions, TRANSPORT_METHOD_START,
+};
 use serde_json::{json, Value};
 
 use crate::{print_ok, print_value};
@@ -45,6 +47,15 @@ const TRANSPORT_START_TIMEOUT: Duration = Duration::from_secs(15);
 const WEB_UI_CAPABILITY: &str = "$ui/web";
 const DEFAULT_TRANSPORT_KIND_PREFERENCE: &[&str] = &["transport-http", "transport-graphql"];
 const PLUGIN_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
+
+fn spawn_options_for_transport(plugin: &DiscoveredPlugin) -> PluginSpawnOptions {
+    PluginSpawnOptions::for_manifest(
+        plugin.name.clone(),
+        &plugin.manifest.env_required,
+        std::iter::empty::<String>(),
+        None,
+    )
+}
 
 pub(crate) async fn handle_web(
     command: WebCommand,
@@ -450,7 +461,8 @@ fn bind_url_for_kind_from_info(value: &Value) -> Option<String> {
 
 #[cfg(test)]
 async fn spawn_and_describe(plugin: &DiscoveredPlugin, project_root: &str) -> Result<SpawnedTransport> {
-    let host = PluginHost::spawn(&plugin.path, &[])
+    let options = spawn_options_for_transport(plugin);
+    let host = PluginHost::spawn_with_options(&plugin.path, &[], options)
         .await
         .map_err(|err| anyhow!("failed to spawn transport plugin {}: {err}", plugin.name))?;
     let described = describe_host(plugin, &host, project_root).await;
@@ -462,7 +474,8 @@ async fn spawn_and_describe(plugin: &DiscoveredPlugin, project_root: &str) -> Re
 }
 
 async fn spawn_and_keep_alive(plugin: &DiscoveredPlugin, project_root: &str) -> Result<RunningTransport> {
-    let host = PluginHost::spawn(&plugin.path, &[])
+    let options = spawn_options_for_transport(plugin);
+    let host = PluginHost::spawn_with_options(&plugin.path, &[], options)
         .await
         .map_err(|err| anyhow!("failed to spawn transport plugin {}: {err}", plugin.name))?;
     match describe_host(plugin, &host, project_root).await {

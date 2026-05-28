@@ -36,6 +36,10 @@ animus web open
 
 `animus web serve --open` does both at once. If no transport plugins are
 installed, the command exits non-zero and prints the install commands above.
+If an installed transport or UI plugin declares required env vars in its
+manifest, those vars must also be set before `animus web` will spawn it.
+Use `animus plugin info --name <plugin-name>` to inspect `env_required`
+when startup fails before a URL is reported.
 
 ## URL Override
 
@@ -55,7 +59,7 @@ The web stack lives in three external repositories under the
 | `animus-web-ui` | React dashboard bundled by a wrapper plugin |
 
 The CLI discovers them through the standard plugin host registry and plugin
-search paths, then spawns them via `PluginHost::spawn`. Plugins return their
-bound URL via the JSON-RPC `initialize` handshake or the optional
-`transport/info` call. See
+search paths, then spawns them via `PluginHost::spawn_with_options` using the
+plugin manifest's `env_required` contract. Plugins return their bound URL via
+the JSON-RPC `initialize` handshake or the optional `transport/info` call. See
 [`crates/orchestrator-cli/src/services/operations/ops_web.rs`](../../crates/orchestrator-cli/src/services/operations/ops_web.rs).

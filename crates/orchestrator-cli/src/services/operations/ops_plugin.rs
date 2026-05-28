@@ -26,7 +26,7 @@ use orchestrator_plugin_host::{
     discover_plugins, legacy_plugins_registry_path, plugin_install_dir, plugins_registry_path,
     registered_skip_manifest_check_at_install, sha256_of_file as plugin_host_sha256_of_file, DiscoveredPlugin,
     DiscoverySource, DiscoveryWarning, LockEntry, LockVerifyResult, PluginDiscovery, PluginHost, PluginLockfile,
-    PolicyMode as PluginPolicyMode,
+    PluginSpawnOptions, PolicyMode as PluginPolicyMode,
 };
 use orchestrator_session_host::is_reserved_provider_tool;
 use serde::Serialize;
@@ -473,11 +473,22 @@ pub(crate) fn run_plugin_list(req: PluginListRequest) -> Result<PluginListOutput
     Ok(PluginListOutput { plugins: rows, warnings: warning_rows })
 }
 
+fn spawn_options_for_discovered(plugin: &DiscoveredPlugin) -> PluginSpawnOptions {
+    PluginSpawnOptions::for_manifest(
+        plugin.name.clone(),
+        &plugin.manifest.env_required,
+        std::iter::empty::<String>(),
+        None,
+    )
+}
+
 /// Spawn the named plugin, complete the handshake, and return manifest +
 /// initialize-time capabilities.
 pub(crate) async fn run_plugin_info(req: PluginInfoRequest) -> Result<PluginInfoOutput> {
     let discovered = find_plugin(&req.project_root, &req.name, req.include_system_path)?;
-    let host = PluginHost::spawn(&discovered.path, &[]).await.context("failed to spawn plugin")?;
+    let options = spawn_options_for_discovered(&discovered);
+    let host =
+        PluginHost::spawn_with_options(&discovered.path, &[], options).await.context("failed to spawn plugin")?;
     let initialize = host.handshake().await.context("plugin initialize failed")?;
     let _ = host.shutdown().await;
     let skip_flag = registered_skip_manifest_check_at_install(&discovered.name);
@@ -495,7 +506,9 @@ pub(crate) async fn run_plugin_info(req: PluginInfoRequest) -> Result<PluginInfo
 /// dispatching `$/ping`.
 pub(crate) async fn run_plugin_ping(req: PluginPingRequest) -> Result<PluginPingOutput> {
     let discovered = find_plugin(&req.project_root, &req.name, req.include_system_path)?;
-    let host = PluginHost::spawn(&discovered.path, &[]).await.context("failed to spawn plugin")?;
+    let options = spawn_options_for_discovered(&discovered);
+    let host =
+        PluginHost::spawn_with_options(&discovered.path, &[], options).await.context("failed to spawn plugin")?;
     let initialize = host.handshake().await.context("plugin initialize failed")?;
     host.ping().await.context("plugin ping failed")?;
     let _ = host.shutdown().await;
@@ -509,7 +522,9 @@ pub(crate) async fn run_plugin_call(req: PluginCallRequest) -> Result<PluginCall
         return Err(invalid_input_error("method must not be empty"));
     }
     let discovered = find_plugin(&req.project_root, &req.name, req.include_system_path)?;
-    let host = PluginHost::spawn(&discovered.path, &[]).await.context("failed to spawn plugin")?;
+    let options = spawn_options_for_discovered(&discovered);
+    let host =
+        PluginHost::spawn_with_options(&discovered.path, &[], options).await.context("failed to spawn plugin")?;
     let _ = host.handshake().await.context("plugin initialize failed")?;
     let result = host
         .request(method.clone(), req.params)

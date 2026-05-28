@@ -243,7 +243,9 @@ partition discovered plugins into:
 - `web_ui`
 
 The web command starts transport plugins and opens the UI URL advertised by a
-plugin with `$ui/web` capability. There is no in-tree web server.
+plugin with `$ui/web` capability. There is no in-tree web server. Spawn uses
+the plugin manifest's `env_required` contract, so missing required vars fail
+fast before handshake the same way `animus plugin info`, `ping`, and `call` do.
 
 ## Operations
 

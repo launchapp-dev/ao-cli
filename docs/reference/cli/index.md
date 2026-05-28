@@ -409,6 +409,11 @@ The discovery scan deliberately omits `$PATH` by default in v0.4.0 to prevent st
 binaries from being picked up. Pass `--include-system-path` to opt in to scanning
 `$PATH` for `animus-provider-*` and `animus-plugin-*` binaries.
 
+`animus plugin info`, `animus plugin ping`, and `animus plugin call` spawn the
+target binary with manifest-derived env checks enabled. If the plugin declares
+required vars in `env_required` and they are unset, these commands now fail
+before handshake instead of proceeding with a partially initialized process.
+
 | Command | Flags |
 |---|---|
 | `animus plugin list` | `--include-system-path` |
@@ -427,6 +432,17 @@ when explicitly set → `$ANIMUS_PLUGIN_PATH`. With `--include-system-path`,
 plugin failed its `--manifest` probe (binary missing, exited non-zero, returned
 non-JSON, etc.). Human output emits each warning to stderr. The
 `animus.plugin.list` MCP tool carries the same `warnings` field.
+
+### `animus web serve` / `open`
+
+`animus web` uses the same manifest-derived env checks as the one-shot plugin
+commands above. Required vars declared by the selected `transport_backend` or
+`web_ui` plugin must be present before the CLI will spawn them.
+
+If `animus web serve` or `animus web open` fails even though the transport
+plugins are installed, inspect the target plugin with
+`animus plugin info --name <plugin-name>` and set any missing `env_required`
+entries first.
 
 ### `animus plugin search` / `browse` / `update`
 

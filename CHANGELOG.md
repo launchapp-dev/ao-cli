@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`fix(logging)`: delegate `Logger::for_project`/`for_run`/`logs_dir` to `protocol::scoped_state_root` for canonical scope isolation.** `orchestrator-logging` had its own weaker scope resolver that scanned `~/.animus` for directories starting with the raw basename and compared `.project-root` to the raw input string with no canonicalization. Callers passing a relative path, a symlinked path, or a not-yet-created scope fell back to `<project>/.animus/logs/`, contradicting `docs/reference/data-layout.md` which puts logs at `~/.animus/<repo-scope>/logs/events.jsonl`. It also missed the G1 v0.4.14 hardening, so two clones of the same git origin could collide. Replaced the local resolver with `protocol::scoped_state_root(project_root)` — same canonical-basename hashing, same-origin collision guard, same moved-clone reclaim path. Added regression tests covering noncanonical input, distinct same-origin clones, and end-to-end `for_project`/`for_run` writes landing under `~/.animus/<scope>/logs/`. (audit P2 cleanup)
+
 ## [0.4.14] - 2026-05-27
 
 Audit remediation release. External audit + parallel review across v0.3.2 →

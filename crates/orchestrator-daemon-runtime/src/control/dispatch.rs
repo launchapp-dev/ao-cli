@@ -568,31 +568,91 @@ impl ControlSurface for InProcessSurface {
     }
 
     async fn daemon_logs(&self, request: DaemonLogsRequest) -> Result<DaemonLogStream, ControlError> {
-        // v0.4.7: route through the active LogStorageDispatch so the
-        // historical tail is wire-driven (CLI `animus logs tail` no longer
-        // opens events.jsonl directly when the daemon is up). When a
-        // log_storage_backend plugin is installed the dispatch resolution
-        // records the plugin identity in its warnings; until a long-lived
-        // log-storage plugin host lands we still read the in-tree file
-        // for content, but the call goes through the wire so MCP and web
-        // surfaces share one transport.
+        // Route through the active log_storage backend. When a
+        // `log_storage_backend` plugin is installed and supervised at
+        // daemon startup, this calls the plugin's `log_storage/query`
+        // RPC and returns its decoded entries. Otherwise we read the
+        // in-tree `events.jsonl` file directly.
         //
-        // Streaming `follow=true` is not supported yet — the stream
-        // completes after the historical batch. When the log_bus is
-        // attached we tack live notifications onto the tail; otherwise we
-        // close after the historical batch.
+        // Streaming `follow=true` is not yet wired through the plugin —
+        // the plugin returns a one-shot batch via `log_storage/query`
+        // and we close. The in-tree path tacks live notifications onto
+        // the tail via the [`DaemonLogBus`] when one is attached.
+        // A future revision can subscribe to the plugin's
+        // `log_storage/event` notifications via
+        // [`PluginHost::subscribe_notifications`] to extend follow-mode
+        // to plugin-backed sinks.
         let project_root = self.project_root.clone();
         let limit = log_request_limit(&request);
         let level_floor = request.level;
         let plugin_filter = request.plugin.clone();
         let since_filter = request.since;
 
-        let resolution = resolve_log_storage_dispatch(&project_root)
-            .map_err(|e| ControlError::Internal(format!("log dispatch resolution: {e}")))?;
-
-        let historical: Vec<DaemonLogEntry> = match resolution.selected.as_ref() {
-            LogStorageDispatch::InTree { project_root: pr } | LogStorageDispatch::Plugin { project_root: pr, .. } => {
-                read_in_tree_log_entries(pr, limit, level_floor, since_filter, plugin_filter.as_deref())
+        let historical: Vec<DaemonLogEntry> = if let Some(handle) = crate::log_storage::current_log_storage_handle() {
+            if handle.is_plugin() {
+                // Plugin returns daemon-events (DaemonEventLog::append).
+                // Merge with the in-tree file so Logger-only entries
+                // (daemon startup messages, `Logger::for_project`
+                // tracing, etc.) — which still write to events.jsonl —
+                // remain visible in `animus logs tail`. Policy (B) tee
+                // keeps the file authoritative for those entries until
+                // the logging crate is updated to forward them too.
+                //
+                // When the plugin's query call fails (write-only sink,
+                // METHOD_NOT_SUPPORTED, transient error), we degrade to
+                // the file-only view rather than failing the request —
+                // the tee guarantees the same daemon events are still
+                // present in `events.jsonl`.
+                let plugin_entries = match tail_plugin_log_entries(&handle, &request, limit).await {
+                    Ok(entries) => entries,
+                    Err(error) => {
+                        tracing::warn!(
+                            target: "daemon_event_log",
+                            plugin = %handle.plugin_name().unwrap_or("<unknown>"),
+                            error = %format!("{error:#}"),
+                            "log_storage plugin query failed; serving daemon/logs from in-tree events.jsonl only",
+                        );
+                        Vec::new()
+                    }
+                };
+                let plugin_entries =
+                    filter_log_entries_locally(plugin_entries, level_floor, since_filter, plugin_filter.as_deref());
+                let logger_entries = read_in_tree_log_entries(
+                    handle.project_root(),
+                    limit,
+                    level_floor,
+                    since_filter,
+                    plugin_filter.as_deref(),
+                );
+                // Also surface the daemon-events tee file
+                // (`daemon-events.jsonl` under the global config dir).
+                // `DaemonEventLog::append` writes there in addition to
+                // dispatching the plugin call, so on the plugin
+                // failure path those records would otherwise be invisible
+                // to `animus logs tail`.
+                let daemon_event_entries = read_daemon_events_log_entries(limit, level_floor, since_filter);
+                let mut combined = merge_and_cap_log_entries(plugin_entries, logger_entries, limit.saturating_mul(2));
+                combined = merge_and_cap_log_entries(combined, daemon_event_entries, limit);
+                combined
+            } else {
+                read_in_tree_log_entries(
+                    handle.project_root(),
+                    limit,
+                    level_floor,
+                    since_filter,
+                    plugin_filter.as_deref(),
+                )
+            }
+        } else {
+            // No handle installed (CLI one-shot / surface bootstrap
+            // race) → fall back to resolver + file read.
+            let resolution = resolve_log_storage_dispatch(&project_root)
+                .map_err(|e| ControlError::Internal(format!("log dispatch resolution: {e}")))?;
+            match resolution.selected.as_ref() {
+                LogStorageDispatch::InTree { project_root: pr }
+                | LogStorageDispatch::Plugin { project_root: pr, .. } => {
+                    read_in_tree_log_entries(pr, limit, level_floor, since_filter, plugin_filter.as_deref())
+                }
             }
         };
 
@@ -790,6 +850,160 @@ const DAEMON_LOGS_DEFAULT_LIMIT: usize = 200;
 /// future protocol bump that adds one needs to update exactly one place.
 fn log_request_limit(_request: &DaemonLogsRequest) -> usize {
     DAEMON_LOGS_DEFAULT_LIMIT
+}
+
+/// Read the daemon-events tee file (`daemon-events.jsonl` under the
+/// global config dir, populated by [`crate::DaemonEventLog::append`])
+/// and project each row into the wire [`DaemonLogEntry`] shape so it
+/// merges cleanly with plugin / per-project Logger entries.
+///
+/// Returns entries chronologically (oldest first) capped at `limit`.
+/// Failures to read the file degrade to an empty batch — the daemon
+/// must continue serving `daemon/logs` even if the tee file is
+/// momentarily missing or rotated.
+fn read_daemon_events_log_entries(
+    limit: usize,
+    level_floor: Option<animus_log_storage_protocol::LogLevel>,
+    since: Option<chrono::DateTime<chrono::Utc>>,
+) -> Vec<DaemonLogEntry> {
+    use animus_log_storage_protocol::{LogLevel, LogSource};
+
+    let records = crate::DaemonEventLog::read_records(Some(limit.saturating_mul(2)), None).unwrap_or_default();
+    let mut entries: Vec<DaemonLogEntry> = records
+        .into_iter()
+        .filter_map(|record| {
+            let ts = chrono::DateTime::parse_from_rfc3339(&record.timestamp)
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+                .ok()?;
+            if since.is_some_and(|threshold| ts < threshold) {
+                return None;
+            }
+            let target = format!("daemon.events.{}", record.event_type);
+            Some(DaemonLogEntry {
+                id: record.id,
+                ts,
+                level: LogLevel::Info,
+                source: LogSource::Daemon,
+                source_name: None,
+                target,
+                message: record.event_type,
+                fields: record.data,
+            })
+        })
+        .filter(|entry| level_floor.is_none_or(|floor| entry.level >= floor))
+        .collect();
+    entries.sort_by(|a, b| a.ts.cmp(&b.ts));
+    if entries.len() > limit {
+        let drop_count = entries.len() - limit;
+        entries.drain(0..drop_count);
+    }
+    entries
+}
+
+/// Apply the daemon-side `daemon/logs` filters to a plugin-supplied
+/// batch.
+///
+/// The wire response from a plugin's `log_storage/query` is trusted to
+/// produce the right entries, but plugins are free to advertise partial
+/// filter support via `LogStorageSchema::supports_filtering` (the host
+/// is responsible for re-filtering anything the plugin can't honor). To
+/// avoid leaking entries outside the caller's filter regardless of what
+/// the backend supports, we re-apply `level_floor`, `since`, and
+/// `plugin` (matched against `source_name`) here before merging with the
+/// in-tree file batch.
+fn filter_log_entries_locally(
+    entries: Vec<DaemonLogEntry>,
+    level_floor: Option<animus_log_storage_protocol::LogLevel>,
+    since: Option<chrono::DateTime<chrono::Utc>>,
+    plugin_filter: Option<&str>,
+) -> Vec<DaemonLogEntry> {
+    entries
+        .into_iter()
+        .filter(|entry| level_floor.is_none_or(|floor| entry.level >= floor))
+        .filter(|entry| since.is_none_or(|ts| entry.ts >= ts))
+        .filter(|entry| plugin_filter.is_none_or(|name| entry.source_name.as_deref() == Some(name)))
+        .collect()
+}
+
+/// Merge two log-entry batches (typically plugin + in-tree file) into a
+/// single chronologically-ordered batch capped at `limit` entries.
+///
+/// Used by `daemon_logs` to combine the plugin's `log_storage/query`
+/// response with the in-tree `events.jsonl` reader so Logger-only
+/// entries (which still write to the file regardless of the plugin) stay
+/// visible to `animus logs tail`.
+///
+/// Dedup is keyed on `DaemonLogEntry::id`: if the plugin already mirrors
+/// a file entry under the same id we drop the duplicate. The returned
+/// batch is ordered by `ts` ascending and trimmed to the most-recent
+/// `limit` after sorting.
+fn merge_and_cap_log_entries(
+    plugin_entries: Vec<DaemonLogEntry>,
+    file_entries: Vec<DaemonLogEntry>,
+    limit: usize,
+) -> Vec<DaemonLogEntry> {
+    use std::collections::HashSet;
+
+    let mut seen: HashSet<String> = HashSet::with_capacity(plugin_entries.len() + file_entries.len());
+    let mut merged: Vec<DaemonLogEntry> = Vec::with_capacity(plugin_entries.len() + file_entries.len());
+    for entry in plugin_entries.into_iter().chain(file_entries.into_iter()) {
+        if seen.insert(entry.id.clone()) {
+            merged.push(entry);
+        }
+    }
+    merged.sort_by(|a, b| a.ts.cmp(&b.ts));
+    if merged.len() > limit {
+        let drop_count = merged.len() - limit;
+        merged.drain(0..drop_count);
+    }
+    merged
+}
+
+/// Request a one-shot historical batch from the active
+/// `log_storage_backend` plugin and decode the response into the wire
+/// [`DaemonLogEntry`] shape.
+///
+/// Sends a synchronous `log_storage/query` request — the streaming
+/// `log_storage/tail` method would require subscribing to
+/// `log_storage/event` notifications which the daemon's `daemon/logs`
+/// historical path doesn't need. The plugin is expected to respond with
+/// `{"entries": [...]}` (the
+/// [`animus_log_storage_protocol::LogQueryResult`] shape) or a bare JSON
+/// array of entries. Unknown response shapes degrade to an empty result
+/// so a malformed plugin response surfaces as "no entries" rather than
+/// panicking the daemon.
+async fn tail_plugin_log_entries(
+    handle: &std::sync::Arc<crate::LogStorageHandle>,
+    request: &DaemonLogsRequest,
+    limit: usize,
+) -> anyhow::Result<Vec<DaemonLogEntry>> {
+    use std::time::Duration;
+
+    let mut params = serde_json::Map::new();
+    if let Some(level) = request.level {
+        params.insert("min_level".to_string(), serde_json::to_value(level)?);
+    }
+    if let Some(ts) = request.since {
+        params.insert("since".to_string(), serde_json::to_value(ts)?);
+    }
+    if let Some(name) = request.plugin.as_ref() {
+        params.insert("source_name".to_string(), serde_json::Value::String(name.clone()));
+    }
+    params.insert("limit".to_string(), serde_json::Value::Number(limit.into()));
+
+    let response = handle.tail(Some(serde_json::Value::Object(params)), Duration::from_secs(10)).await?;
+    let Some(value) = response else { return Ok(Vec::new()) };
+
+    // Accept either `{ entries: [...] }` (LogQueryResult) or a bare array.
+    let entries_value = match value {
+        serde_json::Value::Object(ref obj) => {
+            obj.get("entries").cloned().unwrap_or(serde_json::Value::Array(Vec::new()))
+        }
+        serde_json::Value::Array(_) => value,
+        _ => serde_json::Value::Array(Vec::new()),
+    };
+    let entries: Vec<DaemonLogEntry> = serde_json::from_value(entries_value).unwrap_or_default();
+    Ok(entries)
 }
 
 /// Read historical entries from the project's in-tree `events.jsonl` and
@@ -1102,6 +1316,210 @@ mod log_dispatch_tests {
         assert_eq!(entries.len(), 2);
         assert_ne!(entries[0].id, entries[1].id, "ids must disambiguate rows");
     }
+
+    fn fixture_entry(id: &str, ts_rfc3339: &str, message: &str) -> animus_control_protocol::types::DaemonLogEntry {
+        use animus_log_storage_protocol::{LogLevel, LogSource};
+        animus_control_protocol::types::DaemonLogEntry {
+            id: id.to_string(),
+            ts: chrono::DateTime::parse_from_rfc3339(ts_rfc3339).expect("parse ts").with_timezone(&chrono::Utc),
+            level: LogLevel::Info,
+            source: LogSource::Daemon,
+            source_name: None,
+            target: "test".to_string(),
+            message: message.to_string(),
+            fields: serde_json::Value::Null,
+        }
+    }
+
+    #[test]
+    fn merge_and_cap_log_entries_dedupes_by_id_and_orders_by_ts() {
+        let plugin = vec![
+            fixture_entry("evt-2", "2026-05-28T00:00:02Z", "plugin-2"),
+            fixture_entry("evt-1", "2026-05-28T00:00:01Z", "plugin-1"),
+        ];
+        let file = vec![
+            fixture_entry("evt-1", "2026-05-28T00:00:01Z", "file-1"),
+            fixture_entry("evt-3", "2026-05-28T00:00:03Z", "file-3"),
+        ];
+        let merged = super::merge_and_cap_log_entries(plugin, file, 10);
+        // Three unique ids in chronological order, plugin won the
+        // collision so evt-1's message is "plugin-1".
+        assert_eq!(merged.iter().map(|e| e.id.clone()).collect::<Vec<_>>(), vec!["evt-1", "evt-2", "evt-3"]);
+        assert_eq!(merged[0].message, "plugin-1", "plugin entry wins on duplicate id");
+    }
+
+    #[test]
+    fn merge_and_cap_log_entries_trims_oldest_first_to_limit() {
+        let plugin = vec![
+            fixture_entry("a", "2026-05-28T00:00:01Z", "1"),
+            fixture_entry("b", "2026-05-28T00:00:02Z", "2"),
+            fixture_entry("c", "2026-05-28T00:00:03Z", "3"),
+        ];
+        let file: Vec<animus_control_protocol::types::DaemonLogEntry> = Vec::new();
+        let merged = super::merge_and_cap_log_entries(plugin, file, 2);
+        assert_eq!(merged.iter().map(|e| e.id.clone()).collect::<Vec<_>>(), vec!["b", "c"]);
+    }
+}
+
+#[cfg(test)]
+mod control_daemon_logs_plugin_route_tests {
+    //! Audit P2: when a `log_storage_backend` plugin is installed (and
+    //! its handle is in the process-global slot), the `daemon_logs`
+    //! control endpoint must call the plugin's `log_storage/query`
+    //! method instead of reading the in-tree `events.jsonl` file.
+
+    use super::*;
+    use crate::log_storage::{
+        clear_log_storage_handle, install_log_storage_handle, LogStorageHandle, LOG_STORAGE_TEST_SLOT_LOCK,
+    };
+    use animus_control_protocol::types::DaemonLogsRequest;
+    use animus_control_protocol::ControlSurface;
+    use animus_plugin_protocol::{InitializeResult, PluginCapabilities, PluginInfo, RpcRequest, RpcResponse};
+    use orchestrator_plugin_host::PluginHost;
+    use std::sync::Arc;
+    use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    struct SlotGuard;
+    impl Drop for SlotGuard {
+        fn drop(&mut self) {
+            clear_log_storage_handle();
+        }
+    }
+
+    /// RAII guard restoring `ANIMUS_CONFIG_DIR` after the test, mirroring
+    /// the helper in `daemon_event_log::daemon_logs_dispatch_tests`.
+    struct ConfigDirGuard {
+        prev: Option<std::ffi::OsString>,
+    }
+    impl ConfigDirGuard {
+        fn set(value: &std::path::Path) -> Self {
+            let prev = std::env::var_os("ANIMUS_CONFIG_DIR");
+            std::env::set_var("ANIMUS_CONFIG_DIR", value);
+            Self { prev }
+        }
+    }
+    impl Drop for ConfigDirGuard {
+        fn drop(&mut self) {
+            match self.prev.take() {
+                Some(prev) => std::env::set_var("ANIMUS_CONFIG_DIR", prev),
+                None => std::env::remove_var("ANIMUS_CONFIG_DIR"),
+            }
+        }
+    }
+
+    async fn fake_tail_host(
+        name: &str,
+        canned: serde_json::Value,
+        recorded_methods: Arc<tokio::sync::Mutex<Vec<String>>>,
+    ) -> PluginHost {
+        let (host_reader, mut plugin_writer) = duplex(8192);
+        let (plugin_reader, host_writer) = duplex(8192);
+        let name_for_task = name.to_string();
+        let recorded = recorded_methods.clone();
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(plugin_reader);
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).await.unwrap_or(0) == 0 {
+                    break;
+                }
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                let value: serde_json::Value = match serde_json::from_str(trimmed) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                if value.get("id").is_none() || value.get("id") == Some(&serde_json::Value::Null) {
+                    continue;
+                }
+                let request: RpcRequest = match serde_json::from_value(value) {
+                    Ok(r) => r,
+                    Err(_) => continue,
+                };
+                recorded.lock().await.push(request.method.clone());
+                let response = match request.method.as_str() {
+                    "initialize" => RpcResponse::ok(
+                        request.id,
+                        serde_json::json!(InitializeResult {
+                            protocol_version: "1.0.0".to_string(),
+                            plugin_info: PluginInfo {
+                                name: name_for_task.clone(),
+                                version: "0.1.0".to_string(),
+                                plugin_kind: animus_plugin_protocol::PLUGIN_KIND_LOG_STORAGE_BACKEND.to_string(),
+                                description: None,
+                            },
+                            capabilities: PluginCapabilities::default(),
+                        }),
+                    ),
+                    "log_storage/query" => RpcResponse::ok(request.id, canned.clone()),
+                    _ => RpcResponse::ok(request.id, serde_json::json!({})),
+                };
+                let mut encoded = serde_json::to_string(&response).unwrap();
+                encoded.push('\n');
+                if plugin_writer.write_all(encoded.as_bytes()).await.is_err() {
+                    break;
+                }
+            }
+        });
+        PluginHost::from_streams(name, host_reader, host_writer)
+    }
+
+    #[tokio::test]
+    async fn daemon_logs_routes_through_plugin_query_when_installed() {
+        use futures_util::StreamExt;
+        let _slot = LOG_STORAGE_TEST_SLOT_LOCK.lock().await;
+        let _guard = SlotGuard;
+        // Isolate daemon-events.jsonl so we don't pick up records
+        // written by other tests in the same process.
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _config_dir = ConfigDirGuard::set(temp.path());
+
+        let canned = serde_json::json!({
+            "entries": [
+                {
+                    "id": "evt-1",
+                    "ts": "2026-05-28T00:00:00Z",
+                    "level": "warn",
+                    "source": "plugin",
+                    "source_name": "test-log-sink",
+                    "target": "from-plugin",
+                    "message": "wired-up",
+                }
+            ]
+        });
+        let recorded: Arc<tokio::sync::Mutex<Vec<String>>> = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let host = fake_tail_host("test-log-sink", canned, recorded.clone()).await;
+        host.handshake().await.expect("handshake");
+        let handle = Arc::new(LogStorageHandle::from_handshaked_host(
+            "test-log-sink",
+            host,
+            PathBuf::from("/tmp/fake-project-route"),
+        ));
+        install_log_storage_handle(handle.clone());
+
+        let surface = InProcessSurface::builder(PathBuf::from("/tmp/fake-project-route")).build();
+        let request = DaemonLogsRequest::default();
+        let mut stream = surface.daemon_logs(request).await.expect("daemon_logs ok");
+
+        let mut collected: Vec<animus_control_protocol::types::DaemonLogEntry> = Vec::new();
+        while let Some(item) = stream.next().await {
+            collected.push(item.expect("entry decode"));
+        }
+        assert_eq!(collected.len(), 1, "expected one plugin-supplied entry, got {:?}", collected);
+        assert_eq!(collected[0].message, "wired-up");
+        assert_eq!(collected[0].source_name.as_deref(), Some("test-log-sink"));
+
+        let methods = recorded.lock().await;
+        assert!(
+            methods.iter().any(|m| m == "log_storage/query"),
+            "plugin must receive log_storage/query request, saw: {:?}",
+            *methods
+        );
+        drop(methods);
+        handle.shutdown().await;
+    }
 }
 
 #[cfg(test)]
@@ -1205,7 +1623,10 @@ mod health_probe_env_tests {
         let plugin = discovered(manifest_with_env(Vec::new()));
         let opts = build_probe_spawn_options(&plugin);
 
-        assert!(opts.env_allowlist.is_empty(), "no declared env => empty allowlist (base allowlist is added by the host)");
+        assert!(
+            opts.env_allowlist.is_empty(),
+            "no declared env => empty allowlist (base allowlist is added by the host)"
+        );
         assert!(opts.missing_required_env.is_empty());
         assert_eq!(opts.plugin_label.as_deref(), Some("fake-provider"));
     }

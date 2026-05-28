@@ -29,6 +29,20 @@ All notable changes to this project will be documented in this file.
   escape hatch. Tool descriptions updated.
 - **`fix(session)`: Carry `project_root` through `SessionRequest` so worktree-bound tasks find project-local provider plugins.** When a task ran inside a managed worktree (`~/.animus/<scope>/worktrees/...`), `spawn_session_process` discovered provider plugins via `Path::new(cwd)` and dropped `project_root` from the outgoing `SessionRequest`. Plugins installed at `<project_root>/.animus/plugins/animus-provider-*` therefore disappeared the moment a workflow switched into its worktree, breaking the plugin author guide's project-local-plugin promise. The supervisor now plumbs `project_root` through to `spawn_session_process` / `build_session_request`, the resolver scans `<project_root>/.animus/plugins/` instead of `<cwd>/.animus/plugins/`, and the field rides over the JSON-RPC `agent/run` payload to the plugin. Negative-cased test in `agent-runner` proves the fix.
 - **`fix(logging)`: delegate `Logger::for_project`/`for_run`/`logs_dir` to `protocol::scoped_state_root` for canonical scope isolation.** `orchestrator-logging` had its own weaker scope resolver that scanned `~/.animus` for directories starting with the raw basename and compared `.project-root` to the raw input string with no canonicalization. Callers passing a relative path, a symlinked path, or a not-yet-created scope fell back to `<project>/.animus/logs/`, contradicting `docs/reference/data-layout.md` which puts logs at `~/.animus/<repo-scope>/logs/events.jsonl`. It also missed the G1 v0.4.14 hardening, so two clones of the same git origin could collide. Replaced the local resolver with `protocol::scoped_state_root(project_root)` — same canonical-basename hashing, same-origin collision guard, same moved-clone reclaim path. Added regression tests covering noncanonical input, distinct same-origin clones, and end-to-end `for_project`/`for_run` writes landing under `~/.animus/<scope>/logs/`. (audit P2 cleanup)
+- **daemon**: actually dispatch `log_storage_backend` plugin for
+  `log_storage/store` + `log_storage/query` (P2 audit follow-up). When a
+  `log_storage_backend` plugin is installed the daemon now spawns +
+  handshakes it at startup via `PluginSpawnOptions::for_manifest`
+  (matching subject/trigger/health), installs a process-global
+  `LogStorageHandle`, and forwards every `DaemonEventLog::append` record
+  to the plugin as a `log_storage/store` request (the
+  `animus-log-storage-protocol` wire shape) while still writing the
+  in-tree `daemon-events.jsonl` (tee policy — preserves existing
+  `daemon events` / MCP `daemon.events` poll readers). The `daemon/logs`
+  control endpoint now issues `log_storage/query` against the plugin
+  instead of reading the in-tree file, so `animus logs tail` reflects the
+  installed backend. Plugin failures degrade to a `tracing::warn!`
+  rather than killing the daemon.
 
 ## [0.4.14] - 2026-05-27
 

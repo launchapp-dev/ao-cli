@@ -28,8 +28,9 @@ pub use dispatch::{
     DispatchWorkflowStart, DispatchWorkflowStartSummary, PlannedDispatchStart, ProcessManager,
 };
 pub use log_storage::{
-    discover_log_storage_backends, log_storage_disable_env_set, resolve_log_storage_dispatch, LogStorageDispatch,
-    LogStorageResolution, LOG_STORAGE_DISABLE_ENV,
+    clear_log_storage_handle, current_log_storage_handle, discover_log_storage_backends, install_log_storage_handle,
+    log_storage_disable_env_set, resolve_log_storage_dispatch, spawn_log_storage_supervisor, LogStorageDispatch,
+    LogStorageHandle, LogStorageResolution, LogStorageSupervisorOutcome, LOG_STORAGE_DISABLE_ENV,
 };
 pub use protocol::{RunnerEvent, SubjectDispatch, SubjectExecutionFact};
 pub use queue::{

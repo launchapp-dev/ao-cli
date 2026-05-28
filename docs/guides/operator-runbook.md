@@ -297,10 +297,9 @@ in-tree fallback log storage backend, or to whichever
 | Path | Contains |
 |---|---|
 | `<project>/.animus/` | Project-local config + workflow YAML overlays |
-| `<project>/.animus/tasks/` | Project-local task state (in-tree subject backend) |
-| `<project>/.animus/subjects/` | Project-local subject state (in-tree backends) |
-| `~/.animus/<scope>/runs/` | Workflow run history + per-run artifacts |
-| `~/.animus/<scope>/state/` | Compiled runtime config + event log |
+| `~/.animus/<scope>/workflow.db` | Persisted workflows, checkpoints, and subject-backed runtime records |
+| `~/.animus/<scope>/logs/` | Runtime event logs and run logs |
+| `~/.animus/<scope>/state/` | Compiled runtime config and supporting runtime state |
 | `~/.animus/plugins/` | Installed plugin binaries + `plugins.yaml` |
 | `~/.animus/trusted-signers.yaml` | Cosign trust allowlist (if you customized it) |
 
@@ -410,9 +409,10 @@ animus daemon start --autonomous            # daemon rebuilds compiled config
 animus daemon preflight                     # verify
 ```
 
-Workflow YAML overlays in `.animus/workflows*.yaml` and task/subject
-state under `.animus/tasks/` + `.animus/subjects/` are preserved
-because they're project-local, not scoped-runtime state.
+Workflow YAML overlays in `.animus/workflows*.yaml` are preserved because they
+are project-local authored config. Subject and workflow runtime state now lives
+under `~/.animus/<scope>/`, so restore the scoped runtime snapshot if you need
+the operational state back as well.
 
 ### Provider plugin returns garbage
 

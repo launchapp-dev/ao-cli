@@ -14,7 +14,7 @@ When prose and code disagree, trust the code and generated references:
 - `Cargo.toml` for current workspace members
 - `docs/reference/cli/index.md` for the current CLI tree
 - `docs/reference/mcp-tools.md` and `docs/guides/agents.md` for MCP surface docs
-- `crates/orchestrator-cli/src/cli_types/root_types.rs` for visible and hidden top-level commands
+- `crates/orchestrator-cli/src/cli_types/root_types.rs` for the current top-level commands
 - `crates/orchestrator-core/src/config.rs` for project-root resolution
 - `crates/orchestrator-core/src/services.rs` for bootstrap and state persistence
 - `crates/orchestrator-cli/src/services/operations/ops_web.rs` for how `animus web` resolves the external transport plugins
@@ -142,11 +142,6 @@ Visible top-level commands:
 - `logs`
 - `subject`
 
-Hidden/internal top-level commands:
-
-- `review`
-- `qa`
-
 Use these reference docs instead of hand-maintained summaries:
 
 - `docs/reference/cli/index.md`
@@ -156,7 +151,7 @@ Use these reference docs instead of hand-maintained summaries:
 ## Mutation Policy
 
 - Treat `~/.animus/<repo-scope>/` and `.animus/*.json` as Animus-managed state.
-- Use `animus project`, `animus queue`, `animus subject`, `animus workflow`, `animus review`, and `animus qa` commands for mutations.
+- Use `animus project`, `animus queue`, `animus subject`, `animus workflow`, `animus plugin`, and `animus pack` commands for mutations.
 - Do not hand-edit generated state JSON unless the task is explicitly about persistence or migrations.
 - Supported exception: project-local workflow YAML overlays in `.animus/workflows.yaml` and `.animus/workflows/*.yaml`.
 - In scripts and automation, always pass `--project-root "$(pwd)"`.

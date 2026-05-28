@@ -145,6 +145,7 @@ animus
 │   ├── show                 Show details of a resolved skill definition
 │   ├── update               Re-resolve one or all installed skills
 │   ├── publish              Publish a new skill version into the registry catalog
+│   ├── migrate-from-ao      Move legacy .ao/skills/ into .animus/skills/ (v0.3 → v0.4)
 │   └── registry
 │       ├── add              Register a new registry source or update an existing one
 │       ├── remove           Remove a registered registry source

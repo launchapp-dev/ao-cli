@@ -183,7 +183,7 @@ impl AoMcpServer {
 impl AoMcpServer {
     #[tool(
         name = "animus.skill.list",
-        description = "List Animus skills discoverable from this project across every source: bundled built-ins, the `animus.core-skills` pack and other installed packs, registry-tracked installs, user-scoped (~/.ao/skills), project-scoped (.ao/skills), and agent-host probes (~/.claude/skills/, ~/.codex/skills/, etc.). Optional `source` filter accepts \"builtin\", \"installed\", \"user\", \"project\", \"agent_host\", or a host id like \"claude-code\". Each result carries provenance via `source` + `source_detail` so callers can reason about trust tier.",
+        description = "List Animus skills discoverable from this project across every source: bundled built-ins, the `animus.core-skills` pack and other installed packs, registry-tracked installs, user-scoped (~/.animus/skills), project-scoped (.animus/skills), and agent-host probes (~/.claude/skills/, ~/.codex/skills/, etc.). Optional `source` filter accepts \"builtin\", \"installed\", \"user\", \"project\", \"agent_host\", or a host id like \"claude-code\". Each result carries provenance via `source` + `source_detail` so callers can reason about trust tier.",
         input_schema = ao_schema_for_type::<SkillListInput>()
     )]
     async fn ao_skill_list(&self, params: Parameters<SkillListInput>) -> Result<CallToolResult, McpError> {

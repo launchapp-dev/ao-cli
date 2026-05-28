@@ -1,13 +1,16 @@
 use crate::cli_types::{
-    SkillCommand, SkillInstallArgs, SkillListArgs, SkillPublishArgs, SkillRegistryAddArgs, SkillRegistryCommand,
-    SkillRegistryRemoveArgs, SkillSearchArgs, SkillShowArgs, SkillUpdateArgs,
+    SkillCommand, SkillInstallArgs, SkillListArgs, SkillMigrateFromAoArgs, SkillPublishArgs, SkillRegistryAddArgs,
+    SkillRegistryCommand, SkillRegistryRemoveArgs, SkillSearchArgs, SkillShowArgs, SkillUpdateArgs,
 };
 use crate::{conflict_error, invalid_input_error, not_found_error, print_value, unavailable_error};
 use anyhow::{Context, Result};
 use orchestrator_config::skill_definition::SkillDefinition;
 use orchestrator_config::skill_resolution::{list_available_skills, resolve_skill};
 use orchestrator_config::skill_scoping::{
-    load_markdown_skill_file, load_skill_sources, markdown_skill_file_for_path, project_markdown_skills_dir,
+    legacy_project_markdown_skills_dir, legacy_project_yaml_skills_dir, legacy_user_markdown_skills_dir,
+    legacy_user_yaml_skills_dir, load_markdown_skill_file, load_skill_sources, markdown_skill_file_for_path,
+    migrate_legacy_skills_from_ao, project_markdown_skills_dir, project_skills_dir, user_markdown_skills_dir,
+    user_skills_dir, MigrateFromAoOutcome,
 };
 use semver::Version;
 use sha2::{Digest, Sha256};
@@ -751,6 +754,78 @@ fn handle_show(args: SkillShowArgs, project_root: &str, json: bool) -> Result<()
     }
 }
 
+fn outcome_to_json(outcome: &MigrateFromAoOutcome) -> serde_json::Value {
+    serde_json::json!({
+        "scope": outcome.scope,
+        "legacy_path": outcome.legacy_path,
+        "animus_path": outcome.animus_path,
+        "moved": outcome.moved,
+        "already_migrated": outcome.already_migrated,
+        "entries_moved": outcome.entries_moved,
+        "notes": outcome.notes,
+    })
+}
+
+fn migrate_one(legacy: &Path, new: &Path, scope: &'static str, dry_run: bool) -> Result<MigrateFromAoOutcome> {
+    if dry_run {
+        let mut outcome = MigrateFromAoOutcome {
+            scope,
+            legacy_path: legacy.to_path_buf(),
+            animus_path: new.to_path_buf(),
+            ..Default::default()
+        };
+        if !legacy.exists() {
+            outcome.notes.push("dry-run: no legacy directory found".to_string());
+        } else {
+            outcome.notes.push(format!("dry-run: would move entries from {} to {}", legacy.display(), new.display()));
+        }
+        return Ok(outcome);
+    }
+    migrate_legacy_skills_from_ao(legacy, new, scope)
+        .with_context(|| format!("{}-scope migration ({} -> {})", scope, legacy.display(), new.display()))
+}
+
+fn handle_migrate_from_ao(args: SkillMigrateFromAoArgs, project_root: &str, json: bool) -> Result<()> {
+    let project_root_path = Path::new(project_root);
+    let mut outcomes: Vec<MigrateFromAoOutcome> = Vec::new();
+
+    // Project scope: markdown skills dir + yaml skill_definitions dir.
+    outcomes.push(migrate_one(
+        &legacy_project_markdown_skills_dir(project_root_path),
+        &project_markdown_skills_dir(project_root_path),
+        "project-skills",
+        args.dry_run,
+    )?);
+    outcomes.push(migrate_one(
+        &legacy_project_yaml_skills_dir(project_root_path),
+        &project_skills_dir(project_root_path),
+        "project-skill-definitions",
+        args.dry_run,
+    )?);
+
+    if !args.project_only {
+        outcomes.push(migrate_one(
+            &legacy_user_markdown_skills_dir(),
+            &user_markdown_skills_dir(),
+            "user-skills",
+            args.dry_run,
+        )?);
+        outcomes.push(migrate_one(
+            &legacy_user_yaml_skills_dir(),
+            &user_skills_dir(),
+            "user-skill-definitions",
+            args.dry_run,
+        )?);
+    }
+
+    let payload = serde_json::json!({
+        "dry_run": args.dry_run,
+        "project_only": args.project_only,
+        "scopes": outcomes.iter().map(outcome_to_json).collect::<Vec<_>>(),
+    });
+    print_value(payload, json)
+}
+
 pub(crate) async fn handle_skill(command: SkillCommand, project_root: &str, json: bool) -> Result<()> {
     match command {
         SkillCommand::Search(args) => handle_search(args, project_root, json),
@@ -764,5 +839,6 @@ pub(crate) async fn handle_skill(command: SkillCommand, project_root: &str, json
             SkillRegistryCommand::Remove(args) => handle_registry_remove(args, project_root, json),
             SkillRegistryCommand::List => handle_registry_list(project_root, json),
         },
+        SkillCommand::MigrateFromAo(args) => handle_migrate_from_ao(args, project_root, json),
     }
 }

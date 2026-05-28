@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Internal
+
+- **`feat(protocol)`: add `TransportBackend` + `WebUi` variants to `PluginKind`.**
+  The typed `PluginKind` enum in `animus-plugin-protocol` previously only
+  modeled `provider` / `subject_backend` / `task_backend` /
+  `trigger_backend` / `log_storage_backend` / `custom`, so first-party
+  `transport_backend` (consumed by `ops_web.rs`) and `web_ui` (legacy
+  `partition_transport_plugins` path) plugins landed in
+  `PluginKind::Other(...)` for any caller using the typed helper.
+  Adds `PLUGIN_KIND_TRANSPORT_BACKEND` / `PLUGIN_KIND_WEB_UI` constants
+  with matching enum variants, round-trip serde tests, and an updated
+  `protocol_drift` allowlist. Wire shape is unchanged. Follow-up: bump
+  the upstream `launchapp-dev/animus-protocol` crate to mirror the new
+  variants and remove the allowlist entries.
+
 ## [0.4.15] - 2026-05-28
 
 Second audit-remediation release. Lands the 8 remaining P2 findings the

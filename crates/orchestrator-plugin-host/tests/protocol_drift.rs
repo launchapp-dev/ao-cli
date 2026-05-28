@@ -353,6 +353,18 @@ fn protocol_public_surface_does_not_drift_against_standalone() {
         "PluginKind",
         "TriggerActionHint",
         "TriggerAckStatus",
+        // p3housekeeping/j2-pluginkind-variants (2026-05): typed
+        // PluginKind variants for the two first-party plugin roles the
+        // host already dispatches by raw string — `transport_backend`
+        // (consumed by `ops_web.rs`) and `web_ui` (legacy
+        // `partition_transport_plugins` path). The wire shape is
+        // unchanged. TODO: drop these allowlist entries once the
+        // standalone `launchapp-dev/animus-protocol` repo is bumped to
+        // include both variants.
+        "PluginKind.TransportBackend",
+        "PluginKind.WebUi",
+        "PLUGIN_KIND_TRANSPORT_BACKEND",
+        "PLUGIN_KIND_WEB_UI",
     ];
 
     let unexpected_findings: Vec<&DriftFinding> =

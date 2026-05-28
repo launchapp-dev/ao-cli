@@ -76,6 +76,20 @@ pub const PLUGIN_KIND_TRIGGER_BACKEND: &str = "trigger_backend";
 /// `events.jsonl`.
 pub const PLUGIN_KIND_LOG_STORAGE_BACKEND: &str = "log_storage_backend";
 
+/// Plugin kind for transport backend plugins (HTTP, GraphQL, gRPC, ...).
+///
+/// Transport backends expose the daemon's control surface over a network
+/// protocol so out-of-tree web UIs and SDKs can talk to it. Discovered and
+/// spawned by `animus web serve` alongside any installed `web_ui` plugin.
+pub const PLUGIN_KIND_TRANSPORT_BACKEND: &str = "transport_backend";
+
+/// Plugin kind for web UI plugins.
+///
+/// Web UI plugins ship the assets and entry-point for a browser-facing
+/// dashboard. They are spawned together with a matching
+/// [`PLUGIN_KIND_TRANSPORT_BACKEND`] by `animus web serve`.
+pub const PLUGIN_KIND_WEB_UI: &str = "web_ui";
+
 /// Method name for the log-storage `log/entry` notification.
 ///
 /// Emitted by any supervised plugin to forward a structured log entry to
@@ -128,6 +142,10 @@ pub enum PluginKind {
     TriggerBackend,
     /// Log storage backend plugin. See [`PLUGIN_KIND_LOG_STORAGE_BACKEND`].
     LogStorageBackend,
+    /// Transport backend plugin. See [`PLUGIN_KIND_TRANSPORT_BACKEND`].
+    TransportBackend,
+    /// Web UI plugin. See [`PLUGIN_KIND_WEB_UI`].
+    WebUi,
     /// Generic custom plugin. See [`PLUGIN_KIND_CUSTOM`].
     Custom,
     /// Any kind not understood by this crate version. Preserves the wire
@@ -145,6 +163,8 @@ impl PluginKind {
             PluginKind::TaskBackend => PLUGIN_KIND_TASK_BACKEND,
             PluginKind::TriggerBackend => PLUGIN_KIND_TRIGGER_BACKEND,
             PluginKind::LogStorageBackend => PLUGIN_KIND_LOG_STORAGE_BACKEND,
+            PluginKind::TransportBackend => PLUGIN_KIND_TRANSPORT_BACKEND,
+            PluginKind::WebUi => PLUGIN_KIND_WEB_UI,
             PluginKind::Custom => PLUGIN_KIND_CUSTOM,
             PluginKind::Other(value) => value.as_str(),
         }
@@ -174,6 +194,8 @@ impl From<String> for PluginKind {
             PLUGIN_KIND_TASK_BACKEND => PluginKind::TaskBackend,
             PLUGIN_KIND_TRIGGER_BACKEND => PluginKind::TriggerBackend,
             PLUGIN_KIND_LOG_STORAGE_BACKEND => PluginKind::LogStorageBackend,
+            PLUGIN_KIND_TRANSPORT_BACKEND => PluginKind::TransportBackend,
+            PLUGIN_KIND_WEB_UI => PluginKind::WebUi,
             PLUGIN_KIND_CUSTOM => PluginKind::Custom,
             _ => PluginKind::Other(value),
         }
@@ -970,6 +992,8 @@ mod tests {
             (PluginKind::TaskBackend, "task_backend"),
             (PluginKind::TriggerBackend, "trigger_backend"),
             (PluginKind::LogStorageBackend, "log_storage_backend"),
+            (PluginKind::TransportBackend, "transport_backend"),
+            (PluginKind::WebUi, "web_ui"),
             (PluginKind::Custom, "custom"),
         ] {
             assert!(variant.is_known(), "{variant:?} should be known");

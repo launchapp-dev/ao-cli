@@ -1,0 +1,136 @@
+# Organization Meetings: Weekly Status Rollup
+#
+# Single-phase workflow that aggregates the week's meetings into a status
+# doc. Intended to be invoked manually at the end of the week, or wired to
+# a schedule (see docs/customizing.md).
+#
+# This workflow does NOT re-read raw notes for each meeting. It assumes
+# the per-meeting `prep-and-followup` workflow has already run, and that
+# the caller has collected each meeting's `synthesize_weekly` phase
+# output (a JSON object with decisions / blockers / theme) into a single
+# input bundle passed via `--description`. The aggregator phase then
+# folds those entries into the weekly status doc.
+#
+# The reason for the explicit collection step: today the per-meeting
+# `synthesize_weekly` phase emits a phase_result but does NOT
+# automatically persist a `weekly_entry` field back onto the meeting
+# subject. Until that subject-write primitive lands, the caller is
+# responsible for collecting the phase outputs from
+# `~/.animus/<repo-scope>/state/workflows/<workflow-id>/phase-outputs/synthesize_weekly.json`
+# and passing them in. See README.md for the documented one-liner.
+
+agents:
+  weekly-aggregator:
+    description: |
+      Reads the week's meeting subjects and produces a single status doc
+      grouping decisions taken, blockers raised, and recurring themes.
+    system_prompt: |
+      You synthesize the principal's week into a one-page status doc. You
+      will be given a list of meetings, each with a 3-bullet entry
+      (decisions / blockers / theme).
+
+      Output shape:
+        - Decisions This Week: bulleted list, grouped by area when
+                               possible (people, product, customers,
+                               vendors, hiring). Each bullet ends with
+                               the meeting it came from in parens.
+        - Blockers Raised:     bulleted list with proposed unblock owner
+                               where obvious; otherwise leave owner
+                               unassigned.
+        - Recurring Themes:    1-3 phrases that appear in multiple
+                               meetings. If a theme shows up only once,
+                               do NOT include it here.
+        - Quiet Areas:         areas that had no meetings this week and
+                               may deserve attention. Be honest — if you
+                               can't tell, say so.
+
+      Hard rules:
+        - Do not invent decisions or blockers that are not present in the
+          input. If the input is thin, the output is thin.
+        - Do not list a theme as "recurring" unless you can name at least
+          two meetings that share it.
+        - Stay under 400 words total.
+    model: claude-sonnet-4-6
+    tool: claude
+
+phases:
+  aggregate_weekly_status:
+    mode: agent
+    agent: weekly-aggregator
+    directive: |
+      Aggregate the week's meetings into the status doc.
+
+      Source of truth for "the week's meetings": the dispatch envelope's
+      `description`. The caller is expected to pre-filter by the
+      reporting window (default last 7 days) and pass one JSON object
+      per meeting. Each object is the per-meeting `synthesize_weekly`
+      phase output — it always carries `decisions`, `blockers`, and
+      `theme`, and the caller's collection step may augment it with a
+      `workflow_id`, `completed_at`, or `meeting_id` for attribution.
+
+      Be tolerant of envelope shapes:
+        - If an entry has `payload`, read `decisions` / `blockers` /
+          `theme` from `payload`.
+        - Otherwise read those fields off the entry directly.
+        - Use `workflow_id`, `meeting_id`, or any title field present
+          for attribution in the rendered bullets. If none are present,
+          render the decision/blocker without an attribution suffix.
+
+      The canonical invocation is shown in the pack README — the
+      caller's shell does the project-scoped collection via
+      `animus workflow list --project-root` + `animus output
+      phase-outputs --project-root` so meetings from other projects on
+      the same machine cannot leak in.
+
+      If the description is empty or has no entries, return a
+      phase_result with all four arrays empty and a `skipped_meetings`
+      note explaining that no entries were supplied. Do NOT fabricate
+      decisions or blockers when input is missing.
+
+      Produce the four-section status doc. Emit it as the phase result.
+    output_contract:
+      kind: phase_result
+      required_fields:
+        - decisions
+        - blockers
+        - themes
+      fields:
+        decisions:
+          type: array
+          description: Decisions taken across the week, with the meeting they came from.
+          items:
+            type: string
+        blockers:
+          type: array
+          description: Blockers raised across the week, with proposed unblock owner where known.
+          items:
+            type: string
+        themes:
+          type: array
+          description: 1-3 recurring themes that span multiple meetings.
+          items:
+            type: string
+        quiet_areas:
+          type: array
+          description: Areas with no meetings this week that may deserve attention.
+          items:
+            type: string
+        skipped_meetings:
+          type: array
+          description: Meetings that had no weekly_entry and were skipped.
+          items:
+            type: string
+    decision_contract:
+      min_confidence: 0.6
+      max_risk: low
+      allow_missing_decision: false
+
+workflows:
+  - id: animus.organization-meetings/weekly-status
+    name: Weekly Status Rollup
+    description: |
+      End-of-week aggregator. Reads the per-meeting weekly_entry contributions
+      from the past 7 days and produces a single status doc covering
+      decisions taken, blockers raised, recurring themes, and quiet areas.
+    phases:
+      - aggregate_weekly_status

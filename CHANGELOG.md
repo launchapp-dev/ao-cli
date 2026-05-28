@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`fix(mcp)`: per-project plugin registry cache (audit H1).** `AoMcpServer`
+  used to memoize a single `PluginRegistry` for the lifetime of the server.
+  An MCP `animus.plugin.call` against `/repo/a` would warm the cache, and a
+  later call against `/repo/b` would silently reuse `/repo/a`'s discovered
+  plugin set — running the wrong binary. The cache is now a
+  `HashMap<PathBuf, Arc<Mutex<PluginRegistry>>>` keyed by the canonical
+  `project_root` (`canonicalize_lossy`). When no override is supplied, the
+  server's `default_project_root` is canonicalized and used as the key —
+  there is no separate sentinel. Install/uninstall/marketplace-update all
+  clear the entire cache so the next call rediscovers freshly mutated
+  binaries.
+- **`fix(mcp)`: plumb project_root + force_rewrite_lockfile through MCP
+  install/uninstall (audit H2).** `animus.plugin.install` and
+  `animus.plugin.uninstall` used to pass `project_root: None` to
+  `run_plugin_install` / `run_plugin_uninstall`, so the install-time
+  lockfile + audit log silently fell through to `~/.animus/plugins.lock`
+  instead of the project-local `.animus/plugins.lock`. Both tools now
+  accept an optional `project_root` field (defaulting to the server's
+  configured root) and forward it. `animus.plugin.install` also accepts
+  `force_rewrite_lockfile: bool` to match the CLI's v0.4.14 G2 fail-closed
+  escape hatch. Tool descriptions updated.
+
 ## [0.4.14] - 2026-05-27
 
 Audit remediation release. External audit + parallel review across v0.3.2 →

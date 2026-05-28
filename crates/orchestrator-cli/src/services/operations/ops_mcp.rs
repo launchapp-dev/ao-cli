@@ -148,11 +148,26 @@ const MAX_MCP_LIST_MAX_TOKENS: usize = 12_000;
 const BATCH_RESULT_SCHEMA: &str = "animus.mcp.batch.result.v1";
 const MAX_BATCH_SIZE: usize = 100;
 
+/// Per-project plugin registry cache. Each project root gets its own
+/// `PluginRegistry` so a call against `/repo/a` never reuses plugins discovered
+/// under `/repo/b`. The outer mutex guards the map; each entry has its own
+/// mutex because `PluginRegistry::get_plugin` borrows `&mut self`.
+///
+/// Sentinel key for "no project_root provided": the server's
+/// `default_project_root` (canonicalized) is used. We never collapse "missing
+/// override" into an empty path — that would silently merge with a project
+/// root that canonicalizes to `""`. The sentinel is documented at the call
+/// site in `resolve_registry_key`.
+type PluginRegistryCache =
+    std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<std::path::PathBuf, PluginRegistryEntry>>>;
+
+type PluginRegistryEntry = std::sync::Arc<tokio::sync::Mutex<orchestrator_plugin_host::PluginRegistry>>;
+
 #[derive(Clone)]
 struct AoMcpServer {
     default_project_root: String,
     tool_router: ToolRouter<Self>,
-    plugin_registry: std::sync::Arc<tokio::sync::Mutex<Option<orchestrator_plugin_host::PluginRegistry>>>,
+    plugin_registry: PluginRegistryCache,
 }
 
 impl std::fmt::Debug for AoMcpServer {
@@ -253,7 +268,7 @@ fn new_ao_mcp_server(default_project_root: &str) -> AoMcpServer {
     AoMcpServer {
         default_project_root: default_project_root.to_string(),
         tool_router,
-        plugin_registry: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
+        plugin_registry: std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
     }
 }
 

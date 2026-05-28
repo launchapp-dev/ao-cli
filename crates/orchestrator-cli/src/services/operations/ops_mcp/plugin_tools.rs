@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use orchestrator_plugin_host::{PluginDiscovery, PluginRegistry};
 use rmcp::model::CallToolResult;
@@ -12,6 +12,7 @@ use crate::services::operations::ops_plugin::{
     run_plugin_info, run_plugin_install, run_plugin_list, run_plugin_ping, run_plugin_uninstall, PluginInfoRequest,
     PluginInstallRequest, PluginListRequest, PluginPingRequest, PluginUninstallRequest,
 };
+use crate::services::runtime::canonicalize_lossy;
 
 fn anyhow_to_mcp(err: anyhow::Error) -> McpError {
     let chain: Vec<String> = err.chain().map(|cause| cause.to_string()).collect();
@@ -123,10 +124,25 @@ pub(super) struct PluginInstallInput {
     /// `~/.animus/trusted-signers.yaml`).
     #[serde(default)]
     trusted_signers: Option<String>,
+    /// Discard a corrupt or incompatible `.animus/plugins.lock` and start a
+    /// fresh in-memory lockfile for this install. SECURITY: this drops the
+    /// existing integrity history; only enable after auditing the lockfile
+    /// damage was not the result of tampering. Mirrors the CLI's
+    /// `--force-rewrite-lockfile` flag added in v0.4.14 (G2 fail-closed fix).
+    /// Defaults to `false` — the install fails closed when the lockfile
+    /// cannot be parsed.
+    #[serde(default)]
+    force_rewrite_lockfile: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub(super) struct PluginUninstallInput {
+    /// Override the resolved project root. When omitted, the server uses
+    /// its configured default project root. The resolved value is forwarded
+    /// to the uninstall pipeline so the project-local `.animus/plugins.lock`
+    /// and audit log are updated (when present), matching the CLI surface.
+    #[serde(default)]
+    project_root: Option<String>,
     /// Logical plugin name to uninstall.
     name: String,
     /// Override the plugin install directory. Takes precedence over
@@ -140,14 +156,45 @@ impl AoMcpServer {
         normalize_non_empty(override_root).unwrap_or_else(|| self.default_project_root.clone())
     }
 
-    async fn ensure_plugin_registry(&self, project_root: &str) -> Result<(), McpError> {
+    /// Build the cache key for the plugin registry. We canonicalize so two
+    /// spellings of the same root (relative vs absolute, symlinked vs real)
+    /// share a single registry. When canonicalization fails (e.g. path does
+    /// not yet exist on disk) we fall back to the raw `PathBuf`, matching the
+    /// rule used elsewhere in the CLI (see `canonicalize_lossy`).
+    ///
+    /// Sentinel: when the caller does not provide a project_root override,
+    /// `project_root_or_default` resolves to the server's
+    /// `default_project_root`, which is also canonicalized here. There is no
+    /// separate "global" entry — every cache entry is keyed by a real path,
+    /// even the default. This avoids the trap of two empty/sentinel paths
+    /// colliding with a project root whose canonical form is the same.
+    fn registry_cache_key(project_root: &str) -> PathBuf {
+        PathBuf::from(canonicalize_lossy(project_root))
+    }
+
+    /// Resolve (or build) the per-project `PluginRegistry`. The returned
+    /// `Arc<Mutex<PluginRegistry>>` is cached under the canonical project
+    /// root so cross-project calls never see each other's discovered plugin
+    /// sets.
+    async fn registry_for(&self, project_root: &str) -> Result<PluginRegistryEntry, McpError> {
+        let key = Self::registry_cache_key(project_root);
         let mut guard = self.plugin_registry.lock().await;
-        if guard.is_none() {
-            let registry = PluginRegistry::discover(Path::new(project_root))
-                .map_err(|err| McpError::internal_error(format!("plugin discovery failed: {err}"), None))?;
-            *guard = Some(registry);
+        if let Some(entry) = guard.get(&key) {
+            return Ok(entry.clone());
         }
-        Ok(())
+        let registry = PluginRegistry::discover(Path::new(project_root))
+            .map_err(|err| McpError::internal_error(format!("plugin discovery failed: {err}"), None))?;
+        let entry: PluginRegistryEntry = std::sync::Arc::new(tokio::sync::Mutex::new(registry));
+        guard.insert(key, entry.clone());
+        Ok(entry)
+    }
+
+    /// Drop all cached registries. Called after install/uninstall so the next
+    /// MCP call rediscovers the freshly mutated plugin set across every
+    /// project root the server has touched.
+    async fn invalidate_plugin_registry_cache(&self) {
+        let mut guard = self.plugin_registry.lock().await;
+        guard.clear();
     }
 }
 
@@ -231,10 +278,8 @@ impl AoMcpServer {
             return Err(McpError::invalid_params("method must not be empty", None));
         }
 
-        self.ensure_plugin_registry(&project_root).await?;
-        let mut guard = self.plugin_registry.lock().await;
-        let registry =
-            guard.as_mut().ok_or_else(|| McpError::internal_error("plugin registry not initialized", None))?;
+        let registry_entry = self.registry_for(&project_root).await?;
+        let mut registry = registry_entry.lock().await;
         let host = registry
             .get_plugin(&trimmed_name)
             .await
@@ -255,7 +300,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "animus.plugin.install",
-        description = "Install an Animus plugin binary. Exactly one of `source` (public GitHub repo slug like `owner/repo[@tag]`), `path` (local filesystem path), or `url` (https download) must be provided. When `url` is set, `sha256` is required for integrity verification. The plugin is copied into the install directory (`$ANIMUS_PLUGIN_DIR` or `~/.animus/plugins/`, overridable via `plugin_dir`), made executable, probed via `--manifest`, and registered in `~/.animus/plugins.yaml`. Returns name, installed_path, sha256, manifest, plugins_yaml, and provenance fields (source_kind, origin, release_tag, asset_name, sha256_verified).",
+        description = "Install an Animus plugin binary. Exactly one of `source` (public GitHub repo slug like `owner/repo[@tag]`), `path` (local filesystem path), or `url` (https download) must be provided. When `url` is set, `sha256` is required for integrity verification. The plugin is copied into the install directory (`$ANIMUS_PLUGIN_DIR` or `~/.animus/plugins/`, overridable via `plugin_dir`), made executable, probed via `--manifest`, and registered in `~/.animus/plugins.yaml`. `project_root` is forwarded to the install pipeline so the project-local `.animus/plugins.lock` participates in the install-time integrity check (rather than falling through to `~/.animus/plugins.lock`). Set `force_rewrite_lockfile=true` to discard a corrupt lockfile (mirrors the CLI `--force-rewrite-lockfile` flag added in v0.4.14). Returns name, installed_path, sha256, manifest, plugins_yaml, and provenance fields (source_kind, origin, release_tag, asset_name, sha256_verified).",
         input_schema = ao_schema_for_type::<PluginInstallInput>()
     )]
     async fn ao_plugin_install(&self, params: Parameters<PluginInstallInput>) -> Result<CallToolResult, McpError> {
@@ -273,6 +318,7 @@ impl AoMcpServer {
             require_signature,
             skip_signature,
             trusted_signers,
+            force_rewrite_lockfile,
         } = params.0;
         // Resolve to the server's default project root when the caller did
         // not override it. Forwarding the project root is what makes the
@@ -302,19 +348,17 @@ impl AoMcpServer {
             // still lands in trusted-orgs.yaml after a successful install.
             yes: true,
             project_root: Some(resolved_project_root),
-            // MCP-driven installs default to fail-closed on a corrupt
-            // lockfile. Operators must rerun via CLI with
-            // `--force-rewrite-lockfile` after auditing the file.
-            force_rewrite_lockfile: false,
+            // Authenticated escape hatch for a corrupt lockfile. Defaults to
+            // `false` (fail-closed) so that the G2 v0.4.14 fix still holds for
+            // MCP callers who don't opt in.
+            force_rewrite_lockfile: force_rewrite_lockfile.unwrap_or(false),
         })
         .await
         .map_err(anyhow_to_mcp)?;
-        // Drop the cached plugin registry so subsequent calls re-discover the
-        // freshly installed binary.
-        {
-            let mut guard = self.plugin_registry.lock().await;
-            *guard = None;
-        }
+        // Drop every cached plugin registry so subsequent calls (against
+        // either this project root or any other) re-discover the freshly
+        // installed binary.
+        self.invalidate_plugin_registry_cache().await;
         Ok(CallToolResult::structured(json!({
             "tool": "animus.plugin.install",
             "result": output,
@@ -323,19 +367,21 @@ impl AoMcpServer {
 
     #[tool(
         name = "animus.plugin.uninstall",
-        description = "Remove an installed plugin. Deletes the binary from the install directory (`$ANIMUS_PLUGIN_DIR` or `~/.animus/plugins/`, overridable via `plugin_dir`) and drops the entry from `~/.animus/plugins.yaml`. Returns `{name, removed_path, plugins_yaml}`. Fails with `not_found` when the plugin is not installed.",
+        description = "Remove an installed plugin. Deletes the binary from the install directory (`$ANIMUS_PLUGIN_DIR` or `~/.animus/plugins/`, overridable via `plugin_dir`) and drops the entry from `~/.animus/plugins.yaml`. `project_root` is forwarded to the uninstall pipeline so the project-local `.animus/plugins.lock` and audit log are updated (when present). Returns `{name, removed_path, plugins_yaml}`. Fails with `not_found` when the plugin is not installed.",
         input_schema = ao_schema_for_type::<PluginUninstallInput>()
     )]
     async fn ao_plugin_uninstall(&self, params: Parameters<PluginUninstallInput>) -> Result<CallToolResult, McpError> {
-        let PluginUninstallInput { name, plugin_dir } = params.0;
-        let output = run_plugin_uninstall(PluginUninstallRequest { name, plugin_dir, project_root: None })
-            .map_err(anyhow_to_mcp)?;
-        // Drop the cached plugin registry so subsequent calls re-discover the
-        // current set of installed plugins.
-        {
-            let mut guard = self.plugin_registry.lock().await;
-            *guard = None;
-        }
+        let PluginUninstallInput { project_root, name, plugin_dir } = params.0;
+        let resolved_project_root = self.project_root_or_default(project_root);
+        let output = run_plugin_uninstall(PluginUninstallRequest {
+            name,
+            plugin_dir,
+            project_root: Some(resolved_project_root),
+        })
+        .map_err(anyhow_to_mcp)?;
+        // Drop every cached plugin registry so subsequent calls re-discover
+        // the current set of installed plugins.
+        self.invalidate_plugin_registry_cache().await;
         Ok(CallToolResult::structured(json!({
             "tool": "animus.plugin.uninstall",
             "result": output,
@@ -508,6 +554,7 @@ exit 0
         // Uninstall via MCP.
         let uninstall_result = server
             .ao_plugin_uninstall(Parameters(PluginUninstallInput {
+                project_root: None,
                 name: "animus-plugin-mcp-fixture".to_string(),
                 plugin_dir: None,
             }))
@@ -562,6 +609,7 @@ exit 0
 
         let err = server
             .ao_plugin_uninstall(Parameters(PluginUninstallInput {
+                project_root: None,
                 name: "animus-plugin-does-not-exist".to_string(),
                 plugin_dir: None,
             }))
@@ -587,5 +635,179 @@ exit 0
             .expect_err("missing plugin should error");
         let msg = err.message.to_string();
         assert!(msg.contains("not found") || msg.contains("plugin"), "error should mention plugin: {msg}");
+    }
+
+    /// Drop a fake plugin binary at `<project_root>/.animus/plugins/<name>` so
+    /// project-local discovery picks it up. Returns the binary path so callers
+    /// can assert against it.
+    fn stage_project_local_plugin(project: &std::path::Path, name: &str, kind: &str) -> std::path::PathBuf {
+        let plugins_dir = project.join(".animus").join("plugins");
+        fs::create_dir_all(&plugins_dir).expect("create project plugins dir");
+        let binary = plugins_dir.join(name);
+        write_fake_plugin_binary(&binary, name, kind);
+        binary
+    }
+
+    /// H1 regression: the per-project registry cache must NOT bleed across
+    /// project roots. Two MCP calls against different project_roots in
+    /// sequence each get their own registry entry, populated from that
+    /// project's `.animus/plugins/` directory.
+    #[tokio::test]
+    async fn plugin_registry_cache_is_keyed_by_project_root() {
+        let (_home, _lock, _guards) = isolated_plugin_dirs();
+
+        let project_a = TempDir::new().expect("project a tempdir");
+        let project_b = TempDir::new().expect("project b tempdir");
+        // Each project gets a distinctly-named local plugin so we can assert
+        // discovery hit the right tree (and didn't leak the other project's
+        // plugin set through the cache).
+        stage_project_local_plugin(project_a.path(), "animus-plugin-h1-alpha", "subject_backend");
+        stage_project_local_plugin(project_b.path(), "animus-plugin-h1-beta", "subject_backend");
+
+        // The server's "default" project_root is irrelevant here — every call
+        // overrides project_root explicitly.
+        let server = new_ao_mcp_server(&project_root_for(&project_a));
+
+        let root_a = project_root_for(&project_a);
+        let root_b = project_root_for(&project_b);
+
+        // Call against project A. Should see ONLY the alpha plugin.
+        let result_a = server
+            .ao_plugin_list(Parameters(PluginListInput {
+                project_root: Some(root_a.clone()),
+                include_system_path: Some(false),
+            }))
+            .await
+            .expect("list against project a should succeed");
+        let plugins_a: Vec<String> = data(&result_a)
+            .pointer("/plugins")
+            .and_then(Value::as_array)
+            .expect("plugins array for project a")
+            .iter()
+            .filter_map(|p| p.get("name").and_then(Value::as_str).map(str::to_string))
+            .collect();
+        assert!(plugins_a.iter().any(|n| n == "animus-plugin-h1-alpha"), "project a should see alpha: {plugins_a:?}");
+        assert!(!plugins_a.iter().any(|n| n == "animus-plugin-h1-beta"), "project a must NOT see beta: {plugins_a:?}");
+
+        // Warm the cache for project A via registry_for so we can assert the
+        // cache shape directly.
+        let entry_a_first = server.registry_for(&root_a).await.expect("registry for a");
+
+        // Now call against project B. Should see ONLY the beta plugin.
+        let result_b = server
+            .ao_plugin_list(Parameters(PluginListInput {
+                project_root: Some(root_b.clone()),
+                include_system_path: Some(false),
+            }))
+            .await
+            .expect("list against project b should succeed");
+        let plugins_b: Vec<String> = data(&result_b)
+            .pointer("/plugins")
+            .and_then(Value::as_array)
+            .expect("plugins array for project b")
+            .iter()
+            .filter_map(|p| p.get("name").and_then(Value::as_str).map(str::to_string))
+            .collect();
+        assert!(plugins_b.iter().any(|n| n == "animus-plugin-h1-beta"), "project b should see beta: {plugins_b:?}");
+        assert!(
+            !plugins_b.iter().any(|n| n == "animus-plugin-h1-alpha"),
+            "project b must NOT see alpha: {plugins_b:?}"
+        );
+
+        // Cache must contain two distinct entries keyed by canonical project
+        // roots, and the entry for A must be the same Arc on re-lookup
+        // (proof of cache hit, not rebuild).
+        let entry_a_second = server.registry_for(&root_a).await.expect("registry for a again");
+        assert!(
+            std::sync::Arc::ptr_eq(&entry_a_first, &entry_a_second),
+            "second registry_for against project a should return the cached Arc"
+        );
+        let entry_b = server.registry_for(&root_b).await.expect("registry for b");
+        assert!(!std::sync::Arc::ptr_eq(&entry_a_first, &entry_b), "projects a and b must have distinct registry Arcs");
+
+        let cache = server.plugin_registry.lock().await;
+        let key_a = AoMcpServer::registry_cache_key(&root_a);
+        let key_b = AoMcpServer::registry_cache_key(&root_b);
+        assert!(cache.contains_key(&key_a), "cache should contain key for project a");
+        assert!(cache.contains_key(&key_b), "cache should contain key for project b");
+        assert_ne!(key_a, key_b, "cache keys for distinct projects must differ");
+    }
+
+    /// H2 regression: MCP-driven install must forward the resolved
+    /// `project_root` so the install-time lockfile lands at
+    /// `<project_root>/.animus/plugins.lock`, NOT at the global
+    /// `~/.animus/plugins.lock`. v0.4.14 made the lockfile check fail-closed;
+    /// this asserts MCP callers get the project-scoped path.
+    #[tokio::test]
+    async fn plugin_install_writes_project_local_lockfile() {
+        let (_home, _lock, _guards) = isolated_plugin_dirs();
+        let project = TempDir::new().expect("project tempdir");
+        // PluginLockfile::default_path() prefers the project-local lockfile
+        // when either the lockfile already exists OR the `.animus/` directory
+        // exists. Create the directory up-front so the project-local path
+        // wins — this matches how real Animus projects work (init creates
+        // the dir).
+        fs::create_dir_all(project.path().join(".animus")).expect("create .animus dir");
+        // The server's default project_root is irrelevant — install passes
+        // project_root explicitly.
+        let server = new_ao_mcp_server(&project_root_for(&project));
+
+        let staging = TempDir::new().expect("staging dir");
+        let stage_path = staging.path().join("animus-plugin-h2-fixture");
+        write_fake_plugin_binary(&stage_path, "animus-plugin-h2-fixture", "subject_backend");
+
+        let project_root_str = project_root_for(&project);
+        let install_result = server
+            .ao_plugin_install(Parameters(PluginInstallInput {
+                project_root: Some(project_root_str.clone()),
+                path: Some(stage_path.to_string_lossy().to_string()),
+                ..Default::default()
+            }))
+            .await
+            .expect("install should succeed");
+        let installed = data(&install_result);
+        assert_eq!(
+            installed.get("name").and_then(Value::as_str),
+            Some("animus-plugin-h2-fixture"),
+            "install payload should echo plugin name: {installed}"
+        );
+
+        // The project-local lockfile should now exist at
+        // `<project_root>/.animus/plugins.lock`. This proves the MCP install
+        // forwarded project_root into the install pipeline (without the
+        // forward, install would fall through to `~/.animus/plugins.lock`).
+        let project_lock = project.path().join(".animus").join("plugins.lock");
+        assert!(
+            project_lock.exists(),
+            "expected project-local lockfile at {}; install did not forward project_root",
+            project_lock.display(),
+        );
+    }
+
+    /// H2 regression: the `force_rewrite_lockfile` MCP input field is wired
+    /// into the install pipeline. We don't actually corrupt the lockfile
+    /// here — we just assert the field round-trips and the install still
+    /// succeeds with the flag enabled, matching the CLI surface.
+    #[tokio::test]
+    async fn plugin_install_accepts_force_rewrite_lockfile_flag() {
+        let (_home, _lock, _guards) = isolated_plugin_dirs();
+        let project = TempDir::new().expect("project tempdir");
+        let server = new_ao_mcp_server(&project_root_for(&project));
+
+        let staging = TempDir::new().expect("staging dir");
+        let stage_path = staging.path().join("animus-plugin-h2-force");
+        write_fake_plugin_binary(&stage_path, "animus-plugin-h2-force", "subject_backend");
+
+        let install_result = server
+            .ao_plugin_install(Parameters(PluginInstallInput {
+                project_root: Some(project_root_for(&project)),
+                path: Some(stage_path.to_string_lossy().to_string()),
+                force_rewrite_lockfile: Some(true),
+                ..Default::default()
+            }))
+            .await
+            .expect("install with force_rewrite_lockfile should succeed");
+        let installed = data(&install_result);
+        assert_eq!(installed.get("name").and_then(Value::as_str), Some("animus-plugin-h2-force"));
     }
 }

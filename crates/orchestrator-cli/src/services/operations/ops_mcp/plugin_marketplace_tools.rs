@@ -154,8 +154,10 @@ impl AoMcpServer {
         .await
         .map_err(anyhow_to_mcp_marketplace)?;
         if output.updated > 0 {
+            // Drop every cached per-project registry so subsequent calls
+            // rediscover the freshly updated binaries.
             let mut guard = self.plugin_registry.lock().await;
-            *guard = None;
+            guard.clear();
         }
         Ok(CallToolResult::structured(json!({
             "tool": "animus.plugin.update",

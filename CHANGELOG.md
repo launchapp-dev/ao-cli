@@ -4,6 +4,38 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`chore(lint)`: strict clippy now green workspace-wide (audit J4).**
+  Resolved every `-D warnings` violation `cargo animus-lint-strict` surfaced —
+  `unnecessary_filter_map`, `derivable_impls`, `single_char_pattern`,
+  `while_let_on_iterator`, `chars_last_cmp`, `if_same_then_else`,
+  `io_other_error`, `default_constructed_unit_structs`, `vec_init_then_push`,
+  `manual_assert`, `useless_vec`, `useless_conversion`,
+  `unwrap_or_else_on_some`, `nonminimal_bool`, `err_expect`, plus six
+  `#[ignore]`-without-reason entries that already had explanatory comments
+  above them. The intentional std-`Mutex`-across-`.await` patterns in the
+  doctor / plugin-tools / e2e test modules get a scoped
+  `#[allow(clippy::await_holding_lock)]` with a note: the contended
+  resource is the process env, not the lock.
+
+### Changed
+
+- **`ci(workspace)`: gate clippy on `-D warnings` + check the whole
+  workspace in one cached job (audit J5).** Adds `-D warnings` to
+  `cargo clippy` in `rust-workspace-ci.yml` so any future regression
+  fails the PR. Replaces the four-package `cargo-check` matrix with a
+  single `cargo check --workspace --all-targets` job — one cache reuse
+  instead of four, no manual sync against `docs/guides/ci-cd.md`.
+- **`ci(drift)`: subject-protocol drift now gated alongside
+  plugin-protocol (audit J6).** Adds `protocol_drift_subject` to
+  `crates/orchestrator-plugin-host/tests/protocol_drift.rs` and exports
+  `ANIMUS_STANDALONE_SUBJECT_PATH` from `protocol-drift.yml` so any
+  divergence between the in-tree `animus-subject-protocol` and the
+  standalone `launchapp-dev/animus-protocol/animus-subject-protocol`
+  fails the build. The existing standalone-ahead entries are documented
+  in the test's `expected_drift` allowlist for the next re-sync to drain.
+
 ## [0.4.15] - 2026-05-28
 
 Second audit-remediation release. Lands the 8 remaining P2 findings the

@@ -1,17 +1,19 @@
 name: Protocol Drift
 
-# Fails fast if the in-tree `animus-plugin-protocol` crate diverges from the
-# published `launchapp-dev/animus-protocol` crate. Plugin authors depend on
-# the published crate, so any in-tree-only addition that hasn't yet shipped
-# as a standalone release means plugins built against the published crate
+# Fails fast if the in-tree `animus-plugin-protocol` or
+# `animus-subject-protocol` crates diverge from the published
+# `launchapp-dev/animus-protocol` crates. Plugin authors depend on the
+# published crates, so any in-tree-only addition that hasn't yet shipped
+# as a standalone release means plugins built against the published crates
 # can send wire shapes the in-tree host won't understand — or vice versa.
 #
-# The job clones the standalone repo at the pinned tag, exports the path to
-# its `animus-plugin-protocol/src/lib.rs`, and runs the
-# `crates/orchestrator-plugin-host/tests/protocol_drift.rs` integration test.
-# That test parses both crates with `syn`, extracts their public surface,
-# and panics if anything diverges that isn't on its `expected_in_tree_only`
-# allowlist.
+# The job clones the standalone repo at the pinned tag, exports the paths
+# to both `animus-plugin-protocol/src/lib.rs` and
+# `animus-subject-protocol/src/lib.rs`, and runs the
+# `crates/orchestrator-plugin-host/tests/protocol_drift.rs` integration
+# tests. Those tests parse both crates with `syn`, extract their public
+# surface, and panic if anything diverges that isn't on the test's
+# `expected_in_tree_only` / `expected_drift` allowlists.
 
 on:
   pull_request:
@@ -56,7 +58,7 @@ jobs:
           ref: ${{ env.STANDALONE_TAG }}
           path: animus-protocol
 
-      - name: Verify standalone lib.rs is present
+      - name: Verify standalone lib.rs files are present
         run: |
           set -euo pipefail
           STANDALONE_LIB="$GITHUB_WORKSPACE/animus-protocol/animus-plugin-protocol/src/lib.rs"
@@ -64,7 +66,13 @@ jobs:
             echo "::error::standalone animus-plugin-protocol/src/lib.rs not found at $STANDALONE_LIB"
             exit 1
           fi
-          echo "Resolved standalone lib.rs at $STANDALONE_LIB"
+          echo "Resolved standalone plugin lib.rs at $STANDALONE_LIB"
+          STANDALONE_SUBJECT_LIB="$GITHUB_WORKSPACE/animus-protocol/animus-subject-protocol/src/lib.rs"
+          if [ ! -f "$STANDALONE_SUBJECT_LIB" ]; then
+            echo "::error::standalone animus-subject-protocol/src/lib.rs not found at $STANDALONE_SUBJECT_LIB"
+            exit 1
+          fi
+          echo "Resolved standalone subject lib.rs at $STANDALONE_SUBJECT_LIB"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -74,9 +82,10 @@ jobs:
         with:
           workspaces: ao-cli
 
-      - name: Run protocol drift test
+      - name: Run protocol drift tests
         working-directory: ao-cli
         env:
           ANIMUS_STANDALONE_PROTOCOL_PATH: ${{ github.workspace }}/animus-protocol/animus-plugin-protocol/src/lib.rs
+          ANIMUS_STANDALONE_SUBJECT_PATH: ${{ github.workspace }}/animus-protocol/animus-subject-protocol/src/lib.rs
         run: |
           cargo test --locked -p orchestrator-plugin-host --test protocol_drift -- --nocapture

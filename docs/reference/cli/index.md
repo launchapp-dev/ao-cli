@@ -211,8 +211,8 @@ animus
 │   └── serve                Start the MCP server in the current process
 │
 ├── web                      Serve and open the Animus web UI
-│   ├── serve                Spawn installed transport_backend + web_ui plugins and report bound URLs
-│   └── open                 Open the Animus web UI URL in a browser (resolves via installed plugins unless --url is supplied)
+│   ├── serve                Spawn installed transport_backend + web_ui plugins and report bound URLs. Requires plugins from `animus plugin install-defaults --include-transports`
+│   └── open                 Open the Animus web UI URL in a browser. Resolves the URL from an installed web_ui or transport_backend plugin unless --url is supplied
 │
 ├── init                     Initialize an Animus project from a template
 │   (no subcommands)         Supports registry-backed or local copy templates, plan mode, and daemon defaults
@@ -389,9 +389,9 @@ animus plugin install-defaults --include-subjects
 | `--plugin-dir <PATH>` | Override the plugin install directory. Same semantics as `animus plugin install --plugin-dir` |
 | `--force` | Reinstall plugins that are already present (default: skip with a warning) |
 | `--yes` | Auto-confirm the trust-on-first-use prompt for the `launchapp-dev` org |
-| `--include-oai-agent` | Also install `animus-provider-oai-agent` |
+| `--include-oai-agent` | Also install `animus-provider-oai-agent` (curated tag in `orchestrator-core::plugin_registry::DEFAULT_OAI_AGENT_PLUGINS`) |
 | `--include-subjects` | Also install the default subject_backend plugins (`subject-default`, `subject-requirements`, `subject-linear`, `subject-sqlite`, `subject-markdown`) |
-| `--include-transports` | Also install the default transport_backend + web_ui plugins (`transport-http`, `transport-graphql`, `web-ui`) |
+| `--include-transports` | Also install the default transport_backend + web_ui plugins (`transport-http`, `transport-graphql`, `web-ui`) that back `animus web` |
 | `--json` | Emit per-plugin results + summary as JSON |
 | `--force-rewrite-lockfile` | Discard an unparseable / schema-incompatible `plugins.lock` and rebuild a fresh lockfile for the batch. Without this flag the batch fails closed up front, *before* the per-target skip loop runs, so an all-skipped run cannot mask a corrupt lockfile. Same security caveat as `animus plugin install --force-rewrite-lockfile` |
 

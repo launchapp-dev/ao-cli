@@ -60,12 +60,12 @@ plugin (e.g. `linear`, `jira`, `github-issue`).
 
 | Tool | Description | Key Parameters |
 |---|---|---|
-| `animus.subject.list` | List subjects for a kind | `kind`, `status`, `priority`, `limit`, `offset`, `max_tokens` |
+| `animus.subject.list` | List subjects for a kind via the active `subject_backend` plugin | `kind`, `status`, `limit`, `project_root` |
 | `animus.subject.get` | Fetch a subject by wire id (`<kind>:<native_id>`) | `kind`, `id` |
-| `animus.subject.create` | Create a subject | `kind`, `title`, `description`, `priority`, `status`, `labels[]`, `input_json` |
-| `animus.subject.update` | Patch a subject's fields | `kind`, `id`, `title`, `description`, `priority`, `status`, `labels[]`, `input_json` |
-| `animus.subject.next` | Highest-priority Ready subject for a kind, or null | `kind` |
-| `animus.subject.status` | Set a subject's normalized status | `kind`, `id`, `status` |
+| `animus.subject.create` | Create a subject through the active `subject_backend` plugin | `kind`, `title`, `priority`, `status`, `labels[]`, `body`, `project_root` |
+| `animus.subject.update` | Update a subject through the active `subject_backend` plugin | `kind`, `id`, `priority`, `status`, `labels[]`, `project_root` |
+| `animus.subject.next` | Return the highest-priority Ready subject for the given kind | `kind`, `project_root` |
+| `animus.subject.status` | Set the status of a subject by id through the active `subject_backend` | `kind`, `id`, `status`, `project_root` |
 
 ---
 

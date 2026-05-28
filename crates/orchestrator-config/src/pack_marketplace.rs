@@ -364,7 +364,7 @@ fn prepare_github_git_url(url: &str, include_token: bool) -> Result<String> {
         Ok(format!("https://x-access-token:{}@github.com/{}/{}.git", token, owner, repo))
     } else if url.starts_with("https://github.com/") {
         // Embed token in HTTPS URL
-        if url.contains("@") {
+        if url.contains('@') {
             // Already has authentication
             Ok(url.to_string())
         } else {

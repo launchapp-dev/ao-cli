@@ -1785,12 +1785,12 @@ mod tests {
                 if preferred_phases.iter().any(|p| *p == phase) {
                     break;
                 }
-                if hops > 12 {
-                    panic!(
-                        "workflow never reached one of {:?}; current phase={phase} all={:?}",
-                        preferred_phases, workflow.phases
-                    );
-                }
+                assert!(
+                    hops <= 12,
+                    "workflow never reached one of {:?}; current phase={phase} all={:?}",
+                    preferred_phases,
+                    workflow.phases
+                );
                 workflow = hub
                     .workflows()
                     .complete_current_phase_with_decision(&workflow.id, None)

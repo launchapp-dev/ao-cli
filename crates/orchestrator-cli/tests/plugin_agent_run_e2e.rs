@@ -1,3 +1,8 @@
+// Tests serialize on `ENV_LOCK` to coordinate process-wide `ANIMUS_PLUGIN_PATH`
+// mutations across parallel async tests. The guard is intentionally held
+// across `.await` because the contended resource is the env, not the lock.
+#![allow(clippy::await_holding_lock)]
+
 //! Real `agent/run` integration test against the deterministic `animus-provider-mock`.
 //!
 //! Wires the SessionBackendResolver through plugin discovery (mirroring how
@@ -32,9 +37,7 @@ fn workspace_target_debug() -> PathBuf {
 
 fn ensure_mock_provider() {
     let bin = workspace_target_debug().join("animus-provider-mock");
-    if !bin.exists() {
-        panic!("animus-provider-mock binary not built; run `cargo build -p animus-provider-mock` first");
-    }
+    assert!(bin.exists(), "animus-provider-mock binary not built; run `cargo build -p animus-provider-mock` first");
 }
 
 fn build_request() -> SessionRequest {

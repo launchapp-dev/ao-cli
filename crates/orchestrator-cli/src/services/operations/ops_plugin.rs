@@ -1921,6 +1921,9 @@ async fn resolve_release_install(spec: RepoSpec, explicit_tag: Option<String>) -
     // README/LICENSE alongside the binary instead of installing whatever
     // happened to come back first in walk order.
     let lower = asset.name.to_ascii_lowercase();
+    // `lower` is already ASCII-lowercased above, so the `ends_with` checks are case-insensitive
+    // by construction; clippy's heuristic doesn't see the prior normalization.
+    #[allow(clippy::case_sensitive_file_extension_comparisons)]
     let binary_path = if lower.ends_with(".tar.gz") || lower.ends_with(".tgz") {
         let extract_dir = temp_path.join("extracted");
         extract_tarball(&asset_path, &extract_dir, &spec.repo)?
@@ -3192,12 +3195,10 @@ mod tests {
         let allowlisted = cfg.matches_repo(&slug);
         assert!(!allowlisted, "non-allowlisted repo must NOT match the narrowed yaml");
 
-        let identity_regex = Some(cfg.identity_regexp_for(owner, repo));
+        let identity_regex = cfg.identity_regexp_for(owner, repo);
         let gated = if let SignatureStatus::Verified { .. } = &mapped {
             if !cfg.matches_repo(&slug) {
-                SignatureStatus::UntrustedSigner {
-                    identity_pattern: identity_regex.unwrap_or_else(|| ".*".to_string()),
-                }
+                SignatureStatus::UntrustedSigner { identity_pattern: identity_regex }
             } else {
                 mapped
             }
@@ -3235,7 +3236,7 @@ mod tests {
             bundle_path: "/tmp/x.bundle".to_string(),
         };
         assert_eq!(verified.label(), "verified");
-        let blocked = matches!(&verified, SignatureStatus::Unsigned { .. }) && true;
+        let blocked = matches!(&verified, SignatureStatus::Unsigned { .. });
         assert!(!blocked, "Verified must never refuse install");
     }
 

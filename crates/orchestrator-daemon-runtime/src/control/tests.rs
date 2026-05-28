@@ -764,7 +764,7 @@ async fn plugin_list_without_routing_returns_not_supported() {
 #[tokio::test]
 async fn daemon_status_routes_through_configured_routing() {
     tokio::time::timeout(TEST_TIMEOUT, async {
-        let routing_arc: Arc<dyn DaemonOpsRouting> = Arc::new(StubDaemonOpsRouting::default());
+        let routing_arc: Arc<dyn DaemonOpsRouting> = Arc::new(StubDaemonOpsRouting);
         let surface =
             InProcessSurface::builder(PathBuf::from("/tmp/c6-test-daemon")).daemon_ops_routing(routing_arc).build();
         let surface_arc: Arc<dyn ControlSurface> = Arc::new(surface);
@@ -793,7 +793,7 @@ async fn daemon_status_routes_through_configured_routing() {
 #[tokio::test]
 async fn daemon_health_routes_through_configured_routing() {
     tokio::time::timeout(TEST_TIMEOUT, async {
-        let routing_arc: Arc<dyn DaemonOpsRouting> = Arc::new(StubDaemonOpsRouting::default());
+        let routing_arc: Arc<dyn DaemonOpsRouting> = Arc::new(StubDaemonOpsRouting);
         let surface =
             InProcessSurface::builder(PathBuf::from("/tmp/c6-test-health")).daemon_ops_routing(routing_arc).build();
         let surface_arc: Arc<dyn ControlSurface> = Arc::new(surface);

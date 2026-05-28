@@ -193,9 +193,9 @@ fn build_context_from_plugin(
         .and_then(serde_json::Value::as_object)
         .map(|map| {
             map.iter()
-                .filter_map(|(k, v)| match v {
-                    serde_json::Value::String(s) => Some((k.clone(), s.clone())),
-                    other => Some((k.clone(), other.to_string())),
+                .map(|(k, v)| match v {
+                    serde_json::Value::String(s) => (k.clone(), s.clone()),
+                    other => (k.clone(), other.to_string()),
                 })
                 .collect()
         })

@@ -163,7 +163,7 @@ impl Audit {
         }
         self.rotate_if_needed()?;
         let mut handle = OpenOptions::new().create(true).append(true).open(&self.path)?;
-        let mut line = serde_json::to_string(event).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let mut line = serde_json::to_string(event).map_err(std::io::Error::other)?;
         line.push('\n');
         handle.write_all(line.as_bytes())?;
         handle.flush()?;

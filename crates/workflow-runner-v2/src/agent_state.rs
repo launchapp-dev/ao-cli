@@ -289,7 +289,7 @@ mod tests {
     // 0 of the 2 messages just sent. Always passes in isolation
     // (`cargo test -p workflow-runner-v2 --lib agent_state`). Suspect a parallel
     // test mutating HOME or scope-dir state that this serializer doesn't cover.
-    #[ignore]
+    #[ignore = "intermittent parallel-test race on scoped_state_serializer; passes in isolation"]
     #[test]
     fn messages_can_be_filtered_by_agent_and_channel() {
         let _serial = crate::test_env::scoped_state_serializer();

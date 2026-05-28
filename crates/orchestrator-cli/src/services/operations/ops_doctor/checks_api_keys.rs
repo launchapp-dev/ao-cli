@@ -17,14 +17,10 @@ fn conventional_keys_for(plugin_name: &str) -> Vec<&'static str> {
     let lc = plugin_name.to_ascii_lowercase();
     if lc.contains("claude") {
         vec!["ANTHROPIC_API_KEY"]
-    } else if lc.contains("codex") {
+    } else if lc.contains("codex") || lc.contains("opencode") || lc.contains("oai") {
         vec!["OPENAI_API_KEY"]
     } else if lc.contains("gemini") {
         vec!["GEMINI_API_KEY", "GOOGLE_API_KEY"]
-    } else if lc.contains("opencode") {
-        vec!["OPENAI_API_KEY"]
-    } else if lc.contains("oai") {
-        vec!["OPENAI_API_KEY"]
     } else if lc.contains("linear") {
         vec!["LINEAR_API_TOKEN"]
     } else {

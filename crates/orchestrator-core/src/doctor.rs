@@ -220,13 +220,7 @@ impl DoctorReport {
         #[cfg(unix)]
         {
             let socket_exists = runner_socket_path.exists();
-            let check_status = if socket_exists {
-                DoctorCheckStatus::Ok
-            } else if agent_runner_available {
-                DoctorCheckStatus::Warn
-            } else {
-                DoctorCheckStatus::Warn
-            };
+            let check_status = if socket_exists { DoctorCheckStatus::Ok } else { DoctorCheckStatus::Warn };
 
             let details = if socket_exists {
                 format!("runner socket detected at {}", runner_socket_path.display())

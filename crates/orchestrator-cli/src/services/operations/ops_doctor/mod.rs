@@ -357,6 +357,10 @@ fn failed(id: &str, details: String) -> FixOutcome {
 }
 
 #[cfg(test)]
+// Tests serialize on a process-wide `Mutex<()>` to coordinate `HOME`/env
+// mutations across parallel async tests. The guard is intentionally held
+// across `.await` because the contended resource is the env, not the lock.
+#[allow(clippy::await_holding_lock)]
 mod tests {
     use super::*;
     use protocol::test_utils::EnvVarGuard;

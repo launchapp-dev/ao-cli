@@ -157,6 +157,7 @@ impl Supervisor {
                 prompt,
                 runtime_contract,
                 cwd,
+                project_root,
                 env,
                 timeout_secs,
                 &run_id,

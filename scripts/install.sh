@@ -16,7 +16,7 @@ set -euo pipefail
 
 REPO="launchapp-dev/animus-cli"
 INSTALL_DIR="${ANIMUS_INSTALL_DIR:-${HOME}/.local/bin}"
-BINARIES=(animus agent-runner animus-oai-runner ao-workflow-runner)
+BINARIES=(animus agent-runner animus-oai-runner animus-workflow-runner)
 
 info()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn()  { printf '\033[1;33mwarn:\033[0m %s\n' "$*"; }
@@ -104,6 +104,16 @@ main() {
 
   mkdir -p "${INSTALL_DIR}"
 
+  # During the v0.4.x → v0.5 rename rollout the release archive may ship the
+  # legacy `ao-workflow-runner` name OR the new `animus-workflow-runner` name
+  # depending on whether the publishing pipeline has caught up. Map the
+  # legacy filename onto the new name so this installer keeps working against
+  # already-published v0.4.x archives (and ANIMUS_VERSION-pinned downgrades).
+  if [[ ! -f "${stage_dir}/animus-workflow-runner" ]] && [[ -f "${stage_dir}/ao-workflow-runner" ]]; then
+    info "archive ships the legacy ao-workflow-runner name; mapping to animus-workflow-runner"
+    cp "${stage_dir}/ao-workflow-runner" "${stage_dir}/animus-workflow-runner"
+  fi
+
   for bin in "${BINARIES[@]}"; do
     if [[ ! -f "${stage_dir}/${bin}" ]]; then
       error "Binary '${bin}' not found in archive"
@@ -120,11 +130,20 @@ main() {
   rm -f "${INSTALL_DIR}/ao"
   ln -s "${INSTALL_DIR}/animus" "${INSTALL_DIR}/ao"
 
+  # Create 'ao-workflow-runner' as a symlink to 'animus-workflow-runner' for
+  # back-compat with v0.4.x daemons that spawned the legacy name. The
+  # v0.4.16+ daemon's runner-resolver prefers the new name but will fall
+  # back to this symlink so an in-progress upgrade (new binary, old daemon
+  # PID still spawning the old name) keeps dispatching workflows.
+  rm -f "${INSTALL_DIR}/ao-workflow-runner"
+  ln -s "${INSTALL_DIR}/animus-workflow-runner" "${INSTALL_DIR}/ao-workflow-runner"
+
   info "Installed to ${INSTALL_DIR}:"
   for bin in "${BINARIES[@]}"; do
     printf '  %s\n' "${INSTALL_DIR}/${bin}"
   done
   printf '  %s → %s (symlink)\n' "${INSTALL_DIR}/ao" "animus"
+  printf '  %s → %s (back-compat symlink)\n' "${INSTALL_DIR}/ao-workflow-runner" "animus-workflow-runner"
 
   if ! echo "${PATH}" | tr ':' '\n' | grep -qxF "${INSTALL_DIR}"; then
     warn "${INSTALL_DIR} is not in your PATH"

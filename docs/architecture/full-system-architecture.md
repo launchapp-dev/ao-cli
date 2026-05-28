@@ -49,7 +49,7 @@ The release/runtime binary set is:
 | `animus` | `orchestrator-cli` | User-facing CLI, MCP endpoint, operations |
 | `agent-runner` | `agent-runner` | Agent execution service |
 | `animus-oai-runner` | `oai-runner` | OpenAI-compatible runner |
-| `ao-workflow-runner` | `workflow-runner-v2` | Workflow phase execution runner |
+| `animus-workflow-runner` | `workflow-runner-v2` | Workflow phase execution runner (v0.4.x `ao-workflow-runner` retained as installer-created back-compat symlink) |
 
 ## Process Topology
 
@@ -61,7 +61,7 @@ flowchart TB
     CTRL["daemon control socket"]
     CORE["FileServiceHub<br/>orchestrator-core"]
     DAEMON["daemon runtime"]
-    WFR["ao-workflow-runner"]
+    WFR["animus-workflow-runner"]
     AR["agent-runner"]
     SESSION["orchestrator-session-host"]
     PHOST["orchestrator-plugin-host"]
@@ -249,7 +249,7 @@ The high-level daemon loop is:
 3. Resolve queue and subject state.
 4. Apply capacity limits and schedule headroom.
 5. Build a ready dispatch plan.
-6. Spawn `ao-workflow-runner` processes for selected work.
+6. Spawn `animus-workflow-runner` processes for selected work.
 7. Process due triggers when capacity allows.
 8. Capture workflow events, completion, and terminal projection.
 9. Persist metrics, logs, and queue state.

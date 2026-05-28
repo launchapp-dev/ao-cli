@@ -49,7 +49,7 @@ Download the archive for your platform, extract it, and place these binaries on 
 - `animus`
 - `agent-runner`
 - `animus-oai-runner`
-- `ao-workflow-runner`
+- `animus-workflow-runner` (v0.4.16+ name; the v0.4.x `ao-workflow-runner` is created as a back-compat symlink by `scripts/install.sh`)
 
 (The v0.4.11 `llm-cli-wrapper` binary was removed in v0.4.12 — the crate
 was deleted and its functionality folded into `agent-runner` and the

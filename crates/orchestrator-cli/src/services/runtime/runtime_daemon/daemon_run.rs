@@ -387,7 +387,7 @@ pub(super) async fn apply_resumed_outcome_in_tree(
 
     // Codex round-7 round-3 P1: if the advance moved the workflow into a
     // NEW Running phase (not the terminal Completed/Failed state) we are
-    // running outside of any ao-workflow-runner process, so nothing is
+    // running outside of any animus-workflow-runner process, so nothing is
     // driving the new phase. The next zombie sweep would cancel the
     // workflow. Pause it so the operator can resume it under a fresh
     // runner via `animus workflow resume <id>`. Terminal advances

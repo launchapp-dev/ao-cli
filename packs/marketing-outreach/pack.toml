@@ -1,0 +1,45 @@
+schema = "animus.pack.v1"
+id = "animus.marketing-outreach"
+version = "0.1.0"
+kind = "domain-pack"
+title = "Marketing Outreach"
+description = "First-party reference pack: autonomous prospect outreach. Enrich inbound and outbound prospect signals, draft personalized 3-line messages, suggest follow-up cadence, and flag for human review before send."
+
+[ownership]
+# This pack lives in-tree as the second non-coding reference (the first
+# being customer-support). It is loaded in "project" mode (copied or
+# symlinked into a project's overlay), not bundled into the CLI binary.
+mode = "project"
+
+[compatibility]
+ao_core = ">=0.4.0"
+workflow_schema = "v2"
+subject_schema = "v2"
+
+[subjects]
+# This pack composes against the `prospect` subject kind owned by an
+# external backend plugin (animus-subject-markdown by default — HubSpot
+# / Salesforce / Apollo backends are planned).
+kinds = ["prospect"]
+default_kind = "prospect"
+
+[workflows]
+root = "workflows"
+# The pack registry requires every exported workflow ref to be prefixed
+# with the pack id. The YAML file declares the workflow with the same
+# fully-qualified id so dispatch resolves correctly.
+exports = [
+  "animus.marketing-outreach/triage-prospect",
+]
+
+[permissions]
+# The triage workflow itself only needs to talk to Animus MCP to update
+# subject status. It does not need shell, git, or filesystem tools.
+tools = ["animus"]
+
+# NOTE: Plugin prerequisites (animus-subject-markdown,
+# animus-provider-claude) are NOT listed in [[dependencies]] — that
+# section validates pack ids (lowercase letters/numbers/./-/_) and
+# rejects GitHub-style plugin slugs that contain `/`. Plugin
+# prerequisites are documented in README.md and installed by
+# scripts/setup.sh via `animus plugin install ...`.

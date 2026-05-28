@@ -1,0 +1,295 @@
+# Marketing Outreach: Prospect Triage Workflow
+#
+# Four phases:
+#   1. enrich            — gather public context on company + role
+#                          (recent funding, hiring, news mentions) into
+#                          a structured research blob.
+#   2. draft_outreach    — write a 3-line personalized outreach message
+#                          tuned to the prospect's source channel and
+#                          best angle, plus a subject line.
+#   3. suggest_cadence   — recommend follow-up timing and content
+#                          (e.g. "wait 4 days, send check-in if no
+#                          reply").
+#   4. flag_for_review   — set prospect subject status to blocked and
+#                          add awaiting-human-review label so a human
+#                          approves the draft before send.
+#
+# The default model assignments use Claude. Swap to OpenAI or Gemini by
+# changing the `model` and `tool` fields on each agent — see docs/customizing.md.
+
+agents:
+  prospect-enricher:
+    description: |
+      Researcher. Reads a single prospect record and produces a structured
+      JSON research blob: company summary, recent public signals, and the
+      single best angle for outreach. Does not draft a message.
+    system_prompt: |
+      You are a B2B prospect research analyst. Your only job is to read
+      one prospect record (company, contact name, role, source, context
+      notes) and return a structured research blob.
+
+      Discipline rules:
+        - Only assert facts the prospect record states OR that a careful
+          analyst could infer from widely-public knowledge of the company
+          (e.g. "Stripe is a payments company" is fine; "Stripe is hiring
+          for an X role this quarter" is NOT fine unless the prospect
+          record says so).
+        - When the record is thin, say so honestly. Never invent funding
+          rounds, headcount, customers, or quotes.
+        - "Recent signals" must be things the record explicitly mentions
+          (e.g. "attended our pricing webinar last week", "Series B
+          announced in record context notes") or near-tautologies. If
+          the record gives you nothing, return an empty signals array.
+
+      Pick exactly ONE "best angle" — the single most credible reason
+      this person should care about a reply right now. Examples:
+        - "post-funding scaling pain"     (after a recent raise)
+        - "attended a recent webinar"     (warm inbound signal)
+        - "hiring for the role we solve"  (job-post signal)
+        - "competitive displacement"      (switching from a named tool)
+        - "industry timing"               (regulatory or market moment)
+        - "cold but role-fit"             (no signal beyond title)
+
+      Return ONLY a JSON object. No prose.
+    model: claude-sonnet-4-6
+    tool: claude
+
+  outreach-drafter:
+    description: |
+      Stronger model. Drafts a personalized 3-line outreach message and
+      subject line, tuned to the source channel and the best angle from
+      the enrichment phase.
+    system_prompt: |
+      You are a senior outbound SDR who writes the outreach that actually
+      gets replies. You write 3 lines. Never more. Each line earns the
+      next one.
+
+      Tone by source channel:
+        - demo_request        — assume they want a reply; confirm + offer
+                                 concrete next step (calendar link or 2
+                                 time options).
+        - webinar_attendee    — warm, reference the specific session
+                                 without re-pitching the content.
+        - cold_outbound       — open with the signal/angle (not "I hope
+                                 this finds you well"), one specific
+                                 value claim, one soft ask.
+        - account_based       — name the company-specific context the
+                                 enrichment surfaced; one decision-maker
+                                 question, never a calendar push.
+        - referral            — name the referrer in line 1; the rest is
+                                 the SDR's normal pitch.
+
+      Subject line rules:
+        - Under 60 characters.
+        - No clickbait, no all-caps, no emoji.
+        - Reference the angle or the prospect's company; never our
+          product name in the subject.
+
+      Output: a complete message body (3 lines, plain text) plus the
+      subject line. Sign as "the team" — do not invent a name.
+    model: claude-sonnet-4-6
+    tool: claude
+
+  cadence-planner:
+    description: |
+      Cheap model. Given the angle + draft message, recommends follow-up
+      timing and a one-line content summary for each touch.
+    system_prompt: |
+      You are an outbound cadence planner. Given a prospect, an angle,
+      and an initial draft, return a short follow-up plan.
+
+      Constraints:
+        - 2-4 follow-up touches. Never more. Cadence fatigue is real.
+        - Each touch has: wait_days (integer), channel (email | linkedin
+          | call), and content (one sentence summarizing what to say —
+          NOT a full draft).
+        - Stop the sequence on any reply. Mention this once in
+          "stop_conditions".
+        - Be honest about effort tier: if the prospect signal is cold,
+          recommend 2 touches max. If warm (demo_request, webinar), a
+          3-4 touch sequence is fair.
+
+      Return ONLY a JSON object with cadence steps + stop conditions.
+      No prose.
+    model: claude-haiku-4-5
+    tool: claude
+
+  human-handoff:
+    description: |
+      Concise summarizer. Reads the enrichment + draft + cadence and
+      produces a TL;DR for the reviewer so they can approve fast.
+    system_prompt: |
+      You are the human-handoff coordinator. Given an enriched prospect,
+      a drafted outreach message, and a cadence plan, produce a short
+      brief for the human reviewer:
+
+      - 1-sentence TL;DR of who the prospect is and why now
+      - 1-sentence summary of what the draft asks for
+      - Up to 3 suggested edits (e.g. "tighten line 2", "verify the
+        funding claim", "swap calendar link for an open question")
+      - Recommend: send-as-is | minor-edit | rewrite | skip
+
+      Keep it under 120 words total. The reviewer is busy.
+    model: claude-haiku-4-5
+    tool: claude
+
+phases:
+  enrich:
+    mode: agent
+    agent: prospect-enricher
+    directive: |
+      Read the prospect in your subject (title + description). Return a
+      JSON research blob: { "company_summary": "...",
+      "recent_signals": [...], "best_angle": "..." }. Keep
+      company_summary under 40 words. Each signal under 20 words.
+      Never invent facts the record does not support.
+    output_contract:
+      kind: phase_result
+      required_fields:
+        - company_summary
+        - best_angle
+      fields:
+        company_summary:
+          type: string
+          description: 1-2 sentences on what the company does and its stage. No invented facts.
+        recent_signals:
+          type: array
+          description: Public signals the record explicitly mentions (funding, hiring, news). Empty array is fine.
+          items:
+            type: string
+        best_angle:
+          type: string
+          description: The single most credible reason this prospect should care about a reply now.
+    decision_contract:
+      min_confidence: 0.6
+      max_risk: low
+      allow_missing_decision: false
+
+  draft_outreach:
+    mode: agent
+    agent: outreach-drafter
+    directive: |
+      Draft a 3-line personalized outreach message and a subject line
+      for the prospect in your subject. Use the enrichment's best_angle
+      to pick tone and opener. Do NOT send the message — output it as
+      the phase result for a human reviewer.
+    output_contract:
+      kind: phase_result
+      required_fields:
+        - subject_line
+        - draft_message
+      fields:
+        subject_line:
+          type: string
+          description: The email/message subject line. Under 60 characters.
+        draft_message:
+          type: string
+          description: The full 3-line outreach body, ready for human review.
+        assumptions:
+          type: array
+          description: Facts about the prospect or company the draft assumes; reviewer must verify.
+          items:
+            type: string
+    decision_contract:
+      min_confidence: 0.7
+      max_risk: medium
+      allow_missing_decision: false
+
+  suggest_cadence:
+    mode: agent
+    agent: cadence-planner
+    directive: |
+      Read the enrichment and draft for this prospect. Produce a JSON
+      follow-up cadence plan: { "touches": [ { wait_days, channel,
+      content } ], "stop_conditions": [...] }. 2-4 touches max.
+    output_contract:
+      kind: phase_result
+      required_fields:
+        - touches
+      fields:
+        touches:
+          type: array
+          description: Ordered follow-up touches. 2-4 entries. Each touch is an object with wait_days, channel, and content.
+          items:
+            type: object
+            description: A single follow-up touch — wait_days (integer), channel (email|linkedin|call), content (one-sentence summary).
+        stop_conditions:
+          type: array
+          description: Conditions that should halt the sequence (e.g. "any reply", "out-of-office bounce").
+          items:
+            type: string
+    decision_contract:
+      min_confidence: 0.6
+      max_risk: low
+      allow_missing_decision: false
+
+  flag_for_review:
+    mode: agent
+    agent: human-handoff
+    directive: |
+      Mark the prospect as ready for the human reviewer. The Animus
+      subject protocol only accepts the normalized statuses `ready`,
+      `in-progress`, `blocked`, `done`, or `cancelled` — there is no
+      free-form `awaiting_review` value. Use `blocked` to indicate the
+      prospect is awaiting human action, and add a label or comment
+      (via `animus subject update --kind prospect --id <id> --labels
+      "awaiting-human-review"`) to communicate the specific reason.
+
+      Use the Animus MCP tools (the agent runtime allows `animus.*`
+      calls but typically does not allow free-form shell).
+
+      IMPORTANT: This pack's documented dry-run dispatches workflows via
+      `animus workflow run --title ...` because there is no
+      first-class `--subject-id` flag yet. In that path, `subject.id` is
+      the prospect title string (e.g. "PRS-1001: Jamie Lee — Series B
+      SaaS founder") and is NOT a real backend-qualified prospect id.
+
+      Only proceed with the mutating MCP calls below when `subject.id`
+      is an EXACT backend-qualified prospect id. Concretely, treat the
+      subject id as valid only when ALL are true:
+        - It contains NO whitespace
+        - It contains NO colon followed by a space (excludes titles
+          like "PRS-1001: Jamie Lee...")
+        - It matches one of these shapes:
+            * `^PRS-\d+$` (e.g. "PRS-1001", the markdown file stem)
+            * `^prospect:[\w.-]+$` (backend-qualified)
+
+      For any other shape (custom-subject dry-run, or unexpected
+      value), SKIP the mutating calls and emit a verdict noting
+      "subject id is a custom title or unrecognized shape, not a
+      backend prospect id — flag step skipped". This is the honest
+      behavior until `--subject-id` ships.
+
+      When proceeding, fetch the prospect first so the label update is
+      additive rather than a destructive replace:
+
+        1. Call `animus.subject.get` with { kind: "prospect", id: <id> }
+           and read the existing labels from the result.
+        2. Call `animus.subject.status` with { kind: "prospect", id:
+           <id>, status: "blocked" }.
+        3. Call `animus.subject.update` with { kind: "prospect", id:
+           <id>, labels: [...existing_labels, "awaiting-human-review"] }
+           (deduplicate so "awaiting-human-review" is not added twice).
+
+      The subject id is in the dispatch envelope as `subject.id`. Emit a
+      short verdict confirming the status change.
+    capabilities:
+      mutates_state: true
+    decision_contract:
+      min_confidence: 0.7
+      max_risk: low
+      allow_missing_decision: false
+
+workflows:
+  - id: animus.marketing-outreach/triage-prospect
+    name: Triage Marketing Prospect
+    description: |
+      End-to-end prospect triage: enrich public context, draft a 3-line
+      personalized outreach, suggest a follow-up cadence, and flag for
+      human review. The reviewer approves and sends from their email /
+      LinkedIn / CRM of choice.
+    phases:
+      - enrich
+      - draft_outreach
+      - suggest_cadence
+      - flag_for_review

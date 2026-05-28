@@ -1,0 +1,45 @@
+schema = "animus.pack.v1"
+id = "animus.sales-pipeline"
+version = "0.1.0"
+kind = "domain-pack"
+title = "Sales Pipeline"
+description = "First-party reference pack: autonomous lead qualification. Enrich incoming leads, score against BANT, draft discovery questions, recommend a next action, flag for rep review."
+
+[ownership]
+# This pack lives in-tree as a reference for non-coding use cases.
+# It is loaded in "project" mode (copied/symlinked into a project's
+# overlay), not bundled into the CLI binary.
+mode = "project"
+
+[compatibility]
+ao_core = ">=0.4.0"
+workflow_schema = "v2"
+subject_schema = "v2"
+
+[subjects]
+# This pack composes against the `lead` subject kind owned by an
+# external backend plugin (animus-subject-markdown by default — Salesforce /
+# HubSpot / Linear backends are planned).
+kinds = ["lead"]
+default_kind = "lead"
+
+[workflows]
+root = "workflows"
+# The pack registry requires every exported workflow ref to be prefixed
+# with the pack id. The YAML file declares the workflow with the same
+# fully-qualified id so dispatch resolves correctly.
+exports = [
+  "animus.sales-pipeline/qualify-lead",
+]
+
+[permissions]
+# The qualify workflow itself only needs to talk to Animus MCP to update
+# subject status. It does not need shell, git, or filesystem tools.
+tools = ["animus"]
+
+# NOTE: Plugin prerequisites (animus-subject-markdown,
+# animus-provider-claude) are NOT listed in [[dependencies]] — that
+# section validates pack ids (lowercase letters/numbers/./-/_) and
+# rejects GitHub-style plugin slugs that contain `/`. Plugin
+# prerequisites are documented in README.md and installed by
+# scripts/setup.sh via `animus plugin install ...`.

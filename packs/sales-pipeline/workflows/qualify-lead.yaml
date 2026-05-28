@@ -1,0 +1,337 @@
+# Sales Pipeline: Lead Qualification Workflow
+#
+# Five phases:
+#   1. enrich            — pull firmographics and fit signals from company + contact
+#   2. qualify           — BANT scorecard (budget / authority / need / timing)
+#   3. draft_discovery   — 5 targeted discovery questions for the first call
+#   4. recommend_next    — book demo | send case study | nurture | disqualify
+#   5. flag_for_review   — set lead status to blocked + label awaiting-rep-review
+#
+# The default model assignments use Claude. Swap to OpenAI or Gemini by
+# changing the `model` and `tool` fields on each agent — see docs/customizing.md.
+
+agents:
+  lead-enricher:
+    description: |
+      Reasoning model. Reads a single lead (company + contact metadata)
+      and produces a structured firmographics + signals snapshot.
+      Does not score or recommend; just builds the context other phases
+      will reason against.
+    system_prompt: |
+      You are a B2B sales research analyst. Your only job is to read one
+      inbound lead and return a structured firmographics + signals snapshot
+      that downstream phases will use to qualify the account.
+
+      Firmographics to capture (best-effort from the lead context;
+      explicitly say "unknown" rather than invent):
+        - industry        — short tag (saas, fintech, healthcare, ...)
+        - employee_band   — one of <50, 50-200, 200-1000, 1000-5000, 5000+
+        - region          — country or "global"
+        - tech_stack      — list of tools mentioned or inferable from the
+                            contact's signature, domain, or job title
+        - recent_events   — funding, leadership change, product launch,
+                            re-org. Empty array if nothing public-looking.
+
+      Signals (qualitative — short strings, max 5):
+        - phrases like "evaluating vendors", "RFP", "pilot", "POC",
+          "side-by-side comparison", "renewal", "migrating from X" are
+          strong intent signals. Pull them verbatim from the lead body
+          where possible.
+
+      Fit score (0-100): your honest read of how well this lead matches
+      a generic mid-market B2B SaaS ICP. Treat 70+ as "worth qualifying",
+      40-70 as "qualify with caution", under 40 as "likely nurture".
+
+      Return ONLY a JSON object. No prose.
+    model: claude-sonnet-4-6
+    tool: claude
+
+  lead-qualifier:
+    description: |
+      Reasoning model. Scores the enriched lead against a BANT scorecard
+      and decides whether the lead is sales-qualified. Does not draft
+      discovery questions or recommend actions.
+    system_prompt: |
+      You are a senior account executive applying the BANT framework
+      (Budget / Authority / Need / Timing). You score one lead at a time
+      and produce a structured verdict.
+
+      For each BANT dimension return:
+        - score: one of strong | moderate | weak | unknown
+        - evidence: 1 short phrase quoting or paraphrasing the lead
+
+      Definitions:
+        - budget    — economic signal (job title with budget authority,
+                      explicit price/contract mention, company size, recent
+                      funding). "unknown" if no signal either way.
+        - authority — does this contact decide or do they influence?
+                      VP/Director/Head/Founder reads as decider; IC reads
+                      as influencer unless they say otherwise.
+        - need      — is there a clear pain or use case in the lead text?
+                      Generic interest = weak. Specific problem with
+                      consequences = strong.
+        - timing    — explicit timeline ("this quarter", "by EOY",
+                      "renewal in 60 days") = strong. No timeline = weak.
+
+      Then set:
+        - qualified: true if at least 3 of 4 dimensions are moderate-or-stronger
+          AND none are explicitly weak on a deal-breaker dimension (need or
+          timing). Otherwise false.
+        - reasoning: one sentence summarizing the call.
+
+      Be honest. Marking a weak lead as qualified wastes a rep's hour.
+
+      Return ONLY a JSON object. No prose.
+    model: claude-sonnet-4-6
+    tool: claude
+
+  discovery-writer:
+    description: |
+      Reasoning model. Writes 5 targeted, non-generic discovery questions
+      for the rep's first call, ordered by what unlocks the most context.
+    system_prompt: |
+      You are a senior account executive preparing for a first discovery
+      call. You write 5 questions that are specific to THIS lead's
+      industry, role, and stated pain — not the generic SPIN script.
+
+      Rules:
+        - Each question must reference something concrete from the
+          enriched context (industry, tool stack, recent event, quoted
+          pain). Never write "what are your goals" or "what's your
+          biggest challenge" — those are signal-zero.
+        - Order the questions: open the call with the lowest-stakes
+          context question, end with the question whose answer most
+          determines whether to advance or disqualify.
+        - For each question include a 1-line `rationale` explaining what
+          information it unlocks ("confirms budget authority",
+          "validates timing claim", "tests need depth", ...).
+
+      Output a JSON object with `questions` as an ordered array of
+      `{ question, rationale }`. No prose outside the JSON.
+    model: claude-sonnet-4-6
+    tool: claude
+
+  next-action-recommender:
+    description: |
+      Cheap, fast recommender. Given the qualification verdict and the
+      discovery plan, picks the next action and an owner posture.
+    system_prompt: |
+      You are the sales pipeline coordinator. Given a BANT verdict and a
+      discovery plan, recommend exactly one next action:
+
+        - book-demo         — qualified=true and timing is strong/moderate;
+                              rep should reach out to schedule within 48h
+        - send-case-study   — qualified=true but timing is weak or unknown;
+                              warm the lead with relevant proof
+        - nurture           — qualified=false but signals are not actively
+                              negative; add to drip and revisit in 30 days
+        - disqualify        — qualified=false AND need or budget is
+                              explicitly weak; politely close the loop
+
+      Also return:
+        - owner_hint: one of inbound-rep | enterprise-ae | smb-ae | nurture-bot
+        - urgency: one of same-day | this-week | this-month | none
+        - rationale: 1 sentence
+
+      Return ONLY a JSON object. No prose.
+    model: claude-haiku-4-5
+    tool: claude
+
+  rep-handoff:
+    description: |
+      Concise handoff agent. Flags the lead for the rep, updates the
+      subject status, and stamps the awaiting-rep-review label so a human
+      sees it before any outbound message is sent.
+    system_prompt: |
+      You are the rep-handoff coordinator. Your job is to mark the lead
+      as ready for human review and emit a short verdict for the audit
+      trail. You never send an outbound message yourself — Animus stops
+      at human review by design.
+    model: claude-haiku-4-5
+    tool: claude
+
+phases:
+  enrich:
+    mode: agent
+    agent: lead-enricher
+    directive: |
+      Read the lead in your subject (title + description: company,
+      contact, role, inbound channel, body). Return a JSON snapshot:
+      { "firmographics": { ... }, "fit_score": 0-100, "signals": [ ... ] }.
+      Keep signals to max 5 short strings.
+    output_contract:
+      kind: phase_result
+      required_fields:
+        - firmographics
+        - fit_score
+      fields:
+        firmographics:
+          type: object
+          description: industry, employee_band, region, tech_stack, recent_events.
+        fit_score:
+          type: number
+          description: 0-100 ICP fit score. 70+ = worth qualifying.
+        signals:
+          type: array
+          description: Up to 5 verbatim or paraphrased intent signals from the lead.
+          items:
+            type: string
+    decision_contract:
+      min_confidence: 0.6
+      max_risk: low
+      allow_missing_decision: false
+
+  qualify:
+    mode: agent
+    agent: lead-qualifier
+    directive: |
+      Read the lead and the enrichment snapshot from the previous phase.
+      Score the lead against BANT. Return a JSON verdict:
+      { "bant": { "budget": {...}, "authority": {...}, "need": {...},
+      "timing": {...} }, "qualified": bool, "reasoning": "..." }.
+    output_contract:
+      kind: phase_result
+      required_fields:
+        - bant
+        - qualified
+      fields:
+        bant:
+          type: object
+          description: Per-dimension { score, evidence } for budget, authority, need, timing.
+        qualified:
+          type: boolean
+          description: True if at least 3 of 4 BANT dimensions are moderate-or-stronger and need/timing are not weak.
+        reasoning:
+          type: string
+          description: One-sentence summary of the qualification call.
+    decision_contract:
+      min_confidence: 0.6
+      max_risk: medium
+      allow_missing_decision: false
+
+  draft_discovery:
+    mode: agent
+    agent: discovery-writer
+    directive: |
+      Using the enrichment + qualification context for this lead, write
+      5 discovery questions specific to this account. Order them: lowest
+      stakes first, most decisive last. For each question include a
+      1-line rationale.
+    output_contract:
+      kind: phase_result
+      required_fields:
+        - questions
+      fields:
+        questions:
+          type: array
+          description: Ordered list of { question, rationale } objects.
+          items:
+            type: object
+    decision_contract:
+      min_confidence: 0.6
+      max_risk: low
+      allow_missing_decision: false
+
+  recommend_next:
+    mode: agent
+    agent: next-action-recommender
+    directive: |
+      Read the BANT verdict and the discovery plan. Recommend exactly
+      one next action: book-demo | send-case-study | nurture | disqualify.
+      Also return owner_hint, urgency, and a 1-sentence rationale.
+    output_contract:
+      kind: phase_result
+      required_fields:
+        - recommended_next
+        - urgency
+      fields:
+        recommended_next:
+          type: string
+          description: One of book-demo, send-case-study, nurture, disqualify.
+        owner_hint:
+          type: string
+          description: One of inbound-rep, enterprise-ae, smb-ae, nurture-bot.
+        urgency:
+          type: string
+          description: One of same-day, this-week, this-month, none.
+        rationale:
+          type: string
+          description: One-sentence justification.
+    decision_contract:
+      min_confidence: 0.6
+      max_risk: low
+      allow_missing_decision: false
+
+  flag_for_review:
+    mode: agent
+    agent: rep-handoff
+    directive: |
+      Mark the lead as ready for the human sales rep to review before
+      any outbound action. The Animus subject protocol only accepts
+      the normalized statuses `ready`, `in-progress`, `blocked`, `done`,
+      or `cancelled` — there is no free-form `awaiting-rep-review`
+      value. Use `blocked` to indicate the lead is awaiting human
+      action, and add a label (via `animus subject update --kind lead
+      --id <id> --labels "awaiting-rep-review"`) to communicate the
+      specific reason.
+
+      Use the Animus MCP tools (the agent runtime allows `animus.*`
+      calls but typically does not allow free-form shell).
+
+      IMPORTANT: This pack's documented dry-run dispatches workflows via
+      `animus workflow run --title ...` because there is no
+      first-class `--subject-id` flag yet. In that path, `subject.id`
+      is the lead title string (e.g. "LEAD-2001: Acme Corp - VP Eng
+      inbound demo request") and is NOT a real backend-qualified
+      lead id.
+
+      Only proceed with the mutating MCP calls below when `subject.id`
+      is an EXACT backend-qualified lead id. Concretely, treat the
+      subject id as valid only when ALL are true:
+        - It contains NO whitespace
+        - It contains NO colon followed by a space (excludes titles
+          like "LEAD-2001: Acme Corp...")
+        - It matches one of these shapes:
+            * `^LEAD-\d+$` (e.g. "LEAD-2001", the markdown file stem)
+            * `^lead:[\w.-]+$` (backend-qualified)
+
+      For any other shape (custom-subject dry-run, or unexpected
+      value), SKIP the mutating calls and emit a verdict noting
+      "subject id is a custom title or unrecognized shape, not a
+      backend lead id — flag step skipped". This is the honest
+      behavior until `--subject-id` ships.
+
+      When proceeding, fetch the lead first so the label update is
+      additive rather than a destructive replace:
+
+        1. Call `animus.subject.get` with { kind: "lead", id: <id> }
+           and read the existing labels from the result.
+        2. Call `animus.subject.status` with { kind: "lead", id: <id>,
+           status: "blocked" }.
+        3. Call `animus.subject.update` with { kind: "lead", id: <id>,
+           labels: [...existing_labels, "awaiting-rep-review"] }
+           (deduplicate so "awaiting-rep-review" is not added twice).
+
+      The subject id is in the dispatch envelope as `subject.id`. Emit
+      a short verdict confirming the status change.
+    capabilities:
+      mutates_state: true
+    decision_contract:
+      min_confidence: 0.7
+      max_risk: low
+      allow_missing_decision: false
+
+workflows:
+  - id: animus.sales-pipeline/qualify-lead
+    name: Qualify Inbound Lead
+    description: |
+      End-to-end inbound lead qualification: enrich the account, score
+      BANT, draft discovery questions, recommend a next action, and
+      flag for the rep. The rep walks in to a ready-to-call account
+      with context, questions, and a recommended posture.
+    phases:
+      - enrich
+      - qualify
+      - draft_discovery
+      - recommend_next
+      - flag_for_review

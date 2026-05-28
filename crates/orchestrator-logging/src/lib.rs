@@ -162,25 +162,34 @@ impl Logger {
     }
 
     pub fn for_project(project_root: &Path) -> Self {
-        let scope_root = match protocol_scope_root(project_root) {
-            Some(p) => p,
-            None => project_root.join(".animus"),
-        };
-        Self::open(&scope_root.join("logs"), "events.jsonl", Level::Info)
+        let logs_dir = Self::logs_dir(project_root);
+        Self::open(&logs_dir, "events.jsonl", Level::Info)
     }
 
     pub fn for_run(project_root: &Path, run_id: &str) -> Self {
-        let scope_root = match protocol_scope_root(project_root) {
-            Some(p) => p,
-            None => project_root.join(".animus"),
-        };
-        Self::open(&scope_root.join("logs").join("runs"), &format!("{run_id}.jsonl"), Level::Debug)
+        let runs_dir = Self::logs_dir(project_root).join("runs");
+        Self::open(&runs_dir, &format!("{run_id}.jsonl"), Level::Debug)
     }
 
+    /// Resolve the canonical log directory for a project. Delegates to
+    /// `protocol::scoped_state_root` so the logging crate inherits the
+    /// G1 same-origin-collision hardening; falls back to project-local
+    /// `<project>/.animus/logs` when the scoped state root cannot be
+    /// created or written (e.g. an unwritable `$HOME` on a service
+    /// account). The fallback probe is best-effort: we try to create
+    /// the logs subdirectory under the scoped root and, on failure,
+    /// surface the project-local path instead so log writes don't
+    /// silently disappear.
     pub fn logs_dir(project_root: &Path) -> PathBuf {
-        match protocol_scope_root(project_root) {
-            Some(p) => p.join("logs"),
-            None => project_root.join(".animus").join("logs"),
+        let project_local_fallback = || project_root.join(".animus").join("logs");
+        let Some(scope) = protocol::scoped_state_root(project_root) else {
+            return project_local_fallback();
+        };
+        let logs = scope.join("logs");
+        if fs::create_dir_all(&logs).is_ok() {
+            logs
+        } else {
+            project_local_fallback()
         }
     }
 
@@ -419,28 +428,6 @@ impl<'a> EntryBuilder<'a> {
     }
 }
 
-fn protocol_scope_root(project_root: &Path) -> Option<PathBuf> {
-    let home = std::env::var("HOME").ok()?;
-    let repo_scope = project_root.file_name()?.to_str()?;
-    let ao_dir = Path::new(&home).join(".animus");
-    for entry in fs::read_dir(&ao_dir).ok()? {
-        let entry = entry.ok()?;
-        let name = entry.file_name();
-        let name_str = name.to_str()?;
-        if name_str.starts_with(repo_scope) && entry.path().is_dir() {
-            let project_root_file = entry.path().join(".project-root");
-            if project_root_file.exists() {
-                if let Ok(content) = fs::read_to_string(&project_root_file) {
-                    if content.trim() == project_root.to_string_lossy().trim() {
-                        return Some(entry.path());
-                    }
-                }
-            }
-        }
-    }
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -567,5 +554,132 @@ mod tests {
 
         let entries = logger.read_entries(10, None, None);
         assert_eq!(entries.len(), 1);
+    }
+
+    #[cfg(unix)]
+    mod scope_delegation {
+        use super::*;
+        use protocol::test_utils::EnvVarGuard;
+        use std::os::unix::fs::PermissionsExt;
+        use tempfile::tempdir;
+
+        fn install_fake_git(bin: &Path, origin: &str) {
+            let git_script = bin.join("git");
+            std::fs::write(&git_script, format!("#!/bin/sh\necho '{origin}'\n")).expect("write fake git");
+            let mut perms = std::fs::metadata(&git_script).expect("metadata").permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&git_script, perms).expect("set perms");
+        }
+
+        #[test]
+        fn logs_dir_canonicalizes_noncanonical_project_root() {
+            let temp = tempdir().expect("tempdir");
+            let home = temp.path().join("home");
+            let bin = temp.path().join("bin");
+            let nested = temp.path().join("workspace").join("repo");
+            std::fs::create_dir_all(home.join(".animus")).expect("ao root");
+            std::fs::create_dir_all(&nested).expect("nested repo");
+            std::fs::create_dir_all(&bin).expect("bin");
+            install_fake_git(&bin, "git@github.com:example/canon.git");
+
+            let _home_guard = EnvVarGuard::set("HOME", Some(home.to_string_lossy().as_ref()));
+            let _path_guard = EnvVarGuard::set("PATH", Some(bin.to_string_lossy().as_ref()));
+
+            let canonical = nested.canonicalize().expect("canonicalize nested");
+            let noncanonical = temp.path().join("workspace").join("..").join("workspace").join("repo");
+
+            let canon_logs = Logger::logs_dir(&canonical);
+            let noncanon_logs = Logger::logs_dir(&noncanonical);
+
+            assert_eq!(
+                canon_logs, noncanon_logs,
+                "noncanonical input must resolve to the same scope as canonical input"
+            );
+            assert!(
+                canon_logs.starts_with(home.join(".animus")),
+                "logs must land under ~/.animus, not project-local fallback: {:?}",
+                canon_logs
+            );
+        }
+
+        #[test]
+        fn distinct_clones_of_same_origin_get_distinct_log_dirs() {
+            let temp = tempdir().expect("tempdir");
+            let home = temp.path().join("home");
+            let bin = temp.path().join("bin");
+            let clone_a = temp.path().join("clones").join("alpha");
+            let clone_b = temp.path().join("clones").join("beta");
+            std::fs::create_dir_all(home.join(".animus")).expect("ao root");
+            std::fs::create_dir_all(&clone_a).expect("clone a");
+            std::fs::create_dir_all(&clone_b).expect("clone b");
+            std::fs::create_dir_all(&bin).expect("bin");
+            install_fake_git(&bin, "git@github.com:example/shared.git");
+
+            let _home_guard = EnvVarGuard::set("HOME", Some(home.to_string_lossy().as_ref()));
+            let _path_guard = EnvVarGuard::set("PATH", Some(bin.to_string_lossy().as_ref()));
+
+            let logs_a = Logger::logs_dir(&clone_a);
+            let logs_b = Logger::logs_dir(&clone_b);
+
+            assert_ne!(logs_a, logs_b, "G1 invariant: two clones of the same origin must not share a log directory");
+            assert!(
+                logs_a.starts_with(home.join(".animus")),
+                "clone A logs must be scoped under ~/.animus: {:?}",
+                logs_a
+            );
+            assert!(
+                logs_b.starts_with(home.join(".animus")),
+                "clone B logs must be scoped under ~/.animus: {:?}",
+                logs_b
+            );
+        }
+
+        #[test]
+        fn for_project_writes_into_scoped_state_root() {
+            let temp = tempdir().expect("tempdir");
+            let home = temp.path().join("home");
+            let bin = temp.path().join("bin");
+            let repo = temp.path().join("repo");
+            std::fs::create_dir_all(home.join(".animus")).expect("ao root");
+            std::fs::create_dir_all(&repo).expect("repo");
+            std::fs::create_dir_all(&bin).expect("bin");
+            install_fake_git(&bin, "git@github.com:example/for-project.git");
+
+            let _home_guard = EnvVarGuard::set("HOME", Some(home.to_string_lossy().as_ref()));
+            let _path_guard = EnvVarGuard::set("PATH", Some(bin.to_string_lossy().as_ref()));
+
+            let logger = Logger::for_project(&repo);
+            logger.info("scope_test", "events go to the scoped path").emit();
+
+            let expected = Logger::logs_dir(&repo).join("events.jsonl");
+            assert_eq!(logger.path(), expected.as_path());
+            assert!(expected.exists(), "logger should have written to scoped path: {:?}", expected);
+            assert!(
+                !repo.join(".animus").join("logs").join("events.jsonl").exists(),
+                "logger must not fall back to project-local .animus/logs when scoped state is resolvable"
+            );
+        }
+
+        #[test]
+        fn for_run_writes_into_scoped_runs_dir() {
+            let temp = tempdir().expect("tempdir");
+            let home = temp.path().join("home");
+            let bin = temp.path().join("bin");
+            let repo = temp.path().join("repo");
+            std::fs::create_dir_all(home.join(".animus")).expect("ao root");
+            std::fs::create_dir_all(&repo).expect("repo");
+            std::fs::create_dir_all(&bin).expect("bin");
+            install_fake_git(&bin, "git@github.com:example/for-run.git");
+
+            let _home_guard = EnvVarGuard::set("HOME", Some(home.to_string_lossy().as_ref()));
+            let _path_guard = EnvVarGuard::set("PATH", Some(bin.to_string_lossy().as_ref()));
+
+            let run_logger = Logger::for_run(&repo, "run-xyz");
+            run_logger.debug("scope_test", "run-scoped log").run("run-xyz").emit();
+
+            let expected = Logger::logs_dir(&repo).join("runs").join("run-xyz.jsonl");
+            assert_eq!(run_logger.path(), expected.as_path());
+            assert!(expected.exists(), "run logger should have written to scoped path: {:?}", expected);
+        }
     }
 }

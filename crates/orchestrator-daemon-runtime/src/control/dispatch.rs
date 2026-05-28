@@ -1016,24 +1016,56 @@ mod log_dispatch_tests {
 
     use super::*;
     use animus_log_storage_protocol::{LogLevel, LogSource};
-    use orchestrator_logging::{Level, Logger};
+    use orchestrator_logging::Logger;
+    use std::path::PathBuf;
     use tempfile::TempDir;
 
-    fn fixture_logger(temp: &TempDir) -> Logger {
-        let logs_dir = temp.path().join(".animus/logs");
-        std::fs::create_dir_all(&logs_dir).expect("mkdir");
-        Logger::open(&logs_dir, "events.jsonl", Level::Debug)
+    /// Build a unique tempdir that doubles as a synthetic `project_root`.
+    /// Both `Logger::for_project` (writer) and `read_in_tree_log_entries`
+    /// (reader) resolve through `protocol::scoped_state_root(project_root)`
+    /// against the live `$HOME`. Different tests get distinct scope
+    /// hashes (the tempdir basename is unique), so they never collide on
+    /// the same events.jsonl.
+    ///
+    /// TODO(codex-p2): a sibling test fixture
+    /// (`daemon::daemon_runtime_options::tests::stable_test_home`) mutates
+    /// process-global `HOME` without the protocol crate's shared
+    /// `EnvVarGuard` mutex. If parallel scheduling flips `HOME` between
+    /// the write and the read, the reader could resolve a different
+    /// scope than the writer. Empirically the race window is tiny
+    /// (20+ parallel runs of `cargo test -p orchestrator-daemon-runtime`
+    /// produced no failures), but the proper fix is to migrate
+    /// `stable_test_home` onto `EnvVarGuard`. That helper sits in a
+    /// crate owned by another agent in this cleanup wave, so the
+    /// retrofit is deferred.
+    fn unique_project_root() -> (TempDir, PathBuf) {
+        let temp = TempDir::new().expect("tempdir");
+        let repo = temp.path().to_path_buf();
+        (temp, repo)
+    }
+
+    /// Resolve the file path Logger::for_project would write to, and
+    /// delete any prior contents so the test starts clean. The scope is
+    /// derived from the unique tempdir basename, so distinct tests never
+    /// share a file under `~/.animus/<scope>/logs/`.
+    fn reset_scoped_events(repo: &std::path::Path) {
+        let path = Logger::logs_dir(repo).join("events.jsonl");
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
     fn read_in_tree_log_entries_projects_into_wire_shape() {
-        let temp = TempDir::new().expect("tempdir");
-        let logger = fixture_logger(&temp);
+        let (_temp, repo) = unique_project_root();
+        reset_scoped_events(&repo);
+        let logger = Logger::for_project(&repo);
         logger.info("test", "info-line").emit();
         logger.warn("test", "warn-line").provider("kimi-code").emit();
         logger.error("test", "error-line").emit();
 
-        let entries = read_in_tree_log_entries(temp.path(), 10, Some(LogLevel::Warn), None, None);
+        let entries = read_in_tree_log_entries(&repo, 10, Some(LogLevel::Warn), None, None);
         assert_eq!(entries.len(), 2, "expected warn+error, got {entries:?}");
         // Chronological order: warn first, then error.
         assert_eq!(entries[0].message, "warn-line");
@@ -1047,24 +1079,26 @@ mod log_dispatch_tests {
 
     #[test]
     fn read_in_tree_log_entries_plugin_filter_narrows_set() {
-        let temp = TempDir::new().expect("tempdir");
-        let logger = fixture_logger(&temp);
+        let (_temp, repo) = unique_project_root();
+        reset_scoped_events(&repo);
+        let logger = Logger::for_project(&repo);
         logger.warn("test", "no-plugin").emit();
         logger.warn("test", "kimi").provider("kimi-code").emit();
         logger.warn("test", "gpt").provider("gpt-code").emit();
 
-        let entries = read_in_tree_log_entries(temp.path(), 10, Some(LogLevel::Warn), None, Some("kimi-code"));
+        let entries = read_in_tree_log_entries(&repo, 10, Some(LogLevel::Warn), None, Some("kimi-code"));
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].message, "kimi");
     }
 
     #[test]
     fn read_in_tree_log_entries_synthesizes_unique_ids_per_row() {
-        let temp = TempDir::new().expect("tempdir");
-        let logger = fixture_logger(&temp);
+        let (_temp, repo) = unique_project_root();
+        reset_scoped_events(&repo);
+        let logger = Logger::for_project(&repo);
         logger.info("test", "msg-a").emit();
         logger.info("test", "msg-b").emit();
-        let entries = read_in_tree_log_entries(temp.path(), 10, Some(LogLevel::Info), None, None);
+        let entries = read_in_tree_log_entries(&repo, 10, Some(LogLevel::Info), None, None);
         assert_eq!(entries.len(), 2);
         assert_ne!(entries[0].id, entries[1].id, "ids must disambiguate rows");
     }

@@ -211,7 +211,7 @@ description = "Planning and materialization flows for requirement subjects."
 mode = "bundled"
 
 [compatibility]
-ao_core = ">=0.1.0"
+animus_core = ">=0.1.0"
 workflow_schema = "v2"
 subject_schema = "v2"
 

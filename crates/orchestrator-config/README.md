@@ -1,10 +1,10 @@
 # orchestrator-config
 
-Centralized configuration loading, validation, and compilation for AO runtime and workflow config.
+Centralized configuration loading, validation, and compilation for Animus runtime and workflow config.
 
 ## Overview
 
-`orchestrator-config` is the schema and file-management crate for AO configuration. It owns two core config domains:
+`orchestrator-config` is the schema and file-management crate for Animus configuration. It owns two core config domains:
 
 - `agent-runtime-config.v2.json`
 - `workflow-config.v2.json`
@@ -89,9 +89,9 @@ It also provides the load, ensure, hash, and write helpers for the v2 runtime co
 
 ## File conventions
 
-- JSON workflow config lives under the scoped AO state root in `state/workflow-config.v2.json`.
+- JSON workflow config lives under the scoped Animus state root in `state/workflow-config.v2.json`.
 - YAML workflow sources are loaded from `.animus/workflows.yaml` and `.animus/workflows/*.yaml`.
-- Agent runtime config lives under the scoped AO state root in `state/agent-runtime-config.v2.json`.
+- Agent runtime config lives under the scoped Animus state root in `state/agent-runtime-config.v2.json`.
 
 ## Workspace dependencies
 

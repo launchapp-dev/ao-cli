@@ -63,7 +63,7 @@ impl DoctorReport {
             },
             "set_valid_working_directory",
             false,
-            "set a valid working directory before running AO commands",
+            "set a valid working directory before running Animus commands",
             None,
         ));
 
@@ -96,13 +96,13 @@ impl DoctorReport {
             },
             match ao_dir_state {
                 DirectoryState::Directory => {
-                    format!("AO state directory exists at {}", ao_dir.display())
+                    format!("Animus state directory exists at {}", ao_dir.display())
                 }
                 DirectoryState::Missing => {
-                    format!("AO state directory missing at {}", ao_dir.display())
+                    format!("Animus state directory missing at {}", ao_dir.display())
                 }
                 DirectoryState::NotDirectory => {
-                    format!("AO state path is not a directory at {}", ao_dir.display())
+                    format!("Animus state path is not a directory at {}", ao_dir.display())
                 }
             },
             match ao_dir_state {
@@ -111,8 +111,8 @@ impl DoctorReport {
             },
             !matches!(ao_dir_state, DirectoryState::NotDirectory),
             match ao_dir_state {
-                DirectoryState::NotDirectory => "replace non-directory .ao path with an AO state directory",
-                _ => "create baseline AO state/config files",
+                DirectoryState::NotDirectory => "replace non-directory .animus path with an Animus state directory",
+                _ => "create baseline Animus state/config files",
             },
             match ao_dir_state {
                 DirectoryState::NotDirectory => None,
@@ -139,10 +139,10 @@ impl DoctorReport {
             build_check(
                 "daemon_config_valid_json",
                 DoctorCheckStatus::Fail,
-                format!("AO state path is not a directory at {}; cannot read daemon config", ao_dir.display()),
+                format!("Animus state path is not a directory at {}; cannot read daemon config", ao_dir.display()),
                 "manual_ao_directory_repair",
                 false,
-                "replace non-directory .ao path with an AO state directory",
+                "replace non-directory .animus path with an Animus state directory",
                 None,
             )
         } else if !daemon_config_path.exists() {
@@ -333,7 +333,7 @@ fn build_scoped_file_check(check_id: &str, expected_path: &Path) -> DoctorCheck 
         format!("expected {}", expected_path.display()),
         "bootstrap_project_state",
         true,
-        "create baseline AO state/config files",
+        "create baseline Animus state/config files",
         Some("animus doctor --fix"),
     )
 }
@@ -344,13 +344,13 @@ fn build_ao_file_check(check_id: &str, expected_path: &Path, ao_dir_state: Direc
             check_id,
             DoctorCheckStatus::Fail,
             format!(
-                "AO state path is not a directory at {}; expected {}",
+                "Animus state path is not a directory at {}; expected {}",
                 expected_path.parent().unwrap_or(expected_path).display(),
                 expected_path.display()
             ),
             "manual_ao_directory_repair",
             false,
-            "replace non-directory .ao path with an AO state directory",
+            "replace non-directory .animus path with an Animus state directory",
             None,
         );
     }
@@ -361,7 +361,7 @@ fn build_ao_file_check(check_id: &str, expected_path: &Path, ao_dir_state: Direc
         format!("expected {}", expected_path.display()),
         "bootstrap_project_state",
         true,
-        "create baseline AO state/config files",
+        "create baseline Animus state/config files",
         Some("animus doctor --fix"),
     )
 }

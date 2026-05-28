@@ -21,7 +21,7 @@ fn ensure_test_config_env() {
     INIT.get_or_init(|| {
         crate::test_env::stable_test_home();
         let config_dir = std::env::temp_dir().join(format!("ao-orchestrator-core-test-config-{}", std::process::id()));
-        std::fs::create_dir_all(&config_dir).expect("create test AO config dir");
+        std::fs::create_dir_all(&config_dir).expect("create test Animus config dir");
         std::env::set_var("ANIMUS_CONFIG_DIR", &config_dir);
         std::env::set_var("AGENT_ORCHESTRATOR_CONFIG_DIR", &config_dir);
         std::env::set_var("ANIMUS_RUNNER_CONFIG_DIR", &config_dir);

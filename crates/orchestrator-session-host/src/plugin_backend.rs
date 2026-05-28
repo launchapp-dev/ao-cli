@@ -1,4 +1,4 @@
-//! `SessionBackend` adapter that dispatches `agent/run` to a discovered AO STDIO plugin.
+//! `SessionBackend` adapter that dispatches `agent/run` to a discovered Animus STDIO plugin.
 //!
 //! Each call spawns the plugin binary, completes the handshake, sends an `agent/run`
 //! request, drains the response into a single `SessionEvent::FinalText` followed by
@@ -76,7 +76,7 @@ pub(crate) struct SessionHandle {
 /// we never hold this lock across `.await`.
 pub(crate) type SessionMap = Arc<StdMutex<HashMap<String, SessionHandle>>>;
 
-/// Wraps a discovered AO STDIO plugin so the resolver can route `agent/run`
+/// Wraps a discovered Animus STDIO plugin so the resolver can route `agent/run`
 /// through it as if it were any other in-tree backend.
 #[derive(Clone)]
 pub struct PluginSessionBackend {
@@ -222,11 +222,7 @@ impl PluginSessionBackend {
     /// in `docs/guides/plugin-author-guide.md` § 9.
     fn filter_request_env_vars(&self, request_env_vars: &[(String, String)]) -> Vec<(String, String)> {
         let allowed = self.allowed_env_keys();
-        request_env_vars
-            .iter()
-            .filter(|(name, _)| allowed.contains(name.as_str()))
-            .cloned()
-            .collect()
+        request_env_vars.iter().filter(|(name, _)| allowed.contains(name.as_str())).cloned().collect()
     }
 
     fn spawn_options(&self, request_env_vars: &[(String, String)]) -> PluginSpawnOptions {
@@ -1550,8 +1546,7 @@ mod tests {
     /// author guide documents as the contract.
     #[test]
     fn filter_request_env_vars_drops_keys_not_in_manifest_or_base() {
-        let backend =
-            PluginSessionBackend::new("silent-plugin", PathBuf::from("/nonexistent/silent"), "silent");
+        let backend = PluginSessionBackend::new("silent-plugin", PathBuf::from("/nonexistent/silent"), "silent");
         // Runner-supplied env: a secret the plugin never asked for plus a
         // base-allowlist var that's always forwarded.
         let runner_env = vec![
@@ -1561,10 +1556,7 @@ mod tests {
         ];
         let filtered = backend.filter_request_env_vars(&runner_env);
         let keys: Vec<&str> = filtered.iter().map(|(k, _)| k.as_str()).collect();
-        assert!(
-            !keys.contains(&"OPENAI_API_KEY"),
-            "plugin with empty env_required must NOT receive OPENAI_API_KEY"
-        );
+        assert!(!keys.contains(&"OPENAI_API_KEY"), "plugin with empty env_required must NOT receive OPENAI_API_KEY");
         assert!(
             !keys.contains(&"ANTHROPIC_API_KEY"),
             "plugin with empty env_required must NOT receive ANTHROPIC_API_KEY"
@@ -1576,9 +1568,8 @@ mod tests {
     /// filter is a gate, not a blanket scrub.
     #[test]
     fn filter_request_env_vars_passes_keys_declared_in_manifest() {
-        let backend =
-            PluginSessionBackend::new("oai-plugin", PathBuf::from("/nonexistent/oai"), "oai")
-                .with_env_required(vec![env_req("OPENAI_API_KEY"), env_req("OPENAI_ORG_ID")]);
+        let backend = PluginSessionBackend::new("oai-plugin", PathBuf::from("/nonexistent/oai"), "oai")
+            .with_env_required(vec![env_req("OPENAI_API_KEY"), env_req("OPENAI_ORG_ID")]);
         let runner_env = vec![
             ("OPENAI_API_KEY".to_string(), "sk-real".to_string()),
             ("OPENAI_ORG_ID".to_string(), "org-1".to_string()),
@@ -1604,9 +1595,8 @@ mod tests {
     /// spawn-time env scrub would have dropped it.
     #[test]
     fn build_run_params_env_only_contains_filtered_keys() {
-        let backend =
-            PluginSessionBackend::new("oai-plugin", PathBuf::from("/nonexistent/oai"), "oai")
-                .with_env_required(vec![env_req("OPENAI_API_KEY")]);
+        let backend = PluginSessionBackend::new("oai-plugin", PathBuf::from("/nonexistent/oai"), "oai")
+            .with_env_required(vec![env_req("OPENAI_API_KEY")]);
         // Caller-side filter (matches what dispatch() does to request.env_vars
         // before handing it to build_run_params).
         let runner_env = vec![
@@ -1645,8 +1635,7 @@ mod tests {
     /// was filtered. Regression for codex round-1 P1.
     #[test]
     fn scrub_runtime_contract_env_strips_undeclared_keys() {
-        let backend =
-            PluginSessionBackend::new("silent-plugin", PathBuf::from("/nonexistent/silent"), "silent");
+        let backend = PluginSessionBackend::new("silent-plugin", PathBuf::from("/nonexistent/silent"), "silent");
         let allowed = backend.allowed_env_keys();
         let mut extras = json!({
             "runtime_contract": {
@@ -1686,9 +1675,8 @@ mod tests {
     /// pathway (this is the symmetric case to the test above).
     #[test]
     fn scrub_runtime_contract_env_keeps_manifest_declared_keys() {
-        let backend =
-            PluginSessionBackend::new("oai-plugin", PathBuf::from("/nonexistent/oai"), "oai")
-                .with_env_required(vec![env_req("OPENAI_API_KEY")]);
+        let backend = PluginSessionBackend::new("oai-plugin", PathBuf::from("/nonexistent/oai"), "oai")
+            .with_env_required(vec![env_req("OPENAI_API_KEY")]);
         let allowed = backend.allowed_env_keys();
         let mut extras = json!({
             "runtime_contract": {
@@ -1709,18 +1697,14 @@ mod tests {
             .and_then(Value::as_object)
             .expect("env path must still exist after scrub");
         assert!(scrubbed_env.contains_key("OPENAI_API_KEY"), "manifest-declared secret must survive");
-        assert!(
-            !scrubbed_env.contains_key("ANTHROPIC_API_KEY"),
-            "non-manifest secret must still be stripped"
-        );
+        assert!(!scrubbed_env.contains_key("ANTHROPIC_API_KEY"), "non-manifest secret must still be stripped");
     }
 
     /// Best-effort scrub: when the runtime_contract path is absent (or has
     /// the wrong shape) the helper silently no-ops instead of panicking.
     #[test]
     fn scrub_runtime_contract_env_is_noop_when_path_absent() {
-        let backend =
-            PluginSessionBackend::new("noop-plugin", PathBuf::from("/nonexistent/noop"), "noop");
+        let backend = PluginSessionBackend::new("noop-plugin", PathBuf::from("/nonexistent/noop"), "noop");
         let allowed = backend.allowed_env_keys();
         let mut empty = json!({});
         scrub_runtime_contract_env(&mut empty, &allowed);

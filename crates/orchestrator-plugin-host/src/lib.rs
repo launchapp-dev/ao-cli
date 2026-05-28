@@ -1,4 +1,4 @@
-//! Stdio hosting, discovery, and routing for AO-compatible plugins.
+//! Stdio hosting, discovery, and routing for Animus-compatible plugins.
 
 mod discovery;
 mod host;

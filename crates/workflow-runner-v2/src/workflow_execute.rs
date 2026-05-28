@@ -1812,7 +1812,7 @@ mod requirement_workflow_tests {
             .expect("git config user.email should run");
         assert!(email.success(), "git config user.email should succeed");
         let name = ProcessCommand::new("git")
-            .args(["config", "user.name", "AO Test"])
+            .args(["config", "user.name", "Animus Test"])
             .current_dir(temp.path())
             .status()
             .expect("git config user.name should run");
@@ -2170,7 +2170,7 @@ description = "{runtime_kind} subprocess fixture."
 mode = "bundled"
 
 [compatibility]
-ao_core = ">=0.1.0"
+animus_core = ">=0.1.0"
 workflow_schema = "v2"
 subject_schema = "v2"
 
@@ -2296,7 +2296,7 @@ description = "delegating pack fixture."
 mode = "bundled"
 
 [compatibility]
-ao_core = ">=0.1.0"
+animus_core = ">=0.1.0"
 workflow_schema = "v2"
 subject_schema = "v2"
 
@@ -2670,7 +2670,7 @@ mod post_success_merge_tests {
         let temp = TempDir::new().expect("temp dir");
         run_git_ok(temp.path(), &["init", "--initial-branch=main"]);
         run_git_ok(temp.path(), &["config", "user.email", "ao@example.com"]);
-        run_git_ok(temp.path(), &["config", "user.name", "AO"]);
+        run_git_ok(temp.path(), &["config", "user.name", "Animus"]);
         fs::write(temp.path().join("README.md"), "base\n").expect("write base file");
         run_git_ok(temp.path(), &["add", "README.md"]);
         run_git_ok(temp.path(), &["commit", "-m", "initial"]);

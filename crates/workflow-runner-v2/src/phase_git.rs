@@ -47,7 +47,7 @@ pub fn git_has_pending_changes(cwd: &str) -> Result<bool> {
 
 pub fn ensure_git_identity(cwd: &str) -> Result<()> {
     let email = format!("{}@local", protocol::ACTOR_DAEMON);
-    for (key, default_value) in [("user.name", "AO Daemon"), ("user.email", email.as_str())] {
+    for (key, default_value) in [("user.name", "Animus Daemon"), ("user.email", email.as_str())] {
         let output = ProcessCommand::new("git")
             .arg("-C")
             .arg(cwd)

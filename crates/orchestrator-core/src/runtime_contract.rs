@@ -371,7 +371,7 @@ mod tests {
             .expect("allowed tool prefixes should be present");
         assert!(
             allowed_prefixes.iter().filter_map(Value::as_str).any(|prefix| prefix == "animus."),
-            "AO prefix should always be allowed under MCP-only enforcement"
+            "Animus prefix should always be allowed under MCP-only enforcement"
         );
     }
 

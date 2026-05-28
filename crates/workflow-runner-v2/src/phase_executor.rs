@@ -284,7 +284,7 @@ fn resolve_claude_profile_env(
     }
 
     let config = global_config
-        .ok_or_else(|| anyhow!("global AO config is required to resolve claude profile '{}'", profile_name))?;
+        .ok_or_else(|| anyhow!("global Animus config is required to resolve claude profile '{}'", profile_name))?;
     let profile = config
         .claude_profile(profile_name)
         .ok_or_else(|| anyhow!("unknown global claude profile '{}'", profile_name))?;
@@ -1396,7 +1396,10 @@ async fn run_workflow_phase_with_agent(params: PhaseAgentParams<'_>) -> Result<A
     let mut fallover_errors: Vec<String> = Vec::new();
     let requires_structured_completion = phase_requires_structured_completion(ctx, phase_id);
     let global_config = if configured_tool_profile(phase_runtime_settings).is_some() {
-        Some(protocol::Config::load_global().context("failed to load global AO config for claude profile resolution")?)
+        Some(
+            protocol::Config::load_global()
+                .context("failed to load global Animus config for claude profile resolution")?,
+        )
     } else {
         None
     };

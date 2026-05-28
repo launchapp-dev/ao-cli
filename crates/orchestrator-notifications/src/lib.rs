@@ -472,7 +472,7 @@ impl DaemonNotificationRuntime {
         let timeout = Duration::from_secs(config.timeout_secs.unwrap_or(DEFAULT_CONNECTOR_TIMEOUT_SECS));
 
         let text = format!(
-            "AO daemon event '{}' (delivery: {}, event: {})",
+            "Animus daemon event '{}' (delivery: {}, event: {})",
             entry.event_type, entry.delivery_id, entry.event_id
         );
 

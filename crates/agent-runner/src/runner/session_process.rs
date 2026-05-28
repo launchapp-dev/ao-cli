@@ -113,17 +113,8 @@ pub(super) async fn spawn_session_process(
         mcp_config_preview = ?mcp_config_preview,
         "Prepared native session invocation after MCP policy"
     );
-    let session_request = build_session_request(
-        tool,
-        model,
-        prompt,
-        runtime_contract,
-        cwd,
-        project_root,
-        env,
-        timeout_secs,
-        invocation,
-    )?;
+    let session_request =
+        build_session_request(tool, model, prompt, runtime_contract, cwd, project_root, env, timeout_secs, invocation)?;
     let idle_timeout_secs = resolve_idle_timeout_secs(tool, timeout_secs, runtime_contract);
     // Project-local provider plugins live under `<project_root>/.animus/plugins`.
     // When the runner executes inside a managed worktree, `cwd` points at the

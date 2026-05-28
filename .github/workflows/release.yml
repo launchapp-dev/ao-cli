@@ -131,7 +131,7 @@ jobs:
 
           binaries = ["animus", "agent-runner", "animus-oai-runner", "ao-workflow-runner"]
           metadata = {
-              "schema": "ao.release.v1",
+              "schema": "animus.release.v1",
               "version": os.environ["VERSION"],
               "target": os.environ["TARGET"],
               "build_number": int(os.environ.get("BUILD_NUMBER", "0")),
@@ -183,8 +183,13 @@ jobs:
           metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
           expected_binaries = ["animus", "agent-runner", "animus-oai-runner", "ao-workflow-runner"]
 
+          accepted_schemas = ("animus.release.v1", "ao.release.v1")
+          if metadata.get("schema") not in accepted_schemas:
+              raise SystemExit(
+                  f"release metadata mismatch for schema: expected one of {accepted_schemas!r}, got {metadata.get('schema')!r}"
+              )
+
           required_pairs = {
-              "schema": "ao.release.v1",
               "version": os.environ["VERSION"],
               "target": os.environ["TARGET"],
               "binaries": expected_binaries,
@@ -229,7 +234,7 @@ jobs:
           }
 
           $Metadata = @{
-            schema = "ao.release.v1"
+            schema = "animus.release.v1"
             version = $Version
             target = $Target
             git_ref = $env:GITHUB_REF
@@ -265,7 +270,8 @@ jobs:
           }
 
           $Metadata = Get-Content "$StageDir/release-metadata.json" -Raw | ConvertFrom-Json
-          if ($Metadata.schema -ne "ao.release.v1") {
+          $AcceptedSchemas = @("animus.release.v1", "ao.release.v1")
+          if (-not ($AcceptedSchemas -contains $Metadata.schema)) {
             throw "release metadata mismatch for schema"
           }
           if ($Metadata.version -ne $Version) {

@@ -444,9 +444,9 @@ impl FileServiceHub {
                 .arg(project_root)
                 .args([
                     "-c",
-                    "user.name=AO Bootstrap",
+                    "user.name=Animus Bootstrap",
                     "-c",
-                    "user.email=ao-bootstrap@local",
+                    "user.email=animus-bootstrap@local",
                     "commit",
                     "--allow-empty",
                     "-m",

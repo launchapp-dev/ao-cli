@@ -1,6 +1,6 @@
 # orchestrator-git-ops
 
-Safe, reusable Git operations for AO daemon and workflow flows.
+Safe, reusable Git operations for Animus daemon and workflow flows.
 
 ## Overview
 
@@ -38,7 +38,7 @@ graph TD
 
 - post-success git config loading
 - branch and worktree naming conventions
-- repo AO root and worktree root resolution
+- repo Animus root and worktree root resolution
 - git command wrappers
 - merge ancestry and branch-merged checks
 
@@ -66,7 +66,7 @@ graph TD
 ### Integration outbox and runtime refresh
 
 - `daemon_git_integration.rs` persists retryable git operations into an outbox.
-- `daemon_git_runtime_refresh.rs` tracks main-head advancement and can rebuild AO runtime binaries.
+- `daemon_git_runtime_refresh.rs` tracks main-head advancement and can rebuild Animus runtime binaries.
 
 ## Post-success flow
 

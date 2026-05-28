@@ -1,10 +1,10 @@
 # protocol
 
-Shared wire protocol types and contracts used across the AO workspace.
+Shared wire protocol types and contracts used across the Animus workspace.
 
 ## Overview
 
-`protocol` is the foundational type crate for AO. It defines the serializable types, IDs, config helpers, process helpers, model-routing logic, and shared constants that cross crate boundaries.
+`protocol` is the foundational type crate for Animus. It defines the serializable types, IDs, config helpers, process helpers, model-routing logic, and shared constants that cross crate boundaries.
 
 Serde field names and enum tags defined here should be treated as compatibility-sensitive.
 
@@ -53,7 +53,7 @@ graph TD
 - `output`: structured agent output records
 - `model_routing`: model normalization and tool-selection helpers
 - `config` and `credentials`: config paths, MCP config, and credential resolution
-- `process` and `repository_scope`: process helpers and repository-scoped AO paths
+- `process` and `repository_scope`: process helpers and repository-scoped Animus paths
 - `error_classification` and `errors`: protocol error mapping
 
 ## Constants
@@ -83,4 +83,4 @@ graph BT
 ## Notes
 
 - This crate sits near the bottom of the workspace dependency graph.
-- It is the single source of truth for AO wire-level compatibility.
+- It is the single source of truth for Animus wire-level compatibility.

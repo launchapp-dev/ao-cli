@@ -1074,7 +1074,7 @@ mod tests {
         let canonical_project_root = project_root.canonicalize().unwrap();
         run_git(&project_root, &["init", "--initial-branch=main"]);
         run_git(&project_root, &["config", "user.email", "ao@example.com"]);
-        run_git(&project_root, &["config", "user.name", "AO"]);
+        run_git(&project_root, &["config", "user.name", "Animus"]);
         std::fs::write(project_root.join("README.md"), "hello\n").unwrap();
         let repo_binary_path = canonical_project_root.join("target").join("debug").join(repo_ao_binary_name());
         std::fs::create_dir_all(repo_binary_path.parent().unwrap()).unwrap();

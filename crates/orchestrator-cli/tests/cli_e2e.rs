@@ -364,7 +364,17 @@ fn e2e_git_worktree_remove_requires_confirmation_and_supports_dry_run() -> Resul
     assert!(git_add.status.success(), "git add failed: {}", String::from_utf8_lossy(&git_add.stderr));
 
     let git_commit = Command::new("git")
-        .args(["-C", repo_path, "-c", "user.name=AO Test", "-c", "user.email=ao@example.com", "commit", "-m", "seed"])
+        .args([
+            "-C",
+            repo_path,
+            "-c",
+            "user.name=Animus Test",
+            "-c",
+            "user.email=animus@example.com",
+            "commit",
+            "-m",
+            "seed",
+        ])
         .output()
         .context("failed to run git commit")?;
     assert!(git_commit.status.success(), "git commit failed: {}", String::from_utf8_lossy(&git_commit.stderr));

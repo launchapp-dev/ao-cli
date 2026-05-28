@@ -92,7 +92,7 @@ Example from `animus-plugin-smoke`:
   "name": "animus-plugin-smoke",
   "version": "0.1.0",
   "plugin_kind": "subject_backend",
-  "description": "End-to-end smoke plugin for AO plugin host verification",
+  "description": "End-to-end smoke plugin for Animus plugin host verification",
   "protocol_version": "1.0.0",
   "capabilities": ["initialize", "$/ping", "smoke/get", "health/check"]
 }

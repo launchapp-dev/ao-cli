@@ -193,12 +193,10 @@ pub trait TriggerPluginRunner: Send + Sync {
 /// Build a stderr sink that routes every line emitted by a supervised trigger
 /// plugin into the project's structured `events.jsonl` log.
 ///
-/// Mirrors the shape used by the provider plugin path (see
-/// `crates/llm-cli-wrapper/src/session/plugin_backend.rs::stderr_sink_for`):
-/// lines land at `warn` level under category `trigger.stderr` with `plugin`
-/// and `emitter` metadata so an operator diagnosing a flaky Slack auth or an
-/// expired webhook secret can grep the same surface they already use for
-/// provider issues.
+/// Mirrors the shape used by the provider plugin path: lines land at `warn`
+/// level under category `trigger.stderr` with `plugin` and `emitter` metadata
+/// so an operator diagnosing a flaky Slack auth or an expired webhook secret
+/// can grep the same surface they already use for provider issues.
 ///
 /// Pure helper, exported at module scope so tests can build the sink directly
 /// and read back what was written without spinning up a real plugin.

@@ -608,7 +608,7 @@ pub(super) fn apply_native_mcp_policy(
         }
         "animus-oai-runner" => {
             apply_oai_runner_native_mcp_lockdown(&mut invocation.args, transport);
-            info!(run_id = %run_id.0.as_str(), cli = "animus-oai-runner", "Applied AO OAI runner native MCP policy");
+            info!(run_id = %run_id.0.as_str(), cli = "animus-oai-runner", "Applied Animus OAI runner native MCP policy");
         }
         _ => {
             bail!(

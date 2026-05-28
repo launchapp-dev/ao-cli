@@ -18,7 +18,7 @@ phase_catalog:
     tags: ["planning", "requirements"]
   requirement-task-generation:
     label: Requirement Task Generation
-    description: Create or refine linked tasks for a requirement through AO MCP.
+    description: Create or refine linked tasks for a requirement through Animus MCP.
     category: planning
     tags: ["requirements", "planning", "bundled-pack"]
   requirement-workflow-bootstrap:

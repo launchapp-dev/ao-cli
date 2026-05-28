@@ -52,8 +52,8 @@ pub struct PackOwnership {
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct PackCompatibility {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ao_core: Option<String>,
+    #[serde(default, alias = "ao_core", skip_serializing_if = "Option::is_none")]
+    pub animus_core: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workflow_schema: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

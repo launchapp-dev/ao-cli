@@ -84,7 +84,7 @@ impl DefaultDaemonRunHost {
             DaemonRunEvent::PluginsDiscovered { plugins, .. } => {
                 let count = plugins.len();
                 if count == 0 {
-                    self.logger.info("plugins", "no AO plugins discovered").emit();
+                    self.logger.info("plugins", "no Animus plugins discovered").emit();
                 } else {
                     let names: Vec<String> = plugins.iter().map(|p| format!("{}@{}", p.name, p.version)).collect();
                     self.logger.info("plugins", format!("discovered {count} plugin(s): {}", names.join(", "))).emit();

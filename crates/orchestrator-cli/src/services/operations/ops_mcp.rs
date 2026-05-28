@@ -276,7 +276,7 @@ fn new_ao_mcp_server(default_project_root: &str) -> AoMcpServer {
 impl ServerHandler for AoMcpServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().enable_resources().build())
-            .with_instructions("Use these typed AO tools to run orchestrator CLI operations over MCP.")
+            .with_instructions("Use these typed Animus tools to run orchestrator CLI operations over MCP.")
     }
 
     async fn list_resources(
@@ -284,24 +284,51 @@ impl ServerHandler for AoMcpServer {
         _params: Option<PaginatedRequestParams>,
         _ctx: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, rmcp::model::ErrorData> {
-        let mut resource_tasks = RawResource::new("ao://project/tasks", "Tasks Index");
-        resource_tasks.description = Some("AO project task index with id, title, status, priority".to_string());
+        let mut resource_tasks = RawResource::new("animus://project/tasks", "Tasks Index");
+        resource_tasks.description = Some("Animus project task index with id, title, status, priority".to_string());
         resource_tasks.mime_type = Some("application/json".to_string());
 
-        let mut resource_requirements = RawResource::new("ao://project/requirements", "Requirements Index");
+        let mut resource_requirements = RawResource::new("animus://project/requirements", "Requirements Index");
         resource_requirements.description =
-            Some("AO project requirements index with id, title, status, priority".to_string());
+            Some("Animus project requirements index with id, title, status, priority".to_string());
         resource_requirements.mime_type = Some("application/json".to_string());
 
-        let mut resource_daemon = RawResource::new("ao://project/daemon-events", "Daemon Events");
+        let mut resource_daemon = RawResource::new("animus://project/daemon-events", "Daemon Events");
         resource_daemon.description =
             Some("Recent daemon events for project observability. Supports ?limit=N query param".to_string());
         resource_daemon.mime_type = Some("application/json".to_string());
+
+        // Back-compat: advertise the legacy `ao://` URIs alongside the new
+        // `animus://` ones so clients that enumerate resources and look for
+        // the v0.3 names continue to find them. Both URIs are also accepted
+        // by `read_resource` below.
+        let mut legacy_resource_tasks = RawResource::new("ao://project/tasks", "Tasks Index (legacy URI)");
+        legacy_resource_tasks.description =
+            Some("Deprecated alias of animus://project/tasks. Retained for back-compat with v0.3 clients.".to_string());
+        legacy_resource_tasks.mime_type = Some("application/json".to_string());
+
+        let mut legacy_resource_requirements =
+            RawResource::new("ao://project/requirements", "Requirements Index (legacy URI)");
+        legacy_resource_requirements.description = Some(
+            "Deprecated alias of animus://project/requirements. Retained for back-compat with v0.3 clients."
+                .to_string(),
+        );
+        legacy_resource_requirements.mime_type = Some("application/json".to_string());
+
+        let mut legacy_resource_daemon = RawResource::new("ao://project/daemon-events", "Daemon Events (legacy URI)");
+        legacy_resource_daemon.description = Some(
+            "Deprecated alias of animus://project/daemon-events. Retained for back-compat with v0.3 clients."
+                .to_string(),
+        );
+        legacy_resource_daemon.mime_type = Some("application/json".to_string());
 
         let resources = vec![
             Annotated::new(resource_tasks, None),
             Annotated::new(resource_requirements, None),
             Annotated::new(resource_daemon, None),
+            Annotated::new(legacy_resource_tasks, None),
+            Annotated::new(legacy_resource_requirements, None),
+            Annotated::new(legacy_resource_daemon, None),
         ];
         Ok(ListResourcesResult::with_all_items(resources))
     }
@@ -315,7 +342,9 @@ impl ServerHandler for AoMcpServer {
         let (resource_uri, query) = parse_resource_uri(&uri);
 
         match resource_uri.as_str() {
-            "ao://project/tasks" => {
+            // `ao://*` accepted alongside `animus://*` for back-compat with clients
+            // that cached the legacy resource URIs.
+            "animus://project/tasks" | "ao://project/tasks" => {
                 let path = self.scoped_state_root().join("tasks").join("index.json");
                 let (content, _modified) = read_file_with_mtime(&path).map_err(|e| {
                     McpError::new(ErrorCode::INTERNAL_ERROR, format!("failed to read tasks: {}", e), None)
@@ -324,7 +353,7 @@ impl ServerHandler for AoMcpServer {
                     ResourceContents::text(content, uri.clone()).with_mime_type("application/json")
                 ]))
             }
-            "ao://project/requirements" => {
+            "animus://project/requirements" | "ao://project/requirements" => {
                 let path = self.scoped_state_root().join("requirements").join("index.json");
                 let (content, _modified) = read_file_with_mtime(&path).map_err(|e| {
                     McpError::new(ErrorCode::INTERNAL_ERROR, format!("failed to read requirements: {}", e), None)
@@ -333,7 +362,7 @@ impl ServerHandler for AoMcpServer {
                     ResourceContents::text(content, uri.clone()).with_mime_type("application/json")
                 ]))
             }
-            "ao://project/daemon-events" => {
+            "animus://project/daemon-events" | "ao://project/daemon-events" => {
                 let limit = query.get("limit").and_then(|v| v.parse::<usize>().ok()).unwrap_or(100);
                 let content = read_daemon_events(&self.default_project_root, limit).map_err(|e| {
                     McpError::new(ErrorCode::INTERNAL_ERROR, format!("failed to read daemon events: {}", e), None)

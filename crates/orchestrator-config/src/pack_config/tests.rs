@@ -16,7 +16,7 @@ schema = "animus.pack.v1"
 id = "animus.requirements"
 version = "0.1.0"
 kind = "domain-pack"
-title = "AO Requirements"
+title = "Animus Requirements"
 description = "Planning and materialization workflows for requirements."
 
 [ownership]
@@ -101,6 +101,14 @@ fn parse_pack_manifest_accepts_valid_manifest() {
     assert_eq!(manifest.version, "0.1.0");
     assert_eq!(manifest.workflows.as_ref().expect("workflows section").exports.len(), 3);
     assert_eq!(manifest.runtime.requirements.len(), 2);
+    assert_eq!(manifest.compatibility.animus_core.as_deref(), Some(">=0.1.0"));
+}
+
+#[test]
+fn parse_pack_manifest_accepts_new_animus_core_key() {
+    let new_form = valid_manifest_toml().replace("ao_core = \">=0.1.0\"", "animus_core = \">=0.1.0\"");
+    let manifest = parse_pack_manifest(&new_form).expect("manifest with animus_core key should parse");
+    assert_eq!(manifest.compatibility.animus_core.as_deref(), Some(">=0.1.0"));
 }
 
 #[test]

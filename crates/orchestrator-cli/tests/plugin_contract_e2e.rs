@@ -1,4 +1,4 @@
-//! End-to-end contract tests for the AO STDIO plugin surface.
+//! End-to-end contract tests for the Animus STDIO plugin surface.
 //!
 //! Drives the real `animus` binary against the bundled `animus-plugin-smoke`
 //! plugin binary via the `ao plugin {list,info,call,ping}` CLI. Locks in:

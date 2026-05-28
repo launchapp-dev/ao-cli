@@ -509,9 +509,9 @@ fn default_max_triggers_per_minute() -> u32 {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WebhookTriggerConfig {
     /// Environment variable whose value is used as the HMAC-SHA256 signing
-    /// secret.  When set, the handler validates the `X-AO-Signature` request
-    /// header (`sha256=<hex>`).  When absent, signature verification is
-    /// skipped.
+    /// secret.  When set, the handler validates the request signature header
+    /// (`sha256=<hex>`) as defined by the installed webhook trigger plugin.
+    /// When absent, signature verification is skipped.
     #[serde(default)]
     pub secret_env: Option<String>,
     /// Maximum dispatches allowed in any rolling 60-second window.

@@ -263,11 +263,8 @@ mod tests {
 
         // Fake git that always reports the same origin URL regardless of cwd.
         let git_script = bin.join("git");
-        std::fs::write(
-            &git_script,
-            "#!/bin/sh\necho 'git@github.com:example/shared-repo.git'\n",
-        )
-        .expect("write fake git");
+        std::fs::write(&git_script, "#!/bin/sh\necho 'git@github.com:example/shared-repo.git'\n")
+            .expect("write fake git");
         let mut perms = std::fs::metadata(&git_script).expect("metadata").permissions();
         perms.set_mode(0o755);
         std::fs::set_permissions(&git_script, perms).expect("set perms");
@@ -315,11 +312,8 @@ mod tests {
         std::fs::create_dir_all(&bin).expect("bin dir");
 
         let git_script = bin.join("git");
-        std::fs::write(
-            &git_script,
-            "#!/bin/sh\necho 'git@github.com:example/moved-repo.git'\n",
-        )
-        .expect("write fake git");
+        std::fs::write(&git_script, "#!/bin/sh\necho 'git@github.com:example/moved-repo.git'\n")
+            .expect("write fake git");
         let mut perms = std::fs::metadata(&git_script).expect("metadata").permissions();
         perms.set_mode(0o755);
         std::fs::set_permissions(&git_script, perms).expect("set perms");
@@ -329,11 +323,8 @@ mod tests {
         std::fs::create_dir_all(&legacy_scope).expect("legacy scope");
         std::fs::write(legacy_scope.join(".git-origin"), "git@github.com:example/moved-repo.git\n")
             .expect("write origin");
-        std::fs::write(
-            legacy_scope.join(".project-root"),
-            format!("{}\n", temp.path().join("old-location").display()),
-        )
-        .expect("write stale project-root");
+        std::fs::write(legacy_scope.join(".project-root"), format!("{}\n", temp.path().join("old-location").display()))
+            .expect("write stale project-root");
 
         let _home_guard = EnvVarGuard::set("HOME", Some(home.to_string_lossy().as_ref()));
         let _path_guard = EnvVarGuard::set("PATH", Some(bin.to_string_lossy().as_ref()));

@@ -1,12 +1,12 @@
 # orchestrator-notifications
 
-Notification delivery subsystem for AO daemon events.
+Notification delivery subsystem for Animus daemon events.
 
 ## Overview
 
-`orchestrator-notifications` implements AO's persistent, retry-aware notification pipeline. It evaluates daemon events against configured subscriptions, enqueues matching deliveries into an outbox, retries transient failures with backoff, and moves exhausted deliveries into a dead-letter store.
+`orchestrator-notifications` implements Animus' persistent, retry-aware notification pipeline. It evaluates daemon events against configured subscriptions, enqueues matching deliveries into an outbox, retries transient failures with backoff, and moves exhausted deliveries into a dead-letter store.
 
-Secrets are resolved from environment variables at delivery time rather than being written to AO state files.
+Secrets are resolved from environment variables at delivery time rather than being written to Animus state files.
 
 ## Targets
 

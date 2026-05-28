@@ -139,7 +139,7 @@ mod tests {
 
         run_git(&repo_root, &["init"]);
         run_git(&repo_root, &["config", "user.email", "ao-tests@example.com"]);
-        run_git(&repo_root, &["config", "user.name", "AO Tests"]);
+        run_git(&repo_root, &["config", "user.name", "Animus Tests"]);
         std::fs::write(repo_root.join("README.md"), "root\n").expect("seed file should write");
         run_git(&repo_root, &["add", "README.md"]);
         run_git(&repo_root, &["commit", "-m", "init"]);
@@ -188,7 +188,7 @@ mod tests {
 
         run_git(&repo_root, &["init"]);
         run_git(&repo_root, &["config", "user.email", "ao-tests@example.com"]);
-        run_git(&repo_root, &["config", "user.name", "AO Tests"]);
+        run_git(&repo_root, &["config", "user.name", "Animus Tests"]);
         std::fs::write(repo_root.join("README.md"), "root\n").expect("seed file should write");
         run_git(&repo_root, &["add", "README.md"]);
         run_git(&repo_root, &["commit", "-m", "init"]);

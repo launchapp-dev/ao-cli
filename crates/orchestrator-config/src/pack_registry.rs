@@ -403,7 +403,7 @@ fn select_resolved_pack(
             requirement.push_str(&format!(" version '{}'", version.trim()));
         }
         if matches!(selection.source, Some(crate::PackSelectionSource::Bundled)) {
-            requirement.push_str(" cannot be satisfied because AO no longer ships bundled packs");
+            requirement.push_str(" cannot be satisfied because Animus no longer ships bundled packs");
             requirement
                 .push_str("; install the pack from an external repository and pin it as installed or project_override");
             return Err(anyhow!(requirement));
@@ -864,7 +864,7 @@ description = "Fixture"
 mode = "bundled"
 
 [compatibility]
-ao_core = ">=0.1.0"
+animus_core = ">=0.1.0"
 workflow_schema = "v2"
 subject_schema = "v2"
 
@@ -928,7 +928,7 @@ description = "Fixture"
 mode = "bundled"
 
 [compatibility]
-ao_core = ">=0.1.0"
+animus_core = ">=0.1.0"
 workflow_schema = "v2"
 subject_schema = "v2"
 
@@ -1278,7 +1278,7 @@ description = "Fixture"
 mode = "bundled"
 
 [compatibility]
-ao_core = ">=0.1.0"
+animus_core = ">=0.1.0"
 workflow_schema = "v2"
 subject_schema = "v2"
 
@@ -1332,7 +1332,7 @@ description = "Fixture"
 mode = "bundled"
 
 [compatibility]
-ao_core = ">=0.1.0"
+animus_core = ">=0.1.0"
 workflow_schema = "v2"
 subject_schema = "v2"
 
@@ -1388,7 +1388,7 @@ description = "Fixture"
 mode = "bundled"
 
 [compatibility]
-ao_core = ">=0.1.0"
+animus_core = ">=0.1.0"
 workflow_schema = "v2"
 subject_schema = "v2"
 
@@ -1452,7 +1452,7 @@ description = "Fixture"
 mode = "bundled"
 
 [compatibility]
-ao_core = ">=0.1.0"
+animus_core = ">=0.1.0"
 workflow_schema = "v2"
 subject_schema = "v2"
 

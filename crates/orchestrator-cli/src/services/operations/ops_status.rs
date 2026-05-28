@@ -604,7 +604,7 @@ fn parse_gh_run_list(payload: &str) -> Result<Option<CiRunSummary>> {
 
 fn render_status_dashboard(dashboard: &StatusDashboard) -> String {
     let mut output = String::new();
-    let _ = writeln!(&mut output, "AO Status Dashboard");
+    let _ = writeln!(&mut output, "Animus Status Dashboard");
     let _ = writeln!(&mut output, "Project Root: {}", dashboard.project_root);
     let _ = writeln!(&mut output, "Generated At: {}", dashboard.generated_at.to_rfc3339());
     let _ = writeln!(&mut output);

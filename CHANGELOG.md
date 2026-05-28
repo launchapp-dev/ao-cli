@@ -27,6 +27,7 @@ All notable changes to this project will be documented in this file.
   configured root) and forward it. `animus.plugin.install` also accepts
   `force_rewrite_lockfile: bool` to match the CLI's v0.4.14 G2 fail-closed
   escape hatch. Tool descriptions updated.
+- **`fix(session)`: Carry `project_root` through `SessionRequest` so worktree-bound tasks find project-local provider plugins.** When a task ran inside a managed worktree (`~/.animus/<scope>/worktrees/...`), `spawn_session_process` discovered provider plugins via `Path::new(cwd)` and dropped `project_root` from the outgoing `SessionRequest`. Plugins installed at `<project_root>/.animus/plugins/animus-provider-*` therefore disappeared the moment a workflow switched into its worktree, breaking the plugin author guide's project-local-plugin promise. The supervisor now plumbs `project_root` through to `spawn_session_process` / `build_session_request`, the resolver scans `<project_root>/.animus/plugins/` instead of `<cwd>/.animus/plugins/`, and the field rides over the JSON-RPC `agent/run` payload to the plugin. Negative-cased test in `agent-runner` proves the fix.
 
 ## [0.4.14] - 2026-05-27
 

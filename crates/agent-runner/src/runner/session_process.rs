@@ -80,6 +80,7 @@ pub(super) async fn spawn_session_process(
     prompt: &str,
     runtime_contract: Option<&Value>,
     cwd: &str,
+    project_root: Option<&str>,
     env: HashMap<String, String>,
     timeout_secs: Option<u64>,
     run_id: &RunId,
@@ -112,10 +113,26 @@ pub(super) async fn spawn_session_process(
         mcp_config_preview = ?mcp_config_preview,
         "Prepared native session invocation after MCP policy"
     );
-    let session_request =
-        build_session_request(tool, model, prompt, runtime_contract, cwd, env, timeout_secs, invocation)?;
+    let session_request = build_session_request(
+        tool,
+        model,
+        prompt,
+        runtime_contract,
+        cwd,
+        project_root,
+        env,
+        timeout_secs,
+        invocation,
+    )?;
     let idle_timeout_secs = resolve_idle_timeout_secs(tool, timeout_secs, runtime_contract);
-    let resolver = SessionBackendResolver::with_plugin_discovery(std::path::Path::new(cwd));
+    // Project-local provider plugins live under `<project_root>/.animus/plugins`.
+    // When the runner executes inside a managed worktree, `cwd` points at the
+    // worktree (e.g. `~/.animus/<scope>/worktrees/...`) which has no
+    // `.animus/plugins/` directory. Discover plugins against `project_root`
+    // when the supervisor provided it; fall back to `cwd` for callers that
+    // do not yet thread it through.
+    let discovery_root = project_root.map(std::path::Path::new).unwrap_or_else(|| std::path::Path::new(cwd));
+    let resolver = SessionBackendResolver::with_plugin_discovery(discovery_root);
     let backend = resolver.resolve(&session_request).context("failed to resolve provider plugin")?;
     let mut run = match resume_session_id.map(str::trim).filter(|s| !s.is_empty()) {
         Some(session_id) => backend
@@ -254,6 +271,7 @@ fn build_session_request(
     prompt: &str,
     runtime_contract: Option<&Value>,
     cwd: &str,
+    project_root: Option<&str>,
     env: HashMap<String, String>,
     timeout_secs: Option<u64>,
     invocation: LaunchInvocation,
@@ -296,7 +314,7 @@ fn build_session_request(
         model: model.to_string(),
         prompt: prompt.to_string(),
         cwd: std::path::PathBuf::from(cwd),
-        project_root: None,
+        project_root: project_root.map(std::path::PathBuf::from),
         mcp_endpoint: merged_contract.pointer("/mcp/endpoint").and_then(Value::as_str).map(ToString::to_string),
         permission_mode: None,
         timeout_secs,
@@ -568,6 +586,7 @@ mod tests {
             "",
             Some(&runtime_contract),
             ".",
+            None,
             HashMap::new(),
             Some(30),
             &run_id,
@@ -657,6 +676,7 @@ mod tests {
             "",
             Some(&runtime_contract),
             ".",
+            None,
             env,
             Some(30),
             &run_id,
@@ -726,6 +746,7 @@ mod tests {
                 "",
                 Some(&runtime_contract),
                 ".",
+                None,
                 HashMap::new(),
                 Some(30),
                 &run_id,
@@ -782,6 +803,7 @@ mod tests {
             "",
             Some(&runtime_contract),
             ".",
+            None,
             HashMap::new(),
             Some(30),
             &run_id,
@@ -855,6 +877,7 @@ mod tests {
             "",
             Some(&runtime_contract),
             ".",
+            None,
             env,
             Some(30),
             &run_id,
@@ -939,6 +962,7 @@ mod tests {
             "",
             Some(&runtime_contract),
             ".",
+            None,
             env,
             Some(30),
             &run_id,
@@ -993,6 +1017,7 @@ mod tests {
             "",
             Some(&runtime_contract),
             ".",
+            None,
             HashMap::new(),
             Some(30),
             &run_id,
@@ -1014,5 +1039,137 @@ mod tests {
 
         assert_eq!(exit_code, 0);
         assert!(saw_output, "expected output forwarded through resume session path");
+    }
+
+    fn empty_invocation() -> LaunchInvocation {
+        LaunchInvocation {
+            command: "/usr/bin/true".to_string(),
+            args: vec![],
+            env: std::collections::BTreeMap::new(),
+            prompt_via_stdin: false,
+        }
+    }
+
+    #[test]
+    fn build_session_request_carries_project_root_when_supplied() {
+        let req = build_session_request(
+            "claude",
+            "claude-sonnet-4-6",
+            "hi",
+            None,
+            "/tmp/some-worktree",
+            Some("/tmp/some-real-project-root"),
+            HashMap::new(),
+            None,
+            empty_invocation(),
+        )
+        .expect("session request should build");
+        assert_eq!(req.cwd, PathBuf::from("/tmp/some-worktree"));
+        assert_eq!(req.project_root.as_deref(), Some(Path::new("/tmp/some-real-project-root")));
+    }
+
+    #[test]
+    fn build_session_request_leaves_project_root_none_when_absent() {
+        let req = build_session_request(
+            "claude",
+            "claude-sonnet-4-6",
+            "hi",
+            None,
+            "/tmp/some-cwd",
+            None,
+            HashMap::new(),
+            None,
+            empty_invocation(),
+        )
+        .expect("session request should build");
+        assert!(req.project_root.is_none());
+    }
+
+    /// Exercises the bug fix: when a task runs in a managed worktree (`cwd`
+    /// points at the worktree) but the project-local provider plugin lives
+    /// under the REAL project root, discovery must use `project_root` —
+    /// not `cwd` — to find the plugin. Drops a fake `animus-provider-*`
+    /// binary under `<project_root>/.animus/plugins/` and asserts the
+    /// resolver wires it up; the negative branch with `project_root` set
+    /// to a worktree-style path proves the assertion is meaningful.
+    #[cfg(unix)]
+    #[test]
+    fn discovery_uses_project_root_for_project_local_provider_plugins() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // Lay out a fake project root with a project-local plugin.
+        let project_root = unique_test_dir("plugin-discovery-pr");
+        let plugins_dir = project_root.join(".animus").join("plugins");
+        fs::create_dir_all(&plugins_dir).expect("create project-local plugins dir");
+        let plugin_path = plugins_dir.join("animus-provider-h3test");
+        let manifest = serde_json::json!({
+            "name": "animus-provider-h3test",
+            "version": "0.0.1",
+            "plugin_kind": "provider",
+            "description": "fake provider plugin for project-local discovery test",
+            "protocol_version": "0.1.0",
+            "capabilities": ["agent/run"],
+        })
+        .to_string();
+        let script = format!(
+            "#!/bin/sh\nif [ \"$1\" = \"--manifest\" ]; then\n  printf '%s' '{manifest}'\n  exit 0\nfi\nexec sleep 60\n"
+        );
+        fs::write(&plugin_path, script).expect("write fake plugin");
+        let mut perms = fs::metadata(&plugin_path).expect("plugin metadata").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&plugin_path, perms).expect("plugin perms");
+
+        // Distinct "worktree" path with no `.animus/plugins/` — mirrors what
+        // the supervisor sets `cwd` to once the runner switches into the
+        // managed worktree under `~/.animus/<scope>/worktrees/...`.
+        let worktree = unique_test_dir("plugin-discovery-wt");
+        fs::create_dir_all(&worktree).expect("create worktree");
+
+        // Block fallback discovery sources so the test isolates the
+        // project_root branch we care about. EnvVarGuard serializes
+        // process-global env mutations against every other test that uses
+        // the same guard so the empty dir we point at isn't observed by an
+        // unrelated test running in parallel; it also restores the previous
+        // value on drop even if an assertion below panics.
+        let empty_plugin_dir = unique_test_dir("plugin-discovery-empty");
+        fs::create_dir_all(&empty_plugin_dir).expect("create empty plugin dir");
+        let empty_str = empty_plugin_dir.to_string_lossy().into_owned();
+        let _plugin_path_guard = protocol::test_utils::EnvVarGuard::set("ANIMUS_PLUGIN_PATH", Some(&empty_str));
+        let _plugin_dir_guard = protocol::test_utils::EnvVarGuard::set("ANIMUS_PLUGIN_DIR", Some(&empty_str));
+        let _config_dir_guard = protocol::test_utils::EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(&empty_str));
+
+        let resolver_with_root = SessionBackendResolver::with_plugin_discovery(&project_root);
+        let request_with_root = animus_session_backend::session::SessionRequest {
+            tool: "h3test".to_string(),
+            model: String::new(),
+            prompt: "probe".to_string(),
+            cwd: worktree.clone(),
+            project_root: Some(project_root.clone()),
+            mcp_endpoint: None,
+            permission_mode: None,
+            timeout_secs: None,
+            env_vars: Vec::new(),
+            extras: json!({}),
+        };
+        let found_with_root = resolver_with_root.resolve(&request_with_root).is_ok();
+
+        // Negative: point discovery at the worktree (the pre-fix behavior)
+        // and confirm the plugin does NOT resolve. Without this branch the
+        // positive test could pass for unrelated reasons.
+        let resolver_without_root = SessionBackendResolver::with_plugin_discovery(&worktree);
+        let found_without_root = resolver_without_root.resolve(&request_with_root).is_ok();
+
+        let _ = fs::remove_dir_all(&project_root);
+        let _ = fs::remove_dir_all(&worktree);
+        let _ = fs::remove_dir_all(&empty_plugin_dir);
+
+        assert!(
+            found_with_root,
+            "project-local plugin must be discoverable when SessionBackendResolver scans project_root"
+        );
+        assert!(
+            !found_without_root,
+            "negative case: project-local plugin should NOT be discoverable when discovery scans the worktree (cwd)"
+        );
     }
 }

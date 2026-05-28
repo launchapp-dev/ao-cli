@@ -27,8 +27,8 @@ cargo build
 cargo test
 
 # Format and lint
-cargo fmt
-cargo clippy
+cargo animus-fmt
+cargo animus-lint
 ```
 
 ## Development Workflow
@@ -76,10 +76,10 @@ Before submitting a PR, verify your changes don't break anything:
 
 ```bash
 # Format check
-cargo fmt --check
+cargo animus-fmt-check
 
 # Lint check
-cargo clippy --all-targets
+cargo animus-lint
 
 # Test all crates
 cargo test --workspace
@@ -142,13 +142,13 @@ Animus has a stable naming split between the user-facing brand (`animus`) and th
 
 ### Web UI Standards (TypeScript/React)
 
-- Use React 18 best practices
+- If you change the external web UI plugins, follow the React and frontend patterns in those plugin repos
 - Follow component patterns established in the codebase
 - Test changes with responsive and accessibility checks
 
 ### State Management
 
-- Treat AO-managed state (in `~/.ao/`) as immutable except through CLI commands
+- Treat Animus-managed state (project `.animus/` config and `~/.animus/<repo-scope>/` runtime state) as immutable except through CLI commands
 - Use service APIs rather than direct file manipulation
 - Preserve backward compatibility where possible
 

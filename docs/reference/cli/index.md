@@ -296,7 +296,7 @@ Initialize an Animus project from a template registry or a local template direct
 | `--plan` | Preview init changes without writing project files |
 | `--force` | Overwrite existing project files targeted by the template |
 | `--update-registry` | Fetch the latest commit from the template registry and re-pin the local cache before loading the template (v0.4.0 supply-chain hardening — by default the registry uses the pinned cache) |
-| `--walkthrough` | Run the v0.4.13 onboarding walkthrough: detect CLIs, install default plugins, and copy the bundled hello-world workflow |
+| `--walkthrough` | Run the v0.4.15 onboarding walkthrough: detect CLIs, install default plugins, and copy the bundled hello-world workflow |
 | `--no-install` | Walkthrough only: skip `animus plugin install-defaults` |
 | `--no-template` | Walkthrough only: skip copying the hello-world workflow template into `.animus/workflows/` |
 | `--auto-start` | Walkthrough only: start the autonomous daemon after init completes |

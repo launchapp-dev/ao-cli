@@ -1,11 +1,11 @@
 # AGENTS.md
 
-Operator and contributor guide for AO (`ao` CLI).
+Operator and contributor guide for Animus (`animus` / `ao` CLI).
 
 ## Mission
 
-Use AO to build AO. Requirements, tasks, workflows, queue entries, and review state
-in this repo are AO-managed data, and this workspace remains Rust-only.
+Use Animus to build Animus. Requirements, tasks, workflows, queue entries, and review state
+in this repo are Animus-managed data, and this workspace remains Rust-only.
 
 ## Source Of Truth
 
@@ -29,7 +29,7 @@ Around 20-crate Rust workspace. Main binary: `animus` (`crates/orchestrator-cli`
 crates/
 ├── agent-runner/                # Runner process that launches and supervises AI CLIs
 ├── orchestrator-logging/        # Shared tracing and log file utilities
-├── llm-cli-wrapper/             # Session backend layer + launch parsing helpers
+├── orchestrator-session-host/   # Session backend layer + provider/plugin execution bridge
 ├── oai-runner/                  # OpenAI-compatible runner implementation
 ├── orchestrator-cli/            # Main `ao` binary
 ├── orchestrator-config/         # Workflow and agent-runtime config loading/compilation
@@ -172,9 +172,9 @@ Use these reference docs instead of hand-maintained summaries:
 ## Useful Commands
 
 ```bash
-cargo ao-fmt
-cargo ao-lint
-cargo ao-bin-check
+cargo animus-fmt
+cargo animus-lint
+cargo animus-bin-check
 cargo test -p orchestrator-cli
 cargo test --workspace
 

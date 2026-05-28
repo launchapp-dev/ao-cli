@@ -1,6 +1,6 @@
 # Installation
 
-Current release: **v0.4.13** (2026-05-27). See [CHANGELOG.md](../../CHANGELOG.md)
+Current release: **v0.4.15** (2026-05-28). See [CHANGELOG.md](../../CHANGELOG.md)
 for the full v0.4.x shipped state and
 [`docs/migration/v0.4.11-to-v0.4.12.md`](../migration/v0.4.11-to-v0.4.12.md)
 if you are upgrading from an earlier v0.4.x.
@@ -24,7 +24,7 @@ Options:
 
 ```bash
 # Install a specific release
-ANIMUS_VERSION=v0.4.13 curl -fsSL https://raw.githubusercontent.com/launchapp-dev/animus-cli/main/scripts/install.sh | bash
+ANIMUS_VERSION=v0.4.15 curl -fsSL https://raw.githubusercontent.com/launchapp-dev/animus-cli/main/scripts/install.sh | bash
 
 # Install into a custom directory
 ANIMUS_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/launchapp-dev/animus-cli/main/scripts/install.sh | bash

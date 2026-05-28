@@ -113,12 +113,31 @@ pub async fn project_execution_fact(hub: Arc<dyn ServiceHub>, root: &str, fact: 
     }
 }
 
+/// Record a SUCCESSFUL schedule dispatch attempt.
+///
+/// Updates `last_run`, increments `run_count`, and stores `status`. Call
+/// this only when the workflow runner actually spawned (i.e.
+/// `ProcessManager::spawn_workflow_runner` returned `Ok`). Recording
+/// `last_run` for failed-capacity dispatches would suppress the schedule
+/// on the next tick (cron dedup compares last_run minute) — the missed
+/// cron minute would never be retried.
 pub fn project_schedule_dispatch_attempt(root: &str, schedule_id: &str, run_at: chrono::DateTime<Utc>, status: &str) {
-    update_schedule_state(root, schedule_id, Some(run_at), status, true);
+    update_schedule_state(root, schedule_id, Some(run_at), status, true, false);
+}
+
+/// Record a MISSED schedule dispatch attempt (e.g. pool at capacity).
+///
+/// Leaves `last_run` untouched so the schedule re-fires on the next tick.
+/// Increments `missed_count` for ops visibility and stores `status` (which
+/// typically captures the rejection reason). Separate from
+/// `project_schedule_dispatch_attempt` so the schedule state file
+/// distinguishes "ran" from "skipped: pool full".
+pub fn project_schedule_dispatch_missed(root: &str, schedule_id: &str, status: &str) {
+    update_schedule_state(root, schedule_id, None, status, false, true);
 }
 
 pub(crate) fn project_schedule_completion_status(root: &str, schedule_id: &str, status: &str) {
-    update_schedule_state(root, schedule_id, None, status, false);
+    update_schedule_state(root, schedule_id, None, status, false, false);
 }
 
 pub fn project_schedule_execution_fact(root: &str, fact: &SubjectExecutionFact) {
@@ -135,6 +154,7 @@ fn update_schedule_state(
     run_at: Option<chrono::DateTime<Utc>>,
     status: &str,
     increment_run_count: bool,
+    increment_missed_count: bool,
 ) {
     let project_root = Path::new(root);
     let mut state = load_schedule_state(project_root).unwrap_or_default();
@@ -144,6 +164,9 @@ fn update_schedule_state(
     }
     if increment_run_count {
         entry.run_count = entry.run_count.saturating_add(1);
+    }
+    if increment_missed_count {
+        entry.missed_count = entry.missed_count.saturating_add(1);
     }
     entry.last_status = status.to_string();
     let _ = save_schedule_state(project_root, &state);
@@ -161,6 +184,59 @@ mod tests {
         services::ServiceHub, InMemoryServiceHub, OrchestratorTask, Priority, ResourceRequirements, Scope,
         TaskMetadata, TaskStatus, TaskType, WorkflowMetadata,
     };
+
+    #[test]
+    fn project_schedule_dispatch_missed_does_not_update_last_run() {
+        // Regression for the audit P2 finding: a schedule that was due but
+        // could not be dispatched (e.g. pool at capacity) must NOT have its
+        // `last_run` field updated, otherwise the cron dedup logic in
+        // `evaluate_schedules` would suppress it on the next tick — the
+        // missed cron minute would silently never re-fire.
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path().to_string_lossy().to_string();
+
+        super::project_schedule_dispatch_missed(&root, "nightly", "failed: tick budget exhausted");
+
+        let state = super::load_schedule_state(temp.path()).expect("load state");
+        let entry = state.schedules.get("nightly").expect("schedule entry");
+        assert!(entry.last_run.is_none(), "missed dispatch must not touch last_run");
+        assert_eq!(entry.run_count, 0, "missed dispatch must not increment run_count");
+        assert_eq!(entry.missed_count, 1, "missed_count tracks pool-rejected dispatches");
+        assert_eq!(entry.last_status, "failed: tick budget exhausted");
+    }
+
+    #[test]
+    fn project_schedule_dispatch_attempt_updates_last_run_and_run_count() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path().to_string_lossy().to_string();
+        let run_at: chrono::DateTime<Utc> = "2026-04-01T12:30:00Z".parse().unwrap();
+
+        super::project_schedule_dispatch_attempt(&root, "nightly", run_at, "dispatched");
+
+        let state = super::load_schedule_state(temp.path()).expect("load state");
+        let entry = state.schedules.get("nightly").expect("entry");
+        assert_eq!(entry.last_run, Some(run_at));
+        assert_eq!(entry.run_count, 1);
+        assert_eq!(entry.missed_count, 0, "successful dispatch must NOT increment missed_count");
+        assert_eq!(entry.last_status, "dispatched");
+    }
+
+    #[test]
+    fn project_schedule_dispatch_missed_then_attempt_separates_counters() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path().to_string_lossy().to_string();
+        let run_at: chrono::DateTime<Utc> = "2026-04-01T12:30:00Z".parse().unwrap();
+
+        super::project_schedule_dispatch_missed(&root, "hourly", "failed: pool full");
+        super::project_schedule_dispatch_missed(&root, "hourly", "failed: pool full");
+        super::project_schedule_dispatch_attempt(&root, "hourly", run_at, "dispatched");
+
+        let state = super::load_schedule_state(temp.path()).expect("load state");
+        let entry = state.schedules.get("hourly").expect("entry");
+        assert_eq!(entry.run_count, 1, "only the successful attempt counts as a run");
+        assert_eq!(entry.missed_count, 2, "both failed attempts counted as missed");
+        assert_eq!(entry.last_run, Some(run_at));
+    }
 
     async fn upsert_task(hub: &Arc<InMemoryServiceHub>, id: &str, status: TaskStatus) -> OrchestratorTask {
         let now = Utc::now();

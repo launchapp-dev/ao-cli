@@ -318,6 +318,7 @@ mod tests {
                 last_run: Some(now),
                 last_status: "evaluated".to_string(),
                 run_count: 1,
+                missed_count: 0,
             },
         );
         let due = evaluate_schedules(&schedules, &state, now);

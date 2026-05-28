@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::{
     schedule_headroom, DaemonRuntimeOptions, ProjectTickExecutionOutcome, ProjectTickHooks, ProjectTickRunMode,
-    ProjectTickSummary, ProjectTickTime,
+    ProjectTickSummary, ProjectTickTime, TickBudget,
 };
 
 pub async fn run_project_tick<H>(
@@ -32,15 +32,18 @@ where
     let now = tick_time.local_time();
     let context = mode.load_context(root, args, now, pool_draining);
 
-    // Compute schedule dispatch headroom BEFORE processing schedules so that
-    // they respect the pool cap.  Uses the pre-tick active count (captured by
-    // the caller before the tick loop iteration).
-    let headroom = schedule_headroom(args.pool_size, mode.active_process_count);
+    // Compute one shared dispatch budget BEFORE processing schedules so that
+    // schedules + triggers split a single pool of headroom instead of each
+    // spending the full amount independently.  Uses the pre-tick active count
+    // (captured by the caller before the tick loop iteration).  The schedule
+    // hook runs first and claims slots via `TickBudget::try_take`; the
+    // trigger hook sees whatever remains.  Without this shared budget, the
+    // ProcessManager rejects the over-budget spawns while schedules still get
+    // marked attempted and webhook events still get drained from the queue.
+    let mut tick_budget = TickBudget::new(schedule_headroom(args.pool_size, mode.active_process_count));
     if context.initial_preparation.schedule_plan.should_process_due_schedules {
-        hooks.process_due_schedules(root, tick_time.schedule_at(), headroom);
-        // Process file-watcher triggers after schedules. Reuse the same headroom
-        // pool; the trigger hook enforces its own capacity limit.
-        hooks.process_due_triggers(root, tick_time.schedule_at(), headroom);
+        hooks.process_due_schedules(root, tick_time.schedule_at(), &mut tick_budget);
+        hooks.process_due_triggers(root, tick_time.schedule_at(), &mut tick_budget);
     }
 
     let snapshot = hooks.capture_snapshot(root).await?;

@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- **`fix(scheduler)`: shared decrementing tick budget across schedule + trigger dispatch.**
+  Audit P2 finding: `run_project_tick` previously passed the SAME headroom value to the
+  schedule hook and the trigger hook, letting each path spend the full pool independently.
+  With pool cap N=5, schedule could commit 3 dispatches and trigger would then drain 5
+  webhook events — `ProcessManager` refused the over-budget spawns, leaving schedules
+  marked `last_run` and webhook events dropped without runners. Now both hooks share a
+  `&mut TickBudget` (claim via `try_take`, release on non-capacity spawn failure); failed
+  schedules route through new `project_schedule_dispatch_missed` which increments a new
+  `ScheduleRunState.missed_count` and leaves `last_run` untouched so the schedule re-fires
+  on the next tick; webhook events are peeked from the queue and only popped after the
+  spawn succeeds. (`run_project_tick.rs`, `default_project_tick_driver.rs`,
+  `trigger_dispatch.rs`, `execution_projection.rs`, `dispatch_support.rs`,
+  `schedule_state.rs`)
+
 ## [0.4.14] - 2026-05-27
 
 Audit remediation release. External audit + parallel review across v0.3.2 →

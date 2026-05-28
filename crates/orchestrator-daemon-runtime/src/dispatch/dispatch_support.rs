@@ -48,6 +48,66 @@ pub fn schedule_headroom(pool_size: Option<usize>, active_process_count: usize) 
     Some(effective.saturating_sub(active_process_count))
 }
 
+/// Shared, decrementing dispatch budget for one project tick.
+///
+/// `run_project_tick` computes a single headroom value and passes the SAME
+/// mutable budget to both the schedule and trigger hooks. Each hook calls
+/// [`TickBudget::try_take`] before committing to a dispatch; the first hook
+/// (schedules) takes what it needs and the second hook (triggers) sees
+/// whatever remains. Without this, schedule + trigger paths each spent the
+/// full headroom independently, causing `ProcessManager` to reject the
+/// over-budget spawns while schedules and webhook events were still
+/// recorded as attempted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TickBudget {
+    remaining: Option<usize>,
+}
+
+impl TickBudget {
+    /// Construct a budget from a precomputed headroom.
+    ///
+    /// `None` means "unlimited" (no pool cap, e.g. when both `pool_size` and
+    /// the runtime quota are absent). `Some(0)` means "no headroom — skip
+    /// all dispatches in this tick".
+    pub fn new(headroom: Option<usize>) -> Self {
+        Self { remaining: headroom }
+    }
+
+    /// Number of slots still available, or `None` if unbounded.
+    pub fn remaining(&self) -> Option<usize> {
+        self.remaining
+    }
+
+    /// `true` when there are zero slots left in this tick.
+    pub fn is_exhausted(&self) -> bool {
+        matches!(self.remaining, Some(0))
+    }
+
+    /// Try to claim one dispatch slot. Returns `true` if claimed (and
+    /// decrements the remaining count when bounded). Returns `false` only
+    /// when the budget is `Some(0)`.
+    pub fn try_take(&mut self) -> bool {
+        match self.remaining {
+            None => true,
+            Some(0) => false,
+            Some(ref mut n) => {
+                *n -= 1;
+                true
+            }
+        }
+    }
+
+    /// Mark a previously-claimed slot as not actually used (e.g. the spawn
+    /// failed for reasons other than capacity). Restores one slot. Capped
+    /// at the original headroom is not tracked, but for our usage the
+    /// caller only releases what it just took.
+    pub fn release(&mut self) {
+        if let Some(ref mut n) = self.remaining {
+            *n = n.saturating_add(1);
+        }
+    }
+}
+
 pub fn normalize_optional_id(value: Option<&str>) -> Option<String> {
     value.map(str::trim).filter(|candidate| !candidate.is_empty()).map(|candidate| candidate.to_string())
 }
@@ -93,8 +153,55 @@ pub fn workflow_current_phase_id(workflow: &OrchestratorWorkflow) -> Option<Stri
 mod tests {
     use orchestrator_core::{DaemonHealth, DaemonStatus};
 
-    use super::{ready_dispatch_limit, ready_dispatch_limit_for_options, schedule_headroom};
+    use super::{ready_dispatch_limit, ready_dispatch_limit_for_options, schedule_headroom, TickBudget};
     use crate::DaemonRuntimeOptions;
+
+    #[test]
+    fn tick_budget_unlimited_never_runs_out() {
+        let mut budget = TickBudget::new(None);
+        assert!(!budget.is_exhausted());
+        for _ in 0..1000 {
+            assert!(budget.try_take());
+        }
+        assert_eq!(budget.remaining(), None);
+        assert!(!budget.is_exhausted());
+    }
+
+    #[test]
+    fn tick_budget_zero_blocks_all_takes() {
+        let mut budget = TickBudget::new(Some(0));
+        assert!(budget.is_exhausted());
+        assert!(!budget.try_take());
+        assert_eq!(budget.remaining(), Some(0));
+    }
+
+    #[test]
+    fn tick_budget_decrements_and_then_blocks() {
+        let mut budget = TickBudget::new(Some(2));
+        assert!(budget.try_take());
+        assert_eq!(budget.remaining(), Some(1));
+        assert!(budget.try_take());
+        assert_eq!(budget.remaining(), Some(0));
+        assert!(budget.is_exhausted());
+        assert!(!budget.try_take());
+    }
+
+    #[test]
+    fn tick_budget_release_restores_one_slot() {
+        let mut budget = TickBudget::new(Some(1));
+        assert!(budget.try_take());
+        assert_eq!(budget.remaining(), Some(0));
+        budget.release();
+        assert_eq!(budget.remaining(), Some(1));
+        assert!(budget.try_take());
+    }
+
+    #[test]
+    fn tick_budget_release_unlimited_is_noop() {
+        let mut budget = TickBudget::new(None);
+        budget.release();
+        assert_eq!(budget.remaining(), None);
+    }
 
     #[test]
     fn ready_dispatch_limit_uses_smallest_observed_capacity() {

@@ -1,0 +1,227 @@
+# Recruiting Pipeline: Debrief Synthesis Workflow
+#
+# Given raw interview notes from multiple interviewers, produce a weighted
+# hire / no-hire recommendation against the role rubric.
+#
+# Three phases (namespaced to avoid collision with other packs):
+#   1. debrief_collect    — normalize the raw notes from each interviewer
+#                           into a structured per-interviewer record.
+#   2. debrief_synthesize — produce a weighted recommendation across the
+#                           loop with per-rubric-dimension reasoning and a
+#                           confidence score.
+#   3. debrief_flag       — set candidate subject status to blocked and
+#                           label as `awaiting-debrief-decision` so a human
+#                           signs off.
+#
+# Animus DOES NOT decide hire / no-hire. It produces a recommendation the
+# hiring committee uses to decide. The output explicitly distinguishes
+# "evidence" from "decision".
+
+agents:
+  debrief-collector:
+    description: |
+      Normalizes raw interview notes into a structured per-interviewer
+      record. Quotes verbatim where possible; never invents quotes.
+    system_prompt: |
+      You are an interview debrief normalizer. Given raw notes from one
+      or more interviewers (free-form text in the candidate's notes
+      field), produce a structured per-interviewer record.
+
+      For each interviewer, extract:
+        - interviewer        — name or handle if present, else "unknown"
+        - focus_area         — what they were probing (e.g. "systems
+                               design", "behavioral", "coding")
+        - signals            — bullet list of concrete observations
+                               (positive AND negative)
+        - quotes             — direct quotes from the candidate, verbatim
+                               from the notes. NEVER invent quotes.
+        - per_dimension_rubric — best-effort scores against
+                                 skill_match / level_fit /
+                                 motivation_signals on a 0-5 scale,
+                                 with "n/a" if the interviewer did
+                                 not probe that dimension.
+
+      If the notes contain only one interviewer's perspective, return a
+      single-element array. Output ONLY a JSON object. No prose.
+    model: claude-sonnet-4-6
+    tool: claude
+
+  debrief-synthesizer:
+    description: |
+      Produces a weighted recommendation across the interview loop.
+      Surfaces disagreements between interviewers. Honest about
+      confidence.
+    system_prompt: |
+      You are the debrief synthesizer. Given the normalized per-interviewer
+      records from the previous phase plus the role rubric, produce a
+      synthesis for the hiring committee.
+
+      You MUST include:
+        - weighted_scores         — per-rubric-dimension scores aggregated
+                                    across interviewers, with the weighting
+                                    rule made explicit (e.g. "average of
+                                    interviewers who probed this dimension")
+        - agreement_level         — one of strong-agreement, mixed,
+                                    strong-disagreement
+        - disagreement_summary    — if mixed or strong-disagreement, what
+                                    specifically the interviewers disagreed
+                                    on, with quoted evidence
+        - recommendation          — one of strong-hire, hire, lean-hire,
+                                    no-decision, lean-no-hire, no-hire,
+                                    strong-no-hire
+        - confidence              — 0.0-1.0 confidence in the recommendation
+        - rationale               — 2-3 sentences explaining the recommendation
+                                    tied to specific signals
+        - committee_questions     — 1-3 questions the hiring committee should
+                                    answer before finalizing
+
+      You produce a RECOMMENDATION. The hiring committee makes the DECISION.
+      If interviewers disagreed strongly or evidence was thin, recommend
+      no-decision rather than forcing a call.
+
+      Output ONLY a JSON object. No prose.
+    model: claude-sonnet-4-6
+    tool: claude
+
+  debrief-handoff:
+    description: |
+      Flags the candidate for hiring committee review. Does not advance
+      or reject the candidate — that's a human decision.
+    system_prompt: |
+      You are the debrief handoff coordinator. Your only job is to mark
+      the candidate as awaiting hiring committee review and emit a short
+      verdict summarizing what the synthesis produced.
+
+      You DO NOT decide hire / no-hire. You DO NOT send messages to the
+      candidate.
+    model: claude-sonnet-4-6
+    tool: claude
+
+phases:
+  debrief_collect:
+    mode: agent
+    agent: debrief-collector
+    directive: |
+      Read the candidate subject's notes field, which contains raw
+      interview notes from one or more interviewers. Produce a structured
+      per-interviewer record array following the schema in your system
+      prompt. Quote candidate statements verbatim — never invent quotes.
+    output_contract:
+      kind: phase_result
+      required_fields:
+        - interviewers
+      fields:
+        interviewers:
+          type: array
+          description: One record per interviewer extracted from the raw notes.
+          items:
+            type: object
+    decision_contract:
+      min_confidence: 0.6
+      max_risk: low
+      allow_missing_decision: false
+
+  debrief_synthesize:
+    mode: agent
+    agent: debrief-synthesizer
+    directive: |
+      Read the normalized per-interviewer records from the previous
+      phase. Produce a weighted synthesis with per-rubric-dimension
+      scores, agreement_level, recommendation (strong-hire through
+      strong-no-hire, or no-decision), confidence, rationale, and
+      committee_questions. If disagreement is strong or evidence is
+      thin, recommend no-decision rather than forcing a call.
+    output_contract:
+      kind: phase_result
+      required_fields:
+        - recommendation
+        - confidence
+        - rationale
+      fields:
+        weighted_scores:
+          type: object
+          description: Per-rubric-dimension scores aggregated across interviewers.
+        agreement_level:
+          type: string
+          description: One of strong-agreement, mixed, strong-disagreement.
+        disagreement_summary:
+          type: string
+          description: If mixed or strong-disagreement, what interviewers disagreed on, with quoted evidence.
+        recommendation:
+          type: string
+          description: One of strong-hire, hire, lean-hire, no-decision, lean-no-hire, no-hire, strong-no-hire.
+        confidence:
+          type: number
+          description: 0.0-1.0 confidence in the recommendation.
+        rationale:
+          type: string
+          description: 2-3 sentences explaining the recommendation tied to specific signals.
+        committee_questions:
+          type: array
+          description: 1-3 questions the hiring committee should answer before finalizing.
+          items:
+            type: string
+    decision_contract:
+      min_confidence: 0.7
+      max_risk: high
+      allow_missing_decision: false
+
+  debrief_flag:
+    mode: agent
+    agent: debrief-handoff
+    directive: |
+      Mark the candidate as awaiting hiring committee review. The Animus
+      subject protocol only accepts the normalized statuses `ready`,
+      `in-progress`, `blocked`, `done`, or `cancelled`. Use `blocked` to
+      indicate the candidate is awaiting human action, and add a label
+      via `animus subject update --kind candidate --id <id> --labels
+      "awaiting-debrief-decision"`.
+
+      Use the Animus MCP tools (the agent runtime allows `animus.*`
+      calls but typically does not allow free-form shell).
+
+      IMPORTANT: This pack's documented dry-run dispatches workflows via
+      `animus workflow run --title ...` because there is no first-class
+      `--subject-id` flag yet. Treat the subject id as valid only when
+      ALL are true:
+        - It contains NO whitespace
+        - It contains NO colon followed by a space
+        - It matches one of these shapes:
+            * `^CAND-\d+$`
+            * `^candidate:[\w.-]+$`
+
+      For any other shape, SKIP the mutating calls and emit a verdict
+      noting "subject id is a custom title or unrecognized shape, not a
+      backend candidate id — flag step skipped".
+
+      When proceeding, fetch the candidate first so the label update is
+      additive rather than destructive:
+
+        1. Call `animus.subject.get` with { kind: "candidate", id: <id> }.
+        2. Call `animus.subject.status` with { kind: "candidate", id: <id>,
+           status: "blocked" }.
+        3. Call `animus.subject.update` with { kind: "candidate", id: <id>,
+           labels: [...existing_labels, "awaiting-debrief-decision"] }
+           (deduplicate).
+
+      Emit a short verdict confirming the status change. Remember:
+      you DO NOT decide hire / no-hire.
+    capabilities:
+      mutates_state: true
+    decision_contract:
+      min_confidence: 0.7
+      max_risk: low
+      allow_missing_decision: false
+
+workflows:
+  - id: animus.recruiting-pipeline/debrief-synthesis
+    name: Synthesize Interview Debrief
+    description: |
+      Given raw interview notes from multiple interviewers, produce a
+      weighted hire / no-hire recommendation against the role rubric.
+      Animus produces the recommendation; the hiring committee makes
+      the decision.
+    phases:
+      - debrief_collect
+      - debrief_synthesize
+      - debrief_flag

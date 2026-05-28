@@ -1,0 +1,46 @@
+schema = "animus.pack.v1"
+id = "animus.recruiting-pipeline"
+version = "0.1.0"
+kind = "domain-pack"
+title = "Recruiting Pipeline"
+description = "First-party reference pack: autonomous recruiting top-of-funnel. Enrich candidates, screen against role rubrics, draft interviewer briefs and debrief synthesis. Does not make hiring decisions and does not auto-send candidate comm."
+
+[ownership]
+# This pack lives in-tree as a reference for non-coding use cases.
+# It is loaded in "project" mode (copied into a project's overlay),
+# not bundled into the CLI binary.
+mode = "project"
+
+[compatibility]
+ao_core = ">=0.4.0"
+workflow_schema = "v2"
+subject_schema = "v2"
+
+[subjects]
+# This pack composes against the `candidate` subject kind owned by an
+# external backend plugin (animus-subject-markdown by default — Greenhouse
+# / Lever / Ashby backends are planned).
+kinds = ["candidate"]
+default_kind = "candidate"
+
+[workflows]
+root = "workflows"
+# Each exported workflow ref must be prefixed with the pack id. The YAML
+# files declare workflows with the same fully-qualified ids so dispatch
+# resolves correctly.
+exports = [
+  "animus.recruiting-pipeline/screen-candidate",
+  "animus.recruiting-pipeline/debrief-synthesis",
+]
+
+[permissions]
+# Both workflows only need to talk to Animus MCP to update subject
+# status. They do not need shell, git, or filesystem tools.
+tools = ["animus"]
+
+# NOTE: Plugin prerequisites (animus-subject-markdown,
+# animus-provider-claude) are NOT listed in [[dependencies]] — that
+# section validates pack ids (lowercase letters/numbers/./-/_) and
+# rejects GitHub-style plugin slugs that contain `/`. Plugin
+# prerequisites are documented in README.md and installed by
+# scripts/setup.sh via `animus plugin install ...`.

@@ -208,7 +208,8 @@ animus
 │   └── cli                  Infer CLI provider details from run output
 │
 ├── mcp                      Run the Animus MCP service endpoint
-│   └── serve                Start the MCP server in the current process
+│   ├── serve                Start the MCP server in the current process
+│   └── memory               Start the memory context MCP server for workflow phases
 │
 ├── web                      Serve and open the Animus web UI
 │   ├── serve                Spawn installed transport_backend + web_ui plugins and report bound URLs. Requires plugins from `animus plugin install-defaults --include-transports`

@@ -61,7 +61,7 @@ plugin (e.g. `linear`, `jira`, `github-issue`).
 | Tool | Description | Key Parameters |
 |---|---|---|
 | `animus.subject.list` | List subjects for a kind via the active `subject_backend` plugin | `kind`, `status`, `limit`, `project_root` |
-| `animus.subject.get` | Fetch a subject by wire id (`<kind>:<native_id>`) | `kind`, `id` |
+| `animus.subject.get` | Fetch a subject by wire id (`<kind>:<native_id>`) | `kind`, `id`, `project_root` |
 | `animus.subject.create` | Create a subject through the active `subject_backend` plugin | `kind`, `title`, `priority`, `status`, `labels[]`, `body`, `project_root` |
 | `animus.subject.update` | Update a subject through the active `subject_backend` plugin | `kind`, `id`, `priority`, `status`, `labels[]`, `project_root` |
 | `animus.subject.next` | Return the highest-priority Ready subject for the given kind | `kind`, `project_root` |
@@ -87,22 +87,22 @@ control wire when the daemon is running, otherwise reads the in-tree
 
 | Tool | Description | Key Parameters |
 |---|---|---|
-| `animus.workflow.run` | Start a workflow for a task (async, via daemon) | `task_id`, `requirement_id`, `title`, `description`, `workflow_ref`, `input_json` |
-| `animus.workflow.run-multiple` | Batch-run workflows for multiple tasks | `runs[]` (each: `task_id`, `workflow_ref`, `input_json`), `on_error` |
-| `animus.workflow.execute` | Execute a workflow synchronously (no daemon) | `task_id`, `workflow_ref`, `phase`, `model`, `tool`, `phase_timeout_secs`, `input_json` |
-| `animus.workflow.get` | Get full workflow state by ID | `id` |
-| `animus.workflow.list` | List workflow executions | `status`, `workflow_ref`, `task_id`, `phase_id`, `search`, `sort`, `limit`, `offset`, `max_tokens` |
-| `animus.workflow.pause` | Pause a running workflow | `id`, `confirm`, `dry_run` |
-| `animus.workflow.cancel` | Cancel a running workflow permanently | `id`, `confirm`, `dry_run` |
-| `animus.workflow.resume` | Resume a paused workflow | `id` |
-| `animus.workflow.phase.approve` | Approve a gated workflow phase | `workflow_id`, `phase_id`, `feedback` |
+| `animus.workflow.run` | Start a workflow for a task (async, via daemon) | `task_id`, `requirement_id`, `title`, `description`, `workflow_ref`, `input_json`, `project_root` |
+| `animus.workflow.run-multiple` | Batch-run workflows for multiple tasks | `runs[]` (each: `task_id`, `workflow_ref`, `input_json`), `on_error`, `project_root` |
+| `animus.workflow.execute` | Execute a workflow synchronously (no daemon) | `task_id`, `workflow_ref`, `phase`, `model`, `tool`, `phase_timeout_secs`, `input_json`, `project_root` |
+| `animus.workflow.get` | Get full workflow state by ID | `id`, `project_root` |
+| `animus.workflow.list` | List workflow executions | `status`, `workflow_ref`, `task_id`, `phase_id`, `search`, `sort`, `limit`, `offset`, `max_tokens`, `project_root` |
+| `animus.workflow.pause` | Pause a running workflow | `id`, `confirm`, `dry_run`, `project_root` |
+| `animus.workflow.cancel` | Cancel a running workflow permanently | `id`, `confirm`, `dry_run`, `project_root` |
+| `animus.workflow.resume` | Resume a paused workflow | `id`, `project_root` |
+| `animus.workflow.phase.approve` | Approve a gated workflow phase | `workflow_id`, `phase_id`, `feedback`, `project_root` |
 
 ### Decision & Checkpoint Tools (2)
 
 | Tool | Description | Key Parameters |
 |---|---|---|
-| `animus.workflow.decisions` | List decisions made during workflow execution | `id`, `limit`, `offset`, `max_tokens` |
-| `animus.workflow.checkpoints.list` | List saved workflow state checkpoints | `id`, `limit`, `offset`, `max_tokens` |
+| `animus.workflow.decisions` | List decisions made during workflow execution | `id`, `limit`, `offset`, `max_tokens`, `project_root` |
+| `animus.workflow.checkpoints.list` | List saved workflow state checkpoints | `id`, `limit`, `offset`, `max_tokens`, `project_root` |
 
 ### Definition Tools (5)
 
@@ -134,11 +134,11 @@ control wire when the daemon is running, otherwise reads the in-tree
 
 | Tool | Description | Key Parameters |
 |---|---|---|
-| `animus.output.run` | Get stdout/stderr from an agent execution | `run_id` |
-| `animus.output.tail` | Get most recent output/error/thinking events | `run_id`, `task_id`, `event_types[]`, `limit` |
-| `animus.output.monitor` | Stream real-time output from a run, optionally scoped by task or phase | `run_id`, `task_id`, `phase_id` |
-| `animus.output.jsonl` | Get structured JSONL event log | `run_id`, `entries` |
-| `animus.output.artifacts` | Get files generated during execution | `execution_id` |
+| `animus.output.run` | Get stdout/stderr from an agent execution | `run_id`, `project_root` |
+| `animus.output.tail` | Get most recent output/error/thinking events | `run_id`, `task_id`, `event_types[]`, `limit`, `project_root` |
+| `animus.output.monitor` | Stream real-time output from a run, optionally scoped by task or phase | `run_id`, `task_id`, `phase_id`, `project_root` |
+| `animus.output.jsonl` | Get structured JSONL event log | `run_id`, `entries`, `project_root` |
+| `animus.output.artifacts` | Get files generated during execution | `execution_id`, `project_root` |
 | `animus.output.phase-outputs` | Get persisted workflow phase outputs | `workflow_id`, `phase_id`, `project_root` |
 
 ---

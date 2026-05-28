@@ -1,0 +1,316 @@
+# Recruiting Pipeline: Screen Candidate Workflow
+#
+# Four phases (namespaced to avoid collision with other packs):
+#   1. screen_enrich              — public-context lookup (open-source,
+#                                   conference talks, writing, github trail)
+#                                   for the candidate given name + role.
+#   2. screen_against_rubric      — score the candidate against a role rubric
+#                                   (skill_match, level_fit,
+#                                   motivation_signals, risk_flags) with
+#                                   structured reasoning.
+#   3. draft_interview_brief      — produce a 1-page brief for the next
+#                                   interviewer: context, probe areas,
+#                                   suggested questions, items to verify.
+#   4. screen_flag_for_review     — set candidate subject status to blocked
+#                                   and add an `awaiting-recruiter-review`
+#                                   label so a human signs off before
+#                                   advancing to interview.
+#
+# Defaults use Claude Sonnet for every phase (recruiting copy is high-stakes
+# and benefits from a stronger model). Swap to OpenAI or Gemini by editing
+# each agent's `model` + `tool` fields — see docs/customizing.md.
+
+agents:
+  candidate-enricher:
+    description: |
+      Reads candidate name + role and produces a structured public-context
+      summary: open-source contributions, conference talks, writing,
+      github trail, prior employers. Never invents facts.
+    system_prompt: |
+      You are a recruiting researcher. Given a candidate's name and the
+      role they are being considered for, produce a structured summary of
+      their PUBLICLY observable footprint. You do not have live web
+      access in this run — work only from context provided in the
+      dispatch envelope (notes, links, prior comments). If a fact is not
+      present, say "not found in available context" — never invent.
+
+      Look for signals in these buckets:
+        - open_source      — meaningful repos owned or contributed to
+        - talks_writing    — conference talks, blog posts, papers
+        - github_trail     — recency / breadth of public activity
+        - prior_employers  — companies and roles
+        - notable_projects — products shipped, communities built
+
+      Output ONLY a JSON object. No prose.
+    model: claude-sonnet-4-6
+    tool: claude
+
+  rubric-screener:
+    description: |
+      Scores a candidate against a role rubric. Produces structured scores
+      with short reasoning per dimension. Flags risks honestly.
+    system_prompt: |
+      You are a senior technical recruiter who has read thousands of
+      candidate profiles. Given the enrichment from the previous phase
+      plus the role context, score the candidate against this rubric:
+
+        - skill_match         — does the public evidence match the role's
+                                core skills? (0-5)
+        - level_fit           — does the seniority signal match the level
+                                we are hiring for? (0-5)
+        - motivation_signals  — is there evidence the candidate would be
+                                interested in this kind of role / company?
+                                (0-5)
+        - risk_flags          — short list of yellow/red flags worth
+                                surfacing (job-hopping, gaps, mismatched
+                                seniority, tone of public writing, etc.)
+
+      You DO NOT make a hire / no-hire call. You produce evidence the
+      recruiter and hiring manager will use to decide whether to invest
+      a recruiter screen. Be calibrated — a score of 5 means "world-class
+      evidence", not "looks fine".
+
+      Output ONLY a JSON object. No prose.
+    model: claude-sonnet-4-6
+    tool: claude
+
+  interview-brief-writer:
+    description: |
+      Produces a 1-page brief for the next interviewer. Concrete, scannable,
+      no marketing fluff. Calls out things the interviewer should verify.
+    system_prompt: |
+      You are the prep writer for an interview loop. Given the enrichment
+      and rubric scores from previous phases, draft a 1-page brief for
+      the next interviewer.
+
+      The brief MUST include:
+        - candidate_context   — 2-3 sentence summary of who this person is
+                                and why we are talking to them
+        - areas_to_probe      — 3-5 specific things this interviewer should
+                                dig into based on the rubric (NOT generic
+                                "ask about their experience")
+        - suggested_questions — 4-6 concrete questions tied to those areas
+        - items_to_verify     — facts from enrichment that need confirmation
+                                (e.g. "verify they shipped X solo vs as
+                                lead of a team of 8")
+        - recommended_next    — one of: proceed-to-screen, proceed-to-tech,
+                                proceed-to-onsite, hold-for-recruiter-review,
+                                pass
+
+      Keep it under 400 words. The interviewer has 10 minutes to read it
+      before the call.
+
+      Output ONLY a JSON object. No prose.
+    model: claude-sonnet-4-6
+    tool: claude
+
+  recruiter-handoff:
+    description: |
+      Flags the candidate for recruiter review. Does not advance the
+      candidate to interview — that's a human decision.
+    system_prompt: |
+      You are the recruiter-handoff coordinator. Your only job is to mark
+      the candidate as awaiting recruiter review and emit a short verdict
+      summarizing what the workflow produced.
+
+      You DO NOT decide whether to advance the candidate. You DO NOT send
+      messages to the candidate. You DO NOT schedule interviews.
+    model: claude-sonnet-4-6
+    tool: claude
+
+phases:
+  screen_enrich:
+    mode: agent
+    agent: candidate-enricher
+    directive: |
+      Read the candidate subject (name, role, notes, any links). Produce
+      a JSON summary of their public footprint with the buckets defined
+      in your system prompt. Use "not found in available context" for any
+      bucket without supporting evidence — never invent.
+    output_contract:
+      kind: phase_result
+      required_fields:
+        - open_source
+        - talks_writing
+        - github_trail
+        - prior_employers
+        - notable_projects
+      fields:
+        open_source:
+          type: string
+          description: Summary of meaningful repos owned or contributed to, or "not found in available context".
+        talks_writing:
+          type: string
+          description: Conference talks, blog posts, papers, or "not found in available context".
+        github_trail:
+          type: string
+          description: Recency and breadth of public github activity, or "not found in available context".
+        prior_employers:
+          type: array
+          description: List of prior companies and roles inferred from context.
+          items:
+            type: string
+        notable_projects:
+          type: array
+          description: Products shipped, communities built, or other notable work.
+          items:
+            type: string
+    decision_contract:
+      min_confidence: 0.6
+      max_risk: low
+      allow_missing_decision: false
+
+  screen_against_rubric:
+    mode: agent
+    agent: rubric-screener
+    directive: |
+      Read the enrichment from the previous phase plus the candidate
+      subject (role, source, notes). Score against the rubric:
+      skill_match, level_fit, motivation_signals (each 0-5) and a
+      risk_flags array. For each numeric score, include one sentence of
+      reasoning tied to specific enrichment evidence. Do NOT make a
+      hire / no-hire call.
+    output_contract:
+      kind: phase_result
+      required_fields:
+        - skill_match
+        - level_fit
+        - motivation_signals
+        - risk_flags
+      fields:
+        skill_match:
+          type: integer
+          description: 0-5 score against the role's core skills.
+        level_fit:
+          type: integer
+          description: 0-5 score against the seniority level we are hiring for.
+        motivation_signals:
+          type: integer
+          description: 0-5 score for evidence the candidate would be interested in this kind of role.
+        risk_flags:
+          type: array
+          description: Short list of yellow/red flags worth surfacing.
+          items:
+            type: string
+        reasoning:
+          type: string
+          description: One sentence of reasoning per numeric score, tied to enrichment evidence.
+    decision_contract:
+      min_confidence: 0.7
+      max_risk: medium
+      allow_missing_decision: false
+
+  draft_interview_brief:
+    mode: agent
+    agent: interview-brief-writer
+    directive: |
+      Read the enrichment and rubric scores from previous phases. Produce
+      a 1-page interviewer brief with candidate_context, areas_to_probe,
+      suggested_questions, items_to_verify, and recommended_next. Keep
+      the entire brief under 400 words.
+    output_contract:
+      kind: phase_result
+      required_fields:
+        - candidate_context
+        - areas_to_probe
+        - suggested_questions
+        - recommended_next
+      fields:
+        candidate_context:
+          type: string
+          description: 2-3 sentence summary of who this person is and why we are talking to them.
+        areas_to_probe:
+          type: array
+          description: 3-5 specific things this interviewer should dig into based on the rubric.
+          items:
+            type: string
+        suggested_questions:
+          type: array
+          description: 4-6 concrete questions tied to the probe areas.
+          items:
+            type: string
+        items_to_verify:
+          type: array
+          description: Facts from enrichment that the interviewer should confirm.
+          items:
+            type: string
+        recommended_next:
+          type: string
+          description: One of proceed-to-screen, proceed-to-tech, proceed-to-onsite, hold-for-recruiter-review, pass.
+    decision_contract:
+      min_confidence: 0.7
+      max_risk: medium
+      allow_missing_decision: false
+
+  screen_flag_for_review:
+    mode: agent
+    agent: recruiter-handoff
+    directive: |
+      Mark the candidate as awaiting recruiter review. The Animus subject
+      protocol only accepts the normalized statuses `ready`,
+      `in-progress`, `blocked`, `done`, or `cancelled` — there is no
+      free-form `awaiting_recruiter_review` value. Use `blocked` to
+      indicate the candidate is awaiting human action, and add a label
+      via `animus subject update --kind candidate --id <id> --labels
+      "awaiting-recruiter-review"` to communicate the specific reason.
+
+      Use the Animus MCP tools (the agent runtime allows `animus.*`
+      calls but typically does not allow free-form shell).
+
+      IMPORTANT: This pack's documented dry-run dispatches workflows via
+      `animus workflow run --title ...` because there is no first-class
+      `--subject-id` flag yet. In that path, `subject.id` is the
+      candidate title string (e.g. "CAND-1001: Priya Raman - Staff Eng")
+      and is NOT a real backend-qualified candidate id.
+
+      Only proceed with the mutating MCP calls below when `subject.id`
+      is an EXACT backend-qualified candidate id. Concretely, treat the
+      subject id as valid only when ALL are true:
+        - It contains NO whitespace
+        - It contains NO colon followed by a space (excludes titles
+          like "CAND-1001: Priya Raman...")
+        - It matches one of these shapes:
+            * `^CAND-\d+$` (e.g. "CAND-1001", the markdown file stem)
+            * `^candidate:[\w.-]+$` (backend-qualified)
+
+      For any other shape (custom-subject dry-run, or unexpected
+      value), SKIP the mutating calls and emit a verdict noting
+      "subject id is a custom title or unrecognized shape, not a
+      backend candidate id — flag step skipped". This is the honest
+      behavior until `--subject-id` ships.
+
+      When proceeding, fetch the candidate first so the label update is
+      additive rather than a destructive replace:
+
+        1. Call `animus.subject.get` with { kind: "candidate", id: <id> }
+           and read the existing labels from the result.
+        2. Call `animus.subject.status` with { kind: "candidate", id: <id>,
+           status: "blocked" }.
+        3. Call `animus.subject.update` with { kind: "candidate", id: <id>,
+           labels: [...existing_labels, "awaiting-recruiter-review"] }
+           (deduplicate so "awaiting-recruiter-review" is not added twice).
+
+      The subject id is in the dispatch envelope as `subject.id`. Emit a
+      short verdict confirming the status change. Remember: you DO NOT
+      decide whether to advance the candidate, and you DO NOT send
+      messages to the candidate.
+    capabilities:
+      mutates_state: true
+    decision_contract:
+      min_confidence: 0.7
+      max_risk: low
+      allow_missing_decision: false
+
+workflows:
+  - id: animus.recruiting-pipeline/screen-candidate
+    name: Screen Candidate
+    description: |
+      End-to-end top-of-funnel screen: enrich the candidate from public
+      context, score against the role rubric, draft a brief for the next
+      interviewer, flag for recruiter review. Animus does not decide
+      hire / no-hire and does not contact the candidate.
+    phases:
+      - screen_enrich
+      - screen_against_rubric
+      - draft_interview_brief
+      - screen_flag_for_review

@@ -4,7 +4,7 @@ use super::*;
 impl AoMcpServer {
     #[tool(
         name = "animus.subject.list",
-        description = "List subjects of a given kind via the active subject_backend plugin. Purpose: Inspect subjects (tasks, requirements, issues, etc) from any installed backend. Prerequisites: A subject_backend plugin for the kind must be installed (e.g. the in-tree task/requirement adapters). Example: {\"kind\": \"task\"} or {\"kind\": \"task\", \"status\": \"ready\", \"limit\": 25}. Sequencing: Use animus.subject.get for a specific subject, or animus.subject.next to dispatch the next ready one.",
+        description = "List subjects of a given kind via the active subject_backend plugin. Purpose: Inspect subjects (tasks, requirements, issues, etc) from any installed backend. Prerequisites: A subject_backend plugin for the kind must be installed (for example a task, requirement, or external issue backend). Example: {\"kind\": \"task\"} or {\"kind\": \"task\", \"status\": \"ready\", \"limit\": 25}. Sequencing: Use animus.subject.get for a specific subject, or animus.subject.next to dispatch the next ready one.",
         input_schema = ao_schema_for_type::<SubjectListInput>()
     )]
     async fn ao_subject_list(&self, params: Parameters<SubjectListInput>) -> Result<CallToolResult, McpError> {

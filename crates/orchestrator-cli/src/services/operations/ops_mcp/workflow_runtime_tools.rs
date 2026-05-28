@@ -20,7 +20,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "animus.workflow.run",
-        description = "Run a workflow for a task. Purpose: Execute a workflow to complete task phases automatically. Prerequisites: Task should exist (use animus.task.get to verify). Example: {\"task_id\": \"TASK-001\"} or {\"task_id\": \"TASK-001\", \"workflow_ref\": \"default\"}. Sequencing: Use animus.task.status to track progress, animus.workflow.get to monitor, animus.workflow.pause/resume/cancel for control.",
+        description = "Run a workflow for a task. Purpose: Execute a workflow to complete task phases automatically. Prerequisites: Task should exist (use animus.subject.get with {\"kind\":\"task\"} to verify). Example: {\"task_id\": \"TASK-001\"} or {\"task_id\": \"TASK-001\", \"workflow_ref\": \"default\"}. Sequencing: Use animus.subject.status with {\"kind\":\"task\", ...} to track progress, animus.workflow.get to monitor, and animus.workflow.pause/resume/cancel for control.",
         input_schema = ao_schema_for_type::<WorkflowRunInput>()
     )]
     async fn ao_workflow_run(&self, params: Parameters<WorkflowRunInput>) -> Result<CallToolResult, McpError> {
@@ -158,7 +158,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "animus.workflow.execute",
-        description = "Execute a workflow synchronously. Purpose: Run a workflow without the daemon, blocking until completion. Prerequisites: Task must exist (use animus.task.get to verify). Example: {\"task_id\": \"TASK-001\"} or {\"task_id\": \"TASK-001\", \"phase\": \"implementation\"}. Sequencing: Use animus.task.get to verify the task first, or animus.workflow.config.get to review workflow config.",
+        description = "Execute a workflow synchronously. Purpose: Run a workflow without the daemon, blocking until completion. Prerequisites: Task must exist (use animus.subject.get with {\"kind\":\"task\"} to verify). Example: {\"task_id\": \"TASK-001\"} or {\"task_id\": \"TASK-001\", \"phase\": \"implementation\"}. Sequencing: Use animus.subject.get to verify the task first, or animus.workflow.config.get to review workflow config.",
         input_schema = ao_schema_for_type::<WorkflowExecuteInput>()
     )]
     async fn ao_workflow_execute(&self, params: Parameters<WorkflowExecuteInput>) -> Result<CallToolResult, McpError> {

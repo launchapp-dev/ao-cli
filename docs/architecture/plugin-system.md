@@ -9,7 +9,7 @@ third-party code into the daemon process as a dynamic library.
 | Area | Source |
 |---|---|
 | Wire protocol types | [`crates/animus-plugin-protocol/src/lib.rs`](../../crates/animus-plugin-protocol/src/lib.rs) |
-| External provider/session protocol crates | `animus-provider-protocol`, `animus-session-backend` from `launchapp-dev/animus-protocol` in [`Cargo.toml`](../../Cargo.toml) |
+| External provider/session protocol crates | `animus-provider-protocol`, `animus-session-backend` from `launchapp-dev/animus-protocol` declared in the workspace `Cargo.toml` |
 | Plugin discovery | [`crates/orchestrator-plugin-host/src/discovery.rs`](../../crates/orchestrator-plugin-host/src/discovery.rs) |
 | Plugin host/router | [`crates/orchestrator-plugin-host/src/host.rs`](../../crates/orchestrator-plugin-host/src/host.rs) |
 | Subject router | [`crates/orchestrator-plugin-host/src/subject_router.rs`](../../crates/orchestrator-plugin-host/src/subject_router.rs) |
@@ -252,7 +252,7 @@ Useful operator commands:
 ```bash
 animus plugin list
 animus plugin install-defaults --include-subjects --include-transports
-animus plugin inspect <name>
+animus plugin info --name <name>
 animus plugin call <name> health/check --json '{}'
 animus plugin lock verify
 animus daemon preflight

@@ -209,9 +209,9 @@ animus
 ├── mcp                      Run the Animus MCP service endpoint
 │   └── serve                Start the MCP server in the current process
 │
-├── web                      Spawn installed transport plugins and open the Animus web UI
-│   ├── serve                 Spawn installed transport_backend + web_ui plugins (no in-tree server)
-│   └── open                  Open the resolved web UI URL in a browser (resolves via installed plugins)
+├── web                      Serve and open the Animus web UI
+│   ├── serve                Spawn installed transport_backend + web_ui plugins and report bound URLs
+│   └── open                 Open the Animus web UI URL in a browser (resolves via installed plugins unless --url is supplied)
 │
 ├── init                     Initialize an Animus project from a template
 │   (no subcommands)         Supports registry-backed or local copy templates, plan mode, and daemon defaults
@@ -222,16 +222,16 @@ animus
 │   ├── list                 List configured event triggers for the project
 │   └── fire                 Manually fire a webhook trigger for testing
 │
-├── logs                     Tail and inspect daemon log output
+├── logs                     Tail and inspect daemon log output (in-tree or via log_storage_backend plugin)
 │   └── tail                 Tail recent log entries from the active log storage backend
 │
-├── subject                  List/get/create/update subjects via installed subject_backend plugins (in-tree adapters removed in v0.4.12)
-│   ├── list                 List subjects for a given kind (`--kind task|requirement|<external>`)
-│   ├── get                  Fetch one subject by wire id (`<kind>:<native_id>`)
-│   ├── create               Create a subject (`--title` required)
-│   ├── update               Patch a subject (status / priority / labels)
-│   ├── next                 Highest-priority Ready subject for the kind, or null
-│   └── status               Set the subject's normalized status
+├── subject                  List, get, create, and update subjects via installed subject_backend plugins
+│   ├── list                 List subjects for a given kind via the active subject_backend plugin
+│   ├── get                  Fetch a single subject by id from the active subject_backend plugin
+│   ├── create               Create a subject through the active subject_backend plugin
+│   ├── update               Update a subject through the active subject_backend plugin
+│   ├── next                 Return the highest-priority Ready subject for the given kind
+│   └── status               Set the status of a subject by id through the active subject_backend
 │
 └── help                     Print help for a command
 ```
@@ -388,18 +388,13 @@ animus plugin install-defaults --include-subjects
 | `--plugin-dir <PATH>` | Override the plugin install directory. Same semantics as `animus plugin install --plugin-dir` |
 | `--force` | Reinstall plugins that are already present (default: skip with a warning) |
 | `--yes` | Auto-confirm the trust-on-first-use prompt for the `launchapp-dev` org |
-| `--include-oai-agent` | Also install `animus-provider-oai-agent` v0.1.3 |
-| `--include-subjects` | Also install the default subject_backend plugins (`subject-default` v0.1.2, `subject-requirements` v0.1.6, `subject-linear` v0.1.4, `subject-sqlite` v0.1.4, `subject-markdown` v0.1.4) |
-| `--include-transports` | Also install transport + UI plugins (`transport-http` v0.2.1, `transport-graphql` v0.2.3, `web-ui` v0.1.1) |
+| `--include-oai-agent` | Also install `animus-provider-oai-agent` |
+| `--include-subjects` | Also install the default subject_backend plugins (`subject-default`, `subject-requirements`, `subject-linear`, `subject-sqlite`, `subject-markdown`) |
+| `--include-transports` | Also install the default transport_backend + web_ui plugins (`transport-http`, `transport-graphql`, `web-ui`) |
 | `--json` | Emit per-plugin results + summary as JSON |
 | `--force-rewrite-lockfile` | Discard an unparseable / schema-incompatible `plugins.lock` and rebuild a fresh lockfile for the batch. Without this flag the batch fails closed up front, *before* the per-target skip loop runs, so an all-skipped run cannot mask a corrupt lockfile. Same security caveat as `animus plugin install --force-rewrite-lockfile` |
 
-The command pins each install to a specific release tag (currently `v0.2.2` for
-`claude`/`oai` providers, `v0.2.3` for `codex`/`gemini`/`opencode` providers,
-`v0.1.3` for `oai-agent`, `v0.1.2`/`v0.1.6`/`v0.1.4` for subjects
-(`subject-default`/`subject-requirements`/`linear`+`sqlite`+`markdown`),
-`v0.2.1`/`v0.2.3`/`v0.1.1` for transports (`transport-http`/`transport-graphql`/`web-ui`)).
-Versions live in
+The command pins each install to the curated release tags declared in
 [`crates/orchestrator-core/src/plugin_registry.rs`](../../../crates/orchestrator-core/src/plugin_registry.rs)
 and are shared with the daemon preflight, so bumping the registry rolls both
 surfaces at once. Plugins that fail to install are recorded in the summary's

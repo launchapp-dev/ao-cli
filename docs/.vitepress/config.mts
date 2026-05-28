@@ -138,7 +138,7 @@ export default withMermaid(
       ],
 
       socialLinks: [
-        { icon: 'github', link: 'https://github.com/launchapp-dev/ao' },
+        { icon: 'github', link: 'https://github.com/launchapp-dev/animus-cli' },
       ],
 
       footer: {

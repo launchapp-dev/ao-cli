@@ -31,7 +31,7 @@ resolver = "2"
 [workspace.package]
 license = "Elastic-2.0"
 description = "Autonomous AI agent orchestrator for multi-model dev teams"
-homepage = "https://launchapp-dev.github.io/animus-cli/"
+homepage = "https://animus-docs.vercel.app/"
 repository = "https://github.com/launchapp-dev/animus-cli"
 keywords = ["ai-agent", "orchestrator", "llm", "cli", "mcp"]
 categories = ["command-line-utilities", "development-tools"]

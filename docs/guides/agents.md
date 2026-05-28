@@ -122,7 +122,7 @@ Runner tools are operational checks:
 
 ```json
 {}                          // animus.runner.health / restart-stats
-{ "run_id": ["run-abc123"] } // animus.runner.orphans-cleanup
+{ "run_id": "run-abc123" } // animus.runner.orphans-cleanup
 ```
 
 ## Agent, Memory, Skill, and Plugin Operations

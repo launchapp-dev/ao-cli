@@ -1,0 +1,49 @@
+schema = "animus.pack.v1"
+id = "animus.engineering-backlog"
+version = "0.1.0"
+kind = "domain-pack"
+title = "Engineering Backlog"
+description = "First-party reference pack: autonomous engineering backlog. Pick up a dev task, research the codebase, draft a plan, implement, cross-model review, run tests, open a PR for human review."
+
+[ownership]
+# This pack lives in-tree as the canonical reference for the original
+# Animus use case: an autonomous engineer working off a backlog. It is
+# loaded in "project" mode (copied/symlinked into a project's overlay),
+# not bundled into the CLI binary.
+mode = "project"
+
+[compatibility]
+ao_core = ">=0.4.0"
+workflow_schema = "v2"
+subject_schema = "v2"
+
+[subjects]
+# This pack composes against the `task` subject kind owned by the
+# `animus-subject-default` backend plugin. It's the same subject kind
+# Animus uses to manage its own backlog — this pack is "Animus
+# eating its own dog food" packaged as a starter.
+kinds = ["task"]
+default_kind = "task"
+
+[workflows]
+root = "workflows"
+# The pack registry requires every exported workflow ref to be prefixed
+# with the pack id. The YAML file declares the workflow with the same
+# fully-qualified id so dispatch resolves correctly.
+exports = [
+  "animus.engineering-backlog/implement-task",
+]
+
+[permissions]
+# This pack uses every primitive: Animus MCP for subject + queue ops,
+# shell for cargo / git / gh, and the bash provider tool. Provider
+# plugins (claude / codex) bring their own permissions.
+tools = ["animus", "cargo", "git", "gh", "bash"]
+
+# NOTE: Plugin prerequisites (animus-subject-default,
+# animus-provider-claude, animus-provider-codex) are NOT listed in
+# [[dependencies]] — that section validates pack ids
+# (lowercase letters/numbers/./-/_) and rejects GitHub-style plugin
+# slugs that contain `/`. Plugin prerequisites are documented in
+# README.md and installed by scripts/setup.sh via
+# `animus plugin install ...`.

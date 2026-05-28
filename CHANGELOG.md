@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.15] - 2026-05-28
+
+Second audit-remediation release. Lands the 8 remaining P2 findings the
+external audit surfaced after v0.4.14 — MCP scoping, project-local
+plugin discovery in worktrees, logging scope unification,
+log_storage_backend actually dispatched, schedule/trigger budget split,
+skill path migration, and agent-host skill trust hardening. Plus
+docs-agent cleanup that accumulated across v0.4.13 → v0.4.15.
+
 ### Fixed
 
 - **`fix(mcp)`: per-project plugin registry cache (audit H1).** `AoMcpServer`

@@ -18,6 +18,7 @@ On first run it:
 .animus/
 ├── config.json
 ├── workflows.yaml
+├── plugins.lock                # appears after project-scoped plugin install/update activity
 └── workflows/
     ├── custom.yaml
     ├── standard-workflow.yaml
@@ -25,7 +26,9 @@ On first run it:
     └── research-workflow.yaml
 ```
 
-Templates may add more workflow wrappers or companion files.
+`plugins.lock` is not part of the initial scaffold; plugin commands create it
+when the project resolves a local lockfile. Templates may add more workflow
+wrappers or companion files.
 
 ## Repo-Scoped Runtime State
 

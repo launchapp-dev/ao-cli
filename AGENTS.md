@@ -23,21 +23,31 @@ Do not keep outdated counts or removed crates alive in docs.
 
 ## Workspace
 
-Around 20-crate Rust workspace. Main binary: `animus` (`crates/orchestrator-cli`). The web stack (transport + UI) lives in external plugins under [`launchapp-dev`](https://github.com/launchapp-dev).
+20-crate Rust workspace. Main binary: `animus` (`crates/orchestrator-cli`). The
+web stack (transport + UI) lives in external plugins under
+[`launchapp-dev`](https://github.com/launchapp-dev).
+
+Current workspace members from `Cargo.toml`:
 
 ```text
 crates/
 ├── agent-runner/                # Runner process that launches and supervises AI CLIs
-├── orchestrator-logging/        # Shared tracing and log file utilities
-├── orchestrator-session-host/   # Session backend layer + provider/plugin execution bridge
+├── animus-plugin-protocol/      # In-tree stdio plugin protocol types
+├── animus-plugin-runtime/       # Runtime helpers for plugin implementations
+├── animus-plugin-smoke/         # Smoke-test plugin for host/protocol behavior
+├── animus-provider-mock/        # Mock provider plugin for tests
+├── animus-subject-protocol/     # Subject backend trait and normalized subject schema
 ├── oai-runner/                  # OpenAI-compatible runner implementation
-├── orchestrator-cli/            # Main `ao` binary
-├── orchestrator-config/         # Workflow and agent-runtime config loading/compilation
+├── orchestrator-cli/            # Main `animus` binary
+├── orchestrator-config/         # Workflow, pack, and template config loading
 ├── orchestrator-core/           # Domain services, bootstrap, state mutation APIs
 ├── orchestrator-daemon-runtime/ # Daemon queue and scheduling runtime
 ├── orchestrator-git-ops/        # Git/worktree automation helpers
+├── orchestrator-logging/        # Shared tracing and log file utilities
 ├── orchestrator-notifications/  # Notification/runtime integration support
+├── orchestrator-plugin-host/    # Plugin discovery, install, and stdio host
 ├── orchestrator-providers/      # Built-in provider integrations and routing
+├── orchestrator-session-host/   # Session backend layer + provider/plugin execution bridge
 ├── orchestrator-store/          # Shared state/storage path helpers
 ├── protocol/                    # Shared protocol/config/runtime types
 └── workflow-runner-v2/          # Workflow execution runtime and phase output persistence
@@ -87,6 +97,7 @@ Project-local config in `<project>/.animus/`:
 - `config.json`
 - `workflows.yaml`
 - `workflows/*.yaml`
+- `plugins.lock` (created by plugin install/update flows when project-local lockfile resolution is active)
 
 Scoped runtime state in `~/.animus/<repo-scope>/`:
 

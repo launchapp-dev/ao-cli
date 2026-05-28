@@ -42,7 +42,7 @@ animus plugin install launchapp-dev/animus-provider-claude --allow-shadow-builti
 |   workflow run animus.sales-pipeline/qualify-lead             |
 |     (per lead subject)                                        |
 |                                                              |
-|   phase: enrich          ---> JSON { firmographics, fit,     |
+|   phase: lead_enrich          ---> JSON { firmographics, fit,     |
 |                                       signals }              |
 |         agent: Sonnet (research + structured output)         |
 |                                                              |
@@ -56,7 +56,7 @@ animus plugin install launchapp-dev/animus-provider-claude --allow-shadow-builti
 |                                       owner_hint, urgency }  |
 |         agent: Haiku (cheap, deterministic policy)           |
 |                                                              |
-|   phase: flag_for_review ---> subject status update          |
+|   phase: lead_flag_for_review ---> subject status update          |
 |         agent: Haiku, mutates_state=true                     |
 |                                                              |
 +----------------------+---------------------------------------+
@@ -93,7 +93,7 @@ customer support:
    treats it identically to every other subject kind.
 2. **Phases are LLM-only.** No `mode: command`, no shell calls, no git ops.
    The runner just sequences LLM calls and captures structured outputs.
-3. **The rep is the loop closer.** Animus stops at `flag_for_review`. It
+3. **The rep is the loop closer.** Animus stops at `lead_flag_for_review`. It
    does not auto-send outreach. The honest constraint: every recommended
    action requires a human to actually do it.
 

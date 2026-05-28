@@ -112,7 +112,7 @@ or `--title` to identify the subject. There is **no first-class
 today's dispatch path for this pack creates a `custom` subject and
 passes the prospect title + body inline (the `--description` flag) —
 the workflow's LLM phases see the prospect context and produce a
-draft + cadence, but the final `flag_for_review` phase cannot write
+draft + cadence, but the final `prospect_flag_for_review` phase cannot write
 the status back to the real `animus-subject-markdown` prospect record
 (the run is not associated to the prospect's backend-qualified id).
 
@@ -125,7 +125,7 @@ What works today:
 
 What doesn't work end-to-end yet:
 
-- `flag_for_review` updating the prospect subject's status. The phase
+- `prospect_flag_for_review` updating the prospect subject's status. The phase
   prompt instructs the agent to call `animus subject status --kind
   prospect --id <id>` and that will work if the agent passes the
   correct backend-qualified id — but the run envelope doesn't carry
@@ -146,7 +146,7 @@ The `triage-prospect` workflow has four phases:
 | `enrich` | Reads prospect record (company, contact, role, source, context notes). Returns a JSON research blob: `company_summary`, `recent_signals[]`, `best_angle`. Discipline rule: never invents funding rounds, hiring signals, or quotes. |
 | `draft_outreach` | Picks tone from the source channel (warm for `demo_request` / `webinar_attendee`, signal-led for `cold_outbound`, referrer-named for `referral`) and writes a 3-line message + subject line. Strict 3-line limit. |
 | `suggest_cadence` | Recommends 2-4 follow-up touches with `wait_days`, channel (email / linkedin / call), and one-line content per touch. Stops on any reply. Stays honest: cold prospects get fewer touches. |
-| `flag_for_review` | When dispatched against a real backend-qualified prospect id (e.g. `PRS-1001` or `prospect:...`), sets the prospect subject status to `blocked` (the protocol-normalized "needs human action" state) and adds an `awaiting-human-review` label so it surfaces in the reviewer's inbox. In the documented dry-run path (`--title`/`--description`), the phase intentionally SKIPS the mutating subject calls — see "Dispatching prospects — current limitation" above. |
+| `prospect_flag_for_review` | When dispatched against a real backend-qualified prospect id (e.g. `PRS-1001` or `prospect:...`), sets the prospect subject status to `blocked` (the protocol-normalized "needs human action" state) and adds an `awaiting-human-review` label so it surfaces in the reviewer's inbox. In the documented dry-run path (`--title`/`--description`), the phase intentionally SKIPS the mutating subject calls — see "Dispatching prospects — current limitation" above. |
 
 Per-phase structured outputs land under
 `~/.animus/<repo-scope>/state/workflows/<workflow-id>/phase-outputs/`

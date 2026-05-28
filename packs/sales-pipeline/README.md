@@ -118,7 +118,7 @@ or `--title` to identify the subject. There is **no first-class
 dispatch path for this pack creates a `custom` subject and passes the
 lead title + body inline (the `--description` flag) — the workflow's
 LLM phases see the lead content and produce all the outputs, but the
-final `flag_for_review` phase cannot write the status back to the real
+final `lead_flag_for_review` phase cannot write the status back to the real
 `animus-subject-markdown` lead record (the run is not associated to the
 lead's backend-qualified id).
 
@@ -131,7 +131,7 @@ What works today:
 
 What doesn't work end-to-end yet:
 
-- `flag_for_review` updating the lead subject's status. The phase
+- `lead_flag_for_review` updating the lead subject's status. The phase
   prompt instructs the agent to call `animus subject status --kind lead
   --id <id>` and that will work if the agent passes the correct
   backend-qualified id — but the run envelope doesn't carry it
@@ -154,7 +154,7 @@ The `qualify-lead` workflow has five phases:
 | `qualify` | Scores the lead against BANT: per-dimension { score, evidence } for budget, authority, need, timing. Sets `qualified: true` only if 3 of 4 dimensions are moderate-or-stronger and need/timing aren't weak. Sonnet. |
 | `draft_discovery` | Writes 5 targeted discovery questions specific to this account's industry / role / stated pain, each with a rationale. Ordered: lowest-stakes opener → most decisive closer. Sonnet. |
 | `recommend_next` | Picks one of `book-demo` / `send-case-study` / `nurture` / `disqualify`. Adds an `owner_hint` (inbound-rep / enterprise-ae / smb-ae / nurture-bot) and `urgency` (same-day / this-week / this-month / none). Haiku. |
-| `flag_for_review` | Sets the lead subject status to `blocked` (the protocol-normalized "needs human action" state) and adds an `awaiting-rep-review` label so it surfaces in the rep's inbox. Haiku. |
+| `lead_flag_for_review` | Sets the lead subject status to `blocked` (the protocol-normalized "needs human action" state) and adds an `awaiting-rep-review` label so it surfaces in the rep's inbox. Haiku. |
 
 Outputs land under `~/.animus/<repo-scope>/runs/<workflow-id>/` like any
 other Animus workflow. Each phase's structured output is captured

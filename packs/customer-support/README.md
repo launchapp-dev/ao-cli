@@ -103,7 +103,7 @@ without `--json` once to see the human output, then adapt.
 dispatch path for this pack creates a `custom` subject and passes the
 ticket title + body inline (the `--description` flag) — the workflow's
 LLM phases see the ticket content and produce a draft, but the final
-`flag_for_review` phase cannot write the status back to the real
+`ticket_flag_for_review` phase cannot write the status back to the real
 `animus-subject-markdown` ticket record (the run is not associated to
 the ticket's backend-qualified id).
 
@@ -115,7 +115,7 @@ What works today:
 
 What doesn't work end-to-end yet:
 
-- `flag_for_review` updating the ticket subject's status. The phase
+- `ticket_flag_for_review` updating the ticket subject's status. The phase
   prompt instructs the agent to call `animus subject status --kind
   ticket --id <id>` and that will work if the agent passes the correct
   backend-qualified id — but the run envelope doesn't carry it
@@ -136,7 +136,7 @@ The `triage-ticket` workflow has four phases:
 | `classify` | Reads ticket subject + body. Returns a JSON verdict with `category` (billing / bug / feature / security / integration / other) and `urgency` (low / med / high / critical). |
 | `draft_response` | Picks tone from the category (apologetic for billing, investigatory for bugs, curious for feature asks, urgent for security) and drafts a customer-facing reply. |
 | `summarize_for_human` | Produces a TL;DR + the top 3 suggested edits for the reviewer so they can approve fast. |
-| `flag_for_review` | Sets the ticket subject status to `blocked` (the protocol-normalized "needs human action" state) and adds an `awaiting-human-review` label so it surfaces in the reviewer's inbox. |
+| `ticket_flag_for_review` | Sets the ticket subject status to `blocked` (the protocol-normalized "needs human action" state) and adds an `awaiting-human-review` label so it surfaces in the reviewer's inbox. |
 
 Outputs land under `~/.animus/<repo-scope>/runs/<workflow-id>/` like any other
 Animus workflow. Each phase's structured output is captured separately for audit.

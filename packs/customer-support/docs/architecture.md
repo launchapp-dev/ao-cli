@@ -51,7 +51,7 @@ animus plugin install launchapp-dev/animus-provider-claude --allow-shadow-builti
 |   phase: summarize_for_human ---> JSON { tldr, edits, ... }  |
 |         agent: Haiku (short brief)                           |
 |                                                              |
-|   phase: flag_for_review ---> subject status update          |
+|   phase: ticket_flag_for_review ---> subject status update          |
 |         agent: Haiku, mutates_state=true                     |
 |                                                              |
 +----------------------+---------------------------------------+
@@ -87,7 +87,7 @@ end-to-end:
    them identically to every other subject kind.
 2. **Phases are LLM-only.** No `mode: command`, no shell calls, no git ops.
    The runner is just sequencing LLM calls and capturing structured outputs.
-3. **The reviewer is the loop closer.** Animus stops at `flag_for_review`.
+3. **The reviewer is the loop closer.** Animus stops at `ticket_flag_for_review`.
    It does not pretend to be a full support helpdesk — it's the autonomous
    tier-1 layer in front of the human.
 

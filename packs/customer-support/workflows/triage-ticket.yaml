@@ -4,7 +4,7 @@
 #   1. classify           — categorize + urgency-score the ticket
 #   2. draft_response     — write a customer-facing reply in the right tone
 #   3. summarize_for_human — TL;DR + suggested edits for the reviewer
-#   4. flag_for_review    — set ticket subject status to blocked + label
+#   4. ticket_flag_for_review    — set ticket subject status to blocked + label
 #                            it awaiting-human-review
 #
 # The default model assignments use Claude. Swap to OpenAI or Gemini by
@@ -174,7 +174,7 @@ phases:
       max_risk: low
       allow_missing_decision: false
 
-  flag_for_review:
+  ticket_flag_for_review:
     mode: agent
     agent: human-handoff
     directive: |
@@ -242,4 +242,4 @@ workflows:
       - classify
       - draft_response
       - summarize_for_human
-      - flag_for_review
+      - ticket_flag_for_review

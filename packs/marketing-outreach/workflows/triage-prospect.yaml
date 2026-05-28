@@ -1,7 +1,7 @@
 # Marketing Outreach: Prospect Triage Workflow
 #
 # Four phases:
-#   1. enrich            — gather public context on company + role
+#   1. prospect_enrich            — gather public context on company + role
 #                          (recent funding, hiring, news mentions) into
 #                          a structured research blob.
 #   2. draft_outreach    — write a 3-line personalized outreach message
@@ -10,7 +10,7 @@
 #   3. suggest_cadence   — recommend follow-up timing and content
 #                          (e.g. "wait 4 days, send check-in if no
 #                          reply").
-#   4. flag_for_review   — set prospect subject status to blocked and
+#   4. prospect_flag_for_review   — set prospect subject status to blocked and
 #                          add awaiting-human-review label so a human
 #                          approves the draft before send.
 #
@@ -134,7 +134,7 @@ agents:
     tool: claude
 
 phases:
-  enrich:
+  prospect_enrich:
     mode: agent
     agent: prospect-enricher
     directive: |
@@ -223,7 +223,7 @@ phases:
       max_risk: low
       allow_missing_decision: false
 
-  flag_for_review:
+  prospect_flag_for_review:
     mode: agent
     agent: human-handoff
     directive: |
@@ -289,7 +289,7 @@ workflows:
       human review. The reviewer approves and sends from their email /
       LinkedIn / CRM of choice.
     phases:
-      - enrich
+      - prospect_enrich
       - draft_outreach
       - suggest_cadence
-      - flag_for_review
+      - prospect_flag_for_review

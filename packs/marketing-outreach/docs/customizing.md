@@ -130,7 +130,7 @@ phase.
 
 ### Email (Sendgrid / Postmark / SES)
 
-Add a `mode: command` phase after `flag_for_review` that calls the
+Add a `mode: command` phase after `prospect_flag_for_review` that calls the
 provider's CLI or curl-able API. Guard it on a confirmation field so the
 draft is never auto-sent — the human still gates the send via a
 `confirmed_for_send` flag the reviewer flips on the subject.
@@ -166,13 +166,13 @@ Then configure a trigger in the workflow YAML that watches for a
 
 ## Change the human-review gate
 
-Right now `flag_for_review` sets the subject status to the normalized
+Right now `prospect_flag_for_review` sets the subject status to the normalized
 `blocked` value and adds an `awaiting-human-review` label (the subject
 protocol only accepts the normalized statuses `ready`, `in-progress`,
 `blocked`, `done`, `cancelled`). To plug into your existing
 notification stack:
 
-- **Slack:** add a `mode: command` phase after `flag_for_review` that
+- **Slack:** add a `mode: command` phase after `prospect_flag_for_review` that
   calls `curl` to a Slack incoming webhook. The phase can read the
   previous phase's output via the dispatch envelope.
 - **Email digest:** same pattern with `msmtp` / `mail` / `sendgrid` CLI;

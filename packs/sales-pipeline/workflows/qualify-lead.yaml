@@ -1,11 +1,11 @@
 # Sales Pipeline: Lead Qualification Workflow
 #
 # Five phases:
-#   1. enrich            — pull firmographics and fit signals from company + contact
+#   1. lead_enrich            — pull firmographics and fit signals from company + contact
 #   2. qualify           — BANT scorecard (budget / authority / need / timing)
 #   3. draft_discovery   — 5 targeted discovery questions for the first call
 #   4. recommend_next    — book demo | send case study | nurture | disqualify
-#   5. flag_for_review   — set lead status to blocked + label awaiting-rep-review
+#   5. lead_flag_for_review   — set lead status to blocked + label awaiting-rep-review
 #
 # The default model assignments use Claude. Swap to OpenAI or Gemini by
 # changing the `model` and `tool` fields on each agent — see docs/customizing.md.
@@ -151,7 +151,7 @@ agents:
     tool: claude
 
 phases:
-  enrich:
+  lead_enrich:
     mode: agent
     agent: lead-enricher
     directive: |
@@ -262,7 +262,7 @@ phases:
       max_risk: low
       allow_missing_decision: false
 
-  flag_for_review:
+  lead_flag_for_review:
     mode: agent
     agent: rep-handoff
     directive: |
@@ -330,8 +330,8 @@ workflows:
       flag for the rep. The rep walks in to a ready-to-call account
       with context, questions, and a recommended posture.
     phases:
-      - enrich
+      - lead_enrich
       - qualify
       - draft_discovery
       - recommend_next
-      - flag_for_review
+      - lead_flag_for_review

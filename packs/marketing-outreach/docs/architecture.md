@@ -42,7 +42,7 @@ animus plugin install launchapp-dev/animus-provider-claude --allow-shadow-builti
 |   workflow run animus.marketing-outreach/triage-prospect      |
 |     (per prospect subject)                                    |
 |                                                              |
-|   phase: enrich          ---> JSON { company_summary,        |
+|   phase: prospect_enrich          ---> JSON { company_summary,        |
 |                                       recent_signals[],      |
 |                                       best_angle }           |
 |         agent: Sonnet (research discipline, no fabrication)  |
@@ -56,7 +56,7 @@ animus plugin install launchapp-dev/animus-provider-claude --allow-shadow-builti
 |                                       stop_conditions[] }    |
 |         agent: Haiku (cheap planner, 2-4 touches max)        |
 |                                                              |
-|   phase: flag_for_review ---> subject status update          |
+|   phase: prospect_flag_for_review ---> subject status update          |
 |         agent: Haiku, mutates_state=true                     |
 |                                                              |
 +----------------------+---------------------------------------+
@@ -95,10 +95,10 @@ pattern to outbound marketing:
    subject kind.
 2. **Phases are LLM-only.** No `mode: command`, no shell calls, no git
    ops. The runner is just sequencing LLM calls and capturing
-   structured outputs. The `flag_for_review` phase touches subject
+   structured outputs. The `prospect_flag_for_review` phase touches subject
    state, nothing else.
 3. **The reviewer is the loop closer.** Animus stops at
-   `flag_for_review`. It does NOT send the email or the LinkedIn DM —
+   `prospect_flag_for_review`. It does NOT send the email or the LinkedIn DM —
    it's the autonomous drafting layer in front of the human.
 
 This pattern (subject backend + LLM-only workflow + human handoff) keeps

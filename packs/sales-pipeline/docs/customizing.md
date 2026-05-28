@@ -92,7 +92,7 @@ or `gated-by-procurement` branch, list it in the prompt AND in the field
 description under `recommend_next.output_contract.fields.recommended_next`.
 
 If you add new outputs (e.g. a `proposed_slot` for booking), declare them in
-the contract so the `flag_for_review` phase or any downstream automation can
+the contract so the `lead_flag_for_review` phase or any downstream automation can
 rely on them.
 
 ## Swap the lead source
@@ -147,7 +147,7 @@ can speak JSON-RPC over stdio).
 This pack stops at draft + flag. Going further to "send the rep an email
 when a hot lead lands" requires either:
 
-1. A custom `mode: command` phase after `flag_for_review` that calls
+1. A custom `mode: command` phase after `lead_flag_for_review` that calls
    your transactional email API (SendGrid, Postmark, SES) with the
    qualification verdict + discovery plan in the body.
 2. A trigger plugin (the same shape as `launchapp-dev/animus-trigger-slack`)
@@ -160,7 +160,7 @@ to actually do it.
 
 ## Wire to a real CRM for status writeback
 
-The `flag_for_review` phase currently sets the subject status to the
+The `lead_flag_for_review` phase currently sets the subject status to the
 normalized `blocked` value (the subject protocol only accepts the
 normalized statuses `ready`, `in-progress`, `blocked`, `done`,
 `cancelled`) and adds an `awaiting-rep-review` label.
@@ -171,7 +171,7 @@ either:
 - **Use a CRM subject backend.** When the backend handles `lead/status`,
   it can translate `blocked` to whatever CRM stage matches your workflow
   (e.g. "MQL", "Awaiting Rep").
-- **Add a command phase after `flag_for_review`** that calls the CRM's
+- **Add a command phase after `lead_flag_for_review`** that calls the CRM's
   REST API with the BANT verdict + recommended action to push a lead
   status / activity record.
 
@@ -180,7 +180,7 @@ either:
 Right now the rep reads `animus output phase-outputs --workflow-id <id>`
 and decides what to do. To plug into your existing notification stack:
 
-- **Slack:** add a `mode: command` phase after `flag_for_review` that
+- **Slack:** add a `mode: command` phase after `lead_flag_for_review` that
   calls `curl` to a Slack incoming webhook. The phase can read previous
   phase outputs via the dispatch envelope.
 - **Email digest:** schedule a separate `mode: command` workflow that

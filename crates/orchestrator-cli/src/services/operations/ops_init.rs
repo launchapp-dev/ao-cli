@@ -1183,7 +1183,7 @@ mod tests {
 
     #[test]
     fn walkthrough_template_lookup_rejects_unknown_template() {
-        let err = lookup_walkthrough_template_files("does-not-exist").err().expect("unknown template should error");
+        let err = lookup_walkthrough_template_files("does-not-exist").expect_err("unknown template should error");
         let msg = format!("{err}");
         assert!(msg.contains("unknown walkthrough template"), "got: {msg}");
     }

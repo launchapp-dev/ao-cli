@@ -523,10 +523,7 @@ impl ControlSurface for InProcessSurface {
         // `Unhealthy` with the error string in `last_error`; the daemon's
         // own status stays `Healthy` because plugin-side trouble is an
         // observability concern, not a daemon-liveness one.
-        let discovered = match orchestrator_plugin_host::discover_plugins(&self.project_root) {
-            Ok(v) => v,
-            Err(_) => Vec::new(),
-        };
+        let discovered = orchestrator_plugin_host::discover_plugins(&self.project_root).unwrap_or_default();
         let probes = discovered.into_iter().map(|p| async move { probe_plugin_health(&p).await });
         let plugins: Vec<PluginHealth> = futures_util::future::join_all(probes).await;
         Ok(DaemonHealthResponse { status: DaemonHealthStatus::Healthy, plugins, last_error: None })

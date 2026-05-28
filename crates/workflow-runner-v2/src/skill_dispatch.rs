@@ -241,7 +241,7 @@ mod tests {
     // resolver reading it. Same root cause as test_persist_and_load_phase_output.
     // Passes reliably in isolation. Reproduce and fix scoped_state_root resolution
     // race separately.
-    #[ignore]
+    #[ignore = "intermittent scoped_state_root race on skills-registry fixture; passes in isolation"]
     #[test]
     fn runtime_resolves_installed_registry_skills_into_prompt_and_contract() {
         let _guard = crate::test_env::scoped_state_serializer();

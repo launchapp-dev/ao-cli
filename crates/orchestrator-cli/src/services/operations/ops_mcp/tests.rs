@@ -1404,7 +1404,7 @@ fn mcp_daemon_status_routes_via_control() {
     // handle_daemon_status_command (see runtime_daemon.rs L94) probes
     // ControlClient first, falling back to the on-disk health snapshot
     // — so this arg shape is what gets routed through the wire.
-    let args = vec!["daemon".to_string(), "status".to_string()];
+    let args = ["daemon".to_string(), "status".to_string()];
     assert_eq!(args[0], "daemon");
     assert_eq!(args[1], "status");
 }
@@ -1416,7 +1416,7 @@ fn mcp_plugin_list_routes_via_control() {
     // the call in a ControlClient::try_connect guard. The arg shape
     // is the same with or without the daemon; routing is transparent.
     // Pin the arg shape so future regressions are visible.
-    let args = vec!["plugin".to_string(), "list".to_string()];
+    let args = ["plugin".to_string(), "list".to_string()];
     assert_eq!(args[0], "plugin");
     assert_eq!(args[1], "list");
 }

@@ -1839,7 +1839,7 @@ mod requirement_workflow_tests {
     // TASK-001` on the second mutate_persistent_state call right after a successful
     // create, suggesting the SQLite read in mutate_persistent_state observes a
     // pre-create snapshot. Reproduce: cargo test -p workflow-runner-v2 --lib (parallel).
-    #[ignore]
+    #[ignore = "intermittent FileServiceHub load_all_tasks race under cargo test --workspace; passes in isolation"]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn execute_workflow_pauses_manual_pending_workflows() {
         let _serial = crate::test_env::scoped_state_serializer();

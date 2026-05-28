@@ -126,7 +126,7 @@ fn normalize_key(s: &str) -> String {
             let after_lower_or_digit = matches!(prev, Some(p) if p.is_ascii_lowercase() || p.is_ascii_digit());
             let acronym_to_word = matches!(prev, Some(p) if p.is_ascii_uppercase())
                 && matches!(next, Some(n) if n.is_ascii_lowercase());
-            if (after_lower_or_digit || acronym_to_word) && out.chars().last() != Some('_') {
+            if (after_lower_or_digit || acronym_to_word) && !out.ends_with('_') {
                 out.push('_');
             }
         }

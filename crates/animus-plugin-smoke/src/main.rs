@@ -74,8 +74,8 @@ fn print_manifest_and_exit() -> ! {
 }
 
 fn maybe_handle_manifest_flag() {
-    let mut args = std::env::args().skip(1);
-    while let Some(arg) = args.next() {
+    let args = std::env::args().skip(1);
+    for arg in args {
         match arg.as_str() {
             "--manifest" | "-m" => print_manifest_and_exit(),
             "--help" | "-h" => {

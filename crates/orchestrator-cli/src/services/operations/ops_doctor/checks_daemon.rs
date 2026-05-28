@@ -130,6 +130,10 @@ fn pid_alive(_pid: u32) -> bool {
 }
 
 #[cfg(test)]
+// Tests serialize on a process-wide `Mutex<()>` to coordinate `HOME`/env
+// mutations across parallel async tests. The guard is intentionally held
+// across `.await` because the contended resource is the env, not the lock.
+#[allow(clippy::await_holding_lock)]
 mod tests {
     use super::*;
     use crate::services::operations::ops_doctor::check_kit::CheckContext;

@@ -329,17 +329,12 @@ pub struct AgentPersonaConfig {
     pub customizations: BTreeMap<String, Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentMemoryWritePolicy {
+    #[default]
     Explicit,
     PhaseSummary,
-}
-
-impl Default for AgentMemoryWritePolicy {
-    fn default() -> Self {
-        Self::Explicit
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]

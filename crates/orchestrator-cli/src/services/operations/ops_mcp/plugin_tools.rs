@@ -16,9 +16,7 @@ use crate::services::runtime::canonicalize_lossy;
 
 fn anyhow_to_mcp(err: anyhow::Error) -> McpError {
     let chain: Vec<String> = err.chain().map(|cause| cause.to_string()).collect();
-    if chain.iter().any(|c| c.contains("not found")) {
-        McpError::invalid_params(chain.join(": "), None)
-    } else if chain.iter().any(|c| c.contains("invalid_input") || c.contains("must")) {
+    if chain.iter().any(|c| c.contains("not found") || c.contains("invalid_input") || c.contains("must")) {
         McpError::invalid_params(chain.join(": "), None)
     } else {
         McpError::internal_error(chain.join(": "), None)
@@ -395,10 +393,19 @@ impl AoMcpServer {
 pub(super) fn discover_for_tests(
     project_root: &str,
 ) -> Result<Vec<orchestrator_plugin_host::DiscoveredPlugin>, anyhow::Error> {
-    PluginDiscovery::new().with_project_root(Path::new(project_root)).discover().map_err(Into::into)
+    PluginDiscovery::new().with_project_root(Path::new(project_root)).discover()
 }
 
 #[cfg(test)]
+// `isolated_plugin_dirs()` returns a guard that pins process-wide env vars
+// (`ANIMUS_PLUGIN_DIR`, `ANIMUS_CONFIG_DIR`, `ANIMUS_PLUGIN_PATH`) for the
+// duration of one test. The Mutex held across `.await` is intentional: the
+// contended resource is the env, and an async-aware Mutex wouldn't change
+// that. The `plugin_registry` field on `AoMcpServer` is a `tokio::Mutex`
+// (legitimately async), and that one shows up in the same lint because
+// clippy can't distinguish the two; the std Mutex is the one we're
+// suppressing.
+#[allow(clippy::await_holding_lock)]
 mod plugin_tool_tests {
     use super::super::new_ao_mcp_server;
     use super::*;
@@ -441,10 +448,11 @@ mod plugin_tool_tests {
         // entries into discovery for the test.
         let registry_path = home.path().join("plugins.yaml");
         std::fs::write(&registry_path, "plugins: {}\nproviders: {}\n").expect("write empty plugins.yaml");
-        let mut guards = Vec::new();
-        guards.push(EnvVarGuard::set("ANIMUS_PLUGIN_DIR", Some(plugins_dir.to_str().expect("plugin dir utf-8"))));
-        guards.push(EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(home.path().to_str().expect("config dir utf-8"))));
-        guards.push(EnvVarGuard::set("ANIMUS_PLUGIN_PATH", None));
+        let guards = vec![
+            EnvVarGuard::set("ANIMUS_PLUGIN_DIR", Some(plugins_dir.to_str().expect("plugin dir utf-8"))),
+            EnvVarGuard::set("ANIMUS_CONFIG_DIR", Some(home.path().to_str().expect("config dir utf-8"))),
+            EnvVarGuard::set("ANIMUS_PLUGIN_PATH", None),
+        ];
         (home, lock, guards)
     }
 

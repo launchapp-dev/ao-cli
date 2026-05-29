@@ -136,7 +136,7 @@ animus plugin install-defaults --include-subjects --include-transports
 animus daemon preflight                          # verify all required plugins are present
 
 # Option 1: run a workflow on demand
-animus subject create --kind task --title "Add rate limiting" --task-type feature --priority high
+animus subject create --kind task --title "Add rate limiting" --priority p1
 animus workflow run --task-id TASK-001
 
 # Option 2: go fully autonomous

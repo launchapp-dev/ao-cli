@@ -110,6 +110,29 @@ impl PluginDiscovery {
     /// [`DiscoveryWarning`]s for plugins that were located but could not be
     /// loaded (e.g. their `--manifest` probe failed). Warnings are also emitted
     /// at `warn` level via `tracing`.
+    ///
+    /// # Precedence
+    ///
+    /// Discovery walks the following sources in order, and a plugin name (or
+    /// binary file name when scanning directories) is locked in by the first
+    /// source that yields it. Later sources can never override an earlier one
+    /// — duplicates from lower-precedence sources are silently skipped:
+    ///
+    /// 1. Explicit registry config (`~/.animus/plugins.yaml`, or the path
+    ///    supplied to [`PluginDiscovery::with_config_path`]).
+    /// 2. Project-local install dir (`<project_root>/.animus/plugins/`).
+    /// 3. Global install dir (`$ANIMUS_PLUGIN_DIR` when set, otherwise
+    ///    `~/.animus/plugins/`) — the canonical destination for
+    ///    `animus plugin install`. Scanned unconditionally so a binary
+    ///    dropped into this directory by hand is still discovered even when
+    ///    the registry yaml is missing or stale.
+    /// 4. `$ANIMUS_PLUGIN_PATH` (PATH-style, colon-separated additional
+    ///    directories, appended after the global install dir).
+    /// 5. Operating-system `$PATH` (only when
+    ///    [`PluginDiscovery::include_system_path`] is opted in).
+    ///
+    /// Entries are deduplicated by name to keep the precedence chain
+    /// deterministic regardless of underlying file-system iteration order.
     pub fn discover_with_warnings(&self) -> Result<(Vec<DiscoveredPlugin>, Vec<DiscoveryWarning>)> {
         let mut discovered = Vec::new();
         let mut warnings = Vec::new();
@@ -127,15 +150,13 @@ impl PluginDiscovery {
             );
         }
 
-        // Scan the global plugin install dir when `$ANIMUS_PLUGIN_DIR` is set.
-        // This makes env-var-driven installs (and existing binaries dropped
-        // into that dir manually) discoverable even when the registry yaml is
-        // absent. Without the env var we rely on the registry entry written
-        // by `animus plugin install`, which avoids surprising tests that
-        // expect zero plugins on the developer's real `~/.animus/plugins/`.
-        if let Some(install_dir) = plugin_install_dir_from_env() {
-            scan_dir(&install_dir, DiscoverySource::PluginPath, &mut discovered, &mut warnings, &mut seen);
-        }
+        // Scan the global plugin install dir unconditionally. This is the
+        // canonical destination for `animus plugin install` and the
+        // historical "user dropped a binary here by hand" location. When
+        // `$ANIMUS_PLUGIN_DIR` is set, [`plugin_install_dir`] returns that
+        // override; otherwise it resolves to `~/.animus/plugins/`
+        // (honoring `$ANIMUS_CONFIG_DIR` for hermetic tests).
+        scan_dir(&plugin_install_dir(), DiscoverySource::PluginPath, &mut discovered, &mut warnings, &mut seen);
 
         if let Ok(plugin_path) = std::env::var("ANIMUS_PLUGIN_PATH") {
             for raw_dir in plugin_path.split(':') {
@@ -209,6 +230,11 @@ impl PluginDiscovery {
                     discovered.push(DiscoveredPlugin { name, path, manifest, source: DiscoverySource::ExplicitConfig });
                 }
                 Err(error) => {
+                    // Reserve the name even on probe failure so a lower-precedence
+                    // directory scan can't silently shadow a broken explicit config
+                    // entry. The warning still surfaces so operators can fix the
+                    // broken plugin instead of being routed to an unintended copy.
+                    seen.insert(name.clone());
                     let reason = format!("{error:#}");
                     tracing::warn!(
                         plugin = %name,
@@ -406,6 +432,12 @@ fn scan_dir(
                 discovered.push(DiscoveredPlugin { name: file_name.to_string(), path, manifest, source });
             }
             Err(error) => {
+                // Reserve the name even on probe failure so a lower-precedence
+                // source (e.g. global install dir) can't silently shadow a
+                // broken higher-precedence override (e.g. project-local).
+                // The warning still surfaces so operators can fix the
+                // broken plugin instead of being routed to the wrong copy.
+                seen.insert(file_name.to_string());
                 let reason = format!("{error:#}");
                 tracing::warn!(
                     plugin = %file_name,
@@ -454,18 +486,6 @@ pub fn plugin_install_dir() -> PathBuf {
         }
     }
     animus_home().join("plugins")
-}
-
-/// Returns the install dir only when `$ANIMUS_PLUGIN_DIR` is explicitly set
-/// (and non-empty). Used by discovery to scan env-var-driven install dirs
-/// without surprising users who never opted into the env var.
-fn plugin_install_dir_from_env() -> Option<PathBuf> {
-    let value = std::env::var("ANIMUS_PLUGIN_DIR").ok()?;
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    Some(PathBuf::from(trimmed))
 }
 
 /// Returns the canonical plugin registry yaml path.
@@ -571,6 +591,7 @@ mod tests {
         let _guard = ENV_GUARD.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let _clear_plugin_dir = EnvVarGuard::set("ANIMUS_PLUGIN_DIR", "");
         let temp = tempfile::tempdir().expect("tempdir");
+        let _config_dir = EnvVarGuard::set("ANIMUS_CONFIG_DIR", temp.path().join("animus-home"));
         let plugin = temp.path().join("compatible-plugin");
         let manifest = serde_json::json!({
             "name": "compatible",
@@ -607,6 +628,10 @@ mod tests {
         let _guard = ENV_GUARD.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let _clear_plugin_dir = EnvVarGuard::set("ANIMUS_PLUGIN_DIR", "");
         let temp = tempfile::tempdir().expect("tempdir");
+        // Redirect $ANIMUS_CONFIG_DIR so the v0.4.19 unconditional global
+        // install dir scan doesn't pick up the developer's real
+        // `~/.animus/plugins/` and pollute the assertion counts.
+        let _config_dir = EnvVarGuard::set("ANIMUS_CONFIG_DIR", temp.path().join("animus-home"));
         let plugin = temp.path().join("animus-provider-explode");
         // Plugin script that fails when --manifest is invoked. Simulates the
         // oai/linear regression where a missing env var aborted the manifest
@@ -642,6 +667,7 @@ mod tests {
         let _guard = ENV_GUARD.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let _clear_plugin_dir = EnvVarGuard::set("ANIMUS_PLUGIN_DIR", "");
         let temp = tempfile::tempdir().expect("tempdir");
+        let _config_dir = EnvVarGuard::set("ANIMUS_CONFIG_DIR", temp.path().join("animus-home"));
         let config_path = temp.path().join("plugins.yaml");
         fs::write(&config_path, "plugins:\n  ghost:\n    binary: /tmp/definitely-not-a-real-plugin-binary-xyz123\n")
             .expect("write config");
@@ -664,6 +690,7 @@ mod tests {
         let _guard = ENV_GUARD.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let _clear_plugin_dir = EnvVarGuard::set("ANIMUS_PLUGIN_DIR", "");
         let temp = tempfile::tempdir().expect("tempdir");
+        let _config_dir = EnvVarGuard::set("ANIMUS_CONFIG_DIR", temp.path().join("animus-home"));
         let plugins_dir = temp.path().join(".animus/plugins");
         fs::create_dir_all(&plugins_dir).expect("mkdir");
         let plugin = plugins_dir.join("animus-plugin-broken");
@@ -896,5 +923,235 @@ mod tests {
 
         let manifest = fetch_manifest(&plugin).expect("manifest probe must succeed when env is scrubbed");
         assert_eq!(manifest.name, "snoop", "manifest must round-trip when secret is scrubbed");
+    }
+
+    // ---- global plugin install dir precedence (v0.4.19) ----------------
+    //
+    // `~/.animus/plugins/` is the canonical install target for
+    // `animus plugin install`. Discovery must scan it unconditionally so
+    // operators do not have to symlink the directory into every project.
+
+    #[cfg(unix)]
+    fn write_executable_plugin(path: &Path, manifest_name: &str) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let manifest = serde_json::json!({
+            "name": manifest_name,
+            "version": "0.1.0",
+            "plugin_kind": "custom",
+            "description": "test plugin",
+            "protocol_version": "1.0.0",
+            "capabilities": []
+        });
+        fs::write(path, format!("#!/bin/sh\nprintf '{}\\n'\n", manifest)).expect("write plugin");
+        let mut permissions = fs::metadata(path).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions).expect("chmod");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn discovery_scans_global_install_dir_without_plugin_dir_env_var() {
+        let _guard = ENV_GUARD.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _clear_plugin_dir = EnvVarGuard::set("ANIMUS_PLUGIN_DIR", "");
+        let _clear_plugin_path = EnvVarGuard::set("ANIMUS_PLUGIN_PATH", "");
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        // Redirect `animus_home()` to a scratch dir so the test never touches
+        // the developer's real `~/.animus/plugins/`. `animus_home()` honors
+        // `ANIMUS_CONFIG_DIR`, so this also drives `plugin_install_dir()`.
+        let fake_home = temp.path().join("animus-home");
+        let fake_install = fake_home.join("plugins");
+        fs::create_dir_all(&fake_install).expect("mkdir install dir");
+        let _config_dir = EnvVarGuard::set("ANIMUS_CONFIG_DIR", &fake_home);
+
+        let plugin_path = fake_install.join("animus-provider-globe");
+        write_executable_plugin(&plugin_path, "animus-provider-globe");
+
+        let empty_config = temp.path().join("empty-plugins.yaml");
+        fs::write(&empty_config, "plugins: {}\n").expect("write empty config");
+
+        let (discovered, warnings) =
+            PluginDiscovery::new().with_config_path(&empty_config).discover_with_warnings().expect("discover");
+
+        assert!(warnings.is_empty(), "expected zero warnings, got {warnings:?}");
+        assert_eq!(
+            discovered.len(),
+            1,
+            "global install dir must be scanned even when $ANIMUS_PLUGIN_DIR is unset, got {discovered:?}"
+        );
+        assert_eq!(discovered[0].name, "animus-provider-globe");
+        assert_eq!(discovered[0].path, plugin_path);
+        assert_eq!(discovered[0].source, DiscoverySource::PluginPath);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn discovery_project_local_takes_precedence_over_global_install_dir() {
+        let _guard = ENV_GUARD.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _clear_plugin_dir = EnvVarGuard::set("ANIMUS_PLUGIN_DIR", "");
+        let _clear_plugin_path = EnvVarGuard::set("ANIMUS_PLUGIN_PATH", "");
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let fake_home = temp.path().join("animus-home");
+        let fake_install = fake_home.join("plugins");
+        fs::create_dir_all(&fake_install).expect("mkdir install dir");
+        let _config_dir = EnvVarGuard::set("ANIMUS_CONFIG_DIR", &fake_home);
+
+        let project_root = temp.path().join("project");
+        let project_plugins = project_root.join(".animus/plugins");
+        fs::create_dir_all(&project_plugins).expect("mkdir project plugins");
+
+        let plugin_name = "animus-plugin-duplicate";
+        let project_path = project_plugins.join(plugin_name);
+        let global_path = fake_install.join(plugin_name);
+        write_executable_plugin(&project_path, plugin_name);
+        write_executable_plugin(&global_path, plugin_name);
+
+        let empty_config = temp.path().join("empty-plugins.yaml");
+        fs::write(&empty_config, "plugins: {}\n").expect("write empty config");
+
+        let (discovered, warnings) = PluginDiscovery::new()
+            .with_project_root(&project_root)
+            .with_config_path(&empty_config)
+            .discover_with_warnings()
+            .expect("discover");
+
+        assert!(warnings.is_empty(), "expected zero warnings, got {warnings:?}");
+        assert_eq!(discovered.len(), 1, "duplicate name across sources must dedupe to one entry, got {discovered:?}");
+        assert_eq!(discovered[0].path, project_path, "project-local install must outrank the global install dir");
+        assert_eq!(discovered[0].source, DiscoverySource::ProjectLocal);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn discovery_global_install_dir_in_addition_to_project_local() {
+        let _guard = ENV_GUARD.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _clear_plugin_dir = EnvVarGuard::set("ANIMUS_PLUGIN_DIR", "");
+        let _clear_plugin_path = EnvVarGuard::set("ANIMUS_PLUGIN_PATH", "");
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let fake_home = temp.path().join("animus-home");
+        let fake_install = fake_home.join("plugins");
+        fs::create_dir_all(&fake_install).expect("mkdir install dir");
+        let _config_dir = EnvVarGuard::set("ANIMUS_CONFIG_DIR", &fake_home);
+
+        let project_root = temp.path().join("project");
+        let project_plugins = project_root.join(".animus/plugins");
+        fs::create_dir_all(&project_plugins).expect("mkdir project plugins");
+
+        let project_only = project_plugins.join("animus-plugin-projectonly");
+        let global_only = fake_install.join("animus-plugin-globalonly");
+        write_executable_plugin(&project_only, "animus-plugin-projectonly");
+        write_executable_plugin(&global_only, "animus-plugin-globalonly");
+
+        let empty_config = temp.path().join("empty-plugins.yaml");
+        fs::write(&empty_config, "plugins: {}\n").expect("write empty config");
+
+        let (discovered, warnings) = PluginDiscovery::new()
+            .with_project_root(&project_root)
+            .with_config_path(&empty_config)
+            .discover_with_warnings()
+            .expect("discover");
+
+        assert!(warnings.is_empty(), "expected zero warnings, got {warnings:?}");
+        assert_eq!(discovered.len(), 2, "both project-local and global plugins must be discovered, got {discovered:?}");
+        let names: BTreeSet<&str> = discovered.iter().map(|p| p.name.as_str()).collect();
+        assert!(names.contains("animus-plugin-projectonly"), "project-local plugin missing from {names:?}");
+        assert!(names.contains("animus-plugin-globalonly"), "global plugin missing from {names:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn discovery_failed_project_local_blocks_lower_precedence_global_duplicate() {
+        // Even when a higher-precedence source fails its manifest probe, it
+        // must still reserve the plugin name so a lower-precedence source
+        // can't silently shadow the broken override. Codex P2 from the
+        // v0.4.19 self-vet.
+        use std::os::unix::fs::PermissionsExt;
+
+        let _guard = ENV_GUARD.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _clear_plugin_dir = EnvVarGuard::set("ANIMUS_PLUGIN_DIR", "");
+        let _clear_plugin_path = EnvVarGuard::set("ANIMUS_PLUGIN_PATH", "");
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let fake_home = temp.path().join("animus-home");
+        let global_install = fake_home.join("plugins");
+        fs::create_dir_all(&global_install).expect("mkdir global install");
+        let _config_dir = EnvVarGuard::set("ANIMUS_CONFIG_DIR", &fake_home);
+
+        let project_root = temp.path().join("project");
+        let project_plugins = project_root.join(".animus/plugins");
+        fs::create_dir_all(&project_plugins).expect("mkdir project plugins");
+
+        let plugin_name = "animus-plugin-duplicate";
+
+        // Project-local copy: broken — manifest probe fails with non-zero
+        // exit. This MUST block the global copy from being silently used.
+        let broken_project = project_plugins.join(plugin_name);
+        fs::write(&broken_project, "#!/bin/sh\nexit 2\n").expect("write broken project plugin");
+        let mut perms = fs::metadata(&broken_project).expect("metadata").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&broken_project, perms).expect("chmod");
+
+        // Global copy: would be perfectly loadable if reached.
+        let global_path = global_install.join(plugin_name);
+        write_executable_plugin(&global_path, plugin_name);
+
+        let empty_config = temp.path().join("empty-plugins.yaml");
+        fs::write(&empty_config, "plugins: {}\n").expect("write empty config");
+
+        let (discovered, warnings) = PluginDiscovery::new()
+            .with_project_root(&project_root)
+            .with_config_path(&empty_config)
+            .discover_with_warnings()
+            .expect("discover");
+
+        assert!(discovered.is_empty(), "broken project-local plugin must block the global copy, got: {discovered:?}");
+        assert_eq!(
+            warnings.len(),
+            1,
+            "exactly one warning expected for the broken project-local copy, got: {warnings:?}"
+        );
+        assert_eq!(warnings[0].name, plugin_name);
+        assert_eq!(warnings[0].source, DiscoverySource::ProjectLocal);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn discovery_animus_plugin_dir_overrides_global_install_location() {
+        let _guard = ENV_GUARD.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _clear_plugin_path = EnvVarGuard::set("ANIMUS_PLUGIN_PATH", "");
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let fake_home = temp.path().join("animus-home");
+        // Real install dir under the fake home should be IGNORED once
+        // $ANIMUS_PLUGIN_DIR redirects discovery elsewhere.
+        let ignored_install = fake_home.join("plugins");
+        fs::create_dir_all(&ignored_install).expect("mkdir ignored install");
+        let ignored_plugin = ignored_install.join("animus-plugin-ignored");
+        write_executable_plugin(&ignored_plugin, "animus-plugin-ignored");
+
+        let redirected = temp.path().join("env-install");
+        fs::create_dir_all(&redirected).expect("mkdir redirected");
+        let env_plugin = redirected.join("animus-plugin-envtarget");
+        write_executable_plugin(&env_plugin, "animus-plugin-envtarget");
+
+        let _config_dir = EnvVarGuard::set("ANIMUS_CONFIG_DIR", &fake_home);
+        let _plugin_dir = EnvVarGuard::set("ANIMUS_PLUGIN_DIR", &redirected);
+
+        let empty_config = temp.path().join("empty-plugins.yaml");
+        fs::write(&empty_config, "plugins: {}\n").expect("write empty config");
+
+        let (discovered, warnings) =
+            PluginDiscovery::new().with_config_path(&empty_config).discover_with_warnings().expect("discover");
+
+        assert!(warnings.is_empty(), "expected zero warnings, got {warnings:?}");
+        let names: BTreeSet<&str> = discovered.iter().map(|p| p.name.as_str()).collect();
+        assert!(names.contains("animus-plugin-envtarget"), "$ANIMUS_PLUGIN_DIR target must be scanned, got {names:?}");
+        assert!(
+            !names.contains("animus-plugin-ignored"),
+            "$ANIMUS_PLUGIN_DIR override must replace the default ~/.animus/plugins/ scan, got {names:?}"
+        );
     }
 }

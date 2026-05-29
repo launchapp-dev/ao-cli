@@ -175,7 +175,7 @@ animus
 │       └── sync             Sync (re-clone) a registry to get latest pack catalog
 │
 ├── plugin                   Discover, inspect, install, and call Animus STDIO plugins
-│   ├── list                 Discover plugins via plugins.yaml, .animus/plugins/, $ANIMUS_PLUGIN_DIR, and $ANIMUS_PLUGIN_PATH
+│   ├── list                 Discover plugins via plugins.yaml, .animus/plugins/, the global install dir, and $ANIMUS_PLUGIN_PATH
 │   ├── info                 Print a plugin's manifest plus initialize-time capabilities
 │   ├── call                 Send a JSON-RPC request to a plugin and print its response
 │   ├── ping                 Health-check a plugin by spawning, handshaking, and pinging
@@ -444,9 +444,9 @@ before handshake instead of proceeding with a partially initialized process.
 
 Default discovery order (no `--include-system-path`):
 `~/.animus/plugins.yaml` (or the legacy `~/.config/animus/plugins.yaml` only
-when the new registry is absent) → `.animus/plugins/` → `$ANIMUS_PLUGIN_DIR`
-when explicitly set → `$ANIMUS_PLUGIN_PATH`. With `--include-system-path`,
-`$PATH` is appended.
+when the new registry is absent) → `.animus/plugins/` → global install dir
+(`$ANIMUS_PLUGIN_DIR` when set, otherwise `~/.animus/plugins/`) →
+`$ANIMUS_PLUGIN_PATH`. With `--include-system-path`, `$PATH` is appended.
 
 `animus plugin list --json` returns a top-level `warnings` array when a configured
 plugin failed its `--manifest` probe (binary missing, exited non-zero, returned

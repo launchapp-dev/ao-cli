@@ -85,11 +85,24 @@ The harness validates the `animus.cli.v1` envelope contract:
 
 ## InMemoryServiceHub for Isolated Tests
 
-The `InMemoryServiceHub` stores all state in memory, implementing the same `ServiceHub` trait as the production `FileServiceHub`. This means unit tests exercise real business logic without touching the filesystem:
+The `InMemoryServiceHub` stores all state in memory, implementing the same
+`ServiceHub` trait as the production `FileServiceHub`. This means unit tests
+exercise real business logic without touching the filesystem:
 
 - No temp directory cleanup needed
 - Tests run in parallel without interference
 - Fast execution (no I/O overhead)
+
+If a test needs plugin-backed subject or project fallback behavior, anchor the
+hub to a temp project root first:
+
+```rust
+let temp = tempfile::tempdir()?;
+let hub = InMemoryServiceHub::new().with_project_root(temp.path());
+```
+
+Without `with_project_root(...)`, the in-memory hub intentionally skips the
+plugin fallback path for `subject_resolver()` and `project_adapter()`.
 
 ## CI Workflows
 

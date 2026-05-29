@@ -189,7 +189,7 @@ Common runtime overrides:
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `ANIMUS_CONFIG_DIR` | Override the global config root | `~/.animus/` (via `protocol::Config::global_config_dir()`) |
-| `ANIMUS_PLUGIN_DIR` | Override plugin install location | `~/.animus/plugins/` |
+| `ANIMUS_PLUGIN_DIR` | Override the global plugin install location that discovery also scans | `~/.animus/plugins/` |
 | `ANIMUS_VERSION` | Pin version for the installer script | latest release |
 | `ANIMUS_INSTALL_DIR` | Pin install dir for the installer script | `~/.local/bin` |
 | `ANIMUS_DAEMON_DISABLE_CONTROL_SERVER` | Opt out of the daemon Unix-socket control server | unset (server enabled) |

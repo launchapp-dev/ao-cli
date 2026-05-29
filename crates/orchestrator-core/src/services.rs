@@ -226,17 +226,33 @@ pub trait ServiceHub: Send + Sync {
 #[derive(Clone)]
 pub struct InMemoryServiceHub {
     state: Arc<RwLock<CoreState>>,
+    /// Optional project root used to wire the subject/project plugin
+    /// fallback. When unset, the hub still functions for in-memory tests
+    /// but `subject_resolver()` / `project_adapter()` skip the plugin
+    /// fallback layer. Production code paths use [`FileServiceHub`] which
+    /// always carries a `project_root`.
+    project_root: Option<PathBuf>,
 }
 
 impl Default for InMemoryServiceHub {
     fn default() -> Self {
-        Self { state: Arc::new(RwLock::new(CoreState::default_with_stopped())) }
+        Self { state: Arc::new(RwLock::new(CoreState::default_with_stopped())), project_root: None }
     }
 }
 
 impl InMemoryServiceHub {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Anchor this hub to a project root so the subject/project plugin
+    /// fallback engages, mirroring [`FileServiceHub`]'s behavior. Tests
+    /// that exercise the plugin fallback path must call this; tests that
+    /// only need in-memory state can leave it unset.
+    #[must_use]
+    pub fn with_project_root(mut self, project_root: impl Into<PathBuf>) -> Self {
+        self.project_root = Some(project_root.into());
+        self
     }
 
     fn log(&self, level: LogLevel, message: String) {
@@ -643,7 +659,11 @@ impl ServiceHub for InMemoryServiceHub {
     }
 
     fn subject_resolver(&self) -> Arc<dyn SubjectResolver> {
-        Arc::new(BuiltinSubjectResolver::new(Arc::new(self.clone())))
+        let resolver = BuiltinSubjectResolver::new(Arc::new(self.clone()));
+        match &self.project_root {
+            Some(root) => Arc::new(resolver.with_plugin_fallback(root.clone())),
+            None => Arc::new(resolver),
+        }
     }
 
     fn workflows(&self) -> Arc<dyn WorkflowServiceApi> {
@@ -663,7 +683,11 @@ impl ServiceHub for InMemoryServiceHub {
     }
 
     fn project_adapter(&self) -> Arc<dyn ProjectAdapter> {
-        Arc::new(BuiltinProjectAdapter::new(Arc::new(self.clone())))
+        let adapter = BuiltinProjectAdapter::new(Arc::new(self.clone()));
+        match &self.project_root {
+            Some(root) => Arc::new(adapter.with_plugin_fallback(root.clone())),
+            None => Arc::new(adapter),
+        }
     }
 
     fn review(&self) -> Arc<dyn ReviewServiceApi> {

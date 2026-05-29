@@ -235,9 +235,10 @@ These tools query and update the public plugin registry view exposed by the CLI.
 
 Discovery order: `~/.animus/plugins.yaml` (or the legacy
 `~/.config/animus/plugins.yaml` only when the new registry is absent) →
-`.animus/plugins/` → `$ANIMUS_PLUGIN_DIR` when explicitly set →
-`$ANIMUS_PLUGIN_PATH` → `$PATH` (`animus-provider-*` / `animus-plugin-*`
-prefixes; `$PATH` opt-in via `--include-system-path`).
+`.animus/plugins/` → global install dir (`$ANIMUS_PLUGIN_DIR` when set,
+otherwise `~/.animus/plugins/`) → `$ANIMUS_PLUGIN_PATH` → `$PATH`
+(`animus-provider-*` / `animus-plugin-*` prefixes; `$PATH` opt-in via
+`--include-system-path`).
 
 ---
 

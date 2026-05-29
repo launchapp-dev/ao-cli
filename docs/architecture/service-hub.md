@@ -48,7 +48,14 @@ Important runtime files:
 
 ## Tests: `InMemoryServiceHub`
 
-`InMemoryServiceHub` keeps the same service surface but stores everything in memory. That lets tests exercise the same business logic without filesystem I/O.
+`InMemoryServiceHub` keeps the same service surface but stores everything in
+memory. That lets tests exercise the same business logic without filesystem
+I/O.
+
+When a test needs plugin-backed subject or project fallback behavior, construct
+the hub with `InMemoryServiceHub::new().with_project_root(...)`. Without a
+project root, `subject_resolver()` and `project_adapter()` stay in-memory-only
+and intentionally skip plugin fallback wiring.
 
 ## Dependency Flow
 

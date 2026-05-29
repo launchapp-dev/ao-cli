@@ -2290,3 +2290,56 @@ async fn update_status_from_on_hold_to_in_progress_clears_paused_and_blocked_fie
     assert_unblocked_task_state(&in_progress, TaskStatus::InProgress);
     assert!(in_progress.metadata.started_at.is_some(), "in-progress transition should set started_at");
 }
+
+// ---- v0.4.19 subject plugin fallback regression --------------------------
+//
+// The v0.4.18 hotfix wired `.with_plugin_fallback()` onto
+// `FileServiceHub::subject_resolver()` and `project_adapter()` but the
+// `InMemoryServiceHub` variants were left unwired. The tests below assert
+// that the InMemoryServiceHub now activates the plugin fallback whenever a
+// project_root is supplied — matching the production hub's behavior so
+// future regressions stay symmetric.
+
+#[tokio::test]
+async fn in_memory_hub_without_project_root_skips_plugin_fallback() {
+    let hub = InMemoryServiceHub::new();
+    // Without a project root the resolver should not engage the plugin
+    // fallback; an unknown subject kind falls through to a hard error
+    // from the in-tree adapters instead of attempting plugin discovery.
+    let subject = protocol::orchestrator::SubjectRef::task("MISSING-TASK".to_string());
+    let err = hub.subject_resolver().resolve_subject_context(&subject, None, None).await.expect_err("expected error");
+    let msg = err.to_string();
+    assert!(
+        !msg.contains("no subject_backend plugin"),
+        "hub without project_root must not invoke plugin fallback, got: {msg}"
+    );
+}
+
+#[tokio::test]
+async fn in_memory_hub_with_project_root_engages_plugin_fallback() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    // No plugins are installed in the temp project, so the fallback runs
+    // but finds no candidate. The resulting error must mention the plugin
+    // fallback path — that is the proof the wiring took effect.
+    let hub = InMemoryServiceHub::new().with_project_root(temp.path());
+    let subject = protocol::orchestrator::SubjectRef::task("MISSING-TASK".to_string());
+    let err = hub.subject_resolver().resolve_subject_context(&subject, None, None).await.expect_err("expected error");
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("no subject_backend plugin") || msg.contains("plugin"),
+        "hub with project_root must invoke plugin fallback, got: {msg}"
+    );
+}
+
+#[tokio::test]
+async fn file_hub_subject_resolver_engages_plugin_fallback() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let hub = file_hub(temp.path()).expect("create hub");
+    let subject = protocol::orchestrator::SubjectRef::task("MISSING-TASK".to_string());
+    let err = hub.subject_resolver().resolve_subject_context(&subject, None, None).await.expect_err("expected error");
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("no subject_backend plugin") || msg.contains("plugin"),
+        "FileServiceHub must invoke plugin fallback for unknown task ids, got: {msg}"
+    );
+}

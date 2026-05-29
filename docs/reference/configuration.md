@@ -221,7 +221,7 @@ legacy aliases; the old names will not be read.
 
 | Variable | Description |
 |---|---|
-| `ANIMUS_PLUGIN_DIR` | Override the plugin install directory used by `animus plugin install`; scanned during discovery only when explicitly set. `--plugin-dir <PATH>` overrides it for install/uninstall commands |
+| `ANIMUS_PLUGIN_DIR` | Override the global plugin install directory used by `animus plugin install`. Discovery always scans the resolved global install dir: `$ANIMUS_PLUGIN_DIR` when set, otherwise `~/.animus/plugins/`. `--plugin-dir <PATH>` overrides it for install/uninstall commands |
 | `ANIMUS_PLUGIN_PATH` | Colon-separated list of additional directories to scan for `animus-provider-*` and `animus-plugin-*` binaries during plugin discovery |
 | `ANIMUS_TEMPLATE_REGISTRY_URL` | Override the default template registry URL used by `animus init`. Defaults to the LaunchApp project-templates registry |
 

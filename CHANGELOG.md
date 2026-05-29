@@ -4,6 +4,40 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.19] - 2026-05-29
+
+Follow-up hotfix to v0.4.18. The previous release wired the subject
+plugin fallback into `FileServiceHub` and the CLI dispatch helpers,
+but the parallel `InMemoryServiceHub` paths were still wired without
+a plugin fallback, and plugin discovery only scanned the project-local
+install dir — global installs under `~/.animus/plugins/` required a
+manual `$ANIMUS_PLUGIN_DIR` override or a symlink to be picked up.
+
+### Fixed
+
+- **`fix(services)`: `InMemoryServiceHub::subject_resolver()` and
+  `project_adapter()` now activate `.with_plugin_fallback()` when a
+  project root is supplied** via the new
+  `InMemoryServiceHub::with_project_root()` builder, matching the
+  production `FileServiceHub` behavior so plugin-backed subject
+  resolution stays symmetric between the two hub variants. Three
+  regression tests assert that the InMemoryServiceHub skips the
+  plugin fallback when no project_root is set, engages it when one
+  is supplied, and that `FileServiceHub` continues to engage it.
+- **`fix(plugin-host)`: plugin discovery now scans
+  `~/.animus/plugins/` unconditionally** instead of only when
+  `$ANIMUS_PLUGIN_DIR` is set. This restores the canonical
+  precedence chain: explicit `plugins.yaml` registry entries first,
+  then project-local `<project_root>/.animus/plugins/`, then the
+  global install dir (`$ANIMUS_PLUGIN_DIR` override or
+  `~/.animus/plugins/` default), then `$ANIMUS_PLUGIN_PATH`, then
+  optionally `$PATH`. Duplicate plugin names dedupe to the first
+  source that produced them, so project-local installs continue to
+  override global ones deterministically. Four new discovery tests
+  cover the global-only discovery, project-local-vs-global
+  precedence, both-locations co-existence, and `$ANIMUS_PLUGIN_DIR`
+  overriding the default install location.
+
 ## [0.4.18] - 2026-05-29
 
 Hotfix release. Real-world reproduction in a v0.4.x project hit a

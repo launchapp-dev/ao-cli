@@ -71,12 +71,16 @@ documented in [Plugin Host Concurrency](plugin-host-concurrency.md).
    - Legacy fallback: `~/.config/animus/plugins.yaml` is read only when the new
      registry is absent and `ANIMUS_CONFIG_DIR` is not set.
 2. Project-local plugin binaries in `<project>/.animus/plugins/`.
-3. `$ANIMUS_PLUGIN_DIR`, only when explicitly set.
+3. The global install dir: `$ANIMUS_PLUGIN_DIR` when explicitly set,
+   otherwise `~/.animus/plugins/`.
 4. `$ANIMUS_PLUGIN_PATH`.
 5. `$PATH`, only when the caller opts into `--include-system-path`.
 
 Directory scans consider executable names beginning with `animus-plugin-` or
 `animus-provider-`. Registry entries may point to binaries with any name.
+Plugin names are deduplicated by first match in the precedence chain, and a
+broken higher-precedence entry still reserves its name so a lower-precedence
+copy cannot silently shadow it.
 
 Manifest probes are hardened:
 

@@ -77,11 +77,20 @@ Use workflows to execute work for a task, a requirement, or a freeform title.
 // Async run via daemon
 { "task_id": "TASK-001" }
 
-// Sync execution in-process
+// Sync execution in-process (animus.workflow.execute)
 { "task_id": "TASK-001", "phase": "implementation", "model": "gpt-5" }
 
 // Requirement-linked execution
 { "requirement_id": "REQ-001", "workflow_ref": "standard-workflow" }
+
+// Batch-run multiple tasks (animus.workflow.run-multiple)
+{
+  "runs": [
+    { "task_id": "TASK-001", "workflow_ref": "standard-workflow" },
+    { "task_id": "TASK-002", "workflow_ref": "hotfix-workflow" }
+  ],
+  "on_error": "continue"
+}
 ```
 
 Inspection and control:
@@ -104,6 +113,7 @@ dispatch control.
 ```json
 {}                                          // animus.daemon.status / health / agents
 { "autonomous": true, "pool_size": 3 }      // animus.daemon.start
+{ "auto_run_ready": true, "pool_size": 4 }  // animus.daemon.config-set
 { "limit": 50 }                              // animus.daemon.events
 { "project_root": "/repo" }                  // animus.queue.list / stats
 { "subject_id": "task:TASK-001" }            // animus.queue.hold / release / drop
@@ -145,6 +155,7 @@ Project-scoped durable memory:
 ```json
 { "agent_id": "implementation", "text": "Use the new plugin router", "source": "postmortem" }
 { "agent_id": "implementation" }
+{ "agent_id": "implementation", "prefix": "decision:" }
 ```
 
 Skills:

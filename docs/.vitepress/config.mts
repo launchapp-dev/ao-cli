@@ -147,7 +147,7 @@ export default withMermaid(
       },
 
       editLink: {
-        pattern: 'https://github.com/launchapp-dev/ao-cli/edit/main/docs/:path',
+        pattern: 'https://github.com/launchapp-dev/animus-cli/edit/main/docs/:path',
         text: 'Edit this page on GitHub',
       },
 

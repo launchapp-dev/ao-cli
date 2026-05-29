@@ -3,8 +3,10 @@
 All MCP tools exposed by `animus mcp serve`. These tools allow AI agents to interact with the Animus orchestrator over the Model Context Protocol. Each tool wraps an `animus` CLI command, accepting JSON input and returning structured results.
 
 Most project-scoped tools accept an optional `project_root` parameter to override
-the server default. Global plugin/marketplace tools may omit `project_root`
-because they operate on machine-wide plugin state or the public registry.
+the server default. Marketplace tools may omit `project_root` because they
+operate on the public registry. Plugin mutation tools that touch installed
+binaries can still accept `project_root` so project-local `.animus/plugins.lock`
+participates in integrity tracking when present.
 
 **v0.4.4 note — subject surface is now mandatory for tasks and requirements.** The legacy
 `animus.task.*` / `animus.requirements.*` / `animus.cloud.*` / `animus.errors.*` MCP tool
@@ -215,8 +217,8 @@ those are aggregated automatically.
 | `animus.plugin.info` | Spawn a plugin, complete the initialize handshake, and return manifest plus runtime capabilities. | `name`, `project_root`, `include_system_path` |
 | `animus.plugin.ping` | Health-check a plugin by spawning it and sending `$/ping`. | `name`, `project_root`, `include_system_path` |
 | `animus.plugin.call` | Send a JSON-RPC request to a discovered plugin. | `name`, `method`, `params`, `project_root` |
-| `animus.plugin.install` | Install a plugin from `source`, local `path`, or verified `url`. MCP installs run non-interactively and auto-confirm the trusted-org prompt. | `source`, `path`, `url`, `tag`, `name`, `sha256`, `force`, `skip_manifest_check`, `plugin_dir`, `require_signature`, `skip_signature`, `trusted_signers` |
-| `animus.plugin.uninstall` | Remove an installed plugin binary and unregister it. | `name`, `plugin_dir` |
+| `animus.plugin.install` | Install a plugin from `source`, local `path`, or verified `url`. MCP installs run non-interactively and auto-confirm the trusted-org prompt. | `project_root`, `source`, `path`, `url`, `tag`, `name`, `sha256`, `force`, `skip_manifest_check`, `plugin_dir`, `require_signature`, `skip_signature`, `trusted_signers`, `force_rewrite_lockfile` |
+| `animus.plugin.uninstall` | Remove an installed plugin binary and unregister it. | `project_root`, `name`, `plugin_dir` |
 
 ## Plugin Marketplace (3 tools)
 

@@ -23,9 +23,11 @@ Animus currently exposes **77 built-in MCP tools** across these families:
 | `animus.plugin.*` | 9 | Installed plugins plus marketplace discovery/update |
 | `animus.logs.*` | 1 | Tail log entries from the active log backend |
 
-Most project-scoped tools accept an optional `project_root`; global plugin and
-marketplace tools may omit it because they operate on machine-wide plugin state
-or the public registry.
+Most project-scoped tools accept an optional `project_root`. Marketplace tools
+may omit it because they operate on the public registry. Plugin mutation tools
+such as `animus.plugin.install` and `animus.plugin.uninstall` can still take
+`project_root` so project-local `.animus/plugins.lock` updates stay scoped to
+the target repo when present.
 
 ## Subject Operations
 

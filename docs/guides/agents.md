@@ -110,7 +110,8 @@ dispatch control.
 ## Output, Logs, and Runner Operations
 
 Use output tools for run artifacts and structured execution streams. Use
-`animus.logs.tail` for daemon-level logs.
+`animus.logs.tail` for recent daemon-level logs. This MCP tool is a bounded
+pull, not a live follow stream.
 
 ```json
 { "run_id": "run-abc123" }                  // animus.output.run

@@ -77,6 +77,9 @@ Surfaces the CLI's `animus logs tail` to MCP callers. Routes through the daemon
 control wire when the daemon is running, otherwise reads the in-tree
 `events.jsonl` fallback directly.
 
+Unlike the CLI, the MCP surface does not expose `--follow`; this tool is a
+bounded fetch for recent entries, not a live stream.
+
 | Tool | Description | Key Parameters |
 |---|---|---|
 | `animus.logs.tail` | Tail recent log entries from the active `log_storage_backend` | `plugin`, `level`, `since`, `limit`, `project_root` |

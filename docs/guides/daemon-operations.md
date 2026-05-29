@@ -138,6 +138,10 @@ For recent persisted entries, use the log tail command:
 animus logs tail --limit 100
 ```
 
+`animus logs tail` reads through the active `log_storage_backend` when one is
+installed. Its `--follow` flag is currently reserved for future backend
+streaming support, so the in-tree fallback still returns a batch and exits.
+
 For live debugging, stream daemon events:
 
 ```bash

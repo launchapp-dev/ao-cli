@@ -285,6 +285,25 @@ Exit code matrix:
 | 2 | At least one required role is missing. The error envelope's `message` carries the `animus plugin install ...` fix. CI scripts and `&&` chains can rely on this. |
 | 1 | Transient plugin discovery failure (broken install index, IO error, etc.). Distinct from "ran successfully and found gaps". |
 
+### `animus logs tail`
+
+Tail recent persisted log entries from the active log storage backend. This is
+the bounded, pull-style log reader; for live structured events use
+`animus daemon stream`.
+
+| Flag | Description |
+|---|---|
+| `--plugin <NAME>` | Filter entries to a named source plugin. With the in-tree fallback this matches the structured entry's `provider` field |
+| `--level <LEVEL>` | Minimum severity to include. One of `debug`, `info`, `warn`, `error`. Default `info` |
+| `--since <DURATION>` | Only return entries newer than the supplied duration (for example `1h`, `30m`, `15s`). Default `1h` |
+| `--limit <COUNT>` | Maximum number of entries to return. Default `100` |
+| `--follow` | Reserved for future streaming support. Today the in-tree fallback still returns the requested batch and exits, so use `animus daemon stream` for live follow behavior |
+
+When a `log_storage_backend` plugin is installed, `animus logs tail` reads
+through that backend. Set
+`ANIMUS_DAEMON_DISABLE_LOG_STORAGE_PLUGIN=1` to force the in-tree
+`~/.animus/<repo-scope>/logs/events.jsonl` fallback.
+
 ### `animus init`
 
 Initialize an Animus project from a template registry or a local template directory.

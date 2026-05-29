@@ -102,6 +102,10 @@ bounded fetch for recent entries, not a live stream.
 | `animus.workflow.resume` | Resume a paused workflow | `id`, `project_root` |
 | `animus.workflow.phase.approve` | Approve a gated workflow phase | `workflow_id`, `phase_id` (alias: `phase`), `feedback` (alias: `note`), `project_root` |
 
+`animus workflow phase reject` exists in the CLI, but there is currently no
+matching built-in MCP tool. MCP callers can approve pending gates, but gate
+rejection remains a CLI-only action.
+
 ### Decision & Checkpoint Tools (2)
 
 | Tool | Description | Key Parameters |

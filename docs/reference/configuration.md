@@ -248,12 +248,6 @@ Any other env var name can be referenced by a notification config's `url_env` or
 env lookups, so projects can define their own `ANIMUS_NOTIFY_*` variables and reference
 them from the persisted notification config.
 
-### Cloud sync
-
-| Variable | Description |
-|---|---|
-| `ANIMUS_CLOUD_URL` | Legacy cloud-sync server URL override. The in-tree `animus cloud` command was removed; cloud sync now ships as an out-of-tree plugin |
-
 ### Provider plugin tuning
 
 These passthrough variables are read by the bundled provider plugins (claude, codex,

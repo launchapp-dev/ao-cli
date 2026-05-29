@@ -4,6 +4,42 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.18] - 2026-05-29
+
+Hotfix release. Real-world reproduction in a v0.4.x project hit a
+migration gap that wasn't covered by the v0.4.12-through-v0.4.16
+audit waves: `animus workflow run` could not dispatch against any
+task or requirement subject backed by a plugin (not by an in-tree
+adapter — which v0.4.12 deleted).
+
+### Fixed
+
+- **`fix(workflow-run)`: subject context now falls through to installed
+  `subject_backend` plugins on both sync + daemon dispatch paths.**
+  `SubjectAdapterRegistry::resolve_subject_context` previously returned
+  the in-tree `BuiltinTaskSubjectAdapter`'s "task not found" error
+  without consulting the configured `plugin_fallback`, and the CLI
+  dispatch helpers (`resolve_workflow_run_dispatch{,_from_input}`)
+  called `hub.tasks().get()` / `hub.planning().get_requirement()`
+  directly without ever routing plugin-owned subjects through any
+  `subject_backend` plugin. Both paths now retry via the configured
+  `SubjectFallback`/`hub.subject_resolver()` chain so plugin-owned
+  task and requirement subjects dispatch correctly.
+  - `PluginSubjectFallback` probes both canonical (`animus.task`) and
+    bare (`task`) kind aliases across candidate plugins, canonical
+    first to avoid nondeterministic shadowing under HashMap iteration.
+  - `ensure_execution_cwd` recognizes plugin-resolved contexts via a
+    new `SUBJECT_ATTR_PLUGIN_RESOLVED` attribute marker, so in-tree
+    tasks keep their managed worktrees while plugin-resolved tasks
+    fall back to `project_root`.
+  - 9 new unit tests in `subject_adapter.rs::tests` covering both
+    the resolve + ensure_execution_cwd paths, including the marker
+    semantics.
+  - 4 codex review rounds; final clean. P1 catches: broad fallback
+    masked worktree errors, `task=None` heuristic misclassified
+    in-tree tasks after `.take()`, plugin probe missed the bare-kind
+    alias, HashMap iteration order could shadow canonical plugin.
+
 ## [0.4.17] - 2026-05-28
 
 Ecosystem expansion — all reference packs and SDKs extracted to standalone

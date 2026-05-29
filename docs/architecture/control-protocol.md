@@ -152,7 +152,7 @@ revisiting — e.g. derive the MCP tool + GraphQL field from a single
 
 ## How this relates to logging + log storage
 
-`animus logs tail`, `animus output tail`, GraphQL event subscriptions, and
+`animus logs tail`, `animus output monitor`, GraphQL event subscriptions, and
 the daemon-side log/event store all consume the same library layer on the
 read path. A separate doc on logging will detail storage and retention; this
 doc covers the *control* (mutation + query) surface. The concurrency model

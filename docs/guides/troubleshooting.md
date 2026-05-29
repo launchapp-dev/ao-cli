@@ -168,7 +168,7 @@ Animus stores runtime state under `~/.animus/<repo-scope>/`, and log plumbing is
 
 4. View the agent output:
    ```bash
-   animus output run --id RUN-001
+   animus output run --run-id RUN-001
    ```
 
 5. If the workflow is stuck, you can cancel and retry:

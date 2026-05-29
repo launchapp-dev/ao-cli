@@ -211,44 +211,69 @@ impl PluginSubjectFallback {
         fallback_description: Option<&str>,
     ) -> Result<SubjectContext> {
         self.ensure_registry().await?;
-        let kind = subject.kind().to_string();
+        let canonical_kind = subject.kind().to_string();
         let id = subject.id().to_string();
+        // The in-tree subject kinds are namespaced (`animus.task`,
+        // `animus.requirement`) but the documented `subject_backend` plugin
+        // contract — see the `animus-subject-default` /
+        // `animus-subject-requirements` repos — advertises bare kinds
+        // (`task`, `requirement`) and responds on `task/get` / `requirement/get`.
+        // Try the namespaced form first so future plugins that advertise the
+        // canonical kind keep working, then fall through to the bare alias
+        // for the default plugins.
+        let probe_kinds: Vec<String> = match canonical_kind.as_str() {
+            SUBJECT_KIND_TASK => vec![SUBJECT_KIND_TASK.to_string(), "task".to_string()],
+            SUBJECT_KIND_REQUIREMENT => vec![SUBJECT_KIND_REQUIREMENT.to_string(), "requirement".to_string()],
+            other => vec![other.to_string()],
+        };
         let mut guard = self.registry.lock().await;
         let registry = guard.as_mut().expect("plugin registry should be initialized");
 
         // Find the plugin that owns this subject kind by inspecting initialize-time capabilities.
         // We probe each discovered plugin lazily via get_plugin (which initializes on demand).
         let candidates: Vec<String> = registry.list_plugins().map(|p| p.name.clone()).collect();
-        let mut owner: Option<String> = None;
-        for name in candidates {
-            let host = registry.get_plugin(&name).await.map_err(|err| {
-                anyhow!("failed to load plugin '{name}' while resolving subject kind '{kind}': {err}")
-            })?;
-            // Inspect capabilities by re-invoking handshake idempotently is not possible; we rely on
-            // the plugin advertising the method via mcp_tools. As a pragmatic check, try `<kind>/get`
-            // and accept the plugin that responds without `METHOD_NOT_FOUND`.
-            let probe = host.request(format!("{kind}/get"), Some(json!({ "id": id }))).await;
-            match probe {
-                Ok(value) => {
-                    return build_context_from_plugin(subject, value, fallback_title, fallback_description);
-                }
-                Err(err) if err.code == animus_plugin_protocol::error_codes::METHOD_NOT_FOUND => {
-                    debug!(plugin = %name, kind, "plugin does not handle subject kind");
-                    continue;
-                }
-                Err(err) => {
-                    warn!(plugin = %name, kind, code = err.code, message = %err.message, "plugin error during subject resolution");
-                    owner.replace(name);
-                    break;
+        let mut last_method_not_found_owner: Option<String> = None;
+        // Probe order matters: try the CANONICAL kind across ALL plugins first,
+        // then the bare alias across ALL plugins. This guarantees that if both
+        // a canonical and a legacy bare-kind plugin are installed, the canonical
+        // one always wins regardless of plugin discovery order — otherwise a
+        // bare plugin appearing first in iteration would silently shadow the
+        // canonical one. (Codex P2 from v0.4.18 review.)
+        for probe_kind in &probe_kinds {
+            for name in &candidates {
+                let host = registry.get_plugin(name).await.map_err(|err| {
+                    anyhow!("failed to load plugin '{name}' while resolving subject kind '{canonical_kind}': {err}")
+                })?;
+                let method = format!("{probe_kind}/get");
+                let probe = host.request(method.clone(), Some(json!({ "id": id }))).await;
+                match probe {
+                    Ok(value) => {
+                        return build_context_from_plugin(subject, value, fallback_title, fallback_description);
+                    }
+                    Err(err) if err.code == animus_plugin_protocol::error_codes::METHOD_NOT_FOUND => {
+                        debug!(plugin = %name, method = %method, "plugin does not handle subject kind");
+                        last_method_not_found_owner = Some(name.clone());
+                        continue;
+                    }
+                    Err(err) => {
+                        warn!(plugin = %name, method = %method, code = err.code, message = %err.message, "plugin error during subject resolution");
+                        return Err(anyhow!(
+                            "subject_backend plugin '{name}' errored while resolving '{}' kind '{}': {} (code {})",
+                            id,
+                            canonical_kind,
+                            err.message,
+                            err.code
+                        ));
+                    }
                 }
             }
         }
 
         Err(anyhow!(
-            "no subject_backend plugin handled '{}/get' for subject id '{}' (last_error_owner={:?})",
-            kind,
+            "no subject_backend plugin handled '{}/get' (or its bare alias) for subject id '{}' (last_method_not_found={:?})",
+            canonical_kind,
             id,
-            owner
+            last_method_not_found_owner
         ))
     }
 }

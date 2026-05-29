@@ -23,7 +23,7 @@ architecture, command counts, routes, or state paths:
 
 Animus is a Rust-only agent orchestrator with:
 
-- a Cargo workspace of around 12 first-class crates (`crates/` currently lists 21 directory entries; the extras are protocol shims, the in-tree plugin runtime, and test-fixture plugins such as `animus-plugin-smoke` and `animus-provider-mock`)
+- a Cargo workspace with 20 current members under `crates/`, as defined in `Cargo.toml`
 - the CLI binary named `animus`
 - a visible CLI surface that includes `project` and `queue`
 - scoped runtime state under `~/.animus/<repo-scope>/`
@@ -35,7 +35,7 @@ Animus is a Rust-only agent orchestrator with:
 
 Do not reintroduce stale claims such as:
 
-- 9-, 10-, or 22-crate workspace summaries (the post-deletion baseline is ~12)
+- stale workspace-count summaries that do not match `Cargo.toml`'s current 20 members
 - "plugin extraction in flux" or "in progress" framing — extraction is complete as of v0.4.12
 - `PROJECT_ROOT` or "last-project-root registry" resolution rules
 - removed crates like `llm-mcp-server`, `llm-cli-wrapper`, `orchestrator-web-server`, `orchestrator-web-api`, `orchestrator-web-contracts`, or in-tree `animus-provider-{claude,codex,gemini,opencode,oai}`

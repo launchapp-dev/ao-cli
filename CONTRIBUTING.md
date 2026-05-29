@@ -17,8 +17,8 @@ Thank you for your interest in contributing to Animus! This document provides gu
 
 ```bash
 # Clone the repository
-git clone https://github.com/samishukri/animus.git
-cd animus
+git clone https://github.com/launchapp-dev/animus-cli.git
+cd animus-cli
 
 # Build the project
 cargo build

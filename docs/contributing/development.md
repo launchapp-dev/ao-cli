@@ -75,12 +75,15 @@ crates/
 | `fs2` | File locking for concurrent state access |
 | `rusqlite` | Repo-scoped workflow/task/requirement persistence |
 | `rmcp` | MCP server and client support |
-| `axum` | Web server |
+| `webbrowser` | Browser-launch helper for `animus web open` |
 | `croner` | Schedule parsing |
 
 ## Documentation Site
 
 The docs are powered by [VitePress](https://vitepress.dev/).
+
+The web dashboard itself is no longer an in-tree web server. `animus web`
+delegates to installed `transport_backend` and `web_ui` plugins.
 
 ```bash
 npm install

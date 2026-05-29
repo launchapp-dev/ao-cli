@@ -45,11 +45,19 @@ animus subject update --kind task --id task:TASK-001 --priority p0 --labels urge
 animus workflow run --task-id TASK-001
 ```
 
+`animus workflow run --task-id ...` first checks the in-tree task store and
+then falls back to the active `subject_backend` resolution path. That means the
+same command works for built-in tasks and plugin-owned tasks.
+
 For terminal debugging, use synchronous execution:
 
 ```bash
 animus workflow run --task-id TASK-001 --sync
 ```
+
+Built-in tasks usually execute in a managed worktree. Plugin-owned task
+subjects execute from `project_root` unless the plugin manages its own checkout
+or branching model.
 
 ## Queue and Daemon Operations
 

@@ -14,6 +14,14 @@ use tracing::{debug, info, warn};
 
 use crate::{PlanningServiceApi, ProjectAdapter, SubjectContext, SubjectResolver, TaskServiceApi};
 
+/// Attribute key set by the plugin subject fallback on every
+/// [`SubjectContext`] it produces. Downstream code (notably
+/// `ensure_execution_cwd`) uses this marker to recognize plugin-resolved
+/// subjects and route them around the in-tree task adapter's worktree
+/// provisioning. This is a stable contract — do not rename without updating
+/// the corresponding reader sites.
+pub const SUBJECT_ATTR_PLUGIN_RESOLVED: &str = "ao.subject.plugin_resolved";
+
 #[async_trait]
 pub trait SubjectAdapter: Send + Sync {
     fn kind(&self) -> &'static str;
@@ -33,10 +41,36 @@ pub trait SubjectAdapter: Send + Sync {
     ) -> Result<String>;
 }
 
+/// Resolve subjects that no in-tree adapter handles (or that an in-tree adapter
+/// fails to find). Production wires this to [`PluginSubjectFallback`]; tests
+/// inject their own implementation to exercise the registry's fallback
+/// branching without spinning up real STDIO plugins.
+#[async_trait]
+pub trait SubjectFallback: Send + Sync {
+    async fn resolve_context(
+        &self,
+        subject: &SubjectRef,
+        fallback_title: Option<&str>,
+        fallback_description: Option<&str>,
+    ) -> Result<SubjectContext>;
+}
+
+#[async_trait]
+impl SubjectFallback for PluginSubjectFallback {
+    async fn resolve_context(
+        &self,
+        subject: &SubjectRef,
+        fallback_title: Option<&str>,
+        fallback_description: Option<&str>,
+    ) -> Result<SubjectContext> {
+        PluginSubjectFallback::resolve_context(self, subject, fallback_title, fallback_description).await
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct SubjectAdapterRegistry {
     adapters: HashMap<String, Arc<dyn SubjectAdapter>>,
-    plugin_fallback: Option<Arc<PluginSubjectFallback>>,
+    plugin_fallback: Option<Arc<dyn SubjectFallback>>,
 }
 
 impl SubjectAdapterRegistry {
@@ -60,6 +94,16 @@ impl SubjectAdapterRegistry {
         self
     }
 
+    /// Inject a custom [`SubjectFallback`] implementation. Used by tests to
+    /// exercise the registry's fallback branching without spinning up real
+    /// STDIO plugins; production code should use
+    /// [`SubjectAdapterRegistry::with_plugin_fallback`] instead.
+    #[must_use]
+    pub fn with_fallback(mut self, fallback: Arc<dyn SubjectFallback>) -> Self {
+        self.plugin_fallback = Some(fallback);
+        self
+    }
+
     pub async fn resolve_subject_context(
         &self,
         subject: &SubjectRef,
@@ -68,7 +112,32 @@ impl SubjectAdapterRegistry {
     ) -> Result<SubjectContext> {
         let kind = subject_kind(subject);
         if let Some(adapter) = self.adapters.get(kind) {
-            return adapter.resolve_context(subject, fallback_title, fallback_description).await;
+            match adapter.resolve_context(subject, fallback_title, fallback_description).await {
+                Ok(ctx) => return Ok(ctx),
+                Err(adapter_err) => {
+                    // v0.4.12+: subject data lives in installed subject_backend plugins. When the
+                    // in-tree adapter can't resolve (typical for projects whose tasks/requirements
+                    // are owned by a plugin backend), retry via the plugin fallback before failing.
+                    if let Some(fallback) = &self.plugin_fallback {
+                        debug!(
+                            kind,
+                            subject_id = %subject.id(),
+                            adapter_error = %adapter_err,
+                            "in-tree subject adapter could not resolve; falling back to plugin"
+                        );
+                        match fallback.resolve_context(subject, fallback_title, fallback_description).await {
+                            Ok(ctx) => return Ok(ctx),
+                            Err(plugin_err) => {
+                                return Err(anyhow!(
+                                    "subject '{}' not resolvable via in-tree adapter or installed subject_backend plugins (in-tree: {adapter_err}; plugin: {plugin_err})",
+                                    subject.id(),
+                                ));
+                            }
+                        }
+                    }
+                    return Err(adapter_err);
+                }
+            }
         }
         if let Some(fallback) = &self.plugin_fallback {
             return fallback.resolve_context(subject, fallback_title, fallback_description).await;
@@ -84,6 +153,26 @@ impl SubjectAdapterRegistry {
     ) -> Result<String> {
         let kind = subject_kind(subject);
         if let Some(adapter) = self.adapters.get(kind) {
+            // Plugin-resolved contexts carry the `SUBJECT_ATTR_PLUGIN_RESOLVED`
+            // marker set by `PluginSubjectFallback::resolve_context`. When that
+            // marker is present, skip the in-tree adapter's worktree
+            // provisioning (it has no task record to operate on) and use
+            // `project_root` as the execution cwd — the plugin owns its own
+            // scoping. We MUST NOT use `subject_context.task.is_none()` as the
+            // signal: `workflow-runner-v2::execute_workflow` moves the task
+            // out of the context via `.take()` before calling this method, so
+            // ordinary in-tree tasks would otherwise be misclassified and lose
+            // their managed worktree isolation.
+            let plugin_resolved =
+                subject_context.attributes.get(SUBJECT_ATTR_PLUGIN_RESOLVED).map(String::as_str) == Some("true");
+            if plugin_resolved {
+                debug!(
+                    kind,
+                    subject_id = %subject.id(),
+                    "subject context is plugin-resolved; using project root as execution cwd"
+                );
+                return Ok(project_root.to_string());
+            }
             return adapter.ensure_execution_cwd(project_root, subject, subject_context).await;
         }
         if self.plugin_fallback.is_some() {
@@ -188,7 +277,7 @@ fn build_context_from_plugin(
         .map(ToOwned::to_owned)
         .or_else(|| fallback_description.map(ToOwned::to_owned))
         .unwrap_or_default();
-    let attributes = response
+    let mut attributes: HashMap<String, String> = response
         .get("attributes")
         .and_then(serde_json::Value::as_object)
         .map(|map| {
@@ -200,6 +289,12 @@ fn build_context_from_plugin(
                 .collect()
         })
         .unwrap_or_default();
+    // Mark plugin-resolved contexts so `ensure_execution_cwd` can route around
+    // the in-tree task adapter without misclassifying ordinary in-tree tasks
+    // (whose `task` field is moved out by `workflow-runner-v2::execute_workflow`
+    // before reaching the project adapter). See the SUBJECT_ATTR_PLUGIN_RESOLVED
+    // const + check in `SubjectAdapterRegistry::ensure_execution_cwd`.
+    attributes.insert(SUBJECT_ATTR_PLUGIN_RESOLVED.to_string(), "true".to_string());
     Ok(SubjectContext {
         subject_kind: subject.kind().to_string(),
         subject_id: subject.id().to_string(),
@@ -1141,5 +1236,178 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(worktree_path.join(".mcp.json")).unwrap()).unwrap();
         assert_eq!(persisted.get("mcpServers").and_then(serde_json::Value::as_object).map(|map| map.len()), Some(1));
         assert_eq!(persisted.pointer("/mcpServers/animus/command").and_then(serde_json::Value::as_str), Some("cargo"));
+    }
+
+    // ---------------------------------------------------------------------
+    // Regression: v0.4.12 deleted the in-tree task/requirement subject
+    // backends, leaving `BuiltinTaskSubjectAdapter` registered against an
+    // empty in-tree store. Without the post-error plugin_fallback retry,
+    // `workflow run --task-id X` (sync or daemon path) reported
+    // "task not found: X" / "failed to resolve subject context for 'X'"
+    // even when the task lived in an installed subject_backend plugin.
+    // These tests pin the registry's "in-tree fails -> try fallback" branch
+    // so the fix can't silently regress.
+    // ---------------------------------------------------------------------
+
+    struct StubFallback {
+        title: String,
+        description: String,
+    }
+
+    #[async_trait]
+    impl SubjectFallback for StubFallback {
+        async fn resolve_context(
+            &self,
+            subject: &SubjectRef,
+            _fallback_title: Option<&str>,
+            _fallback_description: Option<&str>,
+        ) -> Result<SubjectContext> {
+            // Mirror the production plugin fallback contract: every context it
+            // produces carries the `SUBJECT_ATTR_PLUGIN_RESOLVED` marker so
+            // downstream code knows to route around the in-tree task adapter.
+            let mut attributes = HashMap::new();
+            attributes.insert(SUBJECT_ATTR_PLUGIN_RESOLVED.to_string(), "true".to_string());
+            Ok(SubjectContext {
+                subject_kind: subject.kind().to_string(),
+                subject_id: subject.id().to_string(),
+                subject_title: self.title.clone(),
+                subject_description: self.description.clone(),
+                attributes,
+                task: None,
+            })
+        }
+    }
+
+    struct AlwaysFailFallback;
+
+    #[async_trait]
+    impl SubjectFallback for AlwaysFailFallback {
+        async fn resolve_context(
+            &self,
+            _subject: &SubjectRef,
+            _fallback_title: Option<&str>,
+            _fallback_description: Option<&str>,
+        ) -> Result<SubjectContext> {
+            Err(anyhow!("no plugin owns this kind"))
+        }
+    }
+
+    #[tokio::test]
+    async fn resolve_falls_back_to_plugin_when_in_tree_task_adapter_errors() {
+        // Empty TestHub -> BuiltinTaskSubjectAdapter::resolve_context returns
+        // "task not found: TASK-002". The plugin_fallback MUST then run and
+        // succeed, mirroring how an installed subject_backend plugin would
+        // satisfy the lookup in production.
+        let hub = Arc::new(TestHub::default());
+        let registry = builtin_subject_adapter_registry(hub).with_fallback(Arc::new(StubFallback {
+            title: "From plugin".to_string(),
+            description: "Resolved via subject_backend".to_string(),
+        }));
+
+        let subject = SubjectRef::task("TASK-002".to_string());
+        let ctx = registry.resolve_subject_context(&subject, None, None).await.expect("plugin fallback should resolve");
+
+        assert_eq!(ctx.subject_kind, SUBJECT_KIND_TASK);
+        assert_eq!(ctx.subject_id, "TASK-002");
+        assert_eq!(ctx.subject_title, "From plugin");
+        assert_eq!(ctx.subject_description, "Resolved via subject_backend");
+        assert!(ctx.task.is_none(), "plugin fallback does not synthesize in-tree task struct");
+    }
+
+    #[tokio::test]
+    async fn resolve_falls_back_to_plugin_when_in_tree_requirement_adapter_errors() {
+        // Same shape as the task regression: empty in-tree requirements store
+        // forces the BuiltinRequirementSubjectAdapter to error; the registry
+        // must retry via the plugin fallback so requirement-kind plugin
+        // backends (e.g. linear) keep working for workflow run dispatch.
+        let hub = Arc::new(TestHub::default());
+        let registry = builtin_subject_adapter_registry(hub).with_fallback(Arc::new(StubFallback {
+            title: "Linear story".to_string(),
+            description: "Resolved via linear backend".to_string(),
+        }));
+
+        let subject = SubjectRef::requirement("REQ-9".to_string());
+        let ctx = registry.resolve_subject_context(&subject, None, None).await.expect("plugin fallback should resolve");
+
+        assert_eq!(ctx.subject_kind, SUBJECT_KIND_REQUIREMENT);
+        assert_eq!(ctx.subject_id, "REQ-9");
+        assert_eq!(ctx.subject_title, "Linear story");
+    }
+
+    #[tokio::test]
+    async fn ensure_execution_cwd_routes_in_tree_task_through_adapter_even_after_task_take() {
+        // Codex P1 regression #2: `workflow-runner-v2::execute_workflow` does
+        // `subject_context.task.take()` BEFORE calling ensure_execution_cwd,
+        // leaving `task: None` for ordinary in-tree task workflows. If the
+        // registry classifies plugin-ownership by `task.is_none()`, those
+        // ordinary tasks lose their managed worktree and the agent edits land
+        // in the main checkout. The registry MUST instead use the explicit
+        // `SUBJECT_ATTR_PLUGIN_RESOLVED` marker so plugin-resolution remains
+        // recognizable after `.take()`.
+        let hub = Arc::new(TestHub::default());
+        hub.replace(sample_task("TASK-1")).await.unwrap();
+        let registry = builtin_subject_adapter_registry(hub).with_fallback(Arc::new(AlwaysFailFallback));
+
+        let subject = SubjectRef::task("TASK-1".to_string());
+        let mut ctx = registry.resolve_subject_context(&subject, None, None).await.expect("in-tree resolves");
+        assert!(ctx.task.is_some(), "in-tree adapter must populate task on success");
+        // Simulate execute_workflow's `subject_context.task.take()` step.
+        let _ = ctx.task.take();
+        assert!(
+            !ctx.attributes.contains_key(SUBJECT_ATTR_PLUGIN_RESOLVED),
+            "in-tree adapter must NOT set the plugin_resolved marker"
+        );
+
+        // Point at a non-existent project root with no git tree. The in-tree
+        // adapter's own not-a-git-repo shortcut should fire (returning the
+        // bogus root) — proving we ROUTED THROUGH the adapter rather than
+        // hijacking to a blanket fallback path.
+        let bogus_root = "/this/path/does/not/exist";
+        let cwd = registry.ensure_execution_cwd(bogus_root, &subject, &ctx).await.expect("adapter handles cwd");
+        assert_eq!(
+            cwd, bogus_root,
+            "in-tree adapter's own not-a-git-repo shortcut should win; plugin fallback must NOT hijack"
+        );
+    }
+
+    #[tokio::test]
+    async fn ensure_execution_cwd_uses_project_root_for_plugin_owned_task() {
+        // Mirror image of the previous test: when `subject_context.task` is
+        // None for a `task`-kind subject AND a plugin fallback is configured,
+        // the registry should treat the subject as plugin-owned and return
+        // `project_root` as the execution cwd. This is the v0.4.12 contract
+        // for plugin-backed task stores like `animus-subject-default`.
+        let hub = Arc::new(TestHub::default());
+        let registry = builtin_subject_adapter_registry(hub).with_fallback(Arc::new(StubFallback {
+            title: "Plugin task".to_string(),
+            description: "Owned by subject_backend".to_string(),
+        }));
+
+        let subject = SubjectRef::task("TASK-PLUGIN".to_string());
+        let ctx = registry.resolve_subject_context(&subject, None, None).await.expect("plugin fallback resolves");
+        assert!(ctx.task.is_none(), "plugin fallback must not synthesize an OrchestratorTask");
+
+        let cwd = registry
+            .ensure_execution_cwd("/project/root", &subject, &ctx)
+            .await
+            .expect("plugin-owned subject should resolve cwd");
+        assert_eq!(cwd, "/project/root");
+    }
+
+    #[tokio::test]
+    async fn resolve_reports_both_errors_when_fallback_also_misses() {
+        // When both routes fail the operator needs to see why each one missed,
+        // so they can decide whether to seed the in-tree store or install the
+        // missing subject_backend plugin. Pin the combined error shape.
+        let hub = Arc::new(TestHub::default());
+        let registry = builtin_subject_adapter_registry(hub).with_fallback(Arc::new(AlwaysFailFallback));
+
+        let subject = SubjectRef::task("TASK-404".to_string());
+        let err = registry.resolve_subject_context(&subject, None, None).await.expect_err("both routes miss -> error");
+
+        let msg = err.to_string();
+        assert!(msg.contains("not resolvable"), "expected combined error message, got: {msg}");
+        assert!(msg.contains("in-tree"), "expected in-tree error context, got: {msg}");
+        assert!(msg.contains("plugin"), "expected plugin error context, got: {msg}");
     }
 }

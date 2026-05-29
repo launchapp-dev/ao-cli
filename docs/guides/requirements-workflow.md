@@ -29,6 +29,11 @@ Use the workflow surface when the requirement itself should drive execution:
 animus workflow run --requirement-id REQ-001
 ```
 
+`animus workflow run --requirement-id ...` uses the same fallback pattern as
+task execution: Animus checks the in-tree requirement store first, then retries
+through the active `subject_backend` resolver when the requirement is owned by
+a plugin.
+
 Then inspect the resulting workflow state:
 
 ```bash

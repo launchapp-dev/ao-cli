@@ -32,7 +32,7 @@ flowchart TB
 1. **Load dispatch queue** -- Read queued `SubjectDispatch` values, ordered by priority and `requested_at`.
 2. **Check capacity** -- Determine how many new workflows can be started given the current slot usage and headroom configuration.
 3. **Dequeue** -- Pop the highest-priority dispatch that fits within capacity.
-4. **Spawn** -- Start a `workflow-runner` subprocess, passing the `workflow_ref`, subject identity, and input. A [worktree](./worktrees.md) is created for task subjects.
+4. **Spawn** -- Start a `workflow-runner` subprocess, passing the `workflow_ref`, subject identity, and input. Built-in task subjects get a managed [worktree](./worktrees.md); plugin-owned task subjects run from `project_root` unless the plugin provides its own checkout strategy.
 5. **Poll** -- Check all active `workflow-runner` subprocesses for completion, telemetry, or failure.
 6. **Emit facts** -- Publish execution facts (workflow started, phase completed, workflow succeeded/failed) for projectors to consume.
 

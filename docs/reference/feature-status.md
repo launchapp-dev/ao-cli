@@ -87,7 +87,7 @@ This page clarifies which Animus features are **shipped and stable**, **in-fligh
 | Project-Local `.animus/` Config | **Shipped** | Store repository-authored config and workflow YAML under `.animus/` |
 | Scoped Runtime State (`~/.animus/<repo-scope>/`) | **Shipped** | Per-repo runtime state isolation with automatic cleanup |
 | Runtime State Stores | **Shipped** | Runtime state is tool-managed and split between JSON files and `workflow.db` |
-| Git Worktree Isolation | **Shipped** | Every task gets its own git worktree for safe parallel execution |
+| Git Worktree Isolation | **Shipped** | Built-in tasks get isolated git worktrees; plugin-owned tasks execute from `project_root` unless a plugin provides its own checkout model |
 | Worktree Lifecycle | **Shipped** | Automatic creation, pull/push synchronization, and cleanup |
 
 ## Agent Integration and Automation

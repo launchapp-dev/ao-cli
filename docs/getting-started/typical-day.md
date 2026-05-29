@@ -65,7 +65,9 @@ animus workflow run --task-id TASK-001 --sync
 ```
 
 Use synchronous runs to debug a workflow definition, prompt, or plugin setup in
-the current terminal.
+the current terminal. Built-in tasks normally run in managed worktrees; tasks
+resolved from a `subject_backend` plugin run from `project_root` unless that
+plugin supplies its own checkout strategy.
 
 ## Separation of Concerns
 

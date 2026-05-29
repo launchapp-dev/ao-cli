@@ -41,19 +41,53 @@ async fn resolve_workflow_run_dispatch(
 ) -> Result<protocol::SubjectDispatch> {
     match (task_id, requirement_id, title) {
         (Some(tid), None, None) => {
-            let task = hub.tasks().get(&tid).await?;
+            // v0.4.12+: task data may live in an installed `subject_backend` plugin
+            // rather than the in-tree task store. Try the in-tree store first (so
+            // legacy projects keep working); if that misses, route through the
+            // subject_resolver so the plugin fallback path engages. Either way we
+            // need the resolved task id (and `is_frontend_related()` if available)
+            // to pick a workflow ref.
+            let (resolved_id, default_ref) = match hub.tasks().get(&tid).await {
+                Ok(task) => (task.id.clone(), default_workflow_ref_for_task(&task, project_root)),
+                Err(in_tree_err) => {
+                    let subject = protocol::orchestrator::SubjectRef::task(tid.clone());
+                    match hub.subject_resolver().resolve_subject_context(&subject, None, None).await {
+                        Ok(ctx) => (ctx.subject_id, default_project_workflow_ref(project_root)),
+                        Err(plugin_err) => {
+                            return Err(anyhow!(
+                                "task '{tid}' not found (in-tree: {in_tree_err}; plugin: {plugin_err})"
+                            ));
+                        }
+                    }
+                }
+            };
             Ok(protocol::SubjectDispatch::for_task_with_metadata(
-                task.id.clone(),
-                workflow_ref.unwrap_or_else(|| default_workflow_ref_for_task(&task, project_root)),
+                resolved_id,
+                workflow_ref.unwrap_or(default_ref),
                 "manual-cli-run",
                 Utc::now(),
             ))
             .map(|dispatch| dispatch.with_vars(vars))
         }
         (None, Some(rid), None) => {
-            hub.planning().get_requirement(&rid).await?;
+            // Mirror the task path: try in-tree, fall back to plugin-backed
+            // subject resolver so requirement-kind plugins (e.g. linear) work.
+            let resolved_id = match hub.planning().get_requirement(&rid).await {
+                Ok(_) => rid,
+                Err(in_tree_err) => {
+                    let subject = protocol::orchestrator::SubjectRef::requirement(rid.clone());
+                    match hub.subject_resolver().resolve_subject_context(&subject, None, None).await {
+                        Ok(ctx) => ctx.subject_id,
+                        Err(plugin_err) => {
+                            return Err(anyhow!(
+                                "requirement '{rid}' not found (in-tree: {in_tree_err}; plugin: {plugin_err})"
+                            ));
+                        }
+                    }
+                }
+            };
             Ok(protocol::SubjectDispatch::for_requirement(
-                rid,
+                resolved_id,
                 workflow_ref.unwrap_or(resolve_requirement_workflow_ref(project_root)?),
                 "manual-cli-run",
             ))
@@ -94,19 +128,45 @@ async fn resolve_workflow_run_dispatch_from_input(
     let effective_requirement_id =
         subject.requirement_id().filter(|id| !id.is_empty()).map(|s| s.to_string()).or(flat_requirement_id);
     if let Some(id) = effective_task_id {
-        let task = hub.tasks().get(&id).await?;
+        // See `resolve_workflow_run_dispatch`: try in-tree task store first, then
+        // fall back to subject_resolver so plugin-owned tasks dispatch correctly.
+        let (resolved_id, default_ref) = match hub.tasks().get(&id).await {
+            Ok(task) => (task.id.clone(), default_workflow_ref_for_task(&task, project_root)),
+            Err(in_tree_err) => {
+                let subject = protocol::orchestrator::SubjectRef::task(id.clone());
+                match hub.subject_resolver().resolve_subject_context(&subject, None, None).await {
+                    Ok(ctx) => (ctx.subject_id, default_project_workflow_ref(project_root)),
+                    Err(plugin_err) => {
+                        return Err(anyhow!("task '{id}' not found (in-tree: {in_tree_err}; plugin: {plugin_err})"));
+                    }
+                }
+            }
+        };
         Ok(protocol::SubjectDispatch::for_task_with_metadata(
-            task.id.clone(),
-            workflow_ref.unwrap_or_else(|| default_workflow_ref_for_task(&task, project_root)),
+            resolved_id,
+            workflow_ref.unwrap_or(default_ref),
             "manual-cli-run",
             Utc::now(),
         )
         .with_input(input))
         .map(|dispatch| dispatch.with_vars(vars))
     } else if let Some(id) = effective_requirement_id {
-        hub.planning().get_requirement(&id).await?;
+        let resolved_id = match hub.planning().get_requirement(&id).await {
+            Ok(_) => id,
+            Err(in_tree_err) => {
+                let subject = protocol::orchestrator::SubjectRef::requirement(id.clone());
+                match hub.subject_resolver().resolve_subject_context(&subject, None, None).await {
+                    Ok(ctx) => ctx.subject_id,
+                    Err(plugin_err) => {
+                        return Err(anyhow!(
+                            "requirement '{id}' not found (in-tree: {in_tree_err}; plugin: {plugin_err})"
+                        ));
+                    }
+                }
+            }
+        };
         Ok(protocol::SubjectDispatch::for_requirement(
-            id,
+            resolved_id,
             workflow_ref.unwrap_or(resolve_requirement_workflow_ref(project_root)?),
             "manual-cli-run",
         )

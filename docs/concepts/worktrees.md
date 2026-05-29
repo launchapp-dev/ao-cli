@@ -1,12 +1,20 @@
 # Worktree Isolation
 
-## Every Task Gets Its Own Worktree
+## In-Tree Tasks Get Managed Worktrees
 
-When the [daemon](./daemon.md) dispatches a task workflow, it creates a dedicated git worktree for that task. This means each agent works in its own copy of the repository and can write code, run tests, and commit without interfering with other running tasks or the main checkout.
+When the [daemon](./daemon.md) dispatches a task workflow backed by the built-in
+task store, Animus creates a dedicated git worktree for that task. This lets an
+agent write code, run tests, and commit without interfering with other running
+tasks or the main checkout.
+
+Tasks resolved from an installed `subject_backend` plugin are different: the
+workflow runtime can resolve them by subject id, but there is no in-tree task
+record to provision against, so execution stays in `project_root` unless the
+plugin manages its own checkout strategy.
 
 ---
 
-## Worktree Path
+## Managed Worktree Path
 
 Worktrees are stored under the repository-scoped state directory:
 
@@ -24,9 +32,9 @@ For example:
 
 ---
 
-## Branch Naming
+## Managed Branch Naming
 
-Each worktree gets a dedicated branch:
+Each managed worktree gets a dedicated branch:
 
 ```
 animus/<sanitized-task-id>
@@ -38,7 +46,7 @@ For example, task `TASK-042` gets branch `animus/task-042`. The task ID is sanit
 
 ## Isolation Guarantees
 
-Because each task runs in its own worktree:
+Because built-in task execution runs in its own worktree:
 
 - **No file conflicts** -- Two agents implementing different tasks modify files independently.
 - **Independent test runs** -- `cargo test` (or any test command) runs against the task's own working tree.
@@ -63,18 +71,25 @@ flowchart LR
 
 ### 1. Create
 
-When the daemon spawns `workflow-runner` for a task subject, it creates a git worktree from the current main branch. The worktree is checked out to a new branch named `animus/<task-id>`.
+When the daemon spawns `workflow-runner` for a built-in task subject, it
+creates a git worktree from the current main branch. The worktree is checked
+out to a new branch named `animus/<task-id>`.
 
 ### 2. Execute
 
-All workflow phases run inside the worktree directory. Agents can:
+For built-in task subjects, all workflow phases run inside the worktree
+directory. Agents can:
 
 - Read and write files
 - Run build and test commands
 - Create git commits
 - Access MCP tools
 
-The agent's working directory is set to the worktree path.
+The agent's working directory is set to the managed worktree path.
+
+For plugin-owned task subjects, the execution cwd is `project_root`. That keeps
+plugin-backed task workflows runnable even when the plugin does not expose an
+Animus-managed worktree path.
 
 ### 3. Post-success actions
 
@@ -88,7 +103,9 @@ After all phases pass, the workflow can perform post-success actions defined in 
 
 ### 4. Cleanup
 
-When cleanup runs, the worktree directory is removed and the local branch can be pruned. If cleanup is not configured, the worktree persists for manual inspection.
+When cleanup runs, the worktree directory is removed and the local branch can
+be pruned. If cleanup is not configured, the worktree persists for manual
+inspection.
 
 ---
 
@@ -104,7 +121,7 @@ If automatic resolution fails, the workflow is marked as blocked and the conflic
 
 ```bash
 animus git worktree list          # List active worktrees
-animus git worktree cleanup       # Remove worktrees for completed tasks
+animus git worktree prune         # Remove managed worktrees for done/cancelled tasks
 animus runner orphans-detect      # Detect orphaned runner processes in stale worktrees
 ```
 

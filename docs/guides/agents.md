@@ -20,7 +20,7 @@ Animus currently exposes **77 built-in MCP tools** across these families:
 | `animus.runner.*` | 4 | Runner health and orphan cleanup |
 | `animus.skill.*` | 3 | Skill discovery and inspection |
 | `animus.memory.*` | 4 | Project-scoped durable agent memory |
-| `animus.plugin.*` | 9 | Installed plugins plus marketplace discovery/update |
+| `animus.plugin.*` | 9 | Installed-plugin inspection/mutation plus marketplace discovery/update |
 | `animus.logs.*` | 1 | Tail log entries from the active log backend |
 
 Most project-scoped tools accept an optional `project_root`. Marketplace tools

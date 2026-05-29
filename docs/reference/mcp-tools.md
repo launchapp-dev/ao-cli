@@ -97,7 +97,7 @@ control wire when the daemon is running, otherwise reads the in-tree
 | `animus.workflow.pause` | Pause a running workflow | `id`, `confirm`, `dry_run`, `project_root` |
 | `animus.workflow.cancel` | Cancel a running workflow permanently | `id`, `confirm`, `dry_run`, `project_root` |
 | `animus.workflow.resume` | Resume a paused workflow | `id`, `project_root` |
-| `animus.workflow.phase.approve` | Approve a gated workflow phase | `workflow_id`, `phase_id`, `feedback`, `project_root` |
+| `animus.workflow.phase.approve` | Approve a gated workflow phase | `workflow_id`, `phase_id` (alias: `phase`), `feedback` (alias: `note`), `project_root` |
 
 ### Decision & Checkpoint Tools (2)
 
@@ -124,10 +124,10 @@ control wire when the daemon is running, otherwise reads the in-tree
 |---|---|---|
 | `animus.queue.list` | List queued subject dispatches | `project_root` |
 | `animus.queue.stats` | Get aggregate queue depth and status counts | `project_root` |
-| `animus.queue.enqueue` | Add a subject dispatch to the queue | `task_id`, `requirement_id`, `title`, `description`, `workflow_ref`, `input_json` |
-| `animus.queue.reorder` | Set preferred dispatch order | `subject_ids[]` |
-| `animus.queue.hold` | Hold a pending subject from dispatch | `subject_id` |
-| `animus.queue.release` | Release a held subject for dispatch | `subject_id` |
+| `animus.queue.enqueue` | Add a subject dispatch to the queue | `task_id`, `requirement_id`, `title`, `description`, `workflow_ref`, `input_json`, `project_root` |
+| `animus.queue.reorder` | Set preferred dispatch order | `subject_ids[]`, `project_root` |
+| `animus.queue.hold` | Hold a pending subject from dispatch | `subject_id`, `project_root` |
+| `animus.queue.release` | Release a held subject for dispatch | `subject_id`, `project_root` |
 | `animus.queue.drop` | Remove a queued subject dispatch permanently | `subject_id`, `project_root` |
 
 ---

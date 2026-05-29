@@ -11,7 +11,7 @@ use orchestrator_plugin_host::discover_plugins;
 use super::check_kit::{CheckContext, CheckFix, CheckStatus, DiagnosticCheck};
 
 const CATEGORY: &str = "api_keys";
-const DOCS_URL: &str = "https://animus-docs.vercel.app/getting-started/configuration";
+const DOCS_URL: &str = "https://animus-docs.vercel.app/reference/configuration";
 
 fn conventional_keys_for(plugin_name: &str) -> Vec<&'static str> {
     let lc = plugin_name.to_ascii_lowercase();

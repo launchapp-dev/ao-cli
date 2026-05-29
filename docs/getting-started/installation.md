@@ -1,7 +1,7 @@
 # Installation
 
-Current release: **v0.4.15** (2026-05-28). See [CHANGELOG.md](../../CHANGELOG.md)
-for the full v0.4.x shipped state and
+Current workspace CLI version: **v0.4.17**. See [CHANGELOG.md](../../CHANGELOG.md)
+for release notes and
 [`docs/migration/v0.4.11-to-v0.4.12.md`](../migration/v0.4.11-to-v0.4.12.md)
 if you are upgrading from an earlier v0.4.x.
 
@@ -24,7 +24,7 @@ Options:
 
 ```bash
 # Install a specific release
-ANIMUS_VERSION=v0.4.15 curl -fsSL https://raw.githubusercontent.com/launchapp-dev/animus-cli/main/scripts/install.sh | bash
+ANIMUS_VERSION=v0.4.17 curl -fsSL https://raw.githubusercontent.com/launchapp-dev/animus-cli/main/scripts/install.sh | bash
 
 # Install into a custom directory
 ANIMUS_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/launchapp-dev/animus-cli/main/scripts/install.sh | bash
@@ -111,13 +111,14 @@ log sinks all install as out-of-tree plugins from public GitHub repos.
 animus plugin install-defaults --include-subjects --include-transports
 ```
 
-This installs:
+This installs the curated defaults from
+`crates/orchestrator-core/src/plugin_registry.rs`:
 
-- 5 providers (`animus-provider-claude` v0.2.2, `animus-provider-{codex,gemini,opencode}` v0.2.3, `animus-provider-oai` v0.2.2) — daemon requires at least one
-- 5 subject backends (`animus-subject-default` v0.1.1, `animus-subject-requirements` v0.1.6, `animus-subject-{linear,sqlite,markdown}` v0.1.4) — daemon requires `default` for `kind=task` and `requirements` for `kind=requirement`
-- 3 transport + UI plugins (`animus-transport-http` v0.2.1, `animus-transport-graphql` v0.2.3, `animus-web-ui` v0.1.1) — required for `animus web serve`
+- 5 providers (`animus-provider-claude`, `animus-provider-codex`, `animus-provider-gemini`, `animus-provider-opencode`, `animus-provider-oai`) — daemon requires at least one
+- 5 subject backends (`animus-subject-default`, `animus-subject-requirements`, `animus-subject-linear`, `animus-subject-sqlite`, `animus-subject-markdown`) — daemon requires `default` for `kind=task` and `requirements` for `kind=requirement`
+- 3 transport + UI plugins (`animus-transport-http`, `animus-transport-graphql`, `animus-web-ui`) — required for `animus web serve`
 
-Add `--include-oai-agent` to also install `animus-provider-oai-agent@v0.1.3`
+Add `--include-oai-agent` to also install `animus-provider-oai-agent`
 (OpenAI Responses API agent loop, separate from the chat completions provider).
 
 **Or install individually:**

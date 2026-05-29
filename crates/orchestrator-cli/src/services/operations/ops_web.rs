@@ -604,9 +604,9 @@ fn missing_transport_plugins_error(json: bool) -> anyhow::Error {
     let details = serde_json::json!({
         "install_command": install_command,
         "individual_plugins": [
-            "animus plugin install launchapp-dev/animus-transport-http@v0.2.0",
+            "animus plugin install launchapp-dev/animus-transport-http@v0.2.1",
             "animus plugin install launchapp-dev/animus-transport-graphql@v0.2.3",
-            "animus plugin install launchapp-dev/animus-web-ui@v0.1.0",
+            "animus plugin install launchapp-dev/animus-web-ui@v0.1.1",
         ],
     });
     let message = if json {
@@ -621,9 +621,9 @@ fn missing_transport_plugins_error(json: bool) -> anyhow::Error {
             format!("  {install_command}"),
             "".to_string(),
             "Or install them individually:".to_string(),
-            "  animus plugin install launchapp-dev/animus-transport-http@v0.2.0".to_string(),
+            "  animus plugin install launchapp-dev/animus-transport-http@v0.2.1".to_string(),
             "  animus plugin install launchapp-dev/animus-transport-graphql@v0.2.3".to_string(),
-            "  animus plugin install launchapp-dev/animus-web-ui@v0.1.0".to_string(),
+            "  animus plugin install launchapp-dev/animus-web-ui@v0.1.1".to_string(),
         ]
         .join("\n")
     };

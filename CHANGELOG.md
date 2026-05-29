@@ -4,7 +4,67 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-## [0.4.16] - 2026-05-28
+## [0.4.17] - 2026-05-28
+
+Ecosystem expansion — all reference packs and SDKs extracted to standalone
+`launchapp-dev/animus-*` repos so agencies + community can fork
+individually. Six communication-channel trigger plugins shipped to enable
+end-to-end automation loops (inbound + outbound) for Slack, Discord,
+WhatsApp, Telegram, Email, and SMS.
+
+### Changed
+
+- **`chore`: extract `packs/*` and `sdk/*` to standalone launchapp-dev
+  repos.** All 7 reference packs and both SDKs (TS + Python) are now their
+  own public repos at launchapp-dev, all tagged v0.1.0:
+  - `launchapp-dev/animus-plugin-sdk-ts`
+  - `launchapp-dev/animus-plugin-sdk-py`
+  - `launchapp-dev/animus-pack-customer-support`
+  - `launchapp-dev/animus-pack-marketing-outreach`
+  - `launchapp-dev/animus-pack-sales-pipeline`
+  - `launchapp-dev/animus-pack-engineering-backlog`
+  - `launchapp-dev/animus-pack-recruiting-pipeline`
+  - `launchapp-dev/animus-pack-organization-meetings`
+  - `launchapp-dev/animus-pack-ecommerce-fulfillment`
+  In-tree `packs/<name>/` and `sdk/<lang>/` replaced with redirect READMEs +
+  index files at `packs/README.md` and `sdk/README.md`. Stubs will be
+  removed once `animus pack install` + marketplace discovery are wired up.
+
+### Added (ecosystem repos — out of tree)
+
+- **Communication channel trigger plugins** under `launchapp-dev/`. Each is
+  a dual-role plugin: `trigger_backend` for inbound events + custom RPC
+  methods for outbound replies, so workflow phases can route fully
+  end-to-end through a single plugin. All Node 20+ TS except Slack (Rust,
+  existed; enhanced with outbound).
+  - `animus-trigger-slack` v0.2.0 — Socket Mode inbound + `chat.postMessage` / `chat.postEphemeral` / `send_dm` outbound (Rust)
+  - `animus-trigger-discord` v0.1.0 — gateway intents (mentions + DMs) + `send_channel_message` / `send_dm` / `send_embed` (Node TS, discord.js)
+  - `animus-trigger-whatsapp` v0.1.1 — Cloud API webhook (incl. signature validation) + `send_text` / `send_template` / `send_media` (Node TS)
+  - `animus-trigger-telegram` v0.1.0 — polling + webhook modes + `send_message` / `send_photo` / `edit_message_text` / `answer_callback_query` / `set_chat_action` (Node TS, grammy)
+  - `animus-trigger-email` v0.1.1 — IMAP IDLE inbound (mailparser) + nodemailer SMTP outbound with correctly-threaded replies (In-Reply-To + References) (Node TS)
+  - `animus-trigger-sms-twilio` v0.1.0 — Twilio webhook with `X-Twilio-Signature` validation + `sms/send` / `sms/send_mms` (Node TS)
+
+### Fixed
+
+- **`fix(protocol-spec)`: `trigger/event` wire shape was nested in `spec.md`
+  but flat in the host runtime.** The host's `trigger_supervisor.rs:289`
+  deserializes `notification.params` directly into the flat `TriggerEvent`
+  struct (`event_id`, `trigger_id`, `payload`, `action_hint`, `subject_id`,
+  `subject_kind`). The spec was showing `{ id, event: {...} }` which never
+  matched any version of the host code. Spec.md §7.3 + §11.1 rewritten to
+  match the deployed wire shape. **Deeper drift flagged for v0.5
+  follow-up**: `animus-trigger-protocol` crate + `animus-plugin-runtime::drive_trigger_stream`
+  in the launchapp-dev/animus-protocol repo still emit the old nested shape;
+  existing Rust trigger plugins built on `trigger_backend_main` may be
+  silently dropped by the host today.
+
+### Internal
+
+- Wire-shape mismatch caught + fixed in 2 of the comm plugins
+  (whatsapp v0.1.0 → v0.1.1, email v0.1.0 → v0.1.1) that initially followed
+  the stale spec. Other 3 Node plugins (discord, telegram, sms-twilio) and
+  the slack enhancement all verified against `trigger_supervisor.rs:289`
+  source-of-truth and shipped with flat shape from v0.1.0. - 2026-05-28
 
 P3 housekeeping complete + **vertical pack expansion** (6 new reference
 packs) + the **Python plugin SDK**. The audit backlog is empty through

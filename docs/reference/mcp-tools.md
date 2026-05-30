@@ -158,7 +158,7 @@ rejection remains a CLI-only action.
 |---|---|---|
 | `animus.runner.health` | Check runner process health and capacity | `project_root` |
 | `animus.runner.orphans-detect` | Find orphaned runner processes | `project_root` |
-| `animus.runner.orphans-cleanup` | Clean up orphaned runner processes by run ID | `run_id`, `project_root` |
+| `animus.runner.orphans-cleanup` | Clean up orphaned runner processes by run ID | `run_id[]`, `project_root` |
 | `animus.runner.restart-stats` | View runner uptime and restart history | `project_root` |
 
 ---

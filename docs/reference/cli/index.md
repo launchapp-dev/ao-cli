@@ -175,16 +175,16 @@ animus
 │       └── sync             Sync (re-clone) a registry to get latest pack catalog
 │
 ├── plugin                   Discover, inspect, install, and call Animus STDIO plugins
-│   ├── list                 Discover plugins via plugins.yaml, .animus/plugins/, the global install dir, and $ANIMUS_PLUGIN_PATH
+│   ├── list                 Discover plugins via plugins.yaml, .animus/plugins/, $ANIMUS_PLUGIN_DIR, and $ANIMUS_PLUGIN_PATH
 │   ├── info                 Print a plugin's manifest plus initialize-time capabilities
 │   ├── call                 Send a JSON-RPC request to a plugin and print its response
-│   ├── ping                 Health-check a plugin by spawning, handshaking, and pinging
-│   ├── install              Install a plugin from a public GitHub repo (owner/repo[@tag]), a local --path, or an https --url --sha256
-│   ├── uninstall            Remove a previously installed plugin from ~/.animus/plugins/
+│   ├── ping                 Health-check a plugin by spawning it, completing the handshake, and pinging
+│   ├── install              Install a plugin binary from a public GitHub release (OWNER/REPO[@TAG]), a local path, or a direct URL into ~/.animus/plugins/ (override with --plugin-dir or $ANIMUS_PLUGIN_DIR)
+│   ├── uninstall            Remove a previously installed plugin from ~/.animus/plugins/ (override with --plugin-dir or $ANIMUS_PLUGIN_DIR) and ~/.animus/plugins.yaml
 │   ├── new                  Scaffold a new plugin project from launchapp-dev/animus-plugin-template
 │   ├── search               Search the public plugin registry by substring and filters
 │   ├── browse               Browse the public plugin registry grouped by kind
-│   ├── update               Update one or all installed release-source plugins
+│   ├── update               Update one or all installed release-source plugins to the latest tag
 │   ├── install-defaults     Bulk-install the standard provider plugins (claude, codex, gemini, opencode, oai). --include-oai-agent, --include-subjects, and --include-transports pull in optional groups
 │   └── lock
 │       ├── list             List entries recorded in the plugin lockfile
@@ -221,8 +221,8 @@ animus
 ├── doctor                   Run environment and configuration diagnostics
 │
 ├── trigger                  Inspect and manage event triggers
-│   ├── list                 List configured event triggers for the project
-│   └── fire                 Manually fire a webhook trigger for testing
+│   ├── list                 List all configured event triggers for this project
+│   └── fire                 Manually fire a webhook trigger (for testing and development)
 │
 ├── logs                     Tail and inspect daemon log output (in-tree or via log_storage_backend plugin)
 │   └── tail                 Tail recent log entries from the active log storage backend

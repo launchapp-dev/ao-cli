@@ -94,6 +94,14 @@ The control layer adapts generic `subject/*` calls into kind-scoped plugin
 methods. For example, a control request to list `kind=task` is routed as
 `task/list`. A request for `kind=requirement` is routed as `requirement/list`.
 
+For task/requirement subject context lookups, the provider-side fallback path
+first probes the bare aliases (`task/get`, `requirement/get`) across plugins
+that explicitly advertise those methods, then falls through to canonical
+namespaced kinds (`animus.task/get`, `animus.requirement/get`) when needed.
+This preserves compatibility with the default subject plugins while avoiding
+false negatives from generic dispatchers that return non-`METHOD_NOT_FOUND`
+errors for ids they do not own.
+
 The current CLI and daemon path uses this plugin method family:
 
 | Plugin method | Purpose |

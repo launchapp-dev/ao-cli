@@ -40,6 +40,8 @@ In scope for implementation after this requirements phase:
 - Add startup-only orphaned-running-workflow detection for each project root.
 - Verify runner liveness for running workflows by checking workflow-associated
   phase run IDs against `AgentStatusRequest`.
+- Exclude workflows started within the last 90 seconds so async dispatch has
+  time to publish pid/run-id state before orphan reconciliation runs.
 - Recover orphaned workflows with deterministic policy:
   - preferred: reset current phase to allow re-execution,
   - fallback: cancel workflow and set task status to `ready`.
@@ -81,6 +83,8 @@ Out of scope:
 - For each resolved candidate run id, query runner via `AgentStatusRequest`.
 - A workflow is considered live when at least one candidate run id returns an
   active runner status for that run.
+- Workflows whose `started_at` is less than 90 seconds old are treated as
+  transient startup handoff and skipped by orphan reconciliation.
 - If no candidate run id is active (or all resolve to terminal/not-found), the
   workflow is considered orphaned.
 
@@ -88,6 +92,7 @@ Out of scope:
 - Candidate set for orphan detection must include only workflows where:
   - workflow status is `running`,
   - current phase is agent-executed (not manual/command-only execution mode).
+- Workflows inside the 90-second startup grace window are excluded.
 - Completed/failed/cancelled/paused workflows are excluded.
 
 ### FR-04: Recovery Policy
@@ -133,16 +138,18 @@ Out of scope:
   detected as orphaned.
 - `AC-02`: Running workflows with active runner agent for resolved run id are
   not recovered/cancelled.
-- `AC-03`: Orphaned workflows are recovered via phase reset when primary
+- `AC-03`: Workflows started less than 90 seconds before reconciliation are not
+  treated as orphaned.
+- `AC-04`: Orphaned workflows are recovered via phase reset when primary
   recovery succeeds.
-- `AC-04`: When phase reset recovery is not possible, workflow is cancelled and
+- `AC-05`: When phase reset recovery is not possible, workflow is cancelled and
   task is set to `ready`.
-- `AC-05`: Recovery is restricted to agent-executed running phases; manual or
+- `AC-06`: Recovery is restricted to agent-executed running phases; manual or
   command-only phases are not falsely recovered as orphaned-agent runs.
-- `AC-06`: Startup recovery executes once per daemon startup per project root.
-- `AC-07`: Daemon summary/events expose orphan detection and recovery counts
+- `AC-07`: Startup recovery executes once per daemon startup per project root.
+- `AC-08`: Daemon summary/events expose orphan detection and recovery counts
   with affected workflow IDs.
-- `AC-08`: Targeted tests validate detection, recovery policy, startup-once
+- `AC-09`: Targeted tests validate detection, recovery policy, startup-once
   behavior, and non-regression for live workflows.
 
 ## Testable Acceptance Checklist
@@ -150,13 +157,15 @@ Out of scope:
   returns orphan detection and performs primary reset recovery.
 - `T-02`: daemon scheduler test with active runner status for workflow run id
   confirms no recovery mutation.
-- `T-03`: test for manual/command phase workflow shows no orphan-agent
+- `T-03`: test for workflow inside the 90-second grace window confirms no
+  recovery mutation even when no run id is active yet.
+- `T-04`: test for manual/command phase workflow shows no orphan-agent
   recovery action.
-- `T-04`: test forcing primary recovery failure verifies cancel-and-ready
+- `T-05`: test forcing primary recovery failure verifies cancel-and-ready
   fallback.
-- `T-05`: daemon run/project tick test verifies startup recovery executes once
+- `T-06`: daemon run/project tick test verifies startup recovery executes once
   per project root for a single daemon run lifecycle.
-- `T-06`: daemon event/summary test asserts orphan recovery counters and
+- `T-07`: daemon event/summary test asserts orphan recovery counters and
   workflow id list are present.
 
 ## Verification Matrix

@@ -404,10 +404,11 @@ Override per-install with `--signature-policy <mode>`. The legacy
 
 Plugins read their secrets directly from the daemon's environment.
 The daemon `env_clear()`s your plugin and only forwards a minimal
-shell allowlist (`PATH`, `HOME`, `TMPDIR`, `LANG`, `LC_ALL`,
-`RUST_LOG`, `RUST_BACKTRACE`, `TZ`) plus everything you declare in
-`env_required`. If you forget to declare an env var, it will be
-missing at runtime even though the operator set it in their shell.
+shell allowlist (`PATH`, `HOME`, `USER`, `SHELL`, `TERM`, `TMPDIR`,
+`LANG`, `LC_ALL`, `RUST_LOG`, `RUST_BACKTRACE`, `TZ`) plus everything
+you declare in `env_required`. If you forget to declare an env var, it
+will be missing at runtime even though the operator set it in their
+shell.
 
 Non-secret config (URLs, team IDs, feature flags) belongs in the
 workflow YAML's `subjects:` block. Workflow YAML supports `${VAR}`

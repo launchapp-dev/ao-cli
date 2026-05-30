@@ -64,12 +64,17 @@ The agent runner sanitizes the environment before spawning CLI tool processes:
 `crates/agent-runner/src/sandbox/env_sanitizer.rs` implements an allowlist-based approach:
 
 Allowed variables:
-- System: `PATH`, `HOME`, `USER`, `SHELL`, `LANG`, `LC_ALL`, `TMPDIR`, `TERM`
-- API keys: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`
+- System: `PATH`, `HOME`, `USER`, `SHELL`, `LANG`, `LC_ALL`, `TMPDIR`
+- Terminal/session plumbing: `TERM`, `COLORTERM`, `SSH_AUTH_SOCK`
 - Claude config: `CLAUDE_CODE_SETTINGS_PATH`, `CLAUDE_API_KEY`, `CLAUDE_CODE_DIR`
 - Prefixes: `ANIMUS_*`, `XDG_*`
 
-All other environment variables are stripped to prevent information leakage and avoid interference (notably `CLAUDECODE` which would block the claude CLI from starting).
+API keys are not forwarded by the sanitizer. The runner also explicitly strips
+Claude/Codex session markers such as `CLAUDECODE`,
+`CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_SESSION_ACCESS_TOKEN`,
+`CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_EXECPATH`, `CLAUDE_EFFORT`, and
+`AI_AGENT` before spawning the child process so nested agent CLIs do not inherit
+host session state.
 
 ### Workspace Validation
 

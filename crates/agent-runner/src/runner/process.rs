@@ -94,6 +94,9 @@ pub async fn spawn_cli_process(
         .env_remove("CLAUDE_CODE_ENTRYPOINT")
         .env_remove("CLAUDE_CODE_SESSION_ACCESS_TOKEN")
         .env_remove("CLAUDE_CODE_SESSION_ID")
+        .env_remove("CLAUDE_CODE_EXECPATH")
+        .env_remove("CLAUDE_EFFORT")
+        .env_remove("AI_AGENT")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

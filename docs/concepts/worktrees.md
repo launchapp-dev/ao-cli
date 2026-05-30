@@ -122,7 +122,10 @@ If automatic resolution fails, the workflow is marked as blocked and the conflic
 ```bash
 animus git worktree list          # List active worktrees
 animus git worktree prune         # Remove managed worktrees for done/cancelled tasks
-animus runner orphans-detect      # Detect orphaned runner processes in stale worktrees
+animus runner orphans detect      # Detect orphaned runner processes in stale worktrees
 ```
 
-The daemon performs orphan recovery on startup, detecting worktrees whose runner processes are no longer alive.
+The daemon performs orphan recovery on startup for workflows whose runner
+processes are no longer alive, but it skips workflows started within the last
+90 seconds so async `workflow run` dispatch has time to register its pid/run
+metadata before reconciliation.

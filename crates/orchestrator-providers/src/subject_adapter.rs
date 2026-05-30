@@ -10,7 +10,7 @@ use orchestrator_plugin_host::PluginRegistry;
 use protocol::orchestrator::{SubjectRef, SUBJECT_KIND_CUSTOM, SUBJECT_KIND_REQUIREMENT, SUBJECT_KIND_TASK};
 use serde_json::json;
 use tokio::sync::Mutex;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use crate::{PlanningServiceApi, ProjectAdapter, SubjectContext, SubjectResolver, TaskServiceApi};
 
@@ -218,33 +218,44 @@ impl PluginSubjectFallback {
         // contract — see the `animus-subject-default` /
         // `animus-subject-requirements` repos — advertises bare kinds
         // (`task`, `requirement`) and responds on `task/get` / `requirement/get`.
-        // Try the namespaced form first so future plugins that advertise the
-        // canonical kind keep working, then fall through to the bare alias
-        // for the default plugins.
+        // Probe the bare alias first because the default plugins handle it
+        // directly. A plugin that handles only the namespaced form will
+        // return METHOD_NOT_FOUND for the bare probe and we fall through to
+        // the canonical kind. Probing the canonical form first is unsafe:
+        // some default plugins respond to `animus.task/get` with a generic
+        // lookup-by-id handler that returns code -32602 ("not found") for
+        // every id, which terminates the probe loop before we ever try the
+        // working `task/get` alias.
         let probe_kinds: Vec<String> = match canonical_kind.as_str() {
-            SUBJECT_KIND_TASK => vec![SUBJECT_KIND_TASK.to_string(), "task".to_string()],
-            SUBJECT_KIND_REQUIREMENT => vec![SUBJECT_KIND_REQUIREMENT.to_string(), "requirement".to_string()],
+            SUBJECT_KIND_TASK => vec!["task".to_string(), SUBJECT_KIND_TASK.to_string()],
+            SUBJECT_KIND_REQUIREMENT => vec!["requirement".to_string(), SUBJECT_KIND_REQUIREMENT.to_string()],
             other => vec![other.to_string()],
         };
         let mut guard = self.registry.lock().await;
         let registry = guard.as_mut().expect("plugin registry should be initialized");
 
-        // Find the plugin that owns this subject kind by inspecting initialize-time capabilities.
-        // We probe each discovered plugin lazily via get_plugin (which initializes on demand).
-        let candidates: Vec<String> = registry.list_plugins().map(|p| p.name.clone()).collect();
+        // Probe order matters: try the bare alias across all plugins that
+        // advertise the corresponding `<kind>/get` capability, then fall
+        // through to the canonical kind. Filtering by manifest capabilities
+        // before calling avoids the failure mode where a plugin that does
+        // NOT advertise `task/get` (e.g. `animus-subject-requirements`,
+        // `animus-subject-linear`) still has a generic dispatcher that
+        // responds with a non-METHOD_NOT_FOUND error code, terminating the
+        // probe loop before a plugin that genuinely owns the kind is
+        // reached.
         let mut last_method_not_found_owner: Option<String> = None;
-        // Probe order matters: try the CANONICAL kind across ALL plugins first,
-        // then the bare alias across ALL plugins. This guarantees that if both
-        // a canonical and a legacy bare-kind plugin are installed, the canonical
-        // one always wins regardless of plugin discovery order — otherwise a
-        // bare plugin appearing first in iteration would silently shadow the
-        // canonical one. (Codex P2 from v0.4.18 review.)
+        let mut last_error: Option<String> = None;
         for probe_kind in &probe_kinds {
+            let method = format!("{probe_kind}/get");
+            let candidates: Vec<String> = registry
+                .list_plugins()
+                .filter(|p| p.manifest.capabilities.iter().any(|cap| cap == &method))
+                .map(|p| p.name.clone())
+                .collect();
             for name in &candidates {
                 let host = registry.get_plugin(name).await.map_err(|err| {
                     anyhow!("failed to load plugin '{name}' while resolving subject kind '{canonical_kind}': {err}")
                 })?;
-                let method = format!("{probe_kind}/get");
                 let probe = host.request(method.clone(), Some(json!({ "id": id }))).await;
                 match probe {
                     Ok(value) => {
@@ -256,19 +267,23 @@ impl PluginSubjectFallback {
                         continue;
                     }
                     Err(err) => {
-                        warn!(plugin = %name, method = %method, code = err.code, message = %err.message, "plugin error during subject resolution");
-                        return Err(anyhow!(
+                        // Skip plugins that advertise the method but disclaim the
+                        // specific id (e.g. wrong id prefix). Other plugins in the
+                        // candidate set may still own this subject.
+                        debug!(plugin = %name, method = %method, code = err.code, message = %err.message, "plugin rejected subject; trying next candidate");
+                        last_error = Some(format!(
                             "subject_backend plugin '{name}' errored while resolving '{}' kind '{}': {} (code {})",
-                            id,
-                            canonical_kind,
-                            err.message,
-                            err.code
+                            id, canonical_kind, err.message, err.code
                         ));
+                        continue;
                     }
                 }
             }
         }
 
+        if let Some(message) = last_error {
+            return Err(anyhow!(message));
+        }
         Err(anyhow!(
             "no subject_backend plugin handled '{}/get' (or its bare alias) for subject id '{}' (last_method_not_found={:?})",
             canonical_kind,

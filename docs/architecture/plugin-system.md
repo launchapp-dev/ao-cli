@@ -138,8 +138,8 @@ Daemon default preflight requires:
 
 Plugin processes start with `env_clear()`. The host forwards:
 
-- base variables: `PATH`, `HOME`, `TMPDIR`, `LANG`, `LC_ALL`, `RUST_LOG`,
-  `RUST_BACKTRACE`, `TZ`
+- base variables: `PATH`, `HOME`, `USER`, `SHELL`, `TERM`, `TMPDIR`, `LANG`,
+  `LC_ALL`, `RUST_LOG`, `RUST_BACKTRACE`, `TZ`
 - variables declared in `PluginManifest.env_required`
 - request-local extras explicitly supplied by the provider session request
 

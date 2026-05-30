@@ -120,6 +120,8 @@ for live events and `animus logs tail` for recent persisted entries.
 
 ### Failure Recovery
 
-- **Daemon crashes** -- On next startup, orphan recovery detects and cleans up stale subprocesses.
+- **Daemon crashes** -- On next startup, orphan recovery detects and cleans up
+  stale subprocesses, but newly-started workflows get a 90-second grace window
+  before they can be treated as orphaned.
 - **workflow-runner crashes** -- The daemon detects the process exit and emits a failure fact.
 - **Phase fails inside a workflow** -- Handled by workflow-runner's [rework loop](./agents-and-phases.md), not by the daemon.

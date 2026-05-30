@@ -10,6 +10,14 @@ use std::collections::HashSet;
 use std::path::Path;
 use tracing::{error, warn};
 
+/// Grace period after a workflow's `started_at` before the orphan
+/// reconciler is allowed to cancel it. Async dispatch paths (control-wire
+/// `workflow/run`, CLI `workflow run` without `--sync`) create a Running
+/// workflow record before any executor has a chance to register a pid
+/// file. Cancelling those within the same tick wipes the user's intent
+/// before the scheduler picks them up.
+const ORPHAN_RECONCILIATION_GRACE_SECS: i64 = 90;
+
 pub async fn recover_orphaned_running_workflows(
     hub: Arc<dyn ServiceHub>,
     project_root: &str,
@@ -37,6 +45,7 @@ pub async fn recover_orphaned_running_workflows(
             HashSet::new()
         }
     };
+    let now = chrono::Utc::now();
 
     let mut recovered = 0usize;
     for workflow in workflows {
@@ -53,6 +62,9 @@ pub async fn recover_orphaned_running_workflows(
             || externally_active_workflows.contains(&workflow.id)
             || active_subject_ids.contains(workflow.subject.id())
         {
+            continue;
+        }
+        if (now - workflow.started_at).num_seconds() < ORPHAN_RECONCILIATION_GRACE_SECS {
             continue;
         }
 

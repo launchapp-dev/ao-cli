@@ -39,6 +39,9 @@ longer have a live agent process.
   - resolves run-id candidates for each workflow using deterministic
     `wf-<workflow_id>-...` matching,
   - queries runner per candidate run id via `AgentStatusRequest`.
+- Skip workflows whose `started_at` is less than 90 seconds old so async
+  dispatch paths have time to register pid/run-id state before startup
+  reconciliation can cancel them.
 - Classify workflow as orphaned only when no candidate run id is active.
 
 ### 3) Recovery Mutations
@@ -88,6 +91,9 @@ longer have a live agent process.
     explicit active-status checks.
 - Risk: repeated recovery across ticks.
   - Mitigation: startup-once project-root guard for each daemon run lifecycle.
+- Risk: false orphan detection during async `workflow run` handoff.
+  - Mitigation: 90-second grace window from workflow `started_at` before
+    reconciliation is allowed to cancel it.
 - Risk: task/workflow drift after fallback cancellation.
   - Mitigation: explicit post-mutation task status assertions in tests.
 - Risk: runner unavailable during startup.

@@ -28,10 +28,13 @@ Errors are classified using a typed error system. The CLI wraps errors in a `Cli
 The classifier walks the anyhow error chain looking for:
 
 1. **Typed `CliError`** -- If any error in the chain is a `CliError`, its kind determines the exit code.
-2. **`std::io::Error` kinds** -- `NotFound` maps to exit code 3. Connection-related IO errors (`ConnectionRefused`, `TimedOut`, `BrokenPipe`, etc.) map to exit code 5.
-3. **Fallback** -- Any unrecognized error defaults to exit code 1 (`internal`).
+2. **Typed `ClassifiedError`** -- Shared protocol errors can also carry an explicit kind through the chain.
+3. **`std::io::Error` kinds** -- `NotFound` maps to exit code 3. Connection-related IO errors (`ConnectionRefused`, `TimedOut`, `BrokenPipe`, etc.) map to exit code 5.
+4. **Message-pattern fallback** -- Untyped errors fall back to `protocol::classify_error_message`, which recognizes stable patterns such as `invalid`, `not found`, `already`, and connection/unavailable text.
+5. **Fallback** -- Any unrecognized error defaults to exit code 1 (`internal`).
 
-Classification is purely type-based. Error messages are never string-matched to determine exit codes.
+Typed errors take precedence, but truly untyped errors may still be classified by
+message pattern as a compatibility fallback.
 
 ## JSON Error Envelope
 
@@ -81,7 +84,9 @@ esac
 
 ## Human-Readable Errors
 
-Without `--json`, errors print to stderr as plain text. For `invalid_input` errors, a hint is appended suggesting `--help`:
+Without `--json`, errors print to stderr as plain text using anyhow's alternate
+formatter, so chained context lines remain visible. For `invalid_input` errors,
+a hint is appended suggesting `--help`:
 
 ```
 error: invalid priority '<empty>'; expected one of: critical|high|medium|low

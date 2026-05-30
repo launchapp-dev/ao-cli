@@ -68,6 +68,9 @@ allowlist plus variables declared in the manifest and request-local extras:
 
 - `PATH`
 - `HOME`
+- `USER`
+- `SHELL`
+- `TERM`
 - `TMPDIR`
 - `LANG`
 - `LC_ALL`

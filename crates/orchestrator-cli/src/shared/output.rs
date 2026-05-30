@@ -80,7 +80,7 @@ pub(crate) fn emit_cli_error(err: &anyhow::Error, json: bool) {
             format!("{{\"schema\":\"{}\",\"ok\":false,\"error\":{{\"code\":\"internal\",\"message\":\"serialization failure\",\"exit_code\":1}}}}", CLI_SCHEMA_ID)
         }));
     } else {
-        eprintln!("error: {}", err);
+        eprintln!("error: {:#}", err);
         if kind == CliErrorKind::InvalidInput && should_emit_help_hint(&err.to_string()) {
             eprintln!("hint: run with --help to view accepted arguments and values");
         }

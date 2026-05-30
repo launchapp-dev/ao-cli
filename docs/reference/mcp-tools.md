@@ -11,10 +11,10 @@ participates in integrity tracking when present.
 **v0.4.4 note — subject surface is now mandatory for tasks and requirements.** The legacy
 `animus.task.*` / `animus.requirements.*` / `animus.cloud.*` / `animus.errors.*` MCP tool
 families were removed. Use the unified `animus.subject.*` tools with `kind=task` or
-`kind=requirement`; they route through the same in-tree `SubjectBackend` adapters that back
-`~/.animus/<repo-scope>/` state, so behavior is identical to the dropped per-domain tools.
-External subject_backend plugins (Linear, Jira, GitHub Issues, etc.) plug into the same
-surface and can claim their own `kind`.
+`kind=requirement`; they route through installed `subject_backend` plugins, including the
+default task/requirement plugins that own Animus-managed local state. External
+`subject_backend` plugins (Linear, Jira, GitHub Issues, etc.) plug into the same surface and
+can claim their own `kind`.
 
 ---
 

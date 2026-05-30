@@ -28,7 +28,7 @@ use tracing::{debug, warn};
 /// plugin's manifest is scrubbed from the spawn environment via
 /// [`std::process::Command::env_clear`].
 pub const PLUGIN_BASE_ENV_ALLOWLIST: &[&str] =
-    &["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "RUST_LOG", "RUST_BACKTRACE", "TZ"];
+    &["PATH", "HOME", "USER", "SHELL", "TERM", "TMPDIR", "LANG", "LC_ALL", "RUST_LOG", "RUST_BACKTRACE", "TZ"];
 
 /// Compiled default for the per-host notification broadcast channel capacity.
 ///

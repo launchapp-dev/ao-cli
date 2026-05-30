@@ -117,11 +117,11 @@ rejection remains a CLI-only action.
 
 | Tool | Description | Key Parameters |
 |---|---|---|
-| `animus.workflow.phases.list` | List available phase definitions | `project_root` |
-| `animus.workflow.phases.get` | Get a specific phase definition | `phase` |
+| `animus.workflow.phases.list` | List workflow phase definitions | `project_root` |
+| `animus.workflow.phases.get` | Get a workflow phase definition | `phase`, `project_root` |
 | `animus.workflow.definitions.list` | List workflow definitions | `project_root` |
 | `animus.workflow.config.get` | Read effective workflow configuration | `project_root` |
-| `animus.workflow.config.validate` | Validate workflow config for errors | `project_root` |
+| `animus.workflow.config.validate` | Validate workflow config for shape errors and broken references | `project_root` |
 
 ---
 

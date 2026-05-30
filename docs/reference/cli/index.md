@@ -140,7 +140,7 @@ animus
 │
 ├── skill                    Search, install, update, and publish versioned skills
 │   ├── search               Search skills across built-in, user, project, and registry sources
-│   ├── install              Install a skill from registry resolution or a local Markdown skill path
+│   ├── install              Install a skill with deterministic resolution
 │   ├── list                 List all available skills (built-in, user, project, and installed)
 │   ├── show                 Show details of a resolved skill definition
 │   ├── update               Re-resolve one or all installed skills
@@ -181,11 +181,11 @@ animus
 │   ├── ping                 Health-check a plugin by spawning it, completing the handshake, and pinging
 │   ├── install              Install a plugin binary from a public GitHub release (OWNER/REPO[@TAG]), a local path, or a direct URL into ~/.animus/plugins/ (override with --plugin-dir or $ANIMUS_PLUGIN_DIR)
 │   ├── uninstall            Remove a previously installed plugin from ~/.animus/plugins/ (override with --plugin-dir or $ANIMUS_PLUGIN_DIR) and ~/.animus/plugins.yaml
-│   ├── new                  Scaffold a new plugin project from launchapp-dev/animus-plugin-template
-│   ├── search               Search the public plugin registry by substring and filters
-│   ├── browse               Browse the public plugin registry grouped by kind
+│   ├── new                  Scaffold a new plugin project from the launchapp-dev/animus-plugin-template scaffold
+│   ├── search               Search the public Animus plugin registry by substring + filters
+│   ├── browse               Browse the public Animus plugin registry, grouped by kind
 │   ├── update               Update one or all installed release-source plugins to the latest tag
-│   ├── install-defaults     Bulk-install the standard provider plugins (claude, codex, gemini, opencode, oai). --include-oai-agent, --include-subjects, and --include-transports pull in optional groups
+│   ├── install-defaults     Install the standard set of provider plugins from public GitHub releases (claude, codex, gemini, opencode, oai). Skips plugins that are already installed. Optional flags pull in additional default plugins
 │   └── lock
 │       ├── list             List entries recorded in the plugin lockfile
 │       └── verify           Re-hash installed plugin binaries and report lockfile mismatches

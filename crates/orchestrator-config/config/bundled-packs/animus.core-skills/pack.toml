@@ -3,7 +3,7 @@ id = "animus.core-skills"
 version = "0.1.0"
 kind = "capability-pack"
 title = "Core Skills"
-description = "The bundled skill catalog (implementation, code-review, debugging, security-audit, ...) shipped as an installable pack. Auto-installs during animus init / animus setup."
+description = "The bundled skill catalog (implementation, code-review, debugging, security-audit, ...) shipped as an installable pack. Auto-installs during animus init."
 
 [ownership]
 mode = "bundled"

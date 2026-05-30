@@ -201,10 +201,10 @@ bin/
 
 ```toml
 schema = "animus.pack.v1"
-id = "animus.requirements"
+id = "animus.requirement"
 version = "0.1.0"
 kind = "domain-pack"
-title = "Animus Requirements"
+title = "AO Requirement"
 description = "Planning and materialization flows for requirement subjects."
 
 [ownership]
@@ -222,33 +222,23 @@ default_kind = "animus.requirement"
 [workflows]
 root = "workflows"
 exports = [
-  "animus.requirements/draft",
-  "animus.requirements/refine",
-  "animus.requirements/execute",
+  "animus.requirement/draft",
+  "animus.requirement/refine",
+  "animus.requirement/plan",
+  "animus.requirement/execute",
 ]
+
+[[dependencies]]
+id = "animus.task"
+version = ">=0.1.0"
+reason = "Requirement workflows materialize and bootstrap task execution."
 
 [runtime]
 agent_overlay = "runtime/agent-runtime.overlay.yaml"
-workflow_overlay = "runtime/workflow-runtime.overlay.yaml"
-
-[[runtime_requirements]]
-kind = "node"
-version = ">=20"
-
-[[runtime_requirements]]
-kind = "python"
-version = ">=3.11"
-
-[mcp]
-servers = "mcp/servers.toml"
-tools = "mcp/tools.toml"
-
-[schedules]
-file = "schedules/schedules.yaml"
 
 [native_module]
-feature = "plugin-animus-requirements"
-module_id = "animus.requirements"
+feature = "plugin_ao_requirement"
+module_id = "animus.requirement"
 optional = true
 ```
 
@@ -288,7 +278,7 @@ Workflow refs should move toward pack-qualified names:
 
 - `animus.task/standard`
 - `animus.task/quick-fix`
-- `animus.requirements/execute`
+- `animus.requirement/execute`
 - `jira.issue/sync`
 - `incident.alert/respond`
 

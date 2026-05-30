@@ -40,18 +40,17 @@ phases:
       You are drafting project requirements from the current project context and codebase.
 
       Steps:
-      1. Read existing requirements: `animus requirements list --json`
+      1. Read existing requirements: `animus subject list --kind requirement --json`
       2. If dispatch_input includes "include_codebase_scan": true, scan the codebase
          to understand current architecture and identify gaps
       3. Draft new requirements that bridge the gap between the current state
          and the requested/project context in dispatch_input
 
-      For each requirement, use `animus requirements create` with:
+      For each requirement, use `animus subject create --kind requirement` with:
       - --title: Clear, actionable title
-      - --description: Detailed scope and motivation
-      - --priority: must/should/could based on delivery importance
-      - --category: usability/runtime/integration/quality/security/release
-      - --type: product/functional/non-functional/technical
+      - --body: Detailed scope and motivation
+      - --priority: p0/p1/p2/p3 based on delivery importance
+      - --labels: Comma-separated labels when category/type metadata matters
 
       If dispatch_input includes "append_only": true, do not modify existing requirements.
       If dispatch_input includes "max_requirements", limit to that count.
@@ -66,7 +65,7 @@ phases:
 
       Steps:
       1. If dispatch_input includes "requirement_ids", refine only those.
-         Otherwise, list all requirements: `animus requirements list --json`
+         Otherwise, list all requirements: `animus subject list --kind requirement --json`
       2. For each requirement to refine:
          - Improve the description with concrete scope
          - Add or improve acceptance criteria
@@ -76,7 +75,7 @@ phases:
       If dispatch_input includes a "focus" field, prioritize that aspect
       (e.g., "acceptance_criteria", "descriptions", "priorities").
 
-      Use `animus requirements update --id REQ-XXX` to apply refinements.
+      Use `animus subject update --kind requirement --id requirement:REQ-XXX` to apply refinements.
 
       Output a JSON summary of what was refined.
 

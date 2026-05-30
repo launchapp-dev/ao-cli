@@ -526,9 +526,9 @@ pub(super) fn execute_requirements_and_record(
 
     if selected_requirements.is_empty() {
         let guidance = if input.include_wont {
-            "run `animus requirements draft` first"
+            "create or import requirements first with `animus subject create --kind requirement ...`"
         } else {
-            "run `animus requirements draft` first or pass `--include-wont true` to include out-of-scope requirements"
+            "create or import requirements first with `animus subject create --kind requirement ...`, or pass `--include-wont true` to include out-of-scope requirements"
         };
         return Err(anyhow!("no requirements matched; {guidance}"));
     }
@@ -538,7 +538,7 @@ pub(super) fn execute_requirements_and_record(
     if !missing_constraints.is_empty() {
         return Err(anyhow!(
             "vision constraints missing from requirements: {}. \
-Run `animus requirements draft`/`animus requirements refine` (or upsert explicit constraint requirements) before execution",
+Run `animus subject update --kind requirement ...` (or upsert explicit constraint requirements) before execution",
             missing_constraints.join(" | ")
         ));
     }

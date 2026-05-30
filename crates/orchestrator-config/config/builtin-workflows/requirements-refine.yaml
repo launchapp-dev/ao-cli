@@ -26,7 +26,7 @@ phases:
 
       Steps:
       1. If dispatch_input includes "requirement_ids", refine only those.
-         Otherwise, list all requirements: `ao requirements list --json`
+         Otherwise, list all requirements: `ao subject list --kind requirement --json`
       2. For each requirement to refine:
          - Improve the description with concrete scope
          - Add or improve acceptance criteria
@@ -36,7 +36,7 @@ phases:
       If dispatch_input includes a "focus" field, prioritize that aspect
       (e.g., "acceptance_criteria", "descriptions", "priorities").
 
-      Use `ao requirements update --id REQ-XXX` to apply refinements.
+      Use `ao subject update --kind requirement --id requirement:REQ-XXX` to apply refinements.
 
       Output a JSON summary of what was refined.
 

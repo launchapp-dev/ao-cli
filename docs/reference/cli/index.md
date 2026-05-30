@@ -459,6 +459,17 @@ non-JSON, etc.). Human output emits each warning to stderr. The
 commands above. Required vars declared by the selected `transport_backend` or
 `web_ui` plugin must be present before the CLI will spawn them.
 
+| Command | Flags |
+|---|---|
+| `animus web serve` | `--open`, `--json` |
+| `animus web open` | `--url <URL>`, `--path <PATH>`, `--json` |
+
+`animus web serve --open` starts the transport plugins and launches the
+resolved browser URL in one step. `animus web open --url <URL>` skips plugin
+discovery entirely and opens the supplied URL directly; `--path <PATH>`
+appends a sub-path such as `/runs` when the URL is resolved from installed
+plugins.
+
 If `animus web serve` or `animus web open` fails even though the transport
 plugins are installed, inspect the target plugin with
 `animus plugin info --name <plugin-name>` and set any missing `env_required`

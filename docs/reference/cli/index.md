@@ -312,7 +312,7 @@ Initialize an Animus project from a template registry or a local template direct
 |---|---|
 | `--template <TEMPLATE_ID>` | Project template id to fetch from the default template registry. Conflicts with `--path` |
 | `--path <PATH>` | Local template directory containing `template.toml`. Conflicts with `--template` |
-| `--non-interactive` | Run without prompts. Requires `--template` or `--path` |
+| `--non-interactive` | Run without prompts. Requires `--template`, `--path`, or `--walkthrough` |
 | `--plan` | Preview init changes without writing project files |
 | `--force` | Overwrite existing project files targeted by the template |
 | `--update-registry` | Fetch the latest commit from the template registry and re-pin the local cache before loading the template (v0.4.0 supply-chain hardening — by default the registry uses the pinned cache) |

@@ -17,6 +17,7 @@ On first run it:
 ```text
 .animus/
 ├── config.json
+├── plugins/                    # optional project-local plugins and pack overrides
 ├── workflows.yaml
 ├── plugins.lock                # appears after project-scoped plugin install/update activity
 └── workflows/
@@ -27,8 +28,10 @@ On first run it:
 ```
 
 `plugins.lock` is not part of the initial scaffold; plugin commands create it
-when the project resolves a local lockfile. Templates may add more workflow
-wrappers or companion files.
+when the project resolves a local lockfile. `.animus/plugins/` is optional and
+serves two roles: project-local plugin discovery and pack override content for
+workflow resolution. Templates may add more workflow wrappers or companion
+files.
 
 ## Repo-Scoped Runtime State
 

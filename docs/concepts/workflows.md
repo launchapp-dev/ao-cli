@@ -20,7 +20,7 @@ Animus currently resolves workflows from these sources:
 | Bundled kernel workflows | `animus.vision/draft`, `animus.vision/refine` | Core planning workflow refs that still ship with Animus directly and are invoked through dispatch, not a dedicated top-level command |
 | Bundled first-party packs | `animus.task/standard`, `animus.requirement/draft`, `animus.requirement/execute` | Task, requirement, review, and QA behavior shipped as pack overlays |
 | Installed machine packs | `vendor.pack/ref` | Shared packs installed under `~/.animus/packs/<pack-id>/<version>/` |
-| Project pack overrides | `vendor.pack/ref` | Per-project overrides under `.animus/plugins/<pack-id>/` |
+| Project pack overrides | `vendor.pack/ref` | Per-project overrides under `.animus/plugins/<pack-id>/` (inside the same `.animus/plugins/` tree used for project-local plugin discovery) |
 | Project-local ad hoc YAML | `standard-workflow`, `incident-response` | Repository-specific workflows in `.animus/workflows.yaml` or `.animus/workflows/*.yaml` |
 
 ### Resolution Order
@@ -84,8 +84,9 @@ animus pack pin --pack-id animus.task --version =0.1.0
 ```
 
 Project-specific pack selections are stored in
-`~/.animus/<repo-scope>/state/pack-selection.v1.json`. Pack override content lives
-in `.animus/plugins/`.
+`~/.animus/<repo-scope>/state/pack-selection.v1.json`. Pack override content
+lives in `.animus/plugins/<pack-id>/`, while the parent `.animus/plugins/`
+directory is also scanned for project-local plugin binaries.
 
 ## Project-Local Workflow Composition
 

@@ -18,6 +18,7 @@ These files live in the repository:
 ├── skills/
 │   └── <skill-name>/SKILL.md   # optional project-scoped Markdown skills
 └── plugins/
+    ├── <plugin-binary>         # optional project-local STDIO plugin binary
     └── <pack-id>/              # optional project pack override root
 ```
 
@@ -26,7 +27,9 @@ Key points:
 - `.animus/workflows.yaml` and `.animus/workflows/*.yaml` are the authored workflow sources
 - `.animus/skills/<name>/SKILL.md` is the project-scoped skill source (highest priority in
   the skill resolution chain)
-- `.animus/plugins/<pack-id>/` is the project override root for pack content
+- `.animus/plugins/` is also scanned as the project-local plugin discovery directory
+- `.animus/plugins/<pack-id>/` is the project override root for pack content during workflow
+  resolution
 - `.animus/config.json` stores repository-local Animus config
 - Daemon automation settings are persisted under the repo-scoped runtime root,
   not under project-local `.animus/` for new writes
@@ -146,6 +149,7 @@ Use Animus commands or Animus MCP tools instead.
 | `.animus/workflows.yaml` | Single-file project workflow source |
 | `.animus/workflows/*.yaml` | Multi-file project workflow sources |
 | `.animus/skills/<name>/SKILL.md` | Project-scoped Markdown skill (highest skill priority) |
+| `.animus/plugins/` | Project-local plugin discovery/install directory |
 | `.animus/plugins/<pack-id>/` | Project-local pack override root |
 | `~/.animus/<repo-scope>/workflow.db` | Persisted workflows, tasks, requirements, checkpoints |
 | `~/.animus/<repo-scope>/config/state-machines.v1.json` | Repo-scoped state-machine config |

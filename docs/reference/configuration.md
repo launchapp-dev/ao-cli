@@ -22,6 +22,10 @@ Typical uses:
 
 Project-local pack overrides. Use this when a repository needs to override installed pack content without changing Animus globally.
 
+The parent `.animus/plugins/` directory is also scanned as the project-local
+plugin discovery directory, so the same tree can contain both plugin binaries
+and pack override folders.
+
 ## Repo-Scoped Runtime Config
 
 Animus stores mutable project runtime config under `~/.animus/<repo-scope>/`.
@@ -86,7 +90,7 @@ Behavior resolves in this order:
 
 1. CLI flags
 2. supported environment variables
-3. project pack overrides in `.animus/plugins/`
+3. project-local pack overrides in `.animus/plugins/<pack-id>/`
 4. project YAML in `.animus/workflows.yaml` and `.animus/workflows/*.yaml`
 5. installed packs in `~/.animus/packs/`
 

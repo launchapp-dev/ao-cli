@@ -15,6 +15,7 @@ These files live in the repository:
 │   ├── standard-workflow.yaml
 │   ├── hotfix-workflow.yaml
 │   └── research-workflow.yaml
+├── plugins.lock                # optional project-local plugin integrity lockfile
 ├── skills/
 │   └── <skill-name>/SKILL.md   # optional project-scoped Markdown skills
 └── plugins/
@@ -30,6 +31,8 @@ Key points:
 - `.animus/plugins/` is also scanned as the project-local plugin discovery directory
 - `.animus/plugins/<pack-id>/` is the project override root for pack content during workflow
   resolution
+- `.animus/plugins.lock` is the project-local plugin integrity lockfile when lockfile resolution
+  is scoped to the repository instead of the global `~/.animus/plugins.lock` fallback
 - `.animus/config.json` stores repository-local Animus config
 - Daemon automation settings are persisted under the repo-scoped runtime root,
   not under project-local `.animus/` for new writes
@@ -44,7 +47,9 @@ Mutable runtime state lives outside the repo:
 ├── resume-config.json
 ├── workflow.db
 ├── config/
-│   └── state-machines.v1.json
+│   ├── state-machines.v1.json
+│   ├── workflow-config.v2.json
+│   └── agent-runtime-config.v2.json
 ├── daemon/
 │   └── pm-config.json
 ├── docs/
@@ -74,6 +79,10 @@ Key points:
 - `workflow.db` stores persisted workflows, tasks, requirements, and checkpoints
 - `core-state.json` stores the shared runtime snapshot Animus loads at startup
 - `config/state-machines.v1.json` stores the effective state-machine document
+- `config/workflow-config.v2.json` stores compiled workflow config when a compile/write flow
+  persists it under the scoped runtime root
+- `config/agent-runtime-config.v2.json` stores compiled agent runtime config when a compile/write
+  flow persists it under the scoped runtime root
 - `daemon/pm-config.json` stores persisted daemon settings
 - `logs/events.jsonl` stores redacted structured runtime events under the
   scoped state root; daemon events are still mirrored here when a
@@ -158,11 +167,14 @@ Use Animus commands or Animus MCP tools instead.
 |---|---|
 | `.animus/workflows.yaml` | Single-file project workflow source |
 | `.animus/workflows/*.yaml` | Multi-file project workflow sources |
+| `.animus/plugins.lock` | Project-local plugin integrity lockfile |
 | `.animus/skills/<name>/SKILL.md` | Project-scoped Markdown skill (highest skill priority) |
 | `.animus/plugins/` | Project-local plugin discovery/install directory |
 | `.animus/plugins/<pack-id>/` | Project-local pack override root |
 | `~/.animus/<repo-scope>/workflow.db` | Persisted workflows, tasks, requirements, checkpoints |
 | `~/.animus/<repo-scope>/config/state-machines.v1.json` | Repo-scoped state-machine config |
+| `~/.animus/<repo-scope>/config/workflow-config.v2.json` | Compiled repo-scoped workflow config |
+| `~/.animus/<repo-scope>/config/agent-runtime-config.v2.json` | Compiled repo-scoped agent runtime config |
 | `~/.animus/<repo-scope>/logs/events.jsonl` | Redacted structured runtime event log |
 | `~/.animus/<repo-scope>/runner/config.json` | Runner-scope config, including `agent_runner_token` |
 | `~/.animus/<repo-scope>/runner/agent-runner.sock` | Default scoped Unix runner socket path |

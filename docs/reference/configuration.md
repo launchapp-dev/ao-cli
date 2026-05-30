@@ -26,6 +26,12 @@ The parent `.animus/plugins/` directory is also scanned as the project-local
 plugin discovery directory, so the same tree can contain both plugin binaries
 and pack override folders.
 
+### `.animus/plugins.lock`
+
+Project-local plugin integrity lockfile. When plugin install/update flows are
+scoped to the repository, Animus records installed plugin versions and sha256
+digests here instead of falling back to the global `~/.animus/plugins.lock`.
+
 ## Repo-Scoped Runtime Config
 
 Animus stores mutable project runtime config under `~/.animus/<repo-scope>/`.
@@ -33,6 +39,8 @@ Animus stores mutable project runtime config under `~/.animus/<repo-scope>/`.
 Key files:
 
 - `config/state-machines.v1.json`
+- `config/workflow-config.v2.json`
+- `config/agent-runtime-config.v2.json`
 - `state/pack-selection.v1.json`
 - `daemon/pm-config.json`
 - `runner/config.json`

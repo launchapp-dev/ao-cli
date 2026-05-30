@@ -30,8 +30,8 @@ animus
 │   ├── clear-logs           Clear daemon logs
 │   ├── agents               List daemon-managed agents
 │   ├── config               Update daemon automation configuration
-│   ├── preflight            Report plugin preflight status (required plugins installed / missing + fix commands)
-│   └── metrics              Print daemon observability metrics
+│   ├── preflight            Report plugin preflight status (which required plugins are installed, which are missing, and the fix commands)
+│   └── metrics              Print daemon observability metrics (counters, gauges, histograms)
 │
 ├── agent                    Run and inspect agent executions
 │   ├── list                 List configured agent profiles
@@ -235,7 +235,7 @@ animus
 │   ├── next                 Return the highest-priority Ready subject for the given kind
 │   └── status               Set the status of a subject by id through the active subject_backend
 │
-└── help                     Print help for a command
+└── help                     Print this message or the help of the given subcommand(s)
 ```
 
 > **v0.4.4 surfaces removed.** Use `animus subject --kind task` for the

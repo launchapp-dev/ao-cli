@@ -72,8 +72,9 @@ Key points:
 - `core-state.json` stores the shared runtime snapshot Animus loads at startup
 - `config/state-machines.v1.json` stores the effective state-machine document
 - `daemon/pm-config.json` stores persisted daemon settings
-- `logs/events.jsonl` stores redacted structured runtime events when the
-  in-tree log backend is active
+- `logs/events.jsonl` stores redacted structured runtime events under the
+  scoped state root; daemon events are still mirrored here when a
+  `log_storage_backend` plugin is active
 - `worktrees/` stores managed task worktrees for that repository scope
 
 ## Machine-Wide Layout

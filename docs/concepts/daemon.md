@@ -114,8 +114,8 @@ animus daemon stop                  # Graceful shutdown
 ```
 
 When started with `--autonomous`, the daemon forks a child process. Structured
-runtime events are written through the active log storage backend; the in-tree
-fallback is `~/.animus/<repo-scope>/logs/events.jsonl`. Use `animus daemon stream`
+runtime events are written through the active log storage backend and mirrored
+locally at `~/.animus/<repo-scope>/logs/events.jsonl`. Use `animus daemon stream`
 for live events and `animus logs tail` for recent persisted entries.
 
 ### Failure Recovery

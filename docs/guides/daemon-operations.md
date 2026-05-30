@@ -13,8 +13,8 @@ animus daemon start --autonomous
 ```
 
 This forks a child process and continuously polls for ready work. Structured
-runtime events are persisted through the active log storage backend; the
-in-tree fallback writes `~/.animus/<repo-scope>/logs/events.jsonl`.
+runtime events are persisted through the active log storage backend, and the
+scoped local mirror remains `~/.animus/<repo-scope>/logs/events.jsonl`.
 
 ### Foreground Mode
 
@@ -103,8 +103,9 @@ animus daemon logs
 ```
 
 The daemon writes structured log entries through the active log storage
-backend. With the in-tree fallback, entries are redacted JSON lines under
-`~/.animus/<repo-scope>/logs/events.jsonl`.
+backend. Redacted JSON lines are also persisted under
+`~/.animus/<repo-scope>/logs/events.jsonl`, which remains the local mirror
+for daemon events.
 
 Clear logs when they grow too large:
 
@@ -139,8 +140,9 @@ animus logs tail --limit 100
 ```
 
 `animus logs tail` reads through the active `log_storage_backend` when one is
-installed. Its `--follow` flag is currently reserved for future backend
-streaming support, so the in-tree fallback still returns a batch and exits.
+installed, and otherwise reads the local `events.jsonl` mirror directly. Its
+`--follow` flag is currently reserved for future backend streaming support, so
+the local file path still returns a batch and exits.
 
 For live debugging, stream daemon events:
 

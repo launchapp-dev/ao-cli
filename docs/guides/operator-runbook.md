@@ -251,7 +251,7 @@ tail -F ~/.animus/<scope>/logs/events.jsonl | jq -c 'select(.level == "error")'
 ### Tail daemon logs
 
 Use the CLI to read the active log storage backend. When the daemon is down,
-the command falls back to the in-tree `logs/events.jsonl` file.
+the command reads the local `logs/events.jsonl` mirror directly.
 
 ```bash
 animus logs tail --level info --limit 100
@@ -284,9 +284,10 @@ animus plugin call --name <plugin-name> \         # send raw JSON-RPC
 ```
 
 Long-running plugins (subjects, triggers, transports, and v0.5+
-providers) log to `~/.animus/<scope>/logs/events.jsonl` via the
-in-tree fallback log storage backend, or to whichever
-`log_storage_backend` plugin is installed.
+providers) route logs through the active `log_storage_backend` when one
+is installed. Daemon events still remain mirrored in
+`~/.animus/<scope>/logs/events.jsonl` for local polling and fallback
+reads.
 
 ---
 

@@ -54,6 +54,9 @@ Mutable runtime state lives outside the repo:
 ├── logs/
 │   ├── events.jsonl
 │   └── runs/
+├── runner/
+│   ├── config.json
+│   └── agent-runner.sock
 ├── state/
 │   ├── pack-selection.v1.json
 │   ├── schedule-state.json
@@ -75,6 +78,9 @@ Key points:
 - `logs/events.jsonl` stores redacted structured runtime events under the
   scoped state root; daemon events are still mirrored here when a
   `log_storage_backend` plugin is active
+- `runner/config.json` stores the runner auth token for the resolved runner
+  scope, and `runner/agent-runner.sock` is the default Unix socket path used
+  by scoped runner clients
 - `worktrees/` stores managed task worktrees for that repository scope
 
 ## Machine-Wide Layout
@@ -109,6 +115,9 @@ Notes:
   (v0.4.0 supply-chain hardening). `animus init --update-registry` fetches HEAD and re-pins.
 - `~/.animus/plugins/` is the install target for `animus plugin install --path` and
   `animus plugin install --url --sha256`.
+- On Unix, if the scoped runner socket path would exceed the platform limit,
+  Animus shortens it into `/tmp/ao-runner/<hash>/` and writes
+  `origin-path.txt` there as a breadcrumb back to the canonical runner dir.
 
 ### Agent-host skill probes
 
@@ -155,6 +164,8 @@ Use Animus commands or Animus MCP tools instead.
 | `~/.animus/<repo-scope>/workflow.db` | Persisted workflows, tasks, requirements, checkpoints |
 | `~/.animus/<repo-scope>/config/state-machines.v1.json` | Repo-scoped state-machine config |
 | `~/.animus/<repo-scope>/logs/events.jsonl` | Redacted structured runtime event log |
+| `~/.animus/<repo-scope>/runner/config.json` | Runner-scope config, including `agent_runner_token` |
+| `~/.animus/<repo-scope>/runner/agent-runner.sock` | Default scoped Unix runner socket path |
 | `~/.animus/<repo-scope>/state/pack-selection.v1.json` | Repo-scoped pack selection state |
 | `~/.animus/packs/<pack-id>/<version>/` | Machine-installed pack root |
 | `~/.animus/packs/animus.core-skills/<version>/` | Bundled core skill catalog (installed pack) |

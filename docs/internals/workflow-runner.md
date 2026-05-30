@@ -1,6 +1,8 @@
 # Workflow Runner Internals
 
-The `workflow-runner` crate provides both a library and a standalone binary (`animus-workflow-runner`; the v0.4.x name `ao-workflow-runner` is retained as a back-compat symlink). It executes workflow phases by coordinating with the agent runner and managing the workflow lifecycle.
+The `workflow-runner-v2` crate provides both a library and the standalone
+`animus-workflow-runner` binary. It executes workflow phases by coordinating
+with the agent runner and managing the workflow lifecycle.
 
 ## YAML Resolution
 
@@ -15,7 +17,8 @@ The configuration crate (`orchestrator-config`) handles YAML parsing, variable e
 
 ## Phase Execution Loop
 
-The main execution function (`workflow_execute.rs`) iterates through the resolved phase plan:
+The main execution function (`workflow_execute.rs`) iterates through the
+resolved phase plan:
 
 ```
 for each phase in phase_plan:
@@ -63,7 +66,11 @@ When a phase fails, the runner checks whether rework is allowed:
 
 ## IPC Client
 
-The workflow runner connects to the agent runner via the IPC client defined in `crates/workflow-runner/src/ipc.rs`. The connection flow:
+The workflow runner connects to the agent runner via the IPC client defined in
+`crates/workflow-runner-v2/src/ipc.rs`.
+By default, that client resolves its config dir to
+`~/.animus/<repo-scope>/runner/` and then connects/authenticates using the
+token from `runner/config.json`. The connection flow:
 
 1. Connect to the agent runner's Unix domain socket (or TCP on Windows)
 2. Authenticate with a token-based handshake
@@ -73,7 +80,8 @@ The workflow runner connects to the agent runner via the IPC client defined in `
 
 ## Runtime Contract Construction
 
-The runtime contract builder (`crates/workflow-runner/src/executor/runtime_contract_builder.rs`) assembles the parameters sent to the agent:
+The runtime contract is assembled inside `workflow-runner-v2` before the agent
+request is sent:
 
 - **Tool** -- Which CLI tool to use (claude, codex, gemini, opencode), resolved from phase config or agent profile
 - **Model** -- Which LLM model to target, with cascade: phase runtime override > agent profile > compiled defaults
@@ -81,7 +89,9 @@ The runtime contract builder (`crates/workflow-runner/src/executor/runtime_contr
 - **Variables** -- Workflow-level and phase-level variables merged together
 - **Capabilities** -- Read-only flags, response schema flags, and other tool-specific capabilities
 
-The `PhaseTargetPlanner` handles tool/model selection with fallback logic, including the `enforce_write_capable_phase_target` check that redirects non-editing tools to a write-capable fallback for implementation phases.
+The `PhaseTargetPlanner` handles tool/model selection with fallback logic,
+including the `enforce_write_capable_phase_target` check that redirects
+non-editing tools to a write-capable fallback for implementation phases.
 
 ## Post-Success Actions
 

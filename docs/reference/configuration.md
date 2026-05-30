@@ -35,6 +35,7 @@ Key files:
 - `config/state-machines.v1.json`
 - `state/pack-selection.v1.json`
 - `daemon/pm-config.json`
+- `runner/config.json`
 - `resume-config.json`
 
 These files are Animus-managed state. Treat them as runtime data, not hand-authored config.
@@ -211,7 +212,7 @@ legacy aliases; the old names will not be read.
 | Variable | Description |
 |---|---|
 | `ANIMUS_CONFIG_DIR` | Override the global Animus config directory (default `~/.animus`) |
-| `ANIMUS_RUNNER_CONFIG_DIR` | Override the runner config directory |
+| `ANIMUS_RUNNER_CONFIG_DIR` | Override the runner config directory. Without it, the CLI resolves runner config under `~/.animus/<repo-scope>/runner/` |
 | `ANIMUS_RUNNER_SCOPE` | Runner scope identifier. Defaults to the repo-scope derived from the project root |
 | `ANIMUS_MCP_SCHEMA_DRAFT` | Select Draft-07 MCP tool input schemas |
 | `ANIMUS_MCP_ENDPOINT` | Override the MCP server endpoint for the CLI's embedded client |

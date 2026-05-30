@@ -6,7 +6,8 @@ logic lives in:
 
 - `crates/workflow-runner-v2/src/phase_targets.rs`
 - `crates/protocol/src/model_routing.rs`
-- `crates/orchestrator-config/config/agent-runtime-config.v2.json`
+- `crates/orchestrator-config/src/agent_runtime_config.rs`
+- `.animus/workflows.yaml` or `.animus/workflows/*.yaml`
 
 ## How Primary Target Resolution Works
 
@@ -23,8 +24,10 @@ Animus derives it from the chosen model id.
 
 ## Current Built-In Defaults
 
-The shipped `agent-runtime-config.v2.json` currently leaves `phase_routing`
-unset, so there is no built-in complexity table in the live code path.
+The built-in fallback compiled from
+`crates/orchestrator-config/config/agent-runtime-config.v2.json` currently
+leaves `phase_routing` unset, so there is no built-in complexity table in the
+live code path.
 
 That means:
 
@@ -33,12 +36,15 @@ That means:
   defaults you actually see in task, requirement, and review workflows.
 - Task, requirement, and review pack overlays currently pin their runtime
   phases to `claude-sonnet-4-6` unless you override them.
+- The editable project source of truth is workflow YAML, not a repo-scoped
+  `agent-runtime-config.v2.json` file.
 
 ## Config Cascade
 
 The first matching source wins:
 
-1. Workflow or pack phase runtime override
+1. Workflow or pack phase runtime override authored in `.animus/workflows.yaml`
+   or `.animus/workflows/*.yaml`
 2. Resolved agent runtime config (`animus workflow agent-runtime get`)
 3. Built-in fallback in the phase target planner
 
@@ -59,7 +65,8 @@ animus workflow agent-runtime validate
 ```
 
 If you prefer to replace the runtime as structured JSON, `animus workflow
-agent-runtime set` accepts the compiled schema directly:
+agent-runtime set` accepts the compiled schema directly and writes it back into
+project workflow YAML:
 
 ```json
 {

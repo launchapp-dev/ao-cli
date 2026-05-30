@@ -4,12 +4,16 @@ Centralized configuration loading, validation, and compilation for Animus runtim
 
 ## Overview
 
-`orchestrator-config` is the schema and file-management crate for Animus configuration. It owns two core config domains:
+`orchestrator-config` is the schema and file-management crate for Animus
+configuration. It owns two core config domains:
 
 - `agent-runtime-config.v2.json`
 - `workflow-config.v2.json`
 
-It also supports YAML workflow authoring under `.animus/workflows.yaml` and `.animus/workflows/`, compiling those sources into the current JSON workflow config format when needed.
+Those schema ids remain the normalized internal config shapes, but the live
+project authoring surface is YAML under `.animus/workflows.yaml` and
+`.animus/workflows/`. Legacy repo-scoped JSON workflow/runtime config files are
+no longer the supported source of truth.
 
 ## Targets
 
@@ -69,7 +73,8 @@ graph TD
 - retry and backoff configuration
 - output and decision contracts
 
-It also provides the load, ensure, hash, and write helpers for the v2 runtime config file.
+It also provides the load, ensure, hash, and write helpers for the resolved v2
+runtime config model, sourced from workflow YAML or the built-in fallback.
 
 ### Workflow config
 
@@ -89,9 +94,15 @@ It also provides the load, ensure, hash, and write helpers for the v2 runtime co
 
 ## File conventions
 
-- JSON workflow config lives under the scoped Animus state root in `state/workflow-config.v2.json`.
-- YAML workflow sources are loaded from `.animus/workflows.yaml` and `.animus/workflows/*.yaml`.
-- Agent runtime config lives under the scoped Animus state root in `state/agent-runtime-config.v2.json`.
+- Workflow and agent runtime authoring lives in `.animus/workflows.yaml` and
+  `.animus/workflows/*.yaml`.
+- `load_workflow_config_with_metadata()` resolves from workflow YAML, installed
+  packs, and built-in defaults.
+- `load_agent_runtime_config_with_metadata()` resolves runtime config from the
+  same workflow YAML surface and falls back to the built-in compiled config when
+  needed.
+- Legacy repo-scoped JSON config files such as `state/workflow-config.v2.json`
+  are no longer the supported live config path.
 
 ## Workspace dependencies
 

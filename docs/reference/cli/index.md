@@ -186,7 +186,7 @@ animus
 │   ├── browse               Browse the public Animus plugin registry, grouped by kind
 │   ├── update               Update one or all installed release-source plugins to the latest tag
 │   ├── install-defaults     Install the standard set of provider plugins from public GitHub releases (claude, codex, gemini, opencode, oai). Skips plugins that are already installed. Optional flags pull in additional default plugins
-│   └── lock
+│   └── lock                 Inspect and verify the plugin lockfile (`.animus/plugins.lock`). The lockfile records sha256 + version for every installed plugin so an `install --force` or tampered-binary scenario is visible to operators
 │       ├── list             List entries recorded in the plugin lockfile
 │       └── verify           Re-hash installed plugin binaries and report lockfile mismatches
 │

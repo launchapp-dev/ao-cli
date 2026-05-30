@@ -1,33 +1,48 @@
 # Model Routing Guide
 
-Animus automatically selects which AI model and CLI tool to use for each workflow phase. This guide explains the routing logic and how to override it.
+Animus selects a `(tool, model)` pair for each agent phase from the resolved
+agent runtime config plus any workflow or pack overrides. The current planner
+logic lives in:
 
-## Default Model Assignments
+- `crates/workflow-runner-v2/src/phase_targets.rs`
+- `crates/protocol/src/model_routing.rs`
+- `crates/orchestrator-config/config/agent-runtime-config.v2.json`
 
-The compiled defaults route models based on phase type and task complexity:
+## How Primary Target Resolution Works
 
-| Phase Type | Low Complexity | Medium Complexity | High Complexity |
-|------------|----------------|-------------------|-----------------|
-| **Implementation** | zai-coding-plan/glm-5 | claude-sonnet-4-6 | claude-sonnet-4-6 |
-| **Code Review** | claude-sonnet-4-6 | claude-sonnet-4-6 | claude-opus-4-6 |
-| **Requirements** | minimax/MiniMax-M2.5 | claude-sonnet-4-6 | claude-sonnet-4-6 |
-| **Testing** | minimax/MiniMax-M2.5 | claude-sonnet-4-6 | claude-sonnet-4-6 |
-| **Research** | gemini-2.5-flash-lite | gemini-2.5-flash-lite | gemini-2.5-flash-lite |
-| **UI-UX / Design** | gemini-3.1-pro-preview | gemini-3.1-pro-preview | gemini-3.1-pro-preview |
+The phase target planner resolves the primary execution target in this order:
+
+1. Per-phase override in `phase_routing.per_phase.<PHASE_KEY>`
+2. Phase-family override for UI/UX phases via `phase_routing.ui_ux_*`
+3. Phase-family override for research phases via `phase_routing.research_*`
+4. Global override via `phase_routing.global_*`
+5. Built-in fallback: `claude-sonnet-4-6`
+
+Tool resolution follows the same precedence. If no tool is explicitly set,
+Animus derives it from the chosen model id.
+
+## Current Built-In Defaults
+
+The shipped `agent-runtime-config.v2.json` currently leaves `phase_routing`
+unset, so there is no built-in complexity table in the live code path.
+
+That means:
+
+- The generic built-in primary model fallback is `claude-sonnet-4-6`.
+- Bundled packs and project workflow overlays provide the phase-specific
+  defaults you actually see in task, requirement, and review workflows.
+- Task, requirement, and review pack overlays currently pin their runtime
+  phases to `claude-sonnet-4-6` unless you override them.
 
 ## Config Cascade
 
-Model selection follows a three-level cascade. The first match wins:
+The first matching source wins:
 
-```
-1. phase/agent YAML override     (project workflow YAML)
-2. resolved agent runtime config (computed from YAML + bundled defaults)
-3. compiled defaults             (protocol/src/model_routing.rs)
-```
+1. Workflow or pack phase runtime override
+2. Resolved agent runtime config (`animus workflow agent-runtime get`)
+3. Built-in fallback in the phase target planner
 
-### Level 1: Per-Phase Override in Workflow YAML
-
-Set the model directly on an agent in your workflow YAML:
+Set the model directly on an agent or phase in workflow YAML:
 
 ```yaml
 agents:
@@ -36,27 +51,15 @@ agents:
     tool: claude
 ```
 
-This takes highest precedence.
-
-### Level 2: Resolved Agent Runtime
-
-Animus resolves agent runtime from the authored workflow YAML under `.animus/workflows.yaml` and `.animus/workflows/*.yaml`, merged with bundled defaults. You can inspect the effective runtime with:
+Or inspect the resolved runtime:
 
 ```bash
 animus workflow agent-runtime get
 animus workflow agent-runtime validate
 ```
 
-The resolved payload includes the source path and the merged agent definitions. A minimal authored override still looks like this in YAML:
-
-```yaml
-agents:
-  default:
-    model: claude-sonnet-4-6
-    tool: claude
-```
-
-If you prefer to replace the runtime as structured JSON, `animus workflow agent-runtime set` still accepts the compiled schema directly:
+If you prefer to replace the runtime as structured JSON, `animus workflow
+agent-runtime set` accepts the compiled schema directly:
 
 ```json
 {
@@ -69,7 +72,7 @@ If you prefer to replace the runtime as structured JSON, `animus workflow agent-
 }
 ```
 
-Set these fields to `null` to let compiled defaults take over when using the JSON setter:
+Set these fields to `null` to fall back to the planner defaults:
 
 ```json
 {
@@ -82,79 +85,89 @@ Set these fields to `null` to let compiled defaults take over when using the JSO
 }
 ```
 
-### Level 3: Compiled Defaults
+## Fallback Models
 
-The function `default_primary_model_for_phase()` in `crates/protocol/src/model_routing.rs` contains the hardcoded routing table shown above. These apply when neither the workflow YAML nor the agent runtime config specifies a model.
+Fallback targets are assembled in this order:
+
+1. The primary `(tool, model)` pair
+2. Explicit `fallback_models` from the active phase runtime
+3. `phase_routing.per_phase.<PHASE_KEY>.fallback_models`
+4. `phase_routing.ui_ux_fallback_models` for UI/UX phases
+5. `phase_routing.research_fallback_models` for research phases
+6. `phase_routing.global_fallback_models`
+
+Every fallback model is normalized through `canonical_model_id()`, deduplicated,
+and then mapped to a tool automatically unless you provide explicit
+`fallback_tools`.
+
+Example:
+
+```yaml
+agents:
+  swe:
+    model: claude-sonnet-4-6
+    fallback_models:
+      - gpt-5.4
+      - gemini-2.5-pro
+```
+
+## Complexity Note
+
+Task complexity is still tracked and passed through workflow execution, but the
+current phase target planner does not choose different primary models based on
+low/medium/high complexity. Older docs that showed a compiled complexity routing
+table no longer reflect the live code.
 
 ## Tool Assignment
 
-Each model maps to a CLI tool. The mapping is determined by model name prefix:
+Tool inference comes from `tool_for_model_id()` in
+`crates/protocol/src/model_routing.rs`:
 
-| Model prefix | CLI Tool | Required API Key |
-|-------------|----------|-----------------|
-| `claude-*` | `claude` | `ANTHROPIC_API_KEY` |
-| `gpt-*` | `codex` | `OPENAI_API_KEY` |
-| `gemini-*` | `gemini` | `GEMINI_API_KEY` or `GOOGLE_API_KEY` |
-| `zai-*`, `minimax-*`, `glm-*` | `oai-runner` | `MINIMAX_API_KEY`, `ZAI_API_KEY`, or `OPENAI_API_KEY` |
-| `deepseek-*`, `qwen-*` | `opencode` | Multiple keys supported |
+| Model family | CLI tool |
+|-------------|----------|
+| `claude-*` | `claude` |
+| `gpt-*` | `codex` |
+| `gemini-*` | `gemini` |
+| `zai-*`, `glm-*`, `minimax-*`, `openrouter/*` | `oai-runner` |
+| `deepseek-*`, `qwen-*`, `opencode*` | `opencode` |
 
-You can check model and API key status:
+You can inspect the tool defaults directly in code:
+
+- `claude` -> `claude-sonnet-4-6`
+- `codex` -> `gpt-5.4`
+- `gemini` -> `gemini-2.5-pro`
+- `opencode` -> `zai-coding-plan/glm-5`
+- `oai-runner` -> `openrouter/minimax/minimax-m2.7`
+
+## Write-Capable Tools
+
+The current `tool_supports_repository_writes()` implementation marks these tools
+as write-capable:
+
+- `claude`
+- `codex`
+- `gemini`
+- `opencode`
+- `oai-runner`
+
+## Environment Variables
+
+Model/tool validation is provider-specific. Check the effective environment with:
 
 ```bash
 animus model status
 animus model availability
+animus model roster refresh
+animus model roster get
 ```
 
-## Write-Capable Tools
-
-Not all tools support repository writes. The write-capable tools are:
-
-- `claude`
-- `codex`
-- `opencode`
-- `oai-runner`
-
-The `gemini` tool is not write-capable. Animus redirects non-write-capable tools to
-a write-capable fallback for implementation-style phases. Use Gemini on
-read-only or research phases by configuring those phases to use Gemini
-explicitly in workflow YAML or pack content.
-
-## Fallback Models
-
-When the primary model fails, Animus tries fallback models in order. Fallbacks vary by phase type and complexity. For example, a medium-complexity implementation phase falls back through:
-
-1. zai-coding-plan/glm-5
-2. minimax/MiniMax-M2.5
-3. gemini-3.1-pro-preview
-4. gpt-5.3-codex
-
-## Environment Variables
-
-| Variable | Effect |
-|----------|--------|
-| `ANTHROPIC_API_KEY` | Required for claude tool |
-| `OPENAI_API_KEY` | Required for codex tool |
-| `GEMINI_API_KEY` / `GOOGLE_API_KEY` | Required for gemini tool |
-| `MINIMAX_API_KEY` / `ZAI_API_KEY` | Required for oai-runner tool |
-
-## Validating Model Selection
-
-Check whether a model is valid and available:
+Validate a specific model id:
 
 ```bash
 animus model validate --model claude-sonnet-4-6
 ```
 
-Refresh the model roster:
-
-```bash
-animus model roster refresh
-animus model roster get
-```
-
-## Agent Runtime Config Commands
-
-Read, validate, and set the resolved agent runtime:
+## Agent Runtime Commands
 
 ```bash
 animus workflow agent-runtime get

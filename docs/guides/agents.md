@@ -78,7 +78,7 @@ Use workflows to execute work for a task, a requirement, or a freeform title.
 { "task_id": "TASK-001" }
 
 // Sync execution in-process (animus.workflow.execute)
-{ "task_id": "TASK-001", "phase": "implementation", "model": "gpt-5" }
+{ "task_id": "TASK-001", "phase": "implementation", "model": "gpt-5.4" }
 
 // Requirement-linked execution
 { "requirement_id": "REQ-001", "workflow_ref": "standard-workflow" }
@@ -146,7 +146,7 @@ Runner tools are operational checks:
 Direct agent controls:
 
 ```json
-{ "tool": "codex", "model": "gpt-5", "prompt": "Investigate the flaky test" }
+{ "tool": "codex", "model": "gpt-5.4", "prompt": "Investigate the flaky test" }
 { "run_id": "run-abc123", "action": "terminate" }
 ```
 

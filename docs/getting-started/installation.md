@@ -5,7 +5,7 @@ for release notes and
 [`docs/migration/v0.4.11-to-v0.4.12.md`](../migration/v0.4.11-to-v0.4.12.md)
 if you are upgrading from an earlier v0.4.x.
 
-> **v0.4.12 changed the first-run flow.** The daemon no longer ships with
+> **Since v0.4.12, the first-run flow is plugin-first.** The daemon no longer ships with
 > bundled providers or subject backends. After installing the `animus`
 > binary you must run `animus plugin install-defaults --include-subjects --include-transports`
 > once before `animus daemon start` will boot. The command is idempotent and
@@ -92,7 +92,7 @@ cargo run -p orchestrator-cli -- --help
 ```bash
 animus --version
 animus doctor
-animus daemon preflight     # v0.4.12: checks that required plugins are installed
+animus daemon preflight     # checks that required plugins are installed
 ```
 
 Run `animus doctor` inside a git repository to verify the local environment
@@ -102,7 +102,7 @@ exact `animus plugin install ...` fix command for each gap.
 
 ## Install Plugins
 
-Animus v0.4.12 ships a slim core; providers, subject backends, triggers, and
+Animus ships a slim core; providers, subject backends, triggers, and
 log sinks all install as out-of-tree plugins from public GitHub repos.
 
 **Recommended (one command):**

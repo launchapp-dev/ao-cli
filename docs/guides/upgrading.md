@@ -18,7 +18,7 @@ curl -fsSL https://raw.githubusercontent.com/launchapp-dev/animus-cli/main/scrip
 # 3. Verify the binary
 animus --version
 
-# 4. Run daemon preflight to surface any new plugin requirements (v0.4.12+)
+# 4. Run daemon preflight to surface any new plugin requirements
 animus daemon preflight
 
 # 5. Install or update plugins as the preflight output requests

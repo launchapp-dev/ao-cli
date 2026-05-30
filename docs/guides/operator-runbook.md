@@ -5,7 +5,7 @@ Audience: operators running Animus in production.
 This runbook covers healthchecks, common failure scenarios with
 remediations, debug procedures, backup/restore, upgrades, and disaster
 recovery. Every command in this guide is copy-pasteable against a
-v0.4.12+ install.
+current v0.4.x install.
 
 For the upgrade procedure itself, see
 [`docs/migration/v0.4.11-to-v0.4.12.md`](../migration/v0.4.11-to-v0.4.12.md)

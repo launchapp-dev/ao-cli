@@ -1,6 +1,7 @@
 mod agent_types;
 mod daemon_types;
 mod doctor_types;
+mod flavor_types;
 mod git_types;
 mod history_types;
 mod init_types;
@@ -25,6 +26,7 @@ mod workflow_types;
 pub(crate) use agent_types::*;
 pub(crate) use daemon_types::*;
 pub(crate) use doctor_types::*;
+pub(crate) use flavor_types::*;
 pub(crate) use git_types::*;
 pub(crate) use history_types::*;
 pub(crate) use init_types::*;

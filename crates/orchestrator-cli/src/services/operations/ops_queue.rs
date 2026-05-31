@@ -200,6 +200,15 @@ pub(crate) async fn handle_queue(
             }
             print_value(result, true)
         }
+        // TODO(codex-p2): when a queue plugin is installed, route
+        // Hold/Release/Drop/Reorder through the plugin too. The CLI
+        // currently accepts subject_id; the plugin protocol takes
+        // entry_id, so the routing layer needs to look up the entry
+        // via `queue/list` filtered by subject_id and then invoke
+        // hold/release/drop/reorder with the resolved entry_id.
+        // Deferred from Wave 3 to v0.5.x alongside the `queue/lease`
+        // migration to keep this Wave's diff focused on the dispatch
+        // hot path + enqueue/list/stats consistency.
         QueueCommand::Hold(args) => {
             if json {
                 if let Some(()) = try_queue_hold_via_control(project_root, &args.subject_id).await? {

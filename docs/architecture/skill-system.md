@@ -18,9 +18,8 @@ reverse, so the first match wins. The chain is:
 | 2 | `User` | High | `~/.animus/skills/`, `~/.animus/config/skill_definitions/` |
 | 3a | `Installed { registry, source, version, integrity, artifact }` | High | Pack `[skills]` contributions and registry-tracked installs from `animus skill install` |
 | 3b | `Installed` (registry snapshots) | High | `~/.animus/<scope>/state/skills-registry.v1.json` |
-| 4 | `Builtin` | High (legacy fallback) | `BUILTIN_SKILL_YAMLS` compiled into the binary |
-| 5a | `AgentHost { host, scope: Project }` | **Prompt-text-only** | `<project>/.claude/skills/`, `<project>/.codex/skills/`, ... |
-| 5b (lowest) | `AgentHost { host, scope: Global }` | **Prompt-text-only** | `~/.claude/skills/`, `~/.codex/skills/`, ... |
+| 4a | `AgentHost { host, scope: Project }` | **Prompt-text-only** | `<project>/.claude/skills/`, `<project>/.codex/skills/`, ... |
+| 4b (lowest) | `AgentHost { host, scope: Global }` | **Prompt-text-only** | `~/.claude/skills/`, `~/.codex/skills/`, ... |
 
 Trust-tier semantics are enforced at load time. See "Two-tier trust model" below.
 
@@ -42,21 +41,18 @@ drops a `.migrated-from-ao` marker so the warning stops firing, and removes
 the now-empty legacy directory. It refuses to clobber a non-empty
 `.animus/skills/` that lacks the marker — operators must merge manually.
 
-### Builtin fallback (v0.3 → v0.4)
+### Builtin fallback removal
 
-The 19 bundled skill YAMLs (27 names counting alias re-exports) used to ship as
-`include_str!`-compiled constants in `BUILTIN_SKILL_YAMLS`. v0.4 repackages
-them as an installable pack called `animus.core-skills` that `animus init` and
-the onboarding flow auto-install. `BUILTIN_SKILL_YAMLS` stays in the binary as a
-fallback so existing v0.3 projects continue to resolve every catalog skill
-even before they re-run init. A follow-up release will retire the fallback
-once `animus.core-skills` is universal.
+Earlier v0.4 builds carried a legacy built-in skill fallback and bundled-pack
+install path for `animus.core-skills`. Current builds removed that fallback.
+Skills now resolve only from installed packs, registry-tracked installs,
+project/user scopes, and prompt-text-only agent-host probes.
 
 ## Two-tier trust model
 
 `SkillSourceOrigin` splits skills into two trust tiers:
 
-### High trust (`Project`, `User`, `Installed`, `Builtin`)
+### High trust (`Project`, `User`, `Installed`)
 
 These sources may contribute every field of `SkillDefinition`:
 
@@ -183,32 +179,13 @@ into the in-memory `SkillDefinition`, but `strip_structural_fields_for_agent_hos
 clears them before the skill leaves `load_skill_sources`. The trust boundary
 trumps the namespace shape.
 
-## `animus.core-skills` pack
+## Pack-supplied skills
 
-The bundled skill catalog ships as a pack at
-`crates/orchestrator-config/config/bundled-packs/animus.core-skills/`:
-
-```
-animus.core-skills/
-├── pack.toml         # [skills] section, no [workflows]
-└── skills/
-    ├── api-documentation.yaml
-    ├── architecture-review.yaml
-    ├── changelog-generation.yaml
-    ├── ... (19 unique YAMLs)
-    └── unit-testing.yaml
-```
-
-The pack manifest declares 8 aliases under `[skills.aliases]` so `testing`,
-`queue-management`, `scheduling`, `risk-management`, `vision-alignment`,
-`requirements-management`, `acceptance-criteria`, and `deliverable-validation`
-all resolve to existing YAML files. The pack registry emits the 27-name set
-to `load_skill_sources` as `SkillSourceOrigin::Installed { registry: "bundled", source: "animus.core-skills", version: "0.1.0", ... }`.
-
-`animus init` auto-installs the pack via
-`ensure_bundled_pack_installed("animus.core-skills")` and pin it in
-`.animus/state/pack-selection.v1.json` so the resolver picks it up on the
-next workflow run.
+Installed packs can contribute skill definitions through their `[skills]`
+manifest sections. Those entries resolve as `SkillSourceOrigin::Installed`
+with provenance describing the registry, source, version, integrity, and
+artifact path. Current builds no longer materialize pack content from
+in-repo bundled assets during `animus init`.
 
 ## Implementation map
 
@@ -220,5 +197,3 @@ next workflow run.
   `resolve_skills_for_project`, `list_available_skills`.
 - `crates/orchestrator-config/src/pack_config/types.rs` — `PackSkills` manifest
   shape and the optional `workflows`/`skills` invariant.
-- `crates/orchestrator-config/config/bundled-packs/animus.core-skills/` — the
-  bundled core-skills pack content.

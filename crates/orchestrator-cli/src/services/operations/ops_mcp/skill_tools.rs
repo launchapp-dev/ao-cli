@@ -15,9 +15,10 @@ use super::*;
 pub(super) struct SkillListInput {
     #[serde(default)]
     project_root: Option<String>,
-    /// Optional source filter. Accepts: "builtin", "installed", "user",
-    /// "project", "agent_host" (matches any agent-host source), or an
-    /// agent host id like "claude-code", "codex", "cursor".
+    /// Optional source filter. Accepts: "installed", "user", "project",
+    /// "agent_host" (matches any agent-host source), or an agent host id
+    /// like "claude-code", "codex", "cursor". "builtin" is kept as a
+    /// backward-compatible filter but current builds do not emit builtin rows.
     #[serde(default)]
     source: Option<String>,
 }
@@ -183,7 +184,7 @@ impl AoMcpServer {
 impl AoMcpServer {
     #[tool(
         name = "animus.skill.list",
-        description = "List Animus skills discoverable from this project across every source: bundled built-ins, the `animus.core-skills` pack and other installed packs, registry-tracked installs, user-scoped (~/.animus/skills), project-scoped (.animus/skills), and agent-host probes (~/.claude/skills/, ~/.codex/skills/, etc.). Optional `source` filter accepts \"builtin\", \"installed\", \"user\", \"project\", \"agent_host\", or a host id like \"claude-code\". Each result carries provenance via `source` + `source_detail` so callers can reason about trust tier.",
+        description = "List Animus skills discoverable from this project across every source: installed packs, registry-tracked installs, user-scoped (~/.animus/skills), project-scoped (.animus/skills), and agent-host probes (~/.claude/skills/, ~/.codex/skills/, etc.). Optional `source` filter accepts \"installed\", \"user\", \"project\", \"agent_host\", or a host id like \"claude-code\". \"builtin\" remains accepted as a backward-compatible filter, but current builds do not emit builtin rows. Each result carries provenance via `source` + `source_detail` so callers can reason about trust tier.",
         input_schema = ao_schema_for_type::<SkillListInput>()
     )]
     async fn ao_skill_list(&self, params: Parameters<SkillListInput>) -> Result<CallToolResult, McpError> {
@@ -204,7 +205,7 @@ impl AoMcpServer {
 
     #[tool(
         name = "animus.skill.get",
-        description = "Resolve a skill by name and return its full SkillDefinition plus source provenance. Resolution honors the priority chain: project > user > installed/pack > builtin > agent-host. Returns the parsed definition (prompt, tool_policy, model, mcp_servers, capabilities, adapters, tags, etc.) under `definition`. For agent-host sources, structural fields are stripped at parse time and a `notice` field warns that only prompt text is trusted.",
+        description = "Resolve a skill by name and return its full SkillDefinition plus source provenance. Resolution honors the priority chain: project > user > installed/pack > agent-host. Returns the parsed definition (prompt, tool_policy, model, mcp_servers, capabilities, adapters, tags, etc.) under `definition`. For agent-host sources, structural fields are stripped at parse time and a `notice` field warns that only prompt text is trusted.",
         input_schema = ao_schema_for_type::<SkillGetInput>()
     )]
     async fn ao_skill_get(&self, params: Parameters<SkillGetInput>) -> Result<CallToolResult, McpError> {
@@ -326,6 +327,7 @@ mod skill_tool_tests {
     }
 
     #[tokio::test]
+    #[ignore = "depends on removed bundled skill catalog; restore only if tests install a pack-backed fixture explicitly"]
     async fn skill_list_returns_bundled_catalog() {
         let (_home, _guard) = isolated_home();
         let project = TempDir::new().expect("project tempdir");
@@ -337,9 +339,9 @@ mod skill_tool_tests {
             .expect("list should succeed");
         let payload = data(&result);
         let count = payload.pointer("/count").and_then(Value::as_u64).expect("count present");
-        // The bundled `animus.core-skills` catalog ships 27 entries (19 unique +
-        // alias re-exports). When the pack is installed those surface as
-        // `installed`; otherwise the legacy built-in fallback contributes them.
+        // Historical reference: the former `animus.core-skills` catalog shipped
+        // 27 entries (19 unique + alias re-exports). If a future fixture
+        // materializes that pack again, it should resolve through `installed`.
         assert!(count >= 27, "expected >=27 skills in default project (got {count})");
         let skills = payload.pointer("/skills").and_then(Value::as_array).expect("skills array");
         assert!(skills.iter().any(|skill| skill.get("name").and_then(Value::as_str) == Some("code-review")));
@@ -422,6 +424,7 @@ mod skill_tool_tests {
     }
 
     #[tokio::test]
+    #[ignore = "depends on removed bundled skill catalog; restore only if tests install a pack-backed fixture explicitly"]
     async fn skill_get_returns_full_definition_for_code_review() {
         let (_home, _guard) = isolated_home();
         let project = TempDir::new().expect("project tempdir");
@@ -434,7 +437,7 @@ mod skill_tool_tests {
         let payload = data(&result);
         let definition = payload.pointer("/definition").expect("definition payload");
         assert_eq!(definition.get("name").and_then(Value::as_str), Some("code-review"));
-        // Structural fields from the bundled YAML must flow through on a trusted source.
+        // Structural fields from a trusted installed skill must flow through.
         assert!(
             definition.get("tool_policy").is_some_and(|policy| !policy.is_null()),
             "code-review tool_policy must be present"
@@ -462,6 +465,7 @@ mod skill_tool_tests {
     }
 
     #[tokio::test]
+    #[ignore = "depends on removed bundled skill catalog; restore only if tests install a pack-backed fixture explicitly"]
     async fn skill_search_finds_by_substring_in_name() {
         let (_home, _guard) = isolated_home();
         let project = TempDir::new().expect("project tempdir");
@@ -487,6 +491,7 @@ mod skill_tool_tests {
     }
 
     #[tokio::test]
+    #[ignore = "depends on removed bundled skill catalog; restore only if tests install a pack-backed fixture explicitly"]
     async fn skill_search_respects_limit_and_marks_truncated() {
         let (_home, _guard) = isolated_home();
         let project = TempDir::new().expect("project tempdir");

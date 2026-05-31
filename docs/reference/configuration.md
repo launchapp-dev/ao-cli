@@ -263,7 +263,7 @@ them from the persisted notification config.
 
 ### Provider plugin tuning
 
-These passthrough variables are read by the bundled provider plugins (claude, codex,
+These passthrough variables are read by the installed provider plugins (claude, codex,
 gemini, opencode) when spawning their underlying CLIs.
 
 | Variable | Description |
@@ -318,6 +318,6 @@ hide broken or missing plugins during daemon startup.
 ## Notes
 
 - Project YAML is the authored workflow surface.
-- Animus no longer ships bundled workflows; a project must author workflows locally or install a pack.
+- Animus still ships built-in workflow defaults and the `hello-world` onboarding template, but bundled pack content and bundled skill fallback were removed.
 - Mutable runtime state lives under `~/.animus/<repo-scope>/`.
 - The daemon schedules and supervises work; workflow and pack content still define behavior.

@@ -55,7 +55,7 @@ Animus still resolves workflows from layered sources:
 1. project pack overrides in `.animus/plugins/`
 2. project YAML in `.animus/workflows.yaml` and `.animus/workflows/*.yaml`
 3. installed packs in `~/.animus/packs/`
-4. bundled workflow and pack content
+4. bundled workflow content compiled into the CLI
 
 State location and workflow resolution are related but different concerns:
 

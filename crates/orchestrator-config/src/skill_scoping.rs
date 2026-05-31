@@ -177,7 +177,6 @@ struct MarkdownSkillAnimusNamespace {
 /// ```text
 /// AgentHost::Global    (lowest priority — prompt-text-only trust tier)
 /// AgentHost::Project   (prompt-text-only trust tier)
-/// Builtin              (legacy fallback; removed once core-skills pack is universal)
 /// Installed            (high trust — pack `[skills]` + registry snapshots)
 /// User                 (~/.animus/skills + config/skill_definitions)
 /// Project              (.animus/skills + .animus/config/skill_definitions; highest priority)
@@ -189,11 +188,6 @@ pub fn load_skill_sources(project_root: &Path, user_config_dir: Option<&Path>) -
     // `load_agent_host_skill_sources` returns Global entries first, then
     // Project entries, matching the lowest-to-highest convention here.
     sources.extend(load_agent_host_skill_sources(project_root));
-
-    // Tier 4: Builtin skills (legacy fallback). Will be removed in a follow-up
-    // PR once every project ships with `animus.core-skills` installed.
-    let builtin = load_builtin_skills()?;
-    sources.push(builtin);
 
     // Tier 3a: Skills declared by active packs via the `[skills]` manifest
     // section. These resolve as `Installed { registry: "bundled" | "installed", ... }`
@@ -877,62 +871,6 @@ fn load_agent_host_skill_sources(project_root: &Path) -> Vec<SkillSource> {
     sources
 }
 
-// The 27-entry table below mirrors the YAML files shipped by the
-// `animus.core-skills` bundled pack (19 unique skills + 8 alias re-exports).
-//
-// Built-ins remain compiled into the binary as a v0.3 fallback: they only
-// surface in `load_skill_sources()` when the `animus.core-skills` pack is not
-// installed. Once the pack is universal we will retire this block; until then
-// it guarantees `animus init`, doctor checks, and CI runs work even if the
-// user has never installed a pack.
-const BUILTIN_SKILL_YAMLS: &[(&str, &str)] = &[
-    ("implementation", include_str!("../config/bundled-packs/animus.core-skills/skills/implementation.yaml")),
-    ("debugging", include_str!("../config/bundled-packs/animus.core-skills/skills/debugging.yaml")),
-    ("refactoring", include_str!("../config/bundled-packs/animus.core-skills/skills/refactoring.yaml")),
-    ("unit-testing", include_str!("../config/bundled-packs/animus.core-skills/skills/unit-testing.yaml")),
-    // These aliases keep existing persona/task references valid until dedicated skill content exists.
-    ("testing", include_str!("../config/bundled-packs/animus.core-skills/skills/unit-testing.yaml")),
-    ("code-review", include_str!("../config/bundled-packs/animus.core-skills/skills/code-review.yaml")),
-    ("deep-search", include_str!("../config/bundled-packs/animus.core-skills/skills/deep-search.yaml")),
-    ("code-analysis", include_str!("../config/bundled-packs/animus.core-skills/skills/code-analysis.yaml")),
-    ("architecture-review", include_str!("../config/bundled-packs/animus.core-skills/skills/architecture-review.yaml")),
-    ("impact-analysis", include_str!("../config/bundled-packs/animus.core-skills/skills/impact-analysis.yaml")),
-    ("technical-writing", include_str!("../config/bundled-packs/animus.core-skills/skills/technical-writing.yaml")),
-    ("api-documentation", include_str!("../config/bundled-packs/animus.core-skills/skills/api-documentation.yaml")),
-    ("task-decomposition", include_str!("../config/bundled-packs/animus.core-skills/skills/task-decomposition.yaml")),
-    ("prioritization", include_str!("../config/bundled-packs/animus.core-skills/skills/prioritization.yaml")),
-    ("queue-management", include_str!("../config/bundled-packs/animus.core-skills/skills/prioritization.yaml")),
-    ("scheduling", include_str!("../config/bundled-packs/animus.core-skills/skills/prioritization.yaml")),
-    ("risk-management", include_str!("../config/bundled-packs/animus.core-skills/skills/impact-analysis.yaml")),
-    ("vision-alignment", include_str!("../config/bundled-packs/animus.core-skills/skills/technical-writing.yaml")),
-    (
-        "requirements-management",
-        include_str!("../config/bundled-packs/animus.core-skills/skills/task-decomposition.yaml"),
-    ),
-    ("acceptance-criteria", include_str!("../config/bundled-packs/animus.core-skills/skills/task-decomposition.yaml")),
-    ("deliverable-validation", include_str!("../config/bundled-packs/animus.core-skills/skills/code-review.yaml")),
-    ("incident-response", include_str!("../config/bundled-packs/animus.core-skills/skills/incident-response.yaml")),
-    ("ci-cd-authoring", include_str!("../config/bundled-packs/animus.core-skills/skills/ci-cd-authoring.yaml")),
-    ("release-management", include_str!("../config/bundled-packs/animus.core-skills/skills/release-management.yaml")),
-    ("pr-summary", include_str!("../config/bundled-packs/animus.core-skills/skills/pr-summary.yaml")),
-    (
-        "changelog-generation",
-        include_str!("../config/bundled-packs/animus.core-skills/skills/changelog-generation.yaml"),
-    ),
-    ("security-audit", include_str!("../config/bundled-packs/animus.core-skills/skills/security-audit.yaml")),
-];
-
-pub fn load_builtin_skills() -> Result<SkillSource> {
-    let mut skills = BTreeMap::new();
-    for (name, yaml) in BUILTIN_SKILL_YAMLS {
-        let mut def: SkillDefinition = serde_yaml::from_str(yaml)
-            .map_err(|e| anyhow::anyhow!("Failed to parse built-in skill '{}': {}", name, e))?;
-        def.name = name.to_string();
-        skills.insert(name.to_string(), def);
-    }
-    Ok(SkillSource { origin: SkillSourceOrigin::Builtin, skills })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1082,30 +1020,6 @@ Check behavior before style.
     }
 
     #[test]
-    fn test_load_builtin_skills() {
-        let source = load_builtin_skills().unwrap();
-        assert_eq!(source.origin, SkillSourceOrigin::Builtin);
-        assert_eq!(source.skills.len(), 27);
-        assert!(source.skills.contains_key("implementation"));
-        assert!(source.skills.contains_key("code-review"));
-        assert!(source.skills.contains_key("deep-search"));
-        assert!(source.skills.contains_key("security-audit"));
-        assert!(source.skills.contains_key("prioritization"));
-        assert!(source.skills.contains_key("testing"));
-        assert!(source.skills.contains_key("queue-management"));
-    }
-
-    #[test]
-    fn test_all_builtin_skills_validate() {
-        use crate::skill_definition::validate_skill_definition;
-        let source = load_builtin_skills().unwrap();
-        for (name, def) in &source.skills {
-            validate_skill_definition(def)
-                .unwrap_or_else(|e| panic!("Built-in skill '{}' failed validation: {}", name, e));
-        }
-    }
-
-    #[test]
     fn test_skill_source_origin_display() {
         assert_eq!(SkillSourceOrigin::Builtin.to_string(), "built-in");
         assert_eq!(
@@ -1134,10 +1048,6 @@ description: Project skill
         write_manifest_yaml(&skill_dir, "proj.yaml", yaml);
 
         let sources = load_skill_sources(tmp.path(), None).unwrap();
-        assert!(sources.len() >= 2);
-        // Builtin is now mid-chain (after AgentHost discoveries) but must
-        // still be present with the bundled catalog.
-        assert!(sources.iter().any(|s| s.origin == SkillSourceOrigin::Builtin));
         let project_source = sources.iter().find(|s| s.origin == SkillSourceOrigin::Project);
         assert!(project_source.is_some());
         assert!(project_source.unwrap().skills.contains_key("proj"));
@@ -1246,58 +1156,6 @@ Prefer borrowing over cloning.
         let installed = load_installed_skill_entries(tmp.path()).unwrap();
         assert_eq!(installed.len(), 1);
         assert_eq!(installed[0].version, "10.0.0");
-    }
-
-    /// Phase 1: the `animus.core-skills` pack must surface the same 27 names
-    /// (19 unique skills + 8 alias re-exports) as the legacy `BUILTIN_SKILL_YAMLS`
-    /// table. This test wires the bundled pack into a temp install root and
-    /// confirms the resolver discovers every name through the pack registry.
-    #[test]
-    fn test_animus_core_skills_pack_resolves_same_names_as_builtin() {
-        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let home = TempDir::new().unwrap();
-        let _home_guard = EnvVarGuard::set("HOME", home.path());
-        let tmp = TempDir::new().unwrap();
-
-        let loaded = crate::pack_config::ensure_bundled_pack_installed("animus.core-skills")
-            .expect("bundled core-skills pack should install");
-        let registry = crate::pack_registry::resolve_pack_registry(tmp.path()).expect("registry should resolve");
-        let entry = registry.resolve("animus.core-skills").expect("core-skills pack should resolve");
-        assert_eq!(entry.version, loaded.manifest.version);
-
-        // The pack-derived sources are emitted as `Installed { source: "animus.core-skills" }`.
-        let pack_sources = load_pack_skill_sources(&registry).expect("pack sources should load");
-        let mut pack_names = std::collections::BTreeSet::new();
-        for source in &pack_sources {
-            for name in source.skills.keys() {
-                pack_names.insert(name.clone());
-            }
-        }
-
-        // Compare against the legacy BUILTIN_SKILL_YAMLS catalog.
-        let builtin = load_builtin_skills().expect("builtin skills load");
-        let builtin_names: std::collections::BTreeSet<String> = builtin.skills.keys().cloned().collect();
-        assert_eq!(pack_names, builtin_names);
-        assert_eq!(pack_names.len(), 27);
-    }
-
-    /// Phase 1 fallback: when the `animus.core-skills` pack is not installed,
-    /// `load_skill_sources` still returns the built-in fallback so existing
-    /// projects continue to resolve every catalog skill.
-    #[test]
-    fn test_load_skill_sources_falls_back_to_builtin_without_core_skills_pack() {
-        let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let home = TempDir::new().unwrap();
-        let _home_guard = EnvVarGuard::set("HOME", home.path());
-        let tmp = TempDir::new().unwrap();
-
-        let sources = load_skill_sources(tmp.path(), None).unwrap();
-        let builtin = sources
-            .iter()
-            .find(|source| source.origin == SkillSourceOrigin::Builtin)
-            .expect("builtin source should be present");
-        assert!(builtin.skills.contains_key("implementation"));
-        assert!(builtin.skills.contains_key("code-review"));
     }
 
     // ----- Phase 2: AgentHost source + two-tier trust model -----

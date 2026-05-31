@@ -165,13 +165,12 @@ rejection remains a CLI-only action.
 
 ## Skills (3 tools)
 
-Discover and inspect skill definitions across every source the project can see: bundled built-ins,
-the `animus.core-skills` pack and other installed packs, registry-tracked installs, user-scoped
-(`~/.animus/skills/`), project-scoped (`.animus/skills/`), and agent-host probes
-(`~/.claude/skills/`, `~/.codex/skills/`, etc.).
+Discover and inspect skill definitions across every source the project can see: installed packs,
+registry-tracked installs, user-scoped (`~/.animus/skills/`), project-scoped (`.animus/skills/`),
+and agent-host probes (`~/.claude/skills/`, `~/.codex/skills/`, etc.).
 
-Each result carries a `source` tag (`"builtin"`, `"installed"`, `"user"`, `"project"`,
-`"agent_host"`) plus a `source_detail` object with provenance. For `installed` sources,
+Each result carries a `source` tag (`"installed"`, `"user"`, `"project"`, `"agent_host"`) plus
+a `source_detail` object with provenance. For `installed` sources,
 `source_detail` includes `registry`, `source`, `version`, `integrity`, and `artifact`. For
 `agent_host` sources, `source_detail` includes `host` (e.g. `"claude-code"`), `scope`
 (`"project"` | `"global"`), `structural_fields_stripped: true`, and `trust_tier: "prompt_text_only"`
@@ -181,8 +180,8 @@ skills, so only prompt text and prompt directives are trusted.
 
 | Tool | Description | Key Parameters |
 |---|---|---|
-| `animus.skill.list` | Enumerate skills across all sources with optional `source` filter | `project_root`, `source` (`builtin` \| `installed` \| `user` \| `project` \| `agent_host` \| host id like `claude-code`) |
-| `animus.skill.get` | Resolve a skill by name and return its full `SkillDefinition` plus provenance. Resolution priority: project > user > installed/pack > builtin > agent-host. Agent-host responses include a `notice` field explaining the structural-field strip | `project_root`, `name` |
+| `animus.skill.list` | Enumerate skills across all sources with optional `source` filter | `project_root`, `source` (`installed` \| `user` \| `project` \| `agent_host` \| host id like `claude-code`; `builtin` is still accepted as a backward-compatible filter but current builds do not emit builtin rows) |
+| `animus.skill.get` | Resolve a skill by name and return its full `SkillDefinition` plus provenance. Resolution priority: project > user > installed/pack > agent-host. Agent-host responses include a `notice` field explaining the structural-field strip | `project_root`, `name` |
 | `animus.skill.search` | Case-insensitive substring match over skill `name`, `description`, and `tags`. Returns the same row shape as `animus.skill.list` plus a `truncated` flag when matches exceed `limit` | `project_root`, `query`, `source`, `limit` (default 50) |
 
 ---

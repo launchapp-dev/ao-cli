@@ -103,7 +103,7 @@ Animus also uses machine-wide directories that are not tied to one repository:
 ├── daemon-events.jsonl
 ├── cli-tracker.json
 ├── packs/
-│   └── <pack-id>/<version>/         # installed packs, including animus.core-skills
+│   └── <pack-id>/<version>/         # installed packs
 ├── plugins/
 │   └── <plugin-name>                # installed STDIO plugin binaries (animus plugin install)
 ├── skills/
@@ -117,9 +117,8 @@ Animus also uses machine-wide directories that are not tied to one repository:
 
 Notes:
 
-- `~/.animus/packs/animus.core-skills/<version>/` ships the bundled skill catalog. When the
-  pack is installed, those skills appear with `source: "installed"`; when it is not,
-  the legacy built-in fallback surfaces them as `source: "builtin"`.
+- `~/.animus/packs/` holds machine-installed packs only. Current builds do not
+  ship bundled pack content or bundled skill fallback.
 - `~/.animus/template-registries/<registry-id>/` is pinned to a specific commit by default
   (v0.4.0 supply-chain hardening). `animus init --update-registry` fetches HEAD and re-pins.
 - `~/.animus/plugins/` is the install target for `animus plugin install --path` and
@@ -180,7 +179,6 @@ Use Animus commands or Animus MCP tools instead.
 | `~/.animus/<repo-scope>/runner/agent-runner.sock` | Default scoped Unix runner socket path |
 | `~/.animus/<repo-scope>/state/pack-selection.v1.json` | Repo-scoped pack selection state |
 | `~/.animus/packs/<pack-id>/<version>/` | Machine-installed pack root |
-| `~/.animus/packs/animus.core-skills/<version>/` | Bundled core skill catalog (installed pack) |
 | `~/.animus/skills/<name>/SKILL.md` | User-scoped Markdown skill |
 | `~/.animus/plugins/<name>` | Installed STDIO plugin binary (`animus plugin install`) |
 | `~/.animus/template-registries/<registry-id>/` | Cached project-template registry (pinned by `.commit`) |

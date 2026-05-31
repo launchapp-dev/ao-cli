@@ -7,7 +7,7 @@ pub use orchestrator_daemon_runtime::{DispatchNotice, DispatchWorkflowStartSumma
 use tracing::warn;
 
 use crate::services::plugin_clients;
-use animus_queue_protocol::{self as queue_proto, QueueListRequest, QueueMarkAssignedRequest};
+use animus_queue_protocol::{QueueLeaseRequest, QueueReleaseRequest};
 
 pub async fn dispatch_queued_entries_via_runner(
     root: &str,
@@ -16,70 +16,53 @@ pub async fn dispatch_queued_entries_via_runner(
 ) -> anyhow::Result<DispatchWorkflowStartSummary> {
     let active_subject_ids = process_manager.active_subject_ids();
 
-    // Wave 3: attempt to source pending entries via the v0.5 `queue` plugin
-    // (`queue/list` + `queue/mark_assigned` is the simplest correct hot-path
-    // wiring; future iterations should switch to the atomic `queue/lease`
-    // per the Brief F handoff state). Fall back to the in-tree
-    // `load_dispatch_queue_state` when no plugin is installed. (The
-    // in-tree path stays per Wave 3 "Out of scope".)
+    // Wave 3 follow-up (issue #240): atomic dispatch via `queue/lease`.
+    // When a v0.5 queue plugin is installed it owns the queue. The
+    // dispatch path previously read pending entries via `queue/list`
+    // and claimed them post-spawn with `queue/mark_assigned`, leaving
+    // a small window between read and claim that another daemon (which
+    // v0.5 explicitly does not support) could exploit to double-claim.
     //
-    // The plugin owns the queue when installed. We:
-    //   1. Read pending entries via `queue/list`.
-    //   2. For each entry we choose to dispatch, immediately call
-    //      `queue/mark_assigned` so the plugin transitions
-    //      pending → assigned. This prevents subsequent ticks (or
-    //      daemon restarts) from re-selecting the same entry, which
-    //      would cause double-dispatch. (Codex P1 fix.)
-    //   3. Suppress the legacy in-tree `mark_dispatch_queue_entry_assigned`
-    //      call on the plugin path — the in-tree queue file is empty
-    //      when the plugin owns the queue, and that call would log a
-    //      spurious assignment-failed warning. We do this by replacing
-    //      the selection_source with a marker the executor honours
-    //      (see `DispatchSelectionSource::DispatchQueue` handling in
-    //      `dispatch_execution.rs`); since v0.5 doesn't have a
-    //      dedicated `PluginQueue` selection-source enum yet, we use
-    //      a separate notice sink that swallows the in-tree
-    //      assignment notice when the plugin handled the entry.
+    // `queue/lease { max, workflow_ids: None }` reads + transitions
+    // pending → assigned atomically and returns the full
+    // `QueueEntry` with `SubjectDispatch` and the plugin-synthesized
+    // `workflow_id`. We:
+    //   1. Lease up to `limit` entries from the plugin (plugin
+    //      synthesizes workflow_ids since the daemon attaches its own
+    //      run identifier after spawn anyway).
+    //   2. Filter out any subjects already active in the process
+    //      manager (the lease still transitioned them on the plugin —
+    //      we release those back to pending so the next tick can
+    //      retry them once they're idle).
+    //   3. Plan the dispatch with the remaining leased entries.
+    //   4. After `execute_dispatch_plan_via_runner` returns, release
+    //      entries whose spawn failed (so they stay eligible for the
+    //      next tick).
     //
-    // TODO(codex-p2): switch to `queue/lease { max, workflow_ids }` per the
-    // dispatch-headroom contract in the Wave 2A Brief F handoff. Lease is
-    // atomic (read+claim in one RPC) so it eliminates the small window
-    // between `queue/list` and `queue/mark_assigned` where a second
-    // daemon (which v0.5 explicitly does NOT support) could double-claim
-    // the same entry.
+    // Falls back to the in-tree `load_dispatch_queue_state` when no
+    // plugin is installed. The in-tree path stays per Wave 3 "Out of
+    // scope".
     let mut planned_starts: Vec<PlannedDispatchStart> = Vec::new();
     let mut plugin_owned_subject_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
-    // Codex R5 [P1]: track `subject_key → entry_id` so we can roll back
-    // the plugin claim via `queue/release` when `spawn_workflow_runner`
-    // fails downstream. Without this, a failed spawn would leave the
-    // entry in `assigned` forever; the in-tree path (which only flipped
-    // `assigned` AFTER a successful spawn) is unaffected.
+    // Track `subject_key → entry_id` so we can roll back claims on
+    // spawn failure (or already-active-subject deferral) via
+    // `queue/release`. Without this, a failed spawn would leave the
+    // entry in `assigned` forever.
     let mut plugin_entry_ids_by_subject_key: std::collections::HashMap<String, String> =
         std::collections::HashMap::new();
+    let mut leased_but_deferred: Vec<String> = Vec::new();
     let mut used_plugin_path = false;
     let project_root_path = std::path::Path::new(root);
-    // Codex R2 P2: request more entries than `limit` so the local
-    // "already-active" / decode-error filters leave headroom on the
-    // tick. Without this, a pool of 5 with 5 active subjects atop the
-    // queue would consume the entire fetch budget and starve any
-    // dispatchable work further down. Multiplier of 4× is a pragmatic
-    // ceiling for v0.5 (the in-tree path filtered the full queue, so
-    // strictly speaking any cap risks starvation — the cap exists to
-    // bound plugin response size on enormous queues; future versions
-    // can switch to `queue/lease` for atomic claim-with-filter).
-    let list_limit = limit.saturating_mul(4).max(limit);
-    let list_req = QueueListRequest {
-        status: vec![queue_proto::status::PENDING.to_string()],
-        limit: Some(list_limit),
-        offset: None,
-    };
-    match plugin_clients::call_queue_list(project_root_path, &list_req).await {
+
+    // Lease atomically. Pass `workflow_ids = None` so the plugin
+    // synthesizes UUIDs; the daemon's `start_subject_workflow` produces
+    // its own workflow id post-spawn, and only that id is the
+    // authoritative one for the run.
+    let lease_req = QueueLeaseRequest { max: limit, workflow_ids: None };
+    match plugin_clients::call_queue_lease(project_root_path, &lease_req).await {
         Ok(Some(response)) => {
             used_plugin_path = true;
-            for entry in response.entries {
-                if planned_starts.len() >= limit {
-                    break;
-                }
+            for entry in response.leased {
                 // Wire-equivalent: the plugin returns the v0.5
                 // `animus_subject_protocol::SubjectDispatch` whose JSON
                 // shape matches the in-tree `protocol::SubjectDispatch`
@@ -90,32 +73,29 @@ pub async fn dispatch_queued_entries_via_runner(
                 let dispatch_value = match serde_json::to_value(&entry.subject_dispatch) {
                     Ok(v) => v,
                     Err(error) => {
-                        warn!(actor = protocol::ACTOR_DAEMON, error = %error, "queue/list returned undecodable subject_dispatch");
+                        warn!(actor = protocol::ACTOR_DAEMON, error = %error, "queue/lease returned undecodable subject_dispatch");
+                        // Release the entry so it goes back to pending.
+                        leased_but_deferred.push(entry.entry_id.clone());
                         continue;
                     }
                 };
                 let dispatch: protocol::SubjectDispatch = match serde_json::from_value(dispatch_value) {
                     Ok(d) => d,
                     Err(error) => {
-                        warn!(actor = protocol::ACTOR_DAEMON, error = %error, "queue/list subject_dispatch shape drift vs in-tree protocol::SubjectDispatch");
+                        warn!(actor = protocol::ACTOR_DAEMON, error = %error, "queue/lease subject_dispatch shape drift vs in-tree protocol::SubjectDispatch");
+                        leased_but_deferred.push(entry.entry_id.clone());
                         continue;
                     }
                 };
                 if active_subject_ids.contains(&dispatch.subject_key()) {
+                    // Subject is already running. Release the entry so
+                    // the next tick can lease it once the subject is
+                    // idle. (Plugin transitioned it to `assigned` as
+                    // part of the lease; we undo that.)
+                    leased_but_deferred.push(entry.entry_id.clone());
                     continue;
                 }
 
-                // Codex R10 [P1]: do NOT claim the entry on the plugin
-                // here. The previous in-tree path called
-                // `mark_dispatch_queue_entry_assigned` only AFTER a
-                // successful `spawn_workflow_runner`; matching that
-                // semantic prevents spawn-failure rollbacks from
-                // erroneously failing entries that never ran. After
-                // `execute_dispatch_plan_via_runner` returns, we
-                // transition only the subjects in
-                // `summary.started_workflows` to `assigned`. Entries
-                // whose spawn failed stay pending and will be
-                // re-tried next tick.
                 let subject_key = dispatch.subject_key();
                 plugin_owned_subject_keys.insert(subject_key.clone());
                 plugin_entry_ids_by_subject_key.insert(subject_key, entry.entry_id.clone());
@@ -127,7 +107,21 @@ pub async fn dispatch_queued_entries_via_runner(
             // No queue plugin installed — fall through to in-tree state.
         }
         Err(error) => {
-            warn!(actor = protocol::ACTOR_DAEMON, error = %error, "queue plugin queue/list failed; falling back to in-tree state");
+            warn!(actor = protocol::ACTOR_DAEMON, error = %error, "queue plugin queue/lease failed; falling back to in-tree state");
+        }
+    }
+
+    // Release entries leased but not dispatched (decode failure or
+    // already-active subject). Best effort; warn on failure.
+    for entry_id in &leased_but_deferred {
+        let req = QueueReleaseRequest { entry_id: entry_id.clone() };
+        if let Err(error) = plugin_clients::call_queue_release(project_root_path, &req).await {
+            warn!(
+                actor = protocol::ACTOR_DAEMON,
+                entry_id = %entry_id,
+                error = %error,
+                "queue plugin queue/release (deferred entry) failed"
+            );
         }
     }
 
@@ -172,26 +166,25 @@ pub async fn dispatch_queued_entries_via_runner(
     let mut notice_sink = CliDispatchNoticeSink { plugin_owned_subject_keys: plugin_owned_subject_keys.clone() };
     let summary = execute_dispatch_plan_via_runner(root, process_manager, &planned_starts, limit, &mut notice_sink);
 
-    // Codex R10 [P1]: claim only the subjects that successfully
-    // spawned. The previous in-tree path called
-    // `mark_dispatch_queue_entry_assigned` post-spawn; matching that
-    // semantic means non-started entries remain `pending` in the
-    // plugin queue and are eligible for re-dispatch on the next tick.
+    // Release entries whose spawn failed. Lease already transitioned
+    // every dispatched entry to `assigned` atomically; for the entries
+    // that did not produce a `started_workflows` row we roll the
+    // status back to pending so the next tick can retry.
     if !plugin_entry_ids_by_subject_key.is_empty() {
-        for started in &summary.started_workflows {
-            let subject_key = started.dispatch.subject_key();
-            let Some(entry_id) = plugin_entry_ids_by_subject_key.get(&subject_key) else {
+        let started_keys: std::collections::HashSet<String> =
+            summary.started_workflows.iter().map(|s| s.dispatch.subject_key()).collect();
+        for (subject_key, entry_id) in &plugin_entry_ids_by_subject_key {
+            if started_keys.contains(subject_key) {
                 continue;
-            };
-            let mark_req =
-                QueueMarkAssignedRequest { entry_id: entry_id.clone(), workflow_id: started.workflow_id.clone() };
-            if let Err(error) = plugin_clients::call_queue_mark_assigned(project_root_path, &mark_req).await {
+            }
+            let req = QueueReleaseRequest { entry_id: entry_id.clone() };
+            if let Err(error) = plugin_clients::call_queue_release(project_root_path, &req).await {
                 warn!(
                     actor = protocol::ACTOR_DAEMON,
                     subject_key = %subject_key,
                     entry_id = %entry_id,
                     error = %error,
-                    "queue plugin queue/mark_assigned (post-spawn) failed"
+                    "queue plugin queue/release (spawn-failed entry) failed"
                 );
             }
         }

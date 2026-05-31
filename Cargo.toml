@@ -3,8 +3,6 @@ members = [
   "crates/agent-runner",
   "crates/animus-plugin-protocol",
   "crates/animus-plugin-runtime",
-  "crates/animus-plugin-smoke",
-  "crates/animus-provider-mock",
   "crates/animus-subject-protocol",
   "crates/protocol",
   "crates/orchestrator-daemon-runtime",

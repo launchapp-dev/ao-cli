@@ -1932,8 +1932,9 @@ mod tests {
     use chrono::Utc;
     use orchestrator_core::{
         InMemoryServiceHub, RequirementItem, RequirementLinks, RequirementPriority, RequirementStatus,
-        REQUIREMENT_TASK_GENERATION_RUN_WORKFLOW_REF, REQUIREMENT_TASK_GENERATION_WORKFLOW_REF,
     };
+    const REQUIREMENT_TASK_GENERATION_WORKFLOW_REF: &str = "animus.requirement/plan";
+    const REQUIREMENT_TASK_GENERATION_RUN_WORKFLOW_REF: &str = "animus.requirement/execute";
 
     #[tokio::test]
     async fn resolve_execution_subject_context_uses_requirement_metadata() {

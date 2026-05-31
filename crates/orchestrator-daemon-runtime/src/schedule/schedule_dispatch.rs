@@ -332,6 +332,20 @@ mod tests {
         let project_root = temp.path();
         let now: chrono::DateTime<chrono::Utc> = "2026-03-04T12:30:00Z".parse().expect("timestamp should parse");
         let mut config = orchestrator_core::builtin_workflow_config();
+        config.default_workflow_ref = "standard-workflow".to_string();
+        config.workflows.push(orchestrator_core::WorkflowDefinition {
+            id: "standard-workflow".to_string(),
+            name: "Standard Workflow".to_string(),
+            description: "Test fixture pipeline.".to_string(),
+            phases: vec![
+                orchestrator_core::WorkflowPhaseEntry::Simple("requirements".into()),
+                orchestrator_core::WorkflowPhaseEntry::Simple("implementation".into()),
+                orchestrator_core::WorkflowPhaseEntry::Simple("code-review".into()),
+                orchestrator_core::WorkflowPhaseEntry::Simple("testing".into()),
+            ],
+            post_success: None,
+            variables: Vec::new(),
+        });
         config.schedules.push(orchestrator_core::WorkflowSchedule {
             id: "nightly".to_string(),
             cron: "30 12 * * *".to_string(),

@@ -1,0 +1,43 @@
+{
+  "schema": "animus.default-install.v1",
+  "packs": [
+    {
+      "id": "animus.core-skills",
+      "repo": "launchapp-dev/animus-pack-core-skills",
+      "version": ">=0.1.0",
+      "tag": "v0.1.0",
+      "reason": "Default skill catalog (implementation, code-review, debugging, ...). Without this, agent phases have no skill prompts to reference."
+    },
+    {
+      "id": "animus.task",
+      "repo": "launchapp-dev/animus-pack-task",
+      "version": ">=0.1.0",
+      "tag": "v0.1.1",
+      "reason": "Standard task workflows (animus.task/standard, ui-ux, quick-fix, gated, triage, refine)."
+    },
+    {
+      "id": "animus.requirement",
+      "repo": "launchapp-dev/animus-pack-requirement",
+      "version": ">=0.1.0",
+      "tag": "v0.1.0",
+      "reason": "Requirement planning + materialization workflows (draft, refine, plan, execute)."
+    },
+    {
+      "id": "animus.review",
+      "repo": "launchapp-dev/animus-pack-review",
+      "version": ">=0.1.0",
+      "tag": "v0.1.0",
+      "reason": "Review-cycle sub-workflow composed by animus.task workflows."
+    }
+  ],
+  "plugins": {
+    "providers": [
+      { "repo": "launchapp-dev/animus-provider-claude", "tag": "v0.2.2" },
+      { "repo": "launchapp-dev/animus-provider-codex", "tag": "v0.2.3" }
+    ],
+    "subjects": [
+      { "repo": "launchapp-dev/animus-subject-default", "tag": "v0.1.3" },
+      { "repo": "launchapp-dev/animus-subject-requirements", "tag": "v0.1.7" }
+    ]
+  }
+}

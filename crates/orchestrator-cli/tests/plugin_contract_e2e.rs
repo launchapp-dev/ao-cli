@@ -23,6 +23,12 @@ use serde_json::Value;
 use test_harness::CliHarness;
 
 fn target_dir() -> PathBuf {
+    if let Ok(override_dir) = std::env::var("ANIMUS_TESTKIT_BIN_DIR") {
+        let p = PathBuf::from(override_dir);
+        if p.exists() {
+            return p;
+        }
+    }
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let workspace_root = manifest_dir.parent().and_then(|p| p.parent()).expect("workspace root");
     let workspace_target = workspace_root.join("target").join("debug");
@@ -35,7 +41,10 @@ fn target_dir() -> PathBuf {
 fn ensure_plugin_binary(name: &str) -> Result<PathBuf> {
     let candidate = target_dir().join(name);
     if !candidate.exists() {
-        return Err(anyhow!("{name} not built; run `cargo build -p {name}` before running plugin_contract_e2e tests"));
+        return Err(anyhow!(
+            "{name} not built; set ANIMUS_TESTKIT_BIN_DIR=<path>/animus-plugin-testkit/target/debug \
+             or run `cargo build -p {name}` against the testkit (fixtures/{name}) before running this test"
+        ));
     }
     Ok(candidate)
 }

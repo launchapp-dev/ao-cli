@@ -28,8 +28,8 @@ pub mod types {
 
 pub use agent_runtime_config::*;
 pub use pack_config::{
-    activate_pack_mcp_overlay, apply_pack_mcp_overlay, check_pack_runtime_requirements, ensure_bundled_pack_installed,
-    ensure_pack_runtime_requirements, has_bundled_pack, load_pack_manifest, load_pack_manifest_from_file,
+    activate_pack_mcp_overlay, apply_pack_mcp_overlay, check_pack_runtime_requirements,
+    ensure_pack_runtime_requirements, load_pack_manifest, load_pack_manifest_from_file,
     load_pack_mcp_overlay, pack_manifest_path, parse_pack_manifest, validate_pack_manifest,
     validate_pack_manifest_assets, ExternalRuntimeKind, LoadedPackManifest, PackCompatibility, PackDependency,
     PackKind, PackManifest, PackMcp, PackMcpOverlay, PackNativeModule, PackOwnership, PackOwnershipMode,

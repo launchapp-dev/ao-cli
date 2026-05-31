@@ -3,26 +3,15 @@ use std::sync::Arc;
 use anyhow::Result;
 use chrono::Utc;
 
-use crate::{
-    services::ServiceHub, RequirementStatus, REQUIREMENT_TASK_GENERATION_RUN_WORKFLOW_REF,
-    REQUIREMENT_TASK_GENERATION_WORKFLOW_REF,
-};
+use crate::{services::ServiceHub, RequirementStatus};
 
 fn projected_requirement_status(workflow_ref: &str) -> Option<RequirementStatus> {
-    if workflow_ref.eq_ignore_ascii_case(REQUIREMENT_TASK_GENERATION_WORKFLOW_REF)
-        || workflow_ref.eq_ignore_ascii_case("requirement-task-generation")
-        || workflow_ref.eq_ignore_ascii_case("builtin/requirement-plan")
-    {
+    if workflow_ref.eq_ignore_ascii_case("animus.requirement/plan") {
         return Some(RequirementStatus::Planned);
     }
-
-    if workflow_ref.eq_ignore_ascii_case(REQUIREMENT_TASK_GENERATION_RUN_WORKFLOW_REF)
-        || workflow_ref.eq_ignore_ascii_case("requirement-task-generation-run")
-        || workflow_ref.eq_ignore_ascii_case("builtin/requirements-execute")
-    {
+    if workflow_ref.eq_ignore_ascii_case("animus.requirement/execute") {
         return Some(RequirementStatus::InProgress);
     }
-
     None
 }
 
@@ -79,7 +68,7 @@ mod tests {
         let hub = Arc::new(InMemoryServiceHub::new());
         upsert_requirement(&hub, "REQ-1", RequirementStatus::Refined).await;
 
-        project_requirement_workflow_status(hub.clone(), "REQ-1", REQUIREMENT_TASK_GENERATION_WORKFLOW_REF)
+        project_requirement_workflow_status(hub.clone(), "REQ-1", "animus.requirement/plan")
             .await
             .expect("projection should succeed");
 
@@ -92,7 +81,7 @@ mod tests {
         let hub = Arc::new(InMemoryServiceHub::new());
         upsert_requirement(&hub, "REQ-2", RequirementStatus::Refined).await;
 
-        project_requirement_workflow_status(hub.clone(), "REQ-2", REQUIREMENT_TASK_GENERATION_RUN_WORKFLOW_REF)
+        project_requirement_workflow_status(hub.clone(), "REQ-2", "animus.requirement/execute")
             .await
             .expect("projection should succeed");
 

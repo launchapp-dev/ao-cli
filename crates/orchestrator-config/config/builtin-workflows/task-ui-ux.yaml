@@ -1,6 +1,0 @@
-workflows:
-  - id: builtin/task-ui-ux
-    name: Builtin Task UI UX
-    description: Run the frontend-oriented built-in task workflow.
-    phases:
-      - workflow_ref: animus.task/ui-ux

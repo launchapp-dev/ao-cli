@@ -1,4 +1,3 @@
-pub mod bundled;
 pub mod loading;
 pub mod mcp;
 pub mod runtime;
@@ -8,7 +7,6 @@ pub mod validation;
 #[cfg(test)]
 mod tests;
 
-pub use bundled::{ensure_bundled_pack_installed, has_bundled_pack};
 pub use loading::{
     load_pack_manifest, load_pack_manifest_from_file, pack_manifest_path, parse_pack_manifest, LoadedPackManifest,
 };

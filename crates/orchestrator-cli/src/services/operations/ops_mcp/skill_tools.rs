@@ -327,28 +327,6 @@ mod skill_tool_tests {
     }
 
     #[tokio::test]
-    #[ignore = "depends on removed bundled skill catalog; restore only if tests install a pack-backed fixture explicitly"]
-    async fn skill_list_returns_bundled_catalog() {
-        let (_home, _guard) = isolated_home();
-        let project = TempDir::new().expect("project tempdir");
-        let server = new_ao_mcp_server(&project_root_for(&project));
-
-        let result = server
-            .ao_skill_list(Parameters(SkillListInput { project_root: None, source: None }))
-            .await
-            .expect("list should succeed");
-        let payload = data(&result);
-        let count = payload.pointer("/count").and_then(Value::as_u64).expect("count present");
-        // Historical reference: the former `animus.core-skills` catalog shipped
-        // 27 entries (19 unique + alias re-exports). If a future fixture
-        // materializes that pack again, it should resolve through `installed`.
-        assert!(count >= 27, "expected >=27 skills in default project (got {count})");
-        let skills = payload.pointer("/skills").and_then(Value::as_array).expect("skills array");
-        assert!(skills.iter().any(|skill| skill.get("name").and_then(Value::as_str) == Some("code-review")));
-        assert!(skills.iter().any(|skill| skill.get("name").and_then(Value::as_str) == Some("implementation")));
-    }
-
-    #[tokio::test]
     async fn skill_list_filters_by_source_builtin() {
         let (_home, _guard) = isolated_home();
         let project = TempDir::new().expect("project tempdir");
@@ -424,33 +402,6 @@ mod skill_tool_tests {
     }
 
     #[tokio::test]
-    #[ignore = "depends on removed bundled skill catalog; restore only if tests install a pack-backed fixture explicitly"]
-    async fn skill_get_returns_full_definition_for_code_review() {
-        let (_home, _guard) = isolated_home();
-        let project = TempDir::new().expect("project tempdir");
-        let server = new_ao_mcp_server(&project_root_for(&project));
-
-        let result = server
-            .ao_skill_get(Parameters(SkillGetInput { project_root: None, name: "code-review".to_string() }))
-            .await
-            .expect("get code-review");
-        let payload = data(&result);
-        let definition = payload.pointer("/definition").expect("definition payload");
-        assert_eq!(definition.get("name").and_then(Value::as_str), Some("code-review"));
-        // Structural fields from a trusted installed skill must flow through.
-        assert!(
-            definition.get("tool_policy").is_some_and(|policy| !policy.is_null()),
-            "code-review tool_policy must be present"
-        );
-        assert!(
-            definition.get("model").is_some_and(|model| !model.is_null()),
-            "code-review model preference must be present"
-        );
-        let source = payload.get("source").and_then(Value::as_str).expect("source tag");
-        assert!(source == "installed" || source == "builtin", "expected installed or builtin, got {source}");
-    }
-
-    #[tokio::test]
     async fn skill_get_returns_error_for_unknown_skill() {
         let (_home, _guard) = isolated_home();
         let project = TempDir::new().expect("project tempdir");
@@ -462,58 +413,6 @@ mod skill_tool_tests {
             .expect_err("unknown skill should be an MCP error");
         let message = err.message.to_string();
         assert!(message.contains("nonexistent-skill-xyz"), "error should mention skill name, got {message}");
-    }
-
-    #[tokio::test]
-    #[ignore = "depends on removed bundled skill catalog; restore only if tests install a pack-backed fixture explicitly"]
-    async fn skill_search_finds_by_substring_in_name() {
-        let (_home, _guard) = isolated_home();
-        let project = TempDir::new().expect("project tempdir");
-        let server = new_ao_mcp_server(&project_root_for(&project));
-
-        let result = server
-            .ao_skill_search(Parameters(SkillSearchInput {
-                project_root: None,
-                query: "review".to_string(),
-                source: None,
-                limit: None,
-            }))
-            .await
-            .expect("search");
-        let payload = data(&result);
-        let skills = payload.pointer("/skills").and_then(Value::as_array).expect("skills array");
-        assert!(
-            skills.iter().any(|skill| skill.get("name").and_then(Value::as_str) == Some("code-review")),
-            "search for 'review' must include code-review"
-        );
-        let count = payload.pointer("/count").and_then(Value::as_u64).expect("count");
-        assert!(count >= 1);
-    }
-
-    #[tokio::test]
-    #[ignore = "depends on removed bundled skill catalog; restore only if tests install a pack-backed fixture explicitly"]
-    async fn skill_search_respects_limit_and_marks_truncated() {
-        let (_home, _guard) = isolated_home();
-        let project = TempDir::new().expect("project tempdir");
-        let server = new_ao_mcp_server(&project_root_for(&project));
-
-        // Empty single-character query against the catalog matches many skills;
-        // use a real character that appears in many skill descriptions.
-        let result = server
-            .ao_skill_search(Parameters(SkillSearchInput {
-                project_root: None,
-                query: "a".to_string(),
-                source: None,
-                limit: Some(2),
-            }))
-            .await
-            .expect("search with small limit");
-        let payload = data(&result);
-        let skills = payload.pointer("/skills").and_then(Value::as_array).expect("skills");
-        assert!(skills.len() <= 2, "limit should cap returned skills");
-        assert_eq!(payload.pointer("/limit").and_then(Value::as_u64), Some(2));
-        // truncated flag should be true when there are more matches than limit
-        assert_eq!(payload.pointer("/truncated").and_then(Value::as_bool), Some(true));
     }
 
     #[tokio::test]

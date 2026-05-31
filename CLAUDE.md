@@ -3,6 +3,8 @@
 This file is the current working brief for AI coding agents operating in this repo.
 If a statement here conflicts with source, update the docs and follow source.
 
+For the v0.5 kernel + flavors commitment (the load-bearing product architecture decision — read this before any scope question), see [docs/architecture/kernel-and-flavors.md](docs/architecture/kernel-and-flavors.md). Animus is a kernel + a default flavor (curated plugin bundle). Future flavors emerge from real customer pull, not roadmap speculation.
+
 For the v0.4.0 naming + plugin extraction, see [docs/architecture/naming-contract.md](docs/architecture/naming-contract.md), [docs/architecture/subject-backend-plugins.md](docs/architecture/subject-backend-plugins.md), and the migration guide at [docs/migration/v0.3-to-v0.4.md](docs/migration/v0.3-to-v0.4.md).
 
 ## Verify Before Repeating
@@ -32,6 +34,7 @@ Animus is a Rust-only agent orchestrator with:
 - a stdio plugin host (`orchestrator-plugin-host`) for subject, provider, transport, and trigger plugins, plus a typed `HostError::ConnectionLost` + `classify(&HostError) -> RetryDecision` API for supervised restart decisions
 - a daemon-side workflow event broadcaster that emits `phase_started` / `phase_completed` / `workflow_completed` / `workflow_failed` on the `workflow/events` ControlClient subscription (animus-protocol v0.1.10)
 - the v0.4.x plugin extraction **complete**: 18 standalone repositories live at <https://github.com/launchapp-dev> covering protocol, providers (claude / codex / gemini / opencode / oai), subject backends (default / requirements / linear / sqlite / markdown), transports (http / graphql), web UI, triggers (webhook / slack), log storage, the conformance testkit, the release-automation scripts, and the plugin template. Only `animus-provider-mock` and `animus-plugin-smoke` remain in-tree, as test fixtures.
+- the v0.4.x **pack** extraction is complete: `animus.core-skills`, `animus.task`, `animus.requirement`, and `animus.review` live as `launchapp-dev/animus-pack-{core-skills,task,requirement,review}` with v0.1.0/v0.1.1 GitHub releases. The in-tree `crates/orchestrator-config/config/bundled-packs/` directory, `pack_config/bundled.rs`, `BUILTIN_SKILL_YAMLS`, and the matching workflow-ref constants in `phase_plan.rs` were all removed. `animus init` no longer auto-materializes any pack; it surfaces the recommended pack list via `recommended_install` (read from `crates/orchestrator-cli/config/default-install.json`).
 
 Do not reintroduce stale claims such as:
 

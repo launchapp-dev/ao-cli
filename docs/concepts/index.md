@@ -5,7 +5,7 @@ This section explains the core ideas behind Animus. Each page covers one archite
 ## Pages
 
 - [How Animus Works](./how-ao-works.md) -- Core architecture, the three-layer model, and the big picture.
-- [Workflows](./workflows.md) -- Everything is a workflow: bundled refs, pack-qualified workflows, and project-local YAML.
+- [Workflows](./workflows.md) -- Everything is a workflow: pack-qualified workflows, and project-local YAML.
 - [Subject Dispatch](./subject-dispatch.md) -- The universal work envelope that drives all execution.
 - [The Daemon](./daemon.md) -- The dumb scheduler: tick loop, capacity, and execution facts.
 - [Agents and Phases](./agents-and-phases.md) -- AI personas, phase execution, rework loops, and phase guards.

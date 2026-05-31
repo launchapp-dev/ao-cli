@@ -64,11 +64,34 @@ fn json_success_envelope_wraps_print_ok_messages() -> Result<()> {
 #[test]
 fn json_error_envelope_maps_conflict() -> Result<()> {
     let harness = CliHarness::new()?;
+    let pack = tempfile::tempdir()?;
+    std::fs::write(
+        pack.path().join("pack.toml"),
+        r#"schema = "animus.pack.v1"
+id = "animus.conflict-test"
+version = "0.1.0"
+kind = "capability-pack"
+title = "Conflict Test"
+description = "Fixture pack to exercise the duplicate-install conflict path."
 
-    harness.run_json_ok(&["init", "--template", "task-queue", "--non-interactive"])?;
+[ownership]
+mode = "installed"
 
+[compatibility]
+animus_core = ">=0.1.0"
+workflow_schema = "v2"
+subject_schema = "v2"
+
+[skills]
+root = "skills"
+"#,
+    )?;
+    std::fs::create_dir_all(pack.path().join("skills"))?;
+    let path = pack.path().to_string_lossy().into_owned();
+
+    harness.run_json_ok(&["pack", "install", "--path", &path])?;
     let (payload, status) =
-        harness.run_json_err_with_exit(&["init", "--template", "task-queue", "--non-interactive"])?;
+        harness.run_json_err_with_exit(&["pack", "install", "--path", &path])?;
 
     assert_eq!(status, 4, "conflict should exit with code 4");
     assert_error_envelope(&payload, "conflict", 4);

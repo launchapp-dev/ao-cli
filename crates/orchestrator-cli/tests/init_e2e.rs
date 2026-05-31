@@ -85,7 +85,7 @@ fn init_apply_writes_template_files_and_daemon_defaults() -> Result<()> {
     let conductor_path = harness.project_root().join(".animus/workflows/conductor-workflow.yaml");
     assert!(conductor_path.exists(), "conductor template should write its workflow wrapper");
     let conductor_contents = fs::read_to_string(&conductor_path)?;
-    assert!(conductor_contents.contains("animus.requirement/plan"));
+    assert!(conductor_contents.contains("conductor-workflow"));
 
     let pm_config_path = harness.scoped_root().join("daemon").join("pm-config.json");
     let pm_config: Value = serde_json::from_str(&fs::read_to_string(pm_config_path)?)?;
@@ -98,18 +98,6 @@ fn init_apply_writes_template_files_and_daemon_defaults() -> Result<()> {
         &[(TEMPLATE_REGISTRY_URL_ENV, registry_url.as_str())],
     )?;
     assert!(compile.get("ok").and_then(Value::as_bool) == Some(true));
-
-    let packs =
-        harness.run_json_ok_with_env(&["pack", "list"], &[(TEMPLATE_REGISTRY_URL_ENV, registry_url.as_str())])?;
-    assert!(packs.pointer("/data").and_then(Value::as_array).is_some_and(|entries| entries
-        .iter()
-        .any(|entry| entry.get("pack_id").and_then(Value::as_str) == Some("animus.requirement"))));
-    assert!(packs.pointer("/data").and_then(Value::as_array).is_some_and(|entries| entries
-        .iter()
-        .any(|entry| entry.get("pack_id").and_then(Value::as_str) == Some("animus.task"))));
-    assert!(packs.pointer("/data").and_then(Value::as_array).is_some_and(|entries| entries
-        .iter()
-        .any(|entry| entry.get("pack_id").and_then(Value::as_str) == Some("animus.review"))));
 
     Ok(())
 }
@@ -147,7 +135,7 @@ fn create_template_registry_repo() -> Result<tempfile::TempDir> {
         "Task Queue Pattern",
         "task-queue",
         (true, true, true),
-        &["animus.task"],
+        &[],
         &[
             (
                 ".animus/workflows/custom.yaml",
@@ -155,7 +143,7 @@ fn create_template_registry_repo() -> Result<tempfile::TempDir> {
             ),
             (
                 ".animus/workflows/standard-workflow.yaml",
-                "workflows:\n  - id: standard-workflow\n    name: Task Queue Delivery Workflow\n    phases:\n      - workflow_ref: animus.task/standard\n",
+                "workflows:\n  - id: standard-workflow\n    name: Task Queue Delivery Workflow\n    phases:\n      - implementation\n",
             ),
             (".animus/workflows/hotfix-workflow.yaml", "default_workflow_ref: standard-workflow\n"),
             (".animus/workflows/research-workflow.yaml", "default_workflow_ref: standard-workflow\n"),
@@ -167,7 +155,7 @@ fn create_template_registry_repo() -> Result<tempfile::TempDir> {
         "Conductor Pattern",
         "conductor",
         (false, true, false),
-        &["animus.requirement", "animus.task"],
+        &[],
         &[
             (
                 ".animus/workflows/custom.yaml",
@@ -175,11 +163,11 @@ fn create_template_registry_repo() -> Result<tempfile::TempDir> {
             ),
             (
                 ".animus/workflows/conductor-workflow.yaml",
-                "workflows:\n  - id: conductor-workflow\n    name: Conductor Planning Workflow\n    phases:\n      - workflow_ref: animus.requirement/plan\n",
+                "workflows:\n  - id: conductor-workflow\n    name: Conductor Planning Workflow\n    phases:\n      - implementation\n",
             ),
             (
                 ".animus/workflows/standard-workflow.yaml",
-                "workflows:\n  - id: standard-workflow\n    name: Task Queue Delivery Workflow\n    phases:\n      - workflow_ref: animus.task/standard\n",
+                "workflows:\n  - id: standard-workflow\n    name: Task Queue Delivery Workflow\n    phases:\n      - implementation\n",
             ),
             (".animus/workflows/hotfix-workflow.yaml", "default_workflow_ref: standard-workflow\n"),
             (".animus/workflows/research-workflow.yaml", "default_workflow_ref: standard-workflow\n"),
@@ -191,7 +179,7 @@ fn create_template_registry_repo() -> Result<tempfile::TempDir> {
         "Direct Workflow Pattern",
         "direct-workflow",
         (false, false, false),
-        &["animus.task"],
+        &[],
         &[
             (
                 ".animus/workflows/custom.yaml",
@@ -199,7 +187,7 @@ fn create_template_registry_repo() -> Result<tempfile::TempDir> {
             ),
             (
                 ".animus/workflows/standard-workflow.yaml",
-                "workflows:\n  - id: standard-workflow\n    name: Direct Workflow Delivery\n    phases:\n      - workflow_ref: animus.task/gated\n",
+                "workflows:\n  - id: standard-workflow\n    name: Direct Workflow Delivery\n    phases:\n      - implementation\n",
             ),
             (".animus/workflows/hotfix-workflow.yaml", "default_workflow_ref: standard-workflow\n"),
             (".animus/workflows/research-workflow.yaml", "default_workflow_ref: standard-workflow\n"),

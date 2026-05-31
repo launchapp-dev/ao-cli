@@ -15,7 +15,7 @@ use chrono::Utc;
 use orchestrator_core::{
     dispatch_workflow_event, ensure_workflow_config_compiled, load_workflow_config, services::ServiceHub,
     ListPageRequest, OrchestratorTask, WorkflowEvent, WorkflowFilter, WorkflowQuery, WorkflowResumeManager,
-    WorkflowRunInput, REQUIREMENT_TASK_GENERATION_WORKFLOW_REF, STANDARD_WORKFLOW_REF, UI_UX_WORKFLOW_REF,
+    WorkflowRunInput, STANDARD_WORKFLOW_REF, UI_UX_WORKFLOW_REF,
 };
 use serde_json::Value;
 use uuid::Uuid;
@@ -308,18 +308,19 @@ async fn resolve_workflow_run_dispatch_from_raw_input(
 }
 
 pub(crate) fn resolve_requirement_workflow_ref(project_root: &str) -> Result<String> {
+    const REQUIREMENT_PLAN_WORKFLOW_REF: &str = "animus.requirement/plan";
     let root = Path::new(project_root);
     ensure_workflow_config_compiled(root)?;
     let workflow_config = load_workflow_config(root)?;
     workflow_config
         .workflows
         .iter()
-        .any(|workflow| workflow.id.eq_ignore_ascii_case(REQUIREMENT_TASK_GENERATION_WORKFLOW_REF))
-        .then(|| REQUIREMENT_TASK_GENERATION_WORKFLOW_REF.to_string())
+        .any(|workflow| workflow.id.eq_ignore_ascii_case(REQUIREMENT_PLAN_WORKFLOW_REF))
+        .then(|| REQUIREMENT_PLAN_WORKFLOW_REF.to_string())
         .ok_or_else(|| {
             anyhow!(
-                "requirement workflow '{}' is not configured for requirement subjects",
-                REQUIREMENT_TASK_GENERATION_WORKFLOW_REF
+                "requirement workflow '{}' is not configured for requirement subjects (install a pack that exports it, e.g. animus.requirement)",
+                REQUIREMENT_PLAN_WORKFLOW_REF
             )
         })
 }
@@ -841,23 +842,6 @@ fn parse_wire_workflow_status(raw: &str) -> Result<Option<animus_control_protoco
     Ok(Some(value))
 }
 
-#[cfg(test)]
-mod requirement_workflow_tests {
-    use super::*;
-    use orchestrator_core::{
-        builtin_agent_runtime_config, builtin_workflow_config, write_agent_runtime_config, write_workflow_config,
-    };
-
-    #[test]
-    fn resolve_requirement_workflow_ref_errors_without_yaml_config() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        write_workflow_config(temp.path(), &builtin_workflow_config()).expect("write config");
-        write_agent_runtime_config(temp.path(), &builtin_agent_runtime_config()).expect("write runtime config");
-
-        let result = resolve_requirement_workflow_ref(temp.path().to_string_lossy().as_ref());
-        assert!(result.is_err(), "requirement workflow requires YAML config, not compiled builtins");
-    }
-}
 
 #[cfg(test)]
 mod tests {

@@ -11,79 +11,68 @@ use super::resolution::{resolve_workflow_phase_plan, resolve_workflow_rework_att
 use super::types::*;
 use super::validation::{
     validate_workflow_and_runtime_configs, validate_workflow_and_runtime_configs_with_project_root,
-    validate_workflow_config, validate_workflow_config_with_project_root,
+    validate_workflow_config,
 };
 use super::yaml_compiler::{compile_yaml_workflow_files, merge_yaml_into_config, validate_and_compile_yaml_workflows};
 use super::yaml_parser::parse_yaml_workflow_config;
+
+fn test_workflow_config_with_standard_pipeline() -> WorkflowConfig {
+    let mut config = builtin_workflow_config();
+    config.default_workflow_ref = "standard-workflow".to_string();
+    config.workflows = vec![
+        WorkflowDefinition {
+            id: "standard-workflow".to_string(),
+            name: "Standard Workflow".to_string(),
+            description: "Test fixture pipeline.".to_string(),
+            phases: vec![
+                "requirements".to_string().into(),
+                "implementation".to_string().into(),
+                "code-review".to_string().into(),
+                "testing".to_string().into(),
+            ],
+            post_success: Some(PostSuccessConfig {
+                merge: Some(MergeConfig {
+                    strategy: MergeStrategy::Merge,
+                    target_branch: "main".to_string(),
+                    create_pr: true,
+                    auto_merge: false,
+                    cleanup_worktree: true,
+                }),
+            }),
+            variables: Vec::new(),
+        },
+        WorkflowDefinition {
+            id: "ui-ux-standard".to_string(),
+            name: "UI UX Standard".to_string(),
+            description: "Test fixture frontend pipeline.".to_string(),
+            phases: vec![
+                "requirements".to_string().into(),
+                "ux-research".to_string().into(),
+                "wireframe".to_string().into(),
+                "mockup-review".to_string().into(),
+                "implementation".to_string().into(),
+                "code-review".to_string().into(),
+                "testing".to_string().into(),
+            ],
+            post_success: Some(PostSuccessConfig {
+                merge: Some(MergeConfig {
+                    strategy: MergeStrategy::Merge,
+                    target_branch: "main".to_string(),
+                    create_pr: true,
+                    auto_merge: false,
+                    cleanup_worktree: true,
+                }),
+            }),
+            variables: Vec::new(),
+        },
+    ];
+    config
+}
 
 #[test]
 fn builtin_workflow_config_is_valid() {
     let config = builtin_workflow_config();
     validate_workflow_config(&config).expect("builtin config should validate");
-}
-
-#[test]
-fn builtin_workflow_config_includes_planning_workflow_refs() {
-    let config = builtin_workflow_config();
-    let workflow_ids = config.workflows.iter().map(|workflow| workflow.id.as_str()).collect::<Vec<_>>();
-
-    assert_eq!(config.default_workflow_ref, "standard-workflow");
-    assert!(workflow_ids.contains(&"animus.vision/draft"));
-    assert!(workflow_ids.contains(&"animus.vision/refine"));
-    assert!(workflow_ids.contains(&"standard-workflow"));
-    assert!(workflow_ids.contains(&"ui-ux-standard"));
-    assert!(workflow_ids.contains(&"builtin/vision-draft"));
-    assert!(workflow_ids.contains(&"builtin/vision-refine"));
-    assert!(!workflow_ids.contains(&"animus.task/standard"));
-    assert!(!workflow_ids.contains(&"animus.task/ui-ux"));
-    assert!(!workflow_ids.contains(&"animus.task/quick-fix"));
-    assert!(!workflow_ids.contains(&"animus.task/gated"));
-    assert!(!workflow_ids.contains(&"animus.task/triage"));
-    assert!(!workflow_ids.contains(&"animus.task/refine"));
-    assert!(!workflow_ids.contains(&"animus.review/cycle"));
-    assert!(!workflow_ids.contains(&"animus.requirement/draft"));
-    assert!(!workflow_ids.contains(&"animus.requirement/refine"));
-    assert!(!workflow_ids.contains(&"animus.requirement/plan"));
-    assert!(!workflow_ids.contains(&"animus.requirement/execute"));
-}
-
-#[test]
-fn standard_workflow_has_feature_branch_merge_configuration() {
-    let config = builtin_workflow_config();
-    let standard_workflow =
-        config.workflows.iter().find(|w| w.id == "standard-workflow").expect("standard-workflow should exist");
-
-    // Verify post_success is configured for feature branch workflow
-    let post_success =
-        standard_workflow.post_success.as_ref().expect("standard-workflow should have post_success configured");
-
-    let merge_config = post_success.merge.as_ref().expect("standard-workflow should have merge configuration");
-
-    // Feature branch workflow should create a PR without auto-merging
-    assert_eq!(merge_config.target_branch, "main");
-    assert!(merge_config.create_pr, "standard-workflow should create PR");
-    assert!(!merge_config.auto_merge, "standard-workflow should not auto-merge");
-    assert!(merge_config.cleanup_worktree, "standard-workflow should cleanup worktree after merge");
-    assert_eq!(merge_config.strategy, MergeStrategy::Merge, "standard-workflow should use merge strategy");
-}
-
-#[test]
-fn ui_ux_workflow_has_feature_branch_merge_configuration() {
-    let config = builtin_workflow_config();
-    let ui_ux_workflow =
-        config.workflows.iter().find(|w| w.id == "ui-ux-standard").expect("ui-ux-standard should exist");
-
-    // Verify post_success is configured for feature branch workflow
-    let post_success =
-        ui_ux_workflow.post_success.as_ref().expect("ui-ux-standard should have post_success configured");
-
-    let merge_config = post_success.merge.as_ref().expect("ui-ux-standard should have merge configuration");
-
-    // Feature branch workflow should create a PR without auto-merging
-    assert_eq!(merge_config.target_branch, "main");
-    assert!(merge_config.create_pr, "ui-ux-standard should create PR");
-    assert!(!merge_config.auto_merge, "ui-ux-standard should not auto-merge");
-    assert!(merge_config.cleanup_worktree, "ui-ux-standard should cleanup worktree after merge");
 }
 
 #[test]
@@ -108,7 +97,7 @@ fn checkpoint_retention_requires_positive_keep_last_per_phase() {
 
 #[test]
 fn validation_rejects_on_verdict_targeting_nonexistent_phase() {
-    let mut config = builtin_workflow_config();
+    let mut config = test_workflow_config_with_standard_pipeline();
     let standard_pipeline =
         config.workflows.iter_mut().find(|p| p.id == "standard-workflow").expect("standard workflow");
 
@@ -140,7 +129,7 @@ fn validation_rejects_on_verdict_targeting_nonexistent_phase() {
 
 #[test]
 fn validation_rejects_zero_max_rework_attempts() {
-    let mut config = builtin_workflow_config();
+    let mut config = test_workflow_config_with_standard_pipeline();
     let standard_pipeline =
         config.workflows.iter_mut().find(|p| p.id == "standard-workflow").expect("standard workflow");
 
@@ -288,7 +277,7 @@ fn pipeline_definition_deserializes_mixed_phase_entries() {
 
 #[test]
 fn resolve_workflow_skip_guards_extracts_guards_from_config() {
-    let mut config = builtin_workflow_config();
+    let mut config = test_workflow_config_with_standard_pipeline();
     let standard_pipeline =
         config.workflows.iter_mut().find(|p| p.id == "standard-workflow").expect("standard workflow");
     standard_pipeline.phases = vec![
@@ -475,7 +464,7 @@ workflows:
 
 #[test]
 fn yaml_merge_replaces_pipeline_by_id() {
-    let base = builtin_workflow_config();
+    let base = test_workflow_config_with_standard_pipeline();
     let yaml = r#"
 workflows:
   - id: standard
@@ -732,117 +721,6 @@ workflows:
     assert_eq!(standard.name, "Compiled Standard");
 }
 
-#[test]
-fn validate_and_compile_yaml_includes_installed_pack_workflows() {
-    let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let home = tempfile::tempdir().expect("home tempdir");
-    let project = tempfile::tempdir().expect("project tempdir");
-    let _home_guard = EnvVarGuard::set("HOME", home.path());
-
-    crate::ensure_bundled_pack_installed("animus.requirement").expect("install bundled requirement pack");
-    crate::save_pack_selection_state(
-        project.path(),
-        &crate::PackSelectionState {
-            schema: crate::PACK_SELECTION_SCHEMA_ID.to_string(),
-            selections: vec![crate::PackSelectionEntry {
-                pack_id: "animus.requirement".to_string(),
-                version: None,
-                source: Some(crate::PackSelectionSource::Installed),
-                enabled: true,
-            }],
-        },
-    )
-    .expect("save pack selection");
-
-    let workflows_dir = project.path().join(".animus").join("workflows");
-    fs::create_dir_all(&workflows_dir).expect("create workflows dir");
-    fs::write(
-        workflows_dir.join("custom.yaml"),
-        "default_workflow_ref: conductor-workflow\n\ntools_allowlist:\n  - cargo\n  - animus\n",
-    )
-    .expect("write custom workflow");
-    fs::write(
-        workflows_dir.join("conductor-workflow.yaml"),
-        r#"
-workflows:
-  - id: conductor-workflow
-    name: Conductor Planning Workflow
-    phases:
-      - workflow_ref: animus.requirement/plan
-"#,
-    )
-    .expect("write conductor workflow");
-    fs::write(
-        workflows_dir.join("standard-workflow.yaml"),
-        r#"
-workflows:
-  - id: standard-workflow
-    name: Standard Workflow
-    phases:
-      - workflow_ref: animus.task/standard
-"#,
-    )
-    .expect("write standard workflow");
-
-    let result = validate_and_compile_yaml_workflows(project.path()).expect("compile should succeed");
-    let compile_result = result.expect("should have result");
-    let workflow_ids = compile_result.config.workflows.iter().map(|workflow| workflow.id.as_str()).collect::<Vec<_>>();
-    assert!(workflow_ids.contains(&"conductor-workflow"));
-    assert!(workflow_ids.contains(&"animus.requirement/plan"));
-    assert!(workflow_ids.contains(&"animus.task/standard"));
-
-    let reloaded = load_workflow_config(project.path()).expect("reload config");
-    assert!(reloaded.workflows.iter().any(|workflow| workflow.id == "animus.requirement/plan"));
-    assert!(reloaded.workflows.iter().any(|workflow| workflow.id == "animus.task/standard"));
-}
-
-#[test]
-fn validate_and_compile_yaml_preserves_task_pack_tools_allowlist() {
-    let _lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let home = tempfile::tempdir().expect("home tempdir");
-    let project = tempfile::tempdir().expect("project tempdir");
-    let _home_guard = EnvVarGuard::set("HOME", home.path());
-
-    crate::ensure_bundled_pack_installed("animus.task").expect("install bundled task pack");
-    crate::save_pack_selection_state(
-        project.path(),
-        &crate::PackSelectionState {
-            schema: crate::PACK_SELECTION_SCHEMA_ID.to_string(),
-            selections: vec![crate::PackSelectionEntry {
-                pack_id: "animus.task".to_string(),
-                version: None,
-                source: Some(crate::PackSelectionSource::Installed),
-                enabled: true,
-            }],
-        },
-    )
-    .expect("save pack selection");
-
-    let workflows_dir = project.path().join(".animus").join("workflows");
-    fs::create_dir_all(&workflows_dir).expect("create workflows dir");
-    fs::write(
-        workflows_dir.join("custom.yaml"),
-        "default_workflow_ref: standard-workflow\n\ntools_allowlist:\n  - cargo\n  - animus\n",
-    )
-    .expect("write custom workflow");
-    fs::write(
-        workflows_dir.join("standard-workflow.yaml"),
-        r#"
-workflows:
-  - id: standard-workflow
-    name: Standard Workflow
-    phases:
-      - workflow_ref: animus.task/standard
-"#,
-    )
-    .expect("write standard workflow");
-
-    let result = validate_and_compile_yaml_workflows(project.path()).expect("compile should succeed");
-    let compile_result = result.expect("should have result");
-    assert!(compile_result.config.tools_allowlist.iter().any(|tool| tool == "cargo"));
-    assert!(compile_result.config.tools_allowlist.iter().any(|tool| tool == "animus"));
-    assert!(compile_result.config.phase_definitions.contains_key("subject-activate"));
-}
 
 fn make_pipeline(id: &str, phases: Vec<WorkflowPhaseEntry>) -> WorkflowDefinition {
     WorkflowDefinition {
@@ -1078,7 +956,7 @@ workflows:
 
 #[test]
 fn resolve_phase_plan_expands_sub_pipelines() {
-    let mut config = builtin_workflow_config();
+    let mut config = test_workflow_config_with_standard_pipeline();
     config.workflows.push(WorkflowDefinition {
         id: "review-cycle".into(),
         name: "Review Cycle".into(),
@@ -1101,7 +979,7 @@ fn resolve_phase_plan_expands_sub_pipelines() {
 
 #[test]
 fn validate_rejects_missing_sub_pipeline_reference() {
-    let mut config = builtin_workflow_config();
+    let mut config = test_workflow_config_with_standard_pipeline();
     let standard = config.workflows.iter_mut().find(|p| p.id == "standard-workflow").expect("standard workflow");
     standard.phases = vec![
         WorkflowPhaseEntry::Simple("requirements".into()),
@@ -1119,7 +997,7 @@ fn validate_rejects_missing_sub_pipeline_reference() {
 
 #[test]
 fn validate_rejects_empty_post_success_target_branch() {
-    let mut config = builtin_workflow_config();
+    let mut config = test_workflow_config_with_standard_pipeline();
     let standard = config.workflows.iter_mut().find(|p| p.id == "standard-workflow").expect("standard workflow");
     standard.post_success = Some(PostSuccessConfig {
         merge: Some(MergeConfig { target_branch: "".to_string(), ..MergeConfig::default() }),
@@ -1312,30 +1190,6 @@ workflows:
     assert!(written.contains("skills:"), "round-tripped yaml should contain skills: {written}");
     let reparsed = parse_yaml_workflow_config(&written).expect("reparse round-tripped yaml");
     assert_eq!(reparsed.phase_definitions["research"].skills, vec!["deep-search"]);
-}
-
-#[test]
-fn validate_rejects_unknown_phase_skill_for_project_config() {
-    let temp = tempfile::tempdir().expect("tempdir");
-    let yaml = r#"
-phases:
-  research:
-    mode: agent
-    agent: default
-    skills:
-      - not-a-real-skill
-
-workflows:
-  - id: standard
-    name: Standard
-    phases:
-      - research
-"#;
-    let config = parse_yaml_workflow_config(yaml).expect("parse yaml");
-    let err = validate_workflow_config_with_project_root(&config, Some(temp.path()))
-        .expect_err("unknown phase skill should fail validation");
-    assert!(err.to_string().contains("phase_definitions['research'].skills"));
-    assert!(err.to_string().contains("not-a-real-skill"));
 }
 
 #[test]

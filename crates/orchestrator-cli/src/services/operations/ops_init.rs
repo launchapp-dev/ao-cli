@@ -5,7 +5,7 @@ use std::process::{Command, Stdio};
 
 use anyhow::Result;
 use orchestrator_config::{
-    ensure_bundled_pack_installed, has_bundled_pack, list_project_templates_from_default_registry_with_options,
+    list_project_templates_from_default_registry_with_options,
     load_pack_inventory, load_pack_selection_state, load_project_template_from_default_registry_with_options,
     load_project_template_from_dir, save_pack_selection_state, LoadedProjectTemplate, PackRegistrySource,
     PackSelectionEntry, PackSelectionSource, ProjectTemplateSourceKind, ProjectTemplateSummary, RegistrySyncOptions,
@@ -276,6 +276,7 @@ pub(crate) async fn handle_init(args: InitArgs, project_root: &str, json: bool) 
                 "installed_packs": pack_apply.installed_packs,
                 "pack_selection_updated": pack_apply.pack_selection_updated,
             },
+            "recommended_install": default_install_manifest(),
             "doctor_before": doctor_before,
             "doctor_after": doctor_after,
             "next_steps": loaded_template.manifest.next_steps,
@@ -389,8 +390,6 @@ fn build_pack_plan(project_root: &Path, template: &LoadedProjectTemplate) -> Res
             let action = if pack.activate {
                 if entry.is_some() {
                     "activate"
-                } else if has_bundled_pack(&pack.id) {
-                    "install_and_activate"
                 } else {
                     "missing"
                 }
@@ -435,16 +434,7 @@ fn write_template_files(project_root: &Path, template: &LoadedProjectTemplate) -
 }
 
 fn apply_template_packs(project_root: &Path, template: &LoadedProjectTemplate) -> Result<InitPackApply> {
-    let mut installed_packs = ensure_template_packs_available(project_root, template)?;
-
-    // Auto-install `animus.core-skills` so the bundled skill catalog (formerly
-    // hard-coded in `BUILTIN_SKILL_YAMLS`) is always present after init.
-    let core_skills_installed = ensure_core_skills_pack_available(project_root)?;
-    if let Some(pack_id) = core_skills_installed {
-        installed_packs.push(pack_id);
-        installed_packs.sort();
-        installed_packs.dedup();
-    }
+    let installed_packs = ensure_template_packs_available(project_root, template)?;
 
     let inventory = load_pack_inventory(project_root)?;
     let mut state = load_pack_selection_state(project_root)?;
@@ -473,49 +463,10 @@ fn apply_template_packs(project_root: &Path, template: &LoadedProjectTemplate) -
         updated = true;
     }
 
-    // Activate `animus.core-skills` by default if a bundled copy is available
-    // and the project hasn't already pinned a different selection.
-    if let Some(entry) =
-        inventory.entries.iter().find(|entry| entry.pack_id.eq_ignore_ascii_case(ANIMUS_CORE_SKILLS_PACK_ID))
-    {
-        let already_pinned =
-            state.selections.iter().any(|sel| sel.pack_id.eq_ignore_ascii_case(ANIMUS_CORE_SKILLS_PACK_ID));
-        if !already_pinned {
-            state.upsert(PackSelectionEntry {
-                pack_id: ANIMUS_CORE_SKILLS_PACK_ID.to_string(),
-                version: None,
-                source: Some(selection_source_for(entry.source)),
-                enabled: true,
-            })?;
-            updated = true;
-        }
-    }
-
     if updated {
         save_pack_selection_state(project_root, &state)?;
     }
     Ok(InitPackApply { installed_packs, pack_selection_updated: updated })
-}
-
-const ANIMUS_CORE_SKILLS_PACK_ID: &str = "animus.core-skills";
-
-/// Ensure the bundled `animus.core-skills` pack is materialized under
-/// `~/.animus/packs/animus.core-skills/<version>` so its YAML skill catalog is
-/// available to the resolver. Returns the pack id if it was newly installed,
-/// `None` if it was already present.
-fn ensure_core_skills_pack_available(project_root: &Path) -> Result<Option<String>> {
-    if !has_bundled_pack(ANIMUS_CORE_SKILLS_PACK_ID) {
-        return Ok(None);
-    }
-    let inventory = load_pack_inventory(project_root)?;
-    let already_installed = inventory.entries.iter().any(|entry| {
-        entry.pack_id.eq_ignore_ascii_case(ANIMUS_CORE_SKILLS_PACK_ID) && entry.source == PackRegistrySource::Installed
-    });
-    if already_installed {
-        return Ok(None);
-    }
-    let loaded = ensure_bundled_pack_installed(ANIMUS_CORE_SKILLS_PACK_ID)?;
-    Ok(Some(loaded.manifest.id))
 }
 
 fn ensure_template_packs_available(project_root: &Path, template: &LoadedProjectTemplate) -> Result<Vec<String>> {
@@ -523,27 +474,14 @@ fn ensure_template_packs_available(project_root: &Path, template: &LoadedProject
         return Ok(Vec::new());
     }
 
-    let inventory = load_pack_inventory(project_root)?;
-    let mut installed = Vec::new();
+    let _inventory = load_pack_inventory(project_root)?;
+    Ok(Vec::new())
+}
 
-    for pack in &template.manifest.packs {
-        if !pack.activate {
-            continue;
-        }
-        let present = inventory.entries.iter().any(|entry| {
-            entry.pack_id.eq_ignore_ascii_case(&pack.id) && pack_source_matches(pack.source, entry.source)
-        });
-        if present || !has_bundled_pack(&pack.id) {
-            continue;
-        }
+const DEFAULT_INSTALL_MANIFEST_JSON: &str = include_str!("../../../config/default-install.json");
 
-        let loaded = ensure_bundled_pack_installed(&pack.id)?;
-        installed.push(loaded.manifest.id);
-    }
-
-    installed.sort();
-    installed.dedup();
-    Ok(installed)
+fn default_install_manifest() -> serde_json::Value {
+    serde_json::from_str(DEFAULT_INSTALL_MANIFEST_JSON).unwrap_or_else(|_| serde_json::json!({}))
 }
 
 fn selection_source_for(source: PackRegistrySource) -> PackSelectionSource {
@@ -1095,37 +1033,6 @@ mod tests {
 
         let plan = build_template_file_plan(temp.path(), &template, &existing, false);
         assert!(plan.iter().any(|file| file.action == "conflict"));
-    }
-
-    /// Phase 1 acceptance test: a fresh project with no template packs should
-    /// still come out of `apply_template_packs` with `animus.core-skills`
-    /// auto-installed and pinned in the pack selection state.
-    #[test]
-    fn apply_template_packs_auto_installs_core_skills_pack() {
-        use protocol::test_utils::EnvVarGuard;
-
-        let home = tempfile::tempdir().expect("home tempdir");
-        let project = tempfile::tempdir().expect("project tempdir");
-        let _home_guard = EnvVarGuard::set("HOME", Some(home.path().to_string_lossy().as_ref()));
-
-        let template = template_fixture("task-queue", "task-queue", ProjectTemplateDaemon::default(), Vec::new());
-
-        let apply = apply_template_packs(project.path(), &template).expect("apply succeeds");
-        assert!(
-            apply.installed_packs.iter().any(|id| id == "animus.core-skills"),
-            "core-skills should be auto-installed; got {:?}",
-            apply.installed_packs
-        );
-        assert!(apply.pack_selection_updated, "pack selection should record core-skills activation");
-
-        // The pack selection state should now contain animus.core-skills.
-        let state = orchestrator_config::load_pack_selection_state(project.path()).expect("load state");
-        assert!(state.selections.iter().any(|sel| sel.pack_id == "animus.core-skills" && sel.enabled));
-
-        // And the `~/.animus/packs/animus.core-skills/<version>/skills/` directory
-        // should be materialized so the resolver can pick it up.
-        let installed_root = orchestrator_config::machine_installed_packs_dir().join("animus.core-skills");
-        assert!(installed_root.is_dir(), "bundled pack should be materialized at {}", installed_root.display());
     }
 
     #[test]

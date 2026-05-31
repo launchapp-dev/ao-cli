@@ -21,7 +21,7 @@ kernel.
   execution facts.
 - Plugin packs own domain workflows, MCP server configuration, mutation
   surfaces, schedules, and subject-specific behavior.
-- Built-in `task` and `requirements` become first-party bundled plugin packs,
+- Built-in `task` and `requirements` become installable first-party plugin packs,
   not special cases in daemon-core.
 - Animus should prefer process- and package-oriented plugins over runtime-loaded
   Rust dynamic libraries.
@@ -399,7 +399,7 @@ The registry can ship built-in implementations for `animus.task` and
 
 ## Built-In Packs
 
-The current Animus product domains should become bundled packs.
+The current Animus product domains should become installable first-party packs.
 
 ### `animus.task`
 
@@ -532,7 +532,7 @@ The architecture is correct when:
   schedules as one unit
 - a pack can declare external runtime requirements such as Node.js or Python
   and execute them through command phases or MCP server processes
-- `animus.task` and `animus.requirement` behave as bundled packs rather than kernel
+- `animus.task` and `animus.requirement` behave as installable packs rather than kernel
   special cases
 - new subject kinds can be added without editing daemon-core dispatch logic
 - MCP integrations are attached through packs and workflow policy, not daemon

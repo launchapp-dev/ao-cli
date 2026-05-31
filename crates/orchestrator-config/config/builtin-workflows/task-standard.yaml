@@ -1,6 +1,0 @@
-workflows:
-  - id: builtin/task-standard
-    name: Builtin Task Standard
-    description: Run the default built-in task workflow.
-    phases:
-      - workflow_ref: animus.task/standard

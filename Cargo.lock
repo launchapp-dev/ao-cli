@@ -136,29 +136,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "animus-plugin-smoke"
-version = "0.1.0"
-dependencies = [
- "animus-plugin-protocol 0.1.0",
- "anyhow",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "animus-provider-mock"
-version = "0.1.0"
-dependencies = [
- "animus-plugin-runtime",
- "animus-session-backend",
- "anyhow",
- "async-trait",
- "serde_json",
- "tokio",
- "uuid",
-]
-
-[[package]]
 name = "animus-session-backend"
 version = "0.1.13"
 source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.13#1dc37a0db952e3805a28a904b9f6120837584752"

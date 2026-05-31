@@ -4,14 +4,8 @@ use anyhow::{anyhow, Result};
 
 pub const STANDARD_WORKFLOW_REF: &str = "standard-workflow";
 pub const UI_UX_WORKFLOW_REF: &str = "ui-ux-standard";
-pub const REQUIREMENT_TASK_GENERATION_WORKFLOW_REF: &str = "animus.requirement/plan";
-pub const REQUIREMENT_TASK_GENERATION_RUN_WORKFLOW_REF: &str = "animus.requirement/execute";
 
-const PACK_STANDARD_WORKFLOW_REF: &str = "animus.task/standard";
-const PACK_UI_UX_WORKFLOW_REF: &str = "animus.task/ui-ux";
 const LEGACY_STANDARD_WORKFLOW_REF: &str = "standard";
-const LEGACY_REQUIREMENT_TASK_GENERATION_WORKFLOW_REF: &str = "requirement-task-generation";
-const LEGACY_REQUIREMENT_TASK_GENERATION_RUN_WORKFLOW_REF: &str = "requirement-task-generation-run";
 
 fn standard_phase_plan() -> Vec<String> {
     vec!["requirements".to_string(), "implementation".to_string(), "code-review".to_string(), "testing".to_string()]
@@ -29,36 +23,15 @@ fn ui_ux_phase_plan() -> Vec<String> {
     ]
 }
 
-fn requirement_task_generation_phase_plan() -> Vec<String> {
-    vec!["requirement-task-generation".to_string()]
-}
-
-fn requirement_task_generation_run_phase_plan() -> Vec<String> {
-    vec!["requirement-task-generation".to_string(), "requirement-workflow-bootstrap".to_string()]
-}
-
 fn normalize_requested_workflow_ref(workflow_ref: Option<&str>) -> Option<String> {
     let requested = workflow_ref.map(str::trim).filter(|value| !value.is_empty())?;
     let normalized = requested.to_ascii_lowercase();
 
     match normalized.as_str() {
-        STANDARD_WORKFLOW_REF | LEGACY_STANDARD_WORKFLOW_REF | PACK_STANDARD_WORKFLOW_REF | "builtin/task-standard" => {
-            Some(STANDARD_WORKFLOW_REF.to_string())
+        STANDARD_WORKFLOW_REF | LEGACY_STANDARD_WORKFLOW_REF => Some(STANDARD_WORKFLOW_REF.to_string()),
+        UI_UX_WORKFLOW_REF | "ui-ux" | "uiux" | "frontend" | "frontend-ui-ux" | "product-ui" => {
+            Some(UI_UX_WORKFLOW_REF.to_string())
         }
-        UI_UX_WORKFLOW_REF
-        | PACK_UI_UX_WORKFLOW_REF
-        | "builtin/task-ui-ux"
-        | "ui-ux"
-        | "uiux"
-        | "frontend"
-        | "frontend-ui-ux"
-        | "product-ui" => Some(UI_UX_WORKFLOW_REF.to_string()),
-        REQUIREMENT_TASK_GENERATION_WORKFLOW_REF
-        | LEGACY_REQUIREMENT_TASK_GENERATION_WORKFLOW_REF
-        | "builtin/requirement-plan" => Some(REQUIREMENT_TASK_GENERATION_WORKFLOW_REF.to_string()),
-        REQUIREMENT_TASK_GENERATION_RUN_WORKFLOW_REF
-        | LEGACY_REQUIREMENT_TASK_GENERATION_RUN_WORKFLOW_REF
-        | "builtin/requirements-execute" => Some(REQUIREMENT_TASK_GENERATION_RUN_WORKFLOW_REF.to_string()),
         _ => Some(requested.to_string()),
     }
 }
@@ -74,8 +47,6 @@ fn fallback_phase_plan_for_workflow_ref(workflow_ref: Option<&str>) -> Option<Ve
         None => Some(standard_phase_plan()),
         Some(STANDARD_WORKFLOW_REF) => Some(standard_phase_plan()),
         Some(UI_UX_WORKFLOW_REF) => Some(ui_ux_phase_plan()),
-        Some(REQUIREMENT_TASK_GENERATION_WORKFLOW_REF) => Some(requirement_task_generation_phase_plan()),
-        Some(REQUIREMENT_TASK_GENERATION_RUN_WORKFLOW_REF) => Some(requirement_task_generation_run_phase_plan()),
         Some(_) => None,
     }
 }
@@ -156,6 +127,31 @@ mod tests {
         LOCK.get_or_init(|| std::sync::Mutex::new(()))
     }
 
+    fn test_workflow_config_with_standard_pipeline() -> orchestrator_config::WorkflowConfig {
+        use orchestrator_config::{WorkflowDefinition, WorkflowPhaseEntry};
+        let mut config = crate::builtin_workflow_config();
+        config.default_workflow_ref = STANDARD_WORKFLOW_REF.to_string();
+        config.workflows = vec![
+            WorkflowDefinition {
+                id: STANDARD_WORKFLOW_REF.to_string(),
+                name: "Standard Workflow".to_string(),
+                description: "Test fixture pipeline.".to_string(),
+                phases: standard_phase_plan().into_iter().map(WorkflowPhaseEntry::Simple).collect(),
+                post_success: None,
+                variables: Vec::new(),
+            },
+            WorkflowDefinition {
+                id: UI_UX_WORKFLOW_REF.to_string(),
+                name: "UI UX Standard".to_string(),
+                description: "Test fixture frontend pipeline.".to_string(),
+                phases: ui_ux_phase_plan().into_iter().map(WorkflowPhaseEntry::Simple).collect(),
+                post_success: None,
+                variables: Vec::new(),
+            },
+        ];
+        config
+    }
+
     fn ensure_stable_home() -> std::sync::MutexGuard<'static, ()> {
         let guard = pack_fixture_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let home = crate::test_env::stable_test_home().to_path_buf();
@@ -234,22 +230,12 @@ workflows:
     }
 
     #[test]
-    fn phase_plan_fallback_normalizes_pack_qualified_and_legacy_refs() {
+    fn phase_plan_fallback_normalizes_legacy_refs() {
         assert_eq!(phase_plan_for_workflow_ref(Some(STANDARD_WORKFLOW_REF)), standard_phase_plan());
-        assert_eq!(phase_plan_for_workflow_ref(Some(PACK_STANDARD_WORKFLOW_REF)), standard_phase_plan());
         assert_eq!(phase_plan_for_workflow_ref(Some("standard")), standard_phase_plan());
-        assert_eq!(phase_plan_for_workflow_ref(Some("builtin/task-standard")), standard_phase_plan());
         assert_eq!(phase_plan_for_workflow_ref(Some(UI_UX_WORKFLOW_REF)), ui_ux_phase_plan());
-        assert_eq!(phase_plan_for_workflow_ref(Some(PACK_UI_UX_WORKFLOW_REF)), ui_ux_phase_plan());
         assert_eq!(phase_plan_for_workflow_ref(Some("ui-ux-standard")), ui_ux_phase_plan());
-        assert_eq!(
-            phase_plan_for_workflow_ref(Some(REQUIREMENT_TASK_GENERATION_WORKFLOW_REF)),
-            requirement_task_generation_phase_plan()
-        );
-        assert_eq!(
-            phase_plan_for_workflow_ref(Some(REQUIREMENT_TASK_GENERATION_RUN_WORKFLOW_REF)),
-            requirement_task_generation_run_phase_plan()
-        );
+        assert_eq!(phase_plan_for_workflow_ref(Some("ui-ux")), ui_ux_phase_plan());
     }
 
     #[test]
@@ -305,7 +291,7 @@ workflows:
     fn resolve_phase_plan_uses_config_phases_for_standard_pipeline() {
         let _home_lock = ensure_stable_home();
         let temp = tempfile::tempdir().expect("tempdir");
-        let mut workflow_config = crate::builtin_workflow_config();
+        let mut workflow_config = test_workflow_config_with_standard_pipeline();
 
         let standard_pipeline = workflow_config
             .workflows
@@ -327,7 +313,7 @@ workflows:
     fn resolve_phase_plan_uses_config_default_pipeline_when_none_is_requested() {
         let _home_lock = ensure_stable_home();
         let temp = tempfile::tempdir().expect("tempdir");
-        let mut workflow_config = crate::builtin_workflow_config();
+        let mut workflow_config = test_workflow_config_with_standard_pipeline();
         workflow_config.default_workflow_ref = UI_UX_WORKFLOW_REF.to_string();
 
         crate::write_workflow_config(temp.path(), &workflow_config).expect("write workflow config");
@@ -341,7 +327,7 @@ workflows:
     fn resolve_phase_plan_prefers_explicit_config_pipeline_before_alias_normalization() {
         let _home_lock = ensure_stable_home();
         let temp = tempfile::tempdir().expect("tempdir");
-        let mut workflow_config = crate::builtin_workflow_config();
+        let mut workflow_config = test_workflow_config_with_standard_pipeline();
 
         let ui_ux_pipeline = workflow_config
             .workflows
@@ -367,9 +353,8 @@ workflows:
 
         crate::write_workflow_config(temp.path(), &crate::builtin_workflow_config()).expect("write workflow config");
 
-        let error =
-            resolve_phase_plan_for_workflow_ref(Some(temp.path()), Some(REQUIREMENT_TASK_GENERATION_RUN_WORKFLOW_REF))
-                .expect_err("requirement pack workflow should not resolve until the pack is installed");
+        let error = resolve_phase_plan_for_workflow_ref(Some(temp.path()), Some("animus.requirement/execute"))
+            .expect_err("requirement pack workflow should not resolve until the pack is installed");
         assert!(error.to_string().contains("workflow 'animus.requirement/execute' not found"));
     }
 

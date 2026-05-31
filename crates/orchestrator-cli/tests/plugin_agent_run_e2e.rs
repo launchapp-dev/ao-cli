@@ -30,6 +30,12 @@ use tokio::time::timeout;
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 fn workspace_target_debug() -> PathBuf {
+    if let Ok(override_dir) = std::env::var("ANIMUS_TESTKIT_BIN_DIR") {
+        let p = PathBuf::from(override_dir);
+        if p.exists() {
+            return p;
+        }
+    }
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let workspace_root = manifest_dir.parent().and_then(Path::parent).expect("workspace root");
     workspace_root.join("target").join("debug")
@@ -37,7 +43,11 @@ fn workspace_target_debug() -> PathBuf {
 
 fn ensure_mock_provider() {
     let bin = workspace_target_debug().join("animus-provider-mock");
-    assert!(bin.exists(), "animus-provider-mock binary not built; run `cargo build -p animus-provider-mock` first");
+    assert!(
+        bin.exists(),
+        "animus-provider-mock binary not built; set ANIMUS_TESTKIT_BIN_DIR=<path>/animus-plugin-testkit/target/debug \
+         or run `cargo build -p animus-provider-mock` against the testkit (fixtures/animus-provider-mock) first"
+    );
 }
 
 fn build_request() -> SessionRequest {
@@ -155,10 +165,11 @@ async fn agent_run_streams_notifications_in_order_through_plugin() {
 #[tokio::test]
 async fn agent_run_errors_when_provider_plugin_missing() {
     let _guard = ENV_LOCK.lock().expect("env lock");
-    // Point discovery at an empty temp dir so no plugins are visible.
     let empty = tempfile::tempdir().expect("tempdir");
+    let isolated_home = tempfile::tempdir().expect("isolated home tempdir");
+    let prior_home = std::env::var_os("HOME");
+    std::env::set_var("HOME", isolated_home.path());
     std::env::set_var("ANIMUS_PLUGIN_PATH", empty.path());
-    // Make sure no other plugin source can be probed unexpectedly.
     std::env::set_var("ANIMUS_PLUGIN_DIR", empty.path());
 
     let resolver = SessionBackendResolver::with_plugin_discovery(empty.path());
@@ -185,4 +196,8 @@ async fn agent_run_errors_when_provider_plugin_missing() {
 
     std::env::remove_var("ANIMUS_PLUGIN_PATH");
     std::env::remove_var("ANIMUS_PLUGIN_DIR");
+    match prior_home {
+        Some(value) => std::env::set_var("HOME", value),
+        None => std::env::remove_var("HOME"),
+    }
 }

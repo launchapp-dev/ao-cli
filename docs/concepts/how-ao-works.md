@@ -15,8 +15,8 @@ flowchart LR
 
     subgraph SOURCES["Workflow Sources"]
         direction TB
-        kernel["Bundled Kernel Workflows<br/>animus.vision/*"]
-        packs["Bundled + Installed Packs<br/>animus.task/*, animus.requirement/*"]
+        kernel["Kernel Baseline<br/>phase catalog + MCP defaults"]
+        packs["Installed Packs<br/>animus.task/*, animus.requirement/*"]
         project["Project YAML + Overrides<br/>.animus/workflows*, .animus/plugins/"]
     end
 
@@ -73,7 +73,6 @@ Examples:
 - `animus subject next --kind task`
 - `animus workflow run animus.task/standard --task-id TASK-001`
 - `animus workflow run animus.requirement/execute --requirement-id REQ-001`
-- `animus workflow run animus.vision/draft`
 - `animus mcp serve`
 - ready-queue and schedule dispatches
 
@@ -127,15 +126,15 @@ Animus resolves workflows from a layered source model:
 1. `.animus/plugins/<pack-id>/`
 2. `.animus/workflows.yaml` and `.animus/workflows/*.yaml`
 3. `~/.animus/packs/<pack-id>/<version>/`
-4. bundled kernel workflows and bundled first-party packs
+4. kernel baseline config embedded in Animus
 
 Canonical workflow refs are pack-qualified, such as `animus.task/standard` and
 `animus.requirement/execute`. Legacy `builtin/*` aliases remain as migration
 shims, but they are no longer the preferred operator-facing surface.
 
-There is no dedicated `animus vision ...` command in the current CLI. Planning
-workflows still exist as canonical refs, but they are consumed through
-`animus workflow run <workflow_ref>` or project-local workflow YAML.
+Current builds do not ship built-in workflow definitions in the kernel baseline.
+The baseline provides shared phase metadata and default MCP wiring, while actual
+workflow refs come from project YAML or installed packs.
 
 ## MCP and External Runtimes
 

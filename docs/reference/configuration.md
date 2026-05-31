@@ -318,6 +318,7 @@ hide broken or missing plugins during daemon startup.
 ## Notes
 
 - Project YAML is the authored workflow surface.
-- Animus still ships built-in workflow defaults and the `hello-world` onboarding template, but bundled pack content and bundled skill fallback were removed.
+- Animus still ships the `hello-world` walkthrough template plus kernel baseline config for phases and MCP defaults, but current builds do not ship built-in workflow definitions, bundled pack content, or bundled skill fallback.
+- `animus init --json` now includes a `recommended_install` object sourced from `crates/orchestrator-cli/config/default-install.json` so callers can surface the default pack and plugin set explicitly.
 - Mutable runtime state lives under `~/.animus/<repo-scope>/`.
 - The daemon schedules and supervises work; workflow and pack content still define behavior.

@@ -66,16 +66,11 @@ Examples of current workflow refs consumed by dispatch and `animus workflow run`
 
 | Use Case | Subject | Workflow Ref |
 |---|---|---|
-| Planning intake | `custom:planning-intake` | `animus.vision/draft` |
 | Requirement execution | `animus.requirement:REQ-007` | `animus.requirement/execute` |
 | Standard task delivery | `animus.task:TASK-042` | `animus.task/standard` |
 
 Legacy aliases such as `builtin/requirements-execute` still resolve, but they
 are compatibility shims rather than the preferred surface.
-
-The `animus.vision/draft` ref remains a valid dispatch target, but the current CLI
-does not expose a dedicated `animus vision ...` command. It is consumed through
-generic workflow dispatch or project-local YAML.
 
 ## Why This Boundary Matters
 

@@ -96,7 +96,7 @@ This page clarifies which Animus features are **shipped and stable**, **in-fligh
 |---------|--------|-------------|
 | MCP Tool Exposure | **Shipped** | All Animus operations available as typed MCP tools for agent use |
 | Agent Runtime Configuration | **Shipped** | Configure model, temperature, tool selection per workflow |
-| Built-in Workflows | **Shipped** | Standard phases (requirements, implementation, testing, QA, deployment) |
+| Kernel Baseline Phase Catalog | **Shipped** | Built-in phase metadata and default MCP wiring ship with the kernel baseline |
 | Workflow Prompt Rendering | **Shipped** | Render workflow phase prompts with context and section injection |
 | Multi-Model Support | **Shipped** | Configure different models for different agents and phases |
 

@@ -326,6 +326,9 @@ Initialize an Animus project from a template registry or a local template direct
 | `--auto-commit-before-merge <bool>` | Override the template default for automatic commit before merge |
 
 The template registry URL can be overridden globally via `ANIMUS_TEMPLATE_REGISTRY_URL`.
+In `--json` mode, `animus init` also returns `recommended_install`, sourced from
+`crates/orchestrator-cli/config/default-install.json`, so automations can read the
+recommended pack and plugin set without scraping prose.
 
 ### `animus plugin install`
 

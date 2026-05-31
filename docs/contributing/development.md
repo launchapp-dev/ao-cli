@@ -96,6 +96,17 @@ npm run docs:build
 npm run docs:preview
 ```
 
+Protocol schema exports live at the repo root:
+
+```bash
+cargo run -p animus-plugin-protocol --bin animus-plugin-protocol-export-schema
+cargo run -p animus-subject-protocol --bin animus-subject-protocol-export-schema
+```
+
+Those commands write to `/schemas/animus-plugin-protocol/` and
+`/schemas/animus-subject-protocol/` under the workspace root. Do not commit
+accidental crate-local output such as `crates/orchestrator-cli/schemas/`.
+
 ## Project Conventions
 
 - All CLI `--json` output follows the `animus.cli.v1` envelope

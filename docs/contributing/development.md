@@ -30,15 +30,13 @@ cargo build -p agent-runner
 
 ## Workspace Structure
 
-The workspace is a Cargo workspace of 20 crates. The core orchestrator crates are:
+The workspace is a Cargo workspace of 18 crates. The core orchestrator crates are:
 
 ```text
 crates/
 ├── agent-runner/
 ├── animus-plugin-protocol/
 ├── animus-plugin-runtime/
-├── animus-plugin-smoke/
-├── animus-provider-mock/
 ├── animus-subject-protocol/
 ├── oai-runner/
 ├── orchestrator-cli/
@@ -55,6 +53,12 @@ crates/
 ├── protocol/
 └── workflow-runner-v2/
 ```
+
+Repo-local but not current workspace members:
+
+- `crates/animus-plugin-smoke/`
+- `crates/animus-provider-mock/`
+- `crates/orchestrator-web-server/`
 
 `default-members` in `Cargo.toml` include:
 

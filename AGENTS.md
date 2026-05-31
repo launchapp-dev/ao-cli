@@ -23,7 +23,7 @@ Do not keep outdated counts or removed crates alive in docs.
 
 ## Workspace
 
-20-crate Rust workspace. Main binary: `animus` (`crates/orchestrator-cli`). The
+18-crate Rust workspace. Main binary: `animus` (`crates/orchestrator-cli`). The
 web stack (transport + UI) lives in external plugins under
 [`launchapp-dev`](https://github.com/launchapp-dev).
 
@@ -34,8 +34,6 @@ crates/
 ├── agent-runner/                # Runner process that launches and supervises AI CLIs
 ├── animus-plugin-protocol/      # In-tree stdio plugin protocol types
 ├── animus-plugin-runtime/       # Runtime helpers for plugin implementations
-├── animus-plugin-smoke/         # Smoke-test plugin for host/protocol behavior
-├── animus-provider-mock/        # Mock provider plugin for tests
 ├── animus-subject-protocol/     # Subject backend trait and normalized subject schema
 ├── oai-runner/                  # OpenAI-compatible runner implementation
 ├── orchestrator-cli/            # Main `animus` binary
@@ -52,6 +50,12 @@ crates/
 ├── protocol/                    # Shared protocol/config/runtime types
 └── workflow-runner-v2/          # Workflow execution runtime and phase output persistence
 ```
+
+Repo-local but not current workspace members:
+
+- `crates/animus-plugin-smoke/`
+- `crates/animus-provider-mock/`
+- `crates/orchestrator-web-server/`
 
 Runtime-critical binaries and supporting crates must stay healthy:
 

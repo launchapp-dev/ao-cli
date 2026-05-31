@@ -30,7 +30,7 @@ The core goals are:
 
 ## Workspace Inventory
 
-`Cargo.toml` currently declares 20 workspace members.
+`Cargo.toml` currently declares 18 workspace members.
 
 | Group | Crates |
 |---|---|
@@ -40,7 +40,9 @@ The core goals are:
 | Provider/session | `orchestrator-session-host`, `orchestrator-providers`, `oai-runner` |
 | Plugin foundation | `orchestrator-plugin-host`, `animus-plugin-protocol`, `animus-subject-protocol`, `animus-plugin-runtime` |
 | Support | `orchestrator-git-ops`, `orchestrator-notifications`, `orchestrator-logging`, `protocol` |
-| Test fixtures | `animus-provider-mock`, `animus-plugin-smoke` |
+
+Repo-local but not current workspace members: `animus-provider-mock`,
+`animus-plugin-smoke`, and `orchestrator-web-server`.
 
 The release/runtime binary set is:
 

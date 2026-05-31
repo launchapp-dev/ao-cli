@@ -1,6 +1,6 @@
 # Crate Map
 
-The Animus workspace is a Cargo workspace of 20 crates organized by runtime
+The Animus workspace is a Cargo workspace of 18 crates organized by runtime
 responsibility. `Cargo.toml` is the source of truth for membership.
 
 ## Foundation
@@ -45,17 +45,18 @@ The workspace also depends on external `launchapp-dev/animus-protocol` crates
 for provider/session contracts, currently through `animus-provider-protocol` and
 `animus-session-backend` in `Cargo.toml`.
 
-## Fixtures
+## Repo-Local Fixtures
 
 | Crate | Responsibility |
 |---|---|
 | `animus-provider-mock` | Mock provider plugin for contract and e2e tests |
 | `animus-plugin-smoke` | Smoke-test plugin for host and protocol behavior |
+| `orchestrator-web-server` | Legacy in-repo web server directory retained outside the current Cargo workspace |
 
 ## Web
 
-The web stack is no longer in-tree. `animus web` discovers and spawns external
-plugins, normally installed through:
+The active web stack is not part of the current Cargo workspace. `animus web`
+discovers and spawns external plugins, normally installed through:
 
 ```bash
 animus plugin install-defaults --include-transports

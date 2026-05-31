@@ -70,9 +70,11 @@ flowchart TB
 | Providers | `orchestrator-session-host`, `oai-runner`, `orchestrator-providers` | Provider plugin sessions, OpenAI-compatible runner, compatibility helpers |
 | Plugins | `orchestrator-plugin-host`, `animus-plugin-protocol`, `animus-subject-protocol`, `animus-plugin-runtime` | Discovery, manifests, stdio JSON-RPC host, subject schema, runtime helpers |
 | Support | `orchestrator-git-ops`, `orchestrator-notifications`, `orchestrator-logging`, `protocol` | Worktrees, notifications, tracing, shared types |
-| Fixtures | `animus-provider-mock`, `animus-plugin-smoke` | Plugin protocol and integration test fixtures |
 
 ## Startup Flow
+
+Repo-local but not current workspace members: `animus-provider-mock`,
+`animus-plugin-smoke`, and `orchestrator-web-server`.
 
 1. Parse global flags and top-level command in `orchestrator-cli`.
 2. Resolve the project root with this precedence:

@@ -1,6 +1,6 @@
 # Architecture Overview
 
-Animus is a Rust-only agent orchestrator built as a Cargo workspace of 20 crates.
+Animus is a Rust-only agent orchestrator built as a Cargo workspace of 18 crates.
 It provides the `animus` CLI, daemon runtime, workflow runner, agent runner, MCP
 server, plugin host, and plugin protocol crates. Provider, subject, transport,
 and web UI integrations run as external stdio plugins rather than in-process
@@ -37,8 +37,6 @@ graph TD
     NOTIF[orchestrator-notifications]
     GIT[orchestrator-git-ops]
     LOG[orchestrator-logging]
-    MOCK[animus-provider-mock]
-    SMOKE[animus-plugin-smoke]
 
     CLI --> CORE
     CLI --> DAEMON
@@ -88,8 +86,6 @@ graph TD
     LOG --> PROTO
 
     PLUGIN_RUNTIME --> PLUGIN_PROTO
-    MOCK --> PLUGIN_PROTO
-    SMOKE --> PLUGIN_PROTO
 ```
 
 `protocol` sits at the foundation for shared types, configuration shapes, and
@@ -103,6 +99,7 @@ surface.
 
 ## Architecture Decision Records
 
+- [Kernel and Flavors](kernel-and-flavors.md) -- **v0.5 product architecture commitment.** Animus is a kernel + a default flavor (curated plugin bundle) for portfolio builders. Future flavors emerge from real customer pull, not roadmap speculation. Read this before adding scope.
 - [Naming Contract](naming-contract.md) -- One name everywhere: `animus.*` for MCP tools, env vars, config dirs, pack ids, and JSON envelopes
 - [Full System Architecture](full-system-architecture.md) -- Canonical end-to-end architecture narrative covering crates, process topology, state, config, services, daemon, workflow runner, agent runner, plugins, control surfaces, security, observability, and verification
 - [Runtime Architecture](runtime-architecture.md) -- Current end-to-end runtime topology, startup flow, state model, crate responsibilities, execution pipeline, and failure boundaries

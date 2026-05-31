@@ -25,12 +25,12 @@ architecture, command counts, routes, or state paths:
 
 Animus is a Rust-only agent orchestrator with:
 
-- a Cargo workspace with 20 current members under `crates/`, as defined in `Cargo.toml`
+- a Cargo workspace with 18 current members under `crates/`, as defined in `Cargo.toml`
 - the CLI binary named `animus`
 - a visible CLI surface that includes `project` and `queue`
 - scoped runtime state under `~/.animus/<repo-scope>/`
 - project-local workflow YAML overlays under `.animus/workflows.yaml` or `.animus/workflows/*.yaml`
-- the web UI now ships as the standalone `launchapp-dev/animus-web-ui` plugin (paired with `animus-transport-http` + `animus-transport-graphql`); the in-tree `orchestrator-web-server` / `orchestrator-web-api` / `orchestrator-web-contracts` crates were removed in v0.4.12
+- the web UI now ships as the standalone `launchapp-dev/animus-web-ui` plugin (paired with `animus-transport-http` + `animus-transport-graphql`); the old in-tree web stack is no longer part of the current Cargo workspace
 - a stdio plugin host (`orchestrator-plugin-host`) for subject, provider, transport, and trigger plugins, plus a typed `HostError::ConnectionLost` + `classify(&HostError) -> RetryDecision` API for supervised restart decisions
 - a daemon-side workflow event broadcaster that emits `phase_started` / `phase_completed` / `workflow_completed` / `workflow_failed` on the `workflow/events` ControlClient subscription (animus-protocol v0.1.10)
 - the v0.4.x plugin extraction **complete**: 18 standalone repositories live at <https://github.com/launchapp-dev> covering protocol, providers (claude / codex / gemini / opencode / oai), subject backends (default / requirements / linear / sqlite / markdown), transports (http / graphql), web UI, triggers (webhook / slack), log storage, the conformance testkit, the release-automation scripts, and the plugin template. Only `animus-provider-mock` and `animus-plugin-smoke` remain in-tree, as test fixtures.
@@ -38,10 +38,10 @@ Animus is a Rust-only agent orchestrator with:
 
 Do not reintroduce stale claims such as:
 
-- stale workspace-count summaries that do not match `Cargo.toml`'s current 20 members
+- stale workspace-count summaries that do not match `Cargo.toml`'s current 18 members
 - "plugin extraction in flux" or "in progress" framing — extraction is complete as of v0.4.12
 - `PROJECT_ROOT` or "last-project-root registry" resolution rules
-- removed crates like `llm-mcp-server`, `llm-cli-wrapper`, `orchestrator-web-server`, `orchestrator-web-api`, `orchestrator-web-contracts`, or in-tree `animus-provider-{claude,codex,gemini,opencode,oai}`
+- removed crates like `llm-mcp-server`, `llm-cli-wrapper`, `orchestrator-web-api`, `orchestrator-web-contracts`, or in-tree `animus-provider-{claude,codex,gemini,opencode,oai}`. `orchestrator-web-server` still exists in-repo but is not a current workspace member
 - outdated CLI groups such as a top-level `planning` facade
 - in-tree `inproc_subject_backend.rs` or the `InTreeTaskSubjectBackend` / `InTreeRequirementsSubjectBackend` adapters — all subject ops route through the `SubjectRouter` to installed plugins
 - claims that `animus web serve` boots an in-process axum server — it now spawns installed transport + web_ui plugins
@@ -75,14 +75,16 @@ Plugin host + protocol:
 - `crates/animus-plugin-runtime`
 - `crates/animus-subject-protocol`
 
-Test fixtures (not shipped):
+Repo-local fixtures / legacy dirs (not current workspace members):
 
 - `crates/animus-plugin-smoke`
 - `crates/animus-provider-mock`
+- `crates/orchestrator-web-server`
 
 Web surface ships out-of-tree as the `launchapp-dev/animus-web-ui` plugin together
 with `animus-transport-http` and `animus-transport-graphql`. Install with
-`animus plugin install-defaults --include-transports`.
+`animus plugin install-defaults --include-transports`. The repo still contains
+`crates/orchestrator-web-server/`, but it is not part of the current workspace.
 
 ## Root Resolution And State
 
@@ -160,7 +162,7 @@ Plugin host + preflight:
 
 Web UI:
 
-- Out-of-tree at `launchapp-dev/animus-web-ui` (plus `animus-transport-http` / `animus-transport-graphql`). The in-tree `orchestrator-web-server` crate was deleted in v0.4.12.
+- Out-of-tree at `launchapp-dev/animus-web-ui` (plus `animus-transport-http` / `animus-transport-graphql`). `crates/orchestrator-web-server/` still exists in-repo, but it is not a current workspace member.
 
 ## CLI Reality Check
 

@@ -7,7 +7,7 @@ pub use orchestrator_daemon_runtime::{DispatchNotice, DispatchWorkflowStartSumma
 use tracing::warn;
 
 use crate::services::plugin_clients;
-use animus_queue_protocol::{self as queue_proto, QueueListRequest, QueueMarkAssignedRequest};
+use animus_queue_protocol::{self as queue_proto, QueueListRequest, QueueMarkAssignedRequest, QueueReleaseRequest};
 
 pub async fn dispatch_queued_entries_via_runner(
     root: &str,
@@ -49,6 +49,13 @@ pub async fn dispatch_queued_entries_via_runner(
     // the same entry.
     let mut planned_starts: Vec<PlannedDispatchStart> = Vec::new();
     let mut plugin_owned_subject_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Codex R5 [P1]: track `subject_key → entry_id` so we can roll back
+    // the plugin claim via `queue/release` when `spawn_workflow_runner`
+    // fails downstream. Without this, a failed spawn would leave the
+    // entry in `assigned` forever; the in-tree path (which only flipped
+    // `assigned` AFTER a successful spawn) is unaffected.
+    let mut plugin_entry_ids_by_subject_key: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
     let mut used_plugin_path = false;
     let project_root_path = std::path::Path::new(root);
     // Codex R2 P2: request more entries than `limit` so the local
@@ -101,18 +108,10 @@ pub async fn dispatch_queued_entries_via_runner(
                 // Claim this entry on the plugin BEFORE pushing to
                 // planned_starts so a tick interruption doesn't leave
                 // the queue with both an assigned entry and a running
-                // workflow that doesn't reference it.
-                //
-                // TODO(codex-p2): on `spawn_workflow_runner` failure the
-                // claim should be rolled back via `queue/release` (or by
-                // calling `queue/completion { status: "failed" }`) so the
-                // entry is retried on the next tick rather than stranded
-                // in `assigned`. Currently `execute_dispatch_plan_via_runner`
-                // (in `orchestrator_daemon_runtime`) consumes the slice
-                // synchronously and doesn't expose per-entry failures to
-                // an async caller — wiring rollback requires plumbing an
-                // async failure hook through that signature. Deferred to
-                // v0.5.x.
+                // workflow that doesn't reference it. If
+                // `spawn_workflow_runner` later fails, the post-dispatch
+                // rollback loop below releases the claim via
+                // `queue/release` so the entry stays retriable.
                 let mark_req = QueueMarkAssignedRequest { entry_id: entry.entry_id.clone(), workflow_id: None };
                 match plugin_clients::call_queue_mark_assigned(project_root_path, &mark_req).await {
                     Ok(Some(_)) => {}
@@ -138,7 +137,9 @@ pub async fn dispatch_queued_entries_via_runner(
                         continue;
                     }
                 }
-                plugin_owned_subject_keys.insert(dispatch.subject_key());
+                let subject_key = dispatch.subject_key();
+                plugin_owned_subject_keys.insert(subject_key.clone());
+                plugin_entry_ids_by_subject_key.insert(subject_key, entry.entry_id.clone());
                 planned_starts
                     .push(PlannedDispatchStart { dispatch, selection_source: DispatchSelectionSource::DispatchQueue });
             }
@@ -189,8 +190,45 @@ pub async fn dispatch_queued_entries_via_runner(
         }
     }
 
-    let mut notice_sink = CliDispatchNoticeSink { plugin_owned_subject_keys };
-    Ok(execute_dispatch_plan_via_runner(root, process_manager, &planned_starts, limit, &mut notice_sink))
+    let mut notice_sink = CliDispatchNoticeSink { plugin_owned_subject_keys: plugin_owned_subject_keys.clone() };
+    let summary = execute_dispatch_plan_via_runner(root, process_manager, &planned_starts, limit, &mut notice_sink);
+
+    // Codex R5 [P1]: roll back plugin claims for subjects whose spawn
+    // failed. `summary.started_workflows` lists only the subjects
+    // `execute_dispatch_plan_via_runner` actually started; any subject
+    // in `plugin_entry_ids_by_subject_key` NOT in that set had its
+    // claim transitioned pending → assigned at the top of this fn but
+    // never got a workflow, so its entry would be stranded.
+    if !plugin_entry_ids_by_subject_key.is_empty() {
+        let started_keys: std::collections::HashSet<String> =
+            summary.started_workflows.iter().map(|s| s.dispatch.subject_key()).collect();
+        for (subject_key, entry_id) in &plugin_entry_ids_by_subject_key {
+            if started_keys.contains(subject_key) {
+                continue;
+            }
+            let release_req = QueueReleaseRequest { entry_id: entry_id.clone() };
+            match plugin_clients::call_queue_release(project_root_path, &release_req).await {
+                Ok(_) => {
+                    warn!(
+                        actor = protocol::ACTOR_DAEMON,
+                        subject_key = %subject_key,
+                        entry_id = %entry_id,
+                        "rolled back queue plugin claim after failed spawn"
+                    );
+                }
+                Err(error) => {
+                    warn!(
+                        actor = protocol::ACTOR_DAEMON,
+                        subject_key = %subject_key,
+                        entry_id = %entry_id,
+                        error = %error,
+                        "queue plugin queue/release rollback failed; entry remains assigned"
+                    );
+                }
+            }
+        }
+    }
+    Ok(summary)
 }
 
 struct CliDispatchNoticeSink {

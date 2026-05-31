@@ -51,8 +51,21 @@ pub async fn dispatch_queued_entries_via_runner(
     let mut plugin_owned_subject_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut used_plugin_path = false;
     let project_root_path = std::path::Path::new(root);
-    let list_req =
-        QueueListRequest { status: vec![queue_proto::status::PENDING.to_string()], limit: Some(limit), offset: None };
+    // Codex R2 P2: request more entries than `limit` so the local
+    // "already-active" / decode-error filters leave headroom on the
+    // tick. Without this, a pool of 5 with 5 active subjects atop the
+    // queue would consume the entire fetch budget and starve any
+    // dispatchable work further down. Multiplier of 4× is a pragmatic
+    // ceiling for v0.5 (the in-tree path filtered the full queue, so
+    // strictly speaking any cap risks starvation — the cap exists to
+    // bound plugin response size on enormous queues; future versions
+    // can switch to `queue/lease` for atomic claim-with-filter).
+    let list_limit = limit.saturating_mul(4).max(limit);
+    let list_req = QueueListRequest {
+        status: vec![queue_proto::status::PENDING.to_string()],
+        limit: Some(list_limit),
+        offset: None,
+    };
     match plugin_clients::call_queue_list(project_root_path, &list_req).await {
         Ok(Some(response)) => {
             used_plugin_path = true;
@@ -89,6 +102,17 @@ pub async fn dispatch_queued_entries_via_runner(
                 // planned_starts so a tick interruption doesn't leave
                 // the queue with both an assigned entry and a running
                 // workflow that doesn't reference it.
+                //
+                // TODO(codex-p2): on `spawn_workflow_runner` failure the
+                // claim should be rolled back via `queue/release` (or by
+                // calling `queue/completion { status: "failed" }`) so the
+                // entry is retried on the next tick rather than stranded
+                // in `assigned`. Currently `execute_dispatch_plan_via_runner`
+                // (in `orchestrator_daemon_runtime`) consumes the slice
+                // synchronously and doesn't expose per-entry failures to
+                // an async caller — wiring rollback requires plumbing an
+                // async failure hook through that signature. Deferred to
+                // v0.5.x.
                 let mark_req = QueueMarkAssignedRequest { entry_id: entry.entry_id.clone(), workflow_id: None };
                 match plugin_clients::call_queue_mark_assigned(project_root_path, &mark_req).await {
                     Ok(Some(_)) => {}

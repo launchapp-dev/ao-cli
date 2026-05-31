@@ -108,6 +108,10 @@ export default withMermaid(
           collapsed: true,
           items: [
             { text: 'Overview', link: '/architecture/' },
+            { text: 'Kernel and Flavors', link: '/architecture/kernel-and-flavors' },
+            { text: 'Kernel Extraction v0.5', link: '/architecture/kernel-extraction-v0.5' },
+            { text: 'v0.5 Protocol Specs', link: '/architecture/v0.5-protocol-specs' },
+            { text: 'Animus vs DBOS Transact', link: '/architecture/animus-vs-dbos-transact' },
             { text: 'Naming Contract', link: '/architecture/naming-contract' },
             { text: 'Crate Map', link: '/architecture/crate-map' },
             { text: 'ServiceHub Pattern', link: '/architecture/service-hub' },

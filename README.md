@@ -1,10 +1,12 @@
 <div align="center">
 
-![header](https://capsule-render.vercel.app/api?type=waving&color=0:0d1117,50:161b22,100:1f6feb&height=200&section=header&text=Animus&fontSize=90&fontColor=f0f6fc&animation=fadeIn&fontAlignY=35&desc=Autonomous%20Agent%20Orchestrator&descAlignY=55&descSize=22&descColor=8b949e)
+![header](https://capsule-render.vercel.app/api?type=waving&color=0:0d1117,50:161b22,100:1f6feb&height=200&section=header&text=Animus&fontSize=90&fontColor=f0f6fc&animation=fadeIn&fontAlignY=35&desc=Ship%20every%20idea%20you%20have&descAlignY=55&descSize=22&descColor=8b949e)
 
 <br/>
 
-[![Typing SVG](https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=500&size=20&duration=3000&pause=1500&color=58A6FF&center=true&vCenter=true&multiline=true&repeat=true&random=false&width=700&height=80&lines=Define+your+engineering+team+as+YAML.;Dispatch+tasks+to+AI+agents+across+isolated+worktrees.;Review%2C+merge%2C+and+ship+%E2%80%94+while+you+sleep.)](https://github.com/launchapp-dev/animus-cli)
+### One founder. Sixteen projects. Eighty agents in parallel.
+
+<sub>Animus runs the AI engineering team behind a portfolio of products.</sub>
 
 <br/>
 <br/>
@@ -19,9 +21,15 @@
 
 </div>
 
-<p align="center">
-<sub>AI agent orchestrator | autonomous coding agents | multi-model AI dev team | Claude + Gemini + GPT workflow automation | MCP integration | YAML-driven CI for AI | Rust CLI</sub>
-</p>
+<!-- TODO: add hero screenshot of the daemon queue at peak (80 agents across 16 projects) -->
+<!-- ![hero](docs/images/hero-queue-80-agents.png) -->
+
+> "I was spending so many hours chasing ideas — I wanted to build SaaS templates,
+> an auth platform, an ecommerce CRM, every direction I could think of. Animus
+> is what made that possible. At one point I had 16 projects with 80 agents
+> running in parallel doing real work. This is what I always wished existed."
+>
+> — Sami, building [LaunchApp](https://launchapp.dev)
 
 <br/>
 
@@ -97,11 +105,20 @@ npm install -g @google/gemini-cli           # Gemini
 
 ## What is Animus?
 
-Animus turns a single YAML file into an autonomous software delivery pipeline.
+**Animus is how one founder ships a portfolio of products.**
 
-You define agents, wire them into phases, compose phases into workflows, schedule everything with cron — and Animus's daemon handles the rest: dispatching tasks to AI agents in isolated git worktrees, managing quality gates, and merging the results.
+Define your agent team in YAML. Animus runs them in parallel git worktrees,
+gates their work through quality checks, and opens reviewed PRs — while you
+focus on the next idea.
 
-Animus is plugin-first. The core daemon is the orchestration runtime; providers, subject backends, triggers, transports, web UI, and log storage ship as independent `animus-*` plugins under [launchapp-dev](https://github.com/launchapp-dev). `animus plugin install <owner/repo>` pulls them in with optional cosign signature verification. The daemon discovers installed plugins at startup, exposes a Unix-socket control protocol, and the CLI, MCP server, and web transports route through that control surface.
+Use Claude, Codex, Gemini, OpenCode, Ollama, or any coding agent you already use.
+Animus orchestrates — it doesn't replace your tools.
+
+- **Local-first.** Your code never leaves your machine.
+- **Cloud-optional.** Add Animus Cloud later for durability and multi-machine coordination.
+- **Plugin-first.** Works with Linear, GitHub Issues, Asana, Jira, or whatever tracker you already use.
+
+The core daemon is the orchestration runtime; providers, subject backends, triggers, transports, web UI, and log storage ship as independent `animus-*` plugins under [launchapp-dev](https://github.com/launchapp-dev). `animus plugin install <owner/repo>` pulls them in with optional cosign signature verification. The daemon discovers installed plugins at startup, exposes a Unix-socket control protocol, and the CLI, MCP server, and web transports route through that control surface.
 
 ```
                 ┌──────────────────────────────────────────────────┐
@@ -119,6 +136,27 @@ Animus is plugin-first. The core daemon is the orchestration runtime; providers,
                 │    (5m), reconciler (5m), PO scans (2-8h)        │
                 └──────────────────────────────────────────────────┘
 ```
+
+---
+
+## Who is this for?
+
+**Today: portfolio builders.**
+- **Solo founders** running 3+ projects in parallel
+- **Indie hackers** shipping every idea they have
+- **Two-founder studios** trying to ship like a 20-person team
+
+**Increasingly: teams drowning in code maintenance.**
+- Codebases with stale deps, missing tests, and doc drift
+- Microservices nobody has time to maintain
+- Legacy systems waiting for "the modernization project"
+
+**Not for:**
+- Anyone looking for AI to "replace" their engineers
+- Enterprise looking for a managed coding agent (the Devin / Codespaces use case)
+- Teams already happy doing everything inside Cursor or Claude Code
+
+The same capabilities — parallel worktrees, supervised agents, quality gates, automated PRs — serve both audiences. We started with portfolio builders because that's the user we know best: we are one.
 
 ---
 
@@ -537,7 +575,7 @@ rm -f ~/.local/bin/animus \
 
 <br/>
 
-<sub>Built with Rust. Powered by AI. Ships code autonomously.</sub>
+<sub>Open source. Local-first. Built by founders running too many projects at once.</sub>
 
 </div>
 

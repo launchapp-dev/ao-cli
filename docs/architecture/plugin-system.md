@@ -70,6 +70,13 @@ from plugins:
 to pending JSON-RPC ids and notifications are broadcast to subscribers. This is
 documented in [Plugin Host Concurrency](plugin-host-concurrency.md).
 
+When the host binds a plugin to a project-scoped runtime, the `initialize`
+params include `init_extensions.project_binding` and may also include
+`init_extensions.memory_mcp_stdio_command.command`. The latter is an optional
+host hint for plugins that need to launch the memory MCP sidecar using the same
+`animus` binary path as the parent process. Plugins that do not use it should
+ignore it.
+
 ## Discovery Order
 
 `discover_plugins(project_root)` uses this order:

@@ -160,6 +160,12 @@ Current host routing sends kind-scoped methods such as `task/list` or
 `linear.issue/get`; keep the advertised `subject_kinds` in sync with the methods
 your backend handles.
 
+For project-scoped runtime plugins, inspect `InitializeParams.init_extensions`
+instead of inventing your own per-request project-root field. Current hosts send
+`project_binding` and may also send `memory_mcp_stdio_command` with the absolute
+path to the host `animus` binary for memory-sidecar launches. Unrecognized
+extensions are not errors; ignore them to stay forward-compatible.
+
 When the daemon spawns a subject backend, it pins the plugin cwd to the resolved
 `project_root`. If your backend stores repo-local state via relative paths, keep
 that contract intentional and document it; if you need some other base path,

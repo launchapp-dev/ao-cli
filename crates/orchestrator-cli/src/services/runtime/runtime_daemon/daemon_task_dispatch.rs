@@ -7,7 +7,7 @@ pub use orchestrator_daemon_runtime::{DispatchNotice, DispatchWorkflowStartSumma
 use tracing::warn;
 
 use crate::services::plugin_clients;
-use animus_queue_protocol::{self as queue_proto, QueueCompletionRequest, QueueListRequest, QueueMarkAssignedRequest};
+use animus_queue_protocol::{self as queue_proto, QueueListRequest, QueueMarkAssignedRequest};
 
 pub async fn dispatch_queued_entries_via_runner(
     root: &str,
@@ -105,38 +105,17 @@ pub async fn dispatch_queued_entries_via_runner(
                     continue;
                 }
 
-                // Claim this entry on the plugin BEFORE pushing to
-                // planned_starts so a tick interruption doesn't leave
-                // the queue with both an assigned entry and a running
-                // workflow that doesn't reference it. If
-                // `spawn_workflow_runner` later fails, the post-dispatch
-                // rollback loop below releases the claim via
-                // `queue/release` so the entry stays retriable.
-                let mark_req = QueueMarkAssignedRequest { entry_id: entry.entry_id.clone(), workflow_id: None };
-                match plugin_clients::call_queue_mark_assigned(project_root_path, &mark_req).await {
-                    Ok(Some(_)) => {}
-                    Ok(None) => {
-                        // Should not happen — we just received the
-                        // entry from a plugin call. Treat as transient
-                        // and skip this entry; it'll re-appear on the
-                        // next tick.
-                        warn!(
-                            actor = protocol::ACTOR_DAEMON,
-                            entry_id = %entry.entry_id,
-                            "queue plugin vanished between list and mark_assigned; skipping entry"
-                        );
-                        continue;
-                    }
-                    Err(error) => {
-                        warn!(
-                            actor = protocol::ACTOR_DAEMON,
-                            entry_id = %entry.entry_id,
-                            error = %error,
-                            "queue plugin queue/mark_assigned failed; skipping entry to avoid double-dispatch"
-                        );
-                        continue;
-                    }
-                }
+                // Codex R10 [P1]: do NOT claim the entry on the plugin
+                // here. The previous in-tree path called
+                // `mark_dispatch_queue_entry_assigned` only AFTER a
+                // successful `spawn_workflow_runner`; matching that
+                // semantic prevents spawn-failure rollbacks from
+                // erroneously failing entries that never ran. After
+                // `execute_dispatch_plan_via_runner` returns, we
+                // transition only the subjects in
+                // `summary.started_workflows` to `assigned`. Entries
+                // whose spawn failed stay pending and will be
+                // re-tried next tick.
                 let subject_key = dispatch.subject_key();
                 plugin_owned_subject_keys.insert(subject_key.clone());
                 plugin_entry_ids_by_subject_key.insert(subject_key, entry.entry_id.clone());
@@ -193,52 +172,27 @@ pub async fn dispatch_queued_entries_via_runner(
     let mut notice_sink = CliDispatchNoticeSink { plugin_owned_subject_keys: plugin_owned_subject_keys.clone() };
     let summary = execute_dispatch_plan_via_runner(root, process_manager, &planned_starts, limit, &mut notice_sink);
 
-    // Codex R5/R8 [P1]: finalize plugin claims for subjects whose spawn
-    // failed. `summary.started_workflows` lists only the subjects
-    // `execute_dispatch_plan_via_runner` actually started; any subject
-    // in `plugin_entry_ids_by_subject_key` NOT in that set had its
-    // claim transitioned pending → assigned at the top of this fn but
-    // never got a workflow.
-    //
-    // The protocol's `queue/release` is held → pending, not
-    // assigned → pending (codex R8 P1), and there is no
-    // assigned → pending RPC. We terminally finalize the entry via
-    // `queue/completion { status: "failed" }` so it leaves the
-    // queue's assigned set and stops blocking idempotent re-enqueues.
-    // The daemon's higher-layer task-state retry loop is responsible
-    // for re-enqueueing the task on the next tick — the task itself
-    // stays Ready in the task store because the workflow never started.
+    // Codex R10 [P1]: claim only the subjects that successfully
+    // spawned. The previous in-tree path called
+    // `mark_dispatch_queue_entry_assigned` post-spawn; matching that
+    // semantic means non-started entries remain `pending` in the
+    // plugin queue and are eligible for re-dispatch on the next tick.
     if !plugin_entry_ids_by_subject_key.is_empty() {
-        let started_keys: std::collections::HashSet<String> =
-            summary.started_workflows.iter().map(|s| s.dispatch.subject_key()).collect();
-        for (subject_key, entry_id) in &plugin_entry_ids_by_subject_key {
-            if started_keys.contains(subject_key) {
+        for started in &summary.started_workflows {
+            let subject_key = started.dispatch.subject_key();
+            let Some(entry_id) = plugin_entry_ids_by_subject_key.get(&subject_key) else {
                 continue;
-            }
-            let completion_req = QueueCompletionRequest {
-                entry_id: entry_id.clone(),
-                status: queue_proto::completion_status::FAILED.to_string(),
-                workflow_ref: None,
-                workflow_id: None,
             };
-            match plugin_clients::call_queue_completion(project_root_path, &completion_req).await {
-                Ok(_) => {
-                    warn!(
-                        actor = protocol::ACTOR_DAEMON,
-                        subject_key = %subject_key,
-                        entry_id = %entry_id,
-                        "finalized queue plugin claim as failed after spawn never ran"
-                    );
-                }
-                Err(error) => {
-                    warn!(
-                        actor = protocol::ACTOR_DAEMON,
-                        subject_key = %subject_key,
-                        entry_id = %entry_id,
-                        error = %error,
-                        "queue plugin queue/completion rollback failed; entry remains assigned"
-                    );
-                }
+            let mark_req =
+                QueueMarkAssignedRequest { entry_id: entry_id.clone(), workflow_id: started.workflow_id.clone() };
+            if let Err(error) = plugin_clients::call_queue_mark_assigned(project_root_path, &mark_req).await {
+                warn!(
+                    actor = protocol::ACTOR_DAEMON,
+                    subject_key = %subject_key,
+                    entry_id = %entry_id,
+                    error = %error,
+                    "queue plugin queue/mark_assigned (post-spawn) failed"
+                );
             }
         }
     }

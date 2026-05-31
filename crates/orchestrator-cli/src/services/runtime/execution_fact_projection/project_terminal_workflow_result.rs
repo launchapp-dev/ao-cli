@@ -49,6 +49,18 @@ pub(crate) async fn project_terminal_workflow_result(
                 if entry.subject_id != subject_id {
                     continue;
                 }
+                // Codex R10 [P1]: match by workflow_id when we have one.
+                // The same subject can have multiple assigned queue
+                // entries for different workflows (rare in v0.5
+                // single-tenant, but possible for requirement subjects
+                // dispatched against several workflow_refs).
+                // Completing the wrong entry would remove another
+                // still-running workflow's queue placeholder.
+                if let Some(wanted) = workflow_id {
+                    if entry.workflow_id.as_deref() != Some(wanted) {
+                        continue;
+                    }
+                }
                 let req = QueueCompletionRequest {
                     entry_id: entry.entry_id,
                     status: plugin_status.to_string(),

@@ -83,6 +83,14 @@ async fn finalize_plugin_queue_entry(root: &str, fact: &protocol::SubjectExecuti
         if entry.subject_id != fact.subject_id {
             continue;
         }
+        // Codex R10 [P1]: also match by workflow_id when the fact has
+        // one. Same rationale as the projection-side fix in
+        // `project_terminal_workflow_result`.
+        if let Some(wanted) = fact.workflow_id.as_deref() {
+            if entry.workflow_id.as_deref() != Some(wanted) {
+                continue;
+            }
+        }
         let req = QueueCompletionRequest {
             entry_id: entry.entry_id.clone(),
             status: mapped.to_string(),

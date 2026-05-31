@@ -25,7 +25,7 @@ architecture, command counts, routes, or state paths:
 
 Animus is a Rust-only agent orchestrator with:
 
-- a Cargo workspace with 18 current members under `crates/`, as defined in `Cargo.toml`
+- the current Cargo workspace members under `crates/`, as defined in `Cargo.toml`
 - the CLI binary named `animus`
 - a visible CLI surface that includes `project` and `queue`
 - scoped runtime state under `~/.animus/<repo-scope>/`
@@ -172,7 +172,7 @@ Visible top-level command groups currently include:
 - `agent`, `project`, `queue`, `workflow`, `subject`
 - `history`, `git`, `skill`, `model`, `runner`
 - `status`, `output`, `mcp`, `web`, `init`, `doctor`
-- `pack`, `plugin` (with `install`, `install-defaults`, `list`, `info`, ...), `trigger`, `logs`
+- `pack`, `plugin` (with `install`, `install-defaults`, `list`, `info`, ...), `trigger`, `logs`, `flavor`
 
 Hidden but implemented: none currently.
 

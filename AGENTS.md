@@ -23,7 +23,7 @@ Do not keep outdated counts or removed crates alive in docs.
 
 ## Workspace
 
-18-crate Rust workspace. Main binary: `animus` (`crates/orchestrator-cli`). The
+Rust Cargo workspace with the current members listed below. Main binary: `animus` (`crates/orchestrator-cli`). The
 web stack (transport + UI) lives in external plugins under
 [`launchapp-dev`](https://github.com/launchapp-dev).
 
@@ -156,6 +156,7 @@ Visible top-level commands:
 - `trigger`
 - `logs`
 - `subject`
+- `flavor`
 
 Use these reference docs instead of hand-maintained summaries:
 

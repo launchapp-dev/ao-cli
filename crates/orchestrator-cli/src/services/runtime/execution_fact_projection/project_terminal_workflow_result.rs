@@ -50,12 +50,18 @@ pub(crate) async fn project_terminal_workflow_result(
                     continue;
                 }
                 // Wave 3 follow-up (issue #240): atomic queue/lease has
-                // the plugin synthesize workflow_ids at claim time, so a
-                // strict match against the daemon's post-spawn id would
-                // skip every queue-plugin entry. Subject_id + status=
-                // assigned is enough: the queue contract guarantees at
-                // most one assigned entry per subject, and completion
-                // is idempotent on entry_id.
+                // the plugin synthesize workflow_ids at claim time, so
+                // strict workflow_id matching would skip every
+                // queue-plugin entry. Match instead on subject_id +
+                // subject_dispatch.workflow_ref so we don't terminate
+                // sibling entries for the same subject queued under a
+                // different workflow_ref (e.g. the same task queued
+                // for `standard` and `ops`).
+                if let Some(wanted_ref) = workflow_ref {
+                    if entry.subject_dispatch.workflow_ref != wanted_ref {
+                        continue;
+                    }
+                }
                 let req = QueueCompletionRequest {
                     entry_id: entry.entry_id,
                     status: plugin_status.to_string(),

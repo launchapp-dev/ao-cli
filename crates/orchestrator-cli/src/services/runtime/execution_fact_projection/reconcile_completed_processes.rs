@@ -83,19 +83,19 @@ async fn finalize_plugin_queue_entry(root: &str, fact: &protocol::SubjectExecuti
         if entry.subject_id != fact.subject_id {
             continue;
         }
-        // Wave 3 follow-up (issue #240): the v0.5 `queue/lease` dispatch
-        // path now lets the plugin synthesize workflow_ids when it
-        // transitions Pending → Assigned (the daemon's runner mints its
-        // own workflow_id post-spawn, and the queue protocol doesn't
-        // require them to match). Matching here on (subject_id +
-        // status=assigned) alone is sufficient: the queue contract
-        // already guarantees at most one Assigned entry per subject at
-        // a time, and queue/completion is idempotent on entry_id.
-        //
-        // Earlier R10 [P1] / R11 [P2] iterations tightened the match by
-        // workflow_id; that path is no longer reachable from the lease
-        // dispatch surface, so we keep the lookup simple and avoid
-        // accidentally stranding entries with a synthesized workflow_id.
+        // Wave 3 follow-up (issue #240): the v0.5 queue/lease dispatch
+        // path lets the plugin synthesize workflow_ids when it
+        // transitions Pending → Assigned, so strict workflow_id
+        // matching would skip every queue-plugin entry. Match instead
+        // on subject_id + subject_dispatch.workflow_ref so we don't
+        // terminate sibling entries for the same subject queued under
+        // a different workflow_ref (e.g. the same task queued for
+        // `standard` and `ops`).
+        if let Some(wanted_ref) = fact.workflow_ref.as_deref() {
+            if entry.subject_dispatch.workflow_ref != wanted_ref {
+                continue;
+            }
+        }
         let req = QueueCompletionRequest {
             entry_id: entry.entry_id.clone(),
             status: mapped.to_string(),

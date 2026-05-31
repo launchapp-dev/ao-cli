@@ -93,19 +93,25 @@ pub async fn dispatch_queued_entries_via_runner(
                     }
                 };
                 if active_subject_ids.contains(&dispatch.subject_key()) {
-                    // Stale claim — subject is already running.  Surface
-                    // a warning so operators can investigate the
-                    // headroom math but do NOT cancel the entry: the
-                    // plugin's Assigned state will be reconciled when
-                    // the in-flight subject completes (its terminal
-                    // projection runs queue/completion against this
-                    // entry via subject_id match in
-                    // `project_terminal_workflow_result`).
+                    // v0.5 known limitation: queue/lease atomically
+                    // claims pending entries before the daemon can
+                    // check active subjects. The protocol intentionally
+                    // has no Assigned → Pending transition, so we
+                    // cannot return this entry to pending. We leave it
+                    // assigned: when the in-flight subject's workflow
+                    // terminates, its projection runs queue/completion
+                    // against entries matching subject_id +
+                    // workflow_ref, which will clear this stranded
+                    // entry. If the user intentionally queued a second
+                    // run of the same subject+workflow_ref, that
+                    // second run is lost; tracking this as a v0.6
+                    // protocol enhancement (subject-aware lease filter
+                    // or Assigned → Pending release).
                     warn!(
                         actor = protocol::ACTOR_DAEMON,
                         subject_key = %dispatch.subject_key(),
                         entry_id = %entry.entry_id,
-                        "queue/lease returned entry for already-active subject; leaving assigned for completion reconciliation"
+                        "queue/lease returned entry for already-active subject; leaving assigned for completion reconciliation (v0.5 known limitation)"
                     );
                     plugin_owned_subject_keys.insert(dispatch.subject_key());
                     continue;

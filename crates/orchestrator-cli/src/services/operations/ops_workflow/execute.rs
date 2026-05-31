@@ -86,9 +86,7 @@ pub(crate) async fn handle_workflow_execute(
         mcp_config: None,
     };
     let project_root_path = std::path::Path::new(project_root);
-    if let Some(plugin_result) =
-        plugin_clients::call_workflow_execute(project_root_path, &plugin_request).await?
-    {
+    if let Some(plugin_result) = plugin_clients::call_workflow_execute(project_root_path, &plugin_request).await? {
         // Plugin took the call. Surface the result through the same JSON
         // envelope the in-tree path uses below. (Sync to task store is
         // intentionally skipped on the plugin path for v0.5 — phase event

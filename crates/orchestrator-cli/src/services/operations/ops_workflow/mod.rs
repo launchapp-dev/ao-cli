@@ -842,7 +842,6 @@ fn parse_wire_workflow_status(raw: &str) -> Result<Option<animus_control_protoco
     Ok(Some(value))
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::config::*;

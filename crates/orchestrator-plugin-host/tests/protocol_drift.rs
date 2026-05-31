@@ -418,11 +418,7 @@ fn protocol_drift_subject() {
         return;
     };
     let standalone_path = PathBuf::from(standalone_path);
-    assert!(
-        standalone_path.exists(),
-        "standalone subject-protocol path does not exist: {}",
-        standalone_path.display()
-    );
+    assert!(standalone_path.exists(), "standalone subject-protocol path does not exist: {}", standalone_path.display());
 
     let in_tree_path = in_tree_sibling_crate_lib_rs("animus-subject-protocol");
     assert!(in_tree_path.exists(), "in-tree subject-protocol lib.rs missing: {}", in_tree_path.display());

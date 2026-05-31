@@ -6,8 +6,8 @@ use orchestrator_daemon_runtime::{
 pub use orchestrator_daemon_runtime::{DispatchNotice, DispatchWorkflowStartSummary};
 use tracing::warn;
 
-use animus_queue_protocol::{self as queue_proto, QueueListRequest};
 use crate::services::plugin_clients;
+use animus_queue_protocol::{self as queue_proto, QueueListRequest};
 
 pub async fn dispatch_queued_entries_via_runner(
     root: &str,
@@ -29,11 +29,8 @@ pub async fn dispatch_queued_entries_via_runner(
     let mut planned_starts: Vec<PlannedDispatchStart> = Vec::new();
     let mut used_plugin_path = false;
     let project_root_path = std::path::Path::new(root);
-    let list_req = QueueListRequest {
-        status: vec![queue_proto::status::PENDING.to_string()],
-        limit: Some(limit),
-        offset: None,
-    };
+    let list_req =
+        QueueListRequest { status: vec![queue_proto::status::PENDING.to_string()], limit: Some(limit), offset: None };
     match plugin_clients::call_queue_list(project_root_path, &list_req).await {
         Ok(Some(response)) => {
             used_plugin_path = true;
@@ -65,10 +62,8 @@ pub async fn dispatch_queued_entries_via_runner(
                 if active_subject_ids.contains(&dispatch.subject_key()) {
                     continue;
                 }
-                planned_starts.push(PlannedDispatchStart {
-                    dispatch,
-                    selection_source: DispatchSelectionSource::DispatchQueue,
-                });
+                planned_starts
+                    .push(PlannedDispatchStart { dispatch, selection_source: DispatchSelectionSource::DispatchQueue });
             }
         }
         Ok(None) => {

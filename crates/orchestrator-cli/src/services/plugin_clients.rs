@@ -71,10 +71,7 @@ fn find_plugin_for_kind(project_root: &Path, plugin_kind: &str) -> Result<Option
 /// follow-up RPCs and either calling [`PluginHost::shutdown`] or dropping
 /// the host (which severs stdio). For demo-quality v0.5 we spawn-per-call
 /// and shut down at the end of each helper.
-async fn spawn_with_project_binding(
-    plugin: &DiscoveredPlugin,
-    project_root: &Path,
-) -> Result<PluginHost> {
+async fn spawn_with_project_binding(plugin: &DiscoveredPlugin, project_root: &Path) -> Result<PluginHost> {
     let options = PluginSpawnOptions::for_manifest(
         plugin.name.clone(),
         &plugin.manifest.env_required,

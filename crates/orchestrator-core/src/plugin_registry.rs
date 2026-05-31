@@ -27,13 +27,11 @@ pub const DEFAULT_PROVIDER_PLUGINS: &[(&str, &str)] = &[
 /// v0.5 workflow_runner + queue plugins installed as part of the default
 /// flavor. Required for `animus daemon start` once the plugin-only path
 /// is the default (deletion gate in Wave 3 "Out of scope").
-pub const DEFAULT_WORKFLOW_RUNNER_PLUGINS: &[(&str, &str)] = &[
-    ("launchapp-dev/animus-workflow-runner-default", "v0.1.0-dev"),
-];
+pub const DEFAULT_WORKFLOW_RUNNER_PLUGINS: &[(&str, &str)] =
+    &[("launchapp-dev/animus-workflow-runner-default", "v0.1.0-dev")];
 
 /// v0.5 queue plugin. See [`DEFAULT_WORKFLOW_RUNNER_PLUGINS`].
-pub const DEFAULT_QUEUE_PLUGINS: &[(&str, &str)] =
-    &[("launchapp-dev/animus-queue-default", "v0.1.0-dev")];
+pub const DEFAULT_QUEUE_PLUGINS: &[(&str, &str)] = &[("launchapp-dev/animus-queue-default", "v0.1.0-dev")];
 
 /// Optional add-on opted in by `--include-oai-agent`.
 pub const DEFAULT_OAI_AGENT_PLUGINS: &[(&str, &str)] = &[("launchapp-dev/animus-provider-oai-agent", "v0.1.3")];

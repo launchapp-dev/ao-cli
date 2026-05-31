@@ -8,7 +8,9 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use orchestrator_core::flavor::{list_available_flavor_names, load_flavor, FlavorManifest, DEFAULT_FLAVOR_ID};
+use orchestrator_core::flavor::{
+    list_available_flavor_names, load_flavor_in, locate_flavor_manifest_in, FlavorManifest, DEFAULT_FLAVOR_ID,
+};
 use serde::Serialize;
 
 use crate::cli_types::{FlavorCommand, FlavorCurrentArgs, FlavorDescribeArgs, FlavorInstallArgs};
@@ -72,19 +74,20 @@ struct FlavorInstallOutput {
 
 pub(crate) async fn handle_flavor(command: FlavorCommand, project_root: &str, json: bool) -> Result<()> {
     match command {
-        FlavorCommand::List => handle_flavor_list(json),
+        FlavorCommand::List => handle_flavor_list(project_root, json),
         FlavorCommand::Current(args) => handle_flavor_current(args, project_root, json),
-        FlavorCommand::Describe(args) => handle_flavor_describe(args, json),
+        FlavorCommand::Describe(args) => handle_flavor_describe(args, project_root, json),
         FlavorCommand::Install(args) => handle_flavor_install(args, project_root, json).await,
     }
 }
 
-fn handle_flavor_list(json: bool) -> Result<()> {
+fn handle_flavor_list(project_root: &str, json: bool) -> Result<()> {
+    let root = std::path::Path::new(project_root);
     let names = list_available_flavor_names();
     let mut flavors = Vec::with_capacity(names.len());
     for name in names {
-        let manifest_path = orchestrator_core::flavor::locate_flavor_manifest(&name);
-        match load_flavor(&name)? {
+        let manifest_path = locate_flavor_manifest_in(root, &name);
+        match load_flavor_in(root, &name)? {
             Some(manifest) => flavors.push(FlavorSummary {
                 name: manifest.id.clone(),
                 available: true,
@@ -108,12 +111,9 @@ fn handle_flavor_list(json: bool) -> Result<()> {
     }
     for f in &flavors {
         match f.available {
-            true => println!(
-                "{} ({}) — {}",
-                f.name,
-                f.version.as_deref().unwrap_or("?"),
-                f.title.as_deref().unwrap_or("")
-            ),
+            true => {
+                println!("{} ({}) — {}", f.name, f.version.as_deref().unwrap_or("?"), f.title.as_deref().unwrap_or(""))
+            }
             false => println!("{} (manifest not found)", f.name),
         }
     }
@@ -121,7 +121,8 @@ fn handle_flavor_list(json: bool) -> Result<()> {
 }
 
 fn handle_flavor_current(args: FlavorCurrentArgs, project_root: &str, json: bool) -> Result<()> {
-    let manifest = load_flavor(&args.name)?;
+    let root = std::path::Path::new(project_root);
+    let manifest = load_flavor_in(root, &args.name)?;
     let drift = match &manifest {
         Some(m) => compute_drift(project_root, m)?,
         None => Vec::new(),
@@ -150,8 +151,9 @@ fn handle_flavor_current(args: FlavorCurrentArgs, project_root: &str, json: bool
     Ok(())
 }
 
-fn handle_flavor_describe(args: FlavorDescribeArgs, json: bool) -> Result<()> {
-    let manifest = load_flavor(&args.name)?
+fn handle_flavor_describe(args: FlavorDescribeArgs, project_root: &str, json: bool) -> Result<()> {
+    let root = std::path::Path::new(project_root);
+    let manifest = load_flavor_in(root, &args.name)?
         .with_context(|| format!("flavor manifest '{}' not found on disk", args.name))?;
     if json {
         return print_value(FlavorDescribeOutput { schema: FLAVOR_SCHEMA, name: args.name, manifest }, true);
@@ -179,7 +181,7 @@ async fn handle_flavor_install(args: FlavorInstallArgs, project_root: &str, json
             args.name
         );
     }
-    if load_flavor(&args.name)?.is_none() {
+    if load_flavor_in(std::path::Path::new(project_root), &args.name)?.is_none() {
         anyhow::bail!(
             "flavor manifest '{}' not found on disk; expected at <repo>/flavors/{}.toml",
             args.name,
@@ -200,13 +202,7 @@ async fn handle_flavor_install(args: FlavorInstallArgs, project_root: &str, json
 
     if json {
         return print_value(
-            FlavorInstallOutput {
-                schema: FLAVOR_SCHEMA,
-                name: args.name,
-                installed: 0,
-                skipped: 0,
-                failed: 0,
-            },
+            FlavorInstallOutput { schema: FLAVOR_SCHEMA, name: args.name, installed: 0, skipped: 0, failed: 0 },
             true,
         );
     }
@@ -220,11 +216,7 @@ async fn handle_flavor_install(args: FlavorInstallArgs, project_root: &str, json
 fn compute_drift(_project_root: &str, manifest: &FlavorManifest) -> Result<Vec<FlavorDriftEntry>> {
     let install_dir = orchestrator_plugin_host::plugin_install_dir();
     let installed_basenames: std::collections::HashSet<String> = std::fs::read_dir(&install_dir)
-        .map(|iter| {
-            iter.flatten()
-                .filter_map(|entry| entry.file_name().to_str().map(str::to_string))
-                .collect()
-        })
+        .map(|iter| iter.flatten().filter_map(|entry| entry.file_name().to_str().map(str::to_string)).collect())
         .unwrap_or_default();
 
     let mut entries = Vec::new();

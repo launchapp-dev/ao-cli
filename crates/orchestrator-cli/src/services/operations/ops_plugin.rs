@@ -298,12 +298,12 @@ struct InstallDefaultsOutput {
 ///
 /// When no flavor manifest is found, the legacy hardcoded
 /// `DEFAULT_PROVIDER_PLUGINS + ...` tables are used directly.
-fn build_install_defaults_targets(args: &PluginInstallDefaultsArgs) -> Vec<(String, String)> {
-    use orchestrator_core::flavor::load_flavor;
+fn build_install_defaults_targets(args: &PluginInstallDefaultsArgs, project_root: &str) -> Vec<(String, String)> {
+    use orchestrator_core::flavor::load_flavor_in;
     use orchestrator_core::resolve_tag_for_slug;
     use orchestrator_core::DEFAULT_FLAVOR_ID;
 
-    if let Ok(Some(manifest)) = load_flavor(DEFAULT_FLAVOR_ID) {
+    if let Ok(Some(manifest)) = load_flavor_in(std::path::Path::new(project_root), DEFAULT_FLAVOR_ID) {
         let mut slugs: Vec<String> = Vec::new();
         slugs.extend(manifest.workflow_runner.required.iter().cloned());
         slugs.extend(manifest.queue.required.iter().cloned());
@@ -342,10 +342,8 @@ fn build_install_defaults_targets(args: &PluginInstallDefaultsArgs) -> Vec<(Stri
         return targets;
     }
 
-    let mut targets: Vec<(String, String)> = DEFAULT_PROVIDER_PLUGINS
-        .iter()
-        .map(|(s, t)| ((*s).to_string(), (*t).to_string()))
-        .collect();
+    let mut targets: Vec<(String, String)> =
+        DEFAULT_PROVIDER_PLUGINS.iter().map(|(s, t)| ((*s).to_string(), (*t).to_string())).collect();
     if args.include_oai_agent {
         for (s, t) in DEFAULT_OAI_AGENT_PLUGIN {
             targets.push(((*s).to_string(), (*t).to_string()));
@@ -365,7 +363,7 @@ fn build_install_defaults_targets(args: &PluginInstallDefaultsArgs) -> Vec<(Stri
 }
 
 async fn handle_plugin_install_defaults(args: PluginInstallDefaultsArgs, project_root: &str) -> Result<()> {
-    let mut targets: Vec<(String, String)> = build_install_defaults_targets(&args);
+    let mut targets: Vec<(String, String)> = build_install_defaults_targets(&args, project_root);
 
     let install_dir = install_root(args.plugin_dir.as_deref())?;
 

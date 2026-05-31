@@ -96,11 +96,7 @@ impl FlavorManifest {
     /// unknown manifest shape.
     pub fn validate(&self) -> Result<()> {
         if self.schema != FLAVOR_SCHEMA_V1 {
-            anyhow::bail!(
-                "unknown flavor manifest schema: '{}' (expected '{}')",
-                self.schema,
-                FLAVOR_SCHEMA_V1
-            );
+            anyhow::bail!("unknown flavor manifest schema: '{}' (expected '{}')", self.schema, FLAVOR_SCHEMA_V1);
         }
         Ok(())
     }
@@ -133,8 +129,11 @@ impl FlavorManifest {
 }
 
 /// Locate `flavors/<name>.toml` according to the discovery rule documented
-/// at the top of this module.
-pub fn locate_flavor_manifest(name: &str) -> Option<PathBuf> {
+/// at the top of this module, anchored at the supplied project root. The
+/// caller MUST pass the resolved project root rather than relying on
+/// process CWD, so the loader stays stable when the CLI is invoked from
+/// arbitrary working directories.
+pub fn locate_flavor_manifest_in(project_root: &Path, name: &str) -> Option<PathBuf> {
     if let Ok(dir) = std::env::var("ANIMUS_FLAVORS_DIR") {
         let path = Path::new(&dir).join(format!("{name}.toml"));
         if path.is_file() {
@@ -142,13 +141,12 @@ pub fn locate_flavor_manifest(name: &str) -> Option<PathBuf> {
         }
     }
 
-    let cwd = std::env::current_dir().ok()?;
-    let direct = cwd.join("flavors").join(format!("{name}.toml"));
+    let direct = project_root.join("flavors").join(format!("{name}.toml"));
     if direct.is_file() {
         return Some(direct);
     }
 
-    let mut walker: &Path = &cwd;
+    let mut walker: &Path = project_root;
     while let Some(parent) = walker.parent() {
         let candidate = parent.join("flavors").join(format!("{name}.toml"));
         if candidate.is_file() {
@@ -160,9 +158,18 @@ pub fn locate_flavor_manifest(name: &str) -> Option<PathBuf> {
     None
 }
 
-/// Load and validate a flavor manifest by name.
-pub fn load_flavor(name: &str) -> Result<Option<FlavorManifest>> {
-    let Some(path) = locate_flavor_manifest(name) else {
+/// CWD-anchored variant retained for callers that have no project root to
+/// hand (the standalone `animus flavor list` command). Production
+/// surfaces should prefer [`locate_flavor_manifest_in`].
+pub fn locate_flavor_manifest(name: &str) -> Option<PathBuf> {
+    let cwd = std::env::current_dir().ok()?;
+    locate_flavor_manifest_in(&cwd, name)
+}
+
+/// Load and validate a flavor manifest by name. Anchors discovery at the
+/// supplied project root.
+pub fn load_flavor_in(project_root: &Path, name: &str) -> Result<Option<FlavorManifest>> {
+    let Some(path) = locate_flavor_manifest_in(project_root, name) else {
         return Ok(None);
     };
     let bytes = std::fs::read_to_string(&path)
@@ -171,6 +178,16 @@ pub fn load_flavor(name: &str) -> Result<Option<FlavorManifest>> {
         toml::from_str(&bytes).with_context(|| format!("failed to parse flavor manifest at {}", path.display()))?;
     manifest.validate()?;
     Ok(Some(manifest))
+}
+
+/// CWD-anchored variant retained for callers that have no project root to
+/// hand. Production surfaces should prefer [`load_flavor_in`].
+pub fn load_flavor(name: &str) -> Result<Option<FlavorManifest>> {
+    let cwd = match std::env::current_dir() {
+        Ok(c) => c,
+        Err(_) => return Ok(None),
+    };
+    load_flavor_in(&cwd, name)
 }
 
 /// List every flavor name available on the discovery search paths. v0.5

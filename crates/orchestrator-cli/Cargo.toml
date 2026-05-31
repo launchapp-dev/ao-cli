@@ -60,7 +60,7 @@ tracing = "0.1"
 tempfile = "3"
 tar = "0.4"
 flate2 = "1.0"
-toml = "0.8"
+toml = "1.0"
 
 [dev-dependencies]
 assert_cmd = "2"

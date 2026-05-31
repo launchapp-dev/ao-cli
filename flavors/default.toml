@@ -10,7 +10,13 @@ recommended = ["launchapp-dev/animus-provider-codex", "launchapp-dev/animus-prov
 
 [subjects]
 required = ["launchapp-dev/animus-subject-default"]
-recommended = ["launchapp-dev/animus-subject-github"]
+recommended = [
+    "launchapp-dev/animus-subject-requirements",
+    "launchapp-dev/animus-subject-linear",
+    "launchapp-dev/animus-subject-sqlite",
+    "launchapp-dev/animus-subject-markdown",
+    "launchapp-dev/animus-subject-github",
+]
 
 [transports]
 required = ["launchapp-dev/animus-transport-http"]

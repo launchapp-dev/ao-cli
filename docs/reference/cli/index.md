@@ -235,6 +235,12 @@ animus
 │   ├── next                 Return the highest-priority Ready subject for the given kind
 │   └── status               Set the status of a subject by id through the active subject_backend
 │
+├── flavor                   Inspect or install Animus flavor manifests (`flavors/<name>.toml`) — v0.5
+│   ├── list                 List available flavor manifests on disk
+│   ├── current              Show the active flavor and drift against the manifest
+│   ├── describe             Print a parsed flavor manifest (TOML by default, JSON via `--json`)
+│   └── install              Install the named flavor (`default` only in v0.5); equivalent to `animus plugin install-defaults --include-subjects --include-transports`
+│
 └── help                     Print this message or the help of the given subcommand(s)
 ```
 
@@ -390,11 +396,60 @@ trusted_signers:
 
 `identity` is a glob (`*` / `?`) matched against `<owner>/<repo>`. When the file is absent, the default is "any signer is acceptable, but the cosign cert must claim an identity rooted at the repo we downloaded from."
 
+### `animus flavor`
+
+v0.5 introduces a single curated flavor manifest at
+`flavors/default.toml`. The `animus flavor` subcommand inspects and installs
+it.
+
+```bash
+# Show every flavor manifest the loader discovered.
+animus flavor list
+
+# Print the parsed manifest (TOML by default, JSON via --json).
+animus flavor describe --name default
+animus flavor describe --name default --json
+
+# Show drift: which required plugins are installed vs missing.
+animus flavor current
+animus flavor current --json
+
+# Install the flavor. v0.5 only supports `default`; refuses other names
+# per the "One flavor at launch" discipline rule.
+animus flavor install            # uses `default`
+animus flavor install default
+```
+
+`animus flavor install` is equivalent to
+`animus plugin install-defaults --include-subjects --include-transports` and
+installs every required plugin slug the manifest declares whose curated tag
+is pinned in
+[`crates/orchestrator-core/src/plugin_registry.rs`](../../../crates/orchestrator-core/src/plugin_registry.rs).
+Slugs the manifest declares but the constants table hasn't pinned yet (e.g.
+`animus-provider-ollama`, `animus-trigger-cron`) emit a warning and are
+skipped — the manifest is forward-looking; the constants table is the
+authoritative tag pin.
+
+The loader probes for `flavors/<name>.toml` in this order:
+
+1. `$ANIMUS_FLAVORS_DIR` if set
+2. `<cwd>/flavors/`
+3. parent directories walking up to `/`
+
+JSON output uses the `animus.flavor.cli.v1` envelope.
+
 ### `animus plugin install-defaults`
 
 Bulk-install the standard provider plugin set in one shot. Each repo runs through
 the same install pipeline as `animus plugin install`, so signature checks,
 manifest probes, and the `launchapp-dev` org allowlist are preserved.
+
+When `flavors/default.toml` is present, the install plan is sourced from the
+manifest's `[providers]`, `[subjects]`, `[transports]`, `[workflow_runner]`,
+and `[queue]` sections (plus optional `[ui]` and recommended add-ons gated by
+`--include-*` flags). When the manifest is absent, the hardcoded
+`DEFAULT_PROVIDER_PLUGINS / DEFAULT_SUBJECT_PLUGINS / DEFAULT_TRANSPORT_PLUGINS`
+tables remain the fallback.
 
 ```bash
 # Install all 5 default providers (claude, codex, gemini, opencode, oai)

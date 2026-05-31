@@ -119,13 +119,13 @@ ACP includes first-class support for planning workflows:
 
 Animus is a Rust-only agent orchestrator with:
 
-- **Rust-only Cargo workspace** (20 crates) with clean separation of concerns
-- **CLI surface** exposing `project`, `queue`, `task`, `workflow`, and other command groups
-- **Web UI** (React 18) for visualization and management
+- **Rust-only Cargo workspace** (18 current workspace members) with clean separation of concerns
+- **CLI surface** exposing `project`, `queue`, `subject`, `workflow`, `plugin`, `mcp`, and other command groups
+- **Web UI** served through out-of-tree `transport_backend` + `web_ui` plugins resolved by `animus web`
 - **Runtime state** scoped under `~/.animus/<repo-scope>/`
 - **Workflow YAML** overlays in `.animus/workflows.yaml` and `.animus/workflows/*.yaml`
 - **Agent runner** orchestrating multi-step tasks with LLM and tool execution
-- **MCP tool provider** exposing custom tools to agents
+- **Built-in MCP service** (`animus mcp serve`) plus plugin-aggregated tool surfaces
 - **Daemon mode** for background task execution and status tracking
 
 ### 2.2 ACP Server Mapping
@@ -136,7 +136,7 @@ Animus is a Rust-only agent orchestrator with:
 |---|---|---|
 | `session/new` | `animus workflow run` | Creates or enqueues a workflow run with isolation |
 | `session/load` | `animus workflow get` or `animus workflow resume-status` | Reads workflow state from scoped runtime |
-| `session/list` | `animus queue list` or `animus workflow list` | Lists active/pending tasks |
+| `session/list` | `animus queue list` or `animus workflow list` | Lists active/pending subjects and workflow runs |
 | `session/prompt` | `animus agent run --prompt` or `animus workflow run --input-json` | Accepts user input, executes an agent or workflow step |
 | `session/cancel` | `animus workflow cancel --id` | Cancels running workflow |
 | `session/setMode` | Workflow config mode selection | Switch between agent execution strategies |
@@ -148,7 +148,7 @@ Animus is a Rust-only agent orchestrator with:
 | `executeCommand` / agent-initiated code execution | Orchestrator agent runner with sandbox isolation |
 | `fs/readTextFile`, `fs/writeTextFile` | Git-ops layer with version control integration |
 | `terminal/create`, `terminal/output` | Workflow runner v2 with subprocess management |
-| MCP tool server | Animus's built-in MCP provider (`orchestrator-providers`) |
+| MCP tool server | `animus mcp serve` plus plugin-aggregated tool surfaces |
 | Session persistence | Scoped runtime state at `~/.animus/<repo-scope>/` |
 
 #### File System Access & Git Safety
@@ -268,7 +268,7 @@ A new HTTP/WebSocket server exposing ACP:
 - `handlers::agent` — Agent-initiated operations (file, terminal, permissions)
 - `session::manager` — Session lifecycle and persistence
 - `capability::negotiation` — ACP capability exchange
-- `mcp::bridge` — Map ACP MCP config to `orchestrator-providers`
+- `mcp::bridge` — Map ACP MCP config to `animus mcp serve` and plugin-managed MCP surfaces
 
 #### Integration Points with Existing Crates
 
@@ -278,7 +278,8 @@ A new HTTP/WebSocket server exposing ACP:
 | `orchestrator-config` | Load/persist session config, interpret mode/settings |
 | `orchestrator-git-ops` | Map `fs/*` ACP operations to git-tracked file changes |
 | `workflow-runner-v2` | Delegate task execution to existing runner, stream output |
-| `orchestrator-providers` | Expose MCP servers declared in workflow config |
+| `orchestrator-session-host` | Bridge provider/plugin execution and session backends |
+| `orchestrator-cli` | Reuse CLI/MCP operation wiring and output contracts |
 | `orchestrator-store` | Persist session state at `~/.animus/<repo-scope>/sessions/` |
 
 ### 3.3 Feature Breakdown
@@ -303,7 +304,7 @@ A new HTTP/WebSocket server exposing ACP:
 - [ ] Edge cases: permission denied, file conflicts, terminal cleanup
 
 #### Phase 4: Advanced Features (Weeks 4-5)
-- [ ] MCP bridge: Expose orchestrator-providers to ACP clients
+- [ ] MCP bridge: Expose `animus mcp serve` and plugin-managed MCP surfaces to ACP clients
 - [ ] Planning capability: expose workflow/task plans
 - [ ] Session history and artifact retrieval
 - [ ] WebSocket support for streaming responses

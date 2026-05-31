@@ -7,7 +7,7 @@ pub use orchestrator_daemon_runtime::{DispatchNotice, DispatchWorkflowStartSumma
 use tracing::warn;
 
 use crate::services::plugin_clients;
-use animus_queue_protocol::{self as queue_proto, QueueListRequest, QueueMarkAssignedRequest, QueueReleaseRequest};
+use animus_queue_protocol::{self as queue_proto, QueueCompletionRequest, QueueListRequest, QueueMarkAssignedRequest};
 
 pub async fn dispatch_queued_entries_via_runner(
     root: &str,
@@ -193,12 +193,21 @@ pub async fn dispatch_queued_entries_via_runner(
     let mut notice_sink = CliDispatchNoticeSink { plugin_owned_subject_keys: plugin_owned_subject_keys.clone() };
     let summary = execute_dispatch_plan_via_runner(root, process_manager, &planned_starts, limit, &mut notice_sink);
 
-    // Codex R5 [P1]: roll back plugin claims for subjects whose spawn
+    // Codex R5/R8 [P1]: finalize plugin claims for subjects whose spawn
     // failed. `summary.started_workflows` lists only the subjects
     // `execute_dispatch_plan_via_runner` actually started; any subject
     // in `plugin_entry_ids_by_subject_key` NOT in that set had its
     // claim transitioned pending → assigned at the top of this fn but
-    // never got a workflow, so its entry would be stranded.
+    // never got a workflow.
+    //
+    // The protocol's `queue/release` is held → pending, not
+    // assigned → pending (codex R8 P1), and there is no
+    // assigned → pending RPC. We terminally finalize the entry via
+    // `queue/completion { status: "failed" }` so it leaves the
+    // queue's assigned set and stops blocking idempotent re-enqueues.
+    // The daemon's higher-layer task-state retry loop is responsible
+    // for re-enqueueing the task on the next tick — the task itself
+    // stays Ready in the task store because the workflow never started.
     if !plugin_entry_ids_by_subject_key.is_empty() {
         let started_keys: std::collections::HashSet<String> =
             summary.started_workflows.iter().map(|s| s.dispatch.subject_key()).collect();
@@ -206,14 +215,19 @@ pub async fn dispatch_queued_entries_via_runner(
             if started_keys.contains(subject_key) {
                 continue;
             }
-            let release_req = QueueReleaseRequest { entry_id: entry_id.clone() };
-            match plugin_clients::call_queue_release(project_root_path, &release_req).await {
+            let completion_req = QueueCompletionRequest {
+                entry_id: entry_id.clone(),
+                status: queue_proto::completion_status::FAILED.to_string(),
+                workflow_ref: None,
+                workflow_id: None,
+            };
+            match plugin_clients::call_queue_completion(project_root_path, &completion_req).await {
                 Ok(_) => {
                     warn!(
                         actor = protocol::ACTOR_DAEMON,
                         subject_key = %subject_key,
                         entry_id = %entry_id,
-                        "rolled back queue plugin claim after failed spawn"
+                        "finalized queue plugin claim as failed after spawn never ran"
                     );
                 }
                 Err(error) => {
@@ -222,7 +236,7 @@ pub async fn dispatch_queued_entries_via_runner(
                         subject_key = %subject_key,
                         entry_id = %entry_id,
                         error = %error,
-                        "queue plugin queue/release rollback failed; entry remains assigned"
+                        "queue plugin queue/completion rollback failed; entry remains assigned"
                     );
                 }
             }

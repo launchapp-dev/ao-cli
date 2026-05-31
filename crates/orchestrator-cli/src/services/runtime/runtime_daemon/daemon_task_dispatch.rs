@@ -26,24 +26,25 @@ pub async fn dispatch_queued_entries_via_runner(
     // `queue/lease { max, workflow_ids: None }` reads + transitions
     // pending → assigned atomically and returns the full
     // `QueueEntry` with `SubjectDispatch` and the plugin-synthesized
-    // `workflow_id`. We:
-    //   1. Lease up to `limit*4` entries to keep tick headroom even
-    //      when the front of the queue is filled with subjects that
-    //      are already running locally. The upstream
-    //      `ready_dispatch_limit` already accounts for pool capacity,
-    //      so this overshoot only matters for stale-view edge cases.
-    //   2. Filter out any subjects already active in the process
-    //      manager. The protocol's `queue/release` only handles
-    //      Held → Pending (not Assigned), so we instead mark deferred
-    //      entries as `cancelled` via `queue/completion`. The next
-    //      enqueue for the subject will create a fresh pending entry.
-    //   3. Plan the dispatch with the remaining leased entries
-    //      (clamped to `limit`).
-    //   4. After `execute_dispatch_plan_via_runner` returns,
-    //      `queue/completion(status=failed)` entries whose spawn
-    //      failed so they don't strand on the queue. Spawn-failure
-    //      is rare and the subject will need to be re-enqueued
-    //      explicitly anyway.
+    // `workflow_id`. We lease at most `limit` entries (matching the
+    // upstream `ready_dispatch_limit`, which already nets out
+    // pool_size and active_agents) and dispatch every one we lease.
+    //
+    // The v0.5 queue protocol intentionally has no Assigned → Pending
+    // transition (`queue/release` covers Held → Pending only), so the
+    // daemon must NOT lease entries it cannot dispatch — terminal
+    // `queue/completion(cancelled)` would discard valid queued work.
+    // We:
+    //   1. Lease exactly `limit` entries. Headroom upstream guarantees
+    //      we have spawn capacity for them.
+    //   2. Plan the dispatch for every leased entry. The active-subject
+    //      defensive filter is gone — if a subject is somehow already
+    //      running despite headroom, `spawn_workflow_runner` will fail
+    //      and we close that entry with queue/completion(failed). This
+    //      is a v0.5 limitation documented in the issue thread (#240);
+    //      a Pending re-injection transition is a v0.6 protocol item.
+    //   3. After `execute_dispatch_plan_via_runner` returns, close
+    //      spawn-failed entries via queue/completion(failed).
     //
     // Falls back to the in-tree `load_dispatch_queue_state` when no
     // plugin is installed. The in-tree path stays per Wave 3 "Out of
@@ -51,15 +52,11 @@ pub async fn dispatch_queued_entries_via_runner(
     let mut planned_starts: Vec<PlannedDispatchStart> = Vec::new();
     let mut plugin_owned_subject_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
     // Track `subject_key → entry_id` so we can finalize claims on
-    // spawn failure via `queue/completion`. Without this, a failed
-    // spawn would leave the entry in `assigned` forever.
+    // spawn failure via `queue/completion(failed)`. Without this, a
+    // failed spawn would leave the entry in `assigned` forever.
     let mut plugin_entry_ids_by_subject_key: std::collections::HashMap<String, String> =
         std::collections::HashMap::new();
-    // Entries the lease claimed but the daemon can't dispatch this
-    // tick (subject already active or shape drift). The lease has
-    // already transitioned them to Assigned; we drain via
-    // queue/completion(cancelled) so the plugin reclaims the slot.
-    let mut leased_but_deferred: Vec<String> = Vec::new();
+    let mut undecodable_entry_ids: Vec<String> = Vec::new();
     let mut used_plugin_path = false;
     let project_root_path = std::path::Path::new(root);
 
@@ -67,19 +64,11 @@ pub async fn dispatch_queued_entries_via_runner(
     // synthesizes UUIDs; the daemon's `start_subject_workflow` produces
     // its own workflow id post-spawn, and only that id is the
     // authoritative one for the run.
-    let lease_max = limit.saturating_mul(4).max(limit);
-    let lease_req = QueueLeaseRequest { max: lease_max, workflow_ids: None };
+    let lease_req = QueueLeaseRequest { max: limit, workflow_ids: None };
     match plugin_clients::call_queue_lease(project_root_path, &lease_req).await {
         Ok(Some(response)) => {
             used_plugin_path = true;
             for entry in response.leased {
-                if planned_starts.len() >= limit {
-                    // Any entries beyond `limit` were leased atomically
-                    // but exceed the tick's spawn capacity. Defer them
-                    // so the queue doesn't strand them assigned.
-                    leased_but_deferred.push(entry.entry_id.clone());
-                    continue;
-                }
                 // Wire-equivalent: the plugin returns the v0.5
                 // `animus_subject_protocol::SubjectDispatch` whose JSON
                 // shape matches the in-tree `protocol::SubjectDispatch`
@@ -90,28 +79,35 @@ pub async fn dispatch_queued_entries_via_runner(
                 let dispatch_value = match serde_json::to_value(&entry.subject_dispatch) {
                     Ok(v) => v,
                     Err(error) => {
-                        warn!(actor = protocol::ACTOR_DAEMON, error = %error, "queue/lease returned undecodable subject_dispatch");
-                        leased_but_deferred.push(entry.entry_id.clone());
+                        warn!(actor = protocol::ACTOR_DAEMON, error = %error, "queue/lease returned undecodable subject_dispatch; closing entry as failed");
+                        undecodable_entry_ids.push(entry.entry_id.clone());
                         continue;
                     }
                 };
                 let dispatch: protocol::SubjectDispatch = match serde_json::from_value(dispatch_value) {
                     Ok(d) => d,
                     Err(error) => {
-                        warn!(actor = protocol::ACTOR_DAEMON, error = %error, "queue/lease subject_dispatch shape drift vs in-tree protocol::SubjectDispatch");
-                        leased_but_deferred.push(entry.entry_id.clone());
+                        warn!(actor = protocol::ACTOR_DAEMON, error = %error, "queue/lease subject_dispatch shape drift vs in-tree protocol::SubjectDispatch; closing entry as failed");
+                        undecodable_entry_ids.push(entry.entry_id.clone());
                         continue;
                     }
                 };
                 if active_subject_ids.contains(&dispatch.subject_key()) {
-                    // Subject is already running. Plugin transitioned
-                    // this entry to Assigned; queue/release cannot move
-                    // Assigned → Pending (protocol), so we drain via
-                    // queue/completion(cancelled). The caller is
-                    // responsible for re-enqueueing if the subject
-                    // should still get this workflow after its current
-                    // run completes.
-                    leased_but_deferred.push(entry.entry_id.clone());
+                    // Stale claim — subject is already running.  Surface
+                    // a warning so operators can investigate the
+                    // headroom math but do NOT cancel the entry: the
+                    // plugin's Assigned state will be reconciled when
+                    // the in-flight subject completes (its terminal
+                    // projection runs queue/completion against this
+                    // entry via subject_id match in
+                    // `project_terminal_workflow_result`).
+                    warn!(
+                        actor = protocol::ACTOR_DAEMON,
+                        subject_key = %dispatch.subject_key(),
+                        entry_id = %entry.entry_id,
+                        "queue/lease returned entry for already-active subject; leaving assigned for completion reconciliation"
+                    );
+                    plugin_owned_subject_keys.insert(dispatch.subject_key());
                     continue;
                 }
 
@@ -130,15 +126,12 @@ pub async fn dispatch_queued_entries_via_runner(
         }
     }
 
-    // Drain entries leased but not dispatched (decode failure,
-    // already-active subject, or beyond tick capacity). The protocol's
-    // queue/release covers Held → Pending only; queue/completion is
-    // the documented exit for Assigned entries. Use status=cancelled
-    // so the entry is pruned without flagging spurious failure.
-    for entry_id in &leased_but_deferred {
+    // Close entries with undecodable dispatch envelopes as failed —
+    // the dispatch payload is corrupt; there is nothing to re-run.
+    for entry_id in &undecodable_entry_ids {
         let req = QueueCompletionRequest {
             entry_id: entry_id.clone(),
-            status: queue_proto::completion_status::CANCELLED.to_string(),
+            status: queue_proto::completion_status::FAILED.to_string(),
             workflow_ref: None,
             workflow_id: None,
         };
@@ -147,7 +140,7 @@ pub async fn dispatch_queued_entries_via_runner(
                 actor = protocol::ACTOR_DAEMON,
                 entry_id = %entry_id,
                 error = %error,
-                "queue plugin queue/completion (deferred entry) failed"
+                "queue plugin queue/completion (undecodable entry) failed"
             );
         }
     }

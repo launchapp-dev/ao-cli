@@ -74,6 +74,17 @@ pub(crate) async fn handle_queue(
 ) -> Result<()> {
     match command {
         QueueCommand::List => {
+            // Codex R6 [P1]: when a v0.5 queue plugin is installed it
+            // owns the queue (write path already routes there). Routing
+            // reads through the plugin too keeps the CLI consistent with
+            // the daemon's dispatch loop and the `queue enqueue` path.
+            let plugin_list_req = animus_queue_protocol::QueueListRequest::default();
+            if let Some(plugin_response) =
+                crate::services::plugin_clients::call_queue_list(std::path::Path::new(project_root), &plugin_list_req)
+                    .await?
+            {
+                return print_value(plugin_response, json);
+            }
             // C6.6: prefer the control wire when daemon is running + json
             // mode so the daemon's view of queue entries is authoritative.
             // Falls back to the local in-process snapshot when no socket
@@ -86,6 +97,12 @@ pub(crate) async fn handle_queue(
             print_value(queue_snapshot(project_root)?, json)
         }
         QueueCommand::Stats => {
+            // Codex R6 [P1]: same plugin-first routing as List.
+            if let Some(plugin_stats) =
+                crate::services::plugin_clients::call_queue_stats(std::path::Path::new(project_root)).await?
+            {
+                return print_value(plugin_stats, json);
+            }
             if json {
                 if let Some(response) = try_queue_stats_via_control(project_root).await? {
                     return print_value(response, true);

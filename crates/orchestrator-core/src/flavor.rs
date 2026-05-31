@@ -166,18 +166,32 @@ pub fn locate_flavor_manifest(name: &str) -> Option<PathBuf> {
     locate_flavor_manifest_in(&cwd, name)
 }
 
+/// Built-in copy of the canonical `flavors/default.toml` manifest,
+/// shipped with the binary so cargo-installed `animus` can still resolve
+/// the default flavor when no `flavors/` directory is found in the user
+/// project tree. Codex R6 [P2] fix.
+const BUNDLED_DEFAULT_FLAVOR: &str = include_str!("../../../flavors/default.toml");
+
 /// Load and validate a flavor manifest by name. Anchors discovery at the
-/// supplied project root.
+/// supplied project root. Falls back to the binary-bundled
+/// `flavors/default.toml` when (and only when) `name` is the canonical
+/// default and no on-disk manifest is found.
 pub fn load_flavor_in(project_root: &Path, name: &str) -> Result<Option<FlavorManifest>> {
-    let Some(path) = locate_flavor_manifest_in(project_root, name) else {
-        return Ok(None);
-    };
-    let bytes = std::fs::read_to_string(&path)
-        .with_context(|| format!("failed to read flavor manifest at {}", path.display()))?;
-    let manifest: FlavorManifest =
-        toml::from_str(&bytes).with_context(|| format!("failed to parse flavor manifest at {}", path.display()))?;
-    manifest.validate()?;
-    Ok(Some(manifest))
+    if let Some(path) = locate_flavor_manifest_in(project_root, name) {
+        let bytes = std::fs::read_to_string(&path)
+            .with_context(|| format!("failed to read flavor manifest at {}", path.display()))?;
+        let manifest: FlavorManifest =
+            toml::from_str(&bytes).with_context(|| format!("failed to parse flavor manifest at {}", path.display()))?;
+        manifest.validate()?;
+        return Ok(Some(manifest));
+    }
+    if name == DEFAULT_FLAVOR_ID {
+        let manifest: FlavorManifest =
+            toml::from_str(BUNDLED_DEFAULT_FLAVOR).context("failed to parse bundled default flavor manifest")?;
+        manifest.validate()?;
+        return Ok(Some(manifest));
+    }
+    Ok(None)
 }
 
 /// CWD-anchored variant retained for callers that have no project root to

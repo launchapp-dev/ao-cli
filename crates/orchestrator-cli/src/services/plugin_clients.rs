@@ -86,6 +86,10 @@ async fn spawn_with_project_binding(plugin: &DiscoveredPlugin, project_root: &Pa
 
     // Custom initialize that includes init_extensions.project_binding per
     // the v0.5 protocol §"Common conventions" / "Project-scope binding".
+    // Codex R6 [P1]: send the kernel-computed `repo_scope` so plugins
+    // that validate it or use it for scoped runtime state read/write
+    // the right state slot rather than an empty default.
+    let repo_scope = protocol::repository_scope_for_path(project_root);
     let init_params = json!({
         "protocol_version": "1.1.0",
         "host_info": { "name": "animus", "version": env!("CARGO_PKG_VERSION") },
@@ -93,7 +97,7 @@ async fn spawn_with_project_binding(plugin: &DiscoveredPlugin, project_root: &Pa
         "init_extensions": {
             "project_binding": {
                 "project_root": project_root.to_string_lossy(),
-                "repo_scope": String::new(),
+                "repo_scope": repo_scope,
             }
         }
     });

@@ -4032,8 +4032,21 @@ trusted_signers:
 
         // Pre-create the install-dir entries for every default plugin so the
         // per-target loop skips them all. (`include_*` flags stay false, so
-        // only the provider plugins matter here.)
+        // only the provider plugins matter here.) Also pre-create the v0.5
+        // workflow_runner + queue plugin directories: the bundled flavor
+        // manifest (loaded from the binary via include_str! after
+        // Wave 3 codex R6 [P2]) declares them as required, so they show
+        // up in the targets list even when no `flavors/` directory is on
+        // disk under the tempdir.
         for (slug, _tag) in DEFAULT_PROVIDER_PLUGINS {
+            let basename = slug.rsplit('/').next().unwrap_or(slug);
+            std::fs::write(install_dir.join(basename), b"placeholder").unwrap();
+        }
+        for (slug, _tag) in orchestrator_core::DEFAULT_WORKFLOW_RUNNER_PLUGINS {
+            let basename = slug.rsplit('/').next().unwrap_or(slug);
+            std::fs::write(install_dir.join(basename), b"placeholder").unwrap();
+        }
+        for (slug, _tag) in orchestrator_core::DEFAULT_QUEUE_PLUGINS {
             let basename = slug.rsplit('/').next().unwrap_or(slug);
             std::fs::write(install_dir.join(basename), b"placeholder").unwrap();
         }

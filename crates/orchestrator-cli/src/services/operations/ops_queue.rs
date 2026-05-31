@@ -200,16 +200,27 @@ pub(crate) async fn handle_queue(
             }
             print_value(result, true)
         }
-        // TODO(codex-p2): when a queue plugin is installed, route
-        // Hold/Release/Drop/Reorder through the plugin too. The CLI
-        // currently accepts subject_id; the plugin protocol takes
-        // entry_id, so the routing layer needs to look up the entry
-        // via `queue/list` filtered by subject_id and then invoke
-        // hold/release/drop/reorder with the resolved entry_id.
-        // Deferred from Wave 3 to v0.5.x alongside the `queue/lease`
-        // migration to keep this Wave's diff focused on the dispatch
-        // hot path + enqueue/list/stats consistency.
+        // Wave 3 follow-up (issue #239): when a queue plugin is installed
+        // it owns the queue. The CLI surface accepts subject_id; the plugin
+        // protocol takes entry_id. Resolve subject_id → entry_id(s) via
+        // `queue/list` and route hold/release/drop/reorder through the
+        // plugin. Falls back to the in-tree path + control wire shortcut
+        // when no plugin is installed.
         QueueCommand::Hold(args) => {
+            if let Some(result) = try_queue_hold_via_plugin(project_root, &args.subject_id).await? {
+                let held = result.changed;
+                if !json {
+                    if held {
+                        print_ok("queue subject held (via queue plugin)", false);
+                        return Ok(());
+                    }
+                    return Err(anyhow!("queue subject not found or not pending"));
+                }
+                return print_value(
+                    serde_json::json!({ "held": held, "subject_id": args.subject_id, "via": "plugin_host" }),
+                    true,
+                );
+            }
             if json {
                 if let Some(()) = try_queue_hold_via_control(project_root, &args.subject_id).await? {
                     return print_value(serde_json::json!({ "held": true, "subject_id": args.subject_id }), true);
@@ -226,6 +237,20 @@ pub(crate) async fn handle_queue(
             print_value(serde_json::json!({ "held": held, "subject_id": args.subject_id }), true)
         }
         QueueCommand::Release(args) => {
+            if let Some(result) = try_queue_release_via_plugin(project_root, &args.subject_id).await? {
+                let released = result.changed;
+                if !json {
+                    if released {
+                        print_ok("queue subject released (via queue plugin)", false);
+                        return Ok(());
+                    }
+                    return Err(anyhow!("queue subject not found or not held"));
+                }
+                return print_value(
+                    serde_json::json!({ "released": released, "subject_id": args.subject_id, "via": "plugin_host" }),
+                    true,
+                );
+            }
             if json {
                 if let Some(()) = try_queue_release_via_control(project_root, &args.subject_id).await? {
                     return print_value(serde_json::json!({ "released": true, "subject_id": args.subject_id }), true);
@@ -242,6 +267,25 @@ pub(crate) async fn handle_queue(
             print_value(serde_json::json!({ "released": released, "subject_id": args.subject_id }), true)
         }
         QueueCommand::Drop(args) => {
+            if let Some(removed) = try_queue_drop_via_plugin(project_root, &args.subject_id).await? {
+                if !json {
+                    if removed > 0 {
+                        print_ok(
+                            &format!(
+                                "dropped {removed} queue entry/entries for {} (via queue plugin)",
+                                args.subject_id
+                            ),
+                            false,
+                        );
+                        return Ok(());
+                    }
+                    return Err(anyhow!("queue subject not found"));
+                }
+                return print_value(
+                    serde_json::json!({ "dropped": removed, "subject_id": args.subject_id, "via": "plugin_host" }),
+                    true,
+                );
+            }
             if json {
                 if let Some(()) = try_queue_drop_via_control(project_root, &args.subject_id).await? {
                     // Wire surface returns Unit; local removed count not
@@ -261,6 +305,26 @@ pub(crate) async fn handle_queue(
             print_value(serde_json::json!({ "dropped": removed, "subject_id": args.subject_id }), true)
         }
         QueueCommand::Reorder(args) => {
+            if let Some(reordered_count) = try_queue_reorder_via_plugin(project_root, &args.subject_ids).await? {
+                let reordered = reordered_count > 0;
+                if !json {
+                    if reordered {
+                        print_ok("queue reordered (via queue plugin)", false);
+                        return Ok(());
+                    }
+                    print_ok("queue order unchanged", false);
+                    return Ok(());
+                }
+                return print_value(
+                    serde_json::json!({
+                        "reordered": reordered,
+                        "reordered_count": reordered_count,
+                        "subject_ids": args.subject_ids,
+                        "via": "plugin_host",
+                    }),
+                    true,
+                );
+            }
             // Wire `queue/reorder` is single-id per-call (id + position
             // anchor). The CLI's `--subject-id` repeated form is a
             // multi-id reorder. We could send N wire calls in sequence
@@ -403,6 +467,184 @@ async fn try_queue_release_via_control(project_root: &str, id: &str) -> Result<O
         }
         Err(err) => Err(err),
     }
+}
+
+// =====================================================================
+// Wave 3 follow-up (issue #239) — plugin routing for hold/release/drop/reorder
+// =====================================================================
+//
+// Each helper resolves the CLI's subject_id (or list of subject_ids) into
+// the plugin's entry_id surface via `queue/list`, then invokes the
+// corresponding `queue/*` mutation on the plugin. Returns `Ok(None)` when
+// no queue plugin is installed so the caller falls back to the control
+// wire / in-tree path.
+//
+// The CLI mutates by subject_id today; the plugin protocol mutates by
+// entry_id. We list pending/held/assigned entries for the subject and
+// fold the per-entry mutation results into a single CLI-shaped response.
+
+/// List entries from the plugin filtered to the given subject_id, scoped
+/// to the supplied statuses. Returns an empty Vec when the plugin is not
+/// installed. Returns `Ok(None)` when no plugin is installed.
+async fn lookup_plugin_entries_by_subject(
+    project_root: &str,
+    subject_id: &str,
+    statuses: &[&'static str],
+) -> Result<Option<Vec<animus_queue_protocol::QueueEntry>>> {
+    let req = animus_queue_protocol::QueueListRequest {
+        status: statuses.iter().map(|s| (*s).to_string()).collect(),
+        limit: None,
+        offset: None,
+    };
+    let Some(response) =
+        crate::services::plugin_clients::call_queue_list(std::path::Path::new(project_root), &req).await?
+    else {
+        return Ok(None);
+    };
+    let matched = response.entries.into_iter().filter(|entry| entry.subject_id == subject_id).collect();
+    Ok(Some(matched))
+}
+
+async fn try_queue_hold_via_plugin(
+    project_root: &str,
+    subject_id: &str,
+) -> Result<Option<animus_queue_protocol::QueueMutationResponse>> {
+    let Some(entries) =
+        lookup_plugin_entries_by_subject(project_root, subject_id, &[animus_queue_protocol::status::PENDING]).await?
+    else {
+        return Ok(None);
+    };
+    if entries.is_empty() {
+        return Ok(Some(animus_queue_protocol::QueueMutationResponse { changed: false, not_found: true }));
+    }
+    let mut changed = false;
+    let mut not_found = true;
+    for entry in entries {
+        let req = animus_queue_protocol::QueueHoldRequest { entry_id: entry.entry_id, reason: None };
+        if let Some(resp) =
+            crate::services::plugin_clients::call_queue_hold(std::path::Path::new(project_root), &req).await?
+        {
+            changed |= resp.changed;
+            not_found &= resp.not_found;
+        }
+    }
+    Ok(Some(animus_queue_protocol::QueueMutationResponse { changed, not_found }))
+}
+
+async fn try_queue_release_via_plugin(
+    project_root: &str,
+    subject_id: &str,
+) -> Result<Option<animus_queue_protocol::QueueMutationResponse>> {
+    let Some(entries) =
+        lookup_plugin_entries_by_subject(project_root, subject_id, &[animus_queue_protocol::status::HELD]).await?
+    else {
+        return Ok(None);
+    };
+    if entries.is_empty() {
+        return Ok(Some(animus_queue_protocol::QueueMutationResponse { changed: false, not_found: true }));
+    }
+    let mut changed = false;
+    let mut not_found = true;
+    for entry in entries {
+        let req = animus_queue_protocol::QueueReleaseRequest { entry_id: entry.entry_id };
+        if let Some(resp) =
+            crate::services::plugin_clients::call_queue_release(std::path::Path::new(project_root), &req).await?
+        {
+            changed |= resp.changed;
+            not_found &= resp.not_found;
+        }
+    }
+    Ok(Some(animus_queue_protocol::QueueMutationResponse { changed, not_found }))
+}
+
+async fn try_queue_drop_via_plugin(project_root: &str, subject_id: &str) -> Result<Option<usize>> {
+    // Drop matches the in-tree semantics: remove ALL entries for the
+    // subject regardless of status. The in-tree `drop_subject` returns
+    // the number of entries removed.
+    let Some(entries) = lookup_plugin_entries_by_subject(
+        project_root,
+        subject_id,
+        &[
+            animus_queue_protocol::status::PENDING,
+            animus_queue_protocol::status::HELD,
+            animus_queue_protocol::status::ASSIGNED,
+        ],
+    )
+    .await?
+    else {
+        return Ok(None);
+    };
+    let mut dropped = 0usize;
+    for entry in entries {
+        let req = animus_queue_protocol::QueueDropRequest { entry_id: entry.entry_id };
+        if let Some(resp) =
+            crate::services::plugin_clients::call_queue_drop(std::path::Path::new(project_root), &req).await?
+        {
+            if resp.changed {
+                dropped += 1;
+            }
+        }
+    }
+    Ok(Some(dropped))
+}
+
+async fn try_queue_reorder_via_plugin(project_root: &str, subject_ids: &[String]) -> Result<Option<usize>> {
+    // Resolve each subject_id to its current entry_id via `queue/list`
+    // (pending+held — assigned entries can't be reordered). If any
+    // subject is missing on the plugin side, return Some(0) so the
+    // caller reports "queue order unchanged".
+    let Some(entries) = lookup_plugin_entries_by_subject_set(
+        project_root,
+        subject_ids,
+        &[animus_queue_protocol::status::PENDING, animus_queue_protocol::status::HELD],
+    )
+    .await?
+    else {
+        return Ok(None);
+    };
+    if entries.is_empty() {
+        return Ok(Some(0));
+    }
+    let req = animus_queue_protocol::QueueReorderRequest { entry_ids: entries };
+    let Some(resp) =
+        crate::services::plugin_clients::call_queue_reorder(std::path::Path::new(project_root), &req).await?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(resp.reordered_count))
+}
+
+/// Resolve a list of subject_ids to entry_ids via a single `queue/list`
+/// call. Preserves the input order, dropping subjects with no matching
+/// entry. Returns `Ok(None)` when no plugin is installed.
+async fn lookup_plugin_entries_by_subject_set(
+    project_root: &str,
+    subject_ids: &[String],
+    statuses: &[&'static str],
+) -> Result<Option<Vec<String>>> {
+    let req = animus_queue_protocol::QueueListRequest {
+        status: statuses.iter().map(|s| (*s).to_string()).collect(),
+        limit: None,
+        offset: None,
+    };
+    let Some(response) =
+        crate::services::plugin_clients::call_queue_list(std::path::Path::new(project_root), &req).await?
+    else {
+        return Ok(None);
+    };
+    let mut by_subject: std::collections::HashMap<&str, Vec<String>> = std::collections::HashMap::new();
+    for entry in &response.entries {
+        by_subject.entry(entry.subject_id.as_str()).or_default().push(entry.entry_id.clone());
+    }
+    let mut entry_ids: Vec<String> = Vec::new();
+    for subject_id in subject_ids {
+        if let Some(ids) = by_subject.get_mut(subject_id.as_str()) {
+            if !ids.is_empty() {
+                entry_ids.push(ids.remove(0));
+            }
+        }
+    }
+    Ok(Some(entry_ids))
 }
 
 #[cfg(test)]

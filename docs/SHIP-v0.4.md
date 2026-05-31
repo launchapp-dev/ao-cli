@@ -122,7 +122,7 @@ note.
 ### v0.4.0
 
 Stdio plugin host foundation. The daemon learned to spawn plugin
-subprocesses, speak JSON-RPC over stdin/stdout, and dispatch
+subprocesses, speak JSON-RPC over stdin/stdout (canonical NDJSON framing), and dispatch
 phase-execution through them. Subject backends and providers became
 the first plugin kinds. Eight repos went live in the
 `launchapp-dev/animus-*` namespace.

@@ -18,7 +18,9 @@ and publishing a plugin. It assumes you have read the
 
 A plugin is a standalone executable that:
 
-- Speaks **newline-delimited JSON-RPC 2.0** over `stdin`/`stdout`.
+- Speaks **JSON-RPC 2.0 over `stdin`/`stdout`**. The canonical wire form is
+  one JSON value per line (NDJSON); current host-side readers also accept
+  pretty-printed multi-line frames from plugins.
 - Declares a **plugin kind** (`provider`, `subject_backend`,
   `trigger_backend`, `transport_backend`, `log_storage_backend`, or
   `custom`). The kind tells the daemon which method family the plugin

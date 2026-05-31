@@ -1,8 +1,10 @@
 # Plugin System
 
 Animus plugins are standalone executables that communicate with the host over
-newline-delimited JSON-RPC 2.0 on stdin/stdout. The host never loads
-third-party code into the daemon process as a dynamic library.
+JSON-RPC 2.0 on stdin/stdout. The canonical framing is one JSON value per line
+(NDJSON), and current host-side readers also accept pretty-printed multi-line
+frames from plugins. The host never loads third-party code into the daemon
+process as a dynamic library.
 
 ## Source Files
 
@@ -52,7 +54,9 @@ URL.
 
 ## Wire Protocol
 
-Runtime communication is newline-delimited JSON-RPC 2.0:
+Runtime communication uses JSON-RPC 2.0 over stdio. Canonical host writes stay
+newline-delimited; host readers also accept pretty-printed multi-line frames
+from plugins:
 
 1. Host spawns plugin.
 2. Host sends `initialize`.

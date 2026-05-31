@@ -161,8 +161,10 @@ or external system-of-record semantics.
 ## Plugin Boundaries
 
 External integrations run as standalone executables. The host communicates over
-newline-delimited JSON-RPC 2.0 on stdin/stdout and clears plugin environments
-before spawn. Plugin behavior is documented in [Plugin System](plugin-system.md).
+JSON-RPC 2.0 on stdin/stdout; canonical writes remain newline-delimited and the
+host readers also tolerate pretty-printed multi-line frames from plugins.
+Plugin environments are cleared before spawn. Plugin behavior is documented in
+[Plugin System](plugin-system.md).
 
 The key runtime split is:
 

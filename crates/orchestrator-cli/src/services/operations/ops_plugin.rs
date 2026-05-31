@@ -299,11 +299,29 @@ struct InstallDefaultsOutput {
 /// When no flavor manifest is found, the legacy hardcoded
 /// `DEFAULT_PROVIDER_PLUGINS + ...` tables are used directly.
 fn build_install_defaults_targets(args: &PluginInstallDefaultsArgs, project_root: &str) -> Vec<(String, String)> {
-    use orchestrator_core::flavor::load_flavor_in;
+    use orchestrator_core::flavor::{load_flavor_in, locate_flavor_manifest_in};
     use orchestrator_core::resolve_tag_for_slug;
     use orchestrator_core::DEFAULT_FLAVOR_ID;
 
-    if let Ok(Some(manifest)) = load_flavor_in(std::path::Path::new(project_root), DEFAULT_FLAVOR_ID) {
+    // Codex P2: when a `flavors/default.toml` file IS present but fails
+    // to parse or validate, silently falling back to the hardcoded
+    // tables would hide schema drift or a bad `$ANIMUS_FLAVORS_DIR`
+    // override. Probe for presence first; if found, surface load errors
+    // via `tracing::error!` then still fall back so the daemon stays
+    // usable.
+    let project_root_path = std::path::Path::new(project_root);
+    let manifest_present = locate_flavor_manifest_in(project_root_path, DEFAULT_FLAVOR_ID).is_some();
+    let load_result = load_flavor_in(project_root_path, DEFAULT_FLAVOR_ID);
+    if manifest_present {
+        if let Err(error) = &load_result {
+            tracing::error!(
+                flavor = DEFAULT_FLAVOR_ID,
+                error = %error,
+                "flavor manifest present on disk but failed to load; falling back to hardcoded plugin defaults"
+            );
+        }
+    }
+    if let Ok(Some(manifest)) = load_result {
         let mut slugs: Vec<String> = Vec::new();
         slugs.extend(manifest.workflow_runner.required.iter().cloned());
         slugs.extend(manifest.queue.required.iter().cloned());

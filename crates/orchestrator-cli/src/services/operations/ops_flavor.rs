@@ -63,15 +63,6 @@ struct FlavorDescribeOutput {
     manifest: FlavorManifest,
 }
 
-#[derive(Debug, Serialize)]
-struct FlavorInstallOutput {
-    schema: &'static str,
-    name: String,
-    installed: usize,
-    skipped: usize,
-    failed: usize,
-}
-
 pub(crate) async fn handle_flavor(command: FlavorCommand, project_root: &str, json: bool) -> Result<()> {
     match command {
         FlavorCommand::List => handle_flavor_list(project_root, json),
@@ -198,15 +189,12 @@ async fn handle_flavor_install(args: FlavorInstallArgs, project_root: &str, json
         plugin_dir: None,
         force_rewrite_lockfile: false,
     };
-    handle_plugin(PluginCommand::InstallDefaults(install_args), project_root, json).await?;
-
-    if json {
-        return print_value(
-            FlavorInstallOutput { schema: FLAVOR_SCHEMA, name: args.name, installed: 0, skipped: 0, failed: 0 },
-            true,
-        );
-    }
-    Ok(())
+    // Delegate to `install-defaults`, which already emits a JSON envelope
+    // when `install_args.json` is set. Do NOT emit a second envelope from
+    // this fn — codex P2: stdout for `animus --json flavor install` would
+    // otherwise contain two concatenated JSON objects, breaking strict
+    // line-delimited / single-JSON consumers.
+    handle_plugin(PluginCommand::InstallDefaults(install_args), project_root, json).await
 }
 
 /// Compare the set of installed plugins on disk against the manifest's

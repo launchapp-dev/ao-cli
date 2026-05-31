@@ -116,7 +116,7 @@ The following represent aspirational architectural goals and roadmap items:
 ## Known Limitations
 
 - **Web UI on Mobile**: The web UI is optimized for desktop; mobile experience is functional but not fully responsive
-- **TUI**: Terminal UI is in-flight; some features may be missing or unstable
+- **TUI**: Terminal UI is planned; there is no live top-level `animus tui` command in the current CLI surface
 - **Pack Resolution**: Workflow pack discovery and installation is functional but may evolve before stabilizing
 - **Performance at Scale**: Very large task backlogs (10k+) may show performance degradation; optimization is on the roadmap
 

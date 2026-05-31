@@ -857,9 +857,10 @@ async fn handle_daemon_stream(args: DaemonStreamArgs, project_root: &str) -> Res
     });
 
     let pretty = args.pretty;
+    let full = args.full;
     let print_entry = move |entry: &orchestrator_logging::LogEntry| {
         if pretty {
-            println!("{}", format_log_entry_pretty(entry));
+            println!("{}", format_log_entry_pretty(entry, full));
         } else {
             println!("{}", serde_json::to_string(entry).unwrap_or_default());
         }
@@ -924,7 +925,7 @@ async fn handle_daemon_stream(args: DaemonStreamArgs, project_root: &str) -> Res
     }
 }
 
-fn format_log_entry_pretty(entry: &orchestrator_logging::LogEntry) -> String {
+fn format_log_entry_pretty(entry: &orchestrator_logging::LogEntry, full: bool) -> String {
     use colored::Colorize;
     use orchestrator_logging::Level;
 
@@ -939,7 +940,14 @@ fn format_log_entry_pretty(entry: &orchestrator_logging::LogEntry) -> String {
 
     let cat = entry.cat.as_str().blue();
 
-    let mut line = format!("{} {} {:<12} {}", ts.dimmed(), level_badge, cat, entry.msg);
+    let full_body = full.then(|| entry.content.as_deref().filter(|c| !c.trim().is_empty())).flatten();
+
+    let headline = match full_body {
+        Some(_) => collapse_headline(&entry.msg, 80),
+        None => entry.msg.clone(),
+    };
+
+    let mut line = format!("{} {} {:<12} {}", ts.dimmed(), level_badge, cat, headline);
 
     let mut tags = Vec::new();
     if let Some(ref wf) = entry.workflow_id {
@@ -956,6 +964,15 @@ fn format_log_entry_pretty(entry: &orchestrator_logging::LogEntry) -> String {
     }
     if let Some(ref tool) = entry.tool {
         tags.push(format!("tool={tool}"));
+    }
+    match (entry.mcp_server.as_ref(), entry.mcp_tool.as_ref()) {
+        (Some(server), Some(tool)) => tags.push(format!("mcp={server}/{tool}")),
+        (Some(server), None) => tags.push(format!("mcp={server}")),
+        (None, Some(tool)) => tags.push(format!("mcp={tool}")),
+        (None, None) => {}
+    }
+    if let Some(cost) = entry.cost {
+        tags.push(format!("${cost:.4}"));
     }
     if let Some(ref schedule) = entry.schedule_id {
         tags.push(format!("sched={schedule}"));
@@ -981,11 +998,78 @@ fn format_log_entry_pretty(entry: &orchestrator_logging::LogEntry) -> String {
         line.push_str(&format!("  {}", tags.join(" ").dimmed()));
     }
 
+    if let Some(detail) = format_log_entry_detail(entry) {
+        line.push_str(&format!("\n  {} {}", "·".dimmed(), detail.dimmed()));
+    }
+
+    if let Some(body) = full_body {
+        line.push('\n');
+        line.push_str(&render_full_body(body));
+    }
+
     if let Some(ref err) = entry.error {
         line.push_str(&format!("\n  {} {}", "err:".red(), err));
     }
 
     line
+}
+
+fn collapse_headline(msg: &str, max_chars: usize) -> String {
+    let first = msg.lines().next().unwrap_or(msg).trim();
+    if first.chars().count() > max_chars {
+        format!("{}…", first.chars().take(max_chars).collect::<String>())
+    } else {
+        first.to_string()
+    }
+}
+
+fn render_full_body(body: &str) -> String {
+    let rendered = termimad::text(body).to_string();
+    rendered.lines().map(|line| format!("    {line}")).collect::<Vec<_>>().join("\n")
+}
+
+fn format_log_entry_detail(entry: &orchestrator_logging::LogEntry) -> Option<String> {
+    let meta = entry.meta.as_ref()?;
+
+    match entry.cat.as_str() {
+        "command.start" | "command.complete" => {
+            let program = meta.get("program").and_then(|v| v.as_str())?;
+            let args = meta
+                .get("args")
+                .and_then(|v| v.as_array())
+                .map(|values| values.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(" "))
+                .unwrap_or_default();
+            Some(format!("$ {program} {args}").trim_end().to_string())
+        }
+        "llm.tool_call" => {
+            let params = meta.get("params")?;
+            if params.is_null() {
+                return None;
+            }
+            Some(compact_json_value(params, 200))
+        }
+        "llm.tool_result" => {
+            let result = meta.get("result")?;
+            if result.is_null() {
+                return None;
+            }
+            Some(compact_json_value(result, 200))
+        }
+        _ => None,
+    }
+}
+
+fn compact_json_value(value: &serde_json::Value, max_chars: usize) -> String {
+    let rendered = match value {
+        serde_json::Value::String(text) => text.clone(),
+        other => other.to_string(),
+    };
+    let collapsed = rendered.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.chars().count() > max_chars {
+        format!("{}…", collapsed.chars().take(max_chars).collect::<String>())
+    } else {
+        collapsed
+    }
 }
 
 fn short_id(id: &str) -> &str {

@@ -304,6 +304,12 @@ pub(crate) struct DaemonStreamArgs {
     pub(crate) no_follow: bool,
     #[arg(long, action = ArgAction::SetTrue, help = "Pretty-print with colors and formatting instead of raw JSON.")]
     pub(crate) pretty: bool,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help = "In pretty mode, render full message bodies (LLM output, command stdout) as formatted markdown blocks instead of a truncated preview."
+    )]
+    pub(crate) full: bool,
 }
 
 #[derive(Debug, Args)]

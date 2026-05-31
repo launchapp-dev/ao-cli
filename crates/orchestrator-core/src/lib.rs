@@ -4,6 +4,7 @@ pub mod config;
 pub mod daemon_config;
 pub mod daemon_tick_metrics;
 pub mod doctor;
+pub mod flavor;
 pub mod domain_state;
 pub mod execution_projection;
 pub mod model_quality;
@@ -69,8 +70,13 @@ pub use plugin_preflight::{
     DEFAULT_REQUIREMENT_BACKEND_REPO, DEFAULT_TASK_BACKEND_REPO,
 };
 pub use plugin_registry::{
-    default_provider_repo_spec, default_subject_repo_for_kind, format_repo_spec, DEFAULT_OAI_AGENT_PLUGINS,
-    DEFAULT_PROVIDER_PLUGINS, DEFAULT_SUBJECT_PLUGINS, DEFAULT_TRANSPORT_PLUGINS,
+    default_provider_repo_spec, default_subject_repo_for_kind, format_repo_spec, resolve_tag_for_slug,
+    DEFAULT_OAI_AGENT_PLUGINS, DEFAULT_PROVIDER_PLUGINS, DEFAULT_QUEUE_PLUGINS, DEFAULT_SUBJECT_PLUGINS,
+    DEFAULT_TRANSPORT_PLUGINS, DEFAULT_WORKFLOW_RUNNER_PLUGINS,
+};
+pub use flavor::{
+    list_available_flavor_names, load_flavor, locate_flavor_manifest, FlavorDefaults, FlavorManifest,
+    FlavorRoleSection, DEFAULT_FLAVOR_ID, FLAVOR_SCHEMA_V1,
 };
 pub use runtime_contract::{
     build_cli_launch_contract, build_runtime_contract, cli_capabilities_for_tool, cli_capabilities_from_config,

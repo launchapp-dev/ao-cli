@@ -287,17 +287,85 @@ struct InstallDefaultsOutput {
     summary: InstallDefaultsSummary,
 }
 
-async fn handle_plugin_install_defaults(args: PluginInstallDefaultsArgs, project_root: &str) -> Result<()> {
-    let mut targets: Vec<(&str, &str)> = DEFAULT_PROVIDER_PLUGINS.to_vec();
+/// Wave 3: assemble the `(slug, tag)` install list. When
+/// `flavors/default.toml` is present on disk, the manifest is the source
+/// of truth for *which* slugs to install — tags still come from the
+/// curated constants in `orchestrator_core::plugin_registry`. Slugs the
+/// manifest declares that the curated registry hasn't pinned yet (e.g.
+/// `animus-provider-ollama`, `animus-trigger-cron`) emit a warning and
+/// are skipped: the manifest is a forward-looking declaration; the
+/// constants table is the authoritative pin.
+///
+/// When no flavor manifest is found, the legacy hardcoded
+/// `DEFAULT_PROVIDER_PLUGINS + ...` tables are used directly.
+fn build_install_defaults_targets(args: &PluginInstallDefaultsArgs) -> Vec<(String, String)> {
+    use orchestrator_core::flavor::load_flavor;
+    use orchestrator_core::resolve_tag_for_slug;
+    use orchestrator_core::DEFAULT_FLAVOR_ID;
+
+    if let Ok(Some(manifest)) = load_flavor(DEFAULT_FLAVOR_ID) {
+        let mut slugs: Vec<String> = Vec::new();
+        slugs.extend(manifest.workflow_runner.required.iter().cloned());
+        slugs.extend(manifest.queue.required.iter().cloned());
+        slugs.extend(manifest.providers.required.iter().cloned());
+        slugs.extend(manifest.providers.recommended.iter().cloned());
+        if args.include_oai_agent {
+            for (slug, _) in DEFAULT_OAI_AGENT_PLUGIN {
+                slugs.push((*slug).to_string());
+            }
+        }
+        if args.include_subjects {
+            slugs.extend(manifest.subjects.required.iter().cloned());
+            slugs.extend(manifest.subjects.recommended.iter().cloned());
+        }
+        if args.include_transports {
+            slugs.extend(manifest.transports.required.iter().cloned());
+            slugs.extend(manifest.transports.recommended.iter().cloned());
+            slugs.extend(manifest.ui.recommended.iter().cloned());
+        }
+        let mut targets: Vec<(String, String)> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for slug in slugs {
+            if !seen.insert(slug.clone()) {
+                continue;
+            }
+            match resolve_tag_for_slug(&slug) {
+                Some(tag) => targets.push((slug, tag.to_string())),
+                None => {
+                    tracing::warn!(
+                        slug = %slug,
+                        "flavor manifest references plugin slug with no curated tag pin; skipping install. Add a pin in orchestrator-core::plugin_registry to enable installation."
+                    );
+                }
+            }
+        }
+        return targets;
+    }
+
+    let mut targets: Vec<(String, String)> = DEFAULT_PROVIDER_PLUGINS
+        .iter()
+        .map(|(s, t)| ((*s).to_string(), (*t).to_string()))
+        .collect();
     if args.include_oai_agent {
-        targets.extend_from_slice(DEFAULT_OAI_AGENT_PLUGIN);
+        for (s, t) in DEFAULT_OAI_AGENT_PLUGIN {
+            targets.push(((*s).to_string(), (*t).to_string()));
+        }
     }
     if args.include_subjects {
-        targets.extend_from_slice(DEFAULT_SUBJECT_PLUGINS);
+        for (s, t) in DEFAULT_SUBJECT_PLUGINS {
+            targets.push(((*s).to_string(), (*t).to_string()));
+        }
     }
     if args.include_transports {
-        targets.extend_from_slice(DEFAULT_TRANSPORT_PLUGINS);
+        for (s, t) in DEFAULT_TRANSPORT_PLUGINS {
+            targets.push(((*s).to_string(), (*t).to_string()));
+        }
     }
+    targets
+}
+
+async fn handle_plugin_install_defaults(args: PluginInstallDefaultsArgs, project_root: &str) -> Result<()> {
+    let mut targets: Vec<(String, String)> = build_install_defaults_targets(&args);
 
     let install_dir = install_root(args.plugin_dir.as_deref())?;
 
@@ -341,17 +409,17 @@ async fn handle_plugin_install_defaults(args: PluginInstallDefaultsArgs, project
     let mut skipped = 0_usize;
     let mut failed = 0_usize;
 
-    for (slug, tag) in targets {
-        let repo_basename = slug.rsplit('/').next().unwrap_or(slug);
-        let pre_existing = install_dir.join(repo_basename);
+    for (slug, tag) in targets.drain(..) {
+        let repo_basename = slug.rsplit('/').next().unwrap_or(&slug).to_string();
+        let pre_existing = install_dir.join(&repo_basename);
         if pre_existing.exists() && !args.force {
             if !args.json {
                 eprintln!("[skip] {slug}@{tag} (already installed at {})", pre_existing.display());
             }
             skipped += 1;
             results.push(InstallDefaultsEntry {
-                repo: slug.to_string(),
-                tag: tag.to_string(),
+                repo: slug.clone(),
+                tag: tag.clone(),
                 status: "skipped",
                 installed_path: Some(pre_existing.display().to_string()),
                 message: Some("already installed".to_string()),
@@ -370,8 +438,8 @@ async fn handle_plugin_install_defaults(args: PluginInstallDefaultsArgs, project
         // reserved-name guard here. User-typed `animus plugin install ...`
         // still has to pass --allow-shadow-builtin explicitly.
         let req = PluginInstallRequest {
-            source: Some(slug.to_string()),
-            tag: Some(tag.to_string()),
+            source: Some(slug.clone()),
+            tag: Some(tag.clone()),
             force: args.force,
             plugin_dir: args.plugin_dir.clone(),
             allow_org: vec!["launchapp-dev".to_string()],
@@ -389,8 +457,8 @@ async fn handle_plugin_install_defaults(args: PluginInstallDefaultsArgs, project
                 }
                 installed += 1;
                 results.push(InstallDefaultsEntry {
-                    repo: slug.to_string(),
-                    tag: tag.to_string(),
+                    repo: slug,
+                    tag,
                     status: "installed",
                     installed_path: Some(output.installed_path),
                     message: None,
@@ -402,8 +470,8 @@ async fn handle_plugin_install_defaults(args: PluginInstallDefaultsArgs, project
                 }
                 failed += 1;
                 results.push(InstallDefaultsEntry {
-                    repo: slug.to_string(),
-                    tag: tag.to_string(),
+                    repo: slug,
+                    tag,
                     status: "failed",
                     installed_path: None,
                     message: Some(err.to_string()),

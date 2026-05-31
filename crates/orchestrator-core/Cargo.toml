@@ -26,6 +26,7 @@ orchestrator-store = { workspace = true }
 orchestrator-config = { workspace = true }
 orchestrator-logging = { workspace = true }
 which = "8"
+toml = "0.8"
 
 [dev-dependencies]
 tempfile = "3"

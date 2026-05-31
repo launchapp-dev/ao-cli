@@ -4,7 +4,14 @@ The agent runner (`agent-runner`) is a standalone daemon that manages LLM CLI to
 
 ## Transport
 
-- **Unix domain socket** on Unix platforms, located at `~/.animus/agent-runner.sock`
+- **Unix domain socket** on Unix platforms. The server binds to
+  `<ANIMUS_CONFIG_DIR>/agent-runner.sock`.
+  In normal Animus flows, the runner is launched with `ANIMUS_CONFIG_DIR`
+  pointing at the repo-scoped runner directory
+  (`~/.animus/<repo-scope>/runner/`), so clients connect there.
+  If that Unix socket path would exceed the platform limit, Animus shortens it
+  into `/tmp/ao-runner/<hash>/agent-runner.sock` and writes `origin-path.txt`
+  with the canonical path.
 - **TCP** on Windows as a fallback
 
 The IPC server (`crates/agent-runner/src/ipc/server.rs`) listens for incoming connections and routes them through the request handler pipeline. Each connection is assigned a monotonically increasing connection ID for tracing.
@@ -14,7 +21,8 @@ The IPC server (`crates/agent-runner/src/ipc/server.rs`) listens for incoming co
 Every new connection must authenticate before sending any operational requests:
 
 1. Client sends an `IpcAuthRequest` JSON message as the first payload: `{"kind": "ipc_auth", "token": "<token>"}`
-2. Server validates the token against the configured `AGENT_RUNNER_TOKEN` (loaded from the global config)
+2. Server validates the token against `agent_runner_token` loaded from
+   `<ANIMUS_CONFIG_DIR>/config.json`
 3. Server responds with `IpcAuthResult`: either `ok: true` or `ok: false` with a failure code
 4. If rejected, the connection is closed immediately
 

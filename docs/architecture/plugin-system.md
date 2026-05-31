@@ -25,6 +25,9 @@ third-party code into the daemon process as a dynamic library.
 - Plugin processes start with `env_clear()`.
 - The host forwards only a small base env allowlist, manifest-declared env vars,
   and request-local extras.
+- Daemon-managed subject, provider, trigger, log-storage, and health-probe
+  spawns pin plugin cwd to `project_root` so cwd-relative state resolves
+  predictably under `.animus/`.
 - Manifest probe failures become discovery warnings so operators can see why a
   binary was skipped.
 - Install state records enough metadata to explain where a plugin came from and
@@ -177,6 +180,12 @@ The broadcast channel capacity defaults to 256 and can be overridden with:
 ANIMUS_PLUGIN_BROADCAST_CAPACITY=512
 ```
 
+When `PluginSpawnOptions.working_dir` is set, the host calls
+`Command::current_dir(...)` before spawn. Daemon-owned runtime paths set this to
+the resolved `project_root`; ad-hoc plugin commands such as `animus plugin
+ping` and `animus plugin call` still inherit the caller's cwd unless the command
+itself exposes a project-root override.
+
 ## Provider Path
 
 Provider plugins are driven by `orchestrator-session-host`.
@@ -187,6 +196,10 @@ Provider plugins are driven by `orchestrator-session-host`.
 4. Send `agent/run` or `agent/resume`.
 5. Forward provider notifications as runner events.
 6. Keep the active session host so `agent/cancel` reaches the same process.
+
+Provider dispatch binds the plugin cwd to the resolved `project_root`, so
+provider-owned state and any child CLI cwd-relative lookups stay anchored to the
+repository even when the daemon was started from some other shell directory.
 
 There is no in-tree provider fallback. Missing providers return a hard error
 with the install command.
@@ -224,6 +237,10 @@ Protocol-level subject backends may also expose schema and watch capabilities,
 but current routing decisions are made from the initialized plugin manifest and
 `capabilities.subject_kinds`.
 
+Subject backend spawns also pin cwd to `project_root`. Backends that persist
+state via relative paths such as `.animus/subjects/tasks.db` therefore resolve
+those paths under the repository root instead of under the daemon launch shell.
+
 ## Trigger Path
 
 Trigger plugins are long-lived watchers. The daemon sends `trigger/watch` with
@@ -231,6 +248,9 @@ optional cursor and config, then receives `trigger/event` notifications. Each
 event carries an event id, optional trigger id, optional subject id/kind,
 optional action hint, and plugin-owned payload. The host sends `trigger/ack`
 after accepting an event.
+
+The trigger supervisor pins cwd to `project_root` for the same reason: any
+plugin-relative checkpoints or repo-local config reads stay deterministic.
 
 Trigger supervision has a daemon kill switch:
 

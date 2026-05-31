@@ -158,6 +158,11 @@ Current host routing sends kind-scoped methods such as `task/list` or
 `linear.issue/get`; keep the advertised `subject_kinds` in sync with the methods
 your backend handles.
 
+When the daemon spawns a subject backend, it pins the plugin cwd to the resolved
+`project_root`. If your backend stores repo-local state via relative paths, keep
+that contract intentional and document it; if you need some other base path,
+resolve it explicitly instead of assuming the operator's launch shell cwd.
+
 ### Step 4 — advertise the kind
 
 Subject backends list the subject kinds they produce in

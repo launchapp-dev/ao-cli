@@ -234,7 +234,8 @@ impl TriggerPluginRunner for ProcessTriggerRunner {
             &plugin.manifest.env_required,
             std::iter::empty::<String>(),
             stderr_sink,
-        );
+        )
+        .with_working_dir(project_root);
         let host = match PluginHost::spawn_with_options(&plugin.path, &[], options).await {
             Ok(host) => host,
             Err(error) => return SessionOutcome::SpawnError(format!("spawn failed: {error:#}")),

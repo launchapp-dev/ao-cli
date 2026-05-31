@@ -524,7 +524,11 @@ impl ControlSurface for InProcessSurface {
         // own status stays `Healthy` because plugin-side trouble is an
         // observability concern, not a daemon-liveness one.
         let discovered = orchestrator_plugin_host::discover_plugins(&self.project_root).unwrap_or_default();
-        let probes = discovered.into_iter().map(|p| async move { probe_plugin_health(&p).await });
+        let project_root = self.project_root.clone();
+        let probes = discovered.into_iter().map(|p| {
+            let project_root = project_root.clone();
+            async move { probe_plugin_health(&p, &project_root).await }
+        });
         let plugins: Vec<PluginHealth> = futures_util::future::join_all(probes).await;
         Ok(DaemonHealthResponse { status: DaemonHealthStatus::Healthy, plugins, last_error: None })
     }
@@ -1132,6 +1136,7 @@ fn short_hash(msg: &str) -> String {
 /// probe-shape degradation with the unhealthy row.
 fn build_probe_spawn_options(
     plugin: &orchestrator_plugin_host::DiscoveredPlugin,
+    project_root: &std::path::Path,
 ) -> orchestrator_plugin_host::PluginSpawnOptions {
     use orchestrator_plugin_host::PluginSpawnOptions;
 
@@ -1140,7 +1145,8 @@ fn build_probe_spawn_options(
         &plugin.manifest.env_required,
         std::iter::empty::<String>(),
         None,
-    );
+    )
+    .with_working_dir(project_root);
     if !options.missing_required_env.is_empty() {
         tracing::warn!(
             target: "daemon_health.probe",
@@ -1162,7 +1168,10 @@ fn build_probe_spawn_options(
 /// Probes are designed to be fired concurrently from `join_all`. The
 /// daemon's own status stays `Healthy` because plugin-side trouble is an
 /// observability concern, not a daemon-liveness one.
-async fn probe_plugin_health(plugin: &orchestrator_plugin_host::DiscoveredPlugin) -> PluginHealth {
+async fn probe_plugin_health(
+    plugin: &orchestrator_plugin_host::DiscoveredPlugin,
+    project_root: &std::path::Path,
+) -> PluginHealth {
     use orchestrator_plugin_host::PluginHost;
     use std::time::Duration;
 
@@ -1181,7 +1190,7 @@ async fn probe_plugin_health(plugin: &orchestrator_plugin_host::DiscoveredPlugin
     //
     // Matches the spawn shape used by subject_dispatch.rs and the trigger
     // supervisor so all live plugin spawns share one env contract.
-    let options = build_probe_spawn_options(plugin);
+    let options = build_probe_spawn_options(plugin, project_root);
 
     let outcome = tokio::time::timeout(PLUGIN_HEALTH_PROBE_TIMEOUT, async move {
         let host = PluginHost::spawn_with_options(&path, &[], options).await?;
@@ -1528,7 +1537,7 @@ mod health_probe_env_tests {
     use super::build_probe_spawn_options;
     use animus_plugin_protocol::{EnvRequirement, PluginManifest};
     use orchestrator_plugin_host::{DiscoveredPlugin, DiscoverySource};
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     fn manifest_with_env(required: Vec<EnvRequirement>) -> PluginManifest {
         PluginManifest {
@@ -1552,6 +1561,10 @@ mod health_probe_env_tests {
         }
     }
 
+    fn project_root() -> &'static Path {
+        Path::new("/tmp/fake-project-root")
+    }
+
     /// Probe spawn options must carry the manifest's declared env names into
     /// the allowlist so the plugin process can read its required secret.
     #[test]
@@ -1567,7 +1580,7 @@ mod health_probe_env_tests {
             required: true,
         }]));
 
-        let opts = build_probe_spawn_options(&plugin);
+        let opts = build_probe_spawn_options(&plugin, project_root());
 
         assert!(
             opts.env_allowlist.iter().any(|n| n == "FAKE_PROBE_VAR_PRESENT"),
@@ -1598,7 +1611,7 @@ mod health_probe_env_tests {
             required: true,
         }]));
 
-        let opts = build_probe_spawn_options(&plugin);
+        let opts = build_probe_spawn_options(&plugin, project_root());
 
         assert!(
             opts.env_allowlist.iter().any(|n| n == "FAKE_PROBE_VAR_ABSENT"),
@@ -1618,7 +1631,7 @@ mod health_probe_env_tests {
     #[test]
     fn probe_options_handle_empty_env_required() {
         let plugin = discovered(manifest_with_env(Vec::new()));
-        let opts = build_probe_spawn_options(&plugin);
+        let opts = build_probe_spawn_options(&plugin, project_root());
 
         assert!(
             opts.env_allowlist.is_empty(),
@@ -1626,5 +1639,6 @@ mod health_probe_env_tests {
         );
         assert!(opts.missing_required_env.is_empty());
         assert_eq!(opts.plugin_label.as_deref(), Some("fake-provider"));
+        assert_eq!(opts.working_dir.as_deref(), Some(project_root()));
     }
 }

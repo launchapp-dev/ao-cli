@@ -233,7 +233,19 @@ impl PluginSessionBackend {
         // existing for_manifest API surface honest about what the host plans
         // to forward.
         let extras = request_env_vars.iter().map(|(name, _)| name.clone());
-        PluginSpawnOptions::for_manifest(self.plugin_name.clone(), &self.env_required, extras, self.stderr_sink_for())
+        let mut options = PluginSpawnOptions::for_manifest(
+            self.plugin_name.clone(),
+            &self.env_required,
+            extras,
+            self.stderr_sink_for(),
+        );
+        // Pin cwd to the project root so provider plugins (and the CLIs
+        // they spawn) resolve project-local files predictably regardless
+        // of which shell started the daemon.
+        if let Some(root) = self.project_root.as_ref() {
+            options = options.with_working_dir(root);
+        }
+        options
     }
 
     fn project_logger(&self) -> Option<Logger> {

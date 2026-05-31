@@ -553,7 +553,8 @@ pub async fn spawn_log_storage_supervisor(project_root: &Path) -> LogStorageSupe
                 &plugin.manifest.env_required,
                 std::iter::empty::<String>(),
                 None,
-            );
+            )
+            .with_working_dir(&project_root_buf);
             let host = match PluginHost::spawn_with_options(&plugin.path, &[], options).await {
                 Ok(host) => host,
                 Err(error) => {

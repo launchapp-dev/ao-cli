@@ -209,7 +209,8 @@ At daemon startup, subject plugin dispatch is resolved once:
 
 1. If `ANIMUS_DAEMON_DISABLE_SUBJECT_PLUGINS` is truthy, dispatch is empty.
 2. If no subject backend plugins are discovered, dispatch is empty.
-3. Otherwise, each subject backend is spawned and initialized.
+3. Otherwise, each subject backend is spawned with cwd pinned to
+   `project_root`, then initialized.
 4. The router is built from initialized capabilities.
 5. Duplicate or invalid kind claims surface as startup warnings or errors,
    depending on the caller path.

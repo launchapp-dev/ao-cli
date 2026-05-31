@@ -274,7 +274,10 @@ Useful for watching a single workflow in real time.
 ### Check plugin logs
 
 Each plugin spawns as a child process and inherits the daemon's
-stderr by default. To isolate a specific plugin:
+stderr by default. Daemon-managed provider, subject, trigger, and
+log-storage plugins also run with cwd pinned to the resolved
+`project_root`, so repo-local state under `.animus/` does not depend on
+which shell launched the daemon. To isolate a specific plugin:
 
 ```bash
 animus plugin info --name <plugin-name>           # locate the binary

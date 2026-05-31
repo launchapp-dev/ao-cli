@@ -75,6 +75,8 @@ Important behavior:
 - `agent/resume` resumes a provider-owned session when supported.
 - `agent/cancel` routes through the existing active session host, not through a
   fresh plugin process.
+- Provider spawns pin cwd to the resolved `project_root` so provider-local state
+  and child CLI relative paths stay anchored to the repository.
 - The default `agent/run` request timeout is 1800 seconds.
 - The cancel timeout is 10 seconds.
 - Provider retries happen once for death-like failures only when no

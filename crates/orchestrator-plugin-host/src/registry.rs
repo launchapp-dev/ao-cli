@@ -13,18 +13,20 @@ pub struct PluginRegistry {
     running: HashMap<String, PluginHost>,
     mcp_tools: HashMap<String, (String, McpTool)>,
     stderr_sink: Option<PluginStderrSink>,
+    project_root: PathBuf,
 }
 
 impl PluginRegistry {
     pub fn discover(project_root: impl Into<PathBuf>) -> Result<Self> {
+        let project_root = project_root.into();
         let discovered = PluginDiscovery::new()
-            .with_project_root(project_root)
+            .with_project_root(project_root.clone())
             .discover()?
             .into_iter()
             .map(|plugin| (plugin.name.clone(), plugin))
             .collect();
 
-        Ok(Self { discovered, running: HashMap::new(), mcp_tools: HashMap::new(), stderr_sink: None })
+        Ok(Self { discovered, running: HashMap::new(), mcp_tools: HashMap::new(), stderr_sink: None, project_root })
     }
 
     /// Route every spawned plugin's stderr through the supplied sink. Useful for
@@ -52,7 +54,8 @@ impl PluginRegistry {
                 &plugin.manifest.env_required,
                 std::iter::empty::<String>(),
                 self.stderr_sink.clone(),
-            );
+            )
+            .with_working_dir(&self.project_root);
             let host = PluginHost::spawn_with_options(&path, &[], options).await?;
             let result = host.handshake().await?;
             self.register_mcp_tools(name, result.capabilities.mcp_tools)?;

@@ -1,5 +1,5 @@
 use std::collections::{BTreeSet, HashMap};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Duration;
@@ -194,6 +194,15 @@ pub struct PluginSpawnOptions {
     ///
     /// [`PluginManifest::notification_buffer_size`]: animus_plugin_protocol::PluginManifest::notification_buffer_size
     pub notification_capacity: Option<usize>,
+    /// Optional working directory for the spawned plugin process. When set,
+    /// the host pins the child's cwd here instead of inheriting the
+    /// caller's cwd. Subject-backend and provider plugins use cwd-relative
+    /// paths for their on-disk state (e.g. `.animus/subjects/tasks.db`), so
+    /// the daemon must pin cwd to `--project-root` rather than letting it
+    /// depend on which shell happened to start the daemon. Leave `None`
+    /// when the plugin has no cwd-relative state — the spawn then inherits
+    /// the parent's cwd, matching pre-fix behavior.
+    pub working_dir: Option<PathBuf>,
 }
 
 impl PluginSpawnOptions {
@@ -226,7 +235,19 @@ impl PluginSpawnOptions {
             plugin_label: if plugin_label.is_empty() { None } else { Some(plugin_label) },
             missing_required_env: missing_required,
             notification_capacity: None,
+            working_dir: None,
         }
+    }
+
+    /// Pin the spawned plugin's working directory. Used for subject-backend
+    /// and provider plugins so their cwd-relative state paths
+    /// (e.g. `.animus/subjects/tasks.db`) resolve under the project root
+    /// rather than under whatever cwd the daemon happened to be started
+    /// from.
+    #[must_use]
+    pub fn with_working_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.working_dir = Some(dir.into());
+        self
     }
 }
 
@@ -477,6 +498,10 @@ impl PluginHost {
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
+
+        if let Some(working_dir) = options.working_dir.as_ref() {
+            command.current_dir(working_dir);
+        }
 
         // Build the allowlist: universal base + caller-declared. Deduplicate
         // case-sensitively (env var names are case-sensitive on POSIX).

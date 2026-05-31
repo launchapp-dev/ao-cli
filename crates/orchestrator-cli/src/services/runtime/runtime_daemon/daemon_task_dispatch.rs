@@ -51,12 +51,18 @@ pub async fn dispatch_queued_entries_via_runner(
     // scope".
     let mut planned_starts: Vec<PlannedDispatchStart> = Vec::new();
     let mut plugin_owned_subject_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
-    // Track `subject_key → entry_id` so we can finalize claims on
-    // spawn failure via `queue/completion(failed)`. Without this, a
-    // failed spawn would leave the entry in `assigned` forever.
-    let mut plugin_entry_ids_by_subject_key: std::collections::HashMap<String, String> =
-        std::collections::HashMap::new();
+    // Track `entry_id` per planned start in dispatch order so we can
+    // finalize claims by entry on spawn failure via
+    // `queue/completion(failed)`. Keying by subject_key would lose
+    // disambiguation when the queue holds multiple entries for the
+    // same subject (e.g. queued under different workflow_refs).
+    let mut leased_entry_ids: Vec<String> = Vec::new();
     let mut undecodable_entry_ids: Vec<String> = Vec::new();
+    // Stranded-on-purpose entries: leased but cannot be dispatched
+    // this tick (active subject). v0.5 protocol has no Assigned →
+    // Pending transition; cancelling is the least-bad option to keep
+    // the queue from accumulating ghost entries.
+    let mut stranded_entry_ids: Vec<String> = Vec::new();
     let mut used_plugin_path = false;
     let project_root_path = std::path::Path::new(root);
 
@@ -92,34 +98,37 @@ pub async fn dispatch_queued_entries_via_runner(
                         continue;
                     }
                 };
-                if active_subject_ids.contains(&dispatch.subject_key()) {
+                if active_subject_ids.contains(&dispatch.subject_key())
+                    || plugin_owned_subject_keys.contains(&dispatch.subject_key())
+                {
                     // v0.5 known limitation: queue/lease atomically
                     // claims pending entries before the daemon can
-                    // check active subjects. The protocol intentionally
-                    // has no Assigned → Pending transition, so we
-                    // cannot return this entry to pending. We leave it
-                    // assigned: when the in-flight subject's workflow
-                    // terminates, its projection runs queue/completion
-                    // against entries matching subject_id +
-                    // workflow_ref, which will clear this stranded
-                    // entry. If the user intentionally queued a second
-                    // run of the same subject+workflow_ref, that
-                    // second run is lost; tracking this as a v0.6
-                    // protocol enhancement (subject-aware lease filter
-                    // or Assigned → Pending release).
+                    // check active subjects or dedupe within the
+                    // leased set. The protocol intentionally has no
+                    // Assigned → Pending transition. Leaving the
+                    // entry assigned would strand it forever when its
+                    // workflow_ref differs from the in-flight run
+                    // (completion's workflow_ref filter skips it).
+                    // The least-bad option is queue/completion(
+                    // cancelled) — the work is lost, but the entry is
+                    // pruned. Operators see the warning and re-enqueue
+                    // explicitly. Tracking Assigned → Pending as a
+                    // v0.6 protocol enhancement (subject-aware lease
+                    // filter or release).
                     warn!(
                         actor = protocol::ACTOR_DAEMON,
                         subject_key = %dispatch.subject_key(),
                         entry_id = %entry.entry_id,
-                        "queue/lease returned entry for already-active subject; leaving assigned for completion reconciliation (v0.5 known limitation)"
+                        "queue/lease returned entry for already-running or already-planned subject; cancelling (v0.5 known limitation — re-enqueue if needed)"
                     );
                     plugin_owned_subject_keys.insert(dispatch.subject_key());
+                    stranded_entry_ids.push(entry.entry_id.clone());
                     continue;
                 }
 
                 let subject_key = dispatch.subject_key();
-                plugin_owned_subject_keys.insert(subject_key.clone());
-                plugin_entry_ids_by_subject_key.insert(subject_key, entry.entry_id.clone());
+                plugin_owned_subject_keys.insert(subject_key);
+                leased_entry_ids.push(entry.entry_id.clone());
                 planned_starts
                     .push(PlannedDispatchStart { dispatch, selection_source: DispatchSelectionSource::DispatchQueue });
             }
@@ -128,7 +137,16 @@ pub async fn dispatch_queued_entries_via_runner(
             // No queue plugin installed — fall through to in-tree state.
         }
         Err(error) => {
-            warn!(actor = protocol::ACTOR_DAEMON, error = %error, "queue plugin queue/lease failed; falling back to in-tree state");
+            // queue/lease is mutating: the plugin may have already
+            // transitioned entries to Assigned before the host saw the
+            // timeout / decode error / shutdown. Do NOT fall back to
+            // the in-tree state — those claimed plugin entries would
+            // be invisible to the local file and stranded forever.
+            // Surface the failure and emit an empty dispatch summary
+            // for this tick; the next tick will retry the plugin
+            // path.
+            warn!(actor = protocol::ACTOR_DAEMON, error = %error, "queue plugin queue/lease failed; deferring dispatch to next tick to avoid stranding claimed entries");
+            used_plugin_path = true;
         }
     }
 
@@ -147,6 +165,28 @@ pub async fn dispatch_queued_entries_via_runner(
                 entry_id = %entry_id,
                 error = %error,
                 "queue plugin queue/completion (undecodable entry) failed"
+            );
+        }
+    }
+
+    // Cancel entries the lease claimed for already-active subjects.
+    // See the matching warn! above — this is the documented v0.5
+    // limitation. Cancel (rather than leaving Assigned) ensures the
+    // queue doesn't accumulate stranded entries when workflow_refs
+    // differ.
+    for entry_id in &stranded_entry_ids {
+        let req = QueueCompletionRequest {
+            entry_id: entry_id.clone(),
+            status: queue_proto::completion_status::CANCELLED.to_string(),
+            workflow_ref: None,
+            workflow_id: None,
+        };
+        if let Err(error) = plugin_clients::call_queue_completion(project_root_path, &req).await {
+            warn!(
+                actor = protocol::ACTOR_DAEMON,
+                entry_id = %entry_id,
+                error = %error,
+                "queue plugin queue/completion (active-subject collision) failed"
             );
         }
     }
@@ -198,11 +238,24 @@ pub async fn dispatch_queued_entries_via_runner(
     // failed-spawn entries with queue/completion(failed). The subject
     // can be re-enqueued by the caller (or via the usual scheduled
     // path) if it should still run.
-    if !plugin_entry_ids_by_subject_key.is_empty() {
+    //
+    // Matching is by leased_entry_ids[i] ↔ planned_starts[i] index
+    // (we pushed them in lockstep), then by subject_key against the
+    // post-spawn started_workflows summary. This handles the case of
+    // multiple dispatchable entries per subject correctly — even if a
+    // later entry succeeds where an earlier failed (currently we
+    // dedupe by subject_key during planning, so at most one entry per
+    // subject_key reaches planned_starts; the index pair stays
+    // unambiguous).
+    if !leased_entry_ids.is_empty() {
         let started_keys: std::collections::HashSet<String> =
             summary.started_workflows.iter().map(|s| s.dispatch.subject_key()).collect();
-        for (subject_key, entry_id) in &plugin_entry_ids_by_subject_key {
-            if started_keys.contains(subject_key) {
+        for (idx, planned) in planned_starts.iter().enumerate() {
+            let Some(entry_id) = leased_entry_ids.get(idx) else {
+                continue;
+            };
+            let subject_key = planned.dispatch.subject_key();
+            if started_keys.contains(&subject_key) {
                 continue;
             }
             let req = QueueCompletionRequest {

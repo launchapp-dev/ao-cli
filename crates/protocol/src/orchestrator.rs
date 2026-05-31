@@ -774,6 +774,13 @@ pub struct DaemonHealth {
     pub total_agents_completed: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub total_agents_failed: Option<u64>,
+    /// v0.5: active flavor identifier (e.g. `"default"`). Surfaced via
+    /// `animus daemon health --json | jq '.flavor'` and the unified
+    /// `animus status --json` envelope. Populated from
+    /// `flavors/<name>.toml` discovery; `None` when no flavor manifest is
+    /// installed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flavor: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -5,7 +5,7 @@ pub(crate) use control_routing::build_queue_routing;
 use std::path::Path;
 use std::sync::Arc;
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use orchestrator_core::{load_workflow_config_or_default, services::ServiceHub, workflow_ref_for_task};
 use orchestrator_daemon_runtime::{
     drop_subject, enqueue_subject_dispatch, hold_subject, queue_snapshot, queue_stats, release_subject,
@@ -131,6 +131,43 @@ pub(crate) async fn handle_queue(
                 input,
             )
             .await?;
+
+            // Codex R3 [P1]: when a v0.5 queue plugin is installed it owns
+            // the queue. The dispatch loop in
+            // `daemon_task_dispatch::dispatch_queued_entries_via_runner`
+            // already reads from the plugin (`queue/list`); routing
+            // `enqueue` through the plugin keeps reads and writes on the
+            // same backend so CLI-enqueued work is visible to the daemon.
+            //
+            // The in-tree `enqueue_subject_dispatch` returns a typed
+            // `QueueEnqueueResult { enqueued, .. }`. Translate the
+            // plugin's `QueueEnqueueResponse` to the same JSON shape so
+            // CLI consumers see no surface change.
+            let dispatch_value =
+                serde_json::to_value(&dispatch).context("encoding subject_dispatch for queue plugin")?;
+            let plugin_dispatch = serde_json::from_value(dispatch_value)
+                .context("subject_dispatch shape drift vs animus_subject_protocol v0.5")?;
+            let plugin_request = animus_queue_protocol::QueueEnqueueRequest { subject_dispatch: plugin_dispatch };
+            if let Some(plugin_response) =
+                crate::services::plugin_clients::call_queue_enqueue(std::path::Path::new(project_root), &plugin_request)
+                    .await?
+            {
+                let translated = serde_json::json!({
+                    "enqueued": plugin_response.enqueued,
+                    "entry_id": plugin_response.entry_id,
+                    "subject_id": plugin_response.subject_id,
+                    "via": "plugin_host",
+                });
+                if !json {
+                    if plugin_response.enqueued {
+                        print_ok("subject dispatch enqueued (via queue plugin)", false);
+                        return Ok(());
+                    }
+                    print_ok("subject dispatch already queued (via queue plugin)", false);
+                    return Ok(());
+                }
+                return print_value(translated, true);
+            }
             let result = enqueue_subject_dispatch(project_root, dispatch)?;
             if !json {
                 if result.enqueued {

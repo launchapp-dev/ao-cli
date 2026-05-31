@@ -87,14 +87,35 @@ pub(crate) async fn handle_workflow_execute(
     };
     let project_root_path = std::path::Path::new(project_root);
     if let Some(plugin_result) = plugin_clients::call_workflow_execute(project_root_path, &plugin_request).await? {
-        // Plugin took the call. Surface the result through the same JSON
-        // envelope the in-tree path uses below. (Sync to task store is
-        // intentionally skipped on the plugin path for v0.5 — phase event
-        // streaming + sync hooks are v0.6 work per the v0.5 known
-        // limitations.)
-        // TODO(codex-p2): on the plugin path the daemon does not currently
-        // call project_terminal_workflow_result; sync hook integration is
-        // deferred to v0.6 along with the phase event streaming work.
+        // Plugin took the call. Codex R4 [P1]: project the terminal
+        // workflow status into the in-tree task store and run the same
+        // cleanup hooks the in-tree path runs below. The plugin returns
+        // `workflow_status` as a wire string per spec §1; map back to
+        // the in-tree `WorkflowStatus` enum so the projection runs.
+        let parsed_status = match plugin_result.workflow_status.as_str() {
+            workflow_proto::workflow_status::COMPLETED => Some(orchestrator_core::WorkflowStatus::Completed),
+            workflow_proto::workflow_status::FAILED => Some(orchestrator_core::WorkflowStatus::Failed),
+            workflow_proto::workflow_status::ESCALATED => Some(orchestrator_core::WorkflowStatus::Escalated),
+            workflow_proto::workflow_status::CANCELLED => Some(orchestrator_core::WorkflowStatus::Cancelled),
+            // RUNNING is non-terminal — skip projection (the plugin will
+            // run again on the next tick).
+            _ => None,
+        };
+        if phase_filter.is_none() {
+            if let (Some(task_id), Some(status)) = (task_id_for_sync.as_deref(), parsed_status) {
+                project_terminal_workflow_result(
+                    hub.clone(),
+                    project_root,
+                    plugin_result.subject_id.as_str(),
+                    Some(task_id),
+                    Some(plugin_result.workflow_ref.as_str()),
+                    Some(plugin_result.workflow_id.as_str()),
+                    status,
+                    None,
+                )
+                .await;
+            }
+        }
         if json {
             return print_value(
                 serde_json::json!({

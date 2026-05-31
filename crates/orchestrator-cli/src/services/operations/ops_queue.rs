@@ -94,50 +94,28 @@ pub(crate) async fn handle_queue(
             print_value(queue_stats(project_root)?, json)
         }
         QueueCommand::Enqueue(args) => {
-            // C6.6: when JSON mode + task id + daemon is running, route
-            // through the wire. Requirement / title / custom dispatches
-            // and any --input-json payload stay local — the wire
-            // `queue/enqueue` surface only covers task subjects today.
-            //
-            // `--workflow-ref` also stays local: the wire `queue/enqueue`
-            // request shape only carries `task_id` + `priority`, with no
-            // slot for a workflow override. Routing through the wire
-            // when the user passed `--workflow-ref` would silently swap
-            // their requested workflow for the project default — the
-            // exact P2 fix tracked here. Until the wire grows a
-            // workflow_ref field we degrade to the local path that
-            // honors the flag faithfully.
-            if json
-                && args.input_json.is_none()
-                && args.requirement_id.is_none()
-                && args.title.is_none()
-                && args.workflow_ref.is_none()
-            {
-                if let Some(task_id) = args.task_id.as_ref() {
-                    if let Some(entry) = try_queue_enqueue_via_control(project_root, task_id).await? {
-                        return print_value(entry, true);
-                    }
-                }
-            }
-            let input = args.input_json.map(|value| serde_json::from_str(&value)).transpose()?;
+            let input = args.input_json.clone().map(|value| serde_json::from_str(&value)).transpose()?;
             let dispatch = resolve_enqueue_dispatch(
                 hub.clone(),
                 project_root,
-                args.task_id,
-                args.requirement_id,
-                args.title,
-                args.description,
-                args.workflow_ref,
+                args.task_id.clone(),
+                args.requirement_id.clone(),
+                args.title.clone(),
+                args.description.clone(),
+                args.workflow_ref.clone(),
                 input,
             )
             .await?;
 
-            // Codex R3 [P1]: when a v0.5 queue plugin is installed it owns
-            // the queue. The dispatch loop in
+            // Codex R3/R4 [P1]: when a v0.5 queue plugin is installed it
+            // owns the queue. The dispatch loop in
             // `daemon_task_dispatch::dispatch_queued_entries_via_runner`
             // already reads from the plugin (`queue/list`); routing
             // `enqueue` through the plugin keeps reads and writes on the
             // same backend so CLI-enqueued work is visible to the daemon.
+            // This branch runs BEFORE the control-wire shortcut so that
+            // the wire path (which writes to the in-tree store) can't
+            // produce split-brain writes when a plugin is installed.
             //
             // The in-tree `enqueue_subject_dispatch` returns a typed
             // `QueueEnqueueResult { enqueued, .. }`. Translate the
@@ -167,6 +145,32 @@ pub(crate) async fn handle_queue(
                     return Ok(());
                 }
                 return print_value(translated, true);
+            }
+
+            // C6.6: when JSON mode + task id + daemon is running, route
+            // through the wire. Requirement / title / custom dispatches
+            // and any --input-json payload stay local — the wire
+            // `queue/enqueue` surface only covers task subjects today.
+            //
+            // `--workflow-ref` also stays local: the wire `queue/enqueue`
+            // request shape only carries `task_id` + `priority`, with no
+            // slot for a workflow override. Routing through the wire
+            // when the user passed `--workflow-ref` would silently swap
+            // their requested workflow for the project default — the
+            // exact P2 fix tracked here. Until the wire grows a
+            // workflow_ref field we degrade to the local path that
+            // honors the flag faithfully.
+            if json
+                && args.input_json.is_none()
+                && args.requirement_id.is_none()
+                && args.title.is_none()
+                && args.workflow_ref.is_none()
+            {
+                if let Some(task_id) = args.task_id.as_ref() {
+                    if let Some(entry) = try_queue_enqueue_via_control(project_root, task_id).await? {
+                        return print_value(entry, true);
+                    }
+                }
             }
             let result = enqueue_subject_dispatch(project_root, dispatch)?;
             if !json {

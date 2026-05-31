@@ -5,8 +5,10 @@ use anyhow::Result;
 use orchestrator_core::services::ServiceHub;
 
 use crate::print_value;
+use crate::services::plugin_clients;
 use crate::services::runtime::execution_fact_projection::project_terminal_workflow_result;
 use ::workflow_runner_v2::workflow_execute::{execute_workflow, PhaseEvent, WorkflowExecuteParams};
+use animus_workflow_runner_protocol as workflow_proto;
 
 #[derive(Debug)]
 pub(crate) struct WorkflowExecuteArgs {
@@ -49,6 +51,74 @@ pub(crate) async fn handle_workflow_execute(
     let json_for_cb = json;
     let task_id_for_output = args.task_id.clone();
     let requirement_id_for_output = args.requirement_id.clone();
+
+    // Wave 3: attempt to route `workflow/execute` through an installed
+    // `workflow_runner` plugin. If no plugin is installed (`Ok(None)`),
+    // fall through to the in-tree `workflow_runner_v2::execute_workflow`
+    // call below. The in-tree path is the documented fallback for v0.5
+    // and stays intact until the v0.5.x deletion gate per
+    // docs/architecture/v0.5-execution-plan.md "Wave 3 — Out of scope".
+    //
+    // Note: subject-envelope migration (protocol::SubjectDispatch →
+    // animus_subject_protocol::SubjectDispatch) is deferred — this path
+    // uses the wire-equivalent task_id / requirement_id / title / description
+    // convenience fields per the v0.5 protocol §1 envelope contract, so
+    // routing through the plugin does not require migrating the
+    // SubjectDispatch type identity.
+    let plugin_input_json: Option<serde_json::Value> =
+        args.input_json.as_deref().map(serde_json::from_str).transpose()?;
+    let plugin_request = workflow_proto::WorkflowExecuteRequest {
+        workflow_id: args.workflow_id.clone(),
+        subject_dispatch: None,
+        subject_ref: None,
+        task_id: args.task_id.clone(),
+        requirement_id: args.requirement_id.clone(),
+        title: args.title.clone(),
+        description: args.description.clone(),
+        workflow_ref: args.workflow_ref.clone(),
+        input: plugin_input_json.clone(),
+        vars: vars.clone(),
+        model: args.model.clone(),
+        tool: args.tool.clone(),
+        phase_timeout_secs: args.phase_timeout_secs,
+        phase_filter: phase_filter.clone(),
+        phase_routing: None,
+        mcp_config: None,
+    };
+    let project_root_path = std::path::Path::new(project_root);
+    if let Some(plugin_result) =
+        plugin_clients::call_workflow_execute(project_root_path, &plugin_request).await?
+    {
+        // Plugin took the call. Surface the result through the same JSON
+        // envelope the in-tree path uses below. (Sync to task store is
+        // intentionally skipped on the plugin path for v0.5 — phase event
+        // streaming + sync hooks are v0.6 work per the v0.5 known
+        // limitations.)
+        // TODO(codex-p2): on the plugin path the daemon does not currently
+        // call project_terminal_workflow_result; sync hook integration is
+        // deferred to v0.6 along with the phase event streaming work.
+        if json {
+            return print_value(
+                serde_json::json!({
+                    "workflow_id": plugin_result.workflow_id,
+                    "workflow_ref": plugin_result.workflow_ref,
+                    "workflow_status": plugin_result.workflow_status,
+                    "subject_id": plugin_result.subject_id,
+                    "task_id": task_id_for_output,
+                    "requirement_id": requirement_id_for_output,
+                    "execution_cwd": plugin_result.execution_cwd,
+                    "phases_requested": plugin_result.phases_requested,
+                    "total_duration_secs": plugin_result.total_duration_secs,
+                    "results": plugin_result.phase_results,
+                    "post_success": plugin_result.post_success,
+                    "via": "plugin_host",
+                }),
+                true,
+            );
+        }
+        return Ok(());
+    }
+
     let on_phase_event: Box<dyn Fn(PhaseEvent<'_>) + Send + Sync> = Box::new(move |event| match event {
         PhaseEvent::Started { phase_id, phase_index, total_phases } => {
             emit_phase_header(phase_id, phase_index, total_phases, json_for_cb);

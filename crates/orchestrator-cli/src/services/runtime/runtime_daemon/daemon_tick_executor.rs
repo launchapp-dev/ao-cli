@@ -139,7 +139,7 @@ impl DefaultProjectTickServices for CliProjectTickServices {
         process_manager: Option<&mut ProcessManager>,
     ) -> Result<DispatchWorkflowStartSummary> {
         let mut summary = match process_manager {
-            Some(process_manager) => dispatch_queued_entries_via_runner(root, process_manager, limit)?,
+            Some(process_manager) => dispatch_queued_entries_via_runner(root, process_manager, limit).await?,
             None => DispatchWorkflowStartSummary::default(),
         };
 

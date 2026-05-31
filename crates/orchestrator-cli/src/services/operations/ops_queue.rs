@@ -615,8 +615,11 @@ async fn try_queue_reorder_via_plugin(project_root: &str, subject_ids: &[String]
 }
 
 /// Resolve a list of subject_ids to entry_ids via a single `queue/list`
-/// call. Preserves the input order, dropping subjects with no matching
-/// entry. Returns `Ok(None)` when no plugin is installed.
+/// call. Preserves the input subject order; for subjects with multiple
+/// queued entries, includes every entry in the queue's existing order
+/// (matches the in-tree `reorder_subjects` semantics, which moves all
+/// of a subject's queued entries together). Returns `Ok(None)` when no
+/// plugin is installed.
 async fn lookup_plugin_entries_by_subject_set(
     project_root: &str,
     subject_ids: &[String],
@@ -638,10 +641,8 @@ async fn lookup_plugin_entries_by_subject_set(
     }
     let mut entry_ids: Vec<String> = Vec::new();
     for subject_id in subject_ids {
-        if let Some(ids) = by_subject.get_mut(subject_id.as_str()) {
-            if !ids.is_empty() {
-                entry_ids.push(ids.remove(0));
-            }
+        if let Some(ids) = by_subject.remove(subject_id.as_str()) {
+            entry_ids.extend(ids);
         }
     }
     Ok(Some(entry_ids))

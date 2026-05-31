@@ -89,17 +89,31 @@ async fn spawn_with_project_binding(plugin: &DiscoveredPlugin, project_root: &Pa
     // Codex R6 [P1]: send the kernel-computed `repo_scope` so plugins
     // that validate it or use it for scoped runtime state read/write
     // the right state slot rather than an empty default.
+    //
+    // `memory_mcp_stdio_command` (v0.5 P2 fold-in for
+    // `animus-workflow-runner-default` v0.1.0): supply the daemon's own
+    // animus binary path so the plugin can inject memory MCP injection
+    // without depending on a sibling-binary search at the plugin's
+    // install location. Plugins that don't recognize this extension
+    // ignore it.
     let repo_scope = protocol::repository_scope_for_path(project_root);
+    let mut init_extensions = serde_json::Map::new();
+    init_extensions.insert(
+        "project_binding".to_string(),
+        json!({
+            "project_root": project_root.to_string_lossy(),
+            "repo_scope": repo_scope,
+        }),
+    );
+    if let Ok(self_path) = std::env::current_exe() {
+        init_extensions
+            .insert("memory_mcp_stdio_command".to_string(), json!({ "command": self_path.to_string_lossy() }));
+    }
     let init_params = json!({
         "protocol_version": "1.1.0",
         "host_info": { "name": "animus", "version": env!("CARGO_PKG_VERSION") },
         "capabilities": { "streaming": true, "progress": true, "cancellation": true },
-        "init_extensions": {
-            "project_binding": {
-                "project_root": project_root.to_string_lossy(),
-                "repo_scope": repo_scope,
-            }
-        }
+        "init_extensions": init_extensions,
     });
 
     host.request_typed_with_timeout("initialize", Some(init_params), PLUGIN_CALL_TIMEOUT_SHORT)

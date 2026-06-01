@@ -26,8 +26,10 @@ Do not keep outdated counts or removed crates alive in docs.
 Rust Cargo workspace with the current members listed below. Main binary: `animus` (`crates/orchestrator-cli`). The
 web stack (transport + UI) lives in external plugins under
 [`launchapp-dev`](https://github.com/launchapp-dev). The workspace also depends
-on external protocol crates from that repo, including
-`animus-subject-protocol` at `v0.5.0`.
+on external protocol crates from that repo. The authoritative pins live in
+`Cargo.toml` and `crates/orchestrator-cli/Cargo.toml`; current builds mix the
+legacy `v0.1.13` wire crates with the newer `v0.5.1`
+queue/workflow/subject protocol crates.
 
 Current workspace members from `Cargo.toml`:
 

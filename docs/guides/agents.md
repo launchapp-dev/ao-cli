@@ -116,13 +116,19 @@ dispatch control.
 
 ```json
 {}                                          // animus.daemon.status / health / agents
-{ "autonomous": true, "pool_size": 3 }      // animus.daemon.start
+{ "autonomous": true, "pool_size": 3, "auto_install": true } // animus.daemon.start
+{ "skip_preflight": true }                  // animus.daemon.start (dev escape hatch)
 { "auto_run_ready": true, "pool_size": 4 }  // animus.daemon.config-set
 { "limit": 50 }                              // animus.daemon.events
 { "project_root": "/repo" }                  // animus.queue.list / stats
 { "subject_id": "task:TASK-001" }            // animus.queue.hold / release / drop
 { "subject_ids": ["task:TASK-003", "task:TASK-001"] } // animus.queue.reorder
 ```
+
+`animus.daemon.start` runs the same startup plugin preflight as the CLI. Use
+`auto_install` when you want the daemon to remediate missing required plugins
+from its recommended defaults before continuing; use `skip_preflight` only for
+dev or intentionally degraded runs.
 
 ## Output, Logs, and Runner Operations
 

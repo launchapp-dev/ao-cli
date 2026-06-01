@@ -41,15 +41,16 @@ responsibility. `Cargo.toml` is the source of truth for membership.
 | `animus-plugin-runtime` | Runtime helper crate for plugin implementations |
 
 The workspace also depends on external `launchapp-dev/animus-protocol` crates
-for provider/session contracts and subject schema, currently through
-`animus-provider-protocol`, `animus-session-backend`, and
-`animus-subject-protocol` in `Cargo.toml`.
+for provider/session contracts plus queue/workflow/subject plugin routing,
+currently through `animus-provider-protocol`, `animus-session-backend`,
+`animus-queue-protocol`, `animus-workflow-runner-protocol`, and
+`animus-subject-protocol` in the root and crate-local `Cargo.toml` pins.
 
 ## Repo-Local Directories Outside The Workspace
 
 | Crate | Responsibility |
 |---|---|
-| `orchestrator-web-server` | Legacy in-repo web server directory retained outside the current Cargo workspace |
+| `crates/orchestrator-web-server/` | Legacy in-repo web server directory retained outside the current Cargo workspace |
 
 ## Web
 

@@ -14,6 +14,7 @@ pub mod phase_output;
 pub mod phase_prompt;
 pub mod phase_session;
 pub mod phase_targets;
+pub mod reattach;
 pub mod runtime_contract;
 pub mod runtime_support;
 pub mod skill_dispatch;

@@ -186,6 +186,28 @@ impl WorkflowEventEmitter for SubprocessPipeEmitter {
     fn emit(&self, _event: RuntimeWorkflowEvent) {}
 }
 
+/// Fan-out emitter that forwards every event to multiple underlying
+/// emitters. Used by `animus-workflow-runner` to drive both the legacy
+/// daemon-bound `SubprocessPipeEmitter` and the v0.5.1 reattach listener
+/// from a single phase-execution emit call.
+pub struct FanoutEmitter {
+    sinks: Vec<SharedWorkflowEventEmitter>,
+}
+
+impl FanoutEmitter {
+    pub fn new(sinks: Vec<SharedWorkflowEventEmitter>) -> Arc<Self> {
+        Arc::new(Self { sinks })
+    }
+}
+
+impl WorkflowEventEmitter for FanoutEmitter {
+    fn emit(&self, event: RuntimeWorkflowEvent) {
+        for sink in &self.sinks {
+            sink.emit(event.clone());
+        }
+    }
+}
+
 #[cfg(test)]
 pub mod test_support {
     use super::*;

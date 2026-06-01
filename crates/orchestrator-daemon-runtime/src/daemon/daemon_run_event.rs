@@ -189,4 +189,27 @@ pub enum DaemonRunEvent {
         record_path: String,
         error: String,
     },
+    /// v0.5.1 P2 #6.2 round-3: the daemon successfully reconnected to a
+    /// detected orphan's reattach socket and is now forwarding the
+    /// runner's workflow_events into the in-process broadcaster. Subscribers
+    /// resume receiving phase-boundary events for this run.
+    OrphanAgentReattached {
+        project_root: String,
+        agent_session_id: String,
+        pid: u32,
+        socket_path: String,
+    },
+    /// v0.5.1 P2 #6.2 round-3: the daemon found a live orphan with a
+    /// `stdio_socket_path` but could not connect to it. The orphan is still
+    /// running and its decisions.jsonl continues to grow; operators can
+    /// inspect the log directly or wait for the next daemon restart to
+    /// retry. Common causes: runner not yet bound (race between daemon
+    /// start and runner bind), socket file permissions, or non-Unix host.
+    OrphanAgentReattachFailed {
+        project_root: String,
+        agent_session_id: String,
+        pid: u32,
+        socket_path: Option<String>,
+        error: String,
+    },
 }

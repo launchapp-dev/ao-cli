@@ -5,7 +5,8 @@ use orchestrator_core::WorkflowStatus;
 use orchestrator_logging::{init_workflow_tracing, Logger};
 use serde::Serialize;
 
-use workflow_runner_v2::workflow_event_emitter::{SharedWorkflowEventEmitter, SubprocessPipeEmitter};
+use workflow_runner_v2::reattach::ReattachListenerEmitter;
+use workflow_runner_v2::workflow_event_emitter::{FanoutEmitter, SharedWorkflowEventEmitter, SubprocessPipeEmitter};
 use workflow_runner_v2::workflow_execute::{execute_workflow, PhaseEvent, WorkflowExecuteParams};
 
 #[derive(Parser)]
@@ -99,6 +100,21 @@ fn init_tracing() {
     init_workflow_tracing();
 }
 
+fn compose_event_emitter() -> Option<SharedWorkflowEventEmitter> {
+    let mut sinks: Vec<SharedWorkflowEventEmitter> = Vec::new();
+    if let Some(pipe) = SubprocessPipeEmitter::from_env() {
+        sinks.push(pipe as SharedWorkflowEventEmitter);
+    }
+    if let Some(listener) = ReattachListenerEmitter::from_env() {
+        sinks.push(listener as SharedWorkflowEventEmitter);
+    }
+    match sinks.len() {
+        0 => None,
+        1 => Some(sinks.into_iter().next().expect("len 1")),
+        _ => Some(FanoutEmitter::new(sinks) as SharedWorkflowEventEmitter),
+    }
+}
+
 async fn run_execute(args: WorkflowExecuteArgs) -> anyhow::Result<u8> {
     let subject_id = args
         .workflow_id
@@ -182,7 +198,7 @@ async fn run_execute(args: WorkflowExecuteArgs) -> anyhow::Result<u8> {
         hub: None,
         phase_routing,
         mcp_config,
-        workflow_event_emitter: SubprocessPipeEmitter::from_env().map(|emitter| emitter as SharedWorkflowEventEmitter),
+        workflow_event_emitter: compose_event_emitter(),
     };
 
     {

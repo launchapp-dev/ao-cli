@@ -242,6 +242,15 @@ where
     install_workflow_event_emitter(BroadcastWorkflowEventEmitter::new(workflow_event_broadcaster.clone()));
     install_workflow_event_broadcaster(workflow_event_broadcaster.clone());
 
+    // v0.5.1 P2 #6.2 round-3: now that the broadcaster is live, attempt to
+    // reattach to any live orphan agents detected by the earlier startup
+    // scan. Best-effort: a failure here is logged and the rest of daemon
+    // startup proceeds. Stub `if options.startup_cleanup` guards parity
+    // with the orphan-scan trigger.
+    if options.startup_cleanup {
+        attempt_orphan_agent_reattach(project_root, &primary_root, workflow_event_broadcaster.clone(), hooks)?;
+    }
+
     let control_server_handle =
         start_control_server_for_daemon(project_root, &primary_root, hooks, workflow_event_broadcaster.clone()).await;
 
@@ -624,6 +633,100 @@ async fn start_control_server_for_daemon<H: DaemonRunHooks>(
             None
         }
     }
+}
+
+/// v0.5.1 P2 #6.2 round-3: walk the orphan scan once more and try to
+/// reconnect to each live orphan's reattach socket. Emits
+/// [`DaemonRunEvent::OrphanAgentReattached`] / [`DaemonRunEvent::OrphanAgentReattachFailed`]
+/// per orphan. The returned `ReattachConnection`s are held in a process
+/// vector so the reader tasks survive the function return; we don't try
+/// to address graceful per-orphan shutdown today.
+fn attempt_orphan_agent_reattach<H: DaemonRunHooks>(
+    project_root: &str,
+    primary_root: &str,
+    broadcaster: Arc<WorkflowEventBroadcaster>,
+    hooks: &mut H,
+) -> Result<()> {
+    let report = crate::dispatch::agent_record::scan_orphans_for_project(Path::new(project_root)).unwrap_or_default();
+    if report.detected.is_empty() {
+        return Ok(());
+    }
+
+    let connections = orphan_reattach_connections();
+    for detected in &report.detected {
+        let Some(record_path) = std::fs::read_to_string(&detected.record_path)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<crate::dispatch::agent_record::AgentSpawnRecord>(&raw).ok())
+            .and_then(|rec| rec.stdio_socket_path)
+        else {
+            hooks.handle_event(DaemonRunEvent::OrphanAgentReattachFailed {
+                project_root: primary_root.to_string(),
+                agent_session_id: detected.agent_session_id.clone(),
+                pid: detected.pid,
+                socket_path: None,
+                error: "spawn record has no stdio_socket_path (pre-v0.5.1 record or fallback path)".to_string(),
+            })?;
+            continue;
+        };
+
+        #[cfg(unix)]
+        {
+            let socket = std::path::PathBuf::from(&record_path);
+            match crate::dispatch::reattach::try_reattach(&socket, broadcaster.clone()) {
+                Ok(conn) => {
+                    hooks.handle_event(DaemonRunEvent::OrphanAgentReattached {
+                        project_root: primary_root.to_string(),
+                        agent_session_id: detected.agent_session_id.clone(),
+                        pid: detected.pid,
+                        socket_path: record_path.clone(),
+                    })?;
+                    if let Ok(mut guard) = connections.lock() {
+                        guard.push(conn);
+                    }
+                }
+                Err(err) => {
+                    hooks.handle_event(DaemonRunEvent::OrphanAgentReattachFailed {
+                        project_root: primary_root.to_string(),
+                        agent_session_id: detected.agent_session_id.clone(),
+                        pid: detected.pid,
+                        socket_path: Some(record_path),
+                        error: format!("{err}"),
+                    })?;
+                }
+            }
+        }
+
+        #[cfg(not(unix))]
+        {
+            let _ = broadcaster;
+            hooks.handle_event(DaemonRunEvent::OrphanAgentReattachFailed {
+                project_root: primary_root.to_string(),
+                agent_session_id: detected.agent_session_id.clone(),
+                pid: detected.pid,
+                socket_path: Some(record_path),
+                error: "reattach is not supported on this platform (Unix only)".to_string(),
+            })?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Process-global retention point for active orphan reattach connections.
+/// The reader tasks live on tokio's runtime; holding the `JoinHandle`
+/// keeps the handle around for future graceful-shutdown hooks (and avoids
+/// surprising operators who would expect a Drop to terminate forwarding).
+#[cfg(unix)]
+fn orphan_reattach_connections() -> &'static std::sync::Mutex<Vec<crate::dispatch::reattach::ReattachConnection>> {
+    static SLOT: std::sync::OnceLock<std::sync::Mutex<Vec<crate::dispatch::reattach::ReattachConnection>>> =
+        std::sync::OnceLock::new();
+    SLOT.get_or_init(|| std::sync::Mutex::new(Vec::new()))
+}
+
+#[cfg(not(unix))]
+fn orphan_reattach_connections() -> &'static std::sync::Mutex<Vec<()>> {
+    static SLOT: std::sync::OnceLock<std::sync::Mutex<Vec<()>>> = std::sync::OnceLock::new();
+    SLOT.get_or_init(|| std::sync::Mutex::new(Vec::new()))
 }
 
 fn emit_orphan_agent_scan_events<H: DaemonRunHooks>(

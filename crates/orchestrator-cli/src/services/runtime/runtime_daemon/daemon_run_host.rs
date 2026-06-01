@@ -277,6 +277,32 @@ impl DefaultDaemonRunHost {
                     }))
                     .emit();
             }
+            DaemonRunEvent::OrphanAgentReattached { agent_session_id, pid, socket_path, .. } => {
+                self.logger
+                    .info("reconciliation", format!("orphan agent reattached: session={agent_session_id} pid={pid}"))
+                    .meta(json!({
+                        "kind": "orphan_agent_reattached",
+                        "agent_session_id": agent_session_id,
+                        "pid": pid,
+                        "socket_path": socket_path,
+                    }))
+                    .emit();
+            }
+            DaemonRunEvent::OrphanAgentReattachFailed { agent_session_id, pid, socket_path, error, .. } => {
+                self.logger
+                    .warn(
+                        "reconciliation",
+                        format!("orphan agent reattach failed: session={agent_session_id} pid={pid}"),
+                    )
+                    .meta(json!({
+                        "kind": "orphan_agent_reattach_failed",
+                        "agent_session_id": agent_session_id,
+                        "pid": pid,
+                        "socket_path": socket_path,
+                        "error": error,
+                    }))
+                    .emit();
+            }
         }
     }
 
@@ -693,6 +719,28 @@ impl DaemonRunHooks for DefaultDaemonRunHost {
                         "error": error,
                     }),
                 ),
+            DaemonRunEvent::OrphanAgentReattached { project_root, agent_session_id, pid, socket_path } => self
+                .emit_daemon_event_with_notifications(
+                    "orphan-agent-reattached",
+                    Some(project_root),
+                    json!({
+                        "agent_session_id": agent_session_id,
+                        "pid": pid,
+                        "socket_path": socket_path,
+                    }),
+                ),
+            DaemonRunEvent::OrphanAgentReattachFailed { project_root, agent_session_id, pid, socket_path, error } => {
+                self.emit_daemon_event_with_notifications(
+                    "orphan-agent-reattach-failed",
+                    Some(project_root),
+                    json!({
+                        "agent_session_id": agent_session_id,
+                        "pid": pid,
+                        "socket_path": socket_path,
+                        "error": error,
+                    }),
+                )
+            }
         }
     }
 

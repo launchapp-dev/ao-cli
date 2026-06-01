@@ -27,6 +27,14 @@ pub use dispatch::{
     CompletedProcess, CompletionReconciliationPlan, DispatchNotice, DispatchNoticeSink, DispatchSelectionSource,
     DispatchWorkflowStart, DispatchWorkflowStartSummary, PlannedDispatchStart, ProcessManager, TickBudget,
 };
+/// v0.5.1 P2 #6.2 round-3: daemon-side reattach client surface, exposed for
+/// integration tests and out-of-tree daemons that want to call
+/// [`reattach::try_reattach`] directly. The orphan-scan startup path uses it
+/// internally; consumers should typically rely on `OrphanAgentReattached` /
+/// `OrphanAgentReattachFailed` events instead of driving it by hand.
+pub mod reattach {
+    pub use crate::dispatch::reattach::*;
+}
 pub use log_storage::{
     clear_log_storage_handle, current_log_storage_handle, discover_log_storage_backends, install_log_storage_handle,
     log_storage_disable_env_set, resolve_log_storage_dispatch, spawn_log_storage_supervisor, LogStorageDispatch,

@@ -55,8 +55,6 @@ crates/
 
 Repo-local but not current workspace members:
 
-- `crates/animus-plugin-smoke/`
-- `crates/animus-provider-mock/`
 - `crates/orchestrator-web-server/`
 
 `default-members` in `Cargo.toml` include:

@@ -35,8 +35,10 @@ A plugin is a standalone executable that:
 The wire shapes — request/response envelopes, error codes, handshake,
 plugin kinds, capability flags — live in
 [`crates/animus-plugin-protocol/src/lib.rs`](../../crates/animus-plugin-protocol/src/lib.rs).
-A working reference plugin in ~180 lines of Rust is
-[`crates/animus-plugin-smoke/src/main.rs`](../../crates/animus-plugin-smoke/src/main.rs).
+For a current starter implementation, scaffold from the official
+[`launchapp-dev/animus-plugin-template`](https://github.com/launchapp-dev/animus-plugin-template)
+and compare against the maintained first-party plugin repos under
+[`launchapp-dev`](https://github.com/launchapp-dev?q=animus&type=all&language=&sort=).
 
 Plugin compatibility is defined by the wire shapes, not by Rust crate
 linkage. A Python or TypeScript plugin that emits the same JSON over
@@ -87,16 +89,16 @@ stdout and exits 0. The manifest must declare:
 - `notification_buffer_size` (optional): broadcast channel size hint
   for chatty plugins
 
-Example from `animus-plugin-smoke`:
+Example manifest:
 
 ```json
 {
-  "name": "animus-plugin-smoke",
+  "name": "animus-subject-my-tickets",
   "version": "0.1.0",
   "plugin_kind": "subject_backend",
-  "description": "End-to-end smoke plugin for Animus plugin host verification",
+  "description": "Subject backend for a custom ticket system",
   "protocol_version": "1.0.0",
-  "capabilities": ["initialize", "$/ping", "smoke/get", "health/check"]
+  "capabilities": ["initialize", "$/ping", "task/list", "task/get", "task/update", "health/check"]
 }
 ```
 
@@ -209,7 +211,6 @@ stream into the normalized `SessionEvent` shape.
 - [`launchapp-dev/animus-provider-gemini`](https://github.com/launchapp-dev/animus-provider-gemini)
 - [`launchapp-dev/animus-provider-opencode`](https://github.com/launchapp-dev/animus-provider-opencode)
 - [`launchapp-dev/animus-provider-oai`](https://github.com/launchapp-dev/animus-provider-oai)
-- In-tree test fixture: [`crates/animus-provider-mock/src/main.rs`](../../crates/animus-provider-mock/src/main.rs)
 
 ### Trait
 
@@ -238,9 +239,7 @@ your CLI's event stream into:
 - `SessionEvent::Metadata { metadata }` — model, usage, etc.
 - `SessionEvent::Finished { exit_code }` — final event
 
-The 86-line
-[`animus-provider-mock`](../../crates/animus-provider-mock/src/main.rs)
-shows the full lifecycle without any CLI integration.
+Use the maintained provider repos above as the current lifecycle references.
 
 ### Cancel routing (v0.4.x)
 

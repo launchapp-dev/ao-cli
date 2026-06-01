@@ -45,12 +45,10 @@ for provider/session contracts and subject schema, currently through
 `animus-provider-protocol`, `animus-session-backend`, and
 `animus-subject-protocol` in `Cargo.toml`.
 
-## Repo-Local Fixtures
+## Repo-Local Directories Outside The Workspace
 
 | Crate | Responsibility |
 |---|---|
-| `animus-provider-mock` | Mock provider plugin for contract and e2e tests |
-| `animus-plugin-smoke` | Smoke-test plugin for host and protocol behavior |
 | `orchestrator-web-server` | Legacy in-repo web server directory retained outside the current Cargo workspace |
 
 ## Web

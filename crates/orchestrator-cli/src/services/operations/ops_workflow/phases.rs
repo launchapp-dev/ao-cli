@@ -491,6 +491,14 @@ mod tests {
         assert!(commit.success(), "initial commit should succeed");
     }
 
+    // v0.5.1 fold-in (P2 #7): the in-tree continuation path was deleted —
+    // `approve_manual_phase` now routes the post-approval `workflow/execute`
+    // call through the installed workflow_runner plugin. The test harness
+    // does not spawn a plugin, so this end-to-end "approve + continue"
+    // scenario is now covered at the plugin-pack level (see the
+    // animus-workflow-runner-default conformance suite). Re-enabling
+    // here would require a mock plugin spawn, which is out of scope.
+    #[ignore = "v0.5.1 fold-in P2 #7: continuation requires installed workflow_runner plugin; covered by pack conformance"]
     #[tokio::test]
     async fn approve_manual_phase_continues_non_terminal_workflow() {
         let _lock = test_env_lock().lock().unwrap_or_else(|p| p.into_inner());

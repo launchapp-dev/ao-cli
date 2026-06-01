@@ -44,8 +44,8 @@ The core goals are:
 The workspace also depends on external `launchapp-dev/animus-protocol` crates.
 The authoritative dependency pins live in the repo's `Cargo.toml` files,
 especially the workspace root and `crates/orchestrator-cli/Cargo.toml`; the
-current runtime mixes legacy `v0.1.13` provider/session wire crates with newer
-`v0.5.1` queue/workflow/subject protocol crates.
+current runtime mixes legacy `v0.1.13` provider/session wire crates with
+`animus-subject-protocol` pinned at `v0.5.0`.
 
 Repo-local but not current workspace members: `orchestrator-web-server`.
 

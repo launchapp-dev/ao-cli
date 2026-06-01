@@ -21,6 +21,7 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tracing::{debug, info, warn};
 
+use crate::recording::{DecisionEvent, Recorder};
 use crate::telemetry::RunnerMetrics;
 
 pub use supervisor::Supervisor;
@@ -75,6 +76,7 @@ impl Runner {
     ) -> broadcast::Receiver<AgentRunEvent> {
         let run_id = req.run_id.clone();
         let persistence = RunEventPersistence::new(&req.context, &run_id);
+        let recorder = build_decision_recorder(&req, &run_id);
         let (broadcast_tx, broadcast_rx) = broadcast::channel::<AgentRunEvent>(256);
         let (run_event_tx, mut run_event_rx) = mpsc::channel::<AgentRunEvent>(100);
         let run_id_for_forwarder = run_id.clone();
@@ -82,6 +84,7 @@ impl Runner {
 
         tokio::spawn(async move {
             let mut persistence = persistence;
+            let recorder = recorder;
             while let Some(event) = run_event_rx.recv().await {
                 if let Err(err) = persistence.persist(&event) {
                     warn!(
@@ -89,6 +92,17 @@ impl Runner {
                         error = %err,
                         "Failed to persist run event"
                     );
+                }
+                if let Some(rec) = recorder.as_ref() {
+                    if let Some(decision) = decision_event_from_agent_event(&event) {
+                        if let Err(err) = rec.record(&decision) {
+                            warn!(
+                                run_id = %run_id_for_forwarder.0.as_str(),
+                                error = %err,
+                                "Failed to append decision-log entry"
+                            );
+                        }
+                    }
                 }
                 let is_terminal = matches!(event, AgentRunEvent::Finished { .. } | AgentRunEvent::Error { .. });
                 let _ = broadcast_tx_for_forwarder.send(event);
@@ -122,14 +136,29 @@ impl Runner {
 
         self.metrics.record_start();
 
-        let supervisor = Supervisor::new();
         let cleanup_tx = self.cleanup_tx.clone();
-        tokio::spawn(async move {
-            let terminal_status = supervisor.spawn_agent(req, run_event_tx, cancel_rx).await;
-            if cleanup_tx.send(CleanupMessage { run_id: run_id.clone(), terminal_status }).await.is_err() {
-                warn!(run_id = %run_id.0.as_str(), "Failed to enqueue cleanup for run");
-            }
-        });
+        if let Some(replay_path) = resolve_replay_path(&req) {
+            info!(
+                run_id = %run_id.0.as_str(),
+                path = %replay_path.display(),
+                "Routing agent run through decision-log replay (production model bypassed)"
+            );
+            let run_id_for_task = run_id.clone();
+            tokio::spawn(async move {
+                let terminal_status = drive_replay(replay_path, run_id_for_task.clone(), run_event_tx, cancel_rx).await;
+                if cleanup_tx.send(CleanupMessage { run_id: run_id_for_task.clone(), terminal_status }).await.is_err() {
+                    warn!(run_id = %run_id_for_task.0.as_str(), "Failed to enqueue cleanup for replayed run");
+                }
+            });
+        } else {
+            let supervisor = Supervisor::new();
+            tokio::spawn(async move {
+                let terminal_status = supervisor.spawn_agent(req, run_event_tx, cancel_rx).await;
+                if cleanup_tx.send(CleanupMessage { run_id: run_id.clone(), terminal_status }).await.is_err() {
+                    warn!(run_id = %run_id.0.as_str(), "Failed to enqueue cleanup for run");
+                }
+            });
+        }
 
         broadcast_rx
     }
@@ -259,6 +288,162 @@ impl Runner {
             );
             false
         }
+    }
+}
+
+fn resolve_replay_path(req: &AgentRunRequest) -> Option<std::path::PathBuf> {
+    if let Some(value) = req.context.get("replay_session_path").and_then(|v| v.as_str()) {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return Some(std::path::PathBuf::from(trimmed));
+        }
+    }
+    match std::env::var("ANIMUS_REPLAY_SESSION") {
+        Ok(path) if !path.trim().is_empty() => Some(std::path::PathBuf::from(path)),
+        _ => None,
+    }
+}
+
+async fn drive_replay(
+    path: std::path::PathBuf,
+    run_id: RunId,
+    event_tx: mpsc::Sender<AgentRunEvent>,
+    mut cancel_rx: oneshot::Receiver<()>,
+) -> AgentStatus {
+    let _ = event_tx
+        .send(AgentRunEvent::Started { run_id: run_id.clone(), timestamp: Timestamp::now() })
+        .await;
+
+    let source = match crate::recording::ReplaySource::open(&path) {
+        Ok(source) => source,
+        Err(err) => {
+            let _ = event_tx
+                .send(AgentRunEvent::Error {
+                    run_id: run_id.clone(),
+                    error: format!("Replay session open failed: {}", err),
+                })
+                .await;
+            return AgentStatus::Failed;
+        }
+    };
+    let truncated = source.truncated_tail();
+    let events = source.drain();
+
+    let mut terminal: Option<AgentStatus> = None;
+    for decision in events {
+        if cancel_rx.try_recv().is_ok() {
+            return AgentStatus::Terminated;
+        }
+        match decision {
+            crate::recording::DecisionEvent::ResponseChunk { stream, text, .. } => {
+                let stream_type = match stream.as_str() {
+                    "stderr" => protocol::OutputStreamType::Stderr,
+                    "system" => protocol::OutputStreamType::System,
+                    _ => protocol::OutputStreamType::Stdout,
+                };
+                let _ = event_tx
+                    .send(AgentRunEvent::OutputChunk { run_id: run_id.clone(), stream_type, text })
+                    .await;
+            }
+            crate::recording::DecisionEvent::Finished { exit_code, .. } => {
+                let _ = event_tx
+                    .send(AgentRunEvent::Finished { run_id: run_id.clone(), exit_code, duration_ms: 0 })
+                    .await;
+                terminal = Some(if exit_code == Some(0) { AgentStatus::Completed } else { AgentStatus::Failed });
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    if terminal.is_none() {
+        if truncated {
+            let _ = event_tx
+                .send(AgentRunEvent::Error {
+                    run_id: run_id.clone(),
+                    error: "Replay session ended without Finished marker (log was truncated)".to_string(),
+                })
+                .await;
+            return AgentStatus::Failed;
+        }
+        let _ = event_tx
+            .send(AgentRunEvent::Finished { run_id: run_id.clone(), exit_code: Some(0), duration_ms: 0 })
+            .await;
+        return AgentStatus::Completed;
+    }
+    terminal.unwrap_or(AgentStatus::Failed)
+}
+
+fn build_decision_recorder(req: &AgentRunRequest, run_id: &RunId) -> Option<Recorder> {
+    let project_root = req.context.get("project_root").and_then(|v| v.as_str())?;
+    let recorder = match Recorder::for_run(project_root, &run_id.0) {
+        Ok(Some(rec)) => rec,
+        Ok(None) => return None,
+        Err(err) => {
+            warn!(
+                run_id = %run_id.0.as_str(),
+                error = %err,
+                "Failed to open decision log for run"
+            );
+            return None;
+        }
+    };
+
+    let prompt_text = req.context.get("prompt").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let runtime_contract = req.context.get("runtime_contract").cloned();
+    let prompt_event = DecisionEvent::prompt(req.model.0.as_str(), prompt_text, runtime_contract);
+    if let Err(err) = recorder.record(&prompt_event) {
+        warn!(
+            run_id = %run_id.0.as_str(),
+            error = %err,
+            "Failed to record initial prompt event"
+        );
+    }
+    Some(recorder)
+}
+
+fn decision_event_from_agent_event(event: &AgentRunEvent) -> Option<DecisionEvent> {
+    match event {
+        AgentRunEvent::OutputChunk { stream_type, text, .. } => {
+            let stream = match stream_type {
+                protocol::OutputStreamType::Stdout => "stdout",
+                protocol::OutputStreamType::Stderr => "stderr",
+                protocol::OutputStreamType::System => "system",
+            };
+            Some(DecisionEvent::response_chunk(stream, text.clone()))
+        }
+        AgentRunEvent::ToolCall { tool_info, .. } => {
+            let value = serde_json::to_value(tool_info).unwrap_or(serde_json::Value::Null);
+            let name = value
+                .get("tool_name")
+                .and_then(|v| v.as_str())
+                .or_else(|| value.get("name").and_then(|v| v.as_str()))
+                .unwrap_or("")
+                .to_string();
+            Some(DecisionEvent::tool_call(name, value))
+        }
+        AgentRunEvent::ToolResult { result_info, .. } => {
+            let value = serde_json::to_value(result_info).unwrap_or(serde_json::Value::Null);
+            let name = value
+                .get("tool_name")
+                .and_then(|v| v.as_str())
+                .or_else(|| value.get("name").and_then(|v| v.as_str()))
+                .unwrap_or("")
+                .to_string();
+            Some(DecisionEvent::tool_result(name, value))
+        }
+        AgentRunEvent::Metadata { cost, tokens, .. } => {
+            let payload = serde_json::json!({
+                "cost": cost,
+                "tokens": tokens,
+            });
+            Some(DecisionEvent::metadata(payload))
+        }
+        AgentRunEvent::Finished { exit_code, .. } => Some(DecisionEvent::finished(*exit_code)),
+        AgentRunEvent::Error { error, .. } => Some(DecisionEvent::metadata(serde_json::json!({
+            "error": error,
+        }))),
+        AgentRunEvent::Started { .. } | AgentRunEvent::Artifact { .. } | AgentRunEvent::Thinking { .. } => None,
     }
 }
 
@@ -406,5 +591,63 @@ mod tests {
     fn normalize_runner_build_id_rejects_empty_values() {
         assert_eq!(normalize_runner_build_id(Some("   ".to_string())), None);
         assert_eq!(normalize_runner_build_id(None), None);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn handle_run_request_routes_through_replay_when_path_in_context() {
+        use crate::recording::{DecisionEvent, Recorder};
+        use protocol::{AgentRunRequest, ModelId, OutputStreamType, PROTOCOL_VERSION};
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().expect("tempdir");
+        let replay_path = dir.path().join("decisions.jsonl");
+        let recorder = Recorder::create_at(&replay_path).expect("recorder");
+        recorder.record(&DecisionEvent::prompt("claude-sonnet", "hi", None)).unwrap();
+        recorder.record(&DecisionEvent::response_chunk("stdout", "alpha")).unwrap();
+        recorder.record(&DecisionEvent::response_chunk("stdout", "beta")).unwrap();
+        recorder.record(&DecisionEvent::finished(Some(0))).unwrap();
+        drop(recorder);
+
+        let (cleanup_tx, mut cleanup_rx) = mpsc::channel::<CleanupMessage>(4);
+        let mut runner = Runner::new(cleanup_tx);
+
+        let req = AgentRunRequest {
+            protocol_version: PROTOCOL_VERSION.to_string(),
+            run_id: RunId("replay-run-1".to_string()),
+            model: ModelId("claude-sonnet".to_string()),
+            context: serde_json::json!({
+                "replay_session_path": replay_path.to_string_lossy(),
+                "prompt": "hi",
+            }),
+            timeout_secs: None,
+        };
+
+        let (event_tx, _event_rx) = mpsc::channel::<AgentRunEvent>(16);
+        let mut broadcast_rx = runner.handle_run_request(req, event_tx);
+
+        let mut chunks: Vec<String> = Vec::new();
+        let mut finished = false;
+        while let Ok(evt) = tokio::time::timeout(std::time::Duration::from_secs(5), broadcast_rx.recv()).await {
+            let evt = match evt { Ok(e) => e, Err(_) => break };
+            match evt {
+                AgentRunEvent::OutputChunk { stream_type: OutputStreamType::Stdout, text, .. } => {
+                    chunks.push(text);
+                }
+                AgentRunEvent::Finished { exit_code, .. } => {
+                    finished = true;
+                    assert_eq!(exit_code, Some(0));
+                    break;
+                }
+                AgentRunEvent::Error { error, .. } => panic!("unexpected error event: {error}"),
+                _ => {}
+            }
+        }
+        assert!(finished, "replay must end with Finished");
+        assert_eq!(chunks, vec!["alpha".to_string(), "beta".to_string()]);
+
+        if let Ok(Some(msg)) = tokio::time::timeout(std::time::Duration::from_secs(5), cleanup_rx.recv()).await {
+            assert_eq!(msg.run_id.0, "replay-run-1");
+            assert!(matches!(msg.terminal_status, AgentStatus::Completed));
+        }
     }
 }

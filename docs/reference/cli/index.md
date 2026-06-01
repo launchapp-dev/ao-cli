@@ -239,7 +239,7 @@ animus
 │   ├── list                 List available flavor manifests on disk
 │   ├── current              Show the active flavor and drift against the manifest
 │   ├── describe             Print a parsed flavor manifest (TOML by default, JSON via `--json`)
-│   └── install              Install the named flavor (`default` only in v0.5); equivalent to `animus plugin install-defaults --include-subjects --include-transports`
+│   └── install              Install the named flavor (`default` only in v0.5); equivalent to `animus plugin install-defaults --include-subjects --include-transports` plus the default `workflow_runner` and `queue` plugins
 │
 └── help                     Print this message or the help of the given subcommand(s)
 ```
@@ -261,9 +261,13 @@ need to script against.
 ### `animus daemon start` / `animus daemon run` (plugin preflight)
 
 The daemon runs a plugin preflight on every startup. Default posture is
-**default-deny**: if a required role is unsatisfied (no provider plugin, or no
-subject backend claiming `task` / `requirement`) the daemon refuses to start and
-prints the exact `animus plugin install ...` command to remediate.
+**default-deny**: if a required role is unsatisfied — no provider plugin, no
+subject backend claiming `task` / `requirement`, no `workflow_runner` plugin
+(v0.5+: `launchapp-dev/animus-workflow-runner-default`), or no `queue` plugin
+(v0.5+: `launchapp-dev/animus-queue-default`) — the daemon refuses to start and
+prints the exact `animus plugin install ...` command to remediate. No in-tree
+fallback runs in production; `--skip-preflight` bypasses the check but the
+daemon will fail at the first plugin RPC if the plugin really is missing.
 
 | Flag | Description |
 |---|---|
@@ -421,9 +425,11 @@ animus flavor install default
 ```
 
 `animus flavor install` is equivalent to
-`animus plugin install-defaults --include-subjects --include-transports` and
-installs every required plugin slug the manifest declares whose curated tag
-is pinned in
+`animus plugin install-defaults --include-subjects --include-transports`.
+That install path always includes the base provider set plus the default
+`workflow_runner` and `queue` plugins, then layers on the subject and
+transport plugins behind the explicit `--include-*` flags. It installs every
+required plugin slug the manifest declares whose curated tag is pinned in
 [`crates/orchestrator-core/src/plugin_registry.rs`](../../../crates/orchestrator-core/src/plugin_registry.rs).
 Slugs the manifest declares but the constants table hasn't pinned yet (e.g.
 `animus-provider-ollama`, `animus-trigger-cron`) emit a warning and are
@@ -440,19 +446,22 @@ JSON output uses the `animus.flavor.cli.v1` envelope.
 
 ### `animus plugin install-defaults`
 
-Bulk-install the standard provider plugin set in one shot. Each repo runs through
-the same install pipeline as `animus plugin install`, so signature checks,
-manifest probes, and the `launchapp-dev` org allowlist are preserved.
+Bulk-install the standard provider plugin set in one shot. The base plan now
+also includes the default `workflow_runner` and `queue` plugins required by
+daemon preflight. Each repo runs through the same install pipeline as
+`animus plugin install`, so signature checks, manifest probes, and the
+`launchapp-dev` org allowlist are preserved.
 
 When `flavors/default.toml` is present, the install plan is sourced from the
 manifest's `[providers]`, `[subjects]`, `[transports]`, `[workflow_runner]`,
 and `[queue]` sections (plus optional `[ui]` and recommended add-ons gated by
 `--include-*` flags). When the manifest is absent, the hardcoded
-`DEFAULT_PROVIDER_PLUGINS / DEFAULT_SUBJECT_PLUGINS / DEFAULT_TRANSPORT_PLUGINS`
-tables remain the fallback.
+`DEFAULT_PROVIDER_PLUGINS / DEFAULT_WORKFLOW_RUNNER_PLUGINS /
+DEFAULT_QUEUE_PLUGINS / DEFAULT_SUBJECT_PLUGINS /
+DEFAULT_TRANSPORT_PLUGINS` tables remain the fallback.
 
 ```bash
-# Install all 5 default providers (claude, codex, gemini, opencode, oai)
+# Install the base defaults: 5 providers + workflow_runner + queue
 animus plugin install-defaults
 
 # Add the OAI-agent plugin

@@ -6,7 +6,7 @@ for release notes and
 if you are upgrading from an earlier v0.4.x.
 
 > **Since v0.4.12, the first-run flow is plugin-first.** The daemon no longer ships with
-> bundled providers or subject backends. After installing the `animus`
+> bundled providers, workflow runners, queues, or subject backends. After installing the `animus`
 > binary you must run `animus plugin install-defaults --include-subjects --include-transports`
 > once before `animus daemon start` will boot. The command is idempotent and
 > the plugins live in `~/.animus/plugins/` (shared across projects).
@@ -115,6 +115,8 @@ This installs the curated defaults from
 `crates/orchestrator-core/src/plugin_registry.rs`:
 
 - 5 providers (`animus-provider-claude`, `animus-provider-codex`, `animus-provider-gemini`, `animus-provider-opencode`, `animus-provider-oai`) — daemon requires at least one
+- 1 workflow runner (`animus-workflow-runner-default`) — daemon preflight requires it
+- 1 queue plugin (`animus-queue-default`) — daemon preflight requires it
 - 5 subject backends (`animus-subject-default`, `animus-subject-requirements`, `animus-subject-linear`, `animus-subject-sqlite`, `animus-subject-markdown`) — daemon requires `default` for `kind=task` and `requirements` for `kind=requirement`
 - 3 transport + UI plugins (`animus-transport-http`, `animus-transport-graphql`, `animus-web-ui`) — required for `animus web serve`
 
@@ -137,6 +139,10 @@ animus plugin install launchapp-dev/animus-subject-requirements
 animus plugin install launchapp-dev/animus-subject-linear
 animus plugin install launchapp-dev/animus-subject-sqlite
 animus plugin install launchapp-dev/animus-subject-markdown
+
+# Workflow runner + queue (required by daemon preflight)
+animus plugin install launchapp-dev/animus-workflow-runner-default
+animus plugin install launchapp-dev/animus-queue-default
 
 # Transport + web UI (required for `animus web serve`)
 animus plugin install launchapp-dev/animus-transport-http

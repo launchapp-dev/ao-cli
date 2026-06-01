@@ -33,6 +33,7 @@ pub enum DecisionEvent {
     ToolCall { timestamp_ms: u64, name: String, args: Value },
     ToolResult { timestamp_ms: u64, name: String, result: Value },
     Metadata { timestamp_ms: u64, payload: Value },
+    Error { timestamp_ms: u64, message: String },
     Finished { timestamp_ms: u64, exit_code: Option<i32> },
 }
 
@@ -44,7 +45,12 @@ impl DecisionEvent {
             .unwrap_or_default()
     }
     pub fn prompt(model_id: impl Into<String>, prompt: impl Into<String>, runtime_contract: Option<Value>) -> Self {
-        Self::Prompt { timestamp_ms: Self::now_ms(), model_id: model_id.into(), prompt: prompt.into(), runtime_contract }
+        Self::Prompt {
+            timestamp_ms: Self::now_ms(),
+            model_id: model_id.into(),
+            prompt: prompt.into(),
+            runtime_contract,
+        }
     }
     pub fn response_chunk(stream: impl Into<String>, text: impl Into<String>) -> Self {
         Self::ResponseChunk { timestamp_ms: Self::now_ms(), stream: stream.into(), text: text.into() }
@@ -57,6 +63,9 @@ impl DecisionEvent {
     }
     pub fn metadata(payload: Value) -> Self {
         Self::Metadata { timestamp_ms: Self::now_ms(), payload }
+    }
+    pub fn error(message: impl Into<String>) -> Self {
+        Self::Error { timestamp_ms: Self::now_ms(), message: message.into() }
     }
     pub fn finished(exit_code: Option<i32>) -> Self {
         Self::Finished { timestamp_ms: Self::now_ms(), exit_code }
@@ -83,10 +92,14 @@ impl Recorder {
         Ok(Self { inner: Mutex::new(BufWriter::new(file)), path })
     }
     pub fn for_run(project_root: &str, run_id: &str) -> Result<Option<Self>> {
-        let Some(path) = decision_log_path(project_root, run_id) else { return Ok(None); };
+        let Some(path) = decision_log_path(project_root, run_id) else {
+            return Ok(None);
+        };
         Ok(Some(Self::create_at(path)?))
     }
-    pub fn path(&self) -> &Path { &self.path }
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
     pub fn record(&self, event: &DecisionEvent) -> Result<()> {
         let line = serde_json::to_string(event).context("serialize decision event")?;
         let mut guard = self.inner.lock().expect("recorder mutex poisoned");
@@ -98,10 +111,20 @@ impl Recorder {
 }
 
 pub fn decision_log_path(project_root: &str, run_id: &str) -> Option<PathBuf> {
-    if run_id.trim().is_empty() { return None; }
-    if run_id.contains('/') || run_id.contains('\\') || run_id.contains("..") { return None; }
+    if run_id.trim().is_empty() {
+        return None;
+    }
+    if run_id.contains('/') || run_id.contains('\\') || run_id.contains("..") {
+        return None;
+    }
     let home = dirs::home_dir()?;
-    Some(home.join(".animus").join(protocol::repository_scope_for_path(Path::new(project_root))).join("runs").join(run_id).join("decisions.jsonl"))
+    Some(
+        home.join(".animus")
+            .join(protocol::repository_scope_for_path(Path::new(project_root)))
+            .join("runs")
+            .join(run_id)
+            .join("decisions.jsonl"),
+    )
 }
 
 pub struct ReplaySource {
@@ -119,25 +142,38 @@ impl ReplaySource {
         let lines: Vec<String> = reader.lines().collect::<std::io::Result<_>>().context("read replay session")?;
         let total = lines.len();
         for (idx, line) in lines.into_iter().enumerate() {
-            if line.trim().is_empty() { continue; }
+            if line.trim().is_empty() {
+                continue;
+            }
             match serde_json::from_str::<DecisionEvent>(&line) {
                 Ok(event) => events.push(event),
                 Err(err) => {
                     if idx + 1 == total {
                         truncated_tail = true;
                     } else {
-                        anyhow::bail!("corrupted decision-log entry at line {} of {}: {}", idx + 1, path.display(), err);
+                        anyhow::bail!(
+                            "corrupted decision-log entry at line {} of {}: {}",
+                            idx + 1,
+                            path.display(),
+                            err
+                        );
                     }
                 }
             }
         }
         Ok(Self { events: events.into_iter(), truncated_tail })
     }
-    pub fn truncated_tail(&self) -> bool { self.truncated_tail }
-    pub fn next_event(&mut self) -> Option<DecisionEvent> { self.events.next() }
+    pub fn truncated_tail(&self) -> bool {
+        self.truncated_tail
+    }
+    pub fn next_event(&mut self) -> Option<DecisionEvent> {
+        self.events.next()
+    }
     pub fn drain(mut self) -> Vec<DecisionEvent> {
         let mut out = Vec::new();
-        while let Some(event) = self.next_event() { out.push(event); }
+        while let Some(event) = self.next_event() {
+            out.push(event);
+        }
         out
     }
 }
@@ -193,10 +229,13 @@ mod tests {
         }
         drop(recorder);
         let events = ReplaySource::open(&path).expect("replay").drain();
-        let texts: Vec<String> = events.into_iter().filter_map(|e| match e {
-            DecisionEvent::ResponseChunk { text, .. } => Some(text),
-            _ => None,
-        }).collect();
+        let texts: Vec<String> = events
+            .into_iter()
+            .filter_map(|e| match e {
+                DecisionEvent::ResponseChunk { text, .. } => Some(text),
+                _ => None,
+            })
+            .collect();
         let expected: Vec<String> = (0..50).map(|i| format!("chunk-{i}")).collect();
         assert_eq!(texts, expected);
     }
@@ -260,7 +299,11 @@ mod tests {
         let (_dir, path) = tmp_log();
         {
             let mut file = OpenOptions::new().create(true).append(true).open(&path).unwrap();
-            writeln!(file, r#"{{"kind":"prompt","timestamp_ms":1,"model_id":"m","prompt":"p","runtime_contract":null}}"#).unwrap();
+            writeln!(
+                file,
+                r#"{{"kind":"prompt","timestamp_ms":1,"model_id":"m","prompt":"p","runtime_contract":null}}"#
+            )
+            .unwrap();
             writeln!(file, "not-json-garbage").unwrap();
             writeln!(file, r#"{{"kind":"finished","timestamp_ms":2,"exit_code":0}}"#).unwrap();
         }

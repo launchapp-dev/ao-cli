@@ -310,9 +310,7 @@ async fn drive_replay(
     event_tx: mpsc::Sender<AgentRunEvent>,
     mut cancel_rx: oneshot::Receiver<()>,
 ) -> AgentStatus {
-    let _ = event_tx
-        .send(AgentRunEvent::Started { run_id: run_id.clone(), timestamp: Timestamp::now() })
-        .await;
+    let _ = event_tx.send(AgentRunEvent::Started { run_id: run_id.clone(), timestamp: Timestamp::now() }).await;
 
     let source = match crate::recording::ReplaySource::open(&path) {
         Ok(source) => source,
@@ -341,14 +339,26 @@ async fn drive_replay(
                     "system" => protocol::OutputStreamType::System,
                     _ => protocol::OutputStreamType::Stdout,
                 };
-                let _ = event_tx
-                    .send(AgentRunEvent::OutputChunk { run_id: run_id.clone(), stream_type, text })
-                    .await;
+                let _ = event_tx.send(AgentRunEvent::OutputChunk { run_id: run_id.clone(), stream_type, text }).await;
+            }
+            crate::recording::DecisionEvent::ToolCall { args, .. } => {
+                if let Ok(tool_info) = serde_json::from_value::<protocol::ToolCallInfo>(args) {
+                    let _ = event_tx.send(AgentRunEvent::ToolCall { run_id: run_id.clone(), tool_info }).await;
+                }
+            }
+            crate::recording::DecisionEvent::ToolResult { result, .. } => {
+                if let Ok(result_info) = serde_json::from_value::<protocol::ToolResultInfo>(result) {
+                    let _ = event_tx.send(AgentRunEvent::ToolResult { run_id: run_id.clone(), result_info }).await;
+                }
+            }
+            crate::recording::DecisionEvent::Error { message, .. } => {
+                let _ = event_tx.send(AgentRunEvent::Error { run_id: run_id.clone(), error: message }).await;
+                terminal = Some(AgentStatus::Failed);
+                break;
             }
             crate::recording::DecisionEvent::Finished { exit_code, .. } => {
-                let _ = event_tx
-                    .send(AgentRunEvent::Finished { run_id: run_id.clone(), exit_code, duration_ms: 0 })
-                    .await;
+                let _ =
+                    event_tx.send(AgentRunEvent::Finished { run_id: run_id.clone(), exit_code, duration_ms: 0 }).await;
                 terminal = Some(if exit_code == Some(0) { AgentStatus::Completed } else { AgentStatus::Failed });
                 break;
             }
@@ -357,19 +367,13 @@ async fn drive_replay(
     }
 
     if terminal.is_none() {
-        if truncated {
-            let _ = event_tx
-                .send(AgentRunEvent::Error {
-                    run_id: run_id.clone(),
-                    error: "Replay session ended without Finished marker (log was truncated)".to_string(),
-                })
-                .await;
-            return AgentStatus::Failed;
-        }
-        let _ = event_tx
-            .send(AgentRunEvent::Finished { run_id: run_id.clone(), exit_code: Some(0), duration_ms: 0 })
-            .await;
-        return AgentStatus::Completed;
+        let reason = if truncated {
+            "Replay session ended without Finished marker (log was truncated)"
+        } else {
+            "Replay session ended without Finished marker (incomplete decision log)"
+        };
+        let _ = event_tx.send(AgentRunEvent::Error { run_id: run_id.clone(), error: reason.to_string() }).await;
+        return AgentStatus::Failed;
     }
     terminal.unwrap_or(AgentStatus::Failed)
 }
@@ -440,9 +444,7 @@ fn decision_event_from_agent_event(event: &AgentRunEvent) -> Option<DecisionEven
             Some(DecisionEvent::metadata(payload))
         }
         AgentRunEvent::Finished { exit_code, .. } => Some(DecisionEvent::finished(*exit_code)),
-        AgentRunEvent::Error { error, .. } => Some(DecisionEvent::metadata(serde_json::json!({
-            "error": error,
-        }))),
+        AgentRunEvent::Error { error, .. } => Some(DecisionEvent::error(error.clone())),
         AgentRunEvent::Started { .. } | AgentRunEvent::Artifact { .. } | AgentRunEvent::Thinking { .. } => None,
     }
 }
@@ -628,7 +630,10 @@ mod tests {
         let mut chunks: Vec<String> = Vec::new();
         let mut finished = false;
         while let Ok(evt) = tokio::time::timeout(std::time::Duration::from_secs(5), broadcast_rx.recv()).await {
-            let evt = match evt { Ok(e) => e, Err(_) => break };
+            let evt = match evt {
+                Ok(e) => e,
+                Err(_) => break,
+            };
             match evt {
                 AgentRunEvent::OutputChunk { stream_type: OutputStreamType::Stdout, text, .. } => {
                     chunks.push(text);
@@ -649,5 +654,119 @@ mod tests {
             assert_eq!(msg.run_id.0, "replay-run-1");
             assert!(matches!(msg.terminal_status, AgentStatus::Completed));
         }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn handle_run_request_replay_without_finished_marker_fails() {
+        use crate::recording::{DecisionEvent, Recorder};
+        use protocol::{AgentRunRequest, ModelId, PROTOCOL_VERSION};
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().expect("tempdir");
+        let replay_path = dir.path().join("decisions.jsonl");
+        let recorder = Recorder::create_at(&replay_path).expect("recorder");
+        recorder.record(&DecisionEvent::prompt("m", "p", None)).unwrap();
+        recorder.record(&DecisionEvent::response_chunk("stdout", "alpha")).unwrap();
+        drop(recorder);
+
+        let (cleanup_tx, mut cleanup_rx) = mpsc::channel::<CleanupMessage>(4);
+        let mut runner = Runner::new(cleanup_tx);
+        let req = AgentRunRequest {
+            protocol_version: PROTOCOL_VERSION.to_string(),
+            run_id: RunId("replay-incomplete".to_string()),
+            model: ModelId("m".to_string()),
+            context: serde_json::json!({"replay_session_path": replay_path.to_string_lossy()}),
+            timeout_secs: None,
+        };
+        let (event_tx, _event_rx) = mpsc::channel::<AgentRunEvent>(16);
+        let mut broadcast_rx = runner.handle_run_request(req, event_tx);
+
+        let mut saw_error = false;
+        while let Ok(evt) = tokio::time::timeout(std::time::Duration::from_secs(5), broadcast_rx.recv()).await {
+            let evt = match evt {
+                Ok(e) => e,
+                Err(_) => break,
+            };
+            if let AgentRunEvent::Error { error, .. } = evt {
+                assert!(error.contains("Finished"));
+                saw_error = true;
+                break;
+            }
+        }
+        assert!(saw_error, "incomplete replay must surface an Error event");
+
+        if let Ok(Some(msg)) = tokio::time::timeout(std::time::Duration::from_secs(5), cleanup_rx.recv()).await {
+            assert!(matches!(msg.terminal_status, AgentStatus::Failed));
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn handle_run_request_replay_yields_tool_call_and_result_events() {
+        use crate::recording::{DecisionEvent, Recorder};
+        use protocol::{AgentRunRequest, ModelId, ToolCallInfo, ToolResultInfo, PROTOCOL_VERSION};
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().expect("tempdir");
+        let replay_path = dir.path().join("decisions.jsonl");
+        let recorder = Recorder::create_at(&replay_path).expect("recorder");
+        let tool_call = ToolCallInfo {
+            tool_name: "read_file".to_string(),
+            parameters: serde_json::json!({"path": "/tmp/a"}),
+            timestamp: Timestamp::now(),
+        };
+        let tool_result = ToolResultInfo {
+            tool_name: "read_file".to_string(),
+            result: serde_json::json!({"content": "hello"}),
+            duration_ms: 1,
+            success: true,
+        };
+        recorder.record(&DecisionEvent::prompt("m", "p", None)).unwrap();
+        recorder
+            .record(&DecisionEvent::tool_call(tool_call.tool_name.clone(), serde_json::to_value(&tool_call).unwrap()))
+            .unwrap();
+        recorder
+            .record(&DecisionEvent::tool_result(
+                tool_result.tool_name.clone(),
+                serde_json::to_value(&tool_result).unwrap(),
+            ))
+            .unwrap();
+        recorder.record(&DecisionEvent::finished(Some(0))).unwrap();
+        drop(recorder);
+
+        let (cleanup_tx, _cleanup_rx) = mpsc::channel::<CleanupMessage>(4);
+        let mut runner = Runner::new(cleanup_tx);
+        let req = AgentRunRequest {
+            protocol_version: PROTOCOL_VERSION.to_string(),
+            run_id: RunId("replay-tools".to_string()),
+            model: ModelId("m".to_string()),
+            context: serde_json::json!({"replay_session_path": replay_path.to_string_lossy()}),
+            timeout_secs: None,
+        };
+        let (event_tx, _event_rx) = mpsc::channel::<AgentRunEvent>(16);
+        let mut broadcast_rx = runner.handle_run_request(req, event_tx);
+
+        let mut saw_call = false;
+        let mut saw_result = false;
+        while let Ok(evt) = tokio::time::timeout(std::time::Duration::from_secs(5), broadcast_rx.recv()).await {
+            let evt = match evt {
+                Ok(e) => e,
+                Err(_) => break,
+            };
+            match evt {
+                AgentRunEvent::ToolCall { tool_info, .. } => {
+                    assert_eq!(tool_info.tool_name, "read_file");
+                    saw_call = true;
+                }
+                AgentRunEvent::ToolResult { result_info, .. } => {
+                    assert_eq!(result_info.tool_name, "read_file");
+                    assert!(result_info.success);
+                    saw_result = true;
+                }
+                AgentRunEvent::Finished { .. } => break,
+                _ => {}
+            }
+        }
+        assert!(saw_call, "replay must yield AgentRunEvent::ToolCall");
+        assert!(saw_result, "replay must yield AgentRunEvent::ToolResult");
     }
 }

@@ -68,13 +68,16 @@ flowchart TB
 | Services | `orchestrator-core`, `orchestrator-config`, `orchestrator-store` | Bootstrap, config, state mutation APIs, workflow config, atomic persistence |
 | Runtime | `orchestrator-daemon-runtime`, `workflow-runner-v2`, `agent-runner` | Queue scheduling, workflow phase execution, runner IPC and process orchestration |
 | Providers | `orchestrator-session-host`, `oai-runner`, `orchestrator-providers` | Provider plugin sessions, OpenAI-compatible runner, compatibility helpers |
-| Plugins | `orchestrator-plugin-host`, `animus-plugin-protocol`, `animus-subject-protocol`, `animus-plugin-runtime` | Discovery, manifests, stdio JSON-RPC host, subject schema, runtime helpers |
+| Plugins | `orchestrator-plugin-host`, `animus-plugin-protocol`, `animus-plugin-runtime` | Discovery, manifests, stdio JSON-RPC host, runtime helpers |
 | Support | `orchestrator-git-ops`, `orchestrator-notifications`, `orchestrator-logging`, `protocol` | Worktrees, notifications, tracing, shared types |
 
 ## Startup Flow
 
-Repo-local but not current workspace members: `animus-provider-mock`,
-`animus-plugin-smoke`, and `orchestrator-web-server`.
+The workspace also depends on external `launchapp-dev/animus-protocol` crates,
+including `animus-subject-protocol` at `v0.5.0`.
+
+Repo-local but not current workspace members: `animus-subject-protocol`,
+`animus-provider-mock`, `animus-plugin-smoke`, and `orchestrator-web-server`.
 
 1. Parse global flags and top-level command in `orchestrator-cli`.
 2. Resolve the project root with this precedence:
@@ -107,6 +110,8 @@ Scoped runtime state in `~/.animus/<repo-scope>/`:
 - `config/`
 - `daemon/`
 - `docs/`
+- `logs/`
+- `runner/`
 - `state/`
 - `worktrees/`
 

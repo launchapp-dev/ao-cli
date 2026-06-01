@@ -30,14 +30,13 @@ cargo build -p agent-runner
 
 ## Workspace Structure
 
-The workspace is a Cargo workspace of 18 crates. The core orchestrator crates are:
+The workspace is a Cargo workspace of 17 crates. The core orchestrator crates are:
 
 ```text
 crates/
 ├── agent-runner/
 ├── animus-plugin-protocol/
 ├── animus-plugin-runtime/
-├── animus-subject-protocol/
 ├── oai-runner/
 ├── orchestrator-cli/
 ├── orchestrator-config/
@@ -56,6 +55,7 @@ crates/
 
 Repo-local but not current workspace members:
 
+- `crates/animus-subject-protocol/`
 - `crates/animus-plugin-smoke/`
 - `crates/animus-provider-mock/`
 - `crates/orchestrator-web-server/`
@@ -100,10 +100,13 @@ Protocol schema exports live at the repo root:
 
 ```bash
 cargo run -p animus-plugin-protocol --bin animus-plugin-protocol-export-schema
-cargo run -p animus-subject-protocol --bin animus-subject-protocol-export-schema
 ```
 
-Those commands write to `/schemas/animus-plugin-protocol/` and
+`animus-subject-protocol` is no longer a workspace member. If you need to export
+its schema from the repo-local mirror, invoke Cargo with
+`--manifest-path crates/animus-subject-protocol/Cargo.toml` instead of `-p`.
+
+These commands write to `/schemas/animus-plugin-protocol/` and
 `/schemas/animus-subject-protocol/` under the workspace root. Do not commit
 accidental crate-local output such as `crates/orchestrator-cli/schemas/`.
 

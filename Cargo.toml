@@ -3,7 +3,6 @@ members = [
   "crates/agent-runner",
   "crates/animus-plugin-protocol",
   "crates/animus-plugin-runtime",
-  "crates/animus-subject-protocol",
   "crates/protocol",
   "crates/orchestrator-daemon-runtime",
   "crates/orchestrator-notifications",
@@ -38,7 +37,7 @@ categories = ["command-line-utilities", "development-tools"]
 animus-plugin-protocol = { path = "crates/animus-plugin-protocol" }
 animus-provider-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.13" }
 animus-session-backend = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.13" }
-animus-subject-protocol = { path = "crates/animus-subject-protocol" }
+animus-subject-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.5.0" }
 protocol = { path = "crates/protocol" }
 orchestrator-daemon-runtime = { path = "crates/orchestrator-daemon-runtime" }
 orchestrator-notifications = { path = "crates/orchestrator-notifications" }

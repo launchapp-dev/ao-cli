@@ -202,7 +202,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use protocol::SubjectRef;
+    use protocol::{SubjectDispatchExt, SubjectRef};
 
     #[test]
     fn enqueue_subject_dispatch_is_idempotent_for_same_task_pipeline() {

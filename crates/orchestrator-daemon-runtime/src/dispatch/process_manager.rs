@@ -428,6 +428,7 @@ mod tests {
     #![allow(clippy::await_holding_lock)]
 
     use super::*;
+    use protocol::SubjectDispatchExt;
     use std::env;
     use std::fs;
     use std::sync::Mutex;

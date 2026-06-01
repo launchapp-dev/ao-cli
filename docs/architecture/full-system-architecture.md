@@ -30,7 +30,7 @@ The core goals are:
 
 ## Workspace Inventory
 
-`Cargo.toml` currently declares 18 workspace members.
+`Cargo.toml` currently declares 17 workspace members.
 
 | Group | Crates |
 |---|---|
@@ -38,11 +38,14 @@ The core goals are:
 | Core services | `orchestrator-core`, `orchestrator-config`, `orchestrator-store` |
 | Runtime | `orchestrator-daemon-runtime`, `workflow-runner-v2`, `agent-runner` |
 | Provider/session | `orchestrator-session-host`, `orchestrator-providers`, `oai-runner` |
-| Plugin foundation | `orchestrator-plugin-host`, `animus-plugin-protocol`, `animus-subject-protocol`, `animus-plugin-runtime` |
+| Plugin foundation | `orchestrator-plugin-host`, `animus-plugin-protocol`, `animus-plugin-runtime` |
 | Support | `orchestrator-git-ops`, `orchestrator-notifications`, `orchestrator-logging`, `protocol` |
 
-Repo-local but not current workspace members: `animus-provider-mock`,
-`animus-plugin-smoke`, and `orchestrator-web-server`.
+The workspace also depends on external `launchapp-dev/animus-protocol` crates,
+including `animus-subject-protocol` at `v0.5.0`.
+
+Repo-local but not current workspace members: `animus-subject-protocol`,
+`animus-provider-mock`, `animus-plugin-smoke`, and `orchestrator-web-server`.
 
 The release/runtime binary set is:
 
@@ -138,6 +141,8 @@ Scoped runtime state in `~/.animus/<repo-scope>/`:
 - `config/`
 - `daemon/`
 - `docs/`
+- `logs/`
+- `runner/`
 - `state/`
 - `worktrees/`
 

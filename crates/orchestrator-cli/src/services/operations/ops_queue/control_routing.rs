@@ -45,7 +45,7 @@ use orchestrator_daemon_runtime::{
     control::QueueRouting, drop_subject, enqueue_subject_dispatch, hold_subject, queue_snapshot, queue_stats,
     release_subject, DispatchQueueEntryStatus, QueueEntrySnapshot, QueueStats as CoreQueueStats,
 };
-use protocol::SubjectDispatch;
+use protocol::{SubjectDispatch, SubjectDispatchExt};
 
 /// Build a [`QueueRouting`] handle bound to `project_root`.
 ///

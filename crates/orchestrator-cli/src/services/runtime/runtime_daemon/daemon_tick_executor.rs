@@ -12,6 +12,7 @@ use orchestrator_daemon_runtime::{
     ProjectTickSnapshot,
 };
 use orchestrator_logging::Logger;
+use protocol::SubjectDispatchExt;
 use std::sync::Arc;
 
 pub(crate) struct CliProjectTickServices {

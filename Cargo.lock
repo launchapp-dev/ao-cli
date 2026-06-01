@@ -175,22 +175,6 @@ dependencies = [
 
 [[package]]
 name = "animus-subject-protocol"
-version = "0.1.0"
-dependencies = [
- "animus-plugin-protocol 0.1.0",
- "anyhow",
- "async-trait",
- "chrono",
- "futures-core",
- "schemars 1.2.1",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "animus-subject-protocol"
 version = "0.1.13"
 source = "git+https://github.com/launchapp-dev/animus-protocol?tag=v0.1.13#1dc37a0db952e3805a28a904b9f6120837584752"
 dependencies = [
@@ -2566,6 +2550,7 @@ dependencies = [
 name = "protocol"
 version = "0.1.0"
 dependencies = [
+ "animus-subject-protocol 0.1.14",
  "anyhow",
  "chrono",
  "dirs 6.0.0",

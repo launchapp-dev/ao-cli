@@ -174,7 +174,7 @@ mod tests {
     use std::sync::Mutex;
 
     use protocol::orchestrator::WorkflowSubject;
-    use protocol::SubjectDispatch;
+    use protocol::{SubjectDispatch, SubjectDispatchExt};
     use serde_json::json;
 
     use super::build_runner_command_from_dispatch;

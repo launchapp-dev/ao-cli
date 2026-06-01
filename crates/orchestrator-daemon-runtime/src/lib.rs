@@ -32,7 +32,7 @@ pub use log_storage::{
     log_storage_disable_env_set, resolve_log_storage_dispatch, spawn_log_storage_supervisor, LogStorageDispatch,
     LogStorageHandle, LogStorageResolution, LogStorageSupervisorOutcome, LOG_STORAGE_DISABLE_ENV,
 };
-pub use protocol::{RunnerEvent, SubjectDispatch, SubjectExecutionFact};
+pub use protocol::{RunnerEvent, SubjectDispatch, SubjectDispatchExt, SubjectExecutionFact};
 pub use queue::{
     dispatch_queue_state_path, drop_subject, enqueue_subject_dispatch, hold_subject, load_dispatch_queue_state,
     mark_dispatch_queue_entry_assigned, queue_snapshot, queue_stats, release_subject,

@@ -11,7 +11,7 @@ use orchestrator_daemon_runtime::{
     drop_subject, enqueue_subject_dispatch, hold_subject, queue_snapshot, queue_stats, release_subject,
     reorder_subjects,
 };
-use protocol::SubjectDispatch;
+use protocol::{SubjectDispatch, SubjectDispatchExt};
 
 use super::ops_workflow::resolve_requirement_workflow_ref;
 use crate::{print_ok, print_value, QueueCommand};

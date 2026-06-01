@@ -25,7 +25,9 @@ Do not keep outdated counts or removed crates alive in docs.
 
 Rust Cargo workspace with the current members listed below. Main binary: `animus` (`crates/orchestrator-cli`). The
 web stack (transport + UI) lives in external plugins under
-[`launchapp-dev`](https://github.com/launchapp-dev).
+[`launchapp-dev`](https://github.com/launchapp-dev). The workspace also depends
+on external protocol crates from that repo, including
+`animus-subject-protocol` at `v0.5.0`.
 
 Current workspace members from `Cargo.toml`:
 
@@ -34,7 +36,6 @@ crates/
 ├── agent-runner/                # Runner process that launches and supervises AI CLIs
 ├── animus-plugin-protocol/      # In-tree stdio plugin protocol types
 ├── animus-plugin-runtime/       # Runtime helpers for plugin implementations
-├── animus-subject-protocol/     # Subject backend trait and normalized subject schema
 ├── oai-runner/                  # OpenAI-compatible runner implementation
 ├── orchestrator-cli/            # Main `animus` binary
 ├── orchestrator-config/         # Workflow, pack, and template config loading
@@ -53,6 +54,7 @@ crates/
 
 Repo-local but not current workspace members:
 
+- `crates/animus-subject-protocol/`
 - `crates/animus-plugin-smoke/`
 - `crates/animus-provider-mock/`
 - `crates/orchestrator-web-server/`
@@ -111,6 +113,8 @@ Scoped runtime state in `~/.animus/<repo-scope>/`:
 - `config/`
 - `daemon/`
 - `docs/`
+- `logs/`
+- `runner/`
 - `state/`
 - `worktrees/`
 

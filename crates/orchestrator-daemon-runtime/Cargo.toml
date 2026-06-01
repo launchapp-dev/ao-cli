@@ -47,6 +47,7 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 tracing = "0.1"
 uuid = { version = "1", features = ["v4"] }
 workflow-runner-v2 = { path = "../workflow-runner-v2" }
+agent-runner = { path = "../agent-runner" }
 
 [dev-dependencies]
 protocol = { workspace = true, features = ["test-utils"] }

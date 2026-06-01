@@ -144,8 +144,11 @@ impl Runner {
                 "Routing agent run through decision-log replay (production model bypassed)"
             );
             let run_id_for_task = run_id.clone();
+            let consumer_provider = resolve_request_provider_id(&req);
             tokio::spawn(async move {
-                let terminal_status = drive_replay(replay_path, run_id_for_task.clone(), run_event_tx, cancel_rx).await;
+                let terminal_status =
+                    drive_replay(replay_path, run_id_for_task.clone(), consumer_provider, run_event_tx, cancel_rx)
+                        .await;
                 if cleanup_tx.send(CleanupMessage { run_id: run_id_for_task.clone(), terminal_status }).await.is_err() {
                     warn!(run_id = %run_id_for_task.0.as_str(), "Failed to enqueue cleanup for replayed run");
                 }
@@ -307,6 +310,7 @@ fn resolve_replay_path(req: &AgentRunRequest) -> Option<std::path::PathBuf> {
 async fn drive_replay(
     path: std::path::PathBuf,
     run_id: RunId,
+    consumer_provider: Option<String>,
     event_tx: mpsc::Sender<AgentRunEvent>,
     mut cancel_rx: oneshot::Receiver<()>,
 ) -> AgentStatus {
@@ -324,6 +328,17 @@ async fn drive_replay(
             return AgentStatus::Failed;
         }
     };
+    if let Some(expected) = consumer_provider.as_deref() {
+        if let Err(err) = source.require_provider(expected) {
+            let _ = event_tx
+                .send(AgentRunEvent::Error {
+                    run_id: run_id.clone(),
+                    error: format!("Replay session provider guard rejected request: {}", err),
+                })
+                .await;
+            return AgentStatus::Failed;
+        }
+    }
     let truncated = source.truncated_tail();
     let events = source.drain();
 
@@ -380,7 +395,8 @@ async fn drive_replay(
 
 fn build_decision_recorder(req: &AgentRunRequest, run_id: &RunId) -> Option<Recorder> {
     let project_root = req.context.get("project_root").and_then(|v| v.as_str())?;
-    let recorder = match Recorder::for_run(project_root, &run_id.0) {
+    let durability = recorder_durability_from_env();
+    let recorder = match Recorder::for_run_with_durability(project_root, &run_id.0, durability) {
         Ok(Some(rec)) => rec,
         Ok(None) => return None,
         Err(err) => {
@@ -393,6 +409,18 @@ fn build_decision_recorder(req: &AgentRunRequest, run_id: &RunId) -> Option<Reco
         }
     };
 
+    // Emit the cross-provider session header FIRST so ReplaySource can
+    // refuse mismatched-provider replays.
+    let provider_id = resolve_request_provider_id(req).unwrap_or_else(|| "unknown".to_string());
+    let header = crate::recording::DecisionEvent::session_header(provider_id, req.model.0.as_str());
+    if let Err(err) = recorder.record(&header) {
+        warn!(
+            run_id = %run_id.0.as_str(),
+            error = %err,
+            "Failed to record session header"
+        );
+    }
+
     let prompt_text = req.context.get("prompt").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let runtime_contract = req.context.get("runtime_contract").cloned();
     let prompt_event = DecisionEvent::prompt(req.model.0.as_str(), prompt_text, runtime_contract);
@@ -404,6 +432,46 @@ fn build_decision_recorder(req: &AgentRunRequest, run_id: &RunId) -> Option<Reco
         );
     }
     Some(recorder)
+}
+
+/// Resolve the provider id used for the cross-provider replay guard.
+///
+/// Mirrors [`Supervisor`]'s actual launch precedence (codex round-4 P2):
+/// 1. `context.runtime_contract.cli.name`
+/// 2. `context.tool`
+/// 3. The supervisor's `"claude"` fallback (only when both overrides are
+///    absent). We do NOT consult the model id — Supervisor doesn't either,
+///    so deriving from `tool_for_model_id` would tag the recording with a
+///    different provider than the actually-launched CLI.
+fn resolve_request_provider_id(req: &AgentRunRequest) -> Option<String> {
+    if let Some(name) = req
+        .context
+        .pointer("/runtime_contract/cli/name")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return Some(name.to_string());
+    }
+    if let Some(tool) = req.context.get("tool").and_then(|v| v.as_str()).map(str::trim).filter(|s| !s.is_empty()) {
+        return Some(tool.to_string());
+    }
+    // Supervisor falls back to `claude` here; the guard MUST agree so
+    // recordings and consumer-side require_provider stay in lockstep.
+    Some("claude".to_string())
+}
+
+fn recorder_durability_from_env() -> crate::recording::Durability {
+    use crate::recording::Durability;
+    match std::env::var("ANIMUS_RECORDER_DURABILITY").ok().as_deref() {
+        Some("flush_only") => Durability::FlushOnly,
+        Some("fsync_per_event") => Durability::FsyncPerEvent,
+        Some(other) if other.starts_with("fsync_every_") => {
+            let n_str = other.trim_start_matches("fsync_every_");
+            n_str.parse::<usize>().map(Durability::FsyncEveryN).unwrap_or_else(|_| Durability::production_default())
+        }
+        _ => Durability::production_default(),
+    }
 }
 
 fn decision_event_from_agent_event(event: &AgentRunEvent) -> Option<DecisionEvent> {
@@ -593,6 +661,53 @@ mod tests {
     fn normalize_runner_build_id_rejects_empty_values() {
         assert_eq!(normalize_runner_build_id(Some("   ".to_string())), None);
         assert_eq!(normalize_runner_build_id(None), None);
+    }
+
+    #[test]
+    fn resolve_request_provider_id_prefers_runtime_contract_cli_name_over_tool() {
+        use protocol::{AgentRunRequest, ModelId, PROTOCOL_VERSION};
+        // Supervisor: runtime_contract.cli.name beats context.tool. The
+        // guard must agree (codex round-4 P2).
+        let req = AgentRunRequest {
+            protocol_version: PROTOCOL_VERSION.to_string(),
+            run_id: RunId("r".to_string()),
+            model: ModelId("claude-sonnet-4-6".to_string()),
+            context: serde_json::json!({
+                "tool": "codex",
+                "runtime_contract": {"cli": {"name": "gemini"}}
+            }),
+            timeout_secs: None,
+        };
+        assert_eq!(resolve_request_provider_id(&req).as_deref(), Some("gemini"));
+    }
+
+    #[test]
+    fn resolve_request_provider_id_uses_context_tool_when_runtime_contract_absent() {
+        use protocol::{AgentRunRequest, ModelId, PROTOCOL_VERSION};
+        let req = AgentRunRequest {
+            protocol_version: PROTOCOL_VERSION.to_string(),
+            run_id: RunId("r".to_string()),
+            model: ModelId("claude-sonnet-4-6".to_string()),
+            context: serde_json::json!({"tool": "codex"}),
+            timeout_secs: None,
+        };
+        assert_eq!(resolve_request_provider_id(&req).as_deref(), Some("codex"));
+    }
+
+    #[test]
+    fn resolve_request_provider_id_defaults_to_claude_when_no_override() {
+        use protocol::{AgentRunRequest, ModelId, PROTOCOL_VERSION};
+        // Supervisor's `.unwrap_or("claude")` is the final fallback; the
+        // guard returns the same default so recording and consumer sides
+        // agree even for requests with neither override set.
+        let req = AgentRunRequest {
+            protocol_version: PROTOCOL_VERSION.to_string(),
+            run_id: RunId("r".to_string()),
+            model: ModelId("claude-sonnet-4-6".to_string()),
+            context: serde_json::json!({}),
+            timeout_secs: None,
+        };
+        assert_eq!(resolve_request_provider_id(&req).as_deref(), Some("claude"));
     }
 
     #[tokio::test(flavor = "current_thread")]

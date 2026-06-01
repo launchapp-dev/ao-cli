@@ -1,6 +1,11 @@
 # MCP Tools Reference
 
-All MCP tools exposed by `animus mcp serve`. These tools allow AI agents to interact with the Animus orchestrator over the Model Context Protocol. Each tool wraps an `animus` CLI command, accepting JSON input and returning structured results.
+All MCP tools exposed by `animus mcp serve`. The current top-level server
+registers 77 built-in tools across daemon, queue, agent, output, runner,
+workflow, plugin, skill, subject, logs, and top-level memory families. These
+tools allow AI agents to interact with the Animus orchestrator over the Model
+Context Protocol. Each tool wraps an `animus` CLI command, accepting JSON input
+and returning structured results.
 
 Most project-scoped tools accept an optional `project_root` parameter to override
 the server default. Marketplace tools may omit `project_root` because they

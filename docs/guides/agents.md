@@ -7,7 +7,7 @@ For the full parameter table, see [MCP Tools Reference](../reference/mcp-tools.m
 
 ## Overview
 
-Animus currently exposes **76 built-in MCP tools** across these families:
+Animus currently exposes **77 built-in MCP tools** across these families:
 
 | Group | Tools | Purpose |
 |---|---:|---|
@@ -30,7 +30,7 @@ such as `animus.plugin.install` and `animus.plugin.uninstall` can still take
 the target repo when present.
 
 The total includes both the CLI-shaped `animus.agent.memory.*` wrappers and the
-top-level `animus.memory.*` document-oriented surface exposed by
+top-level `animus.memory.*` document-oriented surface composed into
 `animus mcp serve`.
 
 ## Subject Operations

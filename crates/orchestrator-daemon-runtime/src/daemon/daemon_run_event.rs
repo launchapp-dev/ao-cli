@@ -152,4 +152,41 @@ pub enum DaemonRunEvent {
         skipped: bool,
         auto_install: bool,
     },
+    /// v0.5 P2 #6.2: startup-time agent orphan scan summary. Emitted once
+    /// per daemon start after the existing workflow orphan-recovery pass,
+    /// before the daemon begins dispatching new work. Carries one
+    /// `OrphanAgentDetected` / `OrphanAgentCleanup` / `OrphanAgentRecordUnparseable`
+    /// child event already emitted via [`DaemonRunEvent::OrphanAgentDetected`],
+    /// [`DaemonRunEvent::OrphanAgentCleanup`], and
+    /// [`DaemonRunEvent::OrphanAgentRecordUnparseable`].
+    OrphanAgentScan {
+        project_root: String,
+        detected_count: usize,
+        cleaned_count: usize,
+        unparseable_count: usize,
+        unix_scan_supported: bool,
+    },
+    OrphanAgentDetected {
+        project_root: String,
+        agent_session_id: String,
+        pid: u32,
+        subject_id: String,
+        subject_kind: String,
+        workflow_ref: String,
+        task_id: Option<String>,
+        command_line: Vec<String>,
+        started_at: String,
+        record_path: String,
+    },
+    OrphanAgentCleanup {
+        project_root: String,
+        agent_session_id: String,
+        pid: u32,
+        record_path: String,
+    },
+    OrphanAgentRecordUnparseable {
+        project_root: String,
+        record_path: String,
+        error: String,
+    },
 }

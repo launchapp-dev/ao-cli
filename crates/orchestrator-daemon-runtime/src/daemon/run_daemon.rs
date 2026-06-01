@@ -227,6 +227,8 @@ where
                 orphaned_workflows_recovered: startup_orphans,
             })?;
         }
+
+        emit_orphan_agent_scan_events(project_root, &primary_root, hooks)?;
     }
 
     discover_plugins_for_daemon(project_root, &primary_root, hooks)?;
@@ -622,6 +624,57 @@ async fn start_control_server_for_daemon<H: DaemonRunHooks>(
             None
         }
     }
+}
+
+fn emit_orphan_agent_scan_events<H: DaemonRunHooks>(
+    project_root: &str,
+    primary_root: &str,
+    hooks: &mut H,
+) -> Result<()> {
+    let unix_supported = cfg!(unix);
+    let report = crate::dispatch::agent_record::scan_orphans_for_project(Path::new(project_root)).unwrap_or_default();
+
+    for detected in &report.detected {
+        hooks.handle_event(DaemonRunEvent::OrphanAgentDetected {
+            project_root: primary_root.to_string(),
+            agent_session_id: detected.agent_session_id.clone(),
+            pid: detected.pid,
+            subject_id: detected.subject_id.clone(),
+            subject_kind: detected.subject_kind.clone(),
+            workflow_ref: detected.workflow_ref.clone(),
+            task_id: detected.task_id.clone(),
+            command_line: detected.command_line.clone(),
+            started_at: detected.started_at.clone(),
+            record_path: detected.record_path.display().to_string(),
+        })?;
+    }
+
+    for cleaned in &report.cleaned {
+        hooks.handle_event(DaemonRunEvent::OrphanAgentCleanup {
+            project_root: primary_root.to_string(),
+            agent_session_id: cleaned.agent_session_id.clone(),
+            pid: cleaned.pid,
+            record_path: cleaned.record_path.display().to_string(),
+        })?;
+    }
+
+    for unparseable in &report.unparseable {
+        hooks.handle_event(DaemonRunEvent::OrphanAgentRecordUnparseable {
+            project_root: primary_root.to_string(),
+            record_path: unparseable.path.display().to_string(),
+            error: unparseable.error.clone(),
+        })?;
+    }
+
+    hooks.handle_event(DaemonRunEvent::OrphanAgentScan {
+        project_root: primary_root.to_string(),
+        detected_count: report.detected.len(),
+        cleaned_count: report.cleaned.len(),
+        unparseable_count: report.unparseable.len(),
+        unix_scan_supported: unix_supported,
+    })?;
+
+    Ok(())
 }
 
 fn discover_plugins_for_daemon<H: DaemonRunHooks>(project_root: &str, primary_root: &str, hooks: &mut H) -> Result<()> {

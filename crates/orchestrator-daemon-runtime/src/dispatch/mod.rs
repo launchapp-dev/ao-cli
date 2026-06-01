@@ -1,4 +1,4 @@
-mod agent_record;
+pub mod agent_record;
 mod build_runner_command_from_dispatch;
 mod completed_process;
 

@@ -10,7 +10,9 @@ use orchestrator_core::{
     dispatch_workflow_event, register_workflow_runner_pid, services::ServiceHub, unregister_workflow_runner_pid,
     WorkflowEvent,
 };
-use workflow_runner_v2::workflow_execute::{execute_workflow, WorkflowExecuteParams};
+use animus_workflow_runner_protocol as workflow_proto;
+
+use crate::services::plugin_clients;
 
 use super::config::{manual_approvals_path, title_case_phase_id};
 use super::emit_daemon_event;
@@ -267,9 +269,15 @@ pub(crate) async fn approve_manual_phase(
 
     let mut continued_execution = None;
     if outcome.requires_continuation {
-        let continuation = match execute_workflow(WorkflowExecuteParams {
-            project_root: project_root.to_string(),
+        // v0.5.1 fold-in: continuation routes through the
+        // `workflow_runner` plugin (workflow/execute with the
+        // existing workflow_id). The in-tree continuation path was
+        // removed; the plugin owns workflow execution after the
+        // manual approval lands.
+        let plugin_request = workflow_proto::WorkflowExecuteRequest {
             workflow_id: Some(updated.id.clone()),
+            subject_dispatch: None,
+            subject_ref: None,
             task_id: None,
             requirement_id: None,
             title: None,
@@ -281,15 +289,32 @@ pub(crate) async fn approve_manual_phase(
             tool: None,
             phase_timeout_secs: None,
             phase_filter: None,
-            on_phase_event: None,
-            hub: Some(hub.clone()),
             phase_routing: None,
             mcp_config: None,
-            workflow_event_emitter: None,
-        })
-        .await
-        {
-            Ok(result) => result,
+        };
+        let project_root_path = Path::new(project_root);
+        let continuation_outcome =
+            plugin_clients::call_workflow_execute(project_root_path, &plugin_request).await;
+        let continuation = match continuation_outcome {
+            Ok(Some(result)) => result,
+            Ok(None) => {
+                if let Ok(reloaded) = hub.workflows().get(workflow_id).await {
+                    project_terminal_workflow_result(
+                        hub.clone(),
+                        project_root,
+                        reloaded.subject.id(),
+                        Some(reloaded.task_id.as_str()),
+                        reloaded.workflow_ref.as_deref(),
+                        Some(reloaded.id.as_str()),
+                        reloaded.status,
+                        reloaded.failure_reason.as_deref(),
+                    )
+                    .await;
+                }
+                return Err(anyhow!(
+                    "no workflow_runner plugin installed - manual approval continuation requires                      `launchapp-dev/animus-workflow-runner-default`; install with `animus plugin install-defaults`"
+                ));
+            }
             Err(error) => {
                 if let Ok(reloaded) = hub.workflows().get(workflow_id).await {
                     project_terminal_workflow_result(

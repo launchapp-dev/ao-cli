@@ -1,7 +1,6 @@
 use super::*;
 use orchestrator_daemon_runtime::{
-    execute_dispatch_plan_via_runner, load_dispatch_queue_state, DispatchNoticeSink, DispatchQueueEntryStatus,
-    DispatchSelectionSource, PlannedDispatchStart,
+    execute_dispatch_plan_via_runner, DispatchNoticeSink, DispatchSelectionSource, PlannedDispatchStart,
 };
 pub use orchestrator_daemon_runtime::{DispatchNotice, DispatchWorkflowStartSummary};
 use tracing::warn;
@@ -16,73 +15,23 @@ pub async fn dispatch_queued_entries_via_runner(
 ) -> anyhow::Result<DispatchWorkflowStartSummary> {
     let active_subject_ids = process_manager.active_subject_ids();
 
-    // Wave 3 follow-up (issue #240): atomic dispatch via `queue/lease`.
-    // When a v0.5 queue plugin is installed it owns the queue. The
-    // dispatch path previously read pending entries via `queue/list`
-    // and claimed them post-spawn with `queue/mark_assigned`, leaving
-    // a small window between read and claim that another daemon (which
-    // v0.5 explicitly does not support) could exploit to double-claim.
-    //
-    // `queue/lease { max, workflow_ids: None }` reads + transitions
-    // pending → assigned atomically and returns the full
-    // `QueueEntry` with `SubjectDispatch` and the plugin-synthesized
-    // `workflow_id`. We lease at most `limit` entries (matching the
-    // upstream `ready_dispatch_limit`, which already nets out
-    // pool_size and active_agents) and dispatch every one we lease.
-    //
-    // The v0.5 queue protocol exposes `queue/release_pending` (v0.2.0+)
-    // so leased entries the daemon can't dispatch this tick are returned
-    // to Pending instead of cancelled. `queue/completion(cancelled)`
-    // is reserved for genuine subject-completion-with-cancellation
-    // (operator-initiated).
-    // We:
-    //   1. Lease exactly `limit` entries. Headroom upstream guarantees
-    //      we have spawn capacity for them.
-    //   2. Plan the dispatch for every leased entry. When the active-
-    //      subject defensive filter trips on a leased entry, return it
-    //      via queue/release_pending so it remains in Pending for the
-    //      next tick.
-    //   3. After `execute_dispatch_plan_via_runner` returns, close
-    //      spawn-failed entries via queue/completion(failed).
-    //
-    // Falls back to the in-tree `load_dispatch_queue_state` when no
-    // plugin is installed. The in-tree path stays per Wave 3 "Out of
-    // scope".
+    // v0.5.1 fold-in: queue ownership lives exclusively on the
+    // `queue` plugin role. Daemon preflight refuses to start without
+    // it, so the in-tree fallback was removed. `queue/lease` reads +
+    // transitions pending -> assigned atomically; failures defer
+    // dispatch to the next tick rather than degrading to a local
+    // store that no longer mirrors the plugin's view.
     let mut planned_starts: Vec<PlannedDispatchStart> = Vec::new();
     let mut plugin_owned_subject_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
-    // Track `entry_id` per planned start in dispatch order so we can
-    // finalize claims by entry on spawn failure via
-    // `queue/completion(failed)`. Keying by subject_key would lose
-    // disambiguation when the queue holds multiple entries for the
-    // same subject (e.g. queued under different workflow_refs).
     let mut leased_entry_ids: Vec<String> = Vec::new();
     let mut undecodable_entry_ids: Vec<String> = Vec::new();
-    // Stranded-on-purpose entries: leased but cannot be dispatched
-    // this tick (active subject). Returned to Pending via
-    // queue/release_pending (v0.5.1+); older queue plugins fall back
-    // to queue/completion(cancelled) so the entry is at least pruned.
     let mut stranded_entry_ids: Vec<String> = Vec::new();
-    let mut used_plugin_path = false;
     let project_root_path = std::path::Path::new(root);
 
-    // Lease atomically. Pass `workflow_ids = None` so the plugin
-    // synthesizes UUIDs; the daemon's `start_subject_workflow` produces
-    // its own workflow id post-spawn, and only that id is the
-    // authoritative one for the run.
     let lease_req = QueueLeaseRequest { max: limit, workflow_ids: None };
     match plugin_clients::call_queue_lease(project_root_path, &lease_req).await {
         Ok(Some(response)) => {
-            used_plugin_path = true;
             for entry in response.leased {
-                // Wire-equivalent: the plugin returns the v0.5
-                // `animus_subject_protocol::SubjectDispatch` whose JSON
-                // shape matches the v0.1.13-pinned
-                // `animus_subject_protocol_wire::SubjectDispatch`
-                // byte-for-byte (preserved by Wave 1 re-homing). Re-encode
-                // the value through `protocol::SubjectDispatch` (which
-                // re-exports the v0.5 type) to remain compatible with the
-                // rest of the dispatch loop without forcing a full
-                // subject-protocol version migration in v0.5.
                 let dispatch_value = match serde_json::to_value(&entry.subject_dispatch) {
                     Ok(v) => v,
                     Err(error) => {
@@ -121,24 +70,18 @@ pub async fn dispatch_queued_entries_via_runner(
             }
         }
         Ok(None) => {
-            // No queue plugin installed — fall through to in-tree state.
+            warn!(
+                actor = protocol::ACTOR_DAEMON,
+                "queue plugin not installed; deferring dispatch (install with `animus plugin install-defaults`)"
+            );
+            return Ok(DispatchWorkflowStartSummary::default());
         }
         Err(error) => {
-            // queue/lease is mutating: the plugin may have already
-            // transitioned entries to Assigned before the host saw the
-            // timeout / decode error / shutdown. Do NOT fall back to
-            // the in-tree state — those claimed plugin entries would
-            // be invisible to the local file and stranded forever.
-            // Surface the failure and emit an empty dispatch summary
-            // for this tick; the next tick will retry the plugin
-            // path.
             warn!(actor = protocol::ACTOR_DAEMON, error = %error, "queue plugin queue/lease failed; deferring dispatch to next tick to avoid stranding claimed entries");
-            used_plugin_path = true;
+            return Ok(DispatchWorkflowStartSummary::default());
         }
     }
 
-    // Close entries with undecodable dispatch envelopes as failed —
-    // the dispatch payload is corrupt; there is nothing to re-run.
     for entry_id in &undecodable_entry_ids {
         let req = QueueCompletionRequest {
             entry_id: entry_id.clone(),
@@ -156,22 +99,6 @@ pub async fn dispatch_queued_entries_via_runner(
         }
     }
 
-    // Return entries the lease claimed for already-active subjects to
-    // Pending so they are re-tried on a future tick. v0.5.1 / queue
-    // plugin v0.2.0 added `queue/release_pending` for exactly this
-    // case. Older queue plugins (v0.1.x) still satisfy the
-    // `queue` plugin role at preflight but do not implement
-    // `release_pending`; for those installations we fall back to
-    // queue/completion(cancelled) so the entry is at least pruned
-    // rather than stranded as Assigned.
-    //
-    // TODO(codex-p2): under strict FIFO and low headroom (e.g.
-    // pool_size=1) the released entry stays at the head and can be
-    // re-leased on the next tick before unrelated entries behind it,
-    // causing head-of-line blocking until the active workflow
-    // finishes. Tracked as a v0.6 queue-protocol enhancement
-    // (release_pending should accept an optional reorder-to-back or
-    // cooldown hint).
     for entry_id in &stranded_entry_ids {
         let release_result =
             plugin_clients::call_queue_release_pending(project_root_path, entry_id, "active-subject-already-running")
@@ -179,10 +106,6 @@ pub async fn dispatch_queued_entries_via_runner(
         let Err(error) = release_result else {
             continue;
         };
-        // anyhow wraps the underlying JSON-RPC HostError in context; walk the
-        // chain so we still see `-32601` / "method not found" coming from the
-        // queue plugin's response when an older v0.1.x build doesn't implement
-        // queue/release_pending.
         let chain_text = error.chain().map(|c| c.to_string()).collect::<Vec<_>>().join(" | ");
         let is_method_not_found =
             chain_text.contains("-32601") || chain_text.to_lowercase().contains("method not found");
@@ -200,11 +123,6 @@ pub async fn dispatch_queued_entries_via_runner(
                 "queue plugin queue/release_pending (active-subject collision) failed; falling back to queue/completion(cancelled) so the leased entry is not stranded as Assigned"
             );
         }
-        // Defensive fallback for both method-not-found and any other
-        // release_pending failure: queue/lease already transitioned the
-        // entry to Assigned, so failing to release it would strand the
-        // work forever. Cancellation prunes the entry; operators can
-        // re-enqueue if needed.
         let req = QueueCompletionRequest {
             entry_id: entry_id.clone(),
             status: queue_proto::completion_status::CANCELLED.to_string(),
@@ -221,62 +139,9 @@ pub async fn dispatch_queued_entries_via_runner(
         }
     }
 
-    if !used_plugin_path {
-        let queue_state = match load_dispatch_queue_state(root) {
-            Ok(state) => state,
-            Err(error) => {
-                warn!(
-                    actor = protocol::ACTOR_DAEMON,
-                    error = %error,
-                    "failed to load dispatch queue state"
-                );
-                return Ok(DispatchWorkflowStartSummary::default());
-            }
-        };
-
-        let Some(queue_state) = queue_state else {
-            return Ok(DispatchWorkflowStartSummary::default());
-        };
-
-        for entry in &queue_state.entries {
-            if planned_starts.len() >= limit {
-                break;
-            }
-            if entry.status != DispatchQueueEntryStatus::Pending {
-                continue;
-            }
-            let Some(dispatch) = &entry.dispatch else {
-                continue;
-            };
-            if active_subject_ids.contains(&dispatch.subject_key()) {
-                continue;
-            }
-
-            planned_starts.push(PlannedDispatchStart {
-                dispatch: dispatch.clone(),
-                selection_source: DispatchSelectionSource::DispatchQueue,
-            });
-        }
-    }
-
     let mut notice_sink = CliDispatchNoticeSink { plugin_owned_subject_keys: plugin_owned_subject_keys.clone() };
     let summary = execute_dispatch_plan_via_runner(root, process_manager, &planned_starts, limit, &mut notice_sink);
 
-    // Finalize entries whose spawn failed. Lease already transitioned
-    // every dispatched entry to Assigned atomically; queue/release
-    // can't undo Assigned → Pending (protocol), so we close the
-    // failed-spawn entries with queue/completion(failed). The subject
-    // can be re-enqueued by the caller (or via the usual scheduled
-    // path) if it should still run.
-    //
-    // Matching is by leased_entry_ids[i] ↔ planned_starts[i] index
-    // (we pushed them in lockstep), then by subject_key against the
-    // post-spawn started_workflows summary. This handles the case of
-    // multiple dispatchable entries per subject correctly — even if a
-    // later entry succeeds where an earlier failed (currently we
-    // dedupe by subject_key during planning, so at most one entry per
-    // subject_key reaches planned_starts; the index pair stays
-    // unambiguous).
     if !leased_entry_ids.is_empty() {
         let started_keys: std::collections::HashSet<String> =
             summary.started_workflows.iter().map(|s| s.dispatch.subject_key()).collect();
@@ -309,11 +174,6 @@ pub async fn dispatch_queued_entries_via_runner(
 }
 
 struct CliDispatchNoticeSink {
-    /// Subject keys whose queue ownership lives on the v0.5 queue plugin.
-    /// `execute_dispatch_plan_via_runner` always tries to mark the
-    /// dispatched entry assigned in the in-tree queue file; when the
-    /// plugin owns the queue that call is expected to be a no-op (entry
-    /// is not in the in-tree file) and should not surface as a warning.
     plugin_owned_subject_keys: std::collections::HashSet<String>,
 }
 
@@ -322,10 +182,6 @@ impl DispatchNoticeSink for CliDispatchNoticeSink {
         match notice {
             DispatchNotice::QueueAssignmentFailed { dispatch, error } => {
                 if self.plugin_owned_subject_keys.contains(&dispatch.subject_key()) {
-                    // Already marked assigned on the queue plugin before
-                    // we ever pushed this entry to planned_starts;
-                    // in-tree mark_dispatch_queue_entry_assigned has
-                    // nothing to do.
                     return;
                 }
                 warn!(

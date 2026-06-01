@@ -1,6 +1,7 @@
 use crate::cli_types::DaemonRunArgs;
 use crate::services::operations::{
-    build_agent_routing, build_plugin_routing, build_workflow_routing, run_plugin_install, PluginInstallRequest,
+    build_agent_routing, build_plugin_routing, build_queue_routing, build_workflow_routing, run_plugin_install,
+    PluginInstallRequest,
 };
 use crate::services::runtime::runtime_daemon::build_daemon_ops_routing;
 use crate::services::runtime::runtime_daemon::daemon_reconciliation::recover_orphaned_running_workflows;
@@ -571,6 +572,7 @@ struct CliDaemonRunHost {
     plugin_routing: Arc<dyn PluginRouting>,
     daemon_ops_routing: Arc<dyn DaemonOpsRouting>,
     workflow_routing: Arc<dyn WorkflowRouting>,
+    queue_routing: Arc<dyn QueueRouting>,
     agent_routing: Arc<dyn AgentRouting>,
 }
 
@@ -580,6 +582,7 @@ impl CliDaemonRunHost {
         let plugin_routing = build_plugin_routing(project_root_path.clone());
         let daemon_ops_routing = build_daemon_ops_routing(project_root_path.clone(), SystemTime::now());
         let workflow_routing = build_workflow_routing(project_root_path.clone());
+        let queue_routing = build_queue_routing(project_root_path.clone());
         let agent_routing = build_agent_routing(project_root_path);
         let installer = Arc::new(CliPluginInstaller::new(project_root));
         Self {
@@ -589,6 +592,7 @@ impl CliDaemonRunHost {
             plugin_routing,
             daemon_ops_routing,
             workflow_routing,
+            queue_routing,
             agent_routing,
         }
     }
@@ -663,11 +667,7 @@ impl DaemonRunHooks for CliDaemonRunHost {
     }
 
     fn queue_routing(&self) -> Option<Arc<dyn QueueRouting>> {
-        // v0.5.1 fold-in: the in-tree QueueRouting impl was deleted.
-        // Wire callers must talk to the queue plugin directly via
-        // animus-queue-protocol RPCs; daemon-side `queue/*` returns
-        // NotSupported.
-        None
+        Some(self.queue_routing.clone())
     }
 
     fn agent_routing(&self) -> Option<Arc<dyn AgentRouting>> {

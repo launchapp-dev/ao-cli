@@ -34,10 +34,9 @@ pub use log_storage::{
 };
 pub use protocol::{RunnerEvent, SubjectDispatch, SubjectDispatchExt, SubjectExecutionFact};
 pub use queue::{
-    dispatch_queue_state_path, drop_subject, enqueue_subject_dispatch, hold_subject, load_dispatch_queue_state,
-    mark_dispatch_queue_entry_assigned, queue_snapshot, queue_stats, release_subject,
-    remove_terminal_dispatch_queue_entry_non_fatal, reorder_subjects, save_dispatch_queue_state, DispatchQueueEntry,
-    DispatchQueueEntryStatus, DispatchQueueState, QueueEnqueueResult, QueueEntrySnapshot, QueueSnapshot, QueueStats,
+    dispatch_queue_state_path, load_dispatch_queue_state, mark_dispatch_queue_entry_assigned,
+    remove_terminal_dispatch_queue_entry_non_fatal, save_dispatch_queue_state, DispatchQueueEntry,
+    DispatchQueueEntryStatus, DispatchQueueState,
 };
 pub use quotas::{install_runtime_quotas, runtime_quotas, RuntimeQuotas};
 pub use schedule::{

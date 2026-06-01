@@ -1,3 +1,7 @@
+mod control_routing;
+
+pub(crate) use control_routing::build_queue_routing;
+
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};

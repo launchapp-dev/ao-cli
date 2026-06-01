@@ -88,7 +88,7 @@ bounded fetch for recent entries, not a live stream.
 
 ## Workflow Operations (16 tools)
 
-### Runtime Tools (9)
+### Runtime & Inspection Tools (11)
 
 | Tool | Description | Key Parameters |
 |---|---|---|
@@ -100,18 +100,13 @@ bounded fetch for recent entries, not a live stream.
 | `animus.workflow.pause` | Pause a running workflow | `id`, `confirm`, `dry_run`, `project_root` |
 | `animus.workflow.cancel` | Cancel a running workflow permanently | `id`, `confirm`, `dry_run`, `project_root` |
 | `animus.workflow.resume` | Resume a paused workflow | `id`, `project_root` |
+| `animus.workflow.decisions` | List decisions made during workflow execution | `id`, `limit`, `offset`, `max_tokens`, `project_root` |
+| `animus.workflow.checkpoints.list` | List saved workflow state checkpoints | `id`, `limit`, `offset`, `max_tokens`, `project_root` |
 | `animus.workflow.phase.approve` | Approve a gated workflow phase | `workflow_id`, `phase_id` (alias: `phase`), `feedback` (alias: `note`), `project_root` |
 
 `animus workflow phase reject` exists in the CLI, but there is currently no
 matching built-in MCP tool. MCP callers can approve pending gates, but gate
 rejection remains a CLI-only action.
-
-### Decision & Checkpoint Tools (2)
-
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `animus.workflow.decisions` | List decisions made during workflow execution | `id`, `limit`, `offset`, `max_tokens`, `project_root` |
-| `animus.workflow.checkpoints.list` | List saved workflow state checkpoints | `id`, `limit`, `offset`, `max_tokens`, `project_root` |
 
 ### Definition Tools (5)
 

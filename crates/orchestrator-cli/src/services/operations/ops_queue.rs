@@ -136,10 +136,7 @@ pub(crate) async fn handle_queue(
                 }
                 return Err(anyhow!("queue subject not found or not pending"));
             }
-            print_value(
-                serde_json::json!({ "held": held, "subject_id": args.subject_id, "via": "plugin_host" }),
-                true,
-            )
+            print_value(serde_json::json!({ "held": held, "subject_id": args.subject_id, "via": "plugin_host" }), true)
         }
         QueueCommand::Release(args) => {
             let result = try_queue_release_via_plugin(project_root, &args.subject_id)

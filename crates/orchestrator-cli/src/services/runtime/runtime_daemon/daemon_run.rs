@@ -1,7 +1,6 @@
 use crate::cli_types::DaemonRunArgs;
 use crate::services::operations::{
-    build_agent_routing, build_plugin_routing, build_workflow_routing, run_plugin_install,
-    PluginInstallRequest,
+    build_agent_routing, build_plugin_routing, build_workflow_routing, run_plugin_install, PluginInstallRequest,
 };
 use crate::services::runtime::runtime_daemon::build_daemon_ops_routing;
 use crate::services::runtime::runtime_daemon::daemon_reconciliation::recover_orphaned_running_workflows;

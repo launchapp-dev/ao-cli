@@ -6,11 +6,11 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use animus_workflow_runner_protocol as workflow_proto;
 use orchestrator_core::{
     dispatch_workflow_event, register_workflow_runner_pid, services::ServiceHub, unregister_workflow_runner_pid,
     WorkflowEvent,
 };
-use animus_workflow_runner_protocol as workflow_proto;
 
 use crate::services::plugin_clients;
 
@@ -293,8 +293,7 @@ pub(crate) async fn approve_manual_phase(
             mcp_config: None,
         };
         let project_root_path = Path::new(project_root);
-        let continuation_outcome =
-            plugin_clients::call_workflow_execute(project_root_path, &plugin_request).await;
+        let continuation_outcome = plugin_clients::call_workflow_execute(project_root_path, &plugin_request).await;
         let continuation = match continuation_outcome {
             Ok(Some(result)) => result,
             Ok(None) => {

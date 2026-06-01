@@ -55,7 +55,6 @@ crates/
 
 Repo-local but not current workspace members:
 
-- `crates/animus-subject-protocol/`
 - `crates/animus-plugin-smoke/`
 - `crates/animus-provider-mock/`
 - `crates/orchestrator-web-server/`
@@ -102,13 +101,13 @@ Protocol schema exports live at the repo root:
 cargo run -p animus-plugin-protocol --bin animus-plugin-protocol-export-schema
 ```
 
-`animus-subject-protocol` is no longer a workspace member. If you need to export
-its schema from the repo-local mirror, invoke Cargo with
-`--manifest-path crates/animus-subject-protocol/Cargo.toml` instead of `-p`.
+For `animus-subject-protocol` schema exports, work in the upstream
+`launchapp-dev/animus-protocol` repository — the in-tree mirror was removed
+in v0.5 in favor of the canonical git-pinned crate.
 
-These commands write to `/schemas/animus-plugin-protocol/` and
-`/schemas/animus-subject-protocol/` under the workspace root. Do not commit
-accidental crate-local output such as `crates/orchestrator-cli/schemas/`.
+These commands write to `/schemas/animus-plugin-protocol/` under the
+workspace root. Do not commit accidental crate-local output such as
+`crates/orchestrator-cli/schemas/`.
 
 ## Project Conventions
 

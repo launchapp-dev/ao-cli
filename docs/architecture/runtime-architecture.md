@@ -76,8 +76,8 @@ flowchart TB
 The workspace also depends on external `launchapp-dev/animus-protocol` crates,
 including `animus-subject-protocol` at `v0.5.0`.
 
-Repo-local but not current workspace members: `animus-subject-protocol`,
-`animus-provider-mock`, `animus-plugin-smoke`, and `orchestrator-web-server`.
+Repo-local but not current workspace members: `animus-provider-mock`,
+`animus-plugin-smoke`, and `orchestrator-web-server`.
 
 1. Parse global flags and top-level command in `orchestrator-cli`.
 2. Resolve the project root with this precedence:

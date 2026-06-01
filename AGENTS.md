@@ -54,7 +54,6 @@ crates/
 
 Repo-local but not current workspace members:
 
-- `crates/animus-subject-protocol/`
 - `crates/animus-plugin-smoke/`
 - `crates/animus-provider-mock/`
 - `crates/orchestrator-web-server/`

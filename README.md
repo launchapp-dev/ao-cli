@@ -505,7 +505,8 @@ Animus is a Rust workspace. The core crates:
 - `orchestrator-git-ops` — worktree and branch management
 - `orchestrator-notifications` — event streaming and notifications
 - `orchestrator-logging` — shared logging utilities
-- `orchestrator-plugin-host` / `animus-plugin-protocol` / `animus-subject-protocol` / `animus-plugin-runtime` — stdio plugin foundation
+- `orchestrator-plugin-host` / `animus-plugin-protocol` / `animus-plugin-runtime` — stdio plugin foundation
+- external `launchapp-dev/animus-protocol` crates, including `animus-subject-protocol` — shared published protocol surface
 - `animus-provider-mock` / `animus-plugin-smoke` — in-tree contract test fixtures for the plugin protocol
 
 See [`docs/architecture/full-system-architecture.md`](docs/architecture/full-system-architecture.md),

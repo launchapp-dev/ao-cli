@@ -1564,8 +1564,7 @@ const fn default_high_priority_budget_percent() -> u8 {
 }
 
 pub use animus_subject_protocol::{
-    SubjectDispatch, SubjectRef, WorkflowSubject, SUBJECT_KIND_CUSTOM, SUBJECT_KIND_REQUIREMENT,
-    SUBJECT_KIND_TASK,
+    SubjectDispatch, SubjectRef, WorkflowSubject, SUBJECT_KIND_CUSTOM, SUBJECT_KIND_REQUIREMENT, SUBJECT_KIND_TASK,
 };
 
 pub trait SubjectDispatchExt: Sized {
@@ -1606,7 +1605,12 @@ impl SubjectDispatchExt for SubjectDispatch {
         trigger_source: impl Into<String>,
         requested_at: DateTime<Utc>,
     ) -> Self {
-        SubjectDispatch::for_subject_with_metadata(SubjectRef::task(task_id), workflow_ref, trigger_source, requested_at)
+        SubjectDispatch::for_subject_with_metadata(
+            SubjectRef::task(task_id),
+            workflow_ref,
+            trigger_source,
+            requested_at,
+        )
     }
 
     fn for_requirement(

@@ -73,7 +73,6 @@ Plugin host + protocol:
 - `crates/orchestrator-plugin-host`
 - `crates/animus-plugin-protocol`
 - `crates/animus-plugin-runtime`
-- `crates/animus-subject-protocol`
 
 Repo-local fixtures / legacy dirs (not current workspace members):
 

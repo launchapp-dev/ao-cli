@@ -77,11 +77,13 @@ pub async fn dispatch_queued_entries_via_runner(
             for entry in response.leased {
                 // Wire-equivalent: the plugin returns the v0.5
                 // `animus_subject_protocol::SubjectDispatch` whose JSON
-                // shape matches the in-tree `protocol::SubjectDispatch`
+                // shape matches the v0.1.13-pinned
+                // `animus_subject_protocol_wire::SubjectDispatch`
                 // byte-for-byte (preserved by Wave 1 re-homing). Re-encode
-                // the value through the in-tree type to remain compatible
-                // with the rest of the dispatch loop without forcing a
-                // full subject-protocol migration in v0.5.
+                // the value through `protocol::SubjectDispatch` (which
+                // re-exports the v0.5 type) to remain compatible with the
+                // rest of the dispatch loop without forcing a full
+                // subject-protocol version migration in v0.5.
                 let dispatch_value = match serde_json::to_value(&entry.subject_dispatch) {
                     Ok(v) => v,
                     Err(error) => {
@@ -93,7 +95,7 @@ pub async fn dispatch_queued_entries_via_runner(
                 let dispatch: protocol::SubjectDispatch = match serde_json::from_value(dispatch_value) {
                     Ok(d) => d,
                     Err(error) => {
-                        warn!(actor = protocol::ACTOR_DAEMON, error = %error, "queue/lease subject_dispatch shape drift vs in-tree protocol::SubjectDispatch; closing entry as failed");
+                        warn!(actor = protocol::ACTOR_DAEMON, error = %error, "queue/lease subject_dispatch shape drift vs protocol::SubjectDispatch; closing entry as failed");
                         undecodable_entry_ids.push(entry.entry_id.clone());
                         continue;
                     }

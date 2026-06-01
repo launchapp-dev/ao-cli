@@ -49,7 +49,6 @@ for provider/session contracts and subject schema, currently through
 
 | Crate | Responsibility |
 |---|---|
-| `animus-subject-protocol` | Repo-local mirror/test fixture for the external subject protocol crate |
 | `animus-provider-mock` | Mock provider plugin for contract and e2e tests |
 | `animus-plugin-smoke` | Smoke-test plugin for host and protocol behavior |
 | `orchestrator-web-server` | Legacy in-repo web server directory retained outside the current Cargo workspace |

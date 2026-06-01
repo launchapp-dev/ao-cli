@@ -44,8 +44,8 @@ The core goals are:
 The workspace also depends on external `launchapp-dev/animus-protocol` crates,
 including `animus-subject-protocol` at `v0.5.0`.
 
-Repo-local but not current workspace members: `animus-subject-protocol`,
-`animus-provider-mock`, `animus-plugin-smoke`, and `orchestrator-web-server`.
+Repo-local but not current workspace members: `animus-provider-mock`,
+`animus-plugin-smoke`, and `orchestrator-web-server`.
 
 The release/runtime binary set is:
 

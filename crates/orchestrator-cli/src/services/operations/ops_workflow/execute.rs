@@ -59,12 +59,11 @@ pub(crate) async fn handle_workflow_execute(
     // and stays intact until the v0.5.x deletion gate per
     // docs/architecture/v0.5-execution-plan.md "Wave 3 — Out of scope".
     //
-    // Note: subject-envelope migration (protocol::SubjectDispatch →
-    // animus_subject_protocol::SubjectDispatch) is deferred — this path
-    // uses the wire-equivalent task_id / requirement_id / title / description
-    // convenience fields per the v0.5 protocol §1 envelope contract, so
-    // routing through the plugin does not require migrating the
-    // SubjectDispatch type identity.
+    // Note: `protocol::SubjectDispatch` is now a `pub use` re-export of
+    // `animus_subject_protocol::SubjectDispatch` (canonical v0.5 type), so
+    // the subject-envelope identity is already unified. This path uses the
+    // wire-equivalent task_id / requirement_id / title / description
+    // convenience fields per the v0.5 protocol §1 envelope contract.
     let plugin_input_json: Option<serde_json::Value> =
         args.input_json.as_deref().map(serde_json::from_str).transpose()?;
     let plugin_request = workflow_proto::WorkflowExecuteRequest {

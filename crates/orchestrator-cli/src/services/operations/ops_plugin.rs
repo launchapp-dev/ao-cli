@@ -261,8 +261,8 @@ pub(crate) async fn handle_plugin(command: PluginCommand, project_root: &str, js
 /// command resolve identical `(owner/repo, tag)` pairs. Bump tags in
 /// `crates/orchestrator-core/src/plugin_registry.rs`, not here.
 use orchestrator_core::plugin_registry::{
-    DEFAULT_OAI_AGENT_PLUGINS as DEFAULT_OAI_AGENT_PLUGIN, DEFAULT_PROVIDER_PLUGINS, DEFAULT_SUBJECT_PLUGINS,
-    DEFAULT_TRANSPORT_PLUGINS,
+    DEFAULT_OAI_AGENT_PLUGINS as DEFAULT_OAI_AGENT_PLUGIN, DEFAULT_PROVIDER_PLUGINS, DEFAULT_QUEUE_PLUGINS,
+    DEFAULT_SUBJECT_PLUGINS, DEFAULT_TRANSPORT_PLUGINS, DEFAULT_WORKFLOW_RUNNER_PLUGINS,
 };
 
 #[derive(Debug, Serialize)]
@@ -362,6 +362,16 @@ fn build_install_defaults_targets(args: &PluginInstallDefaultsArgs, project_root
 
     let mut targets: Vec<(String, String)> =
         DEFAULT_PROVIDER_PLUGINS.iter().map(|(s, t)| ((*s).to_string(), (*t).to_string())).collect();
+    // v0.5: workflow_runner + queue plugins are required by daemon preflight
+    // and ship as part of the curated default flavor. Install unconditionally
+    // so `animus plugin install-defaults` actually unblocks `animus daemon
+    // start` on the no-flavor-manifest path.
+    for (s, t) in DEFAULT_WORKFLOW_RUNNER_PLUGINS {
+        targets.push(((*s).to_string(), (*t).to_string()));
+    }
+    for (s, t) in DEFAULT_QUEUE_PLUGINS {
+        targets.push(((*s).to_string(), (*t).to_string()));
+    }
     if args.include_oai_agent {
         for (s, t) in DEFAULT_OAI_AGENT_PLUGIN {
             targets.push(((*s).to_string(), (*t).to_string()));

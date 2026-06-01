@@ -320,6 +320,22 @@ pub async fn call_queue_completion(
     queue_call(project_root, queue_proto::METHOD_QUEUE_COMPLETION, params).await
 }
 
+/// `queue/release_pending` — return an Assigned entry to Pending without
+/// canceling it. Used when the daemon discovers the leased subject is
+/// already being worked on by another in-flight workflow and the entry
+/// should remain queued for a future tick. Available in
+/// `animus-queue-protocol` 0.2.0 / `animus-queue-default` v0.2.0+; older
+/// plugins return JSON-RPC method-not-found.
+pub async fn call_queue_release_pending(
+    project_root: &Path,
+    entry_id: &str,
+    reason: &str,
+) -> Result<Option<queue_proto::QueueReleasePendingResponse>> {
+    let request = queue_proto::QueueReleasePendingParams { entry_id: entry_id.to_string(), reason: reason.to_string() };
+    let params = Some(serde_json::to_value(&request).context("failed to encode QueueReleasePendingParams")?);
+    queue_call(project_root, queue_proto::METHOD_QUEUE_RELEASE_PENDING, params).await
+}
+
 /// Lightweight check used by `animus daemon health` / `animus status` to
 /// detect whether the active flavor's required plugins are installed.
 #[derive(Debug, Clone, Serialize, Deserialize)]

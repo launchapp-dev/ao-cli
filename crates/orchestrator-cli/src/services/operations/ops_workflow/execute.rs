@@ -91,14 +91,15 @@ pub(crate) async fn handle_workflow_execute(
         // cleanup hooks the in-tree path runs below. The plugin returns
         // `workflow_status` as a wire string per spec §1; map back to
         // the in-tree `WorkflowStatus` enum so the projection runs.
-        let parsed_status = match plugin_result.workflow_status.as_str() {
-            workflow_proto::workflow_status::COMPLETED => Some(orchestrator_core::WorkflowStatus::Completed),
-            workflow_proto::workflow_status::FAILED => Some(orchestrator_core::WorkflowStatus::Failed),
-            workflow_proto::workflow_status::ESCALATED => Some(orchestrator_core::WorkflowStatus::Escalated),
-            workflow_proto::workflow_status::CANCELLED => Some(orchestrator_core::WorkflowStatus::Cancelled),
-            // RUNNING is non-terminal — skip projection (the plugin will
-            // run again on the next tick).
-            _ => None,
+        let parsed_status = match workflow_proto::workflow_status::parse(plugin_result.workflow_status.as_str()) {
+            workflow_proto::workflow_status::Parsed::Completed => Some(orchestrator_core::WorkflowStatus::Completed),
+            workflow_proto::workflow_status::Parsed::Failed => Some(orchestrator_core::WorkflowStatus::Failed),
+            workflow_proto::workflow_status::Parsed::Escalated => Some(orchestrator_core::WorkflowStatus::Escalated),
+            workflow_proto::workflow_status::Parsed::Cancelled => Some(orchestrator_core::WorkflowStatus::Cancelled),
+            workflow_proto::workflow_status::Parsed::Paused
+            | workflow_proto::workflow_status::Parsed::Pending
+            | workflow_proto::workflow_status::Parsed::Running
+            | workflow_proto::workflow_status::Parsed::Unknown(_) => None,
         };
         if phase_filter.is_none() {
             if let (Some(task_id), Some(status)) = (task_id_for_sync.as_deref(), parsed_status) {

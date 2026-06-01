@@ -32,6 +32,8 @@ struct WorkflowProcess {
     #[cfg(unix)]
     #[allow(dead_code)]
     event_pipe: Option<SubprocessEventPipe>,
+    agent_session_id: Option<String>,
+    project_root: Option<std::path::PathBuf>,
 }
 
 pub struct ProcessManager {
@@ -137,6 +139,9 @@ impl ProcessManager {
 
         let std_cmd =
             build_runner_command(dispatch, project_root, self.phase_routing.as_ref(), self.mcp_config.as_ref());
+        let command_line: Vec<String> = std::iter::once(std_cmd.get_program().to_string_lossy().into_owned())
+            .chain(std_cmd.get_args().map(|a| a.to_string_lossy().into_owned()))
+            .collect();
         let mut command = Command::from(std_cmd);
         command.stdout(Stdio::null()).stderr(Stdio::piped());
 
@@ -171,6 +176,22 @@ impl ProcessManager {
         let workflow_ref = dispatch.workflow_ref.clone();
         let schedule_id = dispatch.schedule_id().map(String::from);
 
+        let pid = child.id();
+        let project_root_path = std::path::Path::new(project_root).to_path_buf();
+        let agent_session_id = pid.map(|pid_value| {
+            let id = format!("agent-{}-{}", pid_value, uuid::Uuid::new_v4());
+            let record = super::agent_record::build_record(id.clone(), pid_value, dispatch, command_line.clone(), None);
+            if let Err(error) = super::agent_record::write_record(&project_root_path, &record) {
+                tracing::warn!(
+                    target: "animus.runtime.agent_record",
+                    %error,
+                    agent_session_id = %id,
+                    "failed to write agent spawn record (best-effort; v0.6 reattach scaffolding)"
+                );
+            }
+            id
+        });
+
         self.processes.push(WorkflowProcess {
             subject_key: dispatch.subject_key(),
             subject_id: dispatch.subject_id().to_string(),
@@ -184,6 +205,8 @@ impl ProcessManager {
             stderr_reader,
             #[cfg(unix)]
             event_pipe,
+            agent_session_id,
+            project_root: Some(project_root_path),
         });
 
         Ok(())
@@ -268,6 +291,7 @@ impl ProcessManager {
                     // emitted right before timeout-kill is lost.
                     #[cfg(unix)]
                     drain_event_pipe(&mut process.event_pipe).await;
+                    cleanup_agent_record(&process);
                     completed.push(CompletedProcess {
                         subject_id: process.subject_key,
                         subject_kind: Some(process.subject_kind),
@@ -290,6 +314,7 @@ impl ProcessManager {
                     Err(error) => {
                         #[cfg(unix)]
                         drain_event_pipe(&mut process.event_pipe).await;
+                        cleanup_agent_record(&process);
                         completed.push(CompletedProcess {
                             subject_id: process.subject_key,
                             subject_kind: Some(process.subject_kind),
@@ -320,6 +345,7 @@ impl ProcessManager {
                     // `workflow_events` batch sitting in the socket buffer.
                     #[cfg(unix)]
                     drain_event_pipe(&mut process.event_pipe).await;
+                    cleanup_agent_record(&process);
                     let exit_code = status.code();
                     let events = parse_runner_events(&process.stderr_lines);
                     let workflow_id = latest_runner_workflow_id(&events);
@@ -348,6 +374,7 @@ impl ProcessManager {
                 Err(error) => {
                     #[cfg(unix)]
                     drain_event_pipe(&mut process.event_pipe).await;
+                    cleanup_agent_record(&process);
                     completed.push(CompletedProcess {
                         subject_id: process.subject_key,
                         subject_kind: Some(process.subject_kind),
@@ -375,6 +402,12 @@ impl ProcessManager {
 
     pub fn active_subject_ids(&self) -> HashSet<String> {
         self.processes.iter().flat_map(|process| [process.subject_key.clone(), process.subject_id.clone()]).collect()
+    }
+}
+
+fn cleanup_agent_record(process: &WorkflowProcess) {
+    if let (Some(project_root), Some(id)) = (process.project_root.as_ref(), process.agent_session_id.as_ref()) {
+        super::agent_record::delete_record(project_root, id);
     }
 }
 

@@ -33,12 +33,12 @@ Animus is a Rust-only agent orchestrator with:
 - the web UI now ships as the standalone `launchapp-dev/animus-web-ui` plugin (paired with `animus-transport-http` + `animus-transport-graphql`); the old in-tree web stack is no longer part of the current Cargo workspace
 - a stdio plugin host (`orchestrator-plugin-host`) for subject, provider, transport, and trigger plugins, plus a typed `HostError::ConnectionLost` + `classify(&HostError) -> RetryDecision` API for supervised restart decisions
 - a daemon-side workflow event broadcaster that emits `phase_started` / `phase_completed` / `workflow_completed` / `workflow_failed` on the `workflow/events` ControlClient subscription (animus-protocol v0.1.10)
-- the v0.4.x plugin extraction **complete**: 18 standalone repositories live at <https://github.com/launchapp-dev> covering protocol, providers (claude / codex / gemini / opencode / oai), subject backends (default / requirements / linear / sqlite / markdown), transports (http / graphql), web UI, triggers (webhook / slack), log storage, the conformance testkit, the release-automation scripts, and the plugin template. Only `animus-provider-mock` and `animus-plugin-smoke` remain in-tree, as test fixtures.
+- the v0.4.x plugin extraction **complete**: 18 standalone repositories live at <https://github.com/launchapp-dev> covering protocol, providers (claude / codex / gemini / opencode / oai), subject backends (default / requirements / linear / sqlite / markdown), transports (http / graphql), web UI, triggers (webhook / slack), log storage, the conformance testkit, the release-automation scripts, and the plugin template.
 - the v0.4.x **pack** extraction is complete: `animus.core-skills`, `animus.task`, `animus.requirement`, and `animus.review` live as `launchapp-dev/animus-pack-{core-skills,task,requirement,review}` with v0.1.0/v0.1.1 GitHub releases. The in-tree `crates/orchestrator-config/config/bundled-packs/` directory, `pack_config/bundled.rs`, `BUILTIN_SKILL_YAMLS`, and the matching workflow-ref constants in `phase_plan.rs` were all removed. `animus init` no longer auto-materializes any pack; it surfaces the recommended pack list via `recommended_install` (read from `crates/orchestrator-cli/config/default-install.json`).
 
 Do not reintroduce stale claims such as:
 
-- stale workspace-count summaries that do not match `Cargo.toml`'s current 18 members
+- stale workspace-count summaries that do not match `Cargo.toml`'s current 17 members
 - "plugin extraction in flux" or "in progress" framing — extraction is complete as of v0.4.12
 - `PROJECT_ROOT` or "last-project-root registry" resolution rules
 - removed crates like `llm-mcp-server`, `llm-cli-wrapper`, `orchestrator-web-api`, `orchestrator-web-contracts`, or in-tree `animus-provider-{claude,codex,gemini,opencode,oai}`. `orchestrator-web-server` still exists in-repo but is not a current workspace member
@@ -76,8 +76,6 @@ Plugin host + protocol:
 
 Repo-local fixtures / legacy dirs (not current workspace members):
 
-- `crates/animus-plugin-smoke`
-- `crates/animus-provider-mock`
 - `crates/orchestrator-web-server`
 
 Web surface ships out-of-tree as the `launchapp-dev/animus-web-ui` plugin together

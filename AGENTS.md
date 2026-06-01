@@ -56,8 +56,6 @@ crates/
 
 Repo-local but not current workspace members:
 
-- `crates/animus-plugin-smoke/`
-- `crates/animus-provider-mock/`
 - `crates/orchestrator-web-server/`
 
 Runtime-critical binaries and supporting crates must stay healthy:
